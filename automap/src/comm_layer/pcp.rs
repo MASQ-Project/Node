@@ -18,8 +18,8 @@ use masq_lib::logger::Logger;
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::{debug, warning};
 
-use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig, UdpSocketFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory, HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS, ROUTER_SERVER_PORT, ROUTER_MULTICAST_PORT};
-use crate::comm_layer::{AutomapError, AutomapErrorCause, create_polite_multicast_socket, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal, ROUTER_MULTICAST_GROUP, Transactor};
+use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig, UdpSocketFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory, HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS, ROUTER_SERVER_PORT};
+use crate::comm_layer::{AutomapError, AutomapErrorCause, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal, MulticastInfo, Transactor};
 use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
 use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
 use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket, ResultCode};
@@ -71,17 +71,38 @@ struct PcpTransactorInner {
 pub struct PcpTransactor {
     inner_arc: Arc<Mutex<PcpTransactorInner>>,
     router_server_port: u16,
-    router_announce_port: u16,
+    multicast_info: MulticastInfo,
     housekeeper_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
     join_handle_opt: Option<JoinHandle<ChangeHandler>>,
     read_timeout_millis: u64,
     logger: Logger,
 }
 
+impl Default for PcpTransactor {
+    fn default() -> Self {
+        Self {
+            inner_arc: Arc::new(Mutex::new(PcpTransactorInner {
+                mapping_transactor: Box::new(MappingTransactorReal::default()),
+                factories: Factories::default(),
+            })),
+            router_server_port: ROUTER_SERVER_PORT,
+            multicast_info: MulticastInfo::default(),
+            housekeeper_commander_opt: None,
+            join_handle_opt: None,
+            read_timeout_millis: HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS,
+            logger: Logger::new("PcpTransactor"),
+        }
+    }
+}
+
 impl Transactor for PcpTransactor {
     fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError> {
         debug!(self.logger, "Seeking routers on LAN");
         find_routers()
+    }
+
+    fn get_multicast_info(&self) -> MulticastInfo {
+        self.multicast_info.clone()
     }
 
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
@@ -181,6 +202,7 @@ impl Transactor for PcpTransactor {
         &mut self,
         change_handler: ChangeHandler,
         router_ip: IpAddr,
+        router_multicast_info: &MulticastInfo,
     ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
         debug!(
             self.logger,
@@ -189,20 +211,19 @@ impl Transactor for PcpTransactor {
         if let Some(_change_handler_stopper) = &self.housekeeper_commander_opt {
             return Err(AutomapError::HousekeeperAlreadyRunning);
         }
-        // TODO: Establish shared UDP multicast connection to router
         let (tx, rx) = unbounded();
         self.housekeeper_commander_opt = Some(tx.clone());
         let inner_arc = self.inner_arc.clone();
         let router_server_addr = SocketAddr::new(router_ip, self.router_server_port);
-        let router_announce_addr = SocketAddr::new(IpAddr::from (ROUTER_MULTICAST_GROUP), self.router_announce_port);
         let read_timeout_millis = self.read_timeout_millis;
         let logger = self.logger.clone();
+        let multicast_info_clone = router_multicast_info.clone();
         self.join_handle_opt = Some(thread::spawn(move || {
             Self::thread_guts(
                 &rx,
                 inner_arc,
                 router_server_addr,
-                router_announce_addr,
+                multicast_info_clone,
                 change_handler,
                 read_timeout_millis,
                 logger,
@@ -247,23 +268,6 @@ impl Transactor for PcpTransactor {
     }
 }
 
-impl Default for PcpTransactor {
-    fn default() -> Self {
-        Self {
-            inner_arc: Arc::new(Mutex::new(PcpTransactorInner {
-                mapping_transactor: Box::new(MappingTransactorReal::default()),
-                factories: Factories::default(),
-            })),
-            router_server_port: ROUTER_SERVER_PORT,
-            router_announce_port: ROUTER_MULTICAST_PORT,
-            housekeeper_commander_opt: None,
-            join_handle_opt: None,
-            read_timeout_millis: HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS,
-            logger: Logger::new("PcpTransactor"),
-        }
-    }
-}
-
 impl PcpTransactor {
     fn inner(&self) -> MutexGuard<PcpTransactorInner> {
         self.inner_arc
@@ -276,7 +280,7 @@ impl PcpTransactor {
         rx: &Receiver<HousekeepingThreadCommand>,
         inner_arc: Arc<Mutex<PcpTransactorInner>>,
         router_server_addr: SocketAddr,
-        router_announce_addr: SocketAddr,
+        router_multicast_info: MulticastInfo,
         change_handler: ChangeHandler,
         read_timeout_millis: u64,
         logger: Logger,
@@ -284,19 +288,18 @@ impl PcpTransactor {
         let mut last_remapped = Instant::now();
         let mut mapping_config_opt: Option<MappingConfig> = None;
         let mut buffer = [0u8; 64];
-        let announce_socket = match create_polite_multicast_socket(router_announce_addr) {
+        let announce_socket = match router_multicast_info.create_polite_socket() {
             Ok (socket) => socket,
-            // TODO: SPIKE
             Err (e) => {
-                change_handler (AutomapChange::Error(AutomapError::SocketBindingError(
-                    format! ("{:?}", e),
-                    router_announce_addr
-                )));
-                return change_handler;
+                todo! ("Drive me in: {:?}", e);
+                // change_handler (AutomapChange::Error(AutomapError::MulticastBindingError(
+                //     format! ("{:?}", e),
+                //     router_multicast_info,
+                // )));
+                // return change_handler;
             }
-            // TODO: SPIKE
         };
-        announce_socket.set_read_timeout(Some (Duration::from_millis (read_timeout_millis)));
+        announce_socket.set_read_timeout(Some (Duration::from_millis (read_timeout_millis))).expect("Couldn't set read timeout for announce socket");
         loop {
             match rx.try_recv() {
                 Ok(HousekeepingThreadCommand::Stop) => {
@@ -327,7 +330,7 @@ impl PcpTransactor {
                 Err(_) => (),
             }
             match announce_socket.recv(&mut buffer[..]) {
-                Ok (len) => {
+                Ok (_len) => {
                     match PcpPacket::try_from (&buffer[..]) {
                         Ok (packet) => if packet.opcode == Opcode::Announce {
                             // TODO: This is almost certainly wrong. Do more investigation.
@@ -339,12 +342,12 @@ impl PcpTransactor {
                         else {
                             todo! ("Complete me!");
                         },
-                        Err (e) => todo! ("Complete me!"),
+                        Err (_e) => todo! ("Complete me!"),
                     }
                 },
-                Err (e) => todo! ("Complete me"),
+                Err (e) if (e.kind() == ErrorKind::TimedOut) || (e.kind() == ErrorKind::WouldBlock) => (),
+                Err (_e) => todo! ("Complete me"),
             };
-            thread::sleep(Duration::from_millis(read_timeout_millis)); // replaces IP-change check
             let since_last_remapped = last_remapped.elapsed();
             match &mut mapping_config_opt {
                 None => (),
@@ -606,10 +609,10 @@ mod tests {
     use std::{io, thread};
 
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::utils::{find_free_port, localhost};
+    use masq_lib::utils::{localhost};
 
     use crate::comm_layer::pcp_pmp_common::ROUTER_SERVER_PORT;
-    use crate::comm_layer::{AutomapErrorCause, create_polite_multicast_socket, LocalIpFinder, ROUTER_MULTICAST_GROUP};
+    use crate::comm_layer::{AutomapErrorCause, LocalIpFinder, MulticastInfo};
     use crate::mocks::{await_value, FreePortFactoryMock, LocalIpFinderMock, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock};
     use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
     use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket};
@@ -1332,7 +1335,11 @@ mod tests {
         subject.housekeeper_commander_opt = Some(unbounded().0);
         let change_handler = move |_| {};
 
-        let result = subject.start_housekeeping_thread(Box::new(change_handler), localhost());
+        let result = subject.start_housekeeping_thread(
+            Box::new(change_handler),
+            localhost(),
+            &MulticastInfo::for_test(3),
+        );
 
         assert_eq!(
             result.err().unwrap(),
@@ -1351,24 +1358,19 @@ mod tests {
             };
         };
         let mut subject = PcpTransactor::default();
+        let multicast_info = MulticastInfo::for_test (4);
+        subject.multicast_info = multicast_info.clone();
         let commander = subject.start_housekeeping_thread(Box::new (change_handler),
-            IpAddr::from_str("1.2.3.4").unwrap()).unwrap();
+            IpAddr::from_str("1.2.3.4").unwrap(), &MulticastInfo::for_test(5)).unwrap();
         let mut announce = PcpPacket::default();
         announce.opcode = Opcode::Announce;
         announce.direction = Direction::Response;
         announce.client_ip_opt = Some (IpAddr::from_str ("4.3.2.1").unwrap());
         let mut announce_buffer = [0u8; 64];
         let announce_len = announce.marshal (&mut announce_buffer).unwrap();
-        let multicast_interface = match localhost() {
-            IpAddr::V4(v4_addr) => v4_addr,
-            addr => panic! ("Expected localhost() to be IPv4, but got {:?}", addr),
-        };
-        let multicast_port = find_free_port();
-        let interface_and_port = SocketAddr::V4(SocketAddrV4::new (multicast_interface, multicast_port));
-        let router_socket = create_polite_multicast_socket(interface_and_port).unwrap();
-        let multicast_addr = SocketAddr::new (IpAddr::V4(ROUTER_MULTICAST_GROUP), multicast_port);
+        let router_socket = &multicast_info.create_polite_socket().unwrap();
 
-        router_socket.send_to (&announce_buffer[0..announce_len], multicast_addr).unwrap();
+        router_socket.send_to (&announce_buffer[0..announce_len], multicast_info.multicast_addr()).unwrap();
 
         let change = await_value(None, || {
             match received_new_ip.lock().unwrap().take() {
@@ -1390,7 +1392,11 @@ mod tests {
         });
         let mut subject = PcpTransactor::default();
         let _ =
-            subject.start_housekeeping_thread(change_handler, IpAddr::from_str("1.2.3.4").unwrap());
+            subject.start_housekeeping_thread(
+                change_handler,
+                IpAddr::from_str("1.2.3.4").unwrap(),
+                &MulticastInfo::for_test(6),
+            );
 
         let change_handler = subject.stop_housekeeping_thread().unwrap();
 
@@ -1481,7 +1487,7 @@ mod tests {
             &rx,
             inner_arc,
             SocketAddr::new(localhost(), 0),
-            SocketAddr::new(localhost(), 0),
+            MulticastInfo::for_test(7),
             change_handler,
             10,
             Logger::new("no_remap_test"),
@@ -1577,7 +1583,7 @@ mod tests {
                 &rx,
                 inner_arc,
                 SocketAddr::new(localhost(), 0),
-                SocketAddr::new(localhost(), 0),
+                MulticastInfo::for_test(8),
                 change_handler,
                 10,
                 Logger::new("timed_remap_test"),
@@ -1622,7 +1628,7 @@ mod tests {
                     factories: Factories::default(),
                 })),
                 SocketAddr::new(IpAddr::from_str("1.1.1.1").unwrap(), 0),
-                SocketAddr::new(IpAddr::from_str("1.1.1.1").unwrap(), 0),
+                MulticastInfo::for_test(9),
                 Box::new(|_| ()),
                 10,
                 logger,
@@ -1671,7 +1677,7 @@ mod tests {
                     factories: Factories::default(),
                 })),
                 SocketAddr::new(IpAddr::from_str("1.1.1.1").unwrap(), 0),
-                SocketAddr::new(IpAddr::from_str("1.1.1.1").unwrap(), 0),
+                MulticastInfo::for_test(10),
                 change_handler,
                 10,
                 logger,

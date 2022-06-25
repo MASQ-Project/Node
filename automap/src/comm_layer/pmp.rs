@@ -20,7 +20,7 @@ use crate::comm_layer::pcp_pmp_common::{
     UdpSocketFactoryReal, UdpSocketWrapperFactory, HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS,
     ROUTER_SERVER_PORT,
 };
-use crate::comm_layer::{AutomapError, AutomapErrorCause, HousekeepingThreadCommand, Transactor};
+use crate::comm_layer::{AutomapError, AutomapErrorCause, HousekeepingThreadCommand, MulticastInfo, Transactor};
 use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
 use crate::protocols::pmp::get_packet::GetOpcodeData;
 use crate::protocols::pmp::map_packet::MapOpcodeData;
@@ -57,6 +57,10 @@ impl Transactor for PmpTransactor {
     fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError> {
         debug!(self.logger, "Seeking routers on LAN");
         find_routers()
+    }
+
+    fn get_multicast_info(&self) -> MulticastInfo {
+        MulticastInfo::default()
     }
 
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
@@ -161,6 +165,7 @@ impl Transactor for PmpTransactor {
         &mut self,
         change_handler: ChangeHandler,
         router_ip: IpAddr,
+        _router_multicast_info: &MulticastInfo,
     ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
         debug!(
             self.logger,
@@ -530,7 +535,7 @@ mod tests {
     use masq_lib::utils::AutomapProtocol;
 
     use crate::comm_layer::pcp_pmp_common::MappingConfig;
-    use crate::comm_layer::AutomapErrorCause;
+    use crate::comm_layer::{AutomapErrorCause, MulticastInfo};
     use crate::control_layer::automap_control::AutomapChange;
     use crate::mocks::{FreePortFactoryMock, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock};
     use crate::protocols::pmp::get_packet::GetOpcodeData;
@@ -1103,7 +1108,7 @@ mod tests {
         let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(main_socket));
         let mut subject = make_subject(socket_factory);
         subject
-            .start_housekeeping_thread(Box::new(|_| ()), router_ip)
+            .start_housekeeping_thread(Box::new(|_| ()), router_ip, &MulticastInfo::for_test(8))
             .unwrap();
 
         let result = subject.add_mapping(router_ip, 7777, 10);
@@ -1242,7 +1247,7 @@ mod tests {
         let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(main_socket));
         let mut subject = make_subject(socket_factory);
         subject
-            .start_housekeeping_thread(Box::new(|_| ()), router_ip)
+            .start_housekeeping_thread(Box::new(|_| ()), router_ip, &MulticastInfo::for_test(9))
             .unwrap();
 
         let result = subject.delete_mapping(router_ip, 7777);
@@ -1278,7 +1283,7 @@ mod tests {
         let mut subject = PmpTransactor::default();
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
         let _ =
-            subject.start_housekeeping_thread(change_handler, IpAddr::from_str("1.2.3.4").unwrap());
+            subject.start_housekeeping_thread(change_handler, IpAddr::from_str("1.2.3.4").unwrap(), &MulticastInfo::for_test(10));
 
         let change_handler = subject.stop_housekeeping_thread().unwrap();
 

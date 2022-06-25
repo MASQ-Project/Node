@@ -5,7 +5,7 @@
 use crate::comm_layer::pcp_pmp_common::{
     FindRoutersCommand, FreePortFactory, UdpSocketWrapper, UdpSocketWrapperFactory,
 };
-use crate::comm_layer::{AutomapError, HousekeepingThreadCommand, LocalIpFinder, Transactor};
+use crate::comm_layer::{AutomapError, HousekeepingThreadCommand, LocalIpFinder, MulticastInfo, Transactor};
 use crate::control_layer::automap_control::{
     replace_transactor, AutomapControlReal, ChangeHandler,
 };
@@ -225,6 +225,7 @@ pub struct TransactorMock {
     pub housekeeping_thread_started: bool,
     protocol: AutomapProtocol,
     find_routers_results: RefCell<Vec<Result<Vec<IpAddr>, AutomapError>>>,
+    get_multicast_info_result: RefCell<MulticastInfo>,
     get_public_ip_params: Arc<Mutex<Vec<IpAddr>>>,
     get_public_ip_results: RefCell<Vec<Result<IpAddr, AutomapError>>>,
     add_mapping_params: Arc<Mutex<Vec<(IpAddr, u16, u32)>>>,
@@ -233,7 +234,7 @@ pub struct TransactorMock {
     add_permanent_mapping_results: RefCell<Vec<Result<u32, AutomapError>>>,
     delete_mapping_params: Arc<Mutex<Vec<(IpAddr, u16)>>>,
     delete_mapping_results: RefCell<Vec<Result<(), AutomapError>>>,
-    start_housekeeping_thread_params: Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
+    start_housekeeping_thread_params: Arc<Mutex<Vec<(ChangeHandler, IpAddr, MulticastInfo)>>>,
     start_housekeeping_thread_results:
         RefCell<Vec<Result<Sender<HousekeepingThreadCommand>, AutomapError>>>,
     stop_housekeeping_thread_params: Arc<Mutex<Vec<()>>>,
@@ -243,6 +244,14 @@ pub struct TransactorMock {
 impl Transactor for TransactorMock {
     fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError> {
         self.find_routers_results.borrow_mut().remove(0)
+    }
+
+    fn get_multicast_info(&self) -> MulticastInfo {
+        let result = self.get_multicast_info_result.borrow().clone();
+        if result.multicast_group == 0 {
+            panic! ("Call get_multicast_info_result() to initialize the TransactorMock");
+        }
+        result
     }
 
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
@@ -300,11 +309,12 @@ impl Transactor for TransactorMock {
         &mut self,
         change_handler: ChangeHandler,
         router_ip: IpAddr,
+        router_multicast_info: &MulticastInfo,
     ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
         self.start_housekeeping_thread_params
             .lock()
             .unwrap()
-            .push((change_handler, router_ip));
+            .push((change_handler, router_ip, router_multicast_info.clone()));
         let result = self
             .start_housekeeping_thread_results
             .borrow_mut()
@@ -334,6 +344,7 @@ impl TransactorMock {
             housekeeping_thread_started: false,
             protocol,
             find_routers_results: RefCell::new(vec![]),
+            get_multicast_info_result: RefCell::new (MulticastInfo::new(IpAddr::from_str("0.0.0.0").unwrap(), 0, 0)),
             get_public_ip_params: Arc::new(Mutex::new(vec![])),
             get_public_ip_results: RefCell::new(vec![]),
             add_mapping_params: Arc::new(Mutex::new(vec![])),
@@ -351,6 +362,11 @@ impl TransactorMock {
 
     pub fn find_routers_result(self, result: Result<Vec<IpAddr>, AutomapError>) -> Self {
         self.find_routers_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn get_multicast_info_result(self, result: MulticastInfo) -> Self {
+        self.get_multicast_info_result.replace(result);
         self
     }
 
@@ -407,7 +423,7 @@ impl TransactorMock {
 
     pub fn start_housekeeping_thread_params(
         mut self,
-        params: &Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
+        params: &Arc<Mutex<Vec<(ChangeHandler, IpAddr, MulticastInfo)>>>,
     ) -> Self {
         self.start_housekeeping_thread_params = params.clone();
         self

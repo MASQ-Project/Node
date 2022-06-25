@@ -3,9 +3,7 @@
 use crate::comm_layer::igdp::IgdpTransactor;
 use crate::comm_layer::pcp::PcpTransactor;
 use crate::comm_layer::pmp::PmpTransactor;
-use crate::comm_layer::{
-    AutomapError, HousekeepingThreadCommand, Transactor, DEFAULT_MAPPING_LIFETIME_SECONDS,
-};
+use crate::comm_layer::{AutomapError, HousekeepingThreadCommand, Transactor, DEFAULT_MAPPING_LIFETIME_SECONDS};
 use crossbeam_channel::Sender;
 use masq_lib::debug;
 use masq_lib::logger::Logger;
@@ -159,7 +157,7 @@ impl AutomapControlReal {
         let mut housekeeping_tools = self.housekeeping_tools.borrow_mut(); //to avoid multiple borrows a time
         if let Some(change_handler) = housekeeping_tools.change_handler_opt.take() {
             debug!(self.logger, "Attempting to start housekeeping thread");
-            match transactor.start_housekeeping_thread(change_handler, router_ip) {
+            match transactor.start_housekeeping_thread(change_handler, router_ip, &transactor.get_multicast_info()) {
                 Err(AutomapError::HousekeeperAlreadyRunning) => {
                     debug!(
                         self.logger,
@@ -212,12 +210,14 @@ impl AutomapControlReal {
         inner: &AutomapControlRealInner,
         experiment: TransactorExperiment<T>,
     ) -> Result<ProtocolInfo<T>, AutomapError> {
+        let mut transactors = self.transactors.borrow_mut();
+        let transactor = transactors[inner.transactor_idx].as_mut();
         self.maybe_start_housekeeper(
-            self.transactors.borrow_mut()[inner.transactor_idx].as_mut(),
+            transactor,
             inner.router_ip,
         )?;
         let result = experiment(
-            self.transactors.borrow_mut()[inner.transactor_idx].as_ref(),
+            transactor,
             inner.router_ip,
         );
         result.map(|payload| ProtocolInfo {
@@ -272,9 +272,10 @@ impl AutomapControlReal {
             });
         match protocol_router_ip_and_experimental_outcome_result {
             Ok((protocol, router_ip, t)) => {
+                let transactor_idx = Self::find_transactor_index(transactors_ref_mut, protocol);
                 self.inner_opt = Some(AutomapControlRealInner {
                     router_ip,
-                    transactor_idx: Self::find_transactor_index(transactors_ref_mut, protocol),
+                    transactor_idx,
                 });
                 self.usual_protocol_opt = Some(protocol);
                 Ok(ProtocolInfo {
@@ -352,7 +353,7 @@ pub fn replace_transactor(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::comm_layer::Transactor;
+    use crate::comm_layer::{MulticastInfo, Transactor};
     use crate::mocks::{TransactorMock, PUBLIC_IP, ROUTER_IP};
     use crossbeam_channel::{unbounded, TryRecvError};
     use std::cell::RefCell;
@@ -361,7 +362,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
 
-    fn choose_working_protocol_works_for_success(protocol: AutomapProtocol) {
+    fn choose_working_protocol_works_for_success(protocol: AutomapProtocol, multicast_group: u8) {
         let mut subject = make_multirouter_specific_success_subject(
             protocol,
             vec![
@@ -369,6 +370,7 @@ mod tests {
                 *ROUTER_IP,
                 IpAddr::from_str("5.4.3.2").unwrap(),
             ],
+            multicast_group
         );
         let experiment: TransactorExperiment<String> =
             Box::new(|t, router_ip| match t.get_public_ip(router_ip) {
@@ -385,8 +387,9 @@ mod tests {
                 router_ip: *ROUTER_IP
             })
         );
+        let subject_inner = subject.inner_opt.unwrap();
         assert_eq!(
-            subject.inner_opt.unwrap(),
+            subject_inner,
             AutomapControlRealInner {
                 router_ip: *ROUTER_IP,
                 transactor_idx: match protocol {
@@ -400,17 +403,17 @@ mod tests {
 
     #[test]
     fn choose_working_protocol_works_for_pcp_success() {
-        choose_working_protocol_works_for_success(AutomapProtocol::Pcp);
+        choose_working_protocol_works_for_success(AutomapProtocol::Pcp, 3);
     }
 
     #[test]
     fn choose_working_protocol_works_for_pmp_success() {
-        choose_working_protocol_works_for_success(AutomapProtocol::Pmp);
+        choose_working_protocol_works_for_success(AutomapProtocol::Pmp, 4);
     }
 
     #[test]
     fn choose_working_protocol_works_for_igdp_success() {
-        choose_working_protocol_works_for_success(AutomapProtocol::Igdp);
+        choose_working_protocol_works_for_success(AutomapProtocol::Igdp, 5);
     }
 
     #[test]
@@ -461,6 +464,7 @@ mod tests {
             .map(|transactor| {
                 make_params_success_transactor(
                     transactor.protocol(),
+                    23,
                     &Arc::new(Mutex::new(vec![])),
                     &Arc::new(Mutex::new(vec![])),
                     &Arc::new(Mutex::new(vec![])),
@@ -485,7 +489,7 @@ mod tests {
 
     #[test]
     fn find_protocol_without_usual_protocol_traverses_available_protocols() {
-        let mut subject = make_fully_populated_subject();
+        let mut subject = make_fully_populated_subject(13);
         subject.usual_protocol_opt = None;
         let outer_protocol_log_arc = Arc::new(Mutex::new(vec![]));
         let inner_protocol_log_arc = outer_protocol_log_arc.clone();
@@ -522,6 +526,7 @@ mod tests {
         let transactor = Box::new(
             TransactorMock::new(AutomapProtocol::Pmp)
                 .find_routers_result(Ok(vec![*ROUTER_IP]))
+                .get_multicast_info_result(MulticastInfo::for_test(14))
                 .start_housekeeping_thread_result(Ok(tx)),
         );
         let mut subject = replace_transactor(subject, transactor);
@@ -553,7 +558,7 @@ mod tests {
 
     #[test]
     fn find_protocol_with_failing_usual_protocol_tries_other_protocols() {
-        let mut subject = make_fully_populated_subject();
+        let mut subject = make_fully_populated_subject(15);
         subject.usual_protocol_opt = Some(AutomapProtocol::Pmp);
         let outer_protocol_log_arc = Arc::new(Mutex::new(vec![]));
         let inner_protocol_log_arc = outer_protocol_log_arc.clone();
@@ -600,11 +605,13 @@ mod tests {
         let (tx, rx) = unbounded();
         let mut subject = make_general_success_subject(
             AutomapProtocol::Pcp,
+            24,
             &get_public_ip_params_arc,
             &add_mapping_params_arc,
             &start_change_handler_params_arc,
             tx,
         );
+        let expected_multicast_info = subject.transactors.borrow()[0].get_multicast_info();
         subject.housekeeping_tools.borrow_mut().change_handler_opt = Some(Box::new(change_handler));
         subject.inner_opt = None;
 
@@ -615,9 +622,10 @@ mod tests {
         let get_public_ip_params = get_public_ip_params_arc.lock().unwrap();
         assert_eq!(*get_public_ip_params, vec![*ROUTER_IP]);
         assert!(add_mapping_params_arc.lock().unwrap().is_empty());
-        let (actual_change_handler, router_ip) =
+        let (actual_change_handler, router_ip, multicast_info) =
             start_change_handler_params_arc.lock().unwrap().remove(0);
         assert_eq!(router_ip, *ROUTER_IP);
+        assert_eq!(multicast_info, expected_multicast_info);
         // Run a change through this handler to make sure it's the same one we sent in
         let change = AutomapChange::Error(AutomapError::ProtocolError("Booga!".to_string()));
         actual_change_handler(change.clone());
@@ -633,6 +641,7 @@ mod tests {
             Box::new(
                 TransactorMock::new(AutomapProtocol::Pcp)
                     .find_routers_result(Ok(vec![*ROUTER_IP]))
+                    .get_multicast_info_result(MulticastInfo::for_test(16))
                     .start_housekeeping_thread_result(Err(AutomapError::Unknown))
                     .stop_housekeeping_thread_result(Ok(Box::new(|_| ()))),
             ),
@@ -642,6 +651,7 @@ mod tests {
             Box::new(
                 TransactorMock::new(AutomapProtocol::Pmp)
                     .find_routers_result(Ok(vec![*ROUTER_IP]))
+                    .get_multicast_info_result(MulticastInfo::for_test(16))
                     .start_housekeeping_thread_result(Err(AutomapError::NoLocalIpAddress))
                     .stop_housekeeping_thread_result(Ok(Box::new(|_| ()))),
             ),
@@ -651,6 +661,7 @@ mod tests {
             Box::new(
                 TransactorMock::new(AutomapProtocol::Igdp)
                     .find_routers_result(Ok(vec![*ROUTER_IP]))
+                    .get_multicast_info_result(MulticastInfo::for_test(16))
                     .start_housekeeping_thread_result(Err(AutomapError::PermanentLeasesOnly))
                     .stop_housekeeping_thread_result(Ok(Box::new(|_| ()))),
             ),
@@ -703,6 +714,7 @@ mod tests {
             Box::new(
                 TransactorMock::new(AutomapProtocol::Pcp)
                     .find_routers_result(Ok(vec![*ROUTER_IP]))
+                    .get_multicast_info_result(MulticastInfo::for_test(17))
                     .start_housekeeping_thread_result(Ok(unbounded().0))
                     .get_public_ip_result(Err(AutomapError::HousekeeperAlreadyRunning))
                     .stop_housekeeping_thread_result(Ok(Box::new(|_| ()))),
@@ -732,11 +744,13 @@ mod tests {
         let (tx, rx) = unbounded();
         let mut subject = make_general_success_subject(
             AutomapProtocol::Pcp,
+            7,
             &get_public_ip_params_arc,
             &add_mapping_params_arc,
             &start_change_handler_params_arc,
             tx,
         );
+        let expected_multicast_info = subject.transactors.borrow()[0].get_multicast_info();
         subject.inner_opt = None;
         subject.housekeeping_tools.borrow_mut().change_handler_opt = Some(Box::new(change_handler));
         subject
@@ -758,9 +772,10 @@ mod tests {
         assert!(get_public_ip_params_arc.lock().unwrap().is_empty());
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq!(*add_mapping_params, vec![(*ROUTER_IP, 4567, 600)]);
-        let (actual_change_handler, router_ip) =
+        let (actual_change_handler, router_ip, multicast_info) =
             start_change_handler_params_arc.lock().unwrap().remove(0);
         assert_eq!(router_ip, *ROUTER_IP);
+        assert_eq!(multicast_info, expected_multicast_info);
         let change = AutomapChange::Error(AutomapError::ProtocolError("Booga!".to_string()));
         actual_change_handler(change.clone());
         let change_handler_log = change_handler_log_arc.lock().unwrap();
@@ -780,6 +795,7 @@ mod tests {
                 Box::new(
                     TransactorMock::new(protocol)
                         .find_routers_result(Ok(vec![*ROUTER_IP]))
+                        .get_multicast_info_result(MulticastInfo::for_test(8))
                         .start_housekeeping_thread_result(Err(start_thread_error))
                         .stop_housekeeping_thread_result(Ok(Box::new(|_| ()))),
                 ),
@@ -900,6 +916,7 @@ mod tests {
         let (tx, rx) = unbounded();
         let mut subject = make_general_success_subject(
             AutomapProtocol::Pcp,
+            26,
             &Arc::new(Mutex::new(vec![])),
             &Arc::new(Mutex::new(vec![])),
             &Arc::new(Mutex::new(vec![])),
@@ -948,6 +965,7 @@ mod tests {
         let (tx, _) = unbounded();
         let failure_transactor = TransactorMock::new(AutomapProtocol::Pcp)
             .add_mapping_result(Err(AutomapError::NoLocalIpAddress))
+            .get_multicast_info_result(MulticastInfo::for_test(9))
             .start_housekeeping_thread_result(Ok(tx));
         let mut subject = replace_transactor(subject, Box::new(failure_transactor));
         subject.housekeeping_tools.borrow_mut().change_handler_opt = Some(Box::new(|_| ()));
@@ -1045,6 +1063,7 @@ mod tests {
         let (tx, _rx) = unbounded();
         let mut subject = make_general_success_subject(
             AutomapProtocol::Pcp,
+            27,
             &Arc::new(Mutex::new(vec![])),
             &Arc::new(Mutex::new(vec![])),
             &Arc::new(Mutex::new(vec![])),
@@ -1063,6 +1082,7 @@ mod tests {
         let (tx, _rx) = unbounded();
         let mut subject = make_general_success_subject(
             AutomapProtocol::Pcp,
+            28,
             &Arc::new(Mutex::new(vec![])),
             &Arc::new(Mutex::new(vec![])),
             &Arc::new(Mutex::new(vec![])),
@@ -1092,6 +1112,7 @@ mod tests {
             transactor_idx: 0,
         });
         let mut transactor = TransactorMock::new(AutomapProtocol::Igdp)
+            .get_multicast_info_result(MulticastInfo::for_test(18))
             .start_housekeeping_thread_result(Err(AutomapError::HousekeeperAlreadyRunning))
             .stop_housekeeping_thread_result(Ok(change_handler));
 
@@ -1115,6 +1136,7 @@ mod tests {
         let (tx, _) = unbounded();
         let mut subject = make_general_success_subject(
             AutomapProtocol::Pcp,
+            29,
             &Arc::new(Mutex::new(vec![])),
             &Arc::new(Mutex::new(vec![])),
             &Arc::new(Mutex::new(vec![])),
@@ -1138,6 +1160,7 @@ mod tests {
         let (tx, _) = unbounded();
         let mut subject = make_general_success_subject(
             AutomapProtocol::Pcp,
+            30,
             &Arc::new(Mutex::new(vec![])),
             &Arc::new(Mutex::new(vec![])),
             &Arc::new(Mutex::new(vec![])),
@@ -1148,6 +1171,7 @@ mod tests {
             subject,
             Box::new(
                 TransactorMock::new(AutomapProtocol::Pmp)
+                    .get_multicast_info_result(MulticastInfo::for_test(11))
                     .start_housekeeping_thread_params(&start_housekeeping_thread_params_arc)
                     .start_housekeeping_thread_result(Ok(tx)),
             ),
@@ -1180,6 +1204,7 @@ mod tests {
                 IpAddr::from_str("2.3.4.5").unwrap(),
                 IpAddr::from_str("3.4.5.6").unwrap(),
             ]))
+            .get_multicast_info_result(MulticastInfo::for_test(20))
             .start_housekeeping_thread_result(Ok(unbounded().0))
             .start_housekeeping_thread_result(Ok(unbounded().0))
             .start_housekeeping_thread_result(Ok(unbounded().0))
@@ -1214,6 +1239,7 @@ mod tests {
         let expected_change_handler_identity = addr_of!(*extracted_change_handler);
         let mut transactor = TransactorMock::new(AutomapProtocol::Pmp)
             .find_routers_result(Ok(vec![IpAddr::from_str("1.2.3.4").unwrap()]))
+            .get_multicast_info_result(MulticastInfo::for_test(19))
             .start_housekeeping_thread_result(Ok(unbounded().0))
             .stop_housekeeping_thread_result(Ok(extracted_change_handler));
         let experiment: TransactorExperiment<String> =
@@ -1239,6 +1265,7 @@ mod tests {
     fn make_multirouter_specific_success_subject(
         protocol: AutomapProtocol,
         router_ips: Vec<IpAddr>,
+        multicast_group: u8,
     ) -> AutomapControlReal {
         let mut subject = make_null_subject();
         for candidate_protocol in AutomapProtocol::values() {
@@ -1255,6 +1282,7 @@ mod tests {
             transactor = transactor
                 .start_housekeeping_thread_result(Ok(unbounded().0))
                 .stop_housekeeping_thread_result(Ok(Box::new(|_| ())))
+                .get_multicast_info_result (MulticastInfo::for_test(multicast_group))
                 .get_public_ip_result(Ok(*PUBLIC_IP))
                 .add_mapping_result(Ok(1000));
         }
@@ -1273,14 +1301,16 @@ mod tests {
 
     fn make_general_success_subject(
         protocol: AutomapProtocol,
+        multicast_group: u8,
         get_public_ip_params_arc: &Arc<Mutex<Vec<IpAddr>>>,
         add_mapping_params_arc: &Arc<Mutex<Vec<(IpAddr, u16, u32)>>>,
-        start_housekeeping_thread_params_arc: &Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
+        start_housekeeping_thread_params_arc: &Arc<Mutex<Vec<(ChangeHandler, IpAddr, MulticastInfo)>>>,
         housekeeper_commander: Sender<HousekeepingThreadCommand>,
     ) -> AutomapControlReal {
         let subject = make_general_failure_subject();
         let success_transactor = make_params_success_transactor(
             protocol,
+            multicast_group,
             get_public_ip_params_arc,
             add_mapping_params_arc,
             start_housekeeping_thread_params_arc,
@@ -1305,14 +1335,16 @@ mod tests {
 
     fn make_params_success_transactor(
         protocol: AutomapProtocol,
+        multicast_group: u8,
         get_public_ip_params_arc: &Arc<Mutex<Vec<IpAddr>>>,
         add_mapping_params_arc: &Arc<Mutex<Vec<(IpAddr, u16, u32)>>>,
-        start_housekeeping_thread_params_arc: &Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
+        start_housekeeping_thread_params_arc: &Arc<Mutex<Vec<(ChangeHandler, IpAddr, MulticastInfo)>>>,
         housekeeper_commander: Sender<HousekeepingThreadCommand>,
     ) -> Box<dyn Transactor> {
         Box::new(
             TransactorMock::new(protocol)
                 .find_routers_result(Ok(vec![*ROUTER_IP]))
+                .get_multicast_info_result(MulticastInfo::for_test (multicast_group))
                 .get_public_ip_params(get_public_ip_params_arc)
                 .get_public_ip_result(Ok(*PUBLIC_IP))
                 .add_mapping_params(add_mapping_params_arc)
@@ -1351,7 +1383,7 @@ mod tests {
         subject
     }
 
-    fn make_fully_populated_subject() -> AutomapControlReal {
+    fn make_fully_populated_subject(multicast_group: u8) -> AutomapControlReal {
         let mut subject = AutomapControlReal::new(None, Box::new(|_x| {}));
         let adjustment = RefCell::new(
             subject
@@ -1362,6 +1394,7 @@ mod tests {
                     let transactor: Box<dyn Transactor> = Box::new(
                         TransactorMock::new(t.protocol())
                             .find_routers_result(Ok(vec![*ROUTER_IP]))
+                            .get_multicast_info_result(MulticastInfo::for_test(multicast_group))
                             .start_housekeeping_thread_result(Ok(unbounded().0))
                             .stop_housekeeping_thread_result(Ok(Box::new(|_| ()))),
                     );

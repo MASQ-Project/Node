@@ -1,9 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::comm_layer::pcp_pmp_common::MappingConfig;
-use crate::comm_layer::{
-    AutomapError, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal, Transactor,
-};
+use crate::comm_layer::{AutomapError, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal, MulticastInfo, Transactor};
 use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use igd::{
@@ -140,6 +138,10 @@ impl Transactor for IgdpTransactor {
         )])
     }
 
+    fn get_multicast_info(&self) -> MulticastInfo {
+        todo!()
+    }
+
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
         self.ensure_gateway()?;
         let mut inner = self.inner();
@@ -252,6 +254,7 @@ impl Transactor for IgdpTransactor {
         &mut self,
         change_handler: ChangeHandler,
         router_ip: IpAddr,
+        _router_multicast_info: &MulticastInfo,
     ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
         let (tx, rx) = unbounded();
         let public_ip_poll_delay = {
@@ -589,6 +592,7 @@ mod tests {
     use std::ops::Sub;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use crate::comm_layer::MulticastInfo;
 
     fn clone_get_external_ip_error(error: &GetExternalIpError) -> GetExternalIpError {
         match error {
@@ -903,7 +907,7 @@ mod tests {
         let mut subject = IgdpTransactor::new();
         subject.gateway_factory = Box::new(gateway_factory);
         subject
-            .start_housekeeping_thread(Box::new(|_| ()), router_ip)
+            .start_housekeeping_thread(Box::new(|_| ()), router_ip, &MulticastInfo::for_test (7))
             .unwrap();
 
         let result = subject.add_mapping(router_ip, 7777, 1234).unwrap();
@@ -941,7 +945,7 @@ mod tests {
         let mut subject = IgdpTransactor::new();
         subject.gateway_factory = Box::new(gateway_factory);
         subject
-            .start_housekeeping_thread(Box::new(|_| ()), router_ip)
+            .start_housekeeping_thread(Box::new(|_| ()), router_ip, &MulticastInfo::for_test (8))
             .unwrap();
 
         let result = subject.add_permanent_mapping(router_ip, 7777).unwrap();
@@ -1123,6 +1127,7 @@ mod tests {
         let result = subject.start_housekeeping_thread(
             Box::new(|_| ()),
             IpAddr::from_str("192.168.0.254").unwrap(),
+            &MulticastInfo::for_test (9)
         );
 
         assert_eq!(
@@ -1145,7 +1150,8 @@ mod tests {
         let mut subject = IgdpTransactor::new();
         subject.public_ip_poll_delay = Duration::from_millis(10);
         let _ =
-            subject.start_housekeeping_thread(change_handler, IpAddr::from_str("1.2.3.4").unwrap());
+            subject.start_housekeeping_thread(change_handler, IpAddr::from_str("1.2.3.4").unwrap(),
+                &MulticastInfo::for_test (10));
 
         let change_handler = subject.stop_housekeeping_thread().unwrap();
 

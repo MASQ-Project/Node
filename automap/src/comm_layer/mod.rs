@@ -6,8 +6,8 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::str::FromStr;
 
 use crossbeam_channel::Sender;
-use socket2::{Domain, SockAddr, Socket, Type};
-use masq_lib::utils::AutomapProtocol;
+use socket2::{Domain, SockAddr, Type};
+use masq_lib::utils::{AutomapProtocol};
 
 use crate::comm_layer::pcp_pmp_common::MappingConfig;
 use crate::control_layer::automap_control::ChangeHandler;
@@ -44,6 +44,7 @@ pub enum AutomapError {
     SocketBindingError(String, SocketAddr),
     SocketSendError(AutomapErrorCause),
     SocketReceiveError(AutomapErrorCause),
+    MulticastBindingError(String, MulticastInfo),
     PacketParseError(ParseError),
     ProtocolError(String),
     PermanentLeasesOnly,
@@ -71,6 +72,7 @@ impl AutomapError {
             AutomapError::SocketBindingError(_, _) => AutomapErrorCause::UserError,
             AutomapError::SocketSendError(aec) => aec.clone(),
             AutomapError::SocketReceiveError(aec) => aec.clone(),
+            AutomapError::MulticastBindingError(_, _) => todo! (),
             AutomapError::PacketParseError(_) => AutomapErrorCause::ProtocolNotImplemented,
             AutomapError::ProtocolError(_) => AutomapErrorCause::ProtocolNotImplemented,
             AutomapError::PermanentLeasesOnly => {
@@ -96,6 +98,7 @@ impl AutomapError {
 
 pub trait Transactor {
     fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError>;
+    fn get_multicast_info(&self) -> MulticastInfo;
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError>;
     fn add_mapping(
         &self,
@@ -111,6 +114,7 @@ pub trait Transactor {
         &mut self,
         change_handler: ChangeHandler,
         router_ip: IpAddr,
+        router_multicast_info: &MulticastInfo,
     ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError>;
     fn stop_housekeeping_thread(&mut self) -> Result<ChangeHandler, AutomapError>;
     fn as_any(&self) -> &dyn Any;
@@ -159,35 +163,86 @@ impl LocalIpFinderReal {
     }
 }
 
-const ROUTER_MULTICAST_GROUP: Ipv4Addr = Ipv4Addr::new (224, 0, 0, 1);
+// TODO: Don't merge like this
+#[allow(dead_code)]
+const ROUTER_MULTICAST_GROUP: u8 = 1;
 
-fn create_polite_multicast_socket(interface_and_port: SocketAddr) -> Result<UdpSocket, std::io::Error> {
-    let (interface_v4, port) = match interface_and_port {
-        SocketAddr::V4(socket_addr_v4) => (socket_addr_v4.ip().clone(), socket_addr_v4.port()),
-        SocketAddr::V6(_) => unimplemented!("IPv6 is not yet supported for multicast"),
-    };
-    //creates new UDP socket on ipv4 address
-    let socket = socket2::Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP))?;
-    //linux/macos have reuse_port exposed so we can flag it for non-windows systems
-    #[cfg(not(target_os = "windows"))]
-    socket.set_reuse_port(true)?;
-    //windows has reuse_port hidden and implicitly flagged with reuse_address
-    socket.set_reuse_address(true)?;
-    //subscribes to multicast group on the interface
-    socket.join_multicast_v4(&ROUTER_MULTICAST_GROUP, &interface_v4)?;
-    //binds to the multicast interface and port
-    socket
-        .bind(&SockAddr::from(SocketAddr::new(
-            IpAddr::from(interface_v4),
-            port,
-        )))?;
-    //converts socket2 socket into a std::net socket, required for correct recv_from method
-    Ok (socket.into())
+#[derive (Debug, Clone, PartialEq)]
+pub struct MulticastInfo {
+    pub interface: IpAddr,
+    pub multicast_group: u8,
+    pub port: u16,
+}
+
+impl Default for MulticastInfo {
+    fn default() -> Self {
+        MulticastInfo::new (IpAddr::V4(Ipv4Addr::UNSPECIFIED), 1, 5350)
+    }
+}
+
+impl MulticastInfo {
+    pub fn new (interface: IpAddr, multicast_group: u8, port: u16) -> Self {
+        Self {interface, multicast_group, port}
+    }
+
+    pub fn multicast_group_address (&self) -> IpAddr {
+        IpAddr::V4(Ipv4Addr::new (224, 0, 0, self.multicast_group))
+    }
+
+    pub fn multicast_addr (&self) -> SocketAddr {
+        SocketAddr::new (self.multicast_group_address(), self.port)
+    }
+
+    pub fn create_polite_socket (&self) -> Result<UdpSocket, std::io::Error> {
+        //creates new UDP socket on ipv4 address
+        let socket = socket2::Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP))?;
+        //linux/macos have reuse_port exposed so we can call it for non-windows systems
+        //windows has reuse_port hidden and implicitly flagged with reuse_address
+        #[cfg(not(target_os = "windows"))]
+        socket.set_reuse_port(true)?;
+        socket.set_reuse_address(true)?;
+        let interface_v4 = match self.interface {
+            IpAddr::V4(ipv4addr) => ipv4addr,
+            IpAddr::V6(_) => unimplemented! ("IPv6 is not yet supported for router announcements"),
+        };
+        let multicast_group_address_v4 = match self.multicast_group_address() {
+            IpAddr::V4(ipv4addr) => ipv4addr,
+            IpAddr::V6(_) => unimplemented! ("IPv6 is not yet supported for router announcements"),
+        };
+        //subscribes to multicast group on the interface
+        socket.join_multicast_v4(&multicast_group_address_v4, &interface_v4)?;
+        //binds to the multicast interface and port
+        socket
+            .bind(&SockAddr::from(SocketAddr::new(
+                self.interface,
+                self.port,
+            )))?;
+        //converts socket2 socket into a std::net socket, required for correct recv_from method
+        Ok (socket.into())
+    }
+}
+
+#[cfg(test)]
+use masq_lib::utils::{localhost, find_free_port};
+#[cfg(test)]
+impl MulticastInfo {
+    pub fn for_test(multicast_group: u8) -> Self {
+        Self::new (localhost(), multicast_group, find_free_port())
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn multicast_info_creates_socket_addr() {
+        let subject = MulticastInfo::new (IpAddr::from_str ("1.2.3.4").unwrap(), 5, 6);
+
+        let result = subject.multicast_addr();
+
+        assert_eq! (result, SocketAddr::new (IpAddr::from_str ("224.0.0.5").unwrap(), 6));
+    }
 
     #[test]
     fn causes_work() {
