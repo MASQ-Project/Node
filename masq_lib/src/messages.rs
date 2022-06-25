@@ -631,7 +631,7 @@ pub struct UiPayableAccount {
     pub age: u64,
     pub amount: u128,
     #[serde(rename = "pendingPayableRowidOpt")]
-    pub pending_payable_rowid_opt: Option<String>,
+    pub pending_payable_rowid_opt: Option<u64>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
