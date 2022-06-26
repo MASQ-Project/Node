@@ -70,8 +70,6 @@ pub trait PayableDao: Debug + Send {
     fn non_pending_payables(&self) -> Vec<PayableAccount>;
 
     fn custom_query(&self, custom_query: CustomQuery<u128>) -> Option<Vec<PayableAccount>>;
-    //select wallet_address, balance, last_paid_timestamp, pending_payable_rowid from payable order by balance limit ?
-    //'either limit x' or 'where last_paid_timestamp > ? and last_paid_timestamp < ? and balance > ? and balance < ?
 
     fn total(&self) -> u128;
 
@@ -174,7 +172,7 @@ impl PayableDao for PayableDaoReal {
     }
 
     fn custom_query(&self, custom_query: CustomQuery<u128>) -> Option<Vec<PayableAccount>> {
-        let statement_assembler = |first: &str, second: &str| {
+        let statement_assembler = |range_query: &str, top_query: &str| {
             format!(
                 "select
                    wallet_address,
@@ -191,7 +189,7 @@ impl PayableDao for PayableDaoReal {
                    balance desc,
                    last_paid_timestamp desc
                {}",
-                first, second
+                range_query, top_query
             )
         };
         let variant_range ="where last_paid_timestamp <= ? and last_paid_timestamp >= ? and balance >= ? and balance <= ?";
@@ -204,81 +202,6 @@ impl PayableDao for PayableDaoReal {
             Self::form_payable_account,
         )
     }
-
-    // where
-    // balance >= ? and
-    // last_paid_timestamp >= ?
-
-    //TODO: never used!!
-    //fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
-    //     let min_amt =
-    //         unsigned_to_signed::<u64, i64>(minimum_amount).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
-    //     let max_age = unsigned_to_signed::<u64, i64>(maximum_age).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
-    //     let min_timestamp = dao_utils::now_time_t() - max_age;
-    //     let mut stmt = self
-    //         .conn
-    //         .prepare(
-    //             r#"
-    //             select
-    //                 balance,
-    //                 last_paid_timestamp,
-    //                 wallet_address,
-    //                 pending_payable_rowid,
-    //                 pending_payable.transaction_hash
-    //             from
-    //                 payable
-    //             left join pending_payable on
-    //                 pending_payable.rowid = payable.pending_payable_rowid
-    //             where
-    //                 balance >= ? and
-    //                 last_paid_timestamp >= ?
-    //             order by
-    //                 balance desc,
-    //                 last_paid_timestamp desc
-    //         "#,
-    //         )
-    //         .expect("Internal error");
-    //     let params: &[&dyn ToSql] = &[&min_amt, &min_timestamp];
-    //     stmt.query_map(params, |row| {
-    //         let balance_result = get_unsized_128(row, 0);
-    //         let last_paid_timestamp_result = row.get(1);
-    //         let wallet_result: Result<Wallet, rusqlite::Error> = row.get(2);
-    //         let pending_payable_rowid_result_opt: Result<Option<u64>, Error> = row.get(3);
-    //         let pending_payable_hash_result_opt: Result<Option<String>, Error> = row.get(4);
-    //         match (
-    //             wallet_result,
-    //             balance_result,
-    //             last_paid_timestamp_result,
-    //             pending_payable_rowid_result_opt,
-    //             pending_payable_hash_result_opt,
-    //         ) {
-    //             (
-    //                 Ok(wallet),
-    //                 Ok(balance),
-    //                 Ok(last_paid_timestamp),
-    //                 Ok(pending_payable_rowid_opt),
-    //                 Ok(pending_payable_hash_opt),
-    //             ) => Ok(PayableAccount {
-    //                 wallet,
-    //                 balance,
-    //                 last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-    //                 pending_payable_opt: pending_payable_rowid_opt.map(|rowid| PendingPayableId {
-    //                     rowid,
-    //                     hash: pending_payable_hash_opt
-    //                         .map(|s| H256::from_str(&s[2..]).expectv("string tx hash"))
-    //                         .expectv("tx hash"),
-    //                 }),
-    //             }),
-    //             x => panic!(
-    //                 "Database is corrupt: PAYABLE table columns and/or types {:?}",
-    //                 x
-    //             ),
-    //         }
-    //     })
-    //     .expect("Database is corrupt")
-    //     .flatten()
-    //     .collect()
-    // }
 
     fn total(&self) -> u128 {
         sign_conversion::<i128, u128>(collect_and_sum_i128_values_from_table(
@@ -795,6 +718,19 @@ mod tests {
     }
 
     #[test]
+    fn custom_query_handles_empty_table_in_top_records_mode() {
+        let main_test_setup = |_insert: &dyn Fn(&str, i128, i64, Option<i64>)| {};
+        let subject = custom_query_test_body_payable(
+            "custom_query_handles_empty_table_in_top_records_mode",
+            main_test_setup,
+        );
+
+        let result = subject.custom_query(CustomQuery::TopRecords(6));
+
+        assert_eq!(result, None)
+    }
+
+    #[test]
     fn custom_query_in_top_records_mode() {
         let timestamp1 = dao_utils::now_time_t() - 80_000;
         let timestamp2 = dao_utils::now_time_t() - 86_401;
@@ -826,7 +762,8 @@ mod tests {
                 Some(1),
             )
         };
-        let subject = custom_query_test_body("custom_query_in_top_records_mode", main_test_setup);
+        let subject =
+            custom_query_test_body_payable("custom_query_in_top_records_mode", main_test_setup);
 
         let result = subject.custom_query(CustomQuery::TopRecords(3)).unwrap();
 
@@ -859,6 +796,24 @@ mod tests {
                 }
             ]
         );
+    }
+
+    #[test]
+    fn custom_query_handles_empty_table_in_range_mode() {
+        let main_test_setup = |_insert: &dyn Fn(&str, i128, i64, Option<i64>)| {};
+        let subject = custom_query_test_body_payable(
+            "custom_query_handles_empty_table_in_range_mode",
+            main_test_setup,
+        );
+
+        let result = subject.custom_query(CustomQuery::RangeQuery {
+            min_age: 20000,
+            max_age: 200000,
+            min_amount: 500000000,
+            max_amount: 3500000000,
+        });
+
+        assert_eq!(result, None)
     }
 
     #[test]
@@ -907,7 +862,7 @@ mod tests {
                 None,
             )
         };
-        let subject = custom_query_test_body("custom_query_in_range_mode", main_setup);
+        let subject = custom_query_test_body_payable("custom_query_in_range_mode", main_setup);
 
         let result = subject
             .custom_query(CustomQuery::RangeQuery {
@@ -1119,7 +1074,7 @@ mod tests {
         )
     }
 
-    fn custom_query_test_body<F>(test_name: &str, main_setup_fn: F) -> (PayableDaoReal)
+    fn custom_query_test_body_payable<F>(test_name: &str, main_setup_fn: F) -> PayableDaoReal
     where
         F: Fn(&dyn Fn(&str, i128, i64, Option<i64>)),
     {

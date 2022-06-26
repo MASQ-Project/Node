@@ -497,7 +497,7 @@ impl ReceivableDao for ReceivableDaoMock {
         self.paid_delinquencies_results.borrow_mut().remove(0)
     }
 
-    fn custom_query(&self, custom_query: CustomQuery<i128>) -> Vec<ReceivableAccount> {
+    fn custom_query(&self, custom_query: CustomQuery<i128>) -> Option<Vec<ReceivableAccount>> {
         todo!()
     }
     // fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {

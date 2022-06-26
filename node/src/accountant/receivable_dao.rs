@@ -71,7 +71,7 @@ pub trait ReceivableDao: Send {
 
     fn paid_delinquencies(&self, payment_thresholds: &PaymentThresholds) -> Vec<ReceivableAccount>;
 
-    fn custom_query(&self, custom_query: CustomQuery<i128>) -> Vec<ReceivableAccount>;
+    fn custom_query(&self, custom_query: CustomQuery<i128>) -> Option<Vec<ReceivableAccount>>;
 
     fn total(&self) -> i128;
 
@@ -144,7 +144,7 @@ impl ReceivableDao for ReceivableDaoReal {
                 named_params! {
                     ":sugg_and_grace": payment_thresholds.sugg_and_grace(to_time_t(system_now)),
                 },
-                Self::row_to_account,
+                Self::form_receivable_account,
             )
             .expect("Couldn't retrieve new delinquencies: database corruption")
             .flatten()
@@ -168,60 +168,40 @@ impl ReceivableDao for ReceivableDaoReal {
             named_params! {
                 ":unban_balance": unban_balance,
             },
-            Self::row_to_account,
+            Self::form_receivable_account,
         )
         .expect("Couldn't retrieve new delinquencies: database corruption")
         .flatten()
         .collect()
     }
 
-    fn custom_query(&self, custom_query: CustomQuery<i128>) -> Vec<ReceivableAccount> {
-        todo!()
+    fn custom_query(&self, custom_query: CustomQuery<i128>) -> Option<Vec<ReceivableAccount>> {
+        let statement_assembler = |range_query: &str, top_query: &str| {
+            format!(
+                "select
+                     wallet_address,
+                     balance,
+                     last_received_timestamp
+                 from
+                     receivable
+                 {}
+                 order by
+                     balance desc,
+                     last_received_timestamp desc
+                 {}",
+                range_query, top_query
+            )
+        };
+        let variant_range = "where last_received_timestamp <= ? and last_received_timestamp >= ? and balance >= ? and balance <= ?";
+        let variant_top = "limit ?";
+        custom_query.query::<_, i128, _, _>(
+            self.conn.as_ref(),
+            statement_assembler,
+            variant_range,
+            variant_top,
+            Self::form_receivable_account,
+        )
     }
-
-    // TODO: dead code
-    // fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
-    //     let min_amt =
-    //         unsigned_to_signed::<u64, i64>(minimum_amount).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
-    //     let max_age = unsigned_to_signed::<u64, i64>(maximum_age).unwrap_or(0x7FFF_FFFF_FFFF_FFFF);
-    //     let min_timestamp = dao_utils::now_time_t() - max_age;
-    //     let mut stmt = self
-    //         .conn
-    //         .prepare(
-    //             r#"
-    //             select
-    //                 balance,
-    //                 last_received_timestamp,
-    //                 wallet_address
-    //             from
-    //                 receivable
-    //             where
-    //                 balance >= ? and
-    //                 last_received_timestamp >= ?
-    //             order by
-    //                 balance desc,
-    //                 last_received_timestamp desc
-    //         "#,
-    //         )
-    //         .expect("Internal error");
-    //     let params: &[&dyn ToSql] = &[&min_amt, &min_timestamp];
-    //     stmt.query_map(params, |row| {
-    //         let balance_result = row.get(0);
-    //         let last_paid_timestamp_result = row.get(1);
-    //         let wallet_result: Result<Wallet, rusqlite::Error> = row.get(2);
-    //         match (balance_result, last_paid_timestamp_result, wallet_result) {
-    //             (Ok(balance), Ok(last_paid_timestamp), Ok(wallet)) => Ok(ReceivableAccount {
-    //                 wallet,
-    //                 balance,
-    //                 last_received_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-    //             }),
-    //             _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
-    //         }
-    //     })
-    //     .expect("Database is corrupt")
-    //     .flatten()
-    //     .collect()
-    // }
 
     fn total(&self) -> i128 {
         collect_and_sum_i128_values_from_table(self.conn.as_ref(), Table::Receivable, "balance")
@@ -235,7 +215,10 @@ impl ReceivableDao for ReceivableDaoReal {
                 "select wallet_address, balance, last_received_timestamp from receivable where wallet_address = ?",
             )
             .expect("Internal error");
-        match stmt.query_row(&[&wallet], Self::row_to_account).optional() {
+        match stmt
+            .query_row(&[&wallet], Self::form_receivable_account)
+            .optional()
+        {
             Ok(value) => value,
             Err(e) => panic!("Database is corrupt: {:?}", e),
         }
@@ -371,8 +354,8 @@ impl ReceivableDaoReal {
         }
     }
 
-    fn row_to_account(row: &Row) -> rusqlite::Result<ReceivableAccount> {
-        let wallet: Result<Wallet, rusqlite::Error> = row.get(0);
+    fn form_receivable_account(row: &Row) -> rusqlite::Result<ReceivableAccount> {
+        let wallet: Result<Wallet, Error> = row.get(0);
         let balance_result = row.get(1);
         let last_received_timestamp_result = row.get(2);
         match (wallet, balance_result, last_received_timestamp_result) {
@@ -381,7 +364,10 @@ impl ReceivableDaoReal {
                 balance,
                 last_received_timestamp: dao_utils::from_time_t(last_received_timestamp),
             }),
-            _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
+            e => panic!(
+                "Database is corrupt: RECEIVABLE table columns and/or types: {:?}",
+                e
+            ),
         }
     }
 
@@ -742,50 +728,6 @@ mod tests {
         let result = subject.account_status(&wallet);
 
         assert_eq!(result, None);
-    }
-
-    #[test]
-    fn receivables_fetches_all_receivable_accounts() {
-        todo!("rewrite thsi to test custom query");
-        let home_dir = ensure_node_home_directory_exists(
-            "receivable_dao",
-            "receivables_fetches_all_receivable_accounts",
-        );
-        let wallet1 = make_wallet("wallet1");
-        let wallet2 = make_wallet("wallet2");
-        let time_stub = SystemTime::now();
-        let subject = ReceivableDaoReal::new(
-            DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
-                .unwrap(),
-        );
-
-        subject.more_money_receivable(&wallet1, 1234).unwrap();
-        subject.more_money_receivable(&wallet2, 2345).unwrap();
-
-        // let accounts = subject
-        //     .receivables()
-        //     .into_iter()
-        //     .map(|r| ReceivableAccount {
-        //         last_received_timestamp: time_stub,
-        //         ..r
-        //     })
-        //     .collect::<Vec<ReceivableAccount>>();
-        // assert_eq!(
-        //     vec![
-        //         ReceivableAccount {
-        //             wallet: wallet1,
-        //             balance: 1234,
-        //             last_received_timestamp: time_stub
-        //         },
-        //         ReceivableAccount {
-        //             wallet: wallet2,
-        //             balance: 2345,
-        //             last_received_timestamp: time_stub
-        //         },
-        //     ],
-        //     accounts
-        // )
     }
 
     #[test]
@@ -1244,65 +1186,134 @@ mod tests {
     }
 
     #[test]
-    fn top_records_and_total() {
-        todo!("decide how to see to the top records query")
-        // let home_dir = ensure_node_home_directory_exists("receivable_dao", "top_records_and_total");
-        // let conn = DbInitializerReal::default()
-        //     .initialize(&home_dir, true, MigratorConfig::test_default())
-        //     .unwrap();
-        // let insert = |wallet: &str, balance: i64, timestamp: i64| {
-        //     let params: &[&dyn ToSql] = &[&wallet, &balance, &timestamp];
-        //     conn
-        //         .prepare("insert into receivable (wallet_address, balance, last_received_timestamp) values (?, ?, ?)")
-        //         .unwrap()
-        //         .execute(params)
-        //         .unwrap();
-        // };
-        // let timestamp1 = dao_utils::now_time_t() - 80_000;
-        // let timestamp2 = dao_utils::now_time_t() - 86_401;
-        // let timestamp3 = dao_utils::now_time_t() - 86_000;
-        // let timestamp4 = dao_utils::now_time_t() - 86_001;
-        // insert(
-        //     "0x1111111111111111111111111111111111111111",
-        //     999_999_999, // below minimum amount - reject
-        //     timestamp1,  // below maximum age
-        // );
-        // insert(
-        //     "0x2222222222222222222222222222222222222222",
-        //     1_000_000_000, // minimum amount
-        //     timestamp2,    // above maximum age - reject
-        // );
-        // insert(
-        //     "0x3333333333333333333333333333333333333333",
-        //     1_000_000_000, // minimum amount
-        //     timestamp3,    // below maximum age
-        // );
-        // insert(
-        //     "0x4444444444444444444444444444444444444444",
-        //     1_000_000_001, // above minimum amount
-        //     timestamp4,    // below maximum age
-        // );
-        // let subject = ReceivableDaoReal::new(conn);
-        //
-        // let top_records = subject.top_records(1_000_000_000, 86400);
-        // let total = subject.total();
-        //
-        // assert_eq!(
-        //     top_records,
-        //     vec![
-        //         ReceivableAccount {
-        //             wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
-        //             balance: 1_000_000_001,
-        //             last_received_timestamp: dao_utils::from_time_t(timestamp4),
-        //         },
-        //         ReceivableAccount {
-        //             wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
-        //             balance: 1_000_000_000,
-        //             last_received_timestamp: dao_utils::from_time_t(timestamp3),
-        //         },
-        //     ]
-        // );
-        // assert_eq!(total, 4_000_000_000)
+    fn custom_query_handles_empty_table_in_top_records_mode() {
+        let main_test_setup = |_insert: &dyn Fn(&str, i128, i64)| {};
+        let subject = custom_query_test_body_receivable(
+            "custom_query_handles_empty_table_in_top_records_mode",
+            main_test_setup,
+        );
+
+        let result = subject.custom_query(CustomQuery::TopRecords(6));
+
+        assert_eq!(result, None)
+    }
+
+    #[test]
+    fn custom_query_in_top_records_mode() {
+        let timestamp1 = now_time_t() - 100_000;
+        let timestamp2 = now_time_t() - 86_401;
+        let timestamp3 = now_time_t() - 86_000;
+        let timestamp4 = now_time_t() - 86_001;
+        let main_test_setup = |insert: &dyn Fn(&str, i128, i64)| {
+            insert(
+                "0x1111111111111111111111111111111111111111",
+                999_454_656,
+                timestamp1,
+            );
+            insert(
+                "0x2222222222222222222222222222222222222222",
+                920_655_455,
+                timestamp2,
+            );
+            insert(
+                "0x3333333333333333333333333333333333333333",
+                990_000_000,
+                timestamp3,
+            );
+            insert(
+                "0x4444444444444444444444444444444444444444",
+                1_000_000_200,
+                timestamp4,
+            )
+        };
+        let subject =
+            custom_query_test_body_receivable("custom_query_in_top_records_mode", main_test_setup);
+
+        let result = subject.custom_query(CustomQuery::TopRecords(2)).unwrap();
+
+        assert_eq!(
+            result,
+            vec![
+                ReceivableAccount {
+                    wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
+                    balance: 1_000_000_200,
+                    last_received_timestamp: from_time_t(timestamp4),
+                },
+                ReceivableAccount {
+                    wallet: Wallet::new("0x1111111111111111111111111111111111111111"),
+                    balance: 999_454_656,
+                    last_received_timestamp: from_time_t(timestamp1),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn custom_query_handles_empty_table_in_range_mode() {
+        let main_test_setup = |_insert: &dyn Fn(&str, i128, i64)| {};
+        let subject = custom_query_test_body_receivable(
+            "custom_query_handles_empty_table_in_range_mode",
+            main_test_setup,
+        );
+
+        let result = subject.custom_query(CustomQuery::RangeQuery {
+            min_age: 20000,
+            max_age: 200000,
+            min_amount: 500000000,
+            max_amount: 3500000000,
+        });
+
+        assert_eq!(result, None)
+    }
+
+    #[test]
+    fn custom_query_in_range_mode() {
+        let timestamp1 = now_time_t() - 100_000;
+        let timestamp2 = now_time_t() - 86_401;
+        let timestamp3 = now_time_t() - 86_000;
+        let timestamp4 = now_time_t() - 50_001;
+        let main_test_setup = |insert: &dyn Fn(&str, i128, i64)| {
+            insert(
+                "0x1111111111111111111111111111111111111111",
+                999_454_656,
+                timestamp1,
+            );
+            insert(
+                "0x2222222222222222222222222222222222222222",
+                600_655_455,
+                timestamp2,
+            );
+            insert(
+                "0x3333333333333333333333333333333333333333",
+                990_000_000,
+                timestamp3,
+            );
+            insert(
+                "0x4444444444444444444444444444444444444444",
+                1_000_000_200,
+                timestamp4,
+            )
+        };
+        let subject =
+            custom_query_test_body_receivable("custom_query_in_top_records_mode", main_test_setup);
+
+        let result = subject
+            .custom_query(CustomQuery::RangeQuery {
+                min_age: 60000,
+                max_age: 99000,
+                min_amount: 700000000,
+                max_amount: 1000000000,
+            })
+            .unwrap();
+
+        assert_eq!(
+            result,
+            vec![ReceivableAccount {
+                wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
+                balance: 990_000_000,
+                last_received_timestamp: from_time_t(timestamp3),
+            }]
+        );
     }
 
     #[test]
@@ -1472,5 +1483,28 @@ mod tests {
             .prepare("insert into banned (wallet_address) values (?)")
             .unwrap();
         stmt.execute(&[&account.wallet]).unwrap();
+    }
+
+    fn custom_query_test_body_receivable<F>(
+        test_name: &str,
+        main_test_setup: F,
+    ) -> ReceivableDaoReal
+    where
+        F: Fn(&dyn Fn(&str, i128, i64)),
+    {
+        let home_dir = ensure_node_home_directory_exists("receivable_dao", "top_records_and_total");
+        let conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let insert = |wallet: &str, balance: i128, timestamp: i64| {
+            let params: &[&dyn ToSql] = &[&wallet, &balance, &timestamp];
+            conn
+                .prepare("insert into receivable (wallet_address, balance, last_received_timestamp) values (?, ?, ?)")
+                .unwrap()
+                .execute(params)
+                .unwrap();
+        };
+        main_test_setup(&insert);
+        ReceivableDaoReal::new(conn)
     }
 }

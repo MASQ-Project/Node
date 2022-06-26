@@ -108,8 +108,15 @@ impl<N: Copy + Display> CustomQuery<N> {
                 params_from_iter(params.iter().map(|param| param.as_ref())),
                 value_fetcher,
             ) {
-            Ok(accounts) => Some(accounts.flatten().collect::<Vec<R>>()), //TODO flatten???
-            Err(e) => todo!(),
+            Ok(accounts) => {
+                let vectored = accounts.flatten().collect::<Vec<R>>();
+                if vectored.is_empty() {
+                    None
+                } else {
+                    Some(vectored)
+                }
+            } //TODO flatten???
+            Err(e) => todo!("{:?}", e),
         }
     }
 }
