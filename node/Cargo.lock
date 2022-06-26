@@ -1833,7 +1833,6 @@ dependencies = [
  "clap",
  "crossbeam-channel 0.5.1",
  "ctrlc",
- "indoc",
  "itertools 0.8.2",
  "lazy_static",
  "linefeed",
