@@ -5,7 +5,7 @@
 use crate::accountant::blob_utils::{
     FetchValue, InsertUpdateConfig, InsertUpdateCore, InsertUpdateError, Table, UpdateConfiguration,
 };
-use crate::accountant::dao_utils::{from_time_t, to_time_t};
+use crate::accountant::dao_utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
@@ -328,6 +328,10 @@ impl PayableDao for PayableDaoMock {
         self.non_pending_payables_results.borrow_mut().remove(0)
     }
 
+    fn custom_query(&self, custom_query: CustomQuery<u128>) -> Option<Vec<PayableAccount>> {
+        todo!()
+    }
+
     // fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
     //     self.top_records_parameters
     //         .lock()
@@ -437,7 +441,6 @@ pub struct ReceivableDaoMock {
     more_money_receivable_results: RefCell<Vec<Result<(), ReceivableDaoError>>>,
     more_money_received_parameters: Arc<Mutex<Vec<Vec<BlockchainTransaction>>>>,
     more_money_received_results: RefCell<Vec<Result<(), PayableDaoError>>>,
-    receivables_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     new_delinquencies_parameters: Arc<Mutex<Vec<(SystemTime, PaymentThresholds)>>>,
     new_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     paid_delinquencies_parameters: Arc<Mutex<Vec<PaymentThresholds>>>,
@@ -468,10 +471,6 @@ impl ReceivableDao for ReceivableDaoMock {
             .push(transactions);
     }
 
-    fn receivables(&self) -> Vec<ReceivableAccount> {
-        self.receivables_results.borrow_mut().remove(0)
-    }
-
     fn new_delinquencies(
         &self,
         now: SystemTime,
@@ -498,10 +497,9 @@ impl ReceivableDao for ReceivableDaoMock {
         self.paid_delinquencies_results.borrow_mut().remove(0)
     }
 
-    fn total(&self) -> i128 {
-        self.total_results.borrow_mut().remove(0)
+    fn custom_query(&self, custom_query: CustomQuery<i128>) -> Vec<ReceivableAccount> {
+        todo!()
     }
-
     // fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
     //     self.top_records_parameters
     //         .lock()
@@ -509,6 +507,10 @@ impl ReceivableDao for ReceivableDaoMock {
     //         .push((minimum_amount, maximum_age));
     //     self.top_records_results.borrow_mut().remove(0)
     // }
+
+    fn total(&self) -> i128 {
+        self.total_results.borrow_mut().remove(0)
+    }
 
     fn account_status(&self, _wallet: &Wallet) -> Option<ReceivableAccount> {
         //test-only trait member

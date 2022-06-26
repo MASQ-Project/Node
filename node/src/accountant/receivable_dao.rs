@@ -5,7 +5,7 @@ use crate::accountant::blob_utils::{
     InsertUpdateCoreReal, ParamKeyHolder, SQLExtendedParams, Table, UpdateConfig,
 };
 use crate::accountant::dao_utils;
-use crate::accountant::dao_utils::{now_time_t, to_time_t, DaoFactoryReal};
+use crate::accountant::dao_utils::{now_time_t, to_time_t, CustomQuery, DaoFactoryReal};
 use crate::accountant::receivable_dao::ReceivableDaoError::RusqliteError;
 use crate::accountant::{checked_conversion, ThresholdUtils};
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
@@ -63,9 +63,6 @@ pub trait ReceivableDao: Send {
 
     fn more_money_received(&mut self, transactions: Vec<BlockchainTransaction>);
 
-    //TODO never used -- remove and substitute with top records
-    fn receivables(&self) -> Vec<ReceivableAccount>;
-
     fn new_delinquencies(
         &self,
         now: SystemTime,
@@ -74,8 +71,7 @@ pub trait ReceivableDao: Send {
 
     fn paid_delinquencies(&self, payment_thresholds: &PaymentThresholds) -> Vec<ReceivableAccount>;
 
-    //TODO never used
-    //fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount>;
+    fn custom_query(&self, custom_query: CustomQuery<i128>) -> Vec<ReceivableAccount>;
 
     fn total(&self) -> i128;
 
@@ -120,31 +116,6 @@ impl ReceivableDao for ReceivableDaoReal {
     fn more_money_received(&mut self, payments: Vec<BlockchainTransaction>) {
         self.try_multi_insert_payment(&payments)
             .unwrap_or_else(|e| self.more_money_received_pretty_error_log(&payments, e))
-    }
-
-    //TODO: probably replace with 'top records' with proper range
-    fn receivables(&self) -> Vec<ReceivableAccount> {
-        let mut stmt = self
-            .conn
-            .prepare("select balance, last_received_timestamp, wallet_address from receivable")
-            .expect("Internal error");
-
-        stmt.query_map([], |row| {
-            let balance_result = row.get(0);
-            let last_received_timestamp_result = row.get(1);
-            let wallet: Result<Wallet, rusqlite::Error> = row.get(2);
-            match (balance_result, last_received_timestamp_result, wallet) {
-                (Ok(balance), Ok(last_received_timestamp), Ok(wallet)) => Ok(ReceivableAccount {
-                    wallet,
-                    balance,
-                    last_received_timestamp: dao_utils::from_time_t(last_received_timestamp),
-                }),
-                _ => panic!("Database is corrupt: RECEIVABLE table columns and/or types"),
-            }
-        })
-        .expect("Database is corrupt")
-        .flatten()
-        .collect()
     }
 
     fn new_delinquencies(
@@ -202,6 +173,10 @@ impl ReceivableDao for ReceivableDaoReal {
         .expect("Couldn't retrieve new delinquencies: database corruption")
         .flatten()
         .collect()
+    }
+
+    fn custom_query(&self, custom_query: CustomQuery<i128>) -> Vec<ReceivableAccount> {
+        todo!()
     }
 
     // TODO: dead code
@@ -771,6 +746,7 @@ mod tests {
 
     #[test]
     fn receivables_fetches_all_receivable_accounts() {
+        todo!("rewrite thsi to test custom query");
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
             "receivables_fetches_all_receivable_accounts",
@@ -787,29 +763,29 @@ mod tests {
         subject.more_money_receivable(&wallet1, 1234).unwrap();
         subject.more_money_receivable(&wallet2, 2345).unwrap();
 
-        let accounts = subject
-            .receivables()
-            .into_iter()
-            .map(|r| ReceivableAccount {
-                last_received_timestamp: time_stub,
-                ..r
-            })
-            .collect::<Vec<ReceivableAccount>>();
-        assert_eq!(
-            vec![
-                ReceivableAccount {
-                    wallet: wallet1,
-                    balance: 1234,
-                    last_received_timestamp: time_stub
-                },
-                ReceivableAccount {
-                    wallet: wallet2,
-                    balance: 2345,
-                    last_received_timestamp: time_stub
-                },
-            ],
-            accounts
-        )
+        // let accounts = subject
+        //     .receivables()
+        //     .into_iter()
+        //     .map(|r| ReceivableAccount {
+        //         last_received_timestamp: time_stub,
+        //         ..r
+        //     })
+        //     .collect::<Vec<ReceivableAccount>>();
+        // assert_eq!(
+        //     vec![
+        //         ReceivableAccount {
+        //             wallet: wallet1,
+        //             balance: 1234,
+        //             last_received_timestamp: time_stub
+        //         },
+        //         ReceivableAccount {
+        //             wallet: wallet2,
+        //             balance: 2345,
+        //             last_received_timestamp: time_stub
+        //         },
+        //     ],
+        //     accounts
+        // )
     }
 
     #[test]

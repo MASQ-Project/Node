@@ -5,7 +5,7 @@ use crate::accountant::blob_utils::{
     InsertUpdateCore, InsertUpdateCoreReal, ParamKeyHolder, SQLExtendedParams, Table, UpdateConfig,
 };
 use crate::accountant::dao_utils;
-use crate::accountant::dao_utils::{to_time_t, DaoFactoryReal};
+use crate::accountant::dao_utils::{to_time_t, CustomQuery, DaoFactoryReal};
 use crate::accountant::{checked_conversion, sign_conversion, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -14,8 +14,9 @@ use ethereum_types::{BigEndianHash, U256};
 use itertools::Either;
 use masq_lib::utils::ExpectValue;
 use rusqlite::types::ToSql;
-use rusqlite::{Error, OptionalExtension};
+use rusqlite::{Error, OptionalExtension, Row};
 use std::fmt::Debug;
+use std::str::FromStr;
 use std::time::SystemTime;
 use web3::types::H256;
 
@@ -68,7 +69,9 @@ pub trait PayableDao: Debug + Send {
 
     fn non_pending_payables(&self) -> Vec<PayableAccount>;
 
-    //fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount>;
+    fn custom_query(&self, custom_query: CustomQuery<u128>) -> Option<Vec<PayableAccount>>;
+    //select wallet_address, balance, last_paid_timestamp, pending_payable_rowid from payable order by balance limit ?
+    //'either limit x' or 'where last_paid_timestamp > ? and last_paid_timestamp < ? and balance > ? and balance < ?
 
     fn total(&self) -> u128;
 
@@ -169,6 +172,42 @@ impl PayableDao for PayableDaoReal {
         .flatten()
         .collect()
     }
+
+    fn custom_query(&self, custom_query: CustomQuery<u128>) -> Option<Vec<PayableAccount>> {
+        let statement_assembler = |first: &str, second: &str| {
+            format!(
+                "select
+                   wallet_address,
+                   balance,
+                   last_paid_timestamp,
+                   pending_payable_rowid,
+                   pending_payable.transaction_hash
+               from
+                   payable
+               left join pending_payable on
+                   pending_payable.rowid = payable.pending_payable_rowid
+               {}
+               order by
+                   balance desc,
+                   last_paid_timestamp desc
+               {}",
+                first, second
+            )
+        };
+        let variant_range ="where last_paid_timestamp <= ? and last_paid_timestamp >= ? and balance >= ? and balance <= ?";
+        let variant_top = "limit ?";
+        custom_query.query::<_, i128, _, _>(
+            self.conn.as_ref(),
+            statement_assembler,
+            variant_range,
+            variant_top,
+            Self::form_payable_account,
+        )
+    }
+
+    // where
+    // balance >= ? and
+    // last_paid_timestamp >= ?
 
     //TODO: never used!!
     //fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
@@ -299,6 +338,41 @@ impl PayableDaoReal {
             insert_update_core: Box::new(InsertUpdateCoreReal),
         }
     }
+
+    fn form_payable_account(row: &Row) -> rusqlite::Result<PayableAccount> {
+        let wallet_result: Result<Wallet, Error> = row.get(0);
+        let balance_result = get_unsized_128(row, 1);
+        let last_paid_timestamp_result = row.get(2);
+        let pending_payable_rowid_result: Result<Option<i64>, Error> = row.get(3);
+        let pending_payable_hash_result: Result<Option<String>, Error> = row.get(4);
+        match (
+            wallet_result,
+            balance_result,
+            last_paid_timestamp_result,
+            pending_payable_rowid_result,
+            pending_payable_hash_result
+        ) {
+            (Ok(wallet), Ok(balance), Ok(last_paid_timestamp), Ok(rowid),Ok(hash_opt)) => Ok(PayableAccount {
+                wallet,
+                balance,
+                last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                pending_payable_opt: match rowid {
+                    Some(rowid) => Some({
+                        let hash_str = hash_opt.expect("database corrupt; missing hash but existing rowid");
+                        PendingPayableId {
+                        rowid: u64::try_from(rowid).unwrap(),
+                        hash: H256::from_str(&hash_str[2..]).unwrap_or_else(|_|panic!("wrong form of tx hash {}", hash_str)),
+                    }}),
+                    None => None,
+                },
+            }),
+            e => todo!("{:?}",e)
+                // panic!(
+                //                  "Database is corrupt: PAYABLE table columns and/or types: {:?}",
+                //            e
+            //),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -320,6 +394,7 @@ mod tests {
     use rusqlite::Connection as RusqliteConnection;
     use rusqlite::{Connection, OpenFlags};
     use std::path::Path;
+    use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use web3::types::U256;
 
@@ -720,91 +795,152 @@ mod tests {
     }
 
     #[test]
-    fn top_records_and_total() {
-        todo!("decide how to see to the top records query")
-        // let home_dir = ensure_node_home_directory_exists("payable_dao", "top_records_and_total");
-        // let conn = DbInitializerReal::default()
-        //     .initialize(&home_dir, true, MigratorConfig::test_default())
-        //     .unwrap();
-        // let insert = |wallet: &str,
-        //               balance: i64,
-        //               timestamp: i64,
-        //               pending_payable_rowid: Option<i64>| {
-        //     let params: &[&dyn ToSql] = &[&wallet, &balance, &timestamp, &pending_payable_rowid];
-        //     conn
-        //         .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (?, ?, ?, ?)")
-        //         .unwrap()
-        //         .execute(params)
-        //         .unwrap();
-        // };
-        // let timestamp1 = dao_utils::now_time_t() - 80_000;
-        // let timestamp2 = dao_utils::now_time_t() - 86_401;
-        // let timestamp3 = dao_utils::now_time_t() - 86_000;
-        // let timestamp4 = dao_utils::now_time_t() - 86_001;
-        // insert(
-        //     "0x1111111111111111111111111111111111111111",
-        //     999_999_999, // below minimum amount - reject
-        //     timestamp1,  // below maximum age
-        //     None,
-        // );
-        // insert(
-        //     "0x2222222222222222222222222222222222222222",
-        //     1_000_000_000, // minimum amount
-        //     timestamp2,    // above maximum age - reject
-        //     None,
-        // );
-        // insert(
-        //     "0x3333333333333333333333333333333333333333",
-        //     1_000_000_000, // minimum amount
-        //     timestamp3,    // below maximum age
-        //     None,
-        // );
-        // insert(
-        //     "0x4444444444444444444444444444444444444444",
-        //     1_000_000_001, // above minimum amount
-        //     timestamp4,    // below maximum age
-        //     Some(1),
-        // );
-        // let params: &[&dyn ToSql] = &[
-        //     &String::from("0xabc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"),
-        //     &40,
-        //     &177777777,
-        //     &1,
-        // ];
-        // conn
-        //     .prepare("insert into pending_payable (transaction_hash,amount,payable_timestamp,attempt) values (?,?,?,?)")
-        //     .unwrap()
-        //     .execute(params)
-        //     .unwrap();
-        //
-        // let subject = PayableDaoReal::new(conn);
-        //
-        // let top_records = subject.top_records(1_000_000_000, 86400);
-        // let total = subject.total();
-        // assert_eq!(
-        //     top_records,
-        //     vec![
-        //         PayableAccount {
-        //             wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
-        //             balance: 1_000_000_001,
-        //             last_paid_timestamp: dao_utils::from_time_t(timestamp4),
-        //             pending_payable_opt: Some(PendingPayableId {
-        //                 rowid: 1,
-        //                 hash: H256::from_str(
-        //                     "abc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"
-        //                 )
-        //                 .unwrap()
-        //             })
-        //         },
-        //         PayableAccount {
-        //             wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
-        //             balance: 1_000_000_000,
-        //             last_paid_timestamp: dao_utils::from_time_t(timestamp3),
-        //             pending_payable_opt: None
-        //         },
-        //     ]
-        // );
-        // assert_eq!(total, 4_000_000_000)
+    fn custom_query_in_top_records_mode() {
+        let timestamp1 = dao_utils::now_time_t() - 80_000;
+        let timestamp2 = dao_utils::now_time_t() - 86_401;
+        let timestamp3 = dao_utils::now_time_t() - 86_000;
+        let timestamp4 = dao_utils::now_time_t() - 86_001;
+        let main_test_setup = |insert: &dyn Fn(&str, i128, i64, Option<i64>)| {
+            insert(
+                "0x1111111111111111111111111111111111111111",
+                888_005_601,
+                timestamp1,
+                None,
+            );
+            insert(
+                "0x2222222222222222222222222222222222222222",
+                2_000_300_000,
+                timestamp2,
+                None,
+            );
+            insert(
+                "0x3333333333333333333333333333333333333333",
+                1_000_000_000,
+                timestamp3,
+                None,
+            );
+            insert(
+                "0x4444444444444444444444444444444444444444",
+                1_000_000_001,
+                timestamp4,
+                Some(1),
+            )
+        };
+        let subject = custom_query_test_body("custom_query_in_top_records_mode", main_test_setup);
+
+        let result = subject.custom_query(CustomQuery::TopRecords(3)).unwrap();
+
+        assert_eq!(
+            result,
+            vec![
+                PayableAccount {
+                    wallet: Wallet::new("0x2222222222222222222222222222222222222222"),
+                    balance: 2_000_300_000,
+                    last_paid_timestamp: from_time_t(timestamp2),
+                    pending_payable_opt: None
+                },
+                PayableAccount {
+                    wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
+                    balance: 1_000_000_001,
+                    last_paid_timestamp: from_time_t(timestamp4),
+                    pending_payable_opt: Some(PendingPayableId {
+                        rowid: 1,
+                        hash: H256::from_str(
+                            "abc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"
+                        )
+                        .unwrap()
+                    })
+                },
+                PayableAccount {
+                    wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
+                    balance: 1_000_000_000,
+                    last_paid_timestamp: from_time_t(timestamp3),
+                    pending_payable_opt: None
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn custom_query_in_range_mode() {
+        let timestamp1 = dao_utils::now_time_t() - 70_000;
+        let timestamp2 = dao_utils::now_time_t() - 100_401;
+        let timestamp3 = dao_utils::now_time_t() - 330_000;
+        let timestamp4 = dao_utils::now_time_t() - 11_001;
+        let timestamp5 = dao_utils::now_time_t() - 30_786;
+        let timestamp6 = dao_utils::now_time_t() - 55_120;
+        let main_setup = |insert: &dyn Fn(&str, i128, i64, Option<i64>)| {
+            insert(
+                "0x1111111111111111111111111111111111111111",
+                400_005_601,
+                timestamp1,
+                None,
+            );
+            insert(
+                "0x2222222222222222222222222222222222222222",
+                3_000_300_000,
+                timestamp2,
+                Some(1),
+            );
+            insert(
+                "0x3333333333333333333333333333333333333333",
+                600_123_456,
+                timestamp3,
+                None,
+            );
+            insert(
+                "0x4444444444444444444444444444444444444444",
+                1_033_456_000,
+                timestamp4,
+                None,
+            );
+            insert(
+                "0x5555555555555555555555555555555555555555",
+                3_800_456_000,
+                timestamp5,
+                None,
+            );
+            insert(
+                "0x6666666666666666666666666666666666666666",
+                800_456_000,
+                timestamp6,
+                None,
+            )
+        };
+        let subject = custom_query_test_body("custom_query_in_range_mode", main_setup);
+
+        let result = subject
+            .custom_query(CustomQuery::RangeQuery {
+                min_age: 20000,
+                max_age: 200000,
+                min_amount: 500000000,
+                max_amount: 3500000000,
+            })
+            .unwrap();
+
+        assert_eq!(
+            result,
+            vec![
+                PayableAccount {
+                    wallet: Wallet::new("0x2222222222222222222222222222222222222222"),
+                    balance: 3_000_300_000,
+                    last_paid_timestamp: from_time_t(timestamp2),
+                    pending_payable_opt: Some(PendingPayableId {
+                        rowid: 1,
+                        hash: H256::from_str(
+                            "abc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"
+                        )
+                        .unwrap()
+                    })
+                },
+                PayableAccount {
+                    wallet: Wallet::new("0x6666666666666666666666666666666666666666"),
+                    balance: 800_456_000,
+                    last_paid_timestamp: from_time_t(timestamp6),
+                    pending_payable_opt: None
+                }
+            ]
+        );
     }
 
     fn insert_record(
@@ -981,5 +1117,39 @@ mod tests {
                 (":rowid", &33_i64.to_string())
             ])
         )
+    }
+
+    fn custom_query_test_body<F>(test_name: &str, main_setup_fn: F) -> (PayableDaoReal)
+    where
+        F: Fn(&dyn Fn(&str, i128, i64, Option<i64>)),
+    {
+        let home_dir = ensure_node_home_directory_exists("payable_dao", test_name);
+        let conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let insert = |wallet: &str,
+                      balance: i128,
+                      timestamp: i64,
+                      pending_payable_rowid: Option<i64>| {
+            let params: &[&dyn ToSql] = &[&wallet, &balance, &timestamp, &pending_payable_rowid];
+            conn
+                .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (?, ?, ?, ?)")
+                .unwrap()
+                .execute(params)
+                .unwrap();
+        };
+        main_setup_fn(&insert);
+        let params: &[&dyn ToSql] = &[
+            &String::from("0xabc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"),
+            &40,
+            &177777777,
+            &1,
+        ];
+        conn
+            .prepare("insert into pending_payable (transaction_hash,amount,payable_timestamp,attempt) values (?,?,?,?)")
+            .unwrap()
+            .execute(params)
+            .unwrap();
+        PayableDaoReal::new(conn)
     }
 }
