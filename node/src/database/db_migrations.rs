@@ -902,9 +902,9 @@ impl DatabaseMigration for InterimMigrationPlaceholder {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::dao_utils::{from_time_t, to_time_t};
     use crate::blockchain::bip39::Bip39;
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
-    use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION, DATABASE_FILE,
@@ -921,13 +921,11 @@ mod tests {
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::database_utils::retrieve_config_row;
     use crate::test_utils::database_utils::{
         assert_create_table_stm_contains_all_parts,
         assert_index_stm_is_coupled_with_right_parameter, assert_no_index_exists_for_table,
         assert_table_does_not_exist, bring_db_0_back_to_life_and_return_connection,
-    };
-    use crate::test_utils::database_utils::{
-        assert_create_table_stm_contains_some_parts, retrieve_config_row,
     };
     use crate::test_utils::make_wallet;
     use bip39::{Language, Mnemonic, MnemonicType, Seed};

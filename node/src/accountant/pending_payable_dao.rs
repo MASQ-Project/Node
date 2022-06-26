@@ -1,10 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::blob_utils::get_unsized_128;
+use crate::accountant::dao_utils::{from_time_t, to_time_t, DaoFactoryReal};
 use crate::accountant::{checked_conversion, sign_conversion};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::database::dao_utils::{from_time_t, to_time_t, DaoFactoryReal};
 use masq_lib::utils::ExpectValue;
 use rusqlite::types::Value::Null;
 use rusqlite::{Row, ToSql};
@@ -178,13 +178,13 @@ impl<'a> PendingPayableDaoReal<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::dao_utils::from_time_t;
     use crate::accountant::pending_payable_dao::{
         PendingPayableDao, PendingPayableDaoError, PendingPayableDaoReal,
     };
     use crate::accountant::sign_conversion;
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
-    use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
     use crate::database::db_migrations::MigratorConfig;
     use ethereum_types::BigEndianHash;

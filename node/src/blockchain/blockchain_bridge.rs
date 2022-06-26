@@ -438,6 +438,7 @@ struct PendingTxInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::dao_utils::from_time_t;
     use crate::accountant::payable_dao::PayableAccount;
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
@@ -448,7 +449,6 @@ mod tests {
     };
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
-    use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;

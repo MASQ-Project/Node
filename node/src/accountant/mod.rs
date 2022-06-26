@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 pub mod blob_utils;
+pub mod dao_utils;
 pub mod payable_dao;
 pub mod pending_payable_dao;
 pub mod receivable_dao;
@@ -8,11 +9,12 @@ pub mod tools;
 #[cfg(test)]
 pub mod test_utils;
 
-use masq_lib::constants::SCAN_ERROR;
+use masq_lib::constants::{REQUEST_WITH_NO_VALUES, SCAN_ERROR};
 
-use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
+use masq_lib::messages::{ScanType, UiFinancialStatistics, UiScanRequest, UiScanResponse};
 use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 
+use crate::accountant::dao_utils::DaoFactoryReal;
 use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError, PayableDaoFactory};
 use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
 use crate::accountant::receivable_dao::{
@@ -23,7 +25,6 @@ use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
 use crate::bootstrapper::BootstrapperConfig;
-use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_migrations::MigratorConfig;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
@@ -384,8 +385,8 @@ impl Handler<NodeFromUiMessage> for Accountant {
 
     fn handle(&mut self, msg: NodeFromUiMessage, ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
-        if let Ok((_, context_id)) = UiFinancialsRequest::fmb(msg.body.clone()) {
-            self.handle_financials(client_id, context_id);
+        if let Ok((request, context_id)) = UiFinancialsRequest::fmb(msg.body.clone()) {
+            self.handle_financials_shell(&request, client_id, context_id)
         } else if let Ok((body, context_id)) = UiScanRequest::fmb(msg.body.clone()) {
             self.handle_externally_triggered_scan(
                 ctx,
@@ -922,26 +923,60 @@ impl Accountant {
         );
     }
 
-    fn handle_financials(&mut self, client_id: u64, context_id: u64) {
-        let total_unpaid_and_pending_payable = self.payable_dao.total();
-        let total_paid_payable = self.financial_statistics.total_paid_payable;
-        let total_unpaid_receivable = self.receivable_dao.total();
-        let total_paid_receivable = self.financial_statistics.total_paid_receivable;
-        let body = UiFinancialsResponse {
-            total_unpaid_and_pending_payable,
-            total_paid_payable,
-            total_unpaid_receivable,
-            total_paid_receivable,
-        }
-        .tmb(context_id);
+    fn handle_financials_shell(&self, msg: &UiFinancialsRequest, client_id: u64, context_id: u64) {
+        let response_body = self.handle_financials_core(msg, context_id);
         self.ui_message_sub
             .as_ref()
             .expect("UiGateway not bound")
             .try_send(NodeToUiMessage {
                 target: ClientId(client_id),
-                body,
+                body: response_body,
             })
             .expect("UiGateway is dead");
+    }
+
+    fn handle_financials_core(&self, msg: &UiFinancialsRequest, context_id: u64) -> MessageBody {
+        if let Err(message_body) = Self::financials_entry_check(msg, context_id) {
+            return message_body;
+        };
+        let stats_opt = if msg.stats_required {
+            Some(UiFinancialStatistics {
+                total_unpaid_and_pending_payable: self.payable_dao.total(),
+                total_paid_payable: self.financial_statistics.total_paid_payable,
+                total_unpaid_receivable: self.receivable_dao.total(),
+                total_paid_receivable: self.financial_statistics.total_paid_receivable,
+            })
+        } else {
+            None
+        };
+        let body = UiFinancialsResponse {
+            stats_opt,
+            top_records_opt: None,
+            custom_query_records_opt: None,
+        }
+        .tmb(context_id);
+        body
+    }
+
+    fn financials_entry_check(
+        msg: &UiFinancialsRequest,
+        context_id: u64,
+    ) -> Result<(), MessageBody> {
+        if msg.stats_required == true
+            || msg.top_records_opt.is_some()
+            || msg.custom_queries_opt.is_some()
+        {
+            Ok(())
+        } else {
+            Err(MessageBody {
+                opcode: "financials".to_string(),
+                path: MessagePath::Conversation(context_id),
+                payload: Err((
+                    REQUEST_WITH_NO_VALUES,
+                    "Request with missing queries not to be processed".to_string(),
+                )),
+            })
+        }
     }
 
     fn handle_externally_triggered_scan(
@@ -1356,13 +1391,17 @@ mod tests {
     use masq_lib::constants::SCAN_ERROR;
     use web3::types::U256;
 
-    use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
+    use masq_lib::messages::{
+        ScanType, UiFinancialStatistics, UiMessageError, UiScanRequest, UiScanResponse,
+    };
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::ui_gateway::{
         MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
     };
 
+    use crate::accountant::dao_utils::from_time_t;
+    use crate::accountant::dao_utils::to_time_t;
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::{ReceivableAccount, SignConversionError};
@@ -1382,8 +1421,6 @@ mod tests {
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
     use crate::bootstrapper::BootstrapperConfig;
-    use crate::database::dao_utils::from_time_t;
-    use crate::database::dao_utils::to_time_t;
     use crate::sub_lib::accountant::{
         ReportRoutingServiceConsumedMessage, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS, GWEI_TO_WEI,
     };
@@ -1399,6 +1436,7 @@ mod tests {
         SystemKillerActor,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
+    use masq_lib::ui_gateway::MessagePath::Conversation;
     use web3::types::{TransactionReceipt, H256};
 
     #[derive(Default)]
@@ -4783,6 +4821,52 @@ mod tests {
     }
 
     #[test]
+    fn financials_request_with_nothing_to_response_to_is_refused() {
+        let payable_dao = PayableDaoMock::new().total_result(23456789);
+        let receivable_dao = ReceivableDaoMock::new().total_result(98765432);
+        let system = System::new("test");
+        let subject = AccountantBuilder::default()
+            .bootstrapper_config(bc_from_ac_plus_earning_wallet(
+                make_populated_accountant_config_with_defaults(),
+                make_wallet("some_wallet_address"),
+            ))
+            .build();
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let ui_message = NodeFromUiMessage {
+            client_id: 1234,
+            body: UiFinancialsRequest {
+                stats_required: false,
+                top_records_opt: None,
+                custom_queries_opt: None,
+            }
+            .tmb(2222),
+        };
+
+        let result = subject_addr.try_send(ui_message).unwrap();
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
+        assert_eq!(response.target, ClientId(1234));
+        let error = UiFinancialsResponse::fmb(response.body.clone()).unwrap_err();
+        let err_message_body = match error {
+            UiMessageError::PayloadError(payload) => payload,
+            x => panic!("we expected error message in the payload but got: {:?}", x),
+        };
+        let (err_code, err_message) = err_message_body.payload.unwrap_err();
+        assert_eq!(err_code, REQUEST_WITH_NO_VALUES);
+        assert_eq!(
+            err_message,
+            "Request with missing queries not to be processed"
+        );
+        assert!(matches!(err_message_body.path, Conversation(2222)));
+    }
+
+    #[test]
     fn financials_request_produces_financials_response() {
         let payable_dao = PayableDaoMock::new().total_result(23456789);
         let receivable_dao = ReceivableDaoMock::new().total_result(98765432);
@@ -4803,7 +4887,12 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let ui_message = NodeFromUiMessage {
             client_id: 1234,
-            body: UiFinancialsRequest {}.tmb(2222),
+            body: UiFinancialsRequest {
+                stats_required: true,
+                top_records_opt: None,
+                custom_queries_opt: None,
+            }
+            .tmb(2222),
         };
 
         subject_addr.try_send(ui_message).unwrap();
@@ -4818,10 +4907,14 @@ mod tests {
         assert_eq!(
             body,
             UiFinancialsResponse {
-                total_unpaid_and_pending_payable: 23456789,
-                total_paid_payable: 123456,
-                total_unpaid_receivable: 98765432,
-                total_paid_receivable: 334455
+                stats_opt: Some(UiFinancialStatistics {
+                    total_unpaid_and_pending_payable: 23456789,
+                    total_paid_payable: 123456,
+                    total_unpaid_receivable: 98765432,
+                    total_paid_receivable: 334455,
+                }),
+                top_records_opt: None,
+                custom_query_records_opt: None
             }
         );
     }

@@ -4,12 +4,12 @@ use crate::accountant::blob_utils::{
     collect_and_sum_i128_values_from_table, BalanceChange, InsertUpdateConfig, InsertUpdateCore,
     InsertUpdateCoreReal, ParamKeyHolder, SQLExtendedParams, Table, UpdateConfig,
 };
+use crate::accountant::dao_utils;
+use crate::accountant::dao_utils::{now_time_t, to_time_t, DaoFactoryReal};
 use crate::accountant::receivable_dao::ReceivableDaoError::RusqliteError;
 use crate::accountant::{checked_conversion, ThresholdUtils};
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::database::dao_utils;
-use crate::database::dao_utils::{now_time_t, to_time_t, DaoFactoryReal};
 use crate::db_config::persistent_configuration::PersistentConfigError;
 use crate::sub_lib::accountant::{PaymentThresholds, GWEI_TO_WEI};
 use crate::sub_lib::wallet::Wallet;
@@ -437,11 +437,11 @@ impl ReceivableDaoReal {
 mod tests {
     use super::*;
     use crate::accountant::blob_utils::{InsertUpdateError, Table};
+    use crate::accountant::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::accountant::test_utils::{
         assert_on_sloped_segment_of_payment_thresholds_and_its_proper_alignment,
         convert_to_all_string_values, make_receivable_account, InsertUpdateCoreMock,
     };
-    use crate::database::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::database::db_initializer;
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::DbInitializer;

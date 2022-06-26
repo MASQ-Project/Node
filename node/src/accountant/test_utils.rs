@@ -5,6 +5,7 @@
 use crate::accountant::blob_utils::{
     FetchValue, InsertUpdateConfig, InsertUpdateCore, InsertUpdateError, Table, UpdateConfiguration,
 };
+use crate::accountant::dao_utils::{from_time_t, to_time_t};
 use crate::accountant::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
@@ -20,7 +21,6 @@ use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::database::dao_utils::{from_time_t, to_time_t};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
 use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds, GWEI_TO_WEI};
