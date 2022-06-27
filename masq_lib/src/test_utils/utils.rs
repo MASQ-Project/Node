@@ -1,14 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchains::chains::Chain;
-// use chrono::{DateTime, Local};
 use log::Record;
 use std::path::PathBuf;
 use std::time::Duration;
 use std::{fs, io, thread};
 use time::format_description::parse;
 use time::OffsetDateTime;
-// use time::macros::format_description;
 
 pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthRopsten;
 pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;

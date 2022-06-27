@@ -1682,7 +1682,6 @@ mod tests {
 
     #[test]
     pub fn neighborhood_handles_connection_progress_message_with_tcp_connection_established() {
-        init_test_logging();
         let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
@@ -1738,15 +1737,11 @@ mod tests {
 
     #[test]
     fn ask_about_debut_gossip_message_handles_timeout_in_case_no_response_is_received() {
-        init_test_logging();
         let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
             "ask_about_debut_gossip_message_handles_timeout_in_case_no_response_is_received",
         );
-        let (node_to_ui_recipient, node_to_ui_recording_arc) =
-            make_recipient_and_recording_arc(Some(TypeId::of::<NodeToUiMessage>()));
-        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         let connection_progress_to_modify = subject
             .overall_connection_status
             .get_connection_progress_by_ip(node_ip_addr)
@@ -1785,10 +1780,7 @@ mod tests {
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
-        let node_to_ui_mutex = node_to_ui_recording_arc.lock().unwrap();
-        let node_to_ui_message_opt = node_to_ui_mutex.get_record_opt::<NodeToUiMessage>(0);
         assert_eq!(system.run(), 0);
-        assert_eq!(node_to_ui_message_opt, None);
     }
 
     #[test]
@@ -1821,7 +1813,6 @@ mod tests {
 
     #[test]
     pub fn neighborhood_handles_connection_progress_message_with_tcp_connection_failed() {
-        init_test_logging();
         let (node_ip_addr, node_descriptor) = make_node(1);
         let subject = make_subject_from_node_descriptor(
             &node_descriptor,
@@ -1844,7 +1835,7 @@ mod tests {
                     can_make_routes: false,
                     stage: OverallConnectionStage::NotConnected,
                     progress: vec![ConnectionProgress {
-                        initial_node_descriptor: node_descriptor.clone(),
+                        initial_node_descriptor: node_descriptor,
                         current_peer_addr: node_ip_addr,
                         connection_stage: ConnectionStage::Failed(TcpConnectionFailed)
                     }]
@@ -1858,7 +1849,6 @@ mod tests {
 
     #[test]
     fn neighborhood_handles_a_connection_progress_message_with_pass_gossip_received() {
-        init_test_logging();
         let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
@@ -1890,7 +1880,7 @@ mod tests {
                     can_make_routes: false,
                     stage: OverallConnectionStage::NotConnected,
                     progress: vec![ConnectionProgress {
-                        initial_node_descriptor: node_descriptor.clone(),
+                        initial_node_descriptor: node_descriptor,
                         current_peer_addr: new_pass_target,
                         connection_stage: ConnectionStage::StageZero
                     }]
@@ -1904,7 +1894,6 @@ mod tests {
 
     #[test]
     fn neighborhood_handles_a_connection_progress_message_with_pass_loop_found() {
-        init_test_logging();
         let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
@@ -1935,7 +1924,7 @@ mod tests {
                     can_make_routes: false,
                     stage: OverallConnectionStage::NotConnected,
                     progress: vec![ConnectionProgress {
-                        initial_node_descriptor: node_descriptor.clone(),
+                        initial_node_descriptor: node_descriptor,
                         current_peer_addr: node_ip_addr,
                         connection_stage: ConnectionStage::Failed(PassLoopFound)
                     }]
@@ -1949,7 +1938,6 @@ mod tests {
 
     #[test]
     fn neighborhood_handles_a_connection_progress_message_with_introduction_gossip_received() {
-        init_test_logging();
         let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
@@ -1983,7 +1971,7 @@ mod tests {
                     can_make_routes: false,
                     stage: OverallConnectionStage::ConnectedToNeighbor,
                     progress: vec![ConnectionProgress {
-                        initial_node_descriptor: node_descriptor.clone(),
+                        initial_node_descriptor: node_descriptor,
                         current_peer_addr: node_ip_addr,
                         connection_stage: ConnectionStage::NeighborshipEstablished
                     }]
@@ -2009,7 +1997,6 @@ mod tests {
 
     #[test]
     fn neighborhood_handles_a_connection_progress_message_with_standard_gossip_received() {
-        init_test_logging();
         let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
@@ -2043,7 +2030,7 @@ mod tests {
                     can_make_routes: false,
                     stage: OverallConnectionStage::ConnectedToNeighbor,
                     progress: vec![ConnectionProgress {
-                        initial_node_descriptor: node_descriptor.clone(),
+                        initial_node_descriptor: node_descriptor,
                         current_peer_addr: node_ip_addr,
                         connection_stage: ConnectionStage::NeighborshipEstablished
                     }]
@@ -2069,7 +2056,6 @@ mod tests {
 
     #[test]
     fn neighborhood_handles_a_connection_progress_message_with_no_gossip_response_received() {
-        init_test_logging();
         let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = make_subject_from_node_descriptor(
             &node_descriptor,
@@ -2100,7 +2086,7 @@ mod tests {
                     can_make_routes: false,
                     stage: OverallConnectionStage::NotConnected,
                     progress: vec![ConnectionProgress {
-                        initial_node_descriptor: node_descriptor.clone(),
+                        initial_node_descriptor: node_descriptor,
                         current_peer_addr: node_ip_addr,
                         connection_stage: ConnectionStage::Failed(NoGossipResponseReceived)
                     }]
@@ -2115,7 +2101,6 @@ mod tests {
     #[test]
     pub fn progress_in_the_stage_of_overall_connection_status_made_by_one_cpm_is_not_overriden_by_the_other(
     ) {
-        init_test_logging();
         let peer_1 = make_ip(1);
         let peer_2 = make_ip(2);
         let initial_node_descriptors =
@@ -2151,7 +2136,7 @@ mod tests {
                 peer_addr: peer_1,
                 event: ConnectionProgressEvent::IntroductionGossipReceived(make_ip(4)),
             })
-            .unwrap();
+            .unwrap(); // By this step, the OverallConnectionStage will be changed from NotConnected to ConnectedToNeighbor
         cpm_recipient
             .try_send(ConnectionProgressMessage {
                 peer_addr: peer_2,
@@ -2164,7 +2149,7 @@ mod tests {
                 peer_addr: peer_2,
                 event: ConnectionProgressEvent::PassGossipReceived(make_ip(5)),
             })
-            .unwrap();
+            .unwrap(); // This step won't override the stage as it doesn't lead to any stage advancement
 
         let assertions = Box::new(move |actor: &mut Neighborhood| {
             assert_eq!(

@@ -10,8 +10,7 @@ workspace = "../node"
 
 [dependencies]
 actix = "0.7.9"
-#chrono = "0.4.7"
-time = {version = "0.3.11", features = [ "local-offset", "formatting" ]}
+time = {version = "0.3.11", features = [ "formatting" ]}
 clap = "2.33.3"
 const_format = "0.2.22"
 crossbeam-channel = "0.5.1"

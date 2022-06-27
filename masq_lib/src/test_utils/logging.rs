@@ -247,7 +247,7 @@ impl Log for TestLogger {
     fn log(&self, record: &Record<'_>) {
         let mut buffer = ByteArrayWriter::new();
         let now = OffsetDateTime::now_utc();
-        real_format_function(&mut buffer, now, record).expect("Unable to format the log.");
+        real_format_function(&mut buffer, now, record).unwrap();
         TestLogHandler::new().add_log(buffer.get_string());
     }
 

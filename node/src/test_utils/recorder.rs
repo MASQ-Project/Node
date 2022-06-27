@@ -248,7 +248,7 @@ impl Recorder {
         mut self,
         expected_count_by_messages: HashMap<TypeId, usize>,
     ) -> Recorder {
-        let system_killer = SystemKillerActor::new(Duration::from_secs(60));
+        let system_killer = SystemKillerActor::new(Duration::from_secs(15));
         system_killer.start();
         self.expected_count_by_msg_type_opt = Some(expected_count_by_messages);
         self

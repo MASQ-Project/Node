@@ -11,8 +11,7 @@ workspace = "../node"
 # See more keys and their definitions at  https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-#chrono = "0.4.19"
-time = {version = "0.3.11", features = [ "local-offset", "macros" ]}
+time = {version = "0.3.11", features = [ "macros" ]}
 clap = "2.33.3"
 crossbeam-channel = "0.5.1"
 itertools = "0.8.0"
