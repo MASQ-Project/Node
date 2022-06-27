@@ -282,6 +282,12 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
                 }
                 _ => (),
             }
+        } else {
+            trace!(
+                self.logger,
+                "An unnecessary ConnectionProgressMessage received from IP Address: {:?}",
+                msg.peer_addr
+            );
         }
     }
 }
@@ -294,9 +300,10 @@ impl Handler<AskAboutDebutGossipMessage> for Neighborhood {
         msg: AskAboutDebutGossipMessage,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
+        let node_descriptor = &msg.prev_connection_progress.initial_node_descriptor;
         if let Ok(current_connection_progress) = self
             .overall_connection_status
-            .get_connection_progress_by_desc(&msg.prev_connection_progress.initial_node_descriptor)
+            .get_connection_progress_by_desc(node_descriptor)
         {
             if msg.prev_connection_progress == *current_connection_progress {
                 // No change, hence no response was received
@@ -305,6 +312,12 @@ impl Handler<AskAboutDebutGossipMessage> for Neighborhood {
                     ConnectionProgressEvent::NoGossipResponseReceived,
                 );
             }
+        } else {
+            trace!(
+                self.logger,
+                "Received an AskAboutDebutGossipMessage for an unknown node descriptor: {:?}; ignoring",
+                node_descriptor
+            )
         }
     }
 }
@@ -1653,13 +1666,14 @@ mod tests {
     }
 
     #[test]
-    pub fn neighborhood_doesn_t_do_anything_if_it_receives_a_cpm_with_an_unknown_peer_addr() {
+    pub fn neighborhood_logs_with_trace_if_it_receives_a_cpm_with_an_unknown_peer_addr() {
+        init_test_logging();
         let known_peer = make_ip(1);
         let unknown_peer = make_ip(2);
         let node_descriptor = make_node_descriptor(known_peer);
         let subject = make_subject_from_node_descriptor(
             &node_descriptor,
-            "neighborhood_doesn_t_do_anything_if_it_receives_a_cpm_with_an_unknown_peer_addr",
+            "neighborhood_logs_with_trace_if_it_receives_a_cpm_with_an_unknown_peer_addr",
         );
         let initial_ocs = subject.overall_connection_status.clone();
         let addr = subject.start();
@@ -1678,6 +1692,10 @@ mod tests {
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
         assert_eq!(system.run(), 0);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "TRACE: Neighborhood: An unnecessary ConnectionProgressMessage received from IP Address: {:?}",
+            unknown_peer
+        ));
     }
 
     #[test]
@@ -1784,8 +1802,9 @@ mod tests {
     }
 
     #[test]
-    pub fn it_doesn_t_cause_a_panic_if_neighborhood_receives_ask_about_debut_message_from_unknown_descriptor(
+    pub fn neighborhood_logs_with_trace_if_it_receives_ask_about_debut_message_from_unknown_descriptor(
     ) {
+        init_test_logging();
         let (_known_ip, known_desc) = make_node(1);
         let (unknown_ip, unknown_desc) = make_node(2);
         let subject = make_subject_from_node_descriptor(&known_desc, "it_doesn_t_cause_a_panic_if_neighborhood_receives_ask_about_debut_message_from_unknown_descriptor");
@@ -1809,6 +1828,11 @@ mod tests {
         addr.try_send(AssertionsMessage { assertions }).unwrap();
         System::current().stop();
         assert_eq!(system.run(), 0);
+        TestLogHandler::new()
+            .exists_log_containing(
+                &format!("TRACE: Neighborhood: Received an AskAboutDebutGossipMessage for an unknown node descriptor: {:?}; ignoring",
+                         unknown_desc)
+            );
     }
 
     #[test]
