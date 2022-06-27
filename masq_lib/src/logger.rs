@@ -16,6 +16,9 @@ use log::Metadata;
 #[allow(unused_imports)]
 use log::Record;
 use std::sync::Mutex;
+use std::{io, thread};
+use time::format_description::parse;
+use time::OffsetDateTime;
 
 const UI_MESSAGE_LOG_LEVEL: Level = Level::Info;
 
@@ -215,6 +218,28 @@ impl From<Level> for SerializableLogLevel {
             _ => panic!("The level you're converting is below log broadcast level."),
         }
     }
+}
+
+pub fn real_format_function(
+    write: &mut dyn io::Write,
+    timestamp: OffsetDateTime,
+    record: &Record,
+) -> Result<(), io::Error> {
+    let timestamp = timestamp
+        .format(
+            &parse("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]")
+                .expect("Unable to parse the formatting type."),
+        )
+        .expect("Unable to format date and time.");
+    let thread_id_str = format!("{:?}", thread::current().id());
+    let thread_id = &thread_id_str[9..(thread_id_str.len() - 1)];
+    let level = record.level();
+    let name = record.module_path().unwrap_or("<unnamed>");
+    write.write_fmt(format_args!(
+        "{} Thd{}: {}: {}: ",
+        timestamp, thread_id, level, name
+    ))?;
+    write.write_fmt(*record.args())
 }
 
 #[cfg(feature = "log_recipient_test")]

@@ -14,9 +14,9 @@ use flexi_logger::{
 use futures::try_ready;
 use lazy_static::lazy_static;
 use masq_lib::command::StdStreams;
+use masq_lib::logger::real_format_function;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::test_utils::utils::real_format_function;
 use std::any::Any;
 use std::io;
 use std::panic::{Location, PanicInfo};
