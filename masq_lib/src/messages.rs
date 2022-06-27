@@ -562,7 +562,7 @@ conversation_message!(UiDescriptorResponse, "descriptor");
 pub struct UiFinancialsRequest {
     pub stats_required: bool,
     #[serde(rename = "topRecordsOpt")]
-    pub top_records_opt: Option<usize>,
+    pub top_records_opt: Option<u16>,
     #[serde(rename = "customQueriesOpt")]
     pub custom_queries_opt: Option<CustomQueries>,
 }
@@ -629,16 +629,16 @@ pub struct CustomQueryResult {
 pub struct UiPayableAccount {
     pub wallet: String,
     pub age: u64,
-    pub amount: u128,
-    #[serde(rename = "pendingPayableRowidOpt")]
-    pub pending_payable_rowid_opt: Option<u64>,
+    pub balance: u128,
+    #[serde(rename = "pendingPayableHashOpt")]
+    pub pending_payable_hash_opt: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiReceivableAccount {
     pub wallet: String,
     pub age: u64,
-    pub amount: i128,
+    pub balance: i128,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]

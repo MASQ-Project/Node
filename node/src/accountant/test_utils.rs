@@ -32,6 +32,7 @@ use crate::test_utils::unshared_test_utils::{
 use actix::System;
 use ethereum_types::{BigEndianHash, H256, U256};
 use itertools::Either;
+use masq_lib::messages::UiPayableAccount;
 use rusqlite::Transaction as RusqliteTransaction;
 use std::cell::RefCell;
 use std::fmt::Display;
@@ -269,18 +270,18 @@ impl ConfigDaoFactoryMock {
 pub struct PayableDaoMock {
     more_money_payable_parameters: Arc<Mutex<Vec<(Wallet, u128)>>>,
     more_money_payable_results: RefCell<Vec<Result<(), PayableDaoError>>>,
-    non_pending_payables_params: Arc<Mutex<Vec<()>>>,
-    non_pending_payables_results: RefCell<Vec<Vec<PayableAccount>>>,
+    non_pending_payable_params: Arc<Mutex<Vec<()>>>,
+    non_pending_payable_results: RefCell<Vec<Vec<PayableAccount>>>,
     mark_pending_payable_rowid_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
     mark_pending_payable_rowid_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     transaction_confirmed_params: Arc<Mutex<Vec<PendingPayableFingerprint>>>,
     transaction_confirmed_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     transaction_canceled_params: Arc<Mutex<Vec<PendingPayableId>>>,
     transaction_canceled_results: RefCell<Vec<Result<(), PayableDaoError>>>,
-    top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
-    top_records_results: RefCell<Vec<Vec<PayableAccount>>>,
+    custom_query_params: Arc<Mutex<Vec<CustomQuery<u128>>>>,
+    custom_query_result: RefCell<Vec<Option<Vec<PayableAccount>>>>,
     total_results: RefCell<Vec<u128>>,
-    pub have_non_pending_payables_shut_down_the_system: bool,
+    pub have_non_pending_payable_shut_down_the_system: bool,
 }
 
 impl PayableDao for PayableDaoMock {
@@ -318,27 +319,20 @@ impl PayableDao for PayableDaoMock {
     }
 
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
-        self.non_pending_payables_params.lock().unwrap().push(());
-        if self.have_non_pending_payables_shut_down_the_system
-            && self.non_pending_payables_results.borrow().is_empty()
+        self.non_pending_payable_params.lock().unwrap().push(());
+        if self.have_non_pending_payable_shut_down_the_system
+            && self.non_pending_payable_results.borrow().is_empty()
         {
             System::current().stop();
             return vec![];
         }
-        self.non_pending_payables_results.borrow_mut().remove(0)
+        self.non_pending_payable_results.borrow_mut().remove(0)
     }
 
     fn custom_query(&self, custom_query: CustomQuery<u128>) -> Option<Vec<PayableAccount>> {
-        todo!()
+        self.custom_query_params.lock().unwrap().push(custom_query);
+        self.custom_query_result.borrow_mut().remove(0)
     }
-
-    // fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
-    //     self.top_records_parameters
-    //         .lock()
-    //         .unwrap()
-    //         .push((minimum_amount, maximum_age));
-    //     self.top_records_results.borrow_mut().remove(0)
-    // }
 
     fn total(&self) -> u128 {
         self.total_results.borrow_mut().remove(0)
@@ -369,12 +363,12 @@ impl PayableDaoMock {
     }
 
     pub fn non_pending_payables_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-        self.non_pending_payables_params = params.clone();
+        self.non_pending_payable_params = params.clone();
         self
     }
 
     pub fn non_pending_payables_result(self, result: Vec<PayableAccount>) -> Self {
-        self.non_pending_payables_results.borrow_mut().push(result);
+        self.non_pending_payable_results.borrow_mut().push(result);
         self
     }
 
@@ -419,13 +413,13 @@ impl PayableDaoMock {
         self
     }
 
-    pub fn top_records_parameters(mut self, parameters: &Arc<Mutex<Vec<(u64, u64)>>>) -> Self {
-        self.top_records_parameters = parameters.clone();
+    pub fn custom_query_params(mut self, params: &Arc<Mutex<Vec<CustomQuery<u128>>>>) -> Self {
+        self.custom_query_params = params.clone();
         self
     }
 
-    pub fn top_records_result(self, result: Vec<PayableAccount>) -> Self {
-        self.top_records_results.borrow_mut().push(result);
+    pub fn custom_query_result(self, result: Option<Vec<PayableAccount>>) -> Self {
+        self.custom_query_result.borrow_mut().push(result);
         self
     }
 
@@ -445,8 +439,8 @@ pub struct ReceivableDaoMock {
     new_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     paid_delinquencies_parameters: Arc<Mutex<Vec<PaymentThresholds>>>,
     paid_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
-    top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
-    top_records_results: RefCell<Vec<Vec<ReceivableAccount>>>,
+    custom_query_params: Arc<Mutex<Vec<CustomQuery<i128>>>>,
+    custom_query_result: RefCell<Vec<Option<Vec<ReceivableAccount>>>>,
     total_results: RefCell<Vec<i128>>,
     pub have_new_delinquencies_shutdown_the_system: bool,
 }
@@ -498,15 +492,9 @@ impl ReceivableDao for ReceivableDaoMock {
     }
 
     fn custom_query(&self, custom_query: CustomQuery<i128>) -> Option<Vec<ReceivableAccount>> {
-        todo!()
+        self.custom_query_params.lock().unwrap().push(custom_query);
+        self.custom_query_result.borrow_mut().remove(0)
     }
-    // fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
-    //     self.top_records_parameters
-    //         .lock()
-    //         .unwrap()
-    //         .push((minimum_amount, maximum_age));
-    //     self.top_records_results.borrow_mut().remove(0)
-    // }
 
     fn total(&self) -> i128 {
         self.total_results.borrow_mut().remove(0)
@@ -575,13 +563,13 @@ impl ReceivableDaoMock {
         self
     }
 
-    pub fn top_records_parameters(mut self, parameters: &Arc<Mutex<Vec<(u64, u64)>>>) -> Self {
-        self.top_records_parameters = parameters.clone();
+    pub fn custom_query_params(mut self, params: &Arc<Mutex<Vec<CustomQuery<i128>>>>) -> Self {
+        self.custom_query_params = params.clone();
         self
     }
 
-    pub fn top_records_result(self, result: Vec<ReceivableAccount>) -> Self {
-        self.top_records_results.borrow_mut().push(result);
+    pub fn custom_query_result(self, result: Option<Vec<ReceivableAccount>>) -> Self {
+        self.custom_query_result.borrow_mut().push(result);
         self
     }
 

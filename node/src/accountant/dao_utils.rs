@@ -1,8 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::accountant::payable_dao::PayableAccount;
+use crate::accountant::receivable_dao::ReceivableAccount;
 use crate::accountant::{checked_conversion, sign_conversion};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
+use crate::sub_lib::utils::to_string;
+use masq_lib::messages::{UiPayableAccount, UiReceivableAccount};
 use masq_lib::utils::ExpectValue;
 use rusqlite::{params_from_iter, Row, ToSql};
 use std::cell::RefCell;
@@ -56,11 +60,12 @@ impl DaoFactoryReal {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
 pub enum CustomQuery<N> {
-    TopRecords(usize),
+    TopRecords(u16),
     RangeQuery {
-        min_age: usize,
-        max_age: usize,
+        min_age: u64,
+        max_age: u64,
         min_amount: N,
         max_amount: N,
     },
@@ -115,10 +120,35 @@ impl<N: Copy + Display> CustomQuery<N> {
                 } else {
                     Some(vectored)
                 }
-            } //TODO flatten???
+            }
             Err(e) => todo!("{:?}", e),
         }
     }
+}
+
+pub fn remap_payable_accounts(accounts: Vec<PayableAccount>) -> Vec<UiPayableAccount> {
+    accounts
+        .into_iter()
+        .map(|account| UiPayableAccount {
+            wallet: account.wallet.to_string(),
+            age: (to_time_t(SystemTime::now()) - to_time_t(account.last_paid_timestamp)) as u64,
+            balance: account.balance,
+            pending_payable_hash_opt: account
+                .pending_payable_opt
+                .map(|full_id| full_id.hash.to_string()),
+        })
+        .collect()
+}
+
+pub fn remap_receivable_accounts(accounts: Vec<ReceivableAccount>) -> Vec<UiReceivableAccount> {
+    accounts
+        .into_iter()
+        .map(|account| UiReceivableAccount {
+            wallet: account.wallet.to_string(),
+            age: (to_time_t(SystemTime::now()) - to_time_t(account.last_received_timestamp)) as u64,
+            balance: account.balance,
+        })
+        .collect()
 }
 
 #[cfg(test)]

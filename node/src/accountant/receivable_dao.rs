@@ -1295,7 +1295,7 @@ mod tests {
             )
         };
         let subject =
-            custom_query_test_body_receivable("custom_query_in_top_records_mode", main_test_setup);
+            custom_query_test_body_receivable("custom_query_in_range_mode", main_test_setup);
 
         let result = subject
             .custom_query(CustomQuery::RangeQuery {
@@ -1492,7 +1492,7 @@ mod tests {
     where
         F: Fn(&dyn Fn(&str, i128, i64)),
     {
-        let home_dir = ensure_node_home_directory_exists("receivable_dao", "top_records_and_total");
+        let home_dir = ensure_node_home_directory_exists("receivable_dao", test_name);
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
