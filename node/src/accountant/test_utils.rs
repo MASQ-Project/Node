@@ -32,7 +32,7 @@ use crate::test_utils::unshared_test_utils::{
 use actix::System;
 use ethereum_types::{BigEndianHash, H256, U256};
 use itertools::Either;
-use rusqlite::Transaction as RusqliteTransaction;
+use rusqlite::{Connection, Row, Transaction as RusqliteTransaction};
 use std::cell::RefCell;
 use std::fmt::Display;
 use std::rc::Rc;
@@ -996,4 +996,18 @@ pub fn assert_on_sloped_segment_of_payment_thresholds_and_its_proper_alignment<F
         ideal_template_lower,
         lower_corner_point
     );
+}
+
+pub fn assert_database_blows_up_on_unexpected_error<F, R>(tested_fn: F)
+where
+    F: Fn(&Row) -> rusqlite::Result<R>,
+{
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute("create table whatever (exclamations text)", [])
+        .unwrap();
+    conn.execute("insert into whatever (exclamations) values ('Gosh')", [])
+        .unwrap();
+
+    conn.query_row("select exclamations from whatever", [], tested_fn)
+        .unwrap();
 }

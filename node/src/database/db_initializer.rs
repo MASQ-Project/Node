@@ -280,7 +280,8 @@ impl DbInitializerReal {
     }
 
     fn create_pending_payable_table(&self, conn: &Connection) {
-        //TODO the rowid argument could be left out?.......I did that already...everything ok?
+        //TODO the rowid argument could be left out? I removed that already...but what about VACUUM command from sqlite??
+        // will we want to start using it?
         conn.execute(
             "create table if not exists pending_payable (
                     transaction_hash text not null,

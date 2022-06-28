@@ -273,27 +273,32 @@ impl PayableDaoReal {
             balance_result,
             last_paid_timestamp_result,
             pending_payable_rowid_result,
-            pending_payable_hash_result
+            pending_payable_hash_result,
         ) {
-            (Ok(wallet), Ok(balance), Ok(last_paid_timestamp), Ok(rowid),Ok(hash_opt)) => Ok(PayableAccount {
-                wallet,
-                balance,
-                last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                pending_payable_opt: match rowid {
-                    Some(rowid) => Some({
-                        let hash_str = hash_opt.expect("database corrupt; missing hash but existing rowid");
-                        PendingPayableId {
-                        rowid: u64::try_from(rowid).unwrap(),
-                        hash: H256::from_str(&hash_str[2..]).unwrap_or_else(|_|panic!("wrong form of tx hash {}", hash_str)),
-                    }}),
-                    None => None,
-                },
-            }),
-            e => todo!("{:?}",e)
-                // panic!(
-                //                  "Database is corrupt: PAYABLE table columns and/or types: {:?}",
-                //            e
-            //),
+            (Ok(wallet), Ok(balance), Ok(last_paid_timestamp), Ok(rowid), Ok(hash_opt)) => {
+                Ok(PayableAccount {
+                    wallet,
+                    balance,
+                    last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                    pending_payable_opt: match rowid {
+                        Some(rowid) => Some({
+                            let hash_str = hash_opt
+                                .expect("database corrupt; missing hash but existing rowid");
+                            PendingPayableId {
+                                rowid: u64::try_from(rowid).unwrap(),
+                                hash: H256::from_str(&hash_str[2..]).unwrap_or_else(|_| {
+                                    panic!("wrong form of tx hash {}", hash_str)
+                                }),
+                            }
+                        }),
+                        None => None,
+                    },
+                })
+            }
+            e => panic!(
+                "Database is corrupt: PAYABLE table columns and/or types: {:?}",
+                e
+            ),
         }
     }
 }
@@ -304,7 +309,8 @@ mod tests {
     use crate::accountant::blob_utils::{InsertUpdateError, Table};
     use crate::accountant::dao_utils::{from_time_t, to_time_t};
     use crate::accountant::test_utils::{
-        convert_to_all_string_values, make_pending_payable_fingerprint, InsertUpdateCoreMock,
+        assert_database_blows_up_on_unexpected_error, convert_to_all_string_values,
+        make_pending_payable_fingerprint, InsertUpdateCoreMock,
     };
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer;
@@ -988,6 +994,14 @@ mod tests {
         let result = subject.total();
 
         assert_eq!(result, 0)
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Database is corrupt: PAYABLE table columns and/or types: (Err(FromSqlConversionFailure(0, Text, InvalidAddress)), Err(InvalidColumnIndex(1))"
+    )]
+    fn form_payable_account_panics_on_database_error() {
+        assert_database_blows_up_on_unexpected_error(PayableDaoReal::form_payable_account);
     }
 
     #[test]

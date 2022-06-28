@@ -614,8 +614,6 @@ impl Accountant {
             self.payable_threshold_tools
                 .calculate_payout_threshold(&self.config.payment_thresholds, time_since_last_paid),
         );
-        eprintln!("threshold: {} wei", threshold);
-        eprintln!("balance:   {} wei", payable.balance);
         if payable.balance > threshold {
             Some(threshold)
         } else {
@@ -1321,7 +1319,7 @@ impl Accountant {
 #[derive(Debug, PartialEq, Clone)]
 enum PendingTransactionStatus {
     StillPending(PendingPayableId), //updates slightly the record, waits an interval and starts a new round
-    Failure(PendingPayableId),      //clear tx failure
+    Failure(PendingPayableId),      //standard tx failure
     Confirmed(PendingPayableFingerprint), //tx was fully processed and successful
 }
 

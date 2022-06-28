@@ -565,8 +565,8 @@ pub mod common_validators {
         }
     }
 
-    pub fn validate_non_zero_usize(str: String) -> Result<(), String> {
-        match str::parse::<usize>(&str) {
+    pub fn validate_u16(str: String) -> Result<(), String> {
+        match str::parse::<u16>(&str) {
             Ok(num) if num > 0 => Ok(()),
             _ => Err(str),
         }
@@ -678,7 +678,7 @@ mod tests {
 
     use super::*;
     use crate::blockchains::chains::Chain;
-    use crate::shared_schema::common_validators::{validate_non_zero_usize, validate_two_ranges};
+    use crate::shared_schema::common_validators::{validate_two_ranges, validate_u16};
     use crate::shared_schema::{common_validators, official_chain_names};
 
     #[test]
@@ -1087,28 +1087,28 @@ mod tests {
 
     #[test]
     fn validate_non_zero_usize_happy_path() {
-        let result = validate_non_zero_usize("456".to_string());
+        let result = validate_u16("456".to_string());
 
         assert_eq!(result, Ok(()))
     }
 
     #[test]
     fn validate_non_zero_usize_sad_path_with_zero() {
-        let result = validate_non_zero_usize("0".to_string());
+        let result = validate_u16("0".to_string());
 
         assert_eq!(result, Err("0".to_string()))
     }
 
     #[test]
     fn validate_non_zero_usize_sad_path_with_negative() {
-        let result = validate_non_zero_usize("-123".to_string());
+        let result = validate_u16("-123".to_string());
 
         assert_eq!(result, Err("-123".to_string()))
     }
 
     #[test]
     fn validate_non_zero_usize_sad_path_just_garbage() {
-        let result = validate_non_zero_usize("garbage".to_string());
+        let result = validate_u16("garbage".to_string());
 
         assert_eq!(result, Err("garbage".to_string()))
     }
