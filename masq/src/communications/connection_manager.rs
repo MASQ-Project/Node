@@ -555,7 +555,7 @@ mod tests {
     use crate::test_utils::client_utils::make_client;
     use crossbeam_channel::TryRecvError;
     use masq_lib::messages::{
-        CrashReason, FinancialStatistics, FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast,
+        CrashReason, FromMessageBody, ToMessageBody, UiFinancialStatistics, UiNodeCrashedBroadcast,
         UiSetupBroadcast,
     };
     use masq_lib::messages::{
@@ -1171,7 +1171,7 @@ mod tests {
         let node_port = find_free_port();
         let node_server = MockWebSocketsServer::new(node_port).queue_response(
             UiFinancialsResponse {
-                stats_opt: Some(FinancialStatistics {
+                stats_opt: Some(UiFinancialStatistics {
                     total_unpaid_and_pending_payable: 10,
                     total_paid_payable: 22,
                     total_unpaid_receivable: 29,
@@ -1214,7 +1214,7 @@ mod tests {
         assert_eq!(
             response,
             UiFinancialsResponse {
-                stats_opt: Some(FinancialStatistics {
+                stats_opt: Some(UiFinancialStatistics {
                     total_unpaid_and_pending_payable: 10,
                     total_paid_payable: 22,
                     total_unpaid_receivable: 29,

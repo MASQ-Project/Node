@@ -24,13 +24,13 @@ const PAYABLE_ARG_HELP: &str = "Allows to configure a detailed query for payable
 const RECEIVABLE_ARG_HELP: &str = "Allows to configure a detailed query for receivable with ranges about the age and balance of records. The required format of the query's input is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>";
 const NO_STATS_ARG_HELP: &str = "Disables the default statistics about totals of paid and unpaid money from both your debtors and creditors";
 const WALLET_ADDRESS_LENGTH: usize = 42;
-const PAYABLE_HEADERS: &[&str] = &["Wallet", "Age [s]", "Balance [Wei]", "Tx rowid"];
+const PAYABLE_HEADERS: &[&str] = &["Wallet", "Age [s]", "Balance [Wei]", "Pending tx"];
 const RECEIVABLE_HEADERS: &[&str] = &["Wallet", "Age [s]", "Balance [Wei]"];
 
 #[derive(Debug, Clone)]
 pub struct FinancialsCommand {
     stats_required: bool,
-    top_records_opt: Option<usize>,
+    top_records_opt: Option<u16>,
     custom_queries_opt: Option<CustomQueries>,
 }
 
@@ -221,7 +221,7 @@ impl FinancialsCommand {
         };
         let stats_required = !matches.is_present("no-stats");
         let top_records_opt = matches.value_of("top").map(|str| {
-            str.parse::<usize>()
+            str.parse::<u16>()
                 .expect("top records count not properly required")
         });
         let custom_payable_opt = Self::parse_range_query(&matches, "payable");
@@ -340,11 +340,11 @@ impl FinancialsCommand {
             "|{:wallet_width$}|{:>age_width$}|{:>balance_width$}|{:>rowid_width$}|",
             account.wallet,
             account.age.separate_with_commas(),
-            account.amount.separate_with_commas(),
-            if let Some(rowid) = account.pending_payable_rowid_opt {
-                rowid.to_string().separate_with_commas()
+            account.balance.separate_with_commas(),
+            if let Some(hash) = &account.pending_payable_hash_opt {
+                hash.as_str()
             } else {
-                "None".to_string()
+                "None"
             },
             wallet_width = WALLET_ADDRESS_LENGTH,
             age_width = width_config[0],
@@ -396,7 +396,7 @@ impl FinancialsCommand {
             "|{:wallet_width$}|{:>age_width$}|{:>balance_width$}|",
             account.wallet,
             account.age.separate_with_commas(),
-            account.amount.separate_with_commas(),
+            account.balance.separate_with_commas(),
             wallet_width = WALLET_ADDRESS_LENGTH,
             age_width = width_config[0],
             balance_width = width_config[1],
@@ -472,8 +472,8 @@ impl FinancialsCommand {
         })
     }
 
-    fn count_length_with_comma_separators<N: Display>(number: N) -> usize {
-        let gross_length = number.to_string().len();
+    fn count_length_with_comma_separators<N: Display>(value: N) -> usize {
+        let gross_length = value.to_string().len();
         let triple_chars = gross_length / 3;
         let possible_reminder = gross_length % 3;
         if possible_reminder == 0 {
@@ -496,14 +496,12 @@ impl WidthInfo for UiPayableAccount {
     fn widths(&self) -> Vec<usize> {
         vec![
             FinancialsCommand::count_length_with_comma_separators(self.age),
-            FinancialsCommand::count_length_with_comma_separators(self.amount),
-            FinancialsCommand::count_length_with_comma_separators(
-                if let Some(pending_payable_rowid) = self.pending_payable_rowid_opt {
-                    FinancialsCommand::count_length_with_comma_separators(pending_payable_rowid)
-                } else {
-                    0
-                },
-            ),
+            FinancialsCommand::count_length_with_comma_separators(self.balance),
+            if let Some(transaction_hash) = &self.pending_payable_hash_opt {
+                transaction_hash.len()
+            } else {
+                0
+            },
         ]
     }
 }
@@ -512,7 +510,7 @@ impl WidthInfo for UiReceivableAccount {
     fn widths(&self) -> Vec<usize> {
         vec![
             FinancialsCommand::count_length_with_comma_separators(self.age),
-            FinancialsCommand::count_length_with_comma_separators(self.amount),
+            FinancialsCommand::count_length_with_comma_separators(self.balance),
         ]
     }
 }
@@ -525,7 +523,7 @@ mod tests {
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{
-        CustomQueryResult, FinancialStatistics, FirmQueryResult, ToMessageBody,
+        CustomQueryResult, FirmQueryResult, ToMessageBody, UiFinancialStatistics,
         UiFinancialsResponse, UiPayableAccount, UiReceivableAccount,
     };
     use masq_lib::utils::array_of_borrows_to_vec;
@@ -547,7 +545,7 @@ mod tests {
         assert_eq!(WALLET_ADDRESS_LENGTH, 42);
         assert_eq!(
             PAYABLE_HEADERS,
-            &["Wallet", "Age [s]", "Balance [Wei]", "Tx rowid"]
+            &["Wallet", "Age [s]", "Balance [Wei]", "Pending tx"]
         );
         assert_eq!(RECEIVABLE_HEADERS, &["Wallet", "Age [s]", "Balance [Wei]"]);
     }
@@ -556,7 +554,7 @@ mod tests {
     fn command_factory_default_command() {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new().transact_result(Ok(UiFinancialsResponse {
-            stats_opt: Some(FinancialStatistics {
+            stats_opt: Some(UiFinancialStatistics {
                 total_unpaid_and_pending_payable: 0,
                 total_paid_payable: 1111,
                 total_unpaid_receivable: 2222,
@@ -603,7 +601,7 @@ mod tests {
     fn command_factory_everything_demanded() {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new().transact_result(Ok(UiFinancialsResponse {
-            stats_opt: Some(FinancialStatistics {
+            stats_opt: Some(UiFinancialStatistics {
                 total_unpaid_and_pending_payable: 0,
                 total_paid_payable: 1111,
                 total_unpaid_receivable: 2222,
@@ -638,7 +636,7 @@ mod tests {
     fn default_financials_command_happy_path() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiFinancialsResponse {
-            stats_opt: Some(FinancialStatistics {
+            stats_opt: Some(UiFinancialStatistics {
                 total_unpaid_and_pending_payable: 116688,
                 total_paid_payable: 55555458897001,
                 total_unpaid_receivable: 221144,
@@ -735,7 +733,7 @@ mod tests {
     fn financials_command_everything_demanded_happy_path() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiFinancialsResponse {
-            stats_opt: Some(FinancialStatistics {
+            stats_opt: Some(UiFinancialStatistics {
                 total_unpaid_and_pending_payable: 116688555,
                 total_paid_payable: 555554578,
                 total_unpaid_receivable: 4572221144,
@@ -746,28 +744,34 @@ mod tests {
                     UiPayableAccount {
                         wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
                         age: 150000,
-                        amount: 8456582898,
-                        pending_payable_rowid_opt: Some(5),
+                        balance: 8456582898,
+                        pending_payable_hash_opt: Some(
+                            "0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e"
+                                .to_string(),
+                        ),
                     },
                     UiPayableAccount {
                         wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
                         age: 5645405400,
-                        amount: 884332566,
-                        pending_payable_rowid_opt: None,
+                        balance: 884332566,
+                        pending_payable_hash_opt: None,
                     },
                 ]),
                 receivable_opt: Some(vec![UiReceivableAccount {
                     wallet: "0x6e250504DdfFDb986C4F0bb8Df162503B4118b05".to_string(),
                     age: 22000,
-                    amount: 12444551012,
+                    balance: 12444551012,
                 }]),
             }),
             custom_query_records_opt: Some(CustomQueryResult {
                 payable_opt: Some(vec![UiPayableAccount {
                     wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
                     age: 150000,
-                    amount: 8456582898,
-                    pending_payable_rowid_opt: Some(5),
+                    balance: 8456582898,
+                    pending_payable_hash_opt: Some(
+                        "0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e"
+                            .to_string(),
+                    ),
                 }]),
                 receivable_opt: None,
             }),
@@ -829,10 +833,10 @@ mod tests {
                 \n\
                 Top 123 accounts in payable\n\
                 ===========================\n\
-                |                  Wallet                  |   Age [s]   | Balance [Wei] | Tx rowid |\n\
-                -------------------------------------------------------------------------------------\n\
-                |0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440|      150,000|  8,456,582,898|         5|\n\
-                |0xA884A2F1A5Ec6C2e499644666a5E6af97B966888|5,645,405,400|    884,332,566|      None|\n\
+                |                  Wallet                  |   Age [s]   | Balance [Wei] |                            Pending tx                            |\n\
+                ---------------------------------------------------------------------------------------------------------------------------------------------\n\
+                |0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440|      150,000|  8,456,582,898|0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e|\n\
+                |0xA884A2F1A5Ec6C2e499644666a5E6af97B966888|5,645,405,400|    884,332,566|                                                              None|\n\
                 \n\
                 \n\
                 Top 123 accounts in receivable\n\
@@ -844,9 +848,9 @@ mod tests {
                 \n\
                 Payable query with parameters: 0-350000 s and 5000000-9000000000 Wei\n\
                 ====================================================================\n\
-                |                  Wallet                  | Age [s] | Balance [Wei] | Tx rowid |\n\
-                ---------------------------------------------------------------------------------\n\
-                |0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440|  150,000|  8,456,582,898|         5|\n\
+                |                  Wallet                  | Age [s] | Balance [Wei] |                            Pending tx                            |\n\
+                -----------------------------------------------------------------------------------------------------------------------------------------\n\
+                |0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440|  150,000|  8,456,582,898|0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e|\n\
                 \n\
                 \n\
                 Receivable query with parameters: 5000-10000 s and 3000000-5600070000 Wei\n\
@@ -865,7 +869,7 @@ mod tests {
     fn financials_command_no_records_found_with_everything_demanded() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiFinancialsResponse {
-            stats_opt: Some(FinancialStatistics {
+            stats_opt: Some(UiFinancialStatistics {
                 total_unpaid_and_pending_payable: 116688,
                 total_paid_payable: 55555,
                 total_unpaid_receivable: 221144,
@@ -938,9 +942,9 @@ mod tests {
 |
 |Top 10 accounts in payable
 |==========================
-||                  Wallet                  | Age [s] | Balance [Wei] | Tx rowid |
-|---------------------------------------------------------------------------------
-|                                No records found                                 \n\
+||                  Wallet                  | Age [s] | Balance [Wei] | Pending tx |
+|-----------------------------------------------------------------------------------
+|                                 No records found                                  \n\
 |
 |
 |Top 10 accounts in receivable
@@ -952,9 +956,9 @@ mod tests {
 |
 |Payable query with parameters: 0-400000 s and 5000000-60000000 Wei
 |==================================================================
-||                  Wallet                  | Age [s] | Balance [Wei] | Tx rowid |
-|---------------------------------------------------------------------------------
-|                                No records found                                 \n\
+||                  Wallet                  | Age [s] | Balance [Wei] | Pending tx |
+|-----------------------------------------------------------------------------------
+|                                 No records found                                  \n\
 |
 |
 |Receivable query with parameters: 40000-80000 s and 10000-1000000000 Wei
@@ -978,13 +982,16 @@ mod tests {
                 payable_opt: Some(vec![UiPayableAccount {
                     wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
                     age: 5645405400,
-                    amount: 6000000,
-                    pending_payable_rowid_opt: Some(500560),
+                    balance: 6000000,
+                    pending_payable_hash_opt: Some(
+                        "0x3648c8b8c7e067ac30b80b6936159326d564dd13b7ae465b26647154ada2c638"
+                            .to_string(),
+                    ),
                 }]),
                 receivable_opt: Some(vec![UiReceivableAccount {
                     wallet: "0x6e250504DdfFDb986C4F0bb8Df162503B4118b05".to_string(),
                     age: 11111111,
-                    amount: 12444551012,
+                    balance: 12444551012,
                 }]),
             }),
             custom_query_records_opt: None,
@@ -1019,9 +1026,9 @@ mod tests {
                 \n\
                 Top 7 accounts in payable\n\
                 =========================\n\
-                |                  Wallet                  |   Age [s]   | Balance [Wei] | Tx rowid |\n\
-                -------------------------------------------------------------------------------------\n\
-                |0xA884A2F1A5Ec6C2e499644666a5E6af97B966888|5,645,405,400|      6,000,000|   500,560|\n\
+                |                  Wallet                  |   Age [s]   | Balance [Wei] |                            Pending tx                            |\n\
+                ---------------------------------------------------------------------------------------------------------------------------------------------\n\
+                |0xA884A2F1A5Ec6C2e499644666a5E6af97B966888|5,645,405,400|      6,000,000|0x3648c8b8c7e067ac30b80b6936159326d564dd13b7ae465b26647154ada2c638|\n\
                 \n\
                 \n\
                 Top 7 accounts in receivable\n\
@@ -1044,20 +1051,23 @@ mod tests {
                     UiPayableAccount {
                         wallet: "0x6e250504DdfFDb986C4F0bb8Df162503B4118b05".to_string(),
                         age: 4445,
-                        amount: 9898999888,
-                        pending_payable_rowid_opt: Some(15),
+                        balance: 9898999888,
+                        pending_payable_hash_opt: Some(
+                            "0x5fe272ed1e941cc05fbd624ec4b1546cd03c25d53e24ba2c18b11feb83cd4581"
+                                .to_string(),
+                        ),
                     },
                     UiPayableAccount {
                         wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
                         age: 70000,
-                        amount: 708090,
-                        pending_payable_rowid_opt: None,
+                        balance: 708090,
+                        pending_payable_hash_opt: None,
                     },
                     UiPayableAccount {
                         wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
                         age: 6089909,
-                        amount: 66658,
-                        pending_payable_rowid_opt: None,
+                        balance: 66658,
+                        pending_payable_hash_opt: None,
                     },
                 ]),
                 receivable_opt: None,
@@ -1106,11 +1116,11 @@ mod tests {
                 \n\
                 Payable query with parameters: 3000-40000 s and 8866-10000000 Wei\n\
                 =================================================================\n\
-                |                  Wallet                  | Age [s] | Balance [Wei] | Tx rowid |\n\
-                ---------------------------------------------------------------------------------\n\
-                |0x6e250504DdfFDb986C4F0bb8Df162503B4118b05|    4,445|  9,898,999,888|        15|\n\
-                |0xA884A2F1A5Ec6C2e499644666a5E6af97B966888|   70,000|        708,090|      None|\n\
-                |0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440|6,089,909|         66,658|      None|\n"
+                |                  Wallet                  | Age [s] | Balance [Wei] |                            Pending tx                            |\n\
+                -----------------------------------------------------------------------------------------------------------------------------------------\n\
+                |0x6e250504DdfFDb986C4F0bb8Df162503B4118b05|    4,445|  9,898,999,888|0x5fe272ed1e941cc05fbd624ec4b1546cd03c25d53e24ba2c18b11feb83cd4581|\n\
+                |0xA884A2F1A5Ec6C2e499644666a5E6af97B966888|   70,000|        708,090|                                                              None|\n\
+                |0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440|6,089,909|         66,658|                                                              None|\n"
         );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
@@ -1127,17 +1137,17 @@ mod tests {
                     UiReceivableAccount {
                         wallet: "0x6e250504DdfFDb986C4F0bb8Df162503B4118b05".to_string(),
                         age: 4445,
-                        amount: 9898999888,
+                        balance: 9898999888,
                     },
                     UiReceivableAccount {
                         wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
                         age: 70000,
-                        amount: 708090,
+                        balance: 708090,
                     },
                     UiReceivableAccount {
                         wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
                         age: 6089909,
-                        amount: 66658,
+                        balance: 66658,
                     },
                 ]),
             }),

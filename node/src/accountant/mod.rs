@@ -1025,7 +1025,7 @@ impl Accountant {
                 },
             )
         } else {
-            todo!()
+            None
         }
     }
 
@@ -1472,7 +1472,7 @@ mod tests {
         MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
     };
 
-    use crate::accountant::dao_utils::{from_time_t, now_time_t};
+    use crate::accountant::dao_utils::from_time_t;
     use crate::accountant::dao_utils::{to_time_t, CustomQuery};
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
@@ -4894,8 +4894,6 @@ mod tests {
 
     #[test]
     fn financials_request_with_nothing_to_response_to_is_refused() {
-        let payable_dao = PayableDaoMock::new().total_result(23456789);
-        let receivable_dao = ReceivableDaoMock::new().total_result(98765432);
         let system = System::new("test");
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
@@ -4917,7 +4915,7 @@ mod tests {
             .tmb(2222),
         };
 
-        let result = subject_addr.try_send(ui_message).unwrap();
+        subject_addr.try_send(ui_message).unwrap();
 
         System::current().stop();
         system.run();
@@ -4943,7 +4941,7 @@ mod tests {
         let payable_dao = PayableDaoMock::new().total_result(23456789);
         let receivable_dao = ReceivableDaoMock::new().total_result(98765432);
         let system = System::new("test");
-        let mut subject = AccountantBuilder::default()
+        let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
                 make_populated_accountant_config_with_defaults(),
                 make_wallet("some_wallet_address"),
@@ -5057,7 +5055,7 @@ mod tests {
         let receivable_dao = ReceivableDaoMock::new()
             .custom_query_params(&receivable_custom_query_params_arc)
             .custom_query_result(Some(receivable_accounts_retrieved));
-        let mut subject = AccountantBuilder::default()
+        let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
                 make_populated_accountant_config_with_defaults(),
                 make_wallet("some_wallet_address"),
@@ -5186,7 +5184,7 @@ mod tests {
         let receivable_dao = ReceivableDaoMock::new()
             .custom_query_params(&receivable_custom_query_params_arc)
             .custom_query_result(Some(receivable_accounts_retrieved));
-        let mut subject = AccountantBuilder::default()
+        let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
                 make_populated_accountant_config_with_defaults(),
                 make_wallet("some_wallet_address"),
@@ -5288,6 +5286,87 @@ mod tests {
                 min_amount: 0,
                 max_amount: 500000000000
             }]
+        );
+        let receivable_custom_query_params = receivable_custom_query_params_arc.lock().unwrap();
+        assert_eq!(
+            *receivable_custom_query_params,
+            vec![CustomQuery::RangeQuery {
+                min_age: 2000,
+                max_age: 200000,
+                min_amount: 0,
+                max_amount: 150000000000
+            }]
+        )
+    }
+
+    #[test]
+    fn handle_financials_core_allows_custom_query_aimed_only_at_one_table() {
+        let receivable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
+        let receivable_accounts_retrieved = vec![ReceivableAccount {
+            wallet: make_wallet("efe4848"),
+            balance: 60055600789,
+            last_received_timestamp: SystemTime::now().sub(Duration::from_secs(3333)),
+        }];
+        let receivable_dao = ReceivableDaoMock::new()
+            .custom_query_params(&receivable_custom_query_params_arc)
+            .custom_query_result(Some(receivable_accounts_retrieved));
+        let subject = AccountantBuilder::default()
+            .bootstrapper_config(bc_from_ac_plus_earning_wallet(
+                make_populated_accountant_config_with_defaults(),
+                make_wallet("some_wallet_address"),
+            ))
+            .receivable_dao(receivable_dao)
+            .build();
+        let context_id_expected = 1234;
+        let request = UiFinancialsRequest {
+            stats_required: false,
+            top_records_opt: None,
+            custom_queries_opt: Some(CustomQueries {
+                payable_opt: None,
+                receivable_opt: Some(RangeQuery {
+                    min_age: 2000,
+                    max_age: 200000,
+                    min_amount: 0,
+                    max_amount: 150000000000,
+                }),
+            }),
+        };
+        let before = SystemTime::now();
+
+        let result = subject.handle_financials_core(&request, context_id_expected);
+
+        let after = SystemTime::now();
+        let (computed_response, context_id) = UiFinancialsResponse::fmb(result).unwrap();
+        let extracted_receivable_ages = extract_ages_from_ui_receivable_accounts(
+            computed_response
+                .custom_query_records_opt
+                .as_ref()
+                .unwrap()
+                .receivable_opt
+                .as_ref()
+                .unwrap(),
+        );
+        assert_eq!(context_id, context_id_expected);
+        assert_eq!(
+            computed_response,
+            UiFinancialsResponse {
+                stats_opt: None,
+                top_records_opt: None,
+                custom_query_records_opt: Some(CustomQueryResult {
+                    payable_opt: None,
+                    receivable_opt: Some(vec![UiReceivableAccount {
+                        wallet: make_wallet("efe4848").to_string(),
+                        age: extracted_receivable_ages[0],
+                        balance: 60055600789
+                    }])
+                })
+            }
+        );
+        let time_needed_for_the_act_in_full_sec =
+            (after.duration_since(before).unwrap().as_millis() / 1000 + 1) as u64;
+        assert!(
+            extracted_receivable_ages[0] >= 3333
+                && extracted_receivable_ages[0] <= 3333 + time_needed_for_the_act_in_full_sec
         );
         let receivable_custom_query_params = receivable_custom_query_params_arc.lock().unwrap();
         assert_eq!(

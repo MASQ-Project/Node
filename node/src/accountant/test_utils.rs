@@ -32,7 +32,6 @@ use crate::test_utils::unshared_test_utils::{
 use actix::System;
 use ethereum_types::{BigEndianHash, H256, U256};
 use itertools::Either;
-use masq_lib::messages::UiPayableAccount;
 use rusqlite::Transaction as RusqliteTransaction;
 use std::cell::RefCell;
 use std::fmt::Display;

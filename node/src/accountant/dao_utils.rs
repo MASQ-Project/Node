@@ -5,7 +5,6 @@ use crate::accountant::{checked_conversion, sign_conversion};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
-use crate::sub_lib::utils::to_string;
 use masq_lib::messages::{UiPayableAccount, UiReceivableAccount};
 use masq_lib::utils::ExpectValue;
 use rusqlite::{params_from_iter, Row, ToSql};
@@ -121,7 +120,7 @@ impl<N: Copy + Display> CustomQuery<N> {
                     Some(vectored)
                 }
             }
-            Err(e) => todo!("{:?}", e),
+            Err(e) => panic!("database corrupt: {}", e),
         }
     }
 }
@@ -154,6 +153,9 @@ pub fn remap_receivable_accounts(accounts: Vec<ReceivableAccount>) -> Vec<UiRece
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::database::connection_wrapper::ConnectionWrapperReal;
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use rusqlite::{Connection, OpenFlags};
     use std::str::FromStr;
 
     #[test]
@@ -166,5 +168,34 @@ mod tests {
         );
 
         let _ = subject.make_connection();
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "database corrupt: Wrong number of parameters passed to query. Got 1, needed 0"
+    )]
+    fn erroneous_query_leads_to_panic() {
+        let home_dir =
+            ensure_node_home_directory_exists("dao_utils", "erroneous_query_leads_to_panic");
+        let db_path = home_dir.join("test.db");
+        let creation_conn = Connection::open(db_path.as_path()).unwrap();
+        creation_conn
+            .execute(
+                "create table fruits (kind text primary key, price integer not null)",
+                [],
+            )
+            .unwrap();
+        let conn_read_only =
+            Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let conn_wrapped = ConnectionWrapperReal::new(conn_read_only);
+        let subject = CustomQuery::<u128>::TopRecords(12);
+
+        let _ = subject.query::<_, i128, _, _>(
+            &conn_wrapped,
+            |_v1: &str, _v2: &str| "select kind, price from fruits".to_string(),
+            "",
+            "",
+            |_row| Ok(()),
+        );
     }
 }
