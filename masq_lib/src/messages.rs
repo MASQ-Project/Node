@@ -560,6 +560,7 @@ conversation_message!(UiDescriptorResponse, "descriptor");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiFinancialsRequest {
+    #[serde(rename = "statsRequired")]
     pub stats_required: bool,
     #[serde(rename = "topRecordsOpt")]
     pub top_records_opt: Option<u16>,
@@ -613,8 +614,8 @@ pub struct UiFinancialStatistics {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct FirmQueryResult {
-    pub payable_opt: Option<Vec<UiPayableAccount>>,
-    pub receivable_opt: Option<Vec<UiReceivableAccount>>,
+    pub payable: Vec<UiPayableAccount>,
+    pub receivable: Vec<UiReceivableAccount>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]

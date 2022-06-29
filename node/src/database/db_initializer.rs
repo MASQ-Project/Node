@@ -502,8 +502,8 @@ pub mod test_utils {
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::database::db_initializer::{DbInitializer, InitializationError};
     use crate::database::db_migrations::MigratorConfig;
-    use crate::set_arbitrary_id_stamp;
     use crate::test_utils::unshared_test_utils::ArbitraryIdStamp;
+    use crate::{arbitrary_id_stamp, set_arbitrary_id_stamp};
     use rusqlite::Transaction;
     use rusqlite::{Error, Statement};
     use std::cell::RefCell;
@@ -551,9 +551,7 @@ pub mod test_utils {
             self.transaction_results.borrow_mut().remove(0)
         }
 
-        fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-            self.arbitrary_id_stamp_opt.borrow().unwrap()
-        }
+        arbitrary_id_stamp!();
     }
 
     #[derive(Default)]

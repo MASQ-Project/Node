@@ -953,10 +953,12 @@ impl Accountant {
         };
         let top_records_opt = if let Some(count) = msg.top_records_opt {
             Some(FirmQueryResult {
-                payable_opt: self
-                    .request_payable_accounts_by_specific_mode(CustomQuery::TopRecords(count)),
-                receivable_opt: self
-                    .request_receivable_accounts_by_specific_mode(CustomQuery::TopRecords(count)),
+                payable: self
+                    .request_payable_accounts_by_specific_mode(CustomQuery::TopRecords(count))
+                    .unwrap_or(vec![]),
+                receivable: self
+                    .request_receivable_accounts_by_specific_mode(CustomQuery::TopRecords(count))
+                    .unwrap_or(vec![]),
             })
         } else {
             None
@@ -5074,22 +5076,14 @@ mod tests {
         let after = SystemTime::now();
         let (computed_response, context_id) = UiFinancialsResponse::fmb(result).unwrap();
         let extracted_payable_ages = extract_ages_from_ui_payable_accounts(
-            computed_response
-                .top_records_opt
-                .as_ref()
-                .unwrap()
-                .payable_opt
-                .as_ref()
-                .unwrap(),
+            &computed_response.top_records_opt.as_ref().unwrap().payable,
         );
         let extracted_receivable_ages = extract_ages_from_ui_receivable_accounts(
-            computed_response
+            &computed_response
                 .top_records_opt
                 .as_ref()
                 .unwrap()
-                .receivable_opt
-                .as_ref()
-                .unwrap(),
+                .receivable,
         );
         assert_eq!(context_id, context_id_expected);
         assert_eq!(
@@ -5097,7 +5091,7 @@ mod tests {
             UiFinancialsResponse {
                 stats_opt: None,
                 top_records_opt: Some(FirmQueryResult {
-                    payable_opt: Some(vec![
+                    payable: vec![
                         UiPayableAccount {
                             wallet: make_wallet("abcd123").to_string(),
                             age: extracted_payable_ages[0],
@@ -5110,12 +5104,12 @@ mod tests {
                             balance: 568686,
                             pending_payable_hash_opt: None
                         }
-                    ]),
-                    receivable_opt: Some(vec![UiReceivableAccount {
+                    ],
+                    receivable: vec![UiReceivableAccount {
                         wallet: make_wallet("efe4848").to_string(),
                         age: extracted_receivable_ages[0],
                         balance: 600556
-                    }])
+                    }]
                 }),
                 custom_query_records_opt: None
             }

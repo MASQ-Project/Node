@@ -6,7 +6,11 @@ pub mod utils;
 
 use crate::utils::MASQNode;
 use masq_lib::messages::SerializableLogLevel::Warn;
-use masq_lib::messages::{UiChangePasswordRequest, UiFinancialsRequest, UiFinancialsResponse, UiLogBroadcast, UiRedirect, UiSetupRequest, UiSetupResponse, UiShutdownRequest, UiStartOrder, UiStartResponse, UiWalletAddressesRequest, NODE_UI_PROTOCOL, UiFinancialStatistics};
+use masq_lib::messages::{
+    UiChangePasswordRequest, UiFinancialStatistics, UiFinancialsRequest, UiFinancialsResponse,
+    UiLogBroadcast, UiRedirect, UiSetupRequest, UiSetupResponse, UiShutdownRequest, UiStartOrder,
+    UiStartResponse, UiWalletAddressesRequest, NODE_UI_PROTOCOL,
+};
 use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use masq_lib::utils::find_free_port;
@@ -31,7 +35,7 @@ fn ui_requests_something_and_gets_corresponding_response() {
             .unwrap()
     };
     PayableDaoReal::new(make_conn())
-        .more_money_payable(& make_wallet("abc"), 45678357)
+        .more_money_payable(&make_wallet("abc"), 45678357)
         .unwrap();
     ReceivableDaoReal::new(make_conn())
         .more_money_receivable(&make_wallet("xyz"), 654327768)
@@ -55,7 +59,7 @@ fn ui_requests_something_and_gets_corresponding_response() {
     let financials_request = UiFinancialsRequest {
         stats_required: true,
         top_records_opt: None,
-        custom_queries_opt: None
+        custom_queries_opt: None,
     };
     let mut client = UiConnection::new(port, NODE_UI_PROTOCOL);
 
@@ -65,7 +69,7 @@ fn ui_requests_something_and_gets_corresponding_response() {
     assert_eq!(
         response,
         UiFinancialsResponse {
-            stats_opt: Some(UiFinancialStatistics{
+            stats_opt: Some(UiFinancialStatistics {
                 total_unpaid_and_pending_payable: 45678357,
                 total_paid_payable: 0,
                 total_unpaid_receivable: 654327768,

@@ -9,7 +9,7 @@ use masq_lib::messages::{
     CustomQueries, RangeQuery, UiFinancialsRequest, UiFinancialsResponse, UiPayableAccount,
     UiReceivableAccount,
 };
-use masq_lib::shared_schema::common_validators::{validate_non_zero_usize, validate_two_ranges};
+use masq_lib::shared_schema::common_validators::{validate_two_ranges, validate_u16};
 use masq_lib::short_writeln;
 use masq_lib::utils::{plus, ExpectValue};
 use std::fmt::Display;
@@ -45,7 +45,7 @@ pub fn financials_subcommand() -> App<'static, 'static> {
                 .required(false)
                 .case_insensitive(false)
                 .takes_value(true)
-                .validator(validate_non_zero_usize),
+                .validator(validate_u16),
         )
         .arg(
             Arg::with_name("payable")
@@ -116,16 +116,16 @@ impl Command for FinancialsCommand {
                     );
                 }
                 if let Some(top_records) = response.top_records_opt {
-                    if let Some(payable) = top_records.payable_opt {
+                    if !top_records.payable.is_empty() {
                         self.main_header_to_tops(stdout, "payable");
-                        self.render_payable(stdout, payable);
+                        self.render_payable(stdout, top_records.payable);
                     } else {
                         self.main_header_to_tops(stdout, "payable");
                         Self::no_records_found(stdout, PAYABLE_HEADERS, Self::write_payable_headers)
                     }
-                    if let Some(receivable) = top_records.receivable_opt {
+                    if !top_records.receivable.is_empty() {
                         self.main_header_to_tops(stdout, "receivable");
-                        self.render_receivable(stdout, receivable)
+                        self.render_receivable(stdout, top_records.receivable)
                     } else {
                         self.main_header_to_tops(stdout, "receivable");
                         Self::no_records_found(
@@ -577,8 +577,8 @@ mod tests {
         let mut context = CommandContextMock::new().transact_result(Ok(UiFinancialsResponse {
             stats_opt: None,
             top_records_opt: Some(FirmQueryResult {
-                payable_opt: None,
-                receivable_opt: None,
+                payable: vec![],
+                receivable: vec![],
             }),
             custom_query_records_opt: None,
         }
@@ -608,8 +608,8 @@ mod tests {
                 total_paid_receivable: 3333,
             }),
             top_records_opt: Some(FirmQueryResult {
-                payable_opt: None,
-                receivable_opt: None,
+                payable: vec![],
+                receivable: vec![],
             }),
             custom_query_records_opt: Some(CustomQueryResult {
                 payable_opt: None,
@@ -740,7 +740,7 @@ mod tests {
                 total_paid_receivable: 665557879787845,
             }),
             top_records_opt: Some(FirmQueryResult {
-                payable_opt: Some(vec![
+                payable: vec![
                     UiPayableAccount {
                         wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
                         age: 150000,
@@ -756,12 +756,12 @@ mod tests {
                         balance: 884332566,
                         pending_payable_hash_opt: None,
                     },
-                ]),
-                receivable_opt: Some(vec![UiReceivableAccount {
+                ],
+                receivable: vec![UiReceivableAccount {
                     wallet: "0x6e250504DdfFDb986C4F0bb8Df162503B4118b05".to_string(),
                     age: 22000,
                     balance: 12444551012,
-                }]),
+                }],
             }),
             custom_query_records_opt: Some(CustomQueryResult {
                 payable_opt: Some(vec![UiPayableAccount {
@@ -876,8 +876,8 @@ mod tests {
                 total_paid_receivable: 66555,
             }),
             top_records_opt: Some(FirmQueryResult {
-                payable_opt: None,
-                receivable_opt: None,
+                payable: vec![],
+                receivable: vec![],
             }),
             custom_query_records_opt: Some(CustomQueryResult {
                 payable_opt: None,
@@ -979,7 +979,7 @@ mod tests {
         let expected_response = UiFinancialsResponse {
             stats_opt: None,
             top_records_opt: Some(FirmQueryResult {
-                payable_opt: Some(vec![UiPayableAccount {
+                payable: vec![UiPayableAccount {
                     wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
                     age: 5645405400,
                     balance: 6000000,
@@ -987,12 +987,12 @@ mod tests {
                         "0x3648c8b8c7e067ac30b80b6936159326d564dd13b7ae465b26647154ada2c638"
                             .to_string(),
                     ),
-                }]),
-                receivable_opt: Some(vec![UiReceivableAccount {
+                }],
+                receivable: vec![UiReceivableAccount {
                     wallet: "0x6e250504DdfFDb986C4F0bb8Df162503B4118b05".to_string(),
                     age: 11111111,
                     balance: 12444551012,
-                }]),
+                }],
             }),
             custom_query_records_opt: None,
         };

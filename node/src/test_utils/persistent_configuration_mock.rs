@@ -3,11 +3,11 @@
 #![cfg(test)]
 
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
-use crate::set_arbitrary_id_stamp;
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::ArbitraryIdStamp;
+use crate::{arbitrary_id_stamp, set_arbitrary_id_stamp};
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
 use std::cell::RefCell;
@@ -267,9 +267,7 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_scan_intervals_results.borrow_mut().remove(0)
     }
 
-    fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-        self.arbitrary_id_stamp_opt.borrow().unwrap()
-    }
+    arbitrary_id_stamp!();
 }
 
 impl PersistentConfigurationMock {

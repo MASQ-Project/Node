@@ -1,13 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use rusqlite::{Connection, Error, Statement, Transaction};
-use std::fmt::Debug;
 #[cfg(test)]
-use crate::arbitrary_id_stamp;
+use crate::arbitrary_id_stamp_in_trait;
 #[cfg(test)]
 use crate::test_utils::unshared_test_utils::ArbitraryIdStamp;
+use rusqlite::{Connection, Error, Statement, Transaction};
 #[cfg(test)]
 use std::any::Any;
+use std::fmt::Debug;
 
 pub trait ConnectionWrapper: Debug + Send {
     fn prepare(&self, query: &str) -> Result<Statement, rusqlite::Error>;
@@ -18,7 +18,7 @@ pub trait ConnectionWrapper: Debug + Send {
         intentionally_blank!()
     }
     #[cfg(test)]
-    arbitrary_id_stamp!();
+    arbitrary_id_stamp_in_trait!();
 }
 
 #[derive(Debug)]

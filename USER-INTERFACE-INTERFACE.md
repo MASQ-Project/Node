@@ -343,7 +343,7 @@ Another reason the secrets might be missing is that there are not yet any secret
         <string>,
         <string>, ...
     ],
-    "PaymentThresholds": {
+    "paymentThresholds": {
         "debtThresholdGwei": <number>,
         "maturityThresholdSec": <number>,
         "paymentGracePeriodSec": <number>,
@@ -564,14 +564,59 @@ field will be null or absent.
 ##### Correspondent: Node
 ##### Layout:
 ```
-"payload": {}
+"payload": {
+    "statsRequired": <bolean>,
+    "topRecordsOpt": <optional positive integer>
+    "customQueriesOpt": <optional {
+        "payableOpt" : <optional {
+            "minAge": <positive integer>,
+            "maxAge": <positive integer>,
+            "minBalance": <positive integer>,
+            "maxBalance": <positive integer>
+        }>,
+        "receivableOpt": <optional {
+            "minAge": <positive integer>,
+            "maxAge": <positive integer>,
+            "minBalance": <positive integer>,
+            "maxBalance": <positive integer>
+        }> 
+    }>
+}
 ```
 ##### Description:
-Requests financial statistics from the Node.
+This command may do many things, it, for example, requests financial statistics from the Node. There are other
+options, though, like to ask for a view into the database and the contained records of tracked accounts,
+either in the payable or receivable table. That can be done variously, by query of top N records, sorted by balances,
+which returns results for both tables in a simple manner, or the user can set up a custom query for each table
+(possibly even separated), supplying minimal and maximal values of balances and ages of the records which should
+be in the focus of the query.   
 
-This request will report back information about a Node's historical financial operations. This will include both
-services ordered from other Nodes and services provided for other Nodes, represented as monetary values owed and
-paid to and from this Node's wallets.
+As statistics is considered the main part, the command will report back information about Node's historical
+financial operations. This will include both services ordered from other Nodes and services provided for other Nodes,
+represented as monetary values owed and paid to and from this Node's wallets.
+
+Command without any arguments will result in a request of the statistics alone.
+Besides, there are arguments that allows:
+
+`statsRequested` works for an allowance or a refusal of the statistics and so that information would be omitted.
+However, using that without an additional argument is forbidden as it would cause an empty, groundless request.
+
+`topRecordsOpt` makes a request for a certain count of top records in the tables. It should be a number bigger than
+zero. This information is also optional and so it doesn't come to place unless specified.
+
+`customQueriesOpt` is a way how to get records (accounts) filtered by more detailed parameters. It works for both
+payable and receivable, and it allows to scope only one of those. It contains sub-parameters, the same each.
+
+`minAge` is measured in seconds from now and represents a restriction of the final subset of accounts by their ages,
+with different last timestamps (the moment of last modification).
+
+`maxAge` is measured in seconds from now and works for the other end restriction of ages of accounts to be reported.
+
+`minBalance` means an amount of Wei, as the minimum value of what the accounts to be reported should fit in with their
+balances.
+
+`maxBalance` means an amount of Wei, as the maximum value of what the accounts to be reported should fit in with their
+balances.
 
 #### `financials`
 ##### Direction: Response
@@ -579,14 +624,56 @@ paid to and from this Node's wallets.
 ##### Layout:
 ```
 "payload": {
-    "totalUnpaidAndPendingPayable": <integer>
-    "totalPaidPayable": <nonnegative integer>
-    "totalUnpaidReceivable": <integer>
-    "totalPaidReceivable": <nonnegative integer>
+    "statsOpt": <optional {  
+        "totalUnpaidAndPendingPayable": <integer>
+        "totalPaidPayable": <nonnegative integer>
+        "totalUnpaidReceivable": <integer>
+        "totalPaidReceivable": <nonnegative integer>
+    }>,
+    "topRecordsOpt":<optional {
+        "payable": [
+            {
+              "wallet": <string>,
+              "age": <integer>,
+              "balance": <integer>, 
+              "pendingPayableHashOpt": <optional string> 
+            },
+            [...]
+        ],
+        "receivable": [
+            {
+              "wallet": <string>,
+              "age": <integer>,
+              "balance": <integer>
+            },
+            [...]
+        ]
+    }>,
+    "customQueryRecordsOpt":<optional {
+        "payableOpt": <optional [
+            {
+              "wallet": <string>,
+              "age": <integer>,
+              "balance": <integer>, 
+              "pendingPayableHashOpt": <optional string> 
+            },
+            [...]
+        ]>,
+        "receivableOpt": <optional [
+            {
+              "wallet": <string>,
+              "age": <integer>,
+              "balance": <integer>
+            },
+            [...]
+        ]>
+    }>
 }
 ```
 ##### Description:
-Contains the requested financial statistics.
+Contains the requested financial statistics or database views.
+
+`statsOpt` serves as a collection of metrics about services consumed and provided.
 
 `totalUnpaidAndPendingPayable` is the number of Gwei we believe we owe to other Nodes and that those other Nodes have
 not yet received, as far as we know. This includes both bills we haven't yet paid and bills we have paid, but whose
@@ -603,6 +690,38 @@ payments that have been made but not yet confirmed.
 `totalPaidReceivable` is the number of Gwei we have successfully received in confirmed payments from our debtors during
 the time the current instance of the Node has been running. In the future, this number may become cumulative over more
 time than just the current Node run.
+
+`topRecordsOpt` brings records requested by a count stretching from the top the record with the given ordinal number.
+If the table contains fewer records than requested, that many of them is returned. 
+
+`payable` is the part of top records linked to the payable table. Contains a list of records. 
+
+`wallet` is a wallet of a Node that we owe to.
+
+`age` is a number of seconds that elapsed since the balance of our debt to this Node changed the last time.
+
+`balance` is a number of Wei we owe.
+
+`pendingPayableHashOpt` is present only sporadically, but signs that we've already attempted to pay the debts recently, 
+but the payment wasn't confirmed yet by our confirmation tools.
+
+`receivable` is the part of top records linked to the receivable table. Contains a list of records.
+
+`wallet` is a wallet of a Node that owes us money for services we provided to them in the past.
+
+`age` is a number of seconds that elapsed since the debt that we hold for our debtor changed the last time.
+
+`balance` is a number of Wei owed to us.
+
+`customQueryRecordsOpt` answers a more complex query for a certain range of records. The response also has two halves,
+with payable and receivable, with one change to the previous case. Here it is possible to ask only about one of them if
+the other part is not interesting for us.
+
+`payableOpt` is optional, representing specifically filtered accounts of payable.
+
+`receivableOpt` is optional, representing specifically filtered accounts of receivable.
+
+Inner items of both are identical with those that were described at `topRecords`.
 
 #### `generateWallets`
 ##### Direction: Request

@@ -82,7 +82,7 @@ fn initialization_sequence_integration() {
     let financials_request = UiFinancialsRequest {
         stats_required: true,
         top_records_opt: None,
-        custom_queries_opt: None
+        custom_queries_opt: None,
     };
     let context_id = 1234;
 
