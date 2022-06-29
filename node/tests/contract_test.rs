@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-
+#![cfg(test)]
 use ethabi;
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;

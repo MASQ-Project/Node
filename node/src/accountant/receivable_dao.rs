@@ -18,8 +18,10 @@ use itertools::Either;
 use masq_lib::logger::Logger;
 use masq_lib::utils::plus;
 use rusqlite::types::ToSql;
-use rusqlite::{named_params, params_from_iter, Error};
-use rusqlite::{OptionalExtension, Row};
+use rusqlite::{named_params, params_from_iter, Error,};
+use rusqlite::{Row};
+#[cfg(test)]
+use rusqlite::OptionalExtension;
 use std::time::SystemTime;
 
 #[derive(Debug, PartialEq)]

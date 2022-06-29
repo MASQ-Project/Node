@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-
+#![cfg(test)]
 pub mod utils;
 
 use node_lib::test_utils::{assert_string_contains, read_until_timeout};

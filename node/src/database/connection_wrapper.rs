@@ -2,8 +2,9 @@
 
 use rusqlite::{Connection, Error, Statement, Transaction};
 use std::fmt::Debug;
-
+#[cfg(test)]
 use crate::arbitrary_id_stamp;
+#[cfg(test)]
 use crate::test_utils::unshared_test_utils::ArbitraryIdStamp;
 #[cfg(test)]
 use std::any::Any;

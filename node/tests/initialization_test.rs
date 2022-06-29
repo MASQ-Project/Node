@@ -79,7 +79,11 @@ fn initialization_sequence_integration() {
             ("data-directory", Some(&data_directory.to_str().unwrap())),
         ]))
         .unwrap();
-    let financials_request = UiFinancialsRequest {};
+    let financials_request = UiFinancialsRequest {
+        stats_required: true,
+        top_records_opt: None,
+        custom_queries_opt: None
+    };
     let context_id = 1234;
 
     //<UiFinancialsRequest, UiFinancialsResponse>

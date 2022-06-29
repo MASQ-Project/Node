@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-#[cfg(test)]
+#![cfg(test)]
 pub mod utils;
 
 use node_lib::test_utils::read_until_timeout;

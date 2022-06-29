@@ -1,20 +1,17 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+#![cfg(test)]
+
 pub mod utils;
 
 use crate::utils::MASQNode;
 use masq_lib::messages::SerializableLogLevel::Warn;
-use masq_lib::messages::{
-    UiChangePasswordRequest, UiFinancialsRequest, UiFinancialsResponse, UiLogBroadcast, UiRedirect,
-    UiSetupRequest, UiSetupResponse, UiShutdownRequest, UiStartOrder, UiStartResponse,
-    UiWalletAddressesRequest, NODE_UI_PROTOCOL,
-};
+use masq_lib::messages::{UiChangePasswordRequest, UiFinancialsRequest, UiFinancialsResponse, UiLogBroadcast, UiRedirect, UiSetupRequest, UiSetupResponse, UiShutdownRequest, UiStartOrder, UiStartResponse, UiWalletAddressesRequest, NODE_UI_PROTOCOL, UiFinancialStatistics};
 use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use masq_lib::utils::find_free_port;
 use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
-use node_lib::accountant::test_utils::InsertUpdateCoreMock;
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
 use node_lib::database::db_migrations::MigratorConfig;
 use node_lib::test_utils::make_wallet;
@@ -34,10 +31,10 @@ fn ui_requests_something_and_gets_corresponding_response() {
             .unwrap()
     };
     PayableDaoReal::new(make_conn())
-        .more_money_payable(&InsertUpdateCoreReal {}, e & make_wallet("abc"), 45678)
+        .more_money_payable(& make_wallet("abc"), 45678357)
         .unwrap();
     ReceivableDaoReal::new(make_conn())
-        .more_money_receivable(&InsertUpdateCoreReal {}, &make_wallet("xyz"), 65432)
+        .more_money_receivable(&make_wallet("xyz"), 654327768)
         .unwrap();
     let mut node = utils::MASQNode::start_standard(
         "ui_requests_something_and_gets_corresponding_response",
@@ -55,7 +52,11 @@ fn ui_requests_something_and_gets_corresponding_response() {
         true,
     );
     node.wait_for_log("UIGateway bound", Some(5000));
-    let financials_request = UiFinancialsRequest {};
+    let financials_request = UiFinancialsRequest {
+        stats_required: true,
+        top_records_opt: None,
+        custom_queries_opt: None
+    };
     let mut client = UiConnection::new(port, NODE_UI_PROTOCOL);
 
     client.send(financials_request);
@@ -64,10 +65,14 @@ fn ui_requests_something_and_gets_corresponding_response() {
     assert_eq!(
         response,
         UiFinancialsResponse {
-            total_unpaid_and_pending_payable: 45678,
-            total_paid_payable: 0,
-            total_unpaid_receivable: 65432,
-            total_paid_receivable: 0
+            stats_opt: Some(UiFinancialStatistics{
+                total_unpaid_and_pending_payable: 45678357,
+                total_paid_payable: 0,
+                total_unpaid_receivable: 654327768,
+                total_paid_receivable: 0,
+            }),
+            top_records_opt: None,
+            custom_query_records_opt: None
         }
     );
     client.send(UiShutdownRequest {});

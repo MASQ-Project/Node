@@ -1,5 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+#[cfg(test)]
+use ethereum_types::{BigEndianHash, U256};
+#[cfg(test)]
+use rusqlite::OptionalExtension;
 use crate::accountant::blob_utils::{
     collect_and_sum_i128_values_from_table, get_unsized_128, BalanceChange, InsertUpdateConfig,
     InsertUpdateCore, InsertUpdateCoreReal, ParamKeyHolder, SQLExtendedParams, Table, UpdateConfig,
@@ -10,11 +14,10 @@ use crate::accountant::{checked_conversion, sign_conversion, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
-use ethereum_types::{BigEndianHash, U256};
 use itertools::Either;
 use masq_lib::utils::ExpectValue;
 use rusqlite::types::ToSql;
-use rusqlite::{Error, OptionalExtension, Row};
+use rusqlite::{Error, Row};
 use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::SystemTime;
