@@ -118,7 +118,8 @@ impl Actor for UiGateway {
 impl Handler<BindMessage> for UiGateway {
     type Result = ();
 
-    fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
+        ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.incoming_message_recipients = vec![
             msg.peer_actors.accountant.ui_message_sub.clone(),
             msg.peer_actors.neighborhood.from_ui_message_sub.clone(),
@@ -190,11 +191,15 @@ mod tests {
     use crate::dispatcher;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::{make_recorder, Recording};
+    use crate::test_utils::unshared_test_utils::make_daemon_bind_message;
     use crate::ui_gateway::websocket_supervisor::WebSocketSupervisorFactory;
     use crate::ui_gateway::websocket_supervisor_mocks::{
         WebSocketSupervisorMock, WebsocketSupervisorFactoryMock,
     };
+    use actix::dev::AsyncContextParts;
+    use actix::Message;
     use actix::System;
+    use crossbeam_channel::{unbounded, Sender};
     use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::ui_gateway::MessagePath::FireAndForget;
@@ -205,6 +210,67 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "UIGATEWAY");
+    }
+
+    #[derive(Debug, Message, Clone)]
+    struct MailboxCapacityCheck {
+        tx: Sender<usize>,
+    }
+
+    impl Handler<MailboxCapacityCheck> for UiGateway {
+        type Result = ();
+
+        fn handle(&mut self, msg: MailboxCapacityCheck, ctx: &mut Self::Context) -> Self::Result {
+            let capacity = ctx.parts().capacity();
+            msg.tx.send(capacity).unwrap();
+        }
+    }
+
+    #[test]
+    fn bind_message_removes_mailbox_size_limit() {
+        let system = System::new("test");
+        let subject = UiGateway::new(
+            &UiGatewayConfig {
+                ui_port: find_free_port(),
+            },
+            false,
+        );
+        let peer_actors = peer_actors_builder().build();
+        let subject_addr = subject.start();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let (tx, rx) = unbounded();
+        let check = MailboxCapacityCheck { tx };
+
+        subject_addr.try_send(check).unwrap();
+
+        System::current().stop();
+        system.run();
+        let capacity = rx.recv().unwrap();
+        assert_eq!(capacity, 0);
+    }
+
+    #[test]
+    fn daemon_bind_message_removes_mailbox_size_limit() {
+        let system = System::new("test");
+        let subject = UiGateway::new(
+            &UiGatewayConfig {
+                ui_port: find_free_port(),
+            },
+            false,
+        );
+        let (ui_gateway, _, _) = make_recorder();
+        let daemon_bind_message = make_daemon_bind_message(ui_gateway);
+        let subject_addr = subject.start();
+        subject_addr.try_send(daemon_bind_message).unwrap();
+        let (tx, rx) = unbounded();
+        let check = MailboxCapacityCheck { tx };
+
+        subject_addr.try_send(check).unwrap();
+
+        System::current().stop();
+        system.run();
+        let capacity = rx.recv().unwrap();
+        assert_eq!(capacity, 0);
     }
 
     #[test]
