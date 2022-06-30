@@ -227,7 +227,7 @@ impl MulticastInfo {
 }
 
 #[cfg(test)]
-use masq_lib::utils::{localhost, find_free_port};
+use masq_lib::utils::{find_free_port};
 #[cfg(test)]
 impl MulticastInfo {
     pub fn for_test(multicast_group: u8) -> Self {

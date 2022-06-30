@@ -2,9 +2,7 @@
 
 #![cfg(any(test, not(feature = "no_test_share")))]
 
-use crate::comm_layer::pcp_pmp_common::{
-    FindRoutersCommand, FreePortFactory, UdpSocketWrapper, UdpSocketWrapperFactory,
-};
+use crate::comm_layer::pcp_pmp_common::{FindRoutersCommand, FreePortFactory, PoliteUdpSocketWrapperFactory, UdpSocketWrapper, UdpSocketWrapperFactory};
 use crate::comm_layer::{AutomapError, HousekeepingThreadCommand, LocalIpFinder, MulticastInfo, Transactor};
 use crate::control_layer::automap_control::{
     replace_transactor, AutomapControlReal, ChangeHandler,
@@ -53,15 +51,39 @@ impl LocalIpFinderMock {
 
 #[allow(clippy::type_complexity)]
 pub struct UdpSocketWrapperMock {
+    recv_params: Arc<Mutex<Vec<()>>>,
+    recv_results: RefCell<Vec<(io::Result<usize>, Vec<u8>)>>,
     recv_from_params: Arc<Mutex<Vec<()>>>,
     recv_from_results: RefCell<Vec<(io::Result<(usize, SocketAddr)>, Vec<u8>)>>,
     send_to_params: Arc<Mutex<Vec<(Vec<u8>, SocketAddr)>>>,
     send_to_results: RefCell<Vec<io::Result<usize>>>,
     set_read_timeout_params: Arc<Mutex<Vec<Option<Duration>>>>,
     set_read_timeout_results: RefCell<Vec<io::Result<()>>>,
+    set_nonblocking_params: Arc<Mutex<Vec<bool>>>,
+    set_nonblocking_results: RefCell<Vec<io::Result<()>>>,
 }
 
 impl UdpSocketWrapper for UdpSocketWrapperMock {
+    fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
+        self.recv_params.lock().unwrap().push(());
+        if self.recv_results.borrow().is_empty() {
+            {
+                let set_read_timeout_params_locked = self.set_read_timeout_params.lock().unwrap();
+                if !set_read_timeout_params_locked.is_empty() {
+                    let duration_opt = &set_read_timeout_params_locked[0];
+                    match &duration_opt {
+                        Some(duration) => thread::sleep(*duration),
+                        None => (),
+                    }
+                }
+            }
+            return Err(io::Error::from(ErrorKind::WouldBlock));
+        }
+        let (result, bytes) = self.recv_results.borrow_mut().remove(0);
+        buf[..bytes.len()].clone_from_slice(&bytes[..]);
+        result
+    }
+
     fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
         self.recv_from_params.lock().unwrap().push(());
         if self.recv_from_results.borrow().is_empty() {
@@ -94,19 +116,38 @@ impl UdpSocketWrapper for UdpSocketWrapperMock {
         self.set_read_timeout_params.lock().unwrap().push(dur);
         self.set_read_timeout_results.borrow_mut().remove(0)
     }
+
+    fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
+        self.set_nonblocking_params.lock().unwrap().push(nonblocking);
+        self.set_nonblocking_results.borrow_mut().remove(0)
+    }
 }
 
 impl UdpSocketWrapperMock {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
+            recv_params: Arc::new(Mutex::new(vec![])),
+            recv_results: RefCell::new(vec![]),
             recv_from_params: Arc::new(Mutex::new(vec![])),
             recv_from_results: RefCell::new(vec![]),
             send_to_params: Arc::new(Mutex::new(vec![])),
             send_to_results: RefCell::new(vec![]),
             set_read_timeout_params: Arc::new(Mutex::new(vec![])),
             set_read_timeout_results: RefCell::new(vec![]),
+            set_nonblocking_params: Arc::new(Mutex::new(vec![])),
+            set_nonblocking_results: RefCell::new(vec![]),
         }
+    }
+
+    pub fn recv_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.recv_params = params.clone();
+        self
+    }
+
+    pub fn recv_result(self, result: io::Result<usize>, bytes: Vec<u8>) -> Self {
+        self.recv_results.borrow_mut().push((result, bytes));
+        self
     }
 
     pub fn recv_from_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
@@ -139,6 +180,16 @@ impl UdpSocketWrapperMock {
         self.set_read_timeout_results.borrow_mut().push(result);
         self
     }
+
+    pub fn set_nonblocking_params(mut self, params: &Arc<Mutex<Vec<bool>>>) -> Self {
+        self.set_nonblocking_params = params.clone();
+        self
+    }
+
+    pub fn set_nonblocking_result(self, result: io::Result<()>) -> Self {
+        self.set_nonblocking_results.borrow_mut().push(result);
+        self
+    }
 }
 
 pub struct UdpSocketWrapperFactoryMock {
@@ -163,6 +214,41 @@ impl UdpSocketWrapperFactoryMock {
     }
 
     pub fn make_params(mut self, params: &Arc<Mutex<Vec<SocketAddr>>>) -> Self {
+        self.make_params = params.clone();
+        self
+    }
+
+    pub fn make_result(self, result: io::Result<UdpSocketWrapperMock>) -> Self {
+        self.make_results.borrow_mut().push(match result {
+            Ok(uswm) => Ok(Box::new(uswm)),
+            Err(e) => Err(e),
+        });
+        self
+    }
+}
+
+pub struct PoliteUdpSocketWrapperFactoryMock {
+    make_params: Arc<Mutex<Vec<MulticastInfo>>>,
+    make_results: RefCell<Vec<io::Result<Box<dyn UdpSocketWrapper>>>>,
+}
+
+impl PoliteUdpSocketWrapperFactory for PoliteUdpSocketWrapperFactoryMock {
+    fn make(&self, multicast_info: &MulticastInfo) -> io::Result<Box<dyn UdpSocketWrapper>> {
+        self.make_params.lock().unwrap().push(multicast_info.clone());
+        self.make_results.borrow_mut().remove(0)
+    }
+}
+
+impl PoliteUdpSocketWrapperFactoryMock {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Self {
+            make_params: Arc::new(Mutex::new(vec![])),
+            make_results: RefCell::new(vec![]),
+        }
+    }
+
+    pub fn make_params(mut self, params: &Arc<Mutex<Vec<MulticastInfo>>>) -> Self {
         self.make_params = params.clone();
         self
     }

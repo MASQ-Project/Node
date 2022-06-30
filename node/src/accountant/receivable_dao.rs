@@ -323,13 +323,10 @@ impl ReceivableDaoReal {
         &mut self,
         payments: &[BlockchainTransaction],
     ) -> Result<(), ReceivableDaoError> {
-        eprintln!("Creating transaction");
         let xactn = self.conn.transaction()?;
-        eprintln!("Transaction created");
         {
             let mut stmt = xactn.prepare("update receivable set balance = balance - ?, last_received_timestamp = ? where wallet_address = ?")
                 .expect ("Internal SQL error");
-            eprintln!("Updating receivables");
             for transaction in payments {
                 let timestamp = dao_utils::now_time_t();
                 let gwei_amount = match unsigned_to_signed(transaction.gwei_amount) {
@@ -340,15 +337,12 @@ impl ReceivableDaoReal {
                 stmt.execute(params)
                     .map_err(|e| ReceivableDaoError::RusqliteError(e.to_string()))?;
             }
-            eprintln!("Receivables updated");
         }
-        eprintln!("Committing transaction");
         let result = match xactn.commit() {
             // Error response is untested here, because without a mockable Transaction, it's untestable.
             Err(e) => Err(ReceivableDaoError::RusqliteError(format!("{:?}", e))),
             Ok(_) => Ok(()),
         };
-        eprintln!("Transaction committed");
         result
     }
 

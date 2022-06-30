@@ -17,7 +17,7 @@ use masq_lib::{debug, error, info, warning};
 
 use crate::comm_layer::pcp_pmp_common::{
     find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig,
-    UdpSocketFactoryReal, UdpSocketWrapperFactory, HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS,
+    UdpSocketWrapperFactoryReal, UdpSocketWrapperFactory, HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS,
     ROUTER_SERVER_PORT,
 };
 use crate::comm_layer::{AutomapError, AutomapErrorCause, HousekeepingThreadCommand, MulticastInfo, Transactor};
@@ -37,7 +37,7 @@ struct Factories {
 impl Default for Factories {
     fn default() -> Self {
         Self {
-            socket_factory: Box::new(UdpSocketFactoryReal::new()),
+            socket_factory: Box::new(UdpSocketWrapperFactoryReal::new()),
             free_port_factory: Box::new(FreePortFactoryReal::new()),
         }
     }

@@ -16,7 +16,7 @@ use crate::comm_layer::pcp_pmp_common::macos_specific::{
 use crate::comm_layer::pcp_pmp_common::windows_specific::{
     windows_find_routers, WindowsFindRoutersCommand,
 };
-use crate::comm_layer::AutomapError;
+use crate::comm_layer::{AutomapError, MulticastInfo};
 use masq_lib::utils::find_free_port;
 use std::io;
 pub use std::net::UdpSocket;
@@ -42,16 +42,22 @@ impl MappingConfig {
 }
 
 pub trait UdpSocketWrapper: Send {
+    fn recv(&self, buf: &mut [u8]) -> io::Result<usize>;
     fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
     fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize>;
     fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()>;
+    fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()>;
 }
 
-pub struct UdpSocketReal {
+pub struct UdpSocketWrapperReal {
     delegate: UdpSocket,
 }
 
-impl UdpSocketWrapper for UdpSocketReal {
+impl UdpSocketWrapper for UdpSocketWrapperReal {
+    fn recv(&self, buf: &mut [u8]) -> io::Result<usize> {
+        self.delegate.recv(buf)
+    }
+
     fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
         self.delegate.recv_from(buf)
     }
@@ -63,9 +69,13 @@ impl UdpSocketWrapper for UdpSocketReal {
     fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
         self.delegate.set_read_timeout(dur)
     }
+
+    fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
+        self.delegate.set_nonblocking(nonblocking)
+    }
 }
 
-impl UdpSocketReal {
+impl UdpSocketWrapperReal {
     pub fn new(delegate: UdpSocket) -> Self {
         Self { delegate }
     }
@@ -75,24 +85,44 @@ pub trait UdpSocketWrapperFactory: Send {
     fn make(&self, addr: SocketAddr) -> io::Result<Box<dyn UdpSocketWrapper>>;
 }
 
-pub struct UdpSocketFactoryReal {}
+pub struct UdpSocketWrapperFactoryReal {}
 
-impl UdpSocketWrapperFactory for UdpSocketFactoryReal {
+impl UdpSocketWrapperFactory for UdpSocketWrapperFactoryReal {
     fn make(&self, addr: SocketAddr) -> io::Result<Box<dyn UdpSocketWrapper>> {
-        Ok(Box::new(UdpSocketReal::new(UdpSocket::bind(addr)?)))
+        Ok(Box::new(UdpSocketWrapperReal::new(UdpSocket::bind(addr)?)))
     }
 }
 
-impl UdpSocketFactoryReal {
+impl UdpSocketWrapperFactoryReal {
     pub fn new() -> Self {
         Self {}
     }
 }
 
-impl Default for UdpSocketFactoryReal {
+impl Default for UdpSocketWrapperFactoryReal {
     fn default() -> Self {
         Self::new()
     }
+}
+
+pub trait PoliteUdpSocketWrapperFactory: Send {
+    fn make(&self, multicast_info: &MulticastInfo) -> io::Result<Box<dyn UdpSocketWrapper>>;
+}
+
+pub struct PoliteUdpSocketFactoryReal {}
+
+impl PoliteUdpSocketWrapperFactory for PoliteUdpSocketFactoryReal {
+    fn make(&self, multicast_info: &MulticastInfo) -> io::Result<Box<dyn UdpSocketWrapper>> {
+        Ok(Box::new (UdpSocketWrapperReal::new (multicast_info.create_polite_socket()?)))
+    }
+}
+
+impl PoliteUdpSocketFactoryReal {
+    pub fn new() -> Self {Self {}}
+}
+
+impl Default for PoliteUdpSocketFactoryReal {
+    fn default() -> Self {Self::new()}
 }
 
 pub trait FreePortFactory: Send {
