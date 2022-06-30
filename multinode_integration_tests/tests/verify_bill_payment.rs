@@ -25,8 +25,8 @@ use node_lib::test_utils;
 use rustc_hex::{FromHex, ToHex};
 use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
-use std::thread;
 use std::time::{Duration, Instant};
+use std::{thread, u128};
 use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes, TransactionParameters};
@@ -97,7 +97,7 @@ fn verify_bill_payment() {
         derivation_path(0, 3),
     );
 
-    let amount = 10u64 * u64::try_from(payment_thresholds.permanent_debt_allowed_gwei).unwrap();
+    let amount = 10_000_000_000u128 * payment_thresholds.permanent_debt_allowed_gwei as u128;
 
     let project_root = MASQNodeUtils::find_project_root();
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);

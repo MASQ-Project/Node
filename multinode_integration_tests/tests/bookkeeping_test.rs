@@ -9,6 +9,7 @@ use multinode_integration_tests_lib::masq_real_node::{
     make_consuming_wallet_info, make_earning_wallet_info, MASQRealNode, NodeStartupConfigBuilder,
 };
 use multinode_integration_tests_lib::utils::{payable_dao, receivable_dao};
+use node_lib::accountant::dao_utils::CustomQuery;
 use node_lib::accountant::payable_dao::PayableAccount;
 use node_lib::accountant::receivable_dao::ReceivableAccount;
 use node_lib::sub_lib::wallet::Wallet;
@@ -47,7 +48,7 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
                 .into_iter()
                 .map(move |receivable_account| (node.earning_wallet(), receivable_account.balance))
         })
-        .collect::<HashMap<Wallet, i64>>();
+        .collect::<HashMap<Wallet, i128>>();
 
     // check that each payable has a receivable
     assert_eq!(
@@ -65,8 +66,8 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
 
     payables.iter().for_each(|payable| {
         assert_eq!(
-            &payable.balance,
-            receivable_balances.get(&payable.wallet).unwrap(),
+            payable.balance,
+            *receivable_balances.get(&payable.wallet).unwrap() as u128,
         );
     });
 }
@@ -78,7 +79,9 @@ fn non_pending_payables(node: &MASQRealNode) -> Vec<PayableAccount> {
 
 fn receivables(node: &MASQRealNode) -> Vec<ReceivableAccount> {
     let receivable_dao = receivable_dao(node);
-    receivable_dao.receivables()
+    receivable_dao
+        .custom_query(CustomQuery::TopRecords(u16::MAX))
+        .unwrap_or_default()
 }
 
 pub fn start_lonely_real_node(cluster: &mut MASQNodeCluster) -> MASQRealNode {

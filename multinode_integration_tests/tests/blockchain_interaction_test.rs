@@ -16,6 +16,7 @@ use multinode_integration_tests_lib::masq_real_node::{
 };
 use multinode_integration_tests_lib::mock_blockchain_client_server::MBCSBuilder;
 use multinode_integration_tests_lib::utils::{config_dao, database_conn, receivable_dao};
+use node_lib::accountant::dao_utils::CustomQuery;
 
 #[test]
 #[ignore]
@@ -108,7 +109,9 @@ fn debtors_are_credited_once_but_not_twice() {
     // Use the receivable DAO to verify that the receivable's balance has been adjusted
     {
         let receivable_dao = receivable_dao(&node);
-        let receivable_accounts = receivable_dao.receivables();
+        let receivable_accounts = receivable_dao
+            .custom_query(CustomQuery::TopRecords(100))
+            .unwrap_or_default();
         assert_eq!(receivable_accounts.len(), 1);
         assert_eq!(receivable_accounts[0].balance, 1234); // this will probably fail
     }

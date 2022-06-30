@@ -18,7 +18,6 @@ use itertools::Either;
 use masq_lib::logger::Logger;
 use masq_lib::utils::plus;
 use rusqlite::types::ToSql;
-#[cfg(test)]
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::{named_params, params_from_iter, Error};
@@ -77,7 +76,7 @@ pub trait ReceivableDao: Send {
 
     fn total(&self) -> i128;
 
-    #[cfg(test)]
+    //factually test-only method but shared with multi-node tests, thus without conditional compilation
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 }
 
@@ -209,7 +208,6 @@ impl ReceivableDao for ReceivableDaoReal {
         collect_and_sum_i128_values_from_table(self.conn.as_ref(), Table::Receivable, "balance")
     }
 
-    #[cfg(test)]
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount> {
         let mut stmt = self
             .conn
