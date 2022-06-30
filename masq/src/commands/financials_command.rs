@@ -4,7 +4,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{App, Arg, ArgMatches, SubCommand};
+use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
 use masq_lib::messages::{
     CustomQueries, RangeQuery, UiFinancialsRequest, UiFinancialsResponse, UiPayableAccount,
     UiReceivableAccount,
@@ -22,7 +22,7 @@ const FINANCIALS_SUBCOMMAND_ABOUT: &str =
 const TOP_ARG_HELP: &str = "Returns the first N records from both payable and receivable";
 const PAYABLE_ARG_HELP: &str = "Allows to configure a detailed query for payable with ranges about the age and balance of records. The required format of the query's input is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>";
 const RECEIVABLE_ARG_HELP: &str = "Allows to configure a detailed query for receivable with ranges about the age and balance of records. The required format of the query's input is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>";
-const NO_STATS_ARG_HELP: &str = "Disables the default statistics about totals of paid and unpaid money from both your debtors and creditors";
+const NO_STATS_ARG_HELP: &str = "Disables the default statistics about totals of paid and unpaid money from both sides, debtors and creditors. This argument is not allowed alone";
 const WALLET_ADDRESS_LENGTH: usize = 42;
 const PAYABLE_HEADERS: &[&str] = &["Wallet", "Age [s]", "Balance [Wei]", "Pending tx"];
 const RECEIVABLE_HEADERS: &[&str] = &["Wallet", "Age [s]", "Balance [Wei]"];
@@ -72,10 +72,18 @@ pub fn financials_subcommand() -> App<'static, 'static> {
                 .help(NO_STATS_ARG_HELP)
                 .value_name("NO-STATS")
                 .long("no-stats")
-                .required(false)
                 .case_insensitive(false)
-                .takes_value(false),
+                .takes_value(false)
+                .required(false),
         )
+        .groups(&[
+            ArgGroup::with_name("no-stats-group")
+                .args(&["no-stats"])
+                .requires("other-options-group"),
+            ArgGroup::with_name("other-options-group")
+                .args(&["receivable", "payable", "top"])
+                .multiple(true),
+        ])
 }
 
 impl Command for FinancialsCommand {
@@ -249,8 +257,8 @@ impl FinancialsCommand {
     ) -> Option<RangeQuery<T>> {
         matches.value_of(parameter_name).map(|double| {
             let params = double
-                .split("|")
-                .map(|half| half.rsplit_once("-").expect("blah"))
+                .split('|')
+                .map(|half| half.rsplit_once('-').expect("blah"))
                 .fold(vec![], |acc, current| plus(plus(acc, current.0), current.1));
             RangeQuery {
                 min_age: Self::parse(params[0], "min_age"),
@@ -289,10 +297,7 @@ impl FinancialsCommand {
     }
 
     fn full_length(optimal_widths: &[usize]) -> usize {
-        optimal_widths.iter().fold(0, |acc, width| acc + width)
-            + WALLET_ADDRESS_LENGTH
-            + optimal_widths.len()
-            + 2
+        optimal_widths.iter().sum::<usize>() + WALLET_ADDRESS_LENGTH + optimal_widths.len() + 2
     }
 
     fn headers_underscore(optimal_widths: &[usize]) -> String {
@@ -322,7 +327,7 @@ impl FinancialsCommand {
             headers[1],
             headers[2],
             headers[3],
-            Self::headers_underscore(&optimal_widths),
+            Self::headers_underscore(optimal_widths),
             wallet_width = WALLET_ADDRESS_LENGTH,
             age_width = optimal_widths[0],
             balance_width = optimal_widths[1],
@@ -379,7 +384,7 @@ impl FinancialsCommand {
             headers[0],
             headers[1],
             headers[2],
-            Self::headers_underscore(&optimal_widths),
+            Self::headers_underscore(optimal_widths),
             wallet_width = WALLET_ADDRESS_LENGTH,
             age_width = optimal_widths[0],
             balance_width = optimal_widths[1],
@@ -519,7 +524,7 @@ impl WidthInfo for UiReceivableAccount {
 mod tests {
     use super::*;
     use crate::command_context::ContextError::ConnectionDropped;
-    use crate::command_factory::{CommandFactory, CommandFactoryReal};
+    use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{
@@ -541,7 +546,7 @@ mod tests {
         );
         assert_eq!(PAYABLE_ARG_HELP,"Allows to configure a detailed query for payable with ranges about the age and balance of records. The required format of the query's input is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>");
         assert_eq!(RECEIVABLE_ARG_HELP,"Allows to configure a detailed query for receivable with ranges about the age and balance of records. The required format of the query's input is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>");
-        assert_eq!(NO_STATS_ARG_HELP,"Disables the default statistics about totals of paid and unpaid money from both your debtors and creditors");
+        assert_eq!(NO_STATS_ARG_HELP,"Disables the default statistics about totals of paid and unpaid money from both sides, debtors and creditors. This argument is not allowed alone");
         assert_eq!(WALLET_ADDRESS_LENGTH, 42);
         assert_eq!(
             PAYABLE_HEADERS,
@@ -630,6 +635,23 @@ mod tests {
         let result = subject.execute(&mut context);
 
         assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn command_factory_no_stats_forbidden_if_no_other_arg_present() {
+        let factory = CommandFactoryReal::new();
+
+        let result = factory.make(&array_of_borrows_to_vec(&["financials", "--no-stats"]));
+
+        let err = match result {
+            Ok(_) => panic!("we expected error but got ok"),
+            Err(CommandFactoryError::CommandSyntax(err_msg)) => err_msg,
+            Err(e) => panic!("we expected CommandSyntax error but got: {:?}", e),
+        };
+        assert!(err.contains("The following required arguments were not provided:"));
+        assert!(err.contains(
+            "financials <--no-stats> <--receivable <PAYABLE>|--payable <PAYABLE>|--top <TOP>>"
+        ));
     }
 
     #[test]

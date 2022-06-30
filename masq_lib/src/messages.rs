@@ -558,7 +558,7 @@ pub struct UiDescriptorResponse {
 }
 conversation_message!(UiDescriptorResponse, "descriptor");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiFinancialsRequest {
     #[serde(rename = "statsRequired")]
     pub stats_required: bool,

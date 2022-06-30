@@ -278,24 +278,20 @@ impl PayableDaoReal {
             pending_payable_rowid_result,
             pending_payable_hash_result,
         ) {
-            (Ok(wallet), Ok(balance), Ok(last_paid_timestamp), Ok(rowid), Ok(hash_opt)) => {
+            (Ok(wallet), Ok(balance), Ok(last_paid_timestamp), Ok(rowid_opt), Ok(hash_opt)) => {
                 Ok(PayableAccount {
                     wallet,
                     balance,
                     last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                    pending_payable_opt: match rowid {
-                        Some(rowid) => Some({
-                            let hash_str = hash_opt
-                                .expect("database corrupt; missing hash but existing rowid");
-                            PendingPayableId {
-                                rowid: u64::try_from(rowid).unwrap(),
-                                hash: H256::from_str(&hash_str[2..]).unwrap_or_else(|_| {
-                                    panic!("wrong form of tx hash {}", hash_str)
-                                }),
-                            }
-                        }),
-                        None => None,
-                    },
+                    pending_payable_opt: rowid_opt.map(|rowid| {
+                        let hash_str =
+                            hash_opt.expect("database corrupt; missing hash but existing rowid");
+                        PendingPayableId {
+                            rowid: u64::try_from(rowid).unwrap(),
+                            hash: H256::from_str(&hash_str[2..])
+                                .unwrap_or_else(|_| panic!("wrong form of tx hash {}", hash_str)),
+                        }
+                    }),
                 })
             }
             e => panic!(

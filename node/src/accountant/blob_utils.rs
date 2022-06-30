@@ -95,16 +95,11 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
             .prepare(config.insert_sql)
             .expect("internal rusqlite error");
         match stm.execute(&*params) {
-            Ok(_) => return Ok(()),
+            Ok(_) => Ok(()),
             Err(e)
-                if {
-                    match e {
-                        Error::SqliteFailure(e, _) => match e.code {
-                            ConstraintViolation => true,
-                            _ => false,
-                        },
-                        _ => false,
-                    }
+                if match e {
+                    Error::SqliteFailure(e, _) => matches!(e.code, ConstraintViolation),
+                    _ => false,
                 } =>
             {
                 self.update(Either::Left(conn), &config)
@@ -216,12 +211,9 @@ impl<'a> FetchValue<'a> for ExtendedParamsVec<'a> {
                     };
                     Some(x)
                 }
-                None => match key_candidate.key_name_opt() {
-                    Some(in_table_param_name) => {
-                        Some((in_table_param_name, param_name.to_string(), idx))
-                    }
-                    None => None,
-                },
+                None => key_candidate
+                    .key_name_opt()
+                    .map(|in_table_param_name| (in_table_param_name, param_name.to_string(), idx)),
             },
         ) {
             Some(x) => x,
@@ -388,7 +380,7 @@ pub fn collect_and_sum_i128_values_from_table(
         })
         .expect("select query failed")
         .flatten()
-        .fold(0_i128, |acc, num: i128| acc + num)
+        .sum()
 }
 
 #[cfg(test)]

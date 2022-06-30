@@ -558,7 +558,7 @@ impl DatabaseMigration for Migrate_6_to_7 {
 }
 
 impl Migrate_6_to_7 {
-    fn retype_table<'a>(
+    fn retype_table(
         utils: &dyn MigDeclarationUtilities,
         table: &str,
         table_creation_lines: &str,

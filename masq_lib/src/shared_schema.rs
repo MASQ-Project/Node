@@ -577,7 +577,7 @@ pub mod common_validators {
             str::parse::<N>(str_num)
                 .map_err(|_| "Non numeric value; all values must be numbers".to_string())
         }
-        let separate_classes = double.split("|").collect::<Vec<&str>>();
+        let separate_classes = double.split('|').collect::<Vec<&str>>();
         if separate_classes.len() != 2 {
             return Err("Missing central pipe delimiter".to_string());
         }
@@ -586,7 +586,7 @@ pub mod common_validators {
                 .into_iter()
                 .fold(Some(vec![]), |acc, half| {
                     if let Some(acc_vec) = acc {
-                        let nums = half.split("-").collect::<Vec<&str>>();
+                        let nums = half.split('-').collect::<Vec<&str>>();
                         if nums.len() != 2 {
                             None
                         } else {

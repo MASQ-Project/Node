@@ -14,6 +14,7 @@ pub mod terminal;
 
 #[macro_use]
 extern crate crossbeam_channel;
+extern crate core;
 
 #[cfg(test)]
 pub mod test_utils;

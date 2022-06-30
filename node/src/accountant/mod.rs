@@ -951,41 +951,37 @@ impl Accountant {
         } else {
             None
         };
-        let top_records_opt = if let Some(count) = msg.top_records_opt {
-            Some(FirmQueryResult {
-                payable: self
-                    .request_payable_accounts_by_specific_mode(CustomQuery::TopRecords(count))
-                    .unwrap_or(vec![]),
-                receivable: self
-                    .request_receivable_accounts_by_specific_mode(CustomQuery::TopRecords(count))
-                    .unwrap_or(vec![]),
-            })
-        } else {
-            None
-        };
-        let custom_query_records_opt = if let Some(specs) = &msg.custom_queries_opt {
-            Some(CustomQueryResult {
-                payable_opt: self
-                    .fill_in_values_to_report(specs.payable_opt.as_ref(), |accountant, mode| {
-                        accountant.request_payable_accounts_by_specific_mode(mode)
-                    }),
-                receivable_opt: self.fill_in_values_to_report(
-                    specs.receivable_opt.as_ref(),
-                    |accountant, mode| {
-                        accountant.request_receivable_accounts_by_specific_mode(mode)
-                    },
-                ),
-            })
-        } else {
-            None
-        };
-        let body = UiFinancialsResponse {
+        let top_records_opt = msg.top_records_opt.map(|count| FirmQueryResult {
+            payable: self
+                .request_payable_accounts_by_specific_mode(CustomQuery::TopRecords(count))
+                .unwrap_or_default(),
+            receivable: self
+                .request_receivable_accounts_by_specific_mode(CustomQuery::TopRecords(count))
+                .unwrap_or_default(),
+        });
+        let custom_query_records_opt =
+            msg.custom_queries_opt
+                .as_ref()
+                .map(|specs| CustomQueryResult {
+                    payable_opt: self.fill_in_values_to_report(
+                        specs.payable_opt.as_ref(),
+                        |accountant, mode| {
+                            accountant.request_payable_accounts_by_specific_mode(mode)
+                        },
+                    ),
+                    receivable_opt: self.fill_in_values_to_report(
+                        specs.receivable_opt.as_ref(),
+                        |accountant, mode| {
+                            accountant.request_receivable_accounts_by_specific_mode(mode)
+                        },
+                    ),
+                });
+        UiFinancialsResponse {
             stats_opt,
             top_records_opt,
             custom_query_records_opt,
         }
-        .tmb(context_id);
-        body
+        .tmb(context_id)
     }
 
     fn request_payable_accounts_by_specific_mode(
@@ -994,7 +990,7 @@ impl Accountant {
     ) -> Option<Vec<UiPayableAccount>> {
         self.payable_dao
             .custom_query(mode)
-            .map(|accounts| remap_payable_accounts(accounts))
+            .map(remap_payable_accounts)
     }
 
     fn request_receivable_accounts_by_specific_mode(
@@ -1003,7 +999,7 @@ impl Accountant {
     ) -> Option<Vec<UiReceivableAccount>> {
         self.receivable_dao
             .custom_query(mode)
-            .map(|accounts| remap_receivable_accounts(accounts))
+            .map(remap_receivable_accounts)
     }
 
     fn fill_in_values_to_report<N: Copy, R, F>(
@@ -1033,10 +1029,7 @@ impl Accountant {
         msg: &UiFinancialsRequest,
         context_id: u64,
     ) -> Result<(), MessageBody> {
-        if msg.stats_required == true
-            || msg.top_records_opt.is_some()
-            || msg.custom_queries_opt.is_some()
-        {
+        if msg.stats_required || msg.top_records_opt.is_some() || msg.custom_queries_opt.is_some() {
             Ok(())
         } else {
             Err(MessageBody {
@@ -1394,7 +1387,7 @@ impl ThresholdUtils {
         payment_thresholds: &PaymentThresholds,
         time: u64,
     ) -> f64 {
-        let m = ThresholdUtils::slope(&payment_thresholds);
+        let m = ThresholdUtils::slope(payment_thresholds);
         let b = ThresholdUtils::compute_theoretical_interception_with_y_axis(
             m,
             ThresholdUtils::convert(payment_thresholds.debt_threshold_gwei),
