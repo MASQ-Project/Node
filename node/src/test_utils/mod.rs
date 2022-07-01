@@ -513,7 +513,7 @@ pub struct TestRawTransaction {
 pub mod unshared_test_utils {
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::apps::app_node;
-    use crate::daemon::ChannelFactory;
+    use crate::daemon::{ChannelFactory, DaemonBindMessage};
     use crate::db_config::config_dao_null::ConfigDaoNull;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
@@ -649,6 +649,20 @@ pub mod unshared_test_utils {
 
     pub fn make_node_to_ui_recipient() -> (Recipient<NodeToUiMessage>, Arc<Mutex<Recording>>) {
         make_recipient_and_recording_arc(None)
+    }
+
+    pub fn make_daemon_bind_message(ui_gateway: Recorder) -> DaemonBindMessage {
+        let (stub, _, _) = make_recorder();
+        let stub_sub = stub.start().recipient::<NodeFromUiMessage>();
+        let (daemon, _, _) = make_recorder();
+        let crash_notification_recipient = daemon.start().recipient();
+        let ui_gateway_sub = ui_gateway.start().recipient::<NodeToUiMessage>();
+        DaemonBindMessage {
+            to_ui_message_recipient: ui_gateway_sub,
+            from_ui_message_recipient: stub_sub,
+            from_ui_message_recipients: vec![],
+            crash_notification_recipient,
+        }
     }
 
     pub struct ChannelFactoryMock {
