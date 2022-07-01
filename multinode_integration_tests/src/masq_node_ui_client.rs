@@ -54,18 +54,18 @@ impl MASQNodeUIClient {
     }
 
     pub fn wait_for_response(&self, context_id: u64, timeout: Duration) -> MessageBody {
-        return self.buffered_or_incoming(MessagePath::Conversation(context_id), timeout);
+        self.buffered_or_incoming(MessagePath::Conversation(context_id), timeout)
     }
 
     pub fn wait_for_broadcast(&self, timeout: Duration) -> MessageBody {
-        return self.buffered_or_incoming(MessagePath::FireAndForget, timeout);
+        self.buffered_or_incoming(MessagePath::FireAndForget, timeout)
     }
 
     fn buffered_or_incoming(&self, path: MessagePath, timeout: Duration) -> MessageBody {
         if let Some(target) = self.check_for_buffered_message(path) {
             return target;
         }
-        return self.wait_for_message(path, timeout);
+        self.wait_for_message(path, timeout)
     }
 
     fn wait_for_message(&self, path: MessagePath, timeout: Duration) -> MessageBody {
@@ -106,7 +106,7 @@ impl MASQNodeUIClient {
                 }
             });
         inner.buffer = new_buffer;
-        return target_opt;
+        target_opt
     }
 
     fn check_for_waiting_message(

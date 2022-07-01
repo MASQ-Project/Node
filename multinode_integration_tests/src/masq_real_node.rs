@@ -429,8 +429,8 @@ impl NodeStartupConfigBuilder {
         let mut builder = Self::standard();
         builder.neighborhood_mode = "zero-hop".to_string();
         builder.ip_info = LocalIpInfo::ZeroHop;
-        builder.rate_pack = ZERO_RATE_PACK.clone();
-        return builder;
+        builder.rate_pack = ZERO_RATE_PACK;
+        builder
     }
 
     pub fn consume_only() -> Self {
@@ -441,7 +441,7 @@ impl NodeStartupConfigBuilder {
         builder.consuming_wallet_info = ConsumingWalletInfo::PrivateKey(
             "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".to_string(),
         );
-        return builder;
+        builder
     }
 
     pub fn originate_only() -> Self {
@@ -452,7 +452,7 @@ impl NodeStartupConfigBuilder {
         builder.consuming_wallet_info = ConsumingWalletInfo::PrivateKey(
             "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".to_string(),
         );
-        return builder;
+        builder
     }
 
     pub fn standard() -> Self {
@@ -724,7 +724,7 @@ impl MASQNode for MASQRealNode {
     }
 
     fn rate_pack(&self) -> RatePack {
-        self.guts.rate_pack.clone()
+        self.guts.rate_pack
     }
 
     fn chain(&self) -> Chain {
