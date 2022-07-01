@@ -251,7 +251,7 @@ fn first_dividing(descriptor: &str) -> Result<(&str, &str), String> {
         CENTRAL_DELIMITER,
         DescriptorParsingError::CentralDelimiterProbablyMissing(descriptor),
     )?;
-    let _ = approx_position_assertion(descriptor, &halves)?;
+    approx_position_assertion(descriptor, &halves)?;
     Ok((halves[0], halves[1]))
 }
 
