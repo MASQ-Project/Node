@@ -708,7 +708,7 @@ impl Configurator {
     ) -> Result<MessageBody, MessageError> {
         let password: Option<String> = None; //prepared for an upgrade with parameters requiring the password
 
-        let _ = match password {
+        match password {
             None => {
                 if "gas-price" == &msg.name {
                     Self::set_gas_price(msg.value, persist_config)?;

@@ -18,6 +18,7 @@ use std::convert::{TryFrom, TryInto};
 use std::fmt::Debug;
 use std::fmt::Error;
 use std::fmt::Formatter;
+use std::fmt::Write;
 use std::net::{IpAddr, SocketAddr};
 
 #[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -97,37 +98,61 @@ impl TryFrom<&Value> for GossipNodeRecord {
 impl GossipNodeRecord {
     fn to_human_readable(&self) -> String {
         let mut human_readable = String::new();
-        human_readable.push_str("\nGossipNodeRecord {");
+        write!(human_readable, "\nGossipNodeRecord {{").expect("write failed");
         match NodeRecordInner_0v1::try_from(self) {
             Ok(nri) => {
-                human_readable.push_str("\n\tinner: NodeRecordInner_0v1 {");
-                human_readable.push_str(&format!("\n\t\tpublic_key: {:?},", &nri.public_key));
-                human_readable.push_str(&format!("\n\t\tnode_addr_opt: {:?},", self.node_addr_opt));
-                human_readable
-                    .push_str(&format!("\n\t\tearning_wallet: {:?},", nri.earning_wallet));
-                human_readable.push_str(&format!("\n\t\trate_pack: {:?},", nri.rate_pack));
-                human_readable.push_str(&format!(
+                write!(human_readable, "\n\tinner: NodeRecordInner_0v1 {{").expect("write failed");
+                write!(human_readable, "\n\t\tpublic_key: {:?},", &nri.public_key)
+                    .expect("write failed");
+                write!(
+                    human_readable,
+                    "\n\t\tnode_addr_opt: {:?},",
+                    self.node_addr_opt
+                )
+                .expect("write failed");
+                write!(
+                    human_readable,
+                    "\n\t\tearning_wallet: {:?},",
+                    nri.earning_wallet
+                )
+                .expect("write failed");
+                write!(human_readable, "\n\t\trate_pack: {:?},", nri.rate_pack)
+                    .expect("write failed");
+                write!(
+                    human_readable,
                     "\n\t\tneighbors: {:?},",
                     nri.neighbors
                         .clone()
                         .into_iter()
                         .collect::<Vec<PublicKey>>()
-                ));
-                human_readable.push_str(&format!("\n\t\tversion: {:?},", nri.version));
-                human_readable.push_str("\n\t},");
+                )
+                .expect("write failed");
+                write!(human_readable, "\n\t\tversion: {:?},", nri.version).expect("write failed");
+                write!(human_readable, "\n\t}},").expect("write failed");
             }
-            Err(_e) => human_readable.push_str("\n\tinner: <non-deserializable>"),
+            Err(_e) => {
+                write!(human_readable, "\n\tinner: <non-deserializable>").expect("write failed");
+            }
         };
-        human_readable.push_str(&format!("\n\tnode_addr_opt: {:?},", self.node_addr_opt));
-        human_readable.push_str(&format!(
+        write!(
+            human_readable,
+            "\n\tnode_addr_opt: {:?},",
+            self.node_addr_opt
+        )
+        .expect("write failed");
+        write!(
+            human_readable,
             "\n\tsigned_data:\n{:?}",
             self.signed_data.as_slice().hex_dump()
-        ));
-        human_readable.push_str(&format!(
+        )
+        .expect("write failed");
+        write!(
+            human_readable,
             "\n\tsignature:\n{:?}",
             self.signature.as_slice().hex_dump()
-        ));
-        human_readable.push_str("\n}");
+        )
+        .expect("write failed");
+        write!(human_readable, "\n}}").expect("write failed");
         human_readable
     }
 }

@@ -123,7 +123,7 @@ impl MASQNode for MASQMockNode {
     }
 
     fn rate_pack(&self) -> RatePack {
-        self.guts.rate_pack.clone()
+        self.guts.rate_pack
     }
 
     fn chain(&self) -> Chain {
@@ -185,7 +185,7 @@ impl MASQMockNode {
             node_addr,
             earning_wallet,
             consuming_wallet,
-            rate_pack: DEFAULT_RATE_PACK.clone(),
+            rate_pack: DEFAULT_RATE_PACK,
             cryptde_enum,
             framer,
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
