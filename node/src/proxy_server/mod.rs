@@ -45,7 +45,6 @@ use actix::Handler;
 use actix::Recipient;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use pretty_hex::PrettyHex;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
@@ -186,7 +185,7 @@ impl Handler<ExpiredCoresPackage<ClientResponsePayload_0v1>> for ProxyServer {
         msg: ExpiredCoresPackage<ClientResponsePayload_0v1>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        self.handle_client_response_payload(&msg)
+        self.handle_client_response_payload(msg)
     }
 }
 
@@ -321,7 +320,7 @@ impl ProxyServer {
 
     fn handle_client_response_payload(
         &mut self,
-        msg: &ExpiredCoresPackage<ClientResponsePayload_0v1>,
+        msg: ExpiredCoresPackage<ClientResponsePayload_0v1>,
     ) {
         debug!(
             self.logger,
@@ -330,7 +329,7 @@ impl ProxyServer {
                 .to_string(vec![self.main_cryptde, self.main_cryptde])
         );
         let payload_data_len = msg.payload_len;
-        let response = &msg.payload;
+        let response = msg.payload;
         debug!(
             self.logger,
             "Relaying ClientResponsePayload (stream key {}, sequence {}, length {}) from Hopper to Dispatcher for client",
@@ -340,21 +339,20 @@ impl ProxyServer {
             Some(rri) => rri,
             None => return,
         };
+        self.report_response_services_consumed(
+            &return_route_info,
+            response.sequenced_packet.data.len(),
+            payload_data_len,
+        );
         match self.keys_and_addrs.a_to_b(&response.stream_key) {
             Some(socket_addr) => {
-                self.report_response_services_consumed(
-                    &return_route_info,
-                    response.sequenced_packet.data.len(),
-                    payload_data_len,
-                );
-
                 let last_data = response.sequenced_packet.last_data;
+                let stream_key = response.stream_key;
                 let sequence_number = Some(
                     response.sequenced_packet.sequence_number
                         + self.browser_proxy_sequence_offset as u64,
                 );
-                self
-                    .subs
+                self.subs
                     .as_ref()
                     .expect("Dispatcher unbound in ProxyServer")
                     .dispatcher
@@ -362,21 +360,31 @@ impl ProxyServer {
                         endpoint: Endpoint::Socket(socket_addr),
                         last_data,
                         sequence_number,
-                        data: response.sequenced_packet.data.clone(),
+                        data: response.sequenced_packet.data,
                     })
                     .expect("Dispatcher is dead");
                 if last_data {
-                    debug!(self.logger, "Retiring stream key {}: no more data", &response.stream_key);
-                    self.purge_stream_key(&response.stream_key);
+                    debug!(
+                        self.logger,
+                        "Retiring stream key {}: no more data", &stream_key
+                    );
+                    self.purge_stream_key(&stream_key);
                 }
             }
-            None => error!(self.logger,
-                "Discarding {}-byte packet {} from an unrecognized stream key: {:?}; can't send response back to client\n{:?}",
-                response.sequenced_packet.data.len(),
-                response.sequenced_packet.sequence_number,
-                response.stream_key,
-                response.sequenced_packet.data.hex_dump(),
-            ),
+            None => {
+                // TODO GH-608: It would be really nice to be able to send an InboundClientData with last_data: true
+                // back to the ProxyClient (and the distant server) so that the server could shut down
+                // its stream, since the browser has shut down _its_ stream and no more data will
+                // ever be accepted from the server on that stream; but we don't have enough information
+                // to do so, since our stream key has been purged and all the information it keyed
+                // is gone. Sorry, server!
+                warning!(self.logger,
+                    "Discarding {}-byte packet {} from an unrecognized stream key: {:?}; can't send response back to client",
+                    response.sequenced_packet.data.len(),
+                    response.sequenced_packet.sequence_number,
+                    response.stream_key,
+                )
+            }
         }
     }
 
@@ -3171,7 +3179,7 @@ mod tests {
     fn proxy_server_receives_terminal_response_from_hopper() {
         init_test_logging();
         let system = System::new("proxy_server_receives_response_from_hopper");
-        let (dispatcher_mock, _, dispatcher_log_arc) = make_recorder();
+        let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
         let cryptde = main_cryptde();
         let mut subject = ProxyServer::new(
             cryptde,
@@ -3212,22 +3220,22 @@ mod tests {
             0,
         );
         let second_expired_cores_package = first_expired_cores_package.clone();
-        let mut peer_actors = peer_actors_builder().dispatcher(dispatcher_mock).build();
+        let mut peer_actors = peer_actors_builder().dispatcher(dispatcher).build();
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr.try_send(first_expired_cores_package).unwrap();
         subject_addr.try_send(second_expired_cores_package).unwrap(); // should generate log because stream key is now unknown
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
 
-        let recording = dispatcher_log_arc.lock().unwrap();
-        let record = recording.get_record::<TransmitDataMsg>(0);
+        let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
+        let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
         assert_eq!(record.endpoint, Endpoint::Socket(socket_addr));
         assert_eq!(record.last_data, true);
         assert_eq!(record.data, b"16 bytes of data".to_vec());
-        TestLogHandler::new().exists_log_containing(&format!("ERROR: ProxyServer: Discarding 16-byte packet 12345678 from an unrecognized stream key: {:?}", stream_key));
+        TestLogHandler::new().exists_log_containing(&format!("WARN: ProxyServer: Discarding 16-byte packet 12345678 from an unrecognized stream key: {:?}", stream_key));
     }
 
     #[test]
@@ -3287,7 +3295,7 @@ mod tests {
                 0,
             );
 
-        subject.handle_client_response_payload(&expired_cores_package);
+        subject.handle_client_response_payload(expired_cores_package);
 
         assert!(subject.keys_and_addrs.is_empty());
         assert!(subject.stream_key_routes.is_empty());
@@ -3296,7 +3304,7 @@ mod tests {
 
     #[test]
     fn proxy_server_receives_nonterminal_response_from_hopper() {
-        let system = System::new("proxy_server_receives_response_from_hopper");
+        let system = System::new("proxy_server_receives_nonterminal_response_from_hopper");
         let (dispatcher_mock, _, dispatcher_log_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let cryptde = main_cryptde();
@@ -3423,7 +3431,7 @@ mod tests {
             .try_send(second_expired_cores_package.clone())
             .unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
 
         let after = SystemTime::now();
@@ -3493,6 +3501,95 @@ mod tests {
     }
 
     #[test]
+    fn proxy_server_records_services_consumed_even_after_browser_stream_is_gone() {
+        let system =
+            System::new("proxy_server_records_services_consumed_even_after_browser_stream_is_gone");
+        let (dispatcher_mock, _, dispatcher_log_arc) = make_recorder();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let cryptde = main_cryptde();
+        let mut subject = ProxyServer::new(
+            cryptde,
+            alias_cryptde(),
+            false,
+            Some(STANDARD_CONSUMING_WALLET_BALANCE),
+            false,
+        );
+        let stream_key = make_meaningless_stream_key();
+        let irrelevant_public_key = PublicKey::from(&b"irrelevant"[..]);
+        // subject.keys_and_addrs contains no browser stream
+        let incoming_route_d_wallet = make_wallet("D Earning");
+        let incoming_route_e_wallet = make_wallet("E Earning");
+        subject.route_ids_to_return_routes.insert(
+            1234,
+            AddReturnRouteMessage {
+                return_route_id: 1234,
+                expected_services: vec![
+                    ExpectedService::Exit(
+                        irrelevant_public_key.clone(),
+                        incoming_route_d_wallet.clone(),
+                        rate_pack(101),
+                    ),
+                    ExpectedService::Routing(
+                        irrelevant_public_key.clone(),
+                        incoming_route_e_wallet.clone(),
+                        rate_pack(102),
+                    ),
+                ],
+                protocol: ProxyProtocol::TLS,
+                server_name: None,
+            },
+        );
+        let subject_addr: Addr<ProxyServer> = subject.start();
+        let client_response_payload = ClientResponsePayload_0v1 {
+            stream_key,
+            sequenced_packet: SequencedPacket {
+                data: b"some data".to_vec(),
+                sequence_number: 4321,
+                last_data: false,
+            },
+        };
+        let exit_size = client_response_payload.sequenced_packet.data.len();
+        let expired_cores_package: ExpiredCoresPackage<ClientResponsePayload_0v1> =
+            ExpiredCoresPackage::new(
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+                Some(make_wallet("irrelevant")),
+                return_route_with_id(cryptde, 1234),
+                client_response_payload.into(),
+                0,
+            );
+        let routing_size = expired_cores_package.payload_len;
+        let peer_actors = peer_actors_builder()
+            .dispatcher(dispatcher_mock)
+            .accountant(accountant)
+            .build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(expired_cores_package.clone())
+            .unwrap();
+
+        System::current().stop();
+        system.run();
+        let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
+        assert_eq!(dispatcher_recording.len(), 0);
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        check_exit_report(
+            &accountant_recording,
+            0,
+            &incoming_route_d_wallet,
+            exit_size,
+            rate_pack(101),
+        );
+        check_routing_report(
+            &accountant_recording,
+            1,
+            &incoming_route_e_wallet,
+            routing_size,
+        );
+        assert_eq!(accountant_recording.len(), 2);
+    }
+
+    #[test]
     fn handle_dns_resolve_failure_sends_message_to_dispatcher() {
         let system = System::new("proxy_server_receives_response_from_routing_services");
 
@@ -3549,7 +3646,7 @@ mod tests {
 
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
 
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
@@ -3638,7 +3735,7 @@ mod tests {
             .try_send(expired_cores_package.clone())
             .unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
 
         let after = SystemTime::now();
@@ -3810,7 +3907,7 @@ mod tests {
             .try_send(already_used_expired_cores_package)
             .unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
 
         TestLogHandler::new().exists_log_containing(
@@ -3885,7 +3982,7 @@ mod tests {
             .try_send(already_used_expired_cores_package)
             .unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
 
         TestLogHandler::new().exists_log_containing(
@@ -4004,7 +4101,7 @@ mod tests {
 
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
     }
 
@@ -4029,7 +4126,7 @@ mod tests {
 
         subject_addr.try_send(msg_from_dispatcher).unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
     }
 
@@ -4077,7 +4174,7 @@ mod tests {
 
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
         TestLogHandler::new().exists_log_containing("ERROR: ProxyServer: Can't report services consumed: received response with bogus return-route ID 1234. Ignoring");
         assert_eq!(dispatcher_recording_arc.lock().unwrap().len(), 0);
@@ -4130,7 +4227,7 @@ mod tests {
 
         subject_addr.try_send(expired_cores_package).unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
         TestLogHandler::new().exists_log_containing(
             "ERROR: ProxyServer: Can't report services consumed: DecryptionError(InvalidKey(\"Could not decrypt with",
@@ -4328,7 +4425,7 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
         let recording = hopper_recording_arc.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackage>(0);
@@ -4445,7 +4542,7 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
         let recording = hopper_recording_arc.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackage>(0);
@@ -4560,7 +4657,7 @@ mod tests {
             })
             .unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
     }
 
