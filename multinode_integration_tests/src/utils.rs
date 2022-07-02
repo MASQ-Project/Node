@@ -65,7 +65,7 @@ pub fn database_conn(node: &MASQRealNode) -> Box<dyn ConnectionWrapper> {
         .initialize(
             &std::path::PathBuf::from(MASQRealNode::node_home_dir(
                 &MASQNodeUtils::find_project_root(),
-                &node.name().to_string(),
+                node.name(),
             )),
             true,
             MigratorConfig::panic_on_migration(),
