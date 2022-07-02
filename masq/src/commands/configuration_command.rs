@@ -145,10 +145,10 @@ impl ConfigurationCommand {
         let rate_pack = Self::preprocess_combined_parameters({
             let r_p = &configuration.rate_pack;
             &[
-                ("Routing byte rate:", &r_p.routing_byte_rate, "Gwei"),
-                ("Routing service rate:", &r_p.routing_service_rate, "Gwei"),
-                ("Exit byte rate:", &r_p.exit_byte_rate, "Gwei"),
-                ("Exit service rate:", &r_p.exit_service_rate, "Gwei"),
+                ("Routing byte rate:", &r_p.routing_byte_rate, "Wei"),
+                ("Routing service rate:", &r_p.routing_service_rate, "Wei"),
+                ("Exit byte rate:", &r_p.exit_byte_rate, "Wei"),
+                ("Exit service rate:", &r_p.exit_service_rate, "Wei"),
             ]
         });
         Self::dump_value_list(stream, "Rate pack:", &rate_pack);
@@ -373,10 +373,10 @@ mod tests {
 |                                  Threshold interval:               11111 s\n\
 |                                  Unban below:                      12000 Gwei\n\
 |Rate pack:                        \n\
-|                                  Routing byte rate:                8 Gwei\n\
-|                                  Routing service rate:             9 Gwei\n\
-|                                  Exit byte rate:                   12 Gwei\n\
-|                                  Exit service rate:                14 Gwei\n\
+|                                  Routing byte rate:                8 Wei\n\
+|                                  Routing service rate:             9 Wei\n\
+|                                  Exit byte rate:                   12 Wei\n\
+|                                  Exit service rate:                14 Wei\n\
 |Scan intervals:                   \n\
 |                                  Pending payable:                  150 s\n\
 |                                  Payable:                          155 s\n\
@@ -468,10 +468,10 @@ mod tests {
 |                                  Threshold interval:               1000 s\n\
 |                                  Unban below:                      1400 Gwei\n\
 |Rate pack:                        \n\
-|                                  Routing byte rate:                15 Gwei\n\
-|                                  Routing service rate:             17 Gwei\n\
-|                                  Exit byte rate:                   20 Gwei\n\
-|                                  Exit service rate:                30 Gwei\n\
+|                                  Routing byte rate:                15 Wei\n\
+|                                  Routing service rate:             17 Wei\n\
+|                                  Exit byte rate:                   20 Wei\n\
+|                                  Exit service rate:                30 Wei\n\
 |Scan intervals:                   \n\
 |                                  Pending payable:                  1000 s\n\
 |                                  Payable:                          1000 s\n\

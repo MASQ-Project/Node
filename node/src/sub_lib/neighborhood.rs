@@ -31,10 +31,10 @@ use std::net::IpAddr;
 use std::str::FromStr;
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
-    routing_byte_rate: 1,
-    routing_service_rate: 10,
-    exit_byte_rate: 2,
-    exit_service_rate: 20,
+    routing_byte_rate: 172_300_000,
+    routing_service_rate: 1_723_000_000,
+    exit_byte_rate: 344_600_000,
+    exit_service_rate: 3_446_000_000,
 };
 
 pub const ZERO_RATE_PACK: RatePack = RatePack {
@@ -324,6 +324,13 @@ enum DescriptorParsingError<'a> {
 
 impl Display for DescriptorParsingError<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        fn only_user_intended() -> String {
+            CHAINS
+                .iter()
+                .map(|record| record.literal_identifier)
+                .filter(|identifier| *identifier != "dev")
+                .join("', '")
+        }
         match self{
             Self::CentralDelimiterProbablyMissing(descriptor) =>
                 write!(f, "Delimiter '@' probably missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'", descriptor),
@@ -337,8 +344,8 @@ impl Display for DescriptorParsingError<'_> {
                 write!(f,"Prefix or more missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not '{}'",descriptor),
             Self::WrongChainIdentifier(identifier) =>
                 write!(f, "Chain identifier '{}' is not valid; possible values are '{}' while formatted as 'masq://<chain identifier>:<public key>@<node address>'",
-                                             identifier,
-                                             CHAINS.iter().map(|record|record.literal_identifier).filter(|identifier|*identifier != "dev").join("', '")
+                                             identifier, only_user_intended()
+
             )
         }
     }
@@ -396,15 +403,6 @@ impl NodeQueryResponseMetadata {
             rate_pack,
         }
     }
-}
-
-//TODO probably dead code?
-#[derive(Clone, Debug, Message, PartialEq)]
-pub struct BootstrapNeighborhoodNowMessage {}
-
-#[derive(Clone, Debug, Message, PartialEq)]
-pub struct NeighborhoodDotGraphRequest {
-    pub client_id: u64,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -516,10 +514,10 @@ mod tests {
         assert_eq!(
             DEFAULT_RATE_PACK,
             RatePack {
-                routing_byte_rate: 1,
-                routing_service_rate: 10,
-                exit_byte_rate: 2,
-                exit_service_rate: 20,
+                routing_byte_rate: 172_300_000,
+                routing_service_rate: 1_723_000_000,
+                exit_byte_rate: 344_600_000,
+                exit_service_rate: 3_446_000_000,
             }
         );
         assert_eq!(

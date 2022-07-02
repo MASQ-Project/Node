@@ -269,11 +269,11 @@ where
                                     Some(block_number) => {
                                         let amount: U256 = U256::from(log.data.0.as_slice());
                                         let wei_amount = u128::try_from(amount);
-                                        wei_amount.ok().map(|gwei_amount| BlockchainTransaction {
+                                        wei_amount.ok().map(|wei_amount| BlockchainTransaction {
                                             block_number: u64::try_from(block_number)
                                                 .expect("Internal Error"),
                                             from: Wallet::from(log.topics[1]),
-                                            wei_amount: gwei_amount,
+                                            wei_amount,
                                         })
                                     }
                                     None => None,

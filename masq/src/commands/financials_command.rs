@@ -20,9 +20,9 @@ use thousands::Separable;
 const FINANCIALS_SUBCOMMAND_ABOUT: &str =
     "Displays financial statistics of this Node. Only valid if Node is already running.";
 const TOP_ARG_HELP: &str = "Returns the first N records from both payable and receivable";
-const PAYABLE_ARG_HELP: &str = "Allows to configure a detailed query for payable with ranges about the age and balance of records. The required format of the query's input is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>";
-const RECEIVABLE_ARG_HELP: &str = "Allows to configure a detailed query for receivable with ranges about the age and balance of records. The required format of the query's input is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>";
-const NO_STATS_ARG_HELP: &str = "Disables the default statistics about totals of paid and unpaid money from both sides, debtors and creditors. This argument is not allowed alone";
+const PAYABLE_ARG_HELP: &str = "Enables to configure a detailed query about the payable records by specifying two ranges, one for their age and another for their balance. The required format of the values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>";
+const RECEIVABLE_ARG_HELP: &str = "Enables to configure a detailed query about the receivable records by specifying two ranges, one for their age and another for their balance. The required format of the values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>";
+const NO_STATS_ARG_HELP: &str = "Disables the statistics that shows by default, with totals of paid and unpaid money from the view of both debtors and creditors. This argument is not allowed alone";
 const WALLET_ADDRESS_LENGTH: usize = 42;
 const PAYABLE_HEADERS: &[&str] = &["Wallet", "Age [s]", "Balance [Wei]", "Pending tx"];
 const RECEIVABLE_HEADERS: &[&str] = &["Wallet", "Age [s]", "Balance [Wei]"];
@@ -544,9 +544,9 @@ mod tests {
             TOP_ARG_HELP,
             "Returns the first N records from both payable and receivable"
         );
-        assert_eq!(PAYABLE_ARG_HELP,"Allows to configure a detailed query for payable with ranges about the age and balance of records. The required format of the query's input is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>");
-        assert_eq!(RECEIVABLE_ARG_HELP,"Allows to configure a detailed query for receivable with ranges about the age and balance of records. The required format of the query's input is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>");
-        assert_eq!(NO_STATS_ARG_HELP,"Disables the default statistics about totals of paid and unpaid money from both sides, debtors and creditors. This argument is not allowed alone");
+        assert_eq!(PAYABLE_ARG_HELP,"Enables to configure a detailed query about the payable records by specifying two ranges, one for their age and another for their balance. The required format of the values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>");
+        assert_eq!(RECEIVABLE_ARG_HELP,"Enables to configure a detailed query about the receivable records by specifying two ranges, one for their age and another for their balance. The required format of the values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>");
+        assert_eq!(NO_STATS_ARG_HELP,"Disables the statistics that shows by default, with totals of paid and unpaid money from the view of both debtors and creditors. This argument is not allowed alone");
         assert_eq!(WALLET_ADDRESS_LENGTH, 42);
         assert_eq!(
             PAYABLE_HEADERS,

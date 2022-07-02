@@ -122,13 +122,13 @@ pub const RATE_PACK_HELP: &str = "\
      These four parameters specify your rates that your Node will use for charging other Nodes for your provided \
      services. These are ever present values, defaulted if left unspecified. The parameters must be always supplied \
      all together, delimited by vertical bars and in the right order.\n\n\
-     1. Routing Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
+     1. Routing Byte Rate: This parameter indicates an amount of MASQ in Wei demanded to process 1 byte of routed payload \
      while the Node is a common relay Node.\n\n\
-     2. Routing Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking \
+     2. Routing Service Rate: This parameter indicates an amount of MASQ in Wei demanded to provide services, unpacking \
      and repacking 1 CORES package, while the Node is a common relay Node.\n\n\
-     3. Exit Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
+     3. Exit Byte Rate: This parameter indicates an amount of MASQ in Wei demanded to process 1 byte of routed payload \
      while the Node acts as the exit Node.\n\n\
-     4. Exit Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking and \
+     4. Exit Service Rate: This parameter indicates an amount of MASQ in Wei demanded to provide services, unpacking and \
      repacking 1 CORES package, while the Node acts as the exit Node.";
 pub const PAYMENT_THRESHOLDS_HELP: &str = "\
      These are parameters that define thresholds to determine when and how much to pay other Nodes for routing and \
@@ -849,13 +849,13 @@ mod tests {
             "These four parameters specify your rates that your Node will use for charging other Nodes for your provided \
              services. These are ever present values, defaulted if left unspecified. The parameters must be always supplied \
              all together, delimited by vertical bars and in the right order.\n\n\
-             1. Routing Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
+             1. Routing Byte Rate: This parameter indicates an amount of MASQ in Wei demanded to process 1 byte of routed payload \
              while the Node is a common relay Node.\n\n\
-             2. Routing Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking \
+             2. Routing Service Rate: This parameter indicates an amount of MASQ in Wei demanded to provide services, unpacking \
              and repacking 1 CORES package, while the Node is a common relay Node.\n\n\
-             3. Exit Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
+             3. Exit Byte Rate: This parameter indicates an amount of MASQ in Wei demanded to process 1 byte of routed payload \
              while the Node acts as the exit Node.\n\n\
-             4. Exit Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking and \
+             4. Exit Service Rate: This parameter indicates an amount of MASQ in Wei demanded to provide services, unpacking and \
              repacking 1 CORES package, while the Node acts as the exit Node."
         );
         assert_eq!(
