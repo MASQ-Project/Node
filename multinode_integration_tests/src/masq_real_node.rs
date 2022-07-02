@@ -822,7 +822,7 @@ impl MASQRealNode {
             Some(firewall) => {
                 Self::create_impenetrable_firewall(name);
                 firewall.ports_to_open.iter().for_each(|port| {
-                    Self::open_firewall_port(&name, *port)
+                    Self::open_firewall_port(name, *port)
                         .unwrap_or_else(|_| panic!("Can't open port {}", *port))
                 });
             }

@@ -3562,6 +3562,7 @@ mod tests {
             .dispatcher(dispatcher_mock)
             .accountant(accountant)
             .build();
+        let before = SystemTime::now();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
         subject_addr
@@ -3570,12 +3571,15 @@ mod tests {
 
         System::current().stop();
         system.run();
+        let after = SystemTime::now();
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
         assert_eq!(dispatcher_recording.len(), 0);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         check_exit_report(
             &accountant_recording,
             0,
+            before,
+            after,
             &incoming_route_d_wallet,
             exit_size,
             rate_pack(101),
@@ -3583,6 +3587,8 @@ mod tests {
         check_routing_report(
             &accountant_recording,
             1,
+            before,
+            after,
             &incoming_route_e_wallet,
             routing_size,
         );

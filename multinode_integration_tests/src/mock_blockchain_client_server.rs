@@ -235,7 +235,7 @@ impl MockBlockchainClientServer {
             Self::receive_body(conn_state);
             let body_opt = Self::process_body(conn_state);
             match body_opt {
-                Some(body) if body.len() == 0 => break,
+                Some(body) if body.is_empty() => break,
                 Some(body) => {
                     {
                         let mut requests = requests_arc.lock().unwrap();
@@ -358,7 +358,7 @@ impl MockBlockchainClientServer {
             response.len(),
             response
         );
-        let _ = conn_state.conn.write_all(http.as_bytes()).unwrap();
+        conn_state.conn.write_all(http.as_bytes()).unwrap();
     }
 }
 
