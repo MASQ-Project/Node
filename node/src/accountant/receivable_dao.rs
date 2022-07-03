@@ -76,7 +76,7 @@ pub trait ReceivableDao: Send {
 
     fn total(&self) -> i128;
 
-    //factually test-only method but shared with multi-node tests, thus without conditional compilation
+    //test-only method, shared with multi-node tests, thus conditional compilation disallowed
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 }
 
@@ -124,34 +124,37 @@ impl ReceivableDao for ReceivableDaoReal {
         system_now: SystemTime,
         payment_thresholds: &PaymentThresholds,
     ) -> Vec<ReceivableAccount> {
-        self.mine_metadata_of_yet_unbanned(payment_thresholds, system_now);
-        let sql = indoc!(
-            r"
-            select r.wallet_address, r.balance, r.last_received_timestamp
-            from receivable r
-            left outer join banned b on r.wallet_address = b.wallet_address
-            inner join delinquency_metadata d on r.wallet_address = d.wallet_address
-            where
-                r.last_received_timestamp < :sugg_and_grace
-                and r.balance > d.curve_point
-                and b.wallet_address is null
-        "
-        );
-        let findings = self
-            .conn
-            .prepare(sql)
-            .expect("Couldn't prepare statement")
-            .query_map(
-                named_params! {
-                    ":sugg_and_grace": payment_thresholds.sugg_and_grace(to_time_t(system_now)),
-                },
-                Self::form_receivable_account,
-            )
-            .expect("Couldn't retrieve new delinquencies: database corruption")
-            .flatten()
-            .collect();
-        self.truncate_metadata_table();
-        findings
+        if self.mine_metadata_of_yet_unbanned(payment_thresholds, system_now) {
+            let sql = indoc!(
+                r"
+                select r.wallet_address, r.balance, r.last_received_timestamp
+                from receivable r
+                left outer join banned b on r.wallet_address = b.wallet_address
+                inner join delinquency_metadata d on r.wallet_address = d.wallet_address
+                where
+                    r.last_received_timestamp < :sugg_and_grace
+                    and r.balance > d.curve_point
+                    and b.wallet_address is null
+            "
+            );
+            let new_delinquencies = self
+                .conn
+                .prepare(sql)
+                .expect("Couldn't prepare statement")
+                .query_map(
+                    named_params! {
+                        ":sugg_and_grace": payment_thresholds.sugg_and_grace(to_time_t(system_now)),
+                    },
+                    Self::form_receivable_account,
+                )
+                .expect("Couldn't retrieve new delinquencies: database corruption")
+                .flatten()
+                .collect();
+            self.truncate_metadata_table();
+            new_delinquencies
+        } else {
+            vec![]
+        }
     }
 
     fn paid_delinquencies(&self, payment_thresholds: &PaymentThresholds) -> Vec<ReceivableAccount> {
@@ -238,7 +241,7 @@ impl ReceivableDaoReal {
         &self,
         payment_thresholds: &PaymentThresholds,
         system_now: SystemTime,
-    ) {
+    ) -> bool {
         let sql = indoc!(
             r"
             create temp table if not exists delinquency_metadata(
@@ -279,13 +282,18 @@ impl ReceivableDaoReal {
             .expect("internal error")
             .flatten()
             .collect::<Vec<(String, i128)>>();
-        let serial_params = Self::serialize_sql_params(found_data);
-        let sql = Self::prepare_multi_insert_statement(serial_params.len() / 2);
-        let mut stm = self.conn.prepare(&sql).expect("bad multi insert statement");
-        stm.execute(params_from_iter(
-            serial_params.iter().map(|param| param.as_ref()),
-        ))
-        .expect("insert operation failed");
+        if !found_data.is_empty() {
+            let serial_params = Self::serialize_sql_params(found_data);
+            let sql = Self::prepare_multi_insert_statement(serial_params.len() / 2);
+            let mut stm = self.conn.prepare(&sql).expect("bad multi insert statement");
+            stm.execute(params_from_iter(
+                serial_params.iter().map(|param| param.as_ref()),
+            ))
+            .expect("insert operation failed");
+            true
+        } else {
+            false
+        }
     }
 
     pub fn delinquency_curve_height_detection(
@@ -1082,6 +1090,32 @@ mod tests {
 
         assert_contains(&result, &new_delinquency);
         assert_eq!(1, result.len());
+    }
+
+    #[test]
+    fn new_delinquencies_works_for_still_empty_tables() {
+        let payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 25,
+            payment_grace_period_sec: 50,
+            permanent_debt_allowed_gwei: 100,
+            debt_threshold_gwei: 200,
+            threshold_interval_sec: 100,
+            unban_below_gwei: 0,
+        };
+        let now = now_time_t();
+        let home_dir = ensure_node_home_directory_exists(
+            "receivable_dao",
+            "new_delinquencies_work_for_still_empty_tables",
+        );
+        let db_initializer = DbInitializerReal::default();
+        let conn = db_initializer
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let subject = ReceivableDaoReal::new(conn);
+
+        let result = subject.new_delinquencies(from_time_t(now), &payment_thresholds);
+
+        assert!(result.is_empty())
     }
 
     #[test]
