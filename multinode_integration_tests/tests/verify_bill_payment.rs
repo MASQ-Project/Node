@@ -19,7 +19,7 @@ use node_lib::blockchain::blockchain_interface::{
 };
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
 use node_lib::database::db_migrations::{ExternalData, MigratorConfig};
-use node_lib::sub_lib::accountant::PaymentThresholds;
+use node_lib::sub_lib::accountant::{PaymentThresholds, GWEI_TO_WEI};
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
 use rustc_hex::{FromHex, ToHex};
@@ -97,7 +97,7 @@ fn verify_bill_payment() {
         derivation_path(0, 3),
     );
 
-    let amount = 10_000_000_000u128 * payment_thresholds.permanent_debt_allowed_gwei as u128;
+    let amount = 10 * payment_thresholds.permanent_debt_allowed_gwei as u128 * GWEI_TO_WEI as u128;
 
     let project_root = MASQNodeUtils::find_project_root();
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
@@ -247,21 +247,21 @@ fn verify_bill_payment() {
         &serving_node_1_wallet,
         &blockchain_interface,
         "100000000000000000000",
-        (1_000_000_000 * amount).to_string().as_str(),
+        (amount).to_string().as_str(),
     );
 
     assert_balances(
         &serving_node_2_wallet,
         &blockchain_interface,
         "100000000000000000000",
-        (1_000_000_000 * amount).to_string().as_str(),
+        (amount).to_string().as_str(),
     );
 
     assert_balances(
         &serving_node_3_wallet,
         &blockchain_interface,
         "100000000000000000000",
-        (1_000_000_000 * amount).to_string().as_str(),
+        (amount).to_string().as_str(),
     );
 
     let serving_node_1 = cluster.start_named_real_node(
