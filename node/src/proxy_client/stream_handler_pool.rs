@@ -195,7 +195,7 @@ impl StreamHandlerPoolReal {
                     Some(wallet) => inner
                         .accountant_sub
                         .try_send(ReportExitServiceProvidedMessage {
-                            timestamp: SystemTime::UNIX_EPOCH, // TODO: Drive this in
+                            timestamp: SystemTime::now(),
                             paying_wallet: wallet,
                             payload_size,
                             service_rate: inner.exit_service_rate,
@@ -485,6 +485,7 @@ impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node_test_utils::check_timestamp;
     use crate::proxy_client::local_test_utils::make_send_error;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
     use crate::proxy_client::stream_establisher::StreamEstablisher;
@@ -1024,8 +1025,13 @@ mod tests {
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let expected_write_parameters = write_parameters.clone();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
+        let (accountant, accountant_awaiter, accountant_recording_arc) = make_recorder();
+        let before = SystemTime::now();
         thread::spawn(move || {
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+            let peer_actors = peer_actors_builder()
+                .proxy_client(proxy_client)
+                .accountant(accountant)
+                .build();
             let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
@@ -1104,6 +1110,8 @@ mod tests {
         });
 
         proxy_client_awaiter.await_message_count(1);
+        accountant_awaiter.await_message_count(1);
+        let after = SystemTime::now();
         assert_eq!(
             expected_lookup_ip_parameters.lock().unwrap().deref(),
             &["that.try.".to_string()]
@@ -1123,6 +1131,9 @@ mod tests {
                 data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
             }
         );
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let resp_msg = accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0);
+        check_timestamp(before, resp_msg.timestamp, after);
     }
 
     #[test]
@@ -1369,12 +1380,10 @@ mod tests {
                 100,
                 200,
             );
+            subject.inner.lock().unwrap().logger =
+                Logger::new("bad_dns_lookup_produces_log_and_sends_error_response");
             run_process_package_in_actix(subject, package);
         });
-        TestLogHandler::new().await_log_containing(
-            "ERROR: ProxyClient: Could not find IP address for host that.try: io error",
-            1000,
-        );
         proxy_client_awaiter.await_message_count(2);
         let recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
@@ -1386,6 +1395,9 @@ mod tests {
                 source: error_socket_addr(),
                 data: vec![],
             }
+        );
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: bad_dns_lookup_produces_log_and_sends_error_response: Could not find IP address for host that.try: io error",
         );
     }
 

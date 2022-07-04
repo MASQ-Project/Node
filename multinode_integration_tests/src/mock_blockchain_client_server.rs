@@ -588,9 +588,9 @@ mod tests {
             )
             .start();
         let mut client = connect(port);
-
         let request =
             b"POST / HTTP/1.1\r\ncontent-type: application/json\r\nuser-agent: web3.rs\r\nhost: 172.18.0.1:32768\r\ncontent-length: 308\r\n\r\n{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{\"address\":\"0x59882e4a8f5d24643d4dda422922a870f1b3e664\",\"fromBlock\":\"0x3e8\",\"toBlock\":\"latest\",\"topics\":[\"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef\",null,\"0x00000000000000000000000027d9a2ac83b493f88ce9b4532edcf74e95b9788d\"]}],\"id\":0}";
+
         client.write(request).unwrap();
 
         let (response_header, response_body) = receive_response(&mut client);
@@ -599,7 +599,6 @@ mod tests {
             &response_body,
             r#"{"jsonrpc": "2.0", "result": {"name":"Billy","age":15}, "id": 42}"#
         );
-
         let requests = subject.requests();
         assert_eq! (requests, vec! [
             "POST / HTTP/1.1\r\ncontent-type: application/json\r\nuser-agent: web3.rs\r\nhost: 172.18.0.1:32768\r\ncontent-length: 308\r\n\r\n{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{\"address\":\"0x59882e4a8f5d24643d4dda422922a870f1b3e664\",\"fromBlock\":\"0x3e8\",\"toBlock\":\"latest\",\"topics\":[\"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef\",null,\"0x00000000000000000000000027d9a2ac83b493f88ce9b4532edcf74e95b9788d\"]}],\"id\":0}".to_string()
