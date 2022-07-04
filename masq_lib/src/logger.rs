@@ -21,6 +21,8 @@ use time::format_description::parse;
 use time::OffsetDateTime;
 
 const UI_MESSAGE_LOG_LEVEL: Level = Level::Info;
+const TIME_FORMATTING_STRING: &str =
+    "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]";
 
 lazy_static! {
     pub static ref LOG_RECIPIENT_OPT: Mutex<Option<Recipient<NodeToUiMessage>>> = Mutex::new(None);
@@ -226,10 +228,7 @@ pub fn real_format_function(
     record: &Record,
 ) -> Result<(), io::Error> {
     let timestamp = timestamp
-        .format(
-            &parse("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]")
-                .expect("Unable to parse the formatting type."),
-        )
+        .format(&parse(TIME_FORMATTING_STRING).expect("Unable to parse the formatting type."))
         .expect("Unable to format date and time.");
     let thread_id_str = format!("{:?}", thread::current().id());
     let thread_id = &thread_id_str[9..(thread_id_str.len() - 1)];
@@ -694,7 +693,7 @@ mod tests {
         let after = OffsetDateTime::now_utc();
 
         let tlh = TestLogHandler::new();
-        let prefix_len = "0000-00-00T00:00:00.000000".len();
+        let prefix_len = "0000-00-00T00:00:00.000".len();
         let thread_id = thread::current().id();
         let one_log = tlh.get_log_at(tlh.exists_log_containing(&format!(
             " Thd{}: ERROR: logger_format_is_correct_one: one log",
@@ -876,7 +875,7 @@ mod tests {
 
     fn timestamp_as_string(timestamp: OffsetDateTime) -> String {
         timestamp
-            .format(&parse("[year]-[month]-[day] [hour]:[minute]:[second].[subsecond]").unwrap())
+            .format(&parse(TIME_FORMATTING_STRING).unwrap())
             .unwrap()
     }
 
@@ -887,17 +886,9 @@ mod tests {
 
     fn assert_between(candidate: &str, before: &str, after: &str) {
         assert_eq!(
-            candidate >= before,
+            candidate >= before && candidate <= after,
             true,
-            "{} is before the interval {} - {}",
-            candidate,
-            before,
-            after,
-        );
-        assert_eq!(
-            candidate <= after,
-            true,
-            "{} is after the interval {} - {}",
+            "{} is outside the interval {} - {}",
             candidate,
             before,
             after,
