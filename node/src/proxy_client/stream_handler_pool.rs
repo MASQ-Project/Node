@@ -30,7 +30,7 @@ use trust_dns_resolver::error::ResolveError;
 use trust_dns_resolver::lookup_ip::LookupIp;
 
 pub trait StreamHandlerPool {
-    fn process_package(&self, payload: ClientRequestPayload_0v1, paying_wallet: Option<Wallet>);
+    fn process_package(&self, payload: ClientRequestPayload_0v1, paying_wallet_opt: Option<Wallet>);
 }
 
 pub struct StreamHandlerPoolReal {
@@ -51,9 +51,9 @@ struct StreamHandlerPoolRealInner {
 }
 
 impl StreamHandlerPool for StreamHandlerPoolReal {
-    fn process_package(&self, payload: ClientRequestPayload_0v1, paying_wallet: Option<Wallet>) {
+    fn process_package(&self, payload: ClientRequestPayload_0v1, paying_wallet_opt: Option<Wallet>) {
         self.do_housekeeping();
-        Self::process_package(payload, paying_wallet, self.inner.clone())
+        Self::process_package(payload, paying_wallet_opt, self.inner.clone())
     }
 }
 
@@ -95,7 +95,7 @@ impl StreamHandlerPoolReal {
 
     fn process_package(
         payload: ClientRequestPayload_0v1,
-        paying_wallet: Option<Wallet>,
+        paying_wallet_opt: Option<Wallet>,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
     ) {
         let stream_key = payload.stream_key;
@@ -104,7 +104,7 @@ impl StreamHandlerPoolReal {
             Some(sender_wrapper) => {
                 let source = sender_wrapper.peer_addr();
                 let future =
-                    Self::write_and_tend(sender_wrapper, payload, paying_wallet, inner_arc)
+                    Self::write_and_tend(sender_wrapper, payload, paying_wallet_opt, inner_arc)
                         .map_err(move |error| {
                             Self::clean_up_bad_stream(inner_arc_1, &stream_key, source, error)
                         });
@@ -120,7 +120,7 @@ impl StreamHandlerPoolReal {
                 } else {
                     let future = Self::make_stream_with_key(&payload, inner_arc_1.clone())
                         .and_then(move |sender_wrapper| {
-                            Self::write_and_tend(sender_wrapper, payload, paying_wallet, inner_arc)
+                            Self::write_and_tend(sender_wrapper, payload, paying_wallet_opt, inner_arc)
                         })
                         .map_err(move |error| {
                             // TODO: This ends up sending an empty response back to the browser and terminating
@@ -167,7 +167,7 @@ impl StreamHandlerPoolReal {
     fn write_and_tend(
         sender_wrapper: Box<dyn SenderWrapper<SequencedPacket>>,
         payload: ClientRequestPayload_0v1,
-        paying_wallet: Option<Wallet>,
+        paying_wallet_opt: Option<Wallet>,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
     ) -> impl Future<Item = (), Error = String> {
         let stream_key = payload.stream_key;
@@ -191,7 +191,7 @@ impl StreamHandlerPoolReal {
                 }
             }
             if payload_size > 0 {
-                match paying_wallet {
+                match paying_wallet_opt {
                     Some(wallet) => inner
                         .accountant_sub
                         .try_send(ReportExitServiceProvidedMessage {
@@ -242,7 +242,7 @@ impl StreamHandlerPoolReal {
                     "Cannot open new stream with key {:?}: no hostname supplied",
                     payload.stream_key
                 );
-                Box::new(future::err::<
+                Box::new(err::<
                     Box<dyn SenderWrapper<SequencedPacket> + 'static>,
                     String,
                 >("No hostname provided".to_string()))
