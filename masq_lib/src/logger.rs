@@ -389,6 +389,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore]
     fn transmit_log_handles_overloading_by_sending_msgs_from_multiple_threads() {
         let _test_guard = TEST_LOG_RECIPIENT_GUARD
             .lock()
