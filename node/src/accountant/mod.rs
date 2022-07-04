@@ -75,13 +75,14 @@ pub struct Accountant {
     scanners: Scanners,
     tools: TransactionConfirmationTools,
     financial_statistics: FinancialStatistics,
-    report_accounts_payable_sub: Option<Recipient<ReportAccountsPayable>>,
+    report_accounts_payable_sub_opt: Option<Recipient<ReportAccountsPayable>>,
     retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
     report_new_payments_sub: Option<Recipient<ReceivedPayments>>,
     report_sent_payments_sub: Option<Recipient<SentPayable>>,
     ui_message_sub: Option<Recipient<NodeToUiMessage>>,
     payable_threshold_tools: Box<dyn PayableExceedThresholdTools>,
     logger: Logger,
+    payable_scan_running: bool,
 }
 
 impl Actor for Accountant {
@@ -420,13 +421,14 @@ impl Accountant {
             scanners: Scanners::default(),
             tools: TransactionConfirmationTools::default(),
             financial_statistics: FinancialStatistics::default(),
-            report_accounts_payable_sub: None,
+            report_accounts_payable_sub_opt: None,
             retrieve_transactions_sub: None,
             report_new_payments_sub: None,
             report_sent_payments_sub: None,
             ui_message_sub: None,
             payable_threshold_tools: Box::new(PayableExceedThresholdToolsReal::default()),
             logger: Logger::new("Accountant"),
+            payable_scan_running: false,
         }
     }
 
@@ -485,7 +487,7 @@ impl Accountant {
             self.payables_debug_summary(&qualified_payables)
         );
         if !qualified_payables.is_empty() {
-            self.report_accounts_payable_sub
+            self.report_accounts_payable_sub_opt
                 .as_ref()
                 .expect("BlockchainBridge is unbound")
                 .try_send(ReportAccountsPayable {
@@ -763,7 +765,7 @@ impl Accountant {
     }
 
     fn handle_bind_message(&mut self, msg: BindMessage) {
-        self.report_accounts_payable_sub =
+        self.report_accounts_payable_sub_opt =
             Some(msg.peer_actors.blockchain_bridge.report_accounts_payable);
         self.retrieve_transactions_sub =
             Some(msg.peer_actors.blockchain_bridge.retrieve_transactions);
@@ -2629,7 +2631,7 @@ mod tests {
             .bootstrapper_config(config)
             .payable_dao(payable_dao)
             .build();
-        subject.report_accounts_payable_sub = Some(report_accounts_payable_sub);
+        subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
         subject.config.payment_thresholds = payment_thresholds;
 
         subject.scan_for_payables(None);
@@ -2786,6 +2788,53 @@ mod tests {
         assert_eq!(*return_all_backup_records_params, vec![()]);
         TestLogHandler::new()
             .exists_log_containing("DEBUG: Accountant: No pending payable found during last scan");
+    }
+
+    #[test]
+    fn accountant_processes_scan_for_payables_message_in_case_it_receives() {
+        init_test_logging();
+        let mut payable_dao = PayableDaoMock::default();
+        let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
+        let report_accounts_payable_sub = blockchain_bridge.start().recipient();
+        let now =
+            to_time_t(SystemTime::now()) - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec - 1;
+        let payable_account = PayableAccount {
+            wallet: make_wallet("scan_for_payables"),
+            balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1,
+            last_paid_timestamp: from_time_t(now),
+            pending_payable_opt: None,
+        };
+        let mut payable_dao =
+            payable_dao.non_pending_payables_result(vec![payable_account.clone()]);
+        payable_dao.have_non_pending_payables_shut_down_the_system = true;
+        let config = bc_from_ac_plus_earning_wallet(
+            make_populated_accountant_config_with_defaults(),
+            make_wallet("mine"),
+        );
+        let system =
+            System::new("accountant_processes_scan_for_payables_message_in_case_it_receives");
+        let mut subject = AccountantBuilder::default()
+            .payable_dao(payable_dao)
+            .bootstrapper_config(config)
+            .build();
+        subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
+        subject.payable_scan_running = false;
+        subject.config.scan_intervals.payable_scan_interval = Duration::from_millis(10);
+        let addr = subject.start();
+
+        addr.try_send(ScanForPayables {
+            response_skeleton_opt: None,
+        })
+        .unwrap();
+
+        system.run();
+        let recording = blockchain_bridge_recording.lock().unwrap();
+        let message = recording.get_record::<ReportAccountsPayable>(0);
+        let expected_message = ReportAccountsPayable {
+            accounts: vec![payable_account],
+            response_skeleton_opt: None,
+        };
+        assert_eq!(message, &expected_message)
     }
 
     #[test]
