@@ -51,7 +51,11 @@ struct StreamHandlerPoolRealInner {
 }
 
 impl StreamHandlerPool for StreamHandlerPoolReal {
-    fn process_package(&self, payload: ClientRequestPayload_0v1, paying_wallet_opt: Option<Wallet>) {
+    fn process_package(
+        &self,
+        payload: ClientRequestPayload_0v1,
+        paying_wallet_opt: Option<Wallet>,
+    ) {
         self.do_housekeeping();
         Self::process_package(payload, paying_wallet_opt, self.inner.clone())
     }
@@ -120,7 +124,12 @@ impl StreamHandlerPoolReal {
                 } else {
                     let future = Self::make_stream_with_key(&payload, inner_arc_1.clone())
                         .and_then(move |sender_wrapper| {
-                            Self::write_and_tend(sender_wrapper, payload, paying_wallet_opt, inner_arc)
+                            Self::write_and_tend(
+                                sender_wrapper,
+                                payload,
+                                paying_wallet_opt,
+                                inner_arc,
+                            )
                         })
                         .map_err(move |error| {
                             // TODO: This ends up sending an empty response back to the browser and terminating
