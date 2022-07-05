@@ -388,7 +388,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn transmit_log_handles_overloading_by_sending_msgs_from_multiple_threads() {
         let _test_guard = TEST_LOG_RECIPIENT_GUARD
             .lock()
@@ -482,7 +481,7 @@ mod tests {
             .expect("Unable to lock TEST_LOG_RECIPIENT_GUARD");
         LOG_RECIPIENT_OPT
             .lock()
-            .expect("Unable to lock LOG_ReCIPIENT_OPT")
+            .expect("Unable to lock LOG_RECIPIENT_OPT")
             .take();
         guard
     }
