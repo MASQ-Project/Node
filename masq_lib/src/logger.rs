@@ -348,7 +348,7 @@ mod tests {
             let closure_clone = closure.clone();
             join_handles_container.push(thread::spawn(move || {
                 (0..factor).for_each(|_| {
-                    thread::sleep(Duration::from_millis(1));
+                    thread::sleep(Duration::from_millis(10));
                     closure_clone()
                 })
             }))
