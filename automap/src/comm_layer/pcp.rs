@@ -1660,6 +1660,69 @@ mod tests {
     }
 
     #[test]
+    fn check_unsolicited_socket_ignores_map_packet_that_doesnt_change_ip_address(){
+        init_test_logging();
+        let inner = PcpTransactorInner { // not used; just has to be supplied
+            mapping_transactor: Box::new(MappingTransactorMock::new()),
+            factories: Factories::default(),
+        };
+        let mut buffer = [0u8; 64];
+        let mapping_opcode_data = MapOpcodeData {
+            mapping_nonce: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+            protocol: Protocol::Udp,
+            internal_port: 1234,
+            external_port: 1234,
+            external_ip_address: IpAddr::from_str ("4.3.2.1").unwrap() // no change
+        };
+        let mapping_response = PcpPacket {
+            direction: Direction::Response,
+            opcode: Opcode::Map,
+            result_code_opt: Some (ResultCode::Success),
+            lifetime: 10,
+            client_ip_opt: None,
+            epoch_time_opt: Some (0),
+            opcode_data: Box::new(mapping_opcode_data),
+            options: vec![]
+        };
+        let mapping_response_len = mapping_response.marshal (&mut buffer[..]).unwrap();
+        let unsolicited_socket = UdpSocketWrapperMock::new()
+            .recv_result (Ok(mapping_response_len), buffer[0..mapping_response_len].to_vec());
+        let router_server_addr = SocketAddr::from_str ("1.2.3.4:5000").unwrap();
+        let mut mapping_config_opt = Some (MappingConfig {
+            hole_port: 1234,
+            next_lifetime: Duration::from_secs (600),
+            remap_interval: Duration::from_secs (300),
+        });
+        let original_last_remapped = Instant::now().sub (Duration::from_secs (3600));
+        let mut last_remapped = original_last_remapped;
+        let received_new_ip: Arc<Mutex<Option<IpAddr>>> = Arc::new (Mutex::new (None));
+        let inner_received_new_ip = received_new_ip.clone();
+        let change_handler: ChangeHandler = Box::new (move |msg| {
+            match msg {
+                AutomapChange::NewIp(new_ip) => inner_received_new_ip.lock().unwrap().replace (new_ip),
+                _ => None,
+            };
+        });
+        let logger = Logger::new ("check_unsolicited_socket_ignores_map_packet_that_doesnt_change_ip_address");
+
+        PcpTransactor::check_unsolicited_socket(
+            &Arc::new (Mutex::new (inner)),
+            &unsolicited_socket,
+            &mut buffer[..],
+            router_server_addr,
+            &mut mapping_config_opt,
+            &mut last_remapped,
+            &change_handler,
+            &logger,
+        );
+
+        let change = received_new_ip.lock().unwrap();
+        assert_eq! (*change, None);
+        assert_eq! (last_remapped, original_last_remapped);
+        TestLogHandler::new().exists_log_containing("INFO: check_unsolicited_socket_ignores_map_packet_that_doesnt_change_ip_address: Received PCP MAP notification that ISP changed IP address; but address is unchanged from 4.3.2.1; ignoring");
+    }
+
+    #[test]
     fn check_unsolicited_socket_handles_unsolicited_announce_packet() {
         init_test_logging();
         let announce_response = PcpPacket {
@@ -1740,6 +1803,11 @@ mod tests {
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing("INFO: check_unsolicited_socket_handles_unsolicited_announce_packet: Received PCP ANNOUNCE notification that ISP changed IP address");
         tlh.exists_log_containing("INFO: check_unsolicited_socket_handles_unsolicited_announce_packet: PCP ANNOUNCE caused remap of IP address to 4.3.2.1");
+    }
+
+    #[test]
+    fn check_unsolicited_socket_does_not_call_change_handler_if_announce_remap_shows_same_ip_address(){
+        todo! ("Complete me");
     }
 
     #[test]
