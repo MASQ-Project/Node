@@ -185,11 +185,13 @@ impl Handler<ScanForPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
-        self.handle_scan_message(
-            self.scanners.payables.as_ref(),
-            msg.response_skeleton_opt,
-            ctx,
-        )
+        if !self.payable_scan_running {
+            self.handle_scan_message(
+                self.scanners.payables.as_ref(),
+                msg.response_skeleton_opt,
+                ctx,
+            )
+        }
     }
 }
 
@@ -459,6 +461,7 @@ impl Accountant {
         response_skeleton_opt: Option<ResponseSkeleton>,
         ctx: &mut Context<Accountant>,
     ) {
+        panic!("breaking");
         scanner.scan(self, response_skeleton_opt);
         scanner.notify_later_assertable(self, ctx)
     }
@@ -806,6 +809,7 @@ impl Accountant {
     }
 
     fn handle_sent_payable(&self, sent_payable: SentPayable) {
+        // TODO: The flag should be put to false for scan for payables over here.
         let (ok, err) = Self::separate_early_errors(&sent_payable, &self.logger);
         debug!(self.logger, "We gathered these errors at sending transactions for payable: {:?}, out of the total of {} attempts", err, ok.len() + err.len());
         self.mark_pending_payable(ok);
@@ -2791,9 +2795,8 @@ mod tests {
     }
 
     #[test]
-    fn accountant_processes_scan_for_payables_message_in_case_it_receives() {
-        init_test_logging();
-        let mut payable_dao = PayableDaoMock::default();
+    fn accountant_scans_for_payables_in_case_it_receives_the_message_and_flag_is_false() {
+        let payable_dao = PayableDaoMock::default();
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
         let report_accounts_payable_sub = blockchain_bridge.start().recipient();
         let now =
@@ -2811,15 +2814,16 @@ mod tests {
             make_populated_accountant_config_with_defaults(),
             make_wallet("mine"),
         );
-        let system =
-            System::new("accountant_processes_scan_for_payables_message_in_case_it_receives");
+        let system = System::new(
+            "accountant_scans_for_payables_in_case_it_receives_the_message_and_flag_is_false",
+        );
         let mut subject = AccountantBuilder::default()
             .payable_dao(payable_dao)
             .bootstrapper_config(config)
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
-        subject.payable_scan_running = false;
         subject.config.scan_intervals.payable_scan_interval = Duration::from_millis(10);
+        subject.payable_scan_running = false;
         let addr = subject.start();
 
         addr.try_send(ScanForPayables {
@@ -2834,7 +2838,51 @@ mod tests {
             accounts: vec![payable_account],
             response_skeleton_opt: None,
         };
-        assert_eq!(message, &expected_message)
+        assert_eq!(message, &expected_message);
+    }
+
+    #[test]
+    fn accountant_doesn_t_scans_for_payables_in_case_it_receives_the_message_and_flag_is_true() {
+        let payable_dao = PayableDaoMock::default();
+        let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
+        let report_accounts_payable_sub = blockchain_bridge.start().recipient();
+        let now =
+            to_time_t(SystemTime::now()) - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec - 1;
+        let payable_account = PayableAccount {
+            wallet: make_wallet("scan_for_payables"),
+            balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1,
+            last_paid_timestamp: from_time_t(now),
+            pending_payable_opt: None,
+        };
+        let mut payable_dao =
+            payable_dao.non_pending_payables_result(vec![payable_account.clone()]);
+        payable_dao.have_non_pending_payables_shut_down_the_system = true;
+        let config = bc_from_ac_plus_earning_wallet(
+            make_populated_accountant_config_with_defaults(),
+            make_wallet("mine"),
+        );
+        let system = System::new(
+            "accountant_scans_for_payables_in_case_it_receives_the_message_and_flag_is_false",
+        );
+        let mut subject = AccountantBuilder::default()
+            .payable_dao(payable_dao)
+            .bootstrapper_config(config)
+            .build();
+        subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
+        subject.config.scan_intervals.payable_scan_interval = Duration::from_millis(10);
+        subject.payable_scan_running = true;
+        let addr = subject.start();
+
+        addr.try_send(ScanForPayables {
+            response_skeleton_opt: None,
+        })
+        .unwrap();
+
+        System::current().stop();
+        system.run();
+        let recording = blockchain_bridge_recording.lock().unwrap();
+        let messages_received = recording.len();
+        assert_eq!(messages_received, 0);
     }
 
     #[test]
@@ -3622,6 +3670,7 @@ mod tests {
         log_handler.exists_log_containing("DEBUG: Accountant: Payable '0x0000…00a6' has been marked as pending in the payable table");
         log_handler.exists_log_containing("WARN: Accountant: Encountered transaction error at this end: 'TransactionFailed { msg: \"closing hours, sorry\", hash_opt: None }'");
         log_handler.exists_log_containing("DEBUG: Accountant: Forgetting a transaction attempt that even did not reach the signing stage");
+        // TODO: Assert subject.scan_for_payables_in_progress [No scan in progress]
     }
 
     #[test]

@@ -27,6 +27,7 @@ pub(in crate::accountant) mod accountant_tools {
         }
     }
 
+    // TODO: Change it to type
     pub trait Scanner {
         fn scan(&self, accountant: &Accountant, response_skeleton_opt: Option<ResponseSkeleton>);
         fn notify_later_assertable(&self, accountant: &Accountant, ctx: &mut Context<Accountant>);
