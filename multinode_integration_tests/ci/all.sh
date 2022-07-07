@@ -45,6 +45,6 @@ popd
 
 pushd "$CI_DIR/.."
 export RUSTFLAGS="-D warnings -Anon-snake-case"
-./lint.sh
+ci/lint.sh
 cargo test --release -- --nocapture --test-threads=1
 popd
