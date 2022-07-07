@@ -98,6 +98,7 @@ impl NullUdpSocketWrapper {
 struct PcpTransactorInner {
     mapping_transactor: Box<dyn MappingTransactor>,
     factories: Factories,
+    external_ip_addr_opt: Option<IpAddr>,
 }
 
 pub struct PcpTransactor {
@@ -116,6 +117,7 @@ impl Default for PcpTransactor {
             inner_arc: Arc::new(Mutex::new(PcpTransactorInner {
                 mapping_transactor: Box::new(MappingTransactorReal::default()),
                 factories: Factories::default(),
+                external_ip_addr_opt: None,
             })),
             router_server_port: ROUTER_SERVER_PORT,
             multicast_info: MulticastInfo::default(),
@@ -418,7 +420,7 @@ impl PcpTransactor {
             Ok (len) => {
                 match PcpPacket::try_from (&buffer[0..len]) {
                     Ok (packet) if packet.opcode == Opcode::Map => {
-                        Self::process_unsolicited_map(packet, router_server_addr, mapping_config_opt, last_remapped, change_handler, &logger)
+                        Self::process_unsolicited_map(inner_arc, packet, router_server_addr, mapping_config_opt, last_remapped, change_handler, &logger)
                     },
                     Ok (packet) if packet.opcode == Opcode::Announce => {
                         Self::process_unsolicited_announce(inner_arc, router_server_addr, mapping_config_opt, last_remapped, change_handler, logger)
@@ -441,6 +443,7 @@ impl PcpTransactor {
     }
 
     fn process_unsolicited_map(
+        inner_arc: &Arc<Mutex<PcpTransactorInner>>,
         map_packet: PcpPacket,
         router_server_addr: SocketAddr,
         mapping_config_opt: &mut Option<MappingConfig>,
@@ -450,13 +453,24 @@ impl PcpTransactor {
     ) {
         match MappingTransactorReal::compute_mapping_result(map_packet, router_server_addr, &logger) {
             Ok((approved_lifetime, opcode_data)) => {
+                let changed = {
+                    let mut inner = inner_arc.lock().expect("PcpTransactor died");
+                    let changed = inner.external_ip_addr_opt != Some (opcode_data.external_ip_address);
+                    inner.external_ip_addr_opt = Some(opcode_data.external_ip_address);
+                    changed
+                };
                 match mapping_config_opt.as_mut() {
                     Some(mut mapping_config) => {
                         mapping_config.next_lifetime = Duration::from_secs(approved_lifetime as u64);
                         mapping_config.remap_interval = Duration::from_secs(approved_lifetime as u64 / 2);
                         *last_remapped = Instant::now();
-                        info!(logger, "Received PCP MAP notification that ISP changed IP address to {}", opcode_data.external_ip_address);
-                        change_handler(AutomapChange::NewIp(opcode_data.external_ip_address));
+                        if changed {
+                            info!(logger, "Received PCP MAP notification that ISP changed IP address to {}", opcode_data.external_ip_address);
+                            change_handler(AutomapChange::NewIp(opcode_data.external_ip_address));
+                        }
+                        else {
+                            info!(logger, "Received PCP MAP notification that ISP changed IP address; but address is unchanged from {}; ignoring", opcode_data.external_ip_address);
+                        }
                     },
                     None => {
                         info!(logger, "IP address changed before being used for any mappings");
@@ -482,9 +496,19 @@ impl PcpTransactor {
                     Ok((approved_lifetime, opcode_data)) => {
                         mapping_config.next_lifetime = Duration::from_secs(approved_lifetime as u64);
                         mapping_config.remap_interval = Duration::from_secs(approved_lifetime as u64 / 2);
+                        let changed = {
+                            let changed = inner.external_ip_addr_opt != Some (opcode_data.external_ip_address);
+                            inner.external_ip_addr_opt = Some (opcode_data.external_ip_address);
+                            changed
+                        };
                         *last_remapped = Instant::now();
-                        info!(logger, "PCP ANNOUNCE caused remap of IP address to {}", opcode_data.external_ip_address);
-                        change_handler(AutomapChange::NewIp(opcode_data.external_ip_address));
+                        if changed {
+                            info!(logger, "PCP ANNOUNCE caused remap of IP address to {}", opcode_data.external_ip_address);
+                            change_handler(AutomapChange::NewIp(opcode_data.external_ip_address));
+                        }
+                        else {
+                            info!(logger, "Received PCP ANNOUNCE notification that ISP changed public IP address, but found no change from {}; ignoring", opcode_data.external_ip_address);
+                        }
                     },
                     Err(e) => {
                         change_handler(AutomapChange::Error(e.clone()));
@@ -511,17 +535,22 @@ impl PcpTransactor {
             None => (),
             Some(mapping_config) => {
                 if since_last_remapped.gt(&mapping_config.remap_interval) {
-                    let inner = inner_arc.lock().expect("PcpTransactor is dead");
+                    let mut inner = inner_arc.lock().expect("PcpTransactor is dead");
                     let requested_lifetime = mapping_config.next_lifetime;
-                    if let Err(e) = Self::remap_port(
-                        &inner,
+                    match Self::remap_port (
+                        &mut inner,
                         router_server_addr,
                         mapping_config,
                         requested_lifetime,
                         logger,
                     ) {
-                        error!(logger, "Remapping failure: {:?}", e);
-                        change_handler(AutomapChange::Error(e));
+                        Ok ((_, opcode_data)) => {
+                            inner.external_ip_addr_opt = Some (opcode_data.external_ip_address);
+                        },
+                        Err (e) => {
+                            error!(logger, "Remapping failure: {:?}", e);
+                            change_handler(AutomapChange::Error(e));
+                        }
                     }
                     *last_remapped = Instant::now();
                 }
@@ -530,7 +559,7 @@ impl PcpTransactor {
     }
 
     fn remap_port(
-        inner: &PcpTransactorInner,
+        inner: &mut PcpTransactorInner,
         router_addr: SocketAddr,
         mapping_config: &mut MappingConfig,
         requested_lifetime: Duration,
@@ -542,9 +571,10 @@ impl PcpTransactor {
             requested_lifetime_secs = 1;
         }
         mapping_config.next_lifetime = Duration::from_secs(requested_lifetime_secs as u64);
-        Ok(inner
-            .mapping_transactor
-            .transact(&inner.factories, router_addr, mapping_config)?)
+        let (granted_lifetime_secs, opcode_data) = inner.mapping_transactor.transact (
+            &inner.factories, router_addr, mapping_config
+        )?;
+        Ok((granted_lifetime_secs, opcode_data))
     }
 }
 
@@ -1559,6 +1589,7 @@ mod tests {
         let inner = PcpTransactorInner {
             mapping_transactor: Box::new(MappingTransactorMock::new()),
             factories,
+            external_ip_addr_opt: None,
         };
         let inner_arc = Arc::new(Mutex::new(inner));
         let router_multicast_info = MulticastInfo::new (IpAddr::from_str("1.2.3.4").unwrap(), 5, 8888);
@@ -1595,6 +1626,7 @@ mod tests {
         let inner = PcpTransactorInner { // not used; just has to be supplied
             mapping_transactor: Box::new(MappingTransactorMock::new()),
             factories: Factories::default(),
+            external_ip_addr_opt: Some (IpAddr::from_str("2.2.2.2").unwrap()),
         };
         let mut buffer = [0u8; 64];
         let mapping_opcode_data = MapOpcodeData {
@@ -1633,10 +1665,12 @@ mod tests {
             };
         });
         let logger = Logger::new ("check_unsolicited_socket_handles_unsolicited_map_packet");
+        let inner_arc = Arc::new (Mutex::new (inner));
+        let assertable_inner_arc = inner_arc.clone();
         let before = Instant::now();
 
         PcpTransactor::check_unsolicited_socket(
-            &Arc::new (Mutex::new (inner)),
+            &inner_arc,
             &unsolicited_socket,
             &mut buffer[..],
             router_server_addr,
@@ -1656,6 +1690,8 @@ mod tests {
         }));
         assert! (last_remapped.ge (&before));
         assert! (last_remapped.le (&after));
+        let assertable_inner = assertable_inner_arc.lock().unwrap();
+        assert_eq! (assertable_inner.external_ip_addr_opt, Some (IpAddr::from_str("4.3.2.1").unwrap()));
         TestLogHandler::new().exists_log_containing("INFO: check_unsolicited_socket_handles_unsolicited_map_packet: Received PCP MAP notification that ISP changed IP address to 4.3.2.1");
     }
 
@@ -1665,6 +1701,7 @@ mod tests {
         let inner = PcpTransactorInner { // not used; just has to be supplied
             mapping_transactor: Box::new(MappingTransactorMock::new()),
             factories: Factories::default(),
+            external_ip_addr_opt: Some(IpAddr::from_str("4.3.2.1").unwrap()),
         };
         let mut buffer = [0u8; 64];
         let mapping_opcode_data = MapOpcodeData {
@@ -1703,10 +1740,12 @@ mod tests {
                 _ => None,
             };
         });
-        let logger = Logger::new ("check_unsolicited_socket_ignores_map_packet_that_doesnt_change_ip_address");
+        let inner_arc = Arc::new (Mutex::new (inner));
+        let assertable_inner_arc = inner_arc.clone();
+        let logger = Logger::new ("INFO: check_unsolicited_socket_ignores_map_packet_that_doesnt_change_ip_address");
 
         PcpTransactor::check_unsolicited_socket(
-            &Arc::new (Mutex::new (inner)),
+            &inner_arc,
             &unsolicited_socket,
             &mut buffer[..],
             router_server_addr,
@@ -1718,7 +1757,8 @@ mod tests {
 
         let change = received_new_ip.lock().unwrap();
         assert_eq! (*change, None);
-        assert_eq! (last_remapped, original_last_remapped);
+        let assertable_inner = assertable_inner_arc.lock().unwrap();
+        assert_eq! (assertable_inner.external_ip_addr_opt, Some (IpAddr::from_str ("4.3.2.1").unwrap()));
         TestLogHandler::new().exists_log_containing("INFO: check_unsolicited_socket_ignores_map_packet_that_doesnt_change_ip_address: Received PCP MAP notification that ISP changed IP address; but address is unchanged from 4.3.2.1; ignoring");
     }
 
@@ -1761,6 +1801,7 @@ mod tests {
         let inner = PcpTransactorInner { // value not important, but must be supplied
             mapping_transactor: Box::new(mapping_transactor),
             factories: Factories::default(),
+            external_ip_addr_opt: Some (IpAddr::from_str("2.2.2.2").unwrap()),
         };
         let received_new_ip: Arc<Mutex<Option<IpAddr>>> = Arc::new (Mutex::new (None));
         let inner_received_new_ip = received_new_ip.clone();
@@ -1771,10 +1812,12 @@ mod tests {
             };
         });
         let logger = Logger::new ("check_unsolicited_socket_handles_unsolicited_announce_packet");
+        let inner_arc = Arc::new (Mutex::new (inner));
+        let assertable_inner_arc = inner_arc.clone();
         let before = Instant::now();
 
         PcpTransactor::check_unsolicited_socket(
-            &Arc::new (Mutex::new (inner)),
+            &inner_arc,
             &unsolicited_socket,
             &mut buffer[..],
             router_server_addr,
@@ -1800,6 +1843,8 @@ mod tests {
         let mapping_config = mapping_config_opt.unwrap();
         assert_eq! (mapping_config.next_lifetime, Duration::from_secs(10));
         assert_eq! (mapping_config.remap_interval, Duration::from_secs(5));
+        let assertable_inner = assertable_inner_arc.lock().unwrap();
+        assert_eq! (assertable_inner.external_ip_addr_opt, Some (IpAddr::from_str("4.3.2.1").unwrap()));
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing("INFO: check_unsolicited_socket_handles_unsolicited_announce_packet: Received PCP ANNOUNCE notification that ISP changed IP address");
         tlh.exists_log_containing("INFO: check_unsolicited_socket_handles_unsolicited_announce_packet: PCP ANNOUNCE caused remap of IP address to 4.3.2.1");
@@ -1807,7 +1852,74 @@ mod tests {
 
     #[test]
     fn check_unsolicited_socket_does_not_call_change_handler_if_announce_remap_shows_same_ip_address(){
-        todo! ("Complete me");
+        init_test_logging();
+        let announce_response = PcpPacket {
+            direction: Direction::Request,
+            opcode: Opcode::Announce,
+            result_code_opt: Some (ResultCode::Success),
+            lifetime: 0,
+            client_ip_opt: None,
+            epoch_time_opt: None,
+            opcode_data: Box::new(UnrecognizedData::new()),
+            options: vec![]
+        };
+        let mut announce_bytes = [0u8; 64];
+        let announce_len = announce_response.marshal (&mut announce_bytes[..]).unwrap();
+        let mapping_response_opcode_data = MapOpcodeData {
+            mapping_nonce: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
+            protocol: Protocol::Udp,
+            internal_port: 1234,
+            external_port: 1234,
+            external_ip_address: IpAddr::from_str ("4.3.2.1").unwrap() // no change
+        };
+        let router_server_addr = SocketAddr::from_str ("1.2.3.4:5000").unwrap();
+        let unsolicited_socket = UdpSocketWrapperMock::new()
+            .recv_result (Ok(announce_len), announce_bytes[0..announce_len].to_vec());
+        let mut buffer = [0u8; 64];
+        let mut mapping_config_opt = Some (MappingConfig {
+            hole_port: 1234,
+            next_lifetime: Duration::from_secs (600),
+            remap_interval: Duration::from_secs (300),
+        });
+        let mut last_remapped = Instant::now().sub (Duration::from_secs (3600));
+        let transact_params_arc = Arc::new (Mutex::new (vec![]));
+        let mapping_transactor = MappingTransactorMock::new()
+            .transact_params (&transact_params_arc)
+            .transact_result (Ok ((10, mapping_response_opcode_data)));
+        let inner = PcpTransactorInner { // value not important, but must be supplied
+            mapping_transactor: Box::new(mapping_transactor),
+            factories: Factories::default(),
+            external_ip_addr_opt: Some (IpAddr::from_str("4.3.2.1").unwrap()),
+        };
+        let received_new_ip: Arc<Mutex<Option<IpAddr>>> = Arc::new (Mutex::new (None));
+        let inner_received_new_ip = received_new_ip.clone();
+        let change_handler: ChangeHandler = Box::new (move |msg| {
+            match msg {
+                AutomapChange::NewIp(new_ip) => inner_received_new_ip.lock().unwrap().replace (new_ip),
+                _ => None,
+            };
+        });
+        let logger = Logger::new ("check_unsolicited_socket_does_not_call_change_handler_if_announce_remap_shows_same_ip_address");
+        let inner_arc = Arc::new (Mutex::new (inner));
+        let assertable_inner_arc = inner_arc.clone();
+
+        PcpTransactor::check_unsolicited_socket(
+            &inner_arc,
+            &unsolicited_socket,
+            &mut buffer[..],
+            router_server_addr,
+            &mut mapping_config_opt,
+            &mut last_remapped,
+            &change_handler,
+            &logger,
+        );
+
+        let change = received_new_ip.lock().unwrap().take();
+        assert_eq! (change, None);
+        let assertable_inner = assertable_inner_arc.lock().unwrap();
+        assert_eq! (assertable_inner.external_ip_addr_opt, Some (IpAddr::from_str("4.3.2.1").unwrap()));
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing("INFO: check_unsolicited_socket_does_not_call_change_handler_if_announce_remap_shows_same_ip_address: Received PCP ANNOUNCE notification that ISP changed public IP address, but found no change from 4.3.2.1; ignoring");
     }
 
     #[test]
@@ -1815,7 +1927,8 @@ mod tests {
         init_test_logging();
         let inner = PcpTransactorInner {
             mapping_transactor: Box::new(MappingTransactorMock::new()),
-            factories: Factories::default()
+            factories: Factories::default(),
+            external_ip_addr_opt: None,
         };
         let io_error = || {io::Error::from (ErrorKind::BrokenPipe)};
         let unsolicited_socket = UdpSocketWrapperMock::new()
@@ -1854,7 +1967,8 @@ mod tests {
         init_test_logging();
         let inner = PcpTransactorInner {
             mapping_transactor: Box::new(MappingTransactorMock::new()),
-            factories: Factories::default()
+            factories: Factories::default(),
+            external_ip_addr_opt: None,
         };
         let unsolicited_socket = UdpSocketWrapperMock::new()
             .recv_result (Ok(2), vec![1, 0]);
@@ -1892,7 +2006,8 @@ mod tests {
         init_test_logging();
         let inner = PcpTransactorInner {
             mapping_transactor: Box::new(MappingTransactorMock::new()),
-            factories: Factories::default()
+            factories: Factories::default(),
+            external_ip_addr_opt: None,
         };
         let other_packet = PcpPacket {
             direction: Direction::Response,
@@ -1942,7 +2057,8 @@ mod tests {
         init_test_logging();
         let inner = PcpTransactorInner {
             mapping_transactor: Box::new(MappingTransactorMock::new()),
-            factories: Factories::default()
+            factories: Factories::default(),
+            external_ip_addr_opt: None,
         };
         let map_opcode_data = MapOpcodeData {
             mapping_nonce: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
@@ -1999,7 +2115,8 @@ mod tests {
         init_test_logging();
         let inner = PcpTransactorInner {
             mapping_transactor: Box::new(MappingTransactorMock::new()),
-            factories: Factories::default()
+            factories: Factories::default(),
+            external_ip_addr_opt: Some (IpAddr::from_str("2.2.2.2").unwrap()),
         };
         let map_opcode_data = MapOpcodeData {
             mapping_nonce: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12],
@@ -2034,9 +2151,11 @@ mod tests {
             };
         });
         let logger = Logger::new ("check_unsolicited_socket_with_map_response_handles_missing_mapping_config");
+        let inner_arc = Arc::new (Mutex::new (inner));
+        let assertable_inner_arc = inner_arc.clone();
 
         PcpTransactor::check_unsolicited_socket(
-            &Arc::new (Mutex::new (inner)),
+            &inner_arc,
             &unsolicited_socket,
             &mut buffer[..],
             SocketAddr::from_str ("1.2.3.4:5000").unwrap(),
@@ -2048,6 +2167,8 @@ mod tests {
 
         let received_message = received_message_arc.lock().unwrap().remove(0);
         assert_eq! (received_message, IpAddr::from_str ("1.2.3.4").unwrap());
+        let assertable_inner = assertable_inner_arc.lock().unwrap();
+        assert_eq! (assertable_inner.external_ip_addr_opt, Some (IpAddr::from_str ("1.2.3.4").unwrap()));
         TestLogHandler::new().exists_log_containing (&format!("INFO: check_unsolicited_socket_with_map_response_handles_missing_mapping_config: IP address changed before being used for any mappings"));
     }
 
@@ -2056,7 +2177,8 @@ mod tests {
         init_test_logging();
         let inner = PcpTransactorInner {
             mapping_transactor: Box::new(MappingTransactorMock::new()),
-            factories: Factories::default()
+            factories: Factories::default(),
+            external_ip_addr_opt: Some (IpAddr::from_str("2.2.2.2").unwrap()),
         };
         let announce_packet = PcpPacket {
             direction: Direction::Response,
@@ -2107,7 +2229,8 @@ mod tests {
             .transact_result (Err (AutomapError::CantFindDefaultGateway));
         let inner = PcpTransactorInner {
             mapping_transactor: Box::new(mapping_transactor),
-            factories: Factories::default()
+            factories: Factories::default(),
+            external_ip_addr_opt: None,
         };
         let announce_packet = PcpPacket {
             direction: Direction::Response,
@@ -2242,6 +2365,7 @@ mod tests {
         let inner_arc = Arc::new(Mutex::new(PcpTransactorInner {
             mapping_transactor: Box::new(MappingTransactorReal::default()),
             factories,
+            external_ip_addr_opt: None,
         }));
         let change_handler: ChangeHandler = Box::new(move |_| {});
         let mapping_config = MappingConfig {
@@ -2338,7 +2462,9 @@ mod tests {
         let inner_arc = Arc::new(Mutex::new(PcpTransactorInner {
             mapping_transactor: Box::new(MappingTransactorReal::default()),
             factories,
+            external_ip_addr_opt: None,
         }));
+        let assertable_inner_arc = inner_arc.clone();
         let change_handler: ChangeHandler = Box::new(move |_| {});
         let mapping_config = MappingConfig {
             hole_port: 6689,
@@ -2377,6 +2503,8 @@ mod tests {
             PcpPacket::try_from(&expected_outgoing_packet_buf[0..expected_outgoing_packet_length])
                 .unwrap()
         );
+        let assertable_inner = assertable_inner_arc.lock().unwrap();
+        assert_eq! (assertable_inner.external_ip_addr_opt, Some (IpAddr::from_str ("7.7.7.7").unwrap()));
         TestLogHandler::new().exists_log_containing("INFO: timed_remap_test: Remapping port 6689");
     }
 
@@ -2400,6 +2528,7 @@ mod tests {
                 Arc::new(Mutex::new(PcpTransactorInner {
                     mapping_transactor,
                     factories: Factories::default(),
+                    external_ip_addr_opt: None,
                 })),
                 SocketAddr::new(IpAddr::from_str("1.1.1.1").unwrap(), 0),
                 MulticastInfo::for_test(9),
@@ -2442,14 +2571,17 @@ mod tests {
         .unwrap();
         tx.send(HousekeepingThreadCommand::SetRemapIntervalMs(80))
             .unwrap();
+        let inner_arc = Arc::new(Mutex::new(PcpTransactorInner {
+            mapping_transactor,
+            factories: Factories::default(),
+            external_ip_addr_opt: Some (IpAddr::from_str("2.2.2.2").unwrap()),
+        }));
+        let assertable_inner_arc = inner_arc.clone();
 
         let handle = thread::spawn(move || {
             let _ = PcpTransactor::thread_guts(
                 &rx,
-                Arc::new(Mutex::new(PcpTransactorInner {
-                    mapping_transactor,
-                    factories: Factories::default(),
-                })),
+                inner_arc,
                 SocketAddr::new(IpAddr::from_str("1.1.1.1").unwrap(), 0),
                 MulticastInfo::for_test(10),
                 change_handler,
@@ -2468,6 +2600,8 @@ mod tests {
                 "NoResources".to_string()
             )))
         );
+        let assertable_inner = assertable_inner_arc.lock().unwrap();
+        assert_eq!(assertable_inner.external_ip_addr_opt, Some (IpAddr::from_str("2.2.2.2").unwrap()));
         TestLogHandler::new().exists_log_containing(
             "ERROR: thread_guts_complains_if_remapping_fails: Remapping failure: TemporaryMappingError(\"NoResources\")",
         );
@@ -2479,13 +2613,14 @@ mod tests {
         let mapping_transactor = MappingTransactorMock::new()
             .transact_params(&mapping_transactor_params_arc)
             .transact_result(Err(AutomapError::Unknown));
-        let inner = PcpTransactorInner {
+        let mut inner = PcpTransactorInner {
             mapping_transactor: Box::new(mapping_transactor),
             factories: Factories::default(),
+            external_ip_addr_opt: None,
         };
 
         let result = PcpTransactor::remap_port(
-            &inner,
+            &mut inner,
             SocketAddr::new(localhost(), 0),
             &mut MappingConfig {
                 hole_port: 0,
@@ -2500,6 +2635,7 @@ mod tests {
         let mut mapping_transactor_params = mapping_transactor_params_arc.lock().unwrap();
         let requested_lifetime: u32 = mapping_transactor_params.remove(0).2.next_lifetime_secs();
         assert_eq!(requested_lifetime, 100);
+        assert_eq!(inner.external_ip_addr_opt, None);
     }
 
     #[test]
@@ -2508,9 +2644,10 @@ mod tests {
         let mapping_transactor = MappingTransactorMock::new()
             .transact_params(&mapping_transactor_params_arc)
             .transact_result(Err(AutomapError::Unknown));
-        let inner = PcpTransactorInner {
+        let mut inner = PcpTransactorInner {
             mapping_transactor: Box::new(mapping_transactor),
             factories: Factories::default(),
+            external_ip_addr_opt: None,
         };
         let mut mapping_config = MappingConfig {
             hole_port: 0,
@@ -2519,7 +2656,7 @@ mod tests {
         };
 
         let result = PcpTransactor::remap_port(
-            &inner,
+            &mut inner,
             SocketAddr::new(localhost(), 0),
             &mut mapping_config,
             Duration::from_millis(80),
@@ -2530,6 +2667,7 @@ mod tests {
         let mut mapping_transactor_params = mapping_transactor_params_arc.lock().unwrap();
         let requested_lifetime: u32 = mapping_transactor_params.remove(0).2.next_lifetime_secs();
         assert_eq!(requested_lifetime, 1);
+        assert_eq!(inner.external_ip_addr_opt, None);
     }
 
     #[test]
@@ -2537,9 +2675,10 @@ mod tests {
         let mapping_transactor = MappingTransactorMock::new().transact_result(Err(
             AutomapError::PermanentMappingError("MalformedRequest".to_string()),
         ));
-        let inner = PcpTransactorInner {
+        let mut inner = PcpTransactorInner {
             mapping_transactor: Box::new(mapping_transactor),
             factories: Factories::default(),
+            external_ip_addr_opt: Some (IpAddr::from_str("1.2.3.4").unwrap()),
         };
         let mut mapping_config = MappingConfig {
             hole_port: 0,
@@ -2548,7 +2687,7 @@ mod tests {
         };
 
         let result = PcpTransactor::remap_port(
-            &inner,
+            &mut inner,
             SocketAddr::new(localhost(), 0),
             &mut mapping_config,
             Duration::from_millis(1000),
@@ -2568,7 +2707,8 @@ mod tests {
                 next_lifetime: Duration::from_millis(1000),
                 remap_interval: Duration::from_millis(0),
             }
-        )
+        );
+        assert_eq! (inner.external_ip_addr_opt, Some (IpAddr::from_str("1.2.3.4").unwrap()));
     }
 
     fn vanilla_request() -> PcpPacket {
