@@ -547,6 +547,10 @@ impl DatabaseMigration for Migrate_6_to_7 {
                               process_error text null",
             &mut statements,
         );
+        statements.push(Box::new(format!(
+            "update config set value = '{}' where name = 'rate_pack'",
+            DEFAULT_RATE_PACK
+        )));
 
         declaration_utils
             .execute_upon_transaction(&statements.iter().map(|boxed| boxed.as_ref()).collect_vec())
@@ -916,6 +920,9 @@ mod tests {
     };
     use crate::database::db_migrations::{DBMigratorInnerConfiguration, DbMigratorReal};
     use crate::db_config::db_encryption_layer::DbEncryptionLayer;
+    use crate::db_config::persistent_configuration::{
+        PersistentConfiguration, PersistentConfigurationReal,
+    };
     use crate::db_config::typed_config_layer::encode_bytes;
     use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
     use crate::sub_lib::cryptde::PlainData;
@@ -2321,6 +2328,11 @@ mod tests {
         );
         insert_value(&*pre_db_conn,"insert into pending_payable (transaction_hash, amount, payable_timestamp,attempt, process_error) \
          values (\"0xb5c8bd9430b6cc87a0e2fe110ece6bf527fa4f222a4bc8cd032f768fc5219838\",9123,33333,1,null)");
+        let mut persistent_config = PersistentConfigurationReal::from(pre_db_conn);
+        let old_rate_pack_in_gwei = "44|50|20|32".to_string();
+        persistent_config
+            .set_rate_pack(old_rate_pack_in_gwei.clone())
+            .unwrap();
 
         let conn = subject
             .initialize_to_version(
@@ -2367,6 +2379,10 @@ mod tests {
             assert_eq!(row.get::<usize, Option<String>>(4).unwrap(), None);
             Ok(())
         });
+        let (rate_pack, encrypted) = retrieve_config_row(&*conn, "rate_pack");
+        assert_ne!(old_rate_pack_in_gwei, DEFAULT_RATE_PACK.to_string());
+        assert_eq!(rate_pack, Some(DEFAULT_RATE_PACK.to_string()));
+        assert_eq!(encrypted, false);
     }
 
     fn insert_value(conn: &dyn ConnectionWrapper, insert_stm: &str) {
