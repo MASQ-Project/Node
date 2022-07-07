@@ -108,7 +108,7 @@ pub struct ConfigDaoWriteableReal<'a> {
     logger: Logger,
 }
 
-impl Drop for ConfigDaoWriteableReal {
+impl Drop for ConfigDaoWriteableReal<'_> {
     fn drop(&mut self) {
         debug!(
             self.logger,
@@ -284,7 +284,6 @@ mod tests {
     };
     use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::assert_contains;
-    use libc::sleep;
     use masq_lib::constants::ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::thread;
