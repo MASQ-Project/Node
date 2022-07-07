@@ -1,8 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils::DaoFactoryReal;
+use masq_lib::logger::Logger;
 use rusqlite::types::ToSql;
 use rusqlite::{Row, Rows, Statement, Transaction};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum ConfigDaoError {
@@ -103,6 +105,21 @@ impl ConfigDaoReal {
 // This is the real object that contains a Transaction for writing
 pub struct ConfigDaoWriteableReal<'a> {
     transaction_opt: Option<Transaction<'a>>,
+    logger: Logger,
+}
+
+impl Drop for ConfigDaoWriteableReal {
+    fn drop(&mut self) {
+        debug!(
+            self.logger,
+            "{}",
+            if self.transaction_opt.is_some() {
+                "Dropping populated DAO object"
+            } else {
+                "Dropping empty DAO object"
+            }
+        )
+    }
 }
 
 // But the Transaction-bearing writer can also read
@@ -137,6 +154,7 @@ impl<'a> ConfigDaoWrite for ConfigDaoWriteableReal<'a> {
             Some(t) => t,
             None => return Err(ConfigDaoError::TransactionError),
         };
+        debug!(self.logger, "Setting {:?} for {}", value, name);
         let mut stmt = match transaction.prepare("update config set value = ? where name = ?") {
             Ok(stmt) => stmt,
             // The following line is untested, because we don't know how to trigger it.
@@ -147,6 +165,7 @@ impl<'a> ConfigDaoWrite for ConfigDaoWriteableReal<'a> {
     }
 
     fn commit(&mut self) -> Result<(), ConfigDaoError> {
+        debug!(self.logger, "Committing the transaction");
         match self.transaction_opt.take() {
             Some(transaction) => match transaction.commit() {
                 Ok(_) => Ok(()),
@@ -173,6 +192,7 @@ impl<'a> ConfigDaoWriteableReal<'a> {
     pub fn new(transaction: Transaction<'a>) -> Self {
         Self {
             transaction_opt: Some(transaction),
+            logger: create_tx_logger(),
         }
     }
 }
@@ -242,6 +262,20 @@ fn row_to_config_dao_record(row: &Row) -> ConfigDaoRecord {
     }
 }
 
+fn create_tx_logger() -> Logger {
+    let logger = Logger::new(&format!("DbTx{}", new_id()));
+    debug!(logger, "New transaction created");
+    logger
+}
+
+fn new_id() -> u32 {
+    (SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .expect("we are time travelers")
+        .as_nanos()
+        >> 15) as u32
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,8 +284,11 @@ mod tests {
     };
     use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::assert_contains;
+    use libc::sleep;
     use masq_lib::constants::ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use std::thread;
+    use std::time::Duration;
 
     #[test]
     fn get_all_returns_multiple_results() {
@@ -494,5 +531,18 @@ mod tests {
         }
         let result = dao.get("schema_version").unwrap();
         assert_eq!(result, ConfigDaoRecord::new("schema_version", None, false));
+    }
+
+    #[test]
+    fn new_id_recognizes_one_hundredth_of_ms() {
+        let first_id = new_id();
+        thread::sleep(Duration::from_micros(10));
+        let second_id = new_id();
+        thread::sleep(Duration::from_micros(10));
+        let third_id = new_id();
+
+        assert!(first_id < second_id && second_id < third_id);
+        let change_acceleration = (third_id - first_id) as f64 / first_id as f64;
+        assert!(change_acceleration < 0.0000001);
     }
 }
