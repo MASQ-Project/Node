@@ -88,7 +88,7 @@ pub struct Accountant {
     report_accounts_payable_sub: Option<Recipient<ReportAccountsPayable>>,
     retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
     report_new_payments_sub: Option<Recipient<ReceivedPayments>>,
-    report_sent_payments_sub: Option<Recipient<SentPayable>>,
+    report_sent_payments_sub: Option<Recipient<SentPayables>>,
     ui_message_sub: Option<Recipient<NodeToUiMessage>>,
     payable_threshold_tools: Box<dyn PayableThresholdTools>,
     logger: Logger,
@@ -111,7 +111,7 @@ pub struct ReceivedPayments {
 }
 
 #[derive(Debug, Message, PartialEq)]
-pub struct SentPayable {
+pub struct SentPayables {
     pub payable: Vec<Result<Payable, BlockchainError>>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
@@ -182,11 +182,11 @@ impl Handler<ReceivedPayments> for Accountant {
     }
 }
 
-impl Handler<SentPayable> for Accountant {
+impl Handler<SentPayables> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, msg: SentPayable, _ctx: &mut Self::Context) -> Self::Result {
-        self.handle_sent_payable(msg);
+    fn handle(&mut self, msg: SentPayables, _ctx: &mut Self::Context) -> Self::Result {
+        self.handle_sent_payables(msg);
     }
 }
 
@@ -451,7 +451,7 @@ impl Accountant {
             report_new_payments: recipient!(addr, ReceivedPayments),
             pending_payable_fingerprint: recipient!(addr, PendingPayableFingerprint),
             report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
-            report_sent_payments: recipient!(addr, SentPayable),
+            report_sent_payments: recipient!(addr, SentPayables),
             scan_errors: recipient!(addr, ScanError),
             ui_message_sub: recipient!(addr, NodeFromUiMessage),
         }
@@ -813,8 +813,8 @@ impl Accountant {
         }
     }
 
-    fn handle_sent_payable(&self, sent_payable: SentPayable) {
-        let (ok, err) = Self::separate_early_errors(&sent_payable, &self.logger);
+    fn handle_sent_payables(&self, sent_payables: SentPayables) {
+        let (ok, err) = Self::separate_early_errors(&sent_payables, &self.logger);
         debug!(self.logger, "We gathered these errors at sending transactions for payable: {:?}, out of the total of {} attempts", err, ok.len() + err.len());
         self.mark_pending_payable(ok);
         if !err.is_empty() {
@@ -823,7 +823,7 @@ impl Accountant {
                 self.discard_incomplete_transaction_with_a_failure(hash)
             } else {debug!(self.logger,"Forgetting a transaction attempt that even did not reach the signing stage")})
         }
-        if let Some(response_skeleton) = &sent_payable.response_skeleton_opt {
+        if let Some(response_skeleton) = &sent_payables.response_skeleton_opt {
             self.ui_message_sub
                 .as_ref()
                 .expect("UIGateway is not bound")
@@ -1107,7 +1107,7 @@ impl Accountant {
     }
 
     fn separate_early_errors(
-        sent_payments: &SentPayable,
+        sent_payments: &SentPayables,
         logger: &Logger,
     ) -> (Vec<Payable>, Vec<BlockchainError>) {
         sent_payments
@@ -1875,7 +1875,7 @@ mod tests {
         let system = System::new("test");
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        let sent_payable = SentPayable {
+        let sent_payable = SentPayables {
             payable: vec![],
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
@@ -2033,7 +2033,7 @@ mod tests {
             expected_hash.clone(),
             expected_timestamp,
         );
-        let sent_payable = SentPayable {
+        let sent_payable = SentPayables {
             payable: vec![Ok(expected_payable.clone())],
             response_skeleton_opt: None,
         };
@@ -2063,7 +2063,7 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let hash = H256::from_uint(&U256::from(12345));
-        let sent_payable = SentPayable {
+        let sent_payable = SentPayables {
             payable: vec![Err(BlockchainError::TransactionFailed {
                 msg: "SQLite migraine".to_string(),
                 hash_opt: Some(hash),
@@ -2119,7 +2119,7 @@ mod tests {
         let wallet = make_wallet("blah");
         let hash_tx_1 = H256::from_uint(&U256::from(5555));
         let hash_tx_2 = H256::from_uint(&U256::from(12345));
-        let sent_payable = SentPayable {
+        let sent_payable = SentPayables {
             payable: vec![
                 Ok(Payable {
                     to: wallet.clone(),
@@ -3722,7 +3722,7 @@ mod tests {
     ) {
         let rowid = 4;
         let hash = H256::from_uint(&U256::from(123));
-        let sent_payable = SentPayable {
+        let sent_payable = SentPayables {
             payable: vec![Err(BlockchainError::TransactionFailed {
                 msg: "blah".to_string(),
                 hash_opt: Some(hash),
@@ -3738,7 +3738,7 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
 
-        let _ = subject.handle_sent_payable(sent_payable);
+        let _ = subject.handle_sent_payables(sent_payable);
     }
 
     #[test]
@@ -3755,7 +3755,7 @@ mod tests {
             msg: "closing hours, sorry".to_string(),
             hash_opt: None,
         });
-        let sent_payable = SentPayable {
+        let sent_payable = SentPayables {
             payable: vec![payable_1, Ok(payable_2.clone()), payable_3],
             response_skeleton_opt: None,
         };
@@ -3767,7 +3767,7 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
 
-        subject.handle_sent_payable(sent_payable);
+        subject.handle_sent_payables(sent_payable);
 
         let fingerprint_rowid_params = fingerprint_rowid_params_arc.lock().unwrap();
         assert_eq!(*fingerprint_rowid_params, vec![payable_hash_2]); //we know the other two errors are associated with an initiated transaction having a backup
@@ -4797,7 +4797,7 @@ mod tests {
             tx_hash: Default::default(),
         };
         let error = BlockchainError::SignedValueConversion(666);
-        let sent_payable = SentPayable {
+        let sent_payable = SentPayables {
             payable: vec![Ok(payable_ok.clone()), Err(error.clone())],
             response_skeleton_opt: None,
         };

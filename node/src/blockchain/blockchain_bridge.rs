@@ -2,12 +2,12 @@
 
 use crate::accountant::payable_dao::{Payable, PayableAccount};
 use crate::accountant::{
-    ReceivedPayments, ResponseSkeleton, ScanError, SentPayable, SkeletonOptHolder,
+    ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
 };
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
-    BlockchainInterfaceNonClandestine, BlockchainResult, SendTransactionInputs,
+    BlockchainInterfaceNonClandestine, BlockchainResult, TxInputs,
 };
 use crate::database::db_initializer::{DbInitializer, DATABASE_FILE};
 use crate::database::db_migrations::MigratorConfig;
@@ -32,7 +32,6 @@ use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::plus;
-use std::convert::TryFrom;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use web3::transports::Http;
@@ -46,7 +45,7 @@ pub struct BlockchainBridge {
     logger: Logger,
     persistent_config: Box<dyn PersistentConfiguration>,
     set_consuming_wallet_subs_opt: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
-    sent_payable_subs_opt: Option<Recipient<SentPayable>>,
+    sent_payable_subs_opt: Option<Recipient<SentPayables>>,
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
     scan_error_subs_opt: Option<Recipient<ScanError>>,
     crashable: bool,
@@ -236,12 +235,12 @@ impl BlockchainBridge {
         creditors_msg: &ReportAccountsPayable,
     ) -> Result<(), String> {
         let skeleton = creditors_msg.response_skeleton_opt;
-        let processed_payments = self.handle_report_accounts_payable_inner(creditors_msg);
+        let processed_payments = self.preprocess_payments(creditors_msg);
         processed_payments.map(|payments| {
             self.sent_payable_subs_opt
                 .as_ref()
                 .expect("Accountant is unbound")
-                .try_send(SentPayable {
+                .try_send(SentPayables {
                     payable: payments,
                     response_skeleton_opt: skeleton,
                 })
@@ -249,15 +248,17 @@ impl BlockchainBridge {
         })
     }
 
-    fn handle_report_accounts_payable_inner(
+    fn preprocess_payments(
         &self,
         creditors_msg: &ReportAccountsPayable,
     ) -> Result<Vec<BlockchainResult<Payable>>, String> {
         match self.consuming_wallet_opt.as_ref() {
             Some(consuming_wallet) => match self.persistent_config.gas_price() {
-                Ok(gas_price) => {
-                    Ok(self.process_payments(creditors_msg, gas_price, consuming_wallet))
-                }
+                Ok(gas_price) => Ok(creditors_msg
+                    .accounts
+                    .iter()
+                    .map(|payable| self.process_payments(payable, gas_price, consuming_wallet))
+                    .collect::<Vec<BlockchainResult<Payable>>>()),
                 Err(err) => Err(format!("ReportAccountPayable: gas-price: {:?}", err)),
             },
             None => Err(String::from("No consuming wallet specified")),
@@ -379,19 +380,6 @@ impl BlockchainBridge {
 
     fn process_payments(
         &self,
-        creditors_msg: &ReportAccountsPayable,
-        gas_price: u64,
-        consuming_wallet: &Wallet,
-    ) -> Vec<BlockchainResult<Payable>> {
-        creditors_msg
-            .accounts
-            .iter()
-            .map(|payable| self.process_payments_inner_body(payable, gas_price, consuming_wallet))
-            .collect::<Vec<BlockchainResult<Payable>>>()
-    }
-
-    fn process_payments_inner_body(
-        &self,
         payable: &PayableAccount,
         gas_price: u64,
         consuming_wallet: &Wallet,
@@ -399,26 +387,22 @@ impl BlockchainBridge {
         let nonce = self
             .blockchain_interface
             .get_transaction_count(consuming_wallet)?;
-        let unsigned_amount = u64::try_from(payable.balance)
-            .expect("negative balance for qualified payable is nonsense");
-        let send_tools = self.blockchain_interface.send_transaction_tools(
+        let send_tx_tools = self.blockchain_interface.send_transaction_tools(
             self.payment_confirmation
                 .transaction_backup_subs_opt
                 .as_ref()
                 .expect("Accountant is unbound"),
         );
-        match self
-            .blockchain_interface
-            .send_transaction(SendTransactionInputs::new(
-                payable,
-                consuming_wallet,
-                nonce,
-                gas_price,
-                send_tools.as_ref(),
-            )) {
+        match self.blockchain_interface.send_transaction(TxInputs::new(
+            payable,
+            consuming_wallet,
+            nonce,
+            gas_price,
+            send_tx_tools.as_ref(),
+        )) {
             Ok((hash, timestamp)) => Ok(Payable::new(
                 payable.wallet.clone(),
-                unsigned_amount,
+                payable.balance,
                 hash,
                 timestamp,
             )),
@@ -578,7 +562,7 @@ mod tests {
         let backup_recipient = accountant.start().recipient();
         subject.payment_confirmation.transaction_backup_subs_opt = Some(backup_recipient);
 
-        let result = subject.handle_report_accounts_payable_inner(&request);
+        let result = subject.preprocess_payments(&request);
 
         assert_eq!(
             result,
@@ -611,7 +595,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.handle_report_accounts_payable_inner(&request);
+        let result = subject.preprocess_payments(&request);
 
         assert_eq!(result, Err("No consuming wallet specified".to_string()));
     }
@@ -705,10 +689,10 @@ mod tests {
         );
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_received_payment.len(), 1);
-        let sent_payments_msg = accountant_received_payment.get_record::<SentPayable>(0);
+        let sent_payments_msg = accountant_received_payment.get_record::<SentPayables>(0);
         assert_eq!(
             *sent_payments_msg,
-            SentPayable {
+            SentPayables {
                 payable: vec![
                     Ok(Payable {
                         to: make_wallet("blah"),

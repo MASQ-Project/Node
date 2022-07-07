@@ -37,16 +37,18 @@ pub struct PayableAccount {
     pub pending_payable_opt: Option<PendingPayableId>,
 }
 
+//TODO two to three of these fields can be eliminated but I think my old plan was to keep it because it was potentially useful information,
+// I somehow didn't trust unconditionally to a pending payable record to be always there - and so I think this should wait for GH-576
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Payable {
     pub to: Wallet,
-    pub amount: u64,
+    pub amount: u128,
     pub timestamp: SystemTime,
     pub tx_hash: H256,
 }
 
 impl Payable {
-    pub fn new(to: Wallet, amount: u64, txn: H256, timestamp: SystemTime) -> Self {
+    pub fn new(to: Wallet, amount: u128, txn: H256, timestamp: SystemTime) -> Self {
         Self {
             to,
             amount,
