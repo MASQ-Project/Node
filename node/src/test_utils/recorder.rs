@@ -10,11 +10,11 @@ use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::DaemonBindMessage;
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::stream_messages::{AddStreamMsg, PoolBindMessage, RemoveStreamMsg};
-use crate::sub_lib::accountant::AccountantSubs;
-use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
+use crate::sub_lib::accountant::ReportExitServiceConsumed;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
-use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
+use crate::sub_lib::accountant::ReportRoutingServiceConsumed;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
+use crate::sub_lib::accountant::{AccountantSubs, ReportServicesConsumedMessage};
 use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, SetDbPasswordMsg};
 use crate::sub_lib::blockchain_bridge::{ReportAccountsPayable, SetGasPriceMsg};
 use crate::sub_lib::configurator::{ConfiguratorSubs, NewPasswordMessage};
@@ -118,9 +118,8 @@ recorder_message_handler!(PoolBindMessage);
 recorder_message_handler!(ReceivedPayments);
 recorder_message_handler!(RemoveNeighborMessage);
 recorder_message_handler!(RemoveStreamMsg);
-recorder_message_handler!(ReportExitServiceConsumedMessage);
+recorder_message_handler!(ReportServicesConsumedMessage);
 recorder_message_handler!(ReportExitServiceProvidedMessage);
-recorder_message_handler!(ReportRoutingServiceConsumedMessage);
 recorder_message_handler!(ReportRoutingServiceProvidedMessage);
 recorder_message_handler!(ScanError);
 recorder_message_handler!(SentPayable);
@@ -377,8 +376,7 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         start: recipient!(addr, StartMessage),
         report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
         report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
-        report_routing_service_consumed: recipient!(addr, ReportRoutingServiceConsumedMessage),
-        report_exit_service_consumed: recipient!(addr, ReportExitServiceConsumedMessage),
+        report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
         report_new_payments: recipient!(addr, ReceivedPayments),
         pending_payable_fingerprint: recipient!(addr, PendingPayableFingerprint),
         report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),

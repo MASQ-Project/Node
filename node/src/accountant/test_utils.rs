@@ -339,10 +339,7 @@ impl PayableDaoMock {
         PayableDaoMock::default()
     }
 
-    pub fn more_money_payable_parameters(
-        mut self,
-        parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
-    ) -> Self {
+    pub fn more_money_payable_params(mut self, parameters: Arc<Mutex<Vec<(Wallet, u64)>>>) -> Self {
         self.more_money_payable_parameters = parameters;
         self
     }

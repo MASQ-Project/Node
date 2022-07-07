@@ -80,8 +80,7 @@ pub struct AccountantSubs {
     pub start: Recipient<StartMessage>,
     pub report_routing_service_provided: Recipient<ReportRoutingServiceProvidedMessage>,
     pub report_exit_service_provided: Recipient<ReportExitServiceProvidedMessage>,
-    pub report_routing_service_consumed: Recipient<ReportRoutingServiceConsumedMessage>,
-    pub report_exit_service_consumed: Recipient<ReportExitServiceConsumedMessage>,
+    pub report_services_consumed: Recipient<ReportServicesConsumedMessage>,
     pub report_new_payments: Recipient<ReceivedPayments>,
     pub pending_payable_fingerprint: Recipient<PendingPayableFingerprint>,
     pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,
@@ -113,15 +112,22 @@ pub struct ReportExitServiceProvidedMessage {
 }
 
 #[derive(Clone, PartialEq, Debug, Message)]
-pub struct ReportRoutingServiceConsumedMessage {
+pub struct ReportServicesConsumedMessage {
+    pub payload_size: usize,
+    pub exit_service_opt: Option<ReportExitServiceConsumed>,
+    pub routing: Vec<ReportRoutingServiceConsumed>,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct ReportRoutingServiceConsumed {
     pub earning_wallet: Wallet,
     pub payload_size: usize,
     pub service_rate: u64,
     pub byte_rate: u64,
 }
 
-#[derive(Clone, PartialEq, Debug, Message)]
-pub struct ReportExitServiceConsumedMessage {
+#[derive(Clone, PartialEq, Debug)]
+pub struct ReportExitServiceConsumed {
     pub earning_wallet: Wallet,
     pub payload_size: usize,
     pub service_rate: u64,

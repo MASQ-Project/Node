@@ -12,8 +12,8 @@ use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::proxy_server::protocol_pack::{from_ibcd, from_protocol, ProtocolPack};
 use crate::stream_messages::NonClandestineAttributes;
 use crate::stream_messages::RemovedStreamType;
-use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
-use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
+use crate::sub_lib::accountant::ReportRoutingServiceConsumed;
+use crate::sub_lib::accountant::{ReportExitServiceConsumed, ReportServicesConsumedMessage};
 use crate::sub_lib::bidi_hashmap::BidiHashMap;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde::PublicKey;
@@ -57,8 +57,7 @@ pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);
 struct ProxyServerOutSubs {
     dispatcher: Recipient<TransmitDataMsg>,
     hopper: Recipient<IncipientCoresPackage>,
-    accountant_exit: Recipient<ReportExitServiceConsumedMessage>,
-    accountant_routing: Recipient<ReportRoutingServiceConsumedMessage>,
+    accountant: Recipient<ReportServicesConsumedMessage>,
     route_source: Recipient<RouteQueryMessage>,
     update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
     add_return_route: Recipient<AddReturnRouteMessage>,
@@ -95,8 +94,7 @@ impl Handler<BindMessage> for ProxyServer {
         let subs = ProxyServerOutSubs {
             dispatcher: msg.peer_actors.dispatcher.from_dispatcher_client,
             hopper: msg.peer_actors.hopper.from_hopper_client,
-            accountant_exit: msg.peer_actors.accountant.report_exit_service_consumed,
-            accountant_routing: msg.peer_actors.accountant.report_routing_service_consumed,
+            accountant: msg.peer_actors.accountant.report_services_consumed,
             route_source: msg.peer_actors.neighborhood.route_query,
             update_node_record_metadata: msg.peer_actors.neighborhood.update_node_record_metadata,
             add_return_route: msg.peer_actors.proxy_server.add_return_route,
@@ -431,8 +429,7 @@ impl ProxyServer {
     fn handle_normal_client_data(&mut self, msg: InboundClientData, retire_stream_key: bool) {
         let route_source = self.out_subs("Neighborhood").route_source.clone();
         let hopper = self.out_subs("Hopper").hopper.clone();
-        let accountant_exit_sub = self.out_subs("Accountant").accountant_exit.clone();
-        let accountant_routing_sub = self.out_subs("Accountant").accountant_routing.clone();
+        let accountant_sub = self.out_subs("Accountant").accountant.clone();
         let dispatcher = self.out_subs("Dispatcher").dispatcher.clone();
         let add_return_route_sub = self.out_subs("ProxyServer").add_return_route.clone();
         let add_route_sub = self.out_subs("ProxyServer").add_route.clone();
@@ -490,8 +487,7 @@ impl ProxyServer {
                     logger,
                     source_addr,
                     &dispatcher,
-                    &accountant_exit_sub,
-                    &accountant_routing_sub,
+                    &accountant_sub,
                     &add_return_route_sub,
                     if retire_stream_key {
                         Some(&stream_shutdown_sub)
@@ -527,8 +523,7 @@ impl ProxyServer {
                                         logger,
                                         source_addr,
                                         &dispatcher,
-                                        &accountant_exit_sub,
-                                        &accountant_routing_sub,
+                                        &accountant_sub,
                                         &add_return_route_sub,
                                         if retire_stream_key {
                                             Some(&stream_shutdown_sub)
@@ -675,8 +670,7 @@ impl ProxyServer {
         logger: Logger,
         source_addr: SocketAddr,
         dispatcher: &Recipient<TransmitDataMsg>,
-        accountant_exit_sub: &Recipient<ReportExitServiceConsumedMessage>,
-        accountant_routing_sub: &Recipient<ReportRoutingServiceConsumedMessage>,
+        accountant_sub: &Recipient<ReportServicesConsumedMessage>,
         add_return_route_sub: &Recipient<AddReturnRouteMessage>,
         retire_stream_key_via: Option<&Recipient<StreamShutdownMsg>>,
     ) {
@@ -695,12 +689,6 @@ impl ProxyServer {
                 add_return_route_sub
                     .try_send(return_route_info)
                     .expect("ProxyServer is dead");
-                ProxyServer::report_exit_service(
-                    accountant_exit_sub,
-                    over.clone(),
-                    &payload,
-                    &logger,
-                );
                 ProxyServer::transmit_to_hopper(
                     cryptde,
                     hopper,
@@ -710,7 +698,7 @@ impl ProxyServer {
                     &logger,
                     source_addr,
                     dispatcher,
-                    accountant_routing_sub,
+                    accountant_sub,
                     retire_stream_key_via,
                 );
             }
@@ -718,45 +706,37 @@ impl ProxyServer {
         }
     }
 
-    fn report_routing_service(
-        accountant_routing_sub: &Recipient<ReportRoutingServiceConsumedMessage>,
+    fn report_of_routing_services(
         expected_services: Vec<ExpectedService>,
         payload_size: usize,
         logger: &Logger,
-    ) {
-        let earning_wallets_and_rates: Vec<(&Wallet, &RatePack)> = expected_services
+    ) -> Vec<ReportRoutingServiceConsumed> {
+        let report_of_routing_services: Vec<ReportRoutingServiceConsumed> = expected_services
             .iter()
             .filter_map(|service| match service {
                 ExpectedService::Routing(_, earning_wallet, rate_pack) => {
                     Some((earning_wallet, rate_pack))
                 }
                 _ => None,
+            }).map(|(earning_wallet, rate_pack)|
+            ReportRoutingServiceConsumed {
+                earning_wallet: earning_wallet.clone(),
+                payload_size,
+                service_rate: rate_pack.routing_service_rate,
+                byte_rate: rate_pack.routing_byte_rate,
             })
             .collect();
-        if earning_wallets_and_rates.is_empty() {
+        if report_of_routing_services.is_empty() {
             debug!(logger, "No routing services requested.");
         }
-        earning_wallets_and_rates
-            .into_iter()
-            .for_each(|(earning_wallet, rate_pack)| {
-                let report_routing_service_consumed = ReportRoutingServiceConsumedMessage {
-                    earning_wallet: earning_wallet.clone(),
-                    payload_size,
-                    service_rate: rate_pack.routing_service_rate,
-                    byte_rate: rate_pack.routing_byte_rate,
-                };
-                accountant_routing_sub
-                    .try_send(report_routing_service_consumed)
-                    .expect("Accountant is dead");
-            });
+        report_of_routing_services
     }
 
-    fn report_exit_service(
-        accountant_exit_sub: &Recipient<ReportExitServiceConsumedMessage>,
-        expected_services: Vec<ExpectedService>,
-        payload: &ClientRequestPayload_0v1,
+    fn report_of_exit_service(
+        expected_services: &[ExpectedService],
+        payload_size: usize,
         logger: &Logger,
-    ) {
+    ) -> Option<ReportExitServiceConsumed> {
         match expected_services
             .iter()
             .find_map(|expected_service| match expected_service {
@@ -766,19 +746,16 @@ impl ProxyServer {
                 _ => None,
             }) {
             Some((earning_wallet, rate_pack)) => {
-                let payload_size = payload.sequenced_packet.data.len();
-                let report_exit_service_consumed_message = ReportExitServiceConsumedMessage {
+                let report_exit_service_consumed_message = ReportExitServiceConsumed {
                     earning_wallet: earning_wallet.clone(),
                     payload_size,
                     service_rate: rate_pack.exit_service_rate,
                     byte_rate: rate_pack.exit_byte_rate,
                 };
-                accountant_exit_sub
-                    .try_send(report_exit_service_consumed_message)
-                    .expect("Accountant is dead");
+                Some(report_exit_service_consumed_message)
             }
-            None => debug!(logger, "No exit service requested."),
-        };
+            None => {debug!(logger, "No exit service requested."); None},
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -791,7 +768,7 @@ impl ProxyServer {
         logger: &Logger,
         source_addr: SocketAddr,
         dispatcher: &Recipient<TransmitDataMsg>,
-        accountant_routing_sub: &Recipient<ReportRoutingServiceConsumedMessage>,
+        accountant_sub: &Recipient<ReportServicesConsumedMessage>,
         retire_stream_key_via: Option<&Recipient<StreamShutdownMsg>>,
     ) {
         let destination_key_opt = if !expected_services.is_empty()
@@ -822,12 +799,20 @@ impl ProxyServer {
                     &payload_destination_key,
                 )
                 .expect("Key magically disappeared");
-                ProxyServer::report_routing_service(
-                    accountant_routing_sub,
+                let exit_service_opt =
+                    ProxyServer::report_of_exit_service(&expected_services, pkg.payload.len(), &logger);
+                let routing_services = ProxyServer::report_of_routing_services(
                     expected_services,
                     pkg.payload.len(),
                     logger,
                 );
+                accountant_sub
+                    .try_send(ReportServicesConsumedMessage {
+                        payload_size: pkg.payload.len(),
+                        exit_service_opt,
+                        routing: routing_services,
+                    })
+                    .expect("Accountant is dead");
                 hopper.try_send(pkg).expect("Hopper is dead");
                 if let Some(shutdown_sub) = retire_stream_key_via {
                     debug!(
@@ -918,31 +903,32 @@ impl ProxyServer {
             .expected_services
             .iter()
             .for_each(|service| match service {
-                ExpectedService::Nothing => (),
-                ExpectedService::Exit(_, wallet, rate_pack) => self
-                    .subs
-                    .as_ref()
-                    .expect("ProxyServer unbound")
-                    .accountant_exit
-                    .try_send(ReportExitServiceConsumedMessage {
-                        earning_wallet: wallet.clone(),
-                        payload_size: exit_size,
-                        service_rate: rate_pack.exit_service_rate,
-                        byte_rate: rate_pack.exit_byte_rate,
-                    })
-                    .expect("Accountant is dead"),
-                ExpectedService::Routing(_, wallet, _rate_pack) => self
-                    .subs
-                    .as_ref()
-                    .expect("ProxyServer unbound")
-                    .accountant_routing
-                    .try_send(ReportRoutingServiceConsumedMessage {
-                        earning_wallet: wallet.clone(),
-                        payload_size: routing_size,
-                        service_rate: DEFAULT_RATE_PACK.routing_service_rate,
-                        byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
-                    })
-                    .expect("Accountant is dead"),
+                x => todo!("rewrite me")
+                // ExpectedService::Nothing => (),
+                // ExpectedService::Exit(_, wallet, rate_pack) => self
+                //     .subs
+                //     .as_ref()
+                //     .expect("ProxyServer unbound")
+                //     .accountant
+                //     .try_send(ReportExitServiceConsumed {
+                //         earning_wallet: wallet.clone(),
+                //         payload_size: exit_size,
+                //         service_rate: rate_pack.exit_service_rate,
+                //         byte_rate: rate_pack.exit_byte_rate,
+                //     })
+                //     .expect("Accountant is dead"),
+                // ExpectedService::Routing(_, wallet, _rate_pack) => self
+                //     .subs
+                //     .as_ref()
+                //     .expect("ProxyServer unbound")
+                //     .accountant_routing
+                //     .try_send(ReportRoutingServiceConsumed {
+                //         earning_wallet: wallet.clone(),
+                //         payload_size: routing_size,
+                //         service_rate: DEFAULT_RATE_PACK.routing_service_rate,
+                //         byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
+                //     })
+                //     .expect("Accountant is dead"),
             });
     }
 }
@@ -967,7 +953,7 @@ mod tests {
     use crate::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
     use crate::proxy_server::server_impersonator_tls::ServerImpersonatorTls;
     use crate::stream_messages::{NonClandestineAttributes, RemovedStreamType};
-    use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
+    use crate::sub_lib::accountant::ReportRoutingServiceConsumed;
     use crate::sub_lib::cryptde::{decodex, CryptData};
     use crate::sub_lib::cryptde::{encodex, PlainData};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -1021,17 +1007,14 @@ mod tests {
             let recorder = Recorder::new();
             let addr = recorder.start();
             ProxyServerOutSubs {
-                dispatcher: addr.clone().recipient::<TransmitDataMsg>(),
-                hopper: addr.clone().recipient::<IncipientCoresPackage>(),
-                accountant_exit: addr.clone().recipient::<ReportExitServiceConsumedMessage>(),
-                accountant_routing: addr
-                    .clone()
-                    .recipient::<ReportRoutingServiceConsumedMessage>(),
-                route_source: addr.clone().recipient::<RouteQueryMessage>(),
-                update_node_record_metadata: addr.clone().recipient::<NodeRecordMetadataMessage>(),
-                add_return_route: addr.clone().recipient::<AddReturnRouteMessage>(),
-                add_route: addr.clone().recipient::<AddRouteMessage>(),
-                stream_shutdown_sub: addr.clone().recipient::<StreamShutdownMsg>(),
+                dispatcher: recipient!(addr, TransmitDataMsg),
+                hopper: recipient!(addr, IncipientCoresPackage),
+                accountant: recipient!(addr, ReportServicesConsumedMessage),
+                route_source: recipient!(addr, RouteQueryMessage),
+                update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
+                add_return_route: recipient!(addr, AddReturnRouteMessage),
+                add_route: recipient!(addr, AddRouteMessage),
+                stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
             }
         }
     }
@@ -1107,8 +1090,8 @@ mod tests {
         rate_pack: RatePack,
     ) {
         assert_eq!(
-            accountant_recording.get_record::<ReportExitServiceConsumedMessage>(idx),
-            &ReportExitServiceConsumedMessage {
+            accountant_recording.get_record::<ReportExitServiceConsumed>(idx),
+            &ReportExitServiceConsumed {
                 earning_wallet: wallet.clone(),
                 payload_size,
                 service_rate: rate_pack.exit_service_rate,
@@ -1124,8 +1107,8 @@ mod tests {
         payload_size: usize,
     ) {
         assert_eq!(
-            accountant_recording.get_record::<ReportRoutingServiceConsumedMessage>(idx),
-            &ReportRoutingServiceConsumedMessage {
+            accountant_recording.get_record::<ReportRoutingServiceConsumed>(idx),
+            &ReportRoutingServiceConsumed {
                 earning_wallet: wallet.clone(),
                 payload_size,
                 service_rate: DEFAULT_RATE_PACK.routing_service_rate,
@@ -2236,7 +2219,7 @@ mod tests {
     }
 
     #[test]
-    fn proxy_server_sends_message_to_accountant_for_request_routing_service_consumed() {
+    fn proxy_server_sends_message_to_accountant_for_all_services_consumed() {
         let cryptde = main_cryptde();
         let exit_earning_wallet = make_wallet("exit earning wallet");
         let route_1_earning_wallet = make_wallet("route 1 earning wallet");
@@ -2247,6 +2230,7 @@ mod tests {
         let (proxy_server_mock, _, proxy_server_recording_arc) = make_recorder();
         let routing_node_1_rate_pack = rate_pack(101);
         let routing_node_2_rate_pack = rate_pack(102);
+        let exit_node_rate_pack = rate_pack(103);
         let route_query_response = RouteQueryResponse {
             route: make_meaningless_route(),
             expected_services: ExpectedServices::RoundTrip(
@@ -2265,23 +2249,23 @@ mod tests {
                     ExpectedService::Exit(
                         PublicKey::new(&[3]),
                         exit_earning_wallet.clone(),
-                        rate_pack(103),
+                        exit_node_rate_pack,
                     ),
                 ],
                 vec![
                     ExpectedService::Exit(
                         PublicKey::new(&[3]),
-                        exit_earning_wallet.clone(),
+                        make_wallet("some wallet 1"),
                         rate_pack(104),
                     ),
                     ExpectedService::Routing(
                         PublicKey::new(&[2]),
-                        route_2_earning_wallet.clone(),
+                        make_wallet("some wallet 2"),
                         rate_pack(105),
                     ),
                     ExpectedService::Routing(
                         PublicKey::new(&[1]),
-                        route_1_earning_wallet.clone(),
+                        make_wallet("some wallet 3"),
                         rate_pack(106),
                     ),
                     ExpectedService::Nothing,
@@ -2293,7 +2277,7 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let system =
-            System::new("proxy_server_sends_message_to_accountant_for_routing_service_consumed");
+            System::new("proxy_server_sends_message_to_accountant_for_all_services_consumed");
         let peer_actors = peer_actors_builder()
             .accountant(accountant_mock)
             .hopper(hopper_mock)
@@ -2317,8 +2301,7 @@ mod tests {
             logger,
             socket_addr,
             &peer_actors.dispatcher.from_dispatcher_client,
-            &peer_actors.accountant.report_exit_service_consumed,
-            &peer_actors.accountant.report_routing_service_consumed,
+            &peer_actors.accountant.report_services_consumed,
             &peer_actors.proxy_server.add_return_route,
             None,
         );
@@ -2327,26 +2310,34 @@ mod tests {
         system.run();
         let recording = hopper_recording_arc.lock().unwrap();
         let record = recording.get_record::<IncipientCoresPackage>(0);
-        let payload_enc = &record.payload;
+        let payload_enc_length = record.payload.len();
         let recording = accountant_recording_arc.lock().unwrap();
-        let record = recording.get_record::<ReportRoutingServiceConsumedMessage>(1);
+        let record = recording.get_record::<ReportServicesConsumedMessage>(0);
+        assert_eq!(recording.len(), 1);
         assert_eq!(
             record,
-            &ReportRoutingServiceConsumedMessage {
-                earning_wallet: route_1_earning_wallet,
-                payload_size: payload_enc.len(),
-                service_rate: routing_node_1_rate_pack.routing_service_rate,
-                byte_rate: routing_node_1_rate_pack.routing_byte_rate,
-            }
-        );
-        let record = recording.get_record::<ReportRoutingServiceConsumedMessage>(2);
-        assert_eq!(
-            record,
-            &ReportRoutingServiceConsumedMessage {
-                earning_wallet: route_2_earning_wallet,
-                payload_size: payload_enc.len(),
-                service_rate: routing_node_2_rate_pack.routing_service_rate,
-                byte_rate: routing_node_2_rate_pack.routing_byte_rate,
+            &ReportServicesConsumedMessage {
+                payload_size: payload_enc_length,
+                exit_service_opt: Some(ReportExitServiceConsumed {
+                    earning_wallet: exit_earning_wallet,
+                    payload_size: payload_enc_length,
+                    service_rate: exit_node_rate_pack.exit_service_rate,
+                    byte_rate: exit_node_rate_pack.exit_byte_rate
+                }),
+                routing: vec![
+                    ReportRoutingServiceConsumed {
+                        earning_wallet: route_1_earning_wallet,
+                        payload_size: payload_enc_length,
+                        service_rate: routing_node_1_rate_pack.routing_service_rate,
+                        byte_rate: routing_node_1_rate_pack.routing_byte_rate,
+                    },
+                    ReportRoutingServiceConsumed {
+                        earning_wallet: route_2_earning_wallet,
+                        payload_size: payload_enc_length,
+                        service_rate: routing_node_2_rate_pack.routing_service_rate,
+                        byte_rate: routing_node_2_rate_pack.routing_byte_rate,
+                    }
+                ]
             }
         );
         let recording = proxy_server_recording_arc.lock().unwrap();
@@ -2393,8 +2384,7 @@ mod tests {
             logger,
             socket_addr,
             &peer_actors.dispatcher.from_dispatcher_client,
-            &peer_actors.accountant.report_exit_service_consumed,
-            &peer_actors.accountant.report_routing_service_consumed,
+            &peer_actors.accountant.report_services_consumed,
             &peer_actors.proxy_server.add_return_route,
             Some(&peer_actors.proxy_server.stream_shutdown_sub),
         );
@@ -2478,6 +2468,7 @@ mod tests {
 
     #[test]
     fn proxy_server_sends_message_to_accountant_for_request_exit_service_consumed() {
+        todo!("exit service test - will be reduced --- check for whether the trigger from dispatcher is special and must be retained in one of these tests");
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning wallet");
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
@@ -2542,10 +2533,10 @@ mod tests {
 
         accountant_awaiter.await_message_count(1);
         let recording = accountant_log_arc.lock().unwrap();
-        let record = recording.get_record::<ReportExitServiceConsumedMessage>(0);
+        let record = recording.get_record::<ReportExitServiceConsumed>(0);
         assert_eq!(
             record,
-            &ReportExitServiceConsumedMessage {
+            &ReportExitServiceConsumed {
                 earning_wallet,
                 payload_size: expected_data.len(),
                 service_rate: exit_node_rate_pack.exit_service_rate,
@@ -2714,8 +2705,7 @@ mod tests {
             logger,
             source_addr,
             &peer_actors.dispatcher.from_dispatcher_client,
-            &peer_actors.accountant.report_exit_service_consumed,
-            &peer_actors.accountant.report_routing_service_consumed,
+            &peer_actors.accountant.report_services_consumed,
             &peer_actors.proxy_server.add_return_route,
             None,
         );
@@ -3118,6 +3108,7 @@ mod tests {
 
     #[test]
     fn proxy_server_receives_terminal_response_from_hopper() {
+        todo!("this test is the one which proves report_response_services_consumed");
         init_test_logging();
         let system = System::new("proxy_server_receives_response_from_hopper");
         let (dispatcher, _, dispatcher_recording_arc) = make_recorder();
@@ -3170,7 +3161,6 @@ mod tests {
 
         System::current().stop();
         system.run();
-
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
         assert_eq!(record.endpoint, Endpoint::Socket(socket_addr));
@@ -3215,18 +3205,13 @@ mod tests {
                 server_name: None,
             },
         );
-
         let client_response_payload = ClientResponsePayload_0v1 {
             stream_key: stream_key.clone(),
             sequenced_packet: SequencedPacket::new(vec![], 1, true),
         };
-
         let (dispatcher_mock, _, _) = make_recorder();
-
         let peer_actors = peer_actors_builder().dispatcher(dispatcher_mock).build();
-
         subject.subs.as_mut().unwrap().dispatcher = peer_actors.dispatcher.from_dispatcher_client;
-
         let expired_cores_package: ExpiredCoresPackage<ClientResponsePayload_0v1> =
             ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
@@ -3245,6 +3230,7 @@ mod tests {
 
     #[test]
     fn proxy_server_receives_nonterminal_response_from_hopper() {
+        todo!("this test is the one which proves report_response_services_consumed");
         let system = System::new("proxy_server_receives_nonterminal_response_from_hopper");
         let (dispatcher_mock, _, dispatcher_log_arc) = make_recorder();
         let (accountant, _, accountant_recording_arc) = make_recorder();
