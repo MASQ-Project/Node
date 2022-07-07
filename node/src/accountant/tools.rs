@@ -11,6 +11,7 @@ pub(in crate::accountant) mod accountant_tools {
     use actix::{Context, Recipient};
     #[cfg(test)]
     use std::any::Any;
+    use std::cell::RefCell;
     use std::time::Duration;
 
     pub type ScanFn = Box<dyn Fn(&Accountant, Option<ResponseSkeleton>)>;
@@ -89,7 +90,7 @@ pub(in crate::accountant) mod accountant_tools {
         scan_interval: Duration,
         is_scan_running: bool,
         scan_fn: ScanFn,
-        notify_later_assertable: NotifyLaterAssertable,
+        notify_later_assertable: RefCell<NotifyLaterAssertable>,
     }
 
     impl ScannerStruct {
@@ -102,7 +103,7 @@ pub(in crate::accountant) mod accountant_tools {
                 scan_interval,
                 is_scan_running: false,
                 scan_fn,
-                notify_later_assertable,
+                notify_later_assertable: RefCell::new(notify_later_assertable),
             }
         }
 
@@ -120,7 +121,7 @@ pub(in crate::accountant) mod accountant_tools {
             accountant: &Accountant,
             ctx: &mut Context<Accountant>,
         ) {
-            (self.notify_later_assertable)(accountant, ctx);
+            (self.notify_later_assertable.borrow_mut())(accountant, ctx);
         }
     }
 
