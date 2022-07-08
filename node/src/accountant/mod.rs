@@ -527,7 +527,7 @@ impl Accountant {
             });
     }
 
-    fn scan_for_received_payments(&self, response_skeleton_opt: Option<ResponseSkeleton>) {
+    fn scan_for_receivables(&self, response_skeleton_opt: Option<ResponseSkeleton>) {
         info!(
             self.logger,
             "Scanning for receivables to {}", self.earning_wallet
@@ -1449,6 +1449,12 @@ mod tests {
 
     #[test]
     fn accountant_have_proper_defaulted_values() {
+        // TODO: Verify Scanners are defaulted properly [write this test once GH-574's recorder's code is merged, or cherry-pick the commit]
+        // When scan() is called, on a scanner, it sends one message to blockchain bridge and a notify_later message, which in turn
+        // schedules another scan, in turn accountant sends another message to blockchain bridge. Make sure a scan() call to a scanner results in two messages
+        // to blockchain bridge (one received directly and other indirectly via notify_later). Make sure 6 messages are received in total.
+        // The second message is received after test defined scan intervals.
+        // Make sure to use a real database instead of using mock utilities. It'll require at least one row for each table of individual scanners.
         let mut bootstrapper_config = BootstrapperConfig::new();
         bootstrapper_config.accountant_config_opt =
             Some(make_populated_accountant_config_with_defaults());

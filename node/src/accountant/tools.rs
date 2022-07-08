@@ -59,7 +59,7 @@ pub(in crate::accountant) mod accountant_tools {
                 receivables: Scanner::new(
                     Box::new(|accountant, response_skeleton_opt| {
                         // TODO: Figure out how to combine the results of these two into a single response to the UI
-                        accountant.scan_for_received_payments(response_skeleton_opt);
+                        accountant.scan_for_receivables(response_skeleton_opt);
                         accountant.scan_for_delinquencies();
                     }),
                     Box::new(|accountant, ctx| {
