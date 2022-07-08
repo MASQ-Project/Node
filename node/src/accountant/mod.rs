@@ -18,7 +18,7 @@ use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDaoError, ReceivableDaoFactory,
 };
 use crate::accountant::tools::accountant_tools::{
-    ScannerStruct, Scanners, TransactionConfirmationTools,
+    NotifyLaterForScanners, Scanner, Scanners, TransactionConfirmationTools,
 };
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
@@ -59,7 +59,6 @@ use std::default::Default;
 use std::ops::Add;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
-use tools::accountant_tools::{NotifyLaterAssertable, ScanFn};
 use web3::types::{TransactionReceipt, H256};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
@@ -77,6 +76,7 @@ pub struct Accountant {
     crashable: bool,
     scanners: Scanners,
     tools: TransactionConfirmationTools,
+    notify_later: NotifyLaterForScanners,
     financial_statistics: FinancialStatistics,
     report_accounts_payable_sub_opt: Option<Recipient<ReportAccountsPayable>>,
     retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
@@ -417,6 +417,7 @@ impl Accountant {
             crashable: config.crash_point == CrashPoint::Message,
             scanners: Scanners::default(),
             tools: TransactionConfirmationTools::default(),
+            notify_later: NotifyLaterForScanners::default(),
             financial_statistics: FinancialStatistics::default(),
             report_accounts_payable_sub_opt: None,
             retrieve_transactions_sub: None,
@@ -452,7 +453,7 @@ impl Accountant {
 
     fn handle_scan_message(
         &self,
-        scanner: &ScannerStruct,
+        scanner: &Scanner,
         response_skeleton_opt: Option<ResponseSkeleton>,
         ctx: &mut Context<Accountant>,
     ) {
@@ -1298,7 +1299,7 @@ mod tests {
         ReceivableDaoMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
-    use crate::accountant::tools::accountant_tools::ScannerStruct;
+    use crate::accountant::tools::accountant_tools::Scanner;
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
     use crate::blockchain::blockchain_interface::BlockchainError;
@@ -1312,7 +1313,7 @@ mod tests {
         ReportRoutingServiceConsumedMessage, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-    use crate::sub_lib::utils::{NotifyHandleReal, NotifyLaterHandleReal};
+    use crate::sub_lib::utils::NotifyHandleReal;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -1400,12 +1401,8 @@ mod tests {
         }
     }
 
-    fn null_scanner() -> ScannerStruct {
-        ScannerStruct::new(
-            Duration::from_secs(10),
-            Box::new(|_, _| {}),
-            Box::new(|_, _| {}),
-        )
+    fn null_scanner() -> Scanner {
+        Scanner::new(Box::new(|_, _| {}), Box::new(|_, _| {}))
     }
 
     #[test]
@@ -2272,7 +2269,7 @@ mod tests {
             .build();
         subject.scanners.pending_payables = null_scanner();
         subject.scanners.payables = null_scanner();
-        subject.tools.notify_later_scan_for_receivable = Box::new(
+        subject.notify_later.scan_for_receivable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_receivable_params_arc)
                 .permit_to_send_out(),
@@ -2388,7 +2385,7 @@ mod tests {
             .build();
         subject.scanners.receivables = null_scanner(); //skipping
         subject.scanners.payables = null_scanner(); //skipping
-        subject.tools.notify_later_scan_for_pending_payable = Box::new(
+        subject.notify_later.scan_for_pending_payable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_pending_payable_params_arc)
                 .permit_to_send_out(),
@@ -2489,7 +2486,7 @@ mod tests {
             .build();
         subject.scanners.pending_payables = null_scanner(); //skipping
         subject.scanners.receivables = null_scanner(); //skipping
-        subject.tools.notify_later_scan_for_payable = Box::new(
+        subject.notify_later.scan_for_payable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_payables_params_arc)
                 .permit_to_send_out(),
@@ -4214,8 +4211,7 @@ mod tests {
                 let notify_later_half_mock = NotifyLaterHandleMock::default()
                     .notify_later_params(&notify_later_scan_for_pending_payable_arc_cloned)
                     .permit_to_send_out();
-                subject.tools.notify_later_scan_for_pending_payable =
-                    Box::new(notify_later_half_mock);
+                subject.notify_later.scan_for_pending_payable = Box::new(notify_later_half_mock);
                 let notify_half_mock = NotifyHandleMock::default()
                     .notify_params(&notify_cancel_failed_transaction_params_arc_cloned)
                     .permit_to_send_out();

@@ -6,35 +6,32 @@ pub(in crate::accountant) mod accountant_tools {
         RequestTransactionReceipts, ResponseSkeleton, ScanForPayables, ScanForPendingPayables,
         ScanForReceivables,
     };
-    use crate::sub_lib::accountant::DEFAULT_SCAN_INTERVALS;
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
     use actix::{Context, Recipient};
     #[cfg(test)]
     use std::any::Any;
     use std::cell::RefCell;
-    use std::time::Duration;
 
     pub type ScanFn = Box<dyn Fn(&Accountant, Option<ResponseSkeleton>)>;
     pub type NotifyLaterAssertable = Box<dyn FnMut(&Accountant, &mut Context<Accountant>)>;
 
     pub struct Scanners {
-        pub pending_payables: ScannerStruct,
-        pub payables: ScannerStruct,
-        pub receivables: ScannerStruct,
+        pub pending_payables: Scanner,
+        pub payables: Scanner,
+        pub receivables: Scanner,
     }
 
     impl Default for Scanners {
         fn default() -> Self {
             Scanners {
-                pending_payables: ScannerStruct::new(
-                    DEFAULT_SCAN_INTERVALS.pending_payable_scan_interval,
+                pending_payables: Scanner::new(
                     Box::new(|accountant, response_skeleton_opt| {
                         accountant.scan_for_pending_payable(response_skeleton_opt)
                     }),
                     Box::new(|accountant, ctx| {
                         let _ = accountant
-                            .tools
-                            .notify_later_scan_for_pending_payable
+                            .notify_later
+                            .scan_for_pending_payable
                             .notify_later(
                                 ScanForPendingPayables {
                                     response_skeleton_opt: None, // because scheduled scans don't respond
@@ -47,13 +44,12 @@ pub(in crate::accountant) mod accountant_tools {
                             );
                     }),
                 ),
-                payables: ScannerStruct::new(
-                    DEFAULT_SCAN_INTERVALS.payable_scan_interval,
+                payables: Scanner::new(
                     Box::new(|accountant, response_skeleton_opt| {
                         accountant.scan_for_payables(response_skeleton_opt)
                     }),
                     Box::new(|accountant, ctx| {
-                        let _ = accountant.tools.notify_later_scan_for_payable.notify_later(
+                        let _ = accountant.notify_later.scan_for_payable.notify_later(
                             ScanForPayables {
                                 response_skeleton_opt: None,
                             },
@@ -62,45 +58,35 @@ pub(in crate::accountant) mod accountant_tools {
                         );
                     }),
                 ),
-                receivables: ScannerStruct::new(
-                    DEFAULT_SCAN_INTERVALS.receivable_scan_interval,
+                receivables: Scanner::new(
                     Box::new(|accountant, response_skeleton_opt| {
                         // TODO: Figure out how to combine the results of these two into a single response to the UI
                         accountant.scan_for_received_payments(response_skeleton_opt);
                         accountant.scan_for_delinquencies();
                     }),
                     Box::new(|accountant, ctx| {
-                        let _ = accountant
-                            .tools
-                            .notify_later_scan_for_receivable
-                            .notify_later(
-                                ScanForReceivables {
-                                    response_skeleton_opt: None,
-                                },
-                                accountant.config.scan_intervals.receivable_scan_interval,
-                                ctx,
-                            );
+                        let _ = accountant.notify_later.scan_for_receivable.notify_later(
+                            ScanForReceivables {
+                                response_skeleton_opt: None,
+                            },
+                            accountant.config.scan_intervals.receivable_scan_interval,
+                            ctx,
+                        );
                     }),
                 ),
             }
         }
     }
 
-    pub struct ScannerStruct {
-        scan_interval: Duration,
+    pub struct Scanner {
         is_scan_running: bool,
         scan_fn: ScanFn,
         notify_later_assertable: RefCell<NotifyLaterAssertable>,
     }
 
-    impl ScannerStruct {
-        pub fn new(
-            scan_interval: Duration,
-            scan_fn: ScanFn,
-            notify_later_assertable: NotifyLaterAssertable,
-        ) -> ScannerStruct {
-            ScannerStruct {
-                scan_interval,
+    impl Scanner {
+        pub fn new(scan_fn: ScanFn, notify_later_assertable: NotifyLaterAssertable) -> Scanner {
+            Scanner {
                 is_scan_running: false,
                 scan_fn,
                 notify_later_assertable: RefCell::new(notify_later_assertable),
@@ -126,12 +112,15 @@ pub(in crate::accountant) mod accountant_tools {
     }
 
     #[derive(Default)]
-    pub struct TransactionConfirmationTools {
-        pub notify_later_scan_for_pending_payable:
+    pub struct NotifyLaterForScanners {
+        pub scan_for_pending_payable:
             Box<dyn NotifyLaterHandle<ScanForPendingPayables, Accountant>>,
-        pub notify_later_scan_for_payable: Box<dyn NotifyLaterHandle<ScanForPayables, Accountant>>,
-        pub notify_later_scan_for_receivable:
-            Box<dyn NotifyLaterHandle<ScanForReceivables, Accountant>>,
+        pub scan_for_payable: Box<dyn NotifyLaterHandle<ScanForPayables, Accountant>>,
+        pub scan_for_receivable: Box<dyn NotifyLaterHandle<ScanForReceivables, Accountant>>,
+    }
+
+    #[derive(Default)]
+    pub struct TransactionConfirmationTools {
         pub notify_confirm_transaction:
             Box<dyn NotifyHandle<ConfirmPendingTransaction, Accountant>>,
         pub notify_cancel_failed_transaction:
@@ -140,25 +129,25 @@ pub(in crate::accountant) mod accountant_tools {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use crate::accountant::tools::accountant_tools::Scanners;
+// #[cfg(test)]
+// mod tests {
+//     use crate::accountant::tools::accountant_tools::Scanners;
 
-    // #[test]
-    // fn scanners_are_properly_defaulted() {
-    //     let subject = Scanners::default();
-    //
-    //     assert_eq!(
-    //         subject.pending_payables.as_any().downcast_ref(),
-    //         Some(&PendingPayablesScanner)
-    //     );
-    //     assert_eq!(
-    //         subject.payables.as_any().downcast_ref(),
-    //         Some(&PayablesScanner)
-    //     );
-    //     assert_eq!(
-    //         subject.receivables.as_any().downcast_ref(),
-    //         Some(&ReceivablesScanner)
-    //     )
-    // }
-}
+// #[test]
+// fn scanners_are_properly_defaulted() {
+//     let subject = Scanners::default();
+//
+//     assert_eq!(
+//         subject.pending_payables.as_any().downcast_ref(),
+//         Some(&PendingPayablesScanner)
+//     );
+//     assert_eq!(
+//         subject.payables.as_any().downcast_ref(),
+//         Some(&PayablesScanner)
+//     );
+//     assert_eq!(
+//         subject.receivables.as_any().downcast_ref(),
+//         Some(&ReceivablesScanner)
+//     )
+// }
+// }
