@@ -10,7 +10,7 @@ pub(in crate::accountant) mod accountant_tools {
     use actix::{Context, Recipient};
     use std::cell::RefCell;
 
-    pub type ScanFn = Box<dyn Fn(&Accountant, Option<ResponseSkeleton>)>;
+    pub type Scan = Box<dyn Fn(&Accountant, Option<ResponseSkeleton>)>;
     pub type NotifyLaterAssertable = Box<dyn FnMut(&Accountant, &mut Context<Accountant>)>;
 
     pub struct Scanners {
@@ -78,15 +78,15 @@ pub(in crate::accountant) mod accountant_tools {
 
     pub struct Scanner {
         pub is_scan_running: bool,
-        scan_fn: ScanFn,
+        scan: Scan,
         notify_later_assertable: RefCell<NotifyLaterAssertable>,
     }
 
     impl Scanner {
-        pub fn new(scan_fn: ScanFn, notify_later_assertable: NotifyLaterAssertable) -> Scanner {
+        pub fn new(scan: Scan, notify_later_assertable: NotifyLaterAssertable) -> Scanner {
             Scanner {
                 is_scan_running: false,
-                scan_fn,
+                scan,
                 notify_later_assertable: RefCell::new(notify_later_assertable),
             }
         }
@@ -97,7 +97,7 @@ pub(in crate::accountant) mod accountant_tools {
             response_skeleton_opt: Option<ResponseSkeleton>,
         ) {
             // TODO: Check whether scan is already running or not, if it's running, then return an error
-            (self.scan_fn)(accountant, response_skeleton_opt);
+            (self.scan)(accountant, response_skeleton_opt);
         }
 
         pub fn notify_later_assertable(
