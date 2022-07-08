@@ -187,9 +187,7 @@ impl Handler<ScanForPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
-        if !self.scanners.payables.is_scan_running() {
-            self.handle_scan_message(&self.scanners.payables, msg.response_skeleton_opt, ctx)
-        }
+        self.handle_scan_message(&self.scanners.payables, msg.response_skeleton_opt, ctx)
     }
 }
 
@@ -388,6 +386,7 @@ impl Handler<NodeFromUiMessage> for Accountant {
                     context_id,
                 },
             );
+            // TODO: The above fn returns a result, should we send a NodeToUIMessaage in case scan is already running, i.e. when we receive an error?
         } else {
             handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
         }
@@ -941,7 +940,7 @@ impl Accountant {
         _ctx: &mut Context<Accountant>,
         scan_type: ScanType,
         response_skeleton: ResponseSkeleton,
-    ) {
+    ) -> Result<(), String> {
         match scan_type {
             ScanType::Payables => self.scanners.payables.scan(self, Some(response_skeleton)),
             ScanType::Receivables => self

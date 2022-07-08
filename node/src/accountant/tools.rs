@@ -95,9 +95,13 @@ pub(in crate::accountant) mod accountant_tools {
             &self,
             accountant: &Accountant,
             response_skeleton_opt: Option<ResponseSkeleton>,
-        ) {
-            // TODO: Check whether scan is already running or not, if it's running, then return an error
+        ) -> Result<(), String> {
+            if self.is_scan_running() {
+                return Err(format!("Scan is already running"));
+            };
+
             (self.scan)(accountant, response_skeleton_opt);
+            Ok(())
         }
 
         pub fn notify_later_assertable(
@@ -137,7 +141,10 @@ pub(in crate::accountant) mod accountant_tools {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::test_utils::{bc_from_ac_plus_earning_wallet, AccountantBuilder};
     use crate::accountant::tools::accountant_tools::Scanners;
+    use crate::test_utils::make_wallet;
+    use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
 
     #[test]
     fn is_scan_running_flag_can_be_updated() {
@@ -158,5 +165,21 @@ mod tests {
         assert_eq!(subject.pending_payables.is_scan_running(), false);
         assert_eq!(subject.payables.is_scan_running(), false);
         assert_eq!(subject.receivables.is_scan_running(), false);
+    }
+
+    #[test]
+    fn scan_function_throws_error_in_case_scan_is_already_running() {
+        let mut subject = Scanners::default();
+        let accountant = AccountantBuilder::default()
+            .bootstrapper_config(bc_from_ac_plus_earning_wallet(
+                make_populated_accountant_config_with_defaults(),
+                make_wallet("some_wallet_address"),
+            ))
+            .build();
+        subject.payables.update_is_scan_running(true);
+
+        let result = subject.payables.scan(&accountant, None);
+
+        assert_eq!(result, Err(format!("Scan is already running")));
     }
 }
