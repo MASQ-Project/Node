@@ -2,7 +2,7 @@
 use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
+use masq_lib::utils::{derivation_path, find_free_port, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::command::Command;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils};
@@ -31,6 +31,7 @@ use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes, TransactionParameters};
 use web3::Web3;
+use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest, UiFinancialsResponse};
 
 #[test]
 fn verify_bill_payment() {
@@ -75,26 +76,30 @@ fn verify_bill_payment() {
         permanent_debt_allowed_gwei: 10_000_000,
         unban_below_gwei: 10_000_000,
     };
+    let consuming_port = find_free_port();
     let (consuming_config, _) =
-        build_config(&blockchain_server, &seed, payment_thresholds, deriv_path);
+        build_config(&blockchain_server, &seed, payment_thresholds, deriv_path,Some(consuming_port));
 
     let (serving_node_1_config, serving_node_1_wallet) = build_config(
         &blockchain_server,
         &seed,
         payment_thresholds,
         derivation_path(0, 1),
+        None
     );
     let (serving_node_2_config, serving_node_2_wallet) = build_config(
         &blockchain_server,
         &seed,
         payment_thresholds,
         derivation_path(0, 2),
+        None
     );
     let (serving_node_3_config, serving_node_3_wallet) = build_config(
         &blockchain_server,
         &seed,
         payment_thresholds,
         derivation_path(0, 3),
+        None
     );
 
     let amount = 10 * payment_thresholds.permanent_debt_allowed_gwei as u128 * GWEI_TO_WEI as u128;
@@ -247,21 +252,21 @@ fn verify_bill_payment() {
         &serving_node_1_wallet,
         &blockchain_interface,
         "100000000000000000000",
-        (amount).to_string().as_str(),
+        amount.to_string().as_str(),
     );
 
     assert_balances(
         &serving_node_2_wallet,
         &blockchain_interface,
         "100000000000000000000",
-        (amount).to_string().as_str(),
+        amount.to_string().as_str(),
     );
 
     assert_balances(
         &serving_node_3_wallet,
         &blockchain_interface,
         "100000000000000000000",
-        (amount).to_string().as_str(),
+        amount.to_string().as_str(),
     );
 
     let serving_node_1 = cluster.start_named_real_node(
@@ -311,6 +316,25 @@ fn verify_bill_payment() {
             false
         }
     });
+
+    //formal confirmation from the other side, the consuming Node
+    let ui_client = real_consuming_node.make_ui(consuming_port);
+    ui_client.send_request(
+        UiFinancialsRequest {
+            stats_required: true,
+            top_records_opt: None,
+            custom_queries_opt: None
+        }
+            .tmb(1234),
+    );
+    let response = ui_client.wait_for_response(1234, Duration::from_secs(5));
+    let (financials_response,contex_id) = UiFinancialsResponse::fmb(response).unwrap();
+    assert_eq!(contex_id,1234);
+    assert_eq!(financials_response,UiFinancialsResponse{
+        stats_opt: None,
+        top_records_opt: None,
+        custom_query_records_opt: None
+    })
 }
 
 fn make_migrator_config(chain: Chain) -> MigratorConfig {
@@ -406,6 +430,7 @@ fn build_config(
     seed: &Seed,
     payment_thresholds: PaymentThresholds,
     wallet_derivation_path: String,
+    ui_port_opt: Option<u16>
 ) -> (NodeStartupConfig, Wallet) {
     let (serving_node_wallet, serving_node_secret) =
         make_node_wallet(seed, wallet_derivation_path.as_str());
@@ -417,8 +442,12 @@ fn build_config(
         .earning_wallet_info(EarningWalletInfo::Address(format!(
             "{}",
             serving_node_wallet.clone()
-        )))
-        .build();
+        )));
+    let config = if let Some(port) = ui_port_opt {
+        config.ui_port(port).build()
+    } else {
+        config.build()
+    };
     (config, serving_node_wallet)
 }
 

@@ -184,7 +184,6 @@ macro_rules! conversation_message {
 ///////////////////////////////////////////////////////////////////////
 // These messages are sent only to and/or by the Daemon, not the Node
 ///////////////////////////////////////////////////////////////////////
-
 // if a fire-and-forget message for the Node was detected but the Node is down
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct UiUndeliveredFireAndForget {
