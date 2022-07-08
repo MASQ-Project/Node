@@ -8,8 +8,6 @@ pub(in crate::accountant) mod accountant_tools {
     };
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
     use actix::{Context, Recipient};
-    #[cfg(test)]
-    use std::any::Any;
     use std::cell::RefCell;
 
     pub type ScanFn = Box<dyn Fn(&Accountant, Option<ResponseSkeleton>)>;

@@ -1311,7 +1311,7 @@ mod tests {
         ReportRoutingServiceConsumedMessage, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-    use crate::sub_lib::utils::NotifyHandleReal;
+    use crate::sub_lib::utils::{NotifyHandleReal, NotifyLaterHandleReal};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -1479,21 +1479,21 @@ mod tests {
             .as_any()
             .downcast_ref::<NotifyHandleReal<CancelFailedPendingTransaction>>()
             .unwrap();
-        // transaction_confirmation_tools
-        //     .notify_later_scan_for_pending_payable
-        //     .as_any()
-        //     .downcast_ref::<NotifyLaterHandleReal<ScanForPendingPayables>>()
-        //     .unwrap();
-        // transaction_confirmation_tools
-        //     .notify_later_scan_for_payable
-        //     .as_any()
-        //     .downcast_ref::<NotifyLaterHandleReal<ScanForPayables>>()
-        //     .unwrap();
-        // transaction_confirmation_tools
-        //     .notify_later_scan_for_receivable
-        //     .as_any()
-        //     .downcast_ref::<NotifyLaterHandleReal<ScanForReceivables>>()
-        //     .unwrap();
+        let notify_later = result.notify_later;
+        notify_later
+            .scan_for_pending_payable
+            .as_any()
+            .downcast_ref::<NotifyLaterHandleReal<ScanForPendingPayables>>()
+            .unwrap();
+        notify_later
+            .scan_for_payable
+            .as_any()
+            .downcast_ref::<NotifyLaterHandleReal<ScanForPayables>>()
+            .unwrap();
+        notify_later
+            .scan_for_receivable
+            .as_any()
+            .downcast_ref::<NotifyLaterHandleReal<ScanForReceivables>>();
         //testing presence of real scanners, there is a different test covering them all
         // result
         //     .scanners
