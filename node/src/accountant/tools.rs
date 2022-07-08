@@ -79,7 +79,7 @@ pub(in crate::accountant) mod accountant_tools {
     }
 
     pub struct Scanner {
-        is_scan_running: bool,
+        pub is_scan_running: bool,
         scan_fn: ScanFn,
         notify_later_assertable: RefCell<NotifyLaterAssertable>,
     }

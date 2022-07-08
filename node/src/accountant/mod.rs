@@ -85,7 +85,6 @@ pub struct Accountant {
     ui_message_sub: Option<Recipient<NodeToUiMessage>>,
     payable_threshold_tools: Box<dyn PayableExceedThresholdTools>,
     logger: Logger,
-    payable_scan_running: bool,
 }
 
 impl Actor for Accountant {
@@ -188,7 +187,7 @@ impl Handler<ScanForPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
-        if !self.payable_scan_running {
+        if !self.scanners.payables.is_scan_running {
             self.handle_scan_message(&self.scanners.payables, msg.response_skeleton_opt, ctx)
         }
     }
@@ -426,7 +425,6 @@ impl Accountant {
             ui_message_sub: None,
             payable_threshold_tools: Box::new(PayableExceedThresholdToolsReal::default()),
             logger: Logger::new("Accountant"),
-            payable_scan_running: false,
         }
     }
 
@@ -2822,7 +2820,7 @@ mod tests {
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
         subject.config.scan_intervals.payable_scan_interval = Duration::from_millis(10);
-        subject.payable_scan_running = false;
+        subject.scanners.payables.is_scan_running = false;
         let addr = subject.start();
 
         addr.try_send(ScanForPayables {
@@ -2869,7 +2867,7 @@ mod tests {
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
         subject.config.scan_intervals.payable_scan_interval = Duration::from_millis(10);
-        subject.payable_scan_running = true;
+        subject.scanners.payables.is_scan_running = true;
         let addr = subject.start();
 
         addr.try_send(ScanForPayables {
