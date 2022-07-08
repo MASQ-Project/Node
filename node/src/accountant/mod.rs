@@ -187,7 +187,7 @@ impl Handler<ScanForPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
-        if !self.scanners.payables.is_scan_running {
+        if !self.scanners.payables.is_scan_running() {
             self.handle_scan_message(&self.scanners.payables, msg.response_skeleton_opt, ctx)
         }
     }
@@ -1494,13 +1494,6 @@ mod tests {
             .scan_for_receivable
             .as_any()
             .downcast_ref::<NotifyLaterHandleReal<ScanForReceivables>>();
-        //testing presence of real scanners, there is a different test covering them all
-        // result
-        //     .scanners
-        //     .receivables
-        //     .as_any()
-        //     .downcast_ref::<ReceivablesScanner>()
-        //     .unwrap();
         result
             .payable_threshold_tools
             .as_any()
@@ -2820,7 +2813,7 @@ mod tests {
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
         subject.config.scan_intervals.payable_scan_interval = Duration::from_millis(10);
-        subject.scanners.payables.is_scan_running = false;
+        subject.scanners.payables.update_is_scan_running(false);
         let addr = subject.start();
 
         addr.try_send(ScanForPayables {
@@ -2867,7 +2860,7 @@ mod tests {
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
         subject.config.scan_intervals.payable_scan_interval = Duration::from_millis(10);
-        subject.scanners.payables.is_scan_running = true;
+        subject.scanners.payables.update_is_scan_running(true);
         let addr = subject.start();
 
         addr.try_send(ScanForPayables {

@@ -77,7 +77,7 @@ pub(in crate::accountant) mod accountant_tools {
     }
 
     pub struct Scanner {
-        pub is_scan_running: bool,
+        is_scan_running: bool,
         scan: Scan,
         notify_later_assertable: RefCell<NotifyLaterAssertable>,
     }
@@ -107,6 +107,14 @@ pub(in crate::accountant) mod accountant_tools {
         ) {
             (self.notify_later_assertable.borrow_mut())(accountant, ctx);
         }
+
+        pub fn is_scan_running(&self) -> bool {
+            self.is_scan_running
+        }
+
+        pub fn update_is_scan_running(&mut self, flag: bool) {
+            self.is_scan_running = flag;
+        }
     }
 
     #[derive(Default)]
@@ -127,25 +135,28 @@ pub(in crate::accountant) mod accountant_tools {
     }
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use crate::accountant::tools::accountant_tools::Scanners;
+#[cfg(test)]
+mod tests {
+    use crate::accountant::tools::accountant_tools::Scanners;
 
-// #[test]
-// fn scanners_are_properly_defaulted() {
-//     let subject = Scanners::default();
-//
-//     assert_eq!(
-//         subject.pending_payables.as_any().downcast_ref(),
-//         Some(&PendingPayablesScanner)
-//     );
-//     assert_eq!(
-//         subject.payables.as_any().downcast_ref(),
-//         Some(&PayablesScanner)
-//     );
-//     assert_eq!(
-//         subject.receivables.as_any().downcast_ref(),
-//         Some(&ReceivablesScanner)
-//     )
-// }
-// }
+    #[test]
+    fn is_scan_running_flag_can_be_updated() {
+        let mut subject = Scanners::default();
+        let initial_flag = subject.payables.is_scan_running();
+
+        subject.payables.update_is_scan_running(true);
+
+        let final_flag = subject.payables.is_scan_running();
+        assert_eq!(initial_flag, false);
+        assert_eq!(final_flag, true);
+    }
+
+    #[test]
+    fn is_scanner_running_is_defaulted_to_false_for_each_scanner() {
+        let subject = Scanners::default();
+
+        assert_eq!(subject.pending_payables.is_scan_running(), false);
+        assert_eq!(subject.payables.is_scan_running(), false);
+        assert_eq!(subject.receivables.is_scan_running(), false);
+    }
+}
