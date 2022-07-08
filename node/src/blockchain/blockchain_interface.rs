@@ -496,7 +496,7 @@ impl<'a> TxInputs<'a> {
             tools,
             recipient: &account.wallet,
             consuming_wallet,
-            amount: account.balance,
+            amount: account.balance_wei,
             nonce,
             gas_price,
         }

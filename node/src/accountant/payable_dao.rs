@@ -32,7 +32,7 @@ pub enum PayableDaoError {
 #[derive(Clone, Debug, PartialEq)]
 pub struct PayableAccount {
     pub wallet: Wallet,
-    pub balance: u128,
+    pub balance_wei: u128,
     pub last_paid_timestamp: SystemTime,
     pub pending_payable_opt: Option<PendingPayableId>,
 }
@@ -74,7 +74,7 @@ pub trait PayableDao: Debug + Send {
 
     fn non_pending_payables(&self) -> Vec<PayableAccount>;
 
-    fn custom_query(&self, custom_query: CustomQuery<u128>) -> Option<Vec<PayableAccount>>;
+    fn custom_query(&self, custom_query: CustomQuery<u64>) -> Option<Vec<PayableAccount>>;
 
     fn total(&self) -> u128;
 
@@ -164,7 +164,7 @@ impl PayableDao for PayableDaoReal {
             match (wallet_result, balance_result, last_paid_timestamp_result) {
                 (Ok(wallet), Ok(balance), Ok(last_paid_timestamp)) => Ok(PayableAccount {
                     wallet,
-                    balance,
+                    balance_wei: balance,
                     last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
                     pending_payable_opt: None,
                 }),
@@ -176,8 +176,8 @@ impl PayableDao for PayableDaoReal {
         .collect()
     }
 
-    fn custom_query(&self, custom_query: CustomQuery<u128>) -> Option<Vec<PayableAccount>> {
-        let statement_assembler = |range_query: &str, top_query: &str| {
+    fn custom_query(&self, custom_query: CustomQuery<u64>) -> Option<Vec<PayableAccount>> {
+        let statement_assembler = |condition_a: &str, condition_b: &str| {
             format!(
                 "select
                    wallet_address,
@@ -194,11 +194,11 @@ impl PayableDao for PayableDaoReal {
                    balance desc,
                    last_paid_timestamp desc
                {}",
-                range_query, top_query
+                condition_a, condition_b
             )
         };
         let variant_range ="where last_paid_timestamp <= ? and last_paid_timestamp >= ? and balance >= ? and balance <= ?";
-        let variant_top = "limit ?";
+        let variant_top = ("where balance >= ?", "limit ?");
         custom_query.query::<_, i128, _, _>(
             self.conn.as_ref(),
             statement_assembler,
@@ -238,7 +238,7 @@ impl PayableDao for PayableDaoReal {
             ) {
                 (Ok(balance), Ok(last_paid_timestamp), Ok(rowid)) => Ok(PayableAccount {
                     wallet: wallet.clone(),
-                    balance,
+                    balance_wei: balance,
                     last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
                     pending_payable_opt: match rowid {
                         Some(rowid) => Some(PendingPayableId {
@@ -283,7 +283,7 @@ impl PayableDaoReal {
             (Ok(wallet), Ok(balance), Ok(last_paid_timestamp), Ok(rowid_opt), Ok(hash_opt)) => {
                 Ok(PayableAccount {
                     wallet,
-                    balance,
+                    balance_wei: balance,
                     last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
                     pending_payable_opt: rowid_opt.map(|rowid| {
                         let hash_str =
@@ -348,7 +348,7 @@ mod tests {
         };
         let after = dao_utils::to_time_t(SystemTime::now());
         assert_eq!(status.wallet, wallet);
-        assert_eq!(status.balance, 1234);
+        assert_eq!(status.balance_wei, 1234);
         let timestamp = dao_utils::to_time_t(status.last_paid_timestamp);
         assert!(
             timestamp >= before,
@@ -394,7 +394,7 @@ mod tests {
 
         let status = subject.account_status(&wallet).unwrap();
         assert_eq!(status.wallet, wallet);
-        assert_eq!(status.balance, 3579);
+        assert_eq!(status.balance_wei, 3579);
         assert_eq!(status.last_paid_timestamp, SystemTime::UNIX_EPOCH);
     }
 
@@ -437,7 +437,7 @@ mod tests {
         let before_account_status = subject.account_status(&wallet).unwrap();
         let before_expected_status = PayableAccount {
             wallet: wallet.clone(),
-            balance: 5000,
+            balance_wei: 5000,
             last_paid_timestamp: from_time_t(150_000_000),
             pending_payable_opt: None,
         };
@@ -545,7 +545,7 @@ mod tests {
             status_before,
             Some(PayableAccount {
                 wallet: wallet.clone(),
-                balance: starting_amount,
+                balance_wei: starting_amount,
                 last_paid_timestamp: previous_timestamp,
                 pending_payable_opt: Some(PendingPayableId {
                     rowid,
@@ -558,7 +558,7 @@ mod tests {
             status_after,
             Some(PayableAccount {
                 wallet,
-                balance: starting_amount - payment,
+                balance_wei: starting_amount - payment,
                 last_paid_timestamp: payable_timestamp,
                 pending_payable_opt: None
             })
@@ -692,13 +692,13 @@ mod tests {
             vec![
                 PayableAccount {
                     wallet: make_wallet("foobar"),
-                    balance: 44,
+                    balance_wei: 44,
                     last_paid_timestamp: from_time_t(0),
                     pending_payable_opt: None
                 },
                 PayableAccount {
                     wallet: make_wallet("barfoo"),
-                    balance: 22,
+                    balance_wei: 22,
                     last_paid_timestamp: from_time_t(0),
                     pending_payable_opt: None
                 },
@@ -752,22 +752,22 @@ mod tests {
             );
             insert(
                 "0x2222222222222222222222222222222222222222",
-                2_000_300_000,
+                7_562_000_300_000,
                 timestamp2,
                 None,
             );
             insert(
                 "0x3333333333333333333333333333333333333333",
-                1_000_000_000,
+                999_999_999, //balance smaller than 1 Gwei
                 timestamp3,
                 None,
             );
             insert(
                 "0x4444444444444444444444444444444444444444",
-                1_000_000_001,
+                10_000_000_001,
                 timestamp4,
                 Some(1),
-            )
+            );
         };
         let subject =
             custom_query_test_body_payable("custom_query_in_top_records_mode", main_test_setup);
@@ -779,13 +779,13 @@ mod tests {
             vec![
                 PayableAccount {
                     wallet: Wallet::new("0x2222222222222222222222222222222222222222"),
-                    balance: 2_000_300_000,
+                    balance_wei: 7_562_000_300_000,
                     last_paid_timestamp: from_time_t(timestamp2),
                     pending_payable_opt: None
                 },
                 PayableAccount {
                     wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
-                    balance: 1_000_000_001,
+                    balance_wei: 10_000_000_001,
                     last_paid_timestamp: from_time_t(timestamp4),
                     pending_payable_opt: Some(PendingPayableId {
                         rowid: 1,
@@ -795,12 +795,6 @@ mod tests {
                         .unwrap()
                     })
                 },
-                PayableAccount {
-                    wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
-                    balance: 1_000_000_000,
-                    last_paid_timestamp: from_time_t(timestamp3),
-                    pending_payable_opt: None
-                }
             ]
         );
     }
@@ -816,8 +810,8 @@ mod tests {
         let result = subject.custom_query(CustomQuery::RangeQuery {
             min_age: 20000,
             max_age: 200000,
-            min_amount: 500000000,
-            max_amount: 3500000000,
+            min_amount_gwei: 500000000,
+            max_amount_gwei: 3500000000,
         });
 
         assert_eq!(result, None)
@@ -834,40 +828,40 @@ mod tests {
         let main_setup = |insert: &dyn Fn(&str, i128, i64, Option<i64>)| {
             insert(
                 "0x1111111111111111111111111111111111111111",
-                400_005_601,
+                400_005_601, //too small
                 timestamp1,
                 None,
             );
             insert(
                 "0x2222222222222222222222222222222222222222",
-                3_000_300_000,
+                30_000_300_000,
                 timestamp2,
                 Some(1),
             );
             insert(
                 "0x3333333333333333333333333333333333333333",
                 600_123_456,
-                timestamp3,
+                timestamp3, //too old
                 None,
             );
             insert(
                 "0x4444444444444444444444444444444444444444",
                 1_033_456_000,
-                timestamp4,
+                timestamp4, //too young
                 None,
             );
             insert(
                 "0x5555555555555555555555555555555555555555",
-                3_800_456_000,
+                36_800_456_000, //too big
                 timestamp5,
                 None,
             );
             insert(
                 "0x6666666666666666666666666666666666666666",
-                800_456_000,
+                1_800_456_000,
                 timestamp6,
                 None,
-            )
+            );
         };
         let subject = custom_query_test_body_payable("custom_query_in_range_mode", main_setup);
 
@@ -875,8 +869,8 @@ mod tests {
             .custom_query(CustomQuery::RangeQuery {
                 min_age: 20000,
                 max_age: 200000,
-                min_amount: 500000000,
-                max_amount: 3500000000,
+                min_amount_gwei: 500_000_000,
+                max_amount_gwei: 35_000_000_000,
             })
             .unwrap();
 
@@ -885,7 +879,7 @@ mod tests {
             vec![
                 PayableAccount {
                     wallet: Wallet::new("0x2222222222222222222222222222222222222222"),
-                    balance: 3_000_300_000,
+                    balance_wei: 30_000_300_000,
                     last_paid_timestamp: from_time_t(timestamp2),
                     pending_payable_opt: Some(PendingPayableId {
                         rowid: 1,
@@ -897,12 +891,54 @@ mod tests {
                 },
                 PayableAccount {
                     wallet: Wallet::new("0x6666666666666666666666666666666666666666"),
-                    balance: 800_456_000,
+                    balance_wei: 1_800_456_000,
                     last_paid_timestamp: from_time_t(timestamp6),
                     pending_payable_opt: None
                 }
             ]
         );
+    }
+
+    #[test]
+    fn range_query_does_not_display_values_from_below_1_gwei() {
+        let timestamp = dao_utils::now_time_t() - 5000;
+        let main_setup = |insert: &dyn Fn(&str, i128, i64, Option<i64>)| {
+            insert(
+                "0x1111111111111111111111111111111111111111",
+                400_005_601,
+                dao_utils::now_time_t() - 11_001,
+                None,
+            );
+            insert(
+                "0x2222222222222222222222222222222222222222",
+                30_000_300_000,
+                timestamp,
+                None,
+            );
+        };
+        let subject = custom_query_test_body_payable(
+            "range_query_does_not_display_values_from_below_1_gwei",
+            main_setup,
+        );
+
+        let result = subject
+            .custom_query(CustomQuery::RangeQuery {
+                min_age: 0,
+                max_age: 200000,
+                min_amount_gwei: u64::MIN,
+                max_amount_gwei: 35_000_000_000,
+            })
+            .unwrap();
+
+        assert_eq!(
+            result,
+            vec![PayableAccount {
+                wallet: Wallet::new("0x2222222222222222222222222222222222222222"),
+                balance_wei: 30_000_300_000,
+                last_paid_timestamp: from_time_t(timestamp),
+                pending_payable_opt: None
+            },]
+        )
     }
 
     fn insert_record(

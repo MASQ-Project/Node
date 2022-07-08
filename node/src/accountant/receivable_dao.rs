@@ -11,7 +11,7 @@ use crate::accountant::{checked_conversion, ThresholdUtils};
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::db_config::persistent_configuration::PersistentConfigError;
-use crate::sub_lib::accountant::{PaymentThresholds, GWEI_TO_WEI};
+use crate::sub_lib::accountant::{PaymentThresholds, WEIS_OF_GWEI};
 use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
 use itertools::Either;
@@ -51,7 +51,7 @@ impl From<rusqlite::Error> for ReceivableDaoError {
 #[derive(Debug, Clone, PartialEq)]
 pub struct ReceivableAccount {
     pub wallet: Wallet,
-    pub balance: i128,
+    pub balance_wei: i128,
     pub last_received_timestamp: SystemTime,
 }
 
@@ -72,7 +72,7 @@ pub trait ReceivableDao: Send {
 
     fn paid_delinquencies(&self, payment_thresholds: &PaymentThresholds) -> Vec<ReceivableAccount>;
 
-    fn custom_query(&self, custom_query: CustomQuery<i128>) -> Option<Vec<ReceivableAccount>>;
+    fn custom_query(&self, custom_query: CustomQuery<i64>) -> Option<Vec<ReceivableAccount>>;
 
     fn total(&self) -> i128;
 
@@ -167,7 +167,7 @@ impl ReceivableDao for ReceivableDaoReal {
         "
         );
         let mut stmt = self.conn.prepare(sql).expect("Couldn't prepare statement");
-        let unban_balance = (payment_thresholds.unban_below_gwei as i128) * GWEI_TO_WEI;
+        let unban_balance = (payment_thresholds.unban_below_gwei as i128) * WEIS_OF_GWEI;
         stmt.query_map(
             named_params! {
                 ":unban_balance": unban_balance,
@@ -179,7 +179,7 @@ impl ReceivableDao for ReceivableDaoReal {
         .collect()
     }
 
-    fn custom_query(&self, custom_query: CustomQuery<i128>) -> Option<Vec<ReceivableAccount>> {
+    fn custom_query(&self, custom_query: CustomQuery<i64>) -> Option<Vec<ReceivableAccount>> {
         let statement_assembler = |range_query: &str, top_query: &str| {
             format!(
                 "select
@@ -197,7 +197,7 @@ impl ReceivableDao for ReceivableDaoReal {
             )
         };
         let variant_range = "where last_received_timestamp <= ? and last_received_timestamp >= ? and balance >= ? and balance <= ?";
-        let variant_top = "limit ?";
+        let variant_top = ("blah", "limit ?");
         custom_query.query::<_, i128, _, _>(
             self.conn.as_ref(),
             statement_assembler,
@@ -307,7 +307,7 @@ impl ReceivableDaoReal {
             payment_thresholds,
             checked_conversion::<i64, u64>(time),
         ) as i128
-            * GWEI_TO_WEI
+            * WEIS_OF_GWEI
     }
 
     fn prepare_multi_insert_statement(row_count: usize) -> String {
@@ -369,7 +369,7 @@ impl ReceivableDaoReal {
         match (wallet, balance_result, last_received_timestamp_result) {
             (Ok(wallet), Ok(balance), Ok(last_received_timestamp)) => Ok(ReceivableAccount {
                 wallet,
-                balance,
+                balance_wei: balance,
                 last_received_timestamp: dao_utils::from_time_t(last_received_timestamp),
             }),
             e => panic!(
@@ -510,7 +510,7 @@ mod tests {
 
         let after = dao_utils::to_time_t(SystemTime::now());
         assert_eq!(status.wallet, wallet);
-        assert_eq!(status.balance, 1234);
+        assert_eq!(status.balance_wei, 1234);
         let timestamp = dao_utils::to_time_t(status.last_received_timestamp);
         assert!(
             timestamp >= before,
@@ -559,7 +559,7 @@ mod tests {
         };
 
         assert_eq!(status.wallet, wallet);
-        assert_eq!(status.balance, 3579);
+        assert_eq!(status.balance_wei, 3579);
         assert_eq!(status.last_received_timestamp, SystemTime::UNIX_EPOCH);
     }
 
@@ -625,13 +625,13 @@ mod tests {
         };
 
         assert_eq!(status1.wallet, debtor1);
-        assert_eq!(status1.balance, 34);
+        assert_eq!(status1.balance_wei, 34);
         let timestamp1 = dao_utils::to_time_t(status1.last_received_timestamp);
         assert!(timestamp1 >= before);
         assert!(timestamp1 <= dao_utils::to_time_t(SystemTime::now()));
 
         assert_eq!(status2.wallet, debtor2);
-        assert_eq!(status2.balance, 45);
+        assert_eq!(status2.balance_wei, 45);
         let timestamp2 = dao_utils::to_time_t(status2.last_received_timestamp);
         assert!(timestamp2 >= before);
         assert!(timestamp2 <= dao_utils::to_time_t(SystemTime::now()));
@@ -805,7 +805,7 @@ mod tests {
 
         assert_eq!(
             result,
-            payment_thresholds.debt_threshold_gwei as i128 * GWEI_TO_WEI
+            payment_thresholds.debt_threshold_gwei as i128 * WEIS_OF_GWEI
         )
     }
 
@@ -833,17 +833,17 @@ mod tests {
         let unbanned_account_2_timestamp = SystemTime::now();
         let banned_account = ReceivableAccount {
             wallet: wallet_banned,
-            balance: 80057,
+            balance_wei: 80057,
             last_received_timestamp: from_time_t(16_554_000_000),
         };
         let unbanned_account_1 = ReceivableAccount {
             wallet: wallet_1.clone(),
-            balance: 8500,
+            balance_wei: 8500,
             last_received_timestamp: unbanned_account_1_timestamp,
         };
         let unbanned_account_2 = ReceivableAccount {
             wallet: wallet_2.clone(),
-            balance: 30,
+            balance_wei: 30,
             last_received_timestamp: unbanned_account_2_timestamp,
         };
         add_receivable_account(&conn, &banned_account);
@@ -923,7 +923,7 @@ mod tests {
     #[test]
     fn new_delinquencies_unit_slope() {
         fn wei_conversion(gwei: u64) -> i128 {
-            i128::try_from(gwei).unwrap() * GWEI_TO_WEI
+            i128::try_from(gwei).unwrap() * WEIS_OF_GWEI
         }
         let payment_thresholds = PaymentThresholds {
             maturity_threshold_sec: 25,
@@ -935,32 +935,32 @@ mod tests {
         };
         let now = now_time_t();
         let mut not_delinquent_inside_grace_period = make_receivable_account(1234, false);
-        not_delinquent_inside_grace_period.balance =
+        not_delinquent_inside_grace_period.balance_wei =
             wei_conversion(payment_thresholds.debt_threshold_gwei + 1);
         not_delinquent_inside_grace_period.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_and_grace(now) + 2);
         let mut not_delinquent_after_grace_below_slope = make_receivable_account(2345, false);
-        not_delinquent_after_grace_below_slope.balance =
+        not_delinquent_after_grace_below_slope.balance_wei =
             wei_conversion(payment_thresholds.debt_threshold_gwei - 2);
         not_delinquent_after_grace_below_slope.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_and_grace(now) - 1);
         let mut delinquent_above_slope_after_grace = make_receivable_account(3456, true);
-        delinquent_above_slope_after_grace.balance =
+        delinquent_above_slope_after_grace.balance_wei =
             wei_conversion(payment_thresholds.debt_threshold_gwei - 1);
         delinquent_above_slope_after_grace.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_and_grace(now) - 2);
         let mut not_delinquent_below_slope_before_stop = make_receivable_account(4567, false);
-        not_delinquent_below_slope_before_stop.balance =
+        not_delinquent_below_slope_before_stop.balance_wei =
             wei_conversion(payment_thresholds.permanent_debt_allowed_gwei + 1);
         not_delinquent_below_slope_before_stop.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_thru_decreasing(now) + 2);
         let mut delinquent_above_slope_before_stop = make_receivable_account(5678, true);
-        delinquent_above_slope_before_stop.balance =
+        delinquent_above_slope_before_stop.balance_wei =
             wei_conversion(payment_thresholds.permanent_debt_allowed_gwei + 2);
         delinquent_above_slope_before_stop.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_thru_decreasing(now) + 1);
         let mut not_delinquent_above_slope_after_stop = make_receivable_account(6789, false);
-        not_delinquent_above_slope_after_stop.balance =
+        not_delinquent_above_slope_after_stop.balance_wei =
             wei_conversion(payment_thresholds.permanent_debt_allowed_gwei - 1);
         not_delinquent_above_slope_after_stop.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_thru_decreasing(now) - 2);
@@ -996,11 +996,11 @@ mod tests {
         };
         let now = now_time_t();
         let mut not_delinquent = make_receivable_account(1234, false);
-        not_delinquent.balance = 105 * GWEI_TO_WEI;
+        not_delinquent.balance_wei = 105 * WEIS_OF_GWEI;
         not_delinquent.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_and_grace(now) - 25);
         let mut delinquent = make_receivable_account(2345, true);
-        delinquent.balance = 105 * GWEI_TO_WEI;
+        delinquent.balance_wei = 105 * WEIS_OF_GWEI;
         delinquent.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_and_grace(now) - 75);
         let home_dir =
@@ -1031,11 +1031,11 @@ mod tests {
         };
         let now = now_time_t();
         let mut not_delinquent = make_receivable_account(1234, false);
-        not_delinquent.balance = 600 * GWEI_TO_WEI;
+        not_delinquent.balance_wei = 600 * WEIS_OF_GWEI;
         not_delinquent.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_and_grace(now) - 25);
         let mut delinquent = make_receivable_account(2345, true);
-        delinquent.balance = 600 * GWEI_TO_WEI;
+        delinquent.balance_wei = 600 * WEIS_OF_GWEI;
         delinquent.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_and_grace(now) - 75);
         let home_dir =
@@ -1066,11 +1066,11 @@ mod tests {
         };
         let now = now_time_t();
         let mut existing_delinquency = make_receivable_account(1234, true);
-        existing_delinquency.balance = 250 * GWEI_TO_WEI;
+        existing_delinquency.balance_wei = 250 * WEIS_OF_GWEI;
         existing_delinquency.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_and_grace(now) - 1);
         let mut new_delinquency = make_receivable_account(2345, true);
-        new_delinquency.balance = 250 * GWEI_TO_WEI;
+        new_delinquency.balance_wei = 250 * WEIS_OF_GWEI;
         new_delinquency.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_and_grace(now) - 1);
         let home_dir = ensure_node_home_directory_exists(
@@ -1204,9 +1204,9 @@ mod tests {
             unban_below_gwei: 50,
         };
         let mut paid_delinquent = make_receivable_account(1234, true);
-        paid_delinquent.balance = 50_000_000_000;
+        paid_delinquent.balance_wei = 50_000_000_000;
         let mut unpaid_delinquent = make_receivable_account(2345, true);
-        unpaid_delinquent.balance = 50_000_000_001;
+        unpaid_delinquent.balance_wei = 50_000_000_001;
         let home_dir = ensure_node_home_directory_exists("accountant", "paid_delinquencies");
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
@@ -1235,9 +1235,9 @@ mod tests {
             unban_below_gwei: 50,
         };
         let mut newly_non_delinquent = make_receivable_account(1234, false);
-        newly_non_delinquent.balance = 25_000_000_000;
+        newly_non_delinquent.balance_wei = 25_000_000_000;
         let mut old_non_delinquent = make_receivable_account(2345, false);
-        old_non_delinquent.balance = 25_000_000_000;
+        old_non_delinquent.balance_wei = 25_000_000_000;
 
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
@@ -1309,12 +1309,12 @@ mod tests {
             vec![
                 ReceivableAccount {
                     wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
-                    balance: 1_000_000_200,
+                    balance_wei: 1_000_000_200,
                     last_received_timestamp: from_time_t(timestamp4),
                 },
                 ReceivableAccount {
                     wallet: Wallet::new("0x1111111111111111111111111111111111111111"),
-                    balance: 999_454_656,
+                    balance_wei: 999_454_656,
                     last_received_timestamp: from_time_t(timestamp1),
                 },
             ]
@@ -1332,8 +1332,8 @@ mod tests {
         let result = subject.custom_query(CustomQuery::RangeQuery {
             min_age: 20000,
             max_age: 200000,
-            min_amount: 500000000,
-            max_amount: 3500000000,
+            min_amount_gwei: 500000000,
+            max_amount_gwei: 3500000000,
         });
 
         assert_eq!(result, None)
@@ -1374,8 +1374,8 @@ mod tests {
             .custom_query(CustomQuery::RangeQuery {
                 min_age: 60000,
                 max_age: 99000,
-                min_amount: 700000000,
-                max_amount: 1000000000,
+                min_amount_gwei: 700000000,
+                max_amount_gwei: 1000000000,
             })
             .unwrap();
 
@@ -1383,7 +1383,7 @@ mod tests {
             result,
             vec![ReceivableAccount {
                 wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
-                balance: 990_000_000,
+                balance_wei: 990_000_000,
                 last_received_timestamp: from_time_t(timestamp3),
             }]
         );
@@ -1548,7 +1548,7 @@ mod tests {
         let mut stmt = conn.prepare ("insert into receivable (wallet_address, balance, last_received_timestamp) values (?, ?, ?)").unwrap();
         let params: &[&dyn ToSql] = &[
             &account.wallet,
-            &account.balance,
+            &account.balance_wei,
             &to_time_t(account.last_received_timestamp),
         ];
         stmt.execute(params).unwrap();

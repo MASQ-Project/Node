@@ -63,7 +63,7 @@ use std::any::type_name;
 use std::any::Any;
 use std::default::Default;
 use std::fmt::Display;
-use std::ops::{Add, Mul};
+use std::ops::{Add, Div, Mul};
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 use thousands::Separable;
@@ -391,7 +391,7 @@ impl Handler<NodeFromUiMessage> for Accountant {
     fn handle(&mut self, msg: NodeFromUiMessage, ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
         if let Ok((request, context_id)) = UiFinancialsRequest::fmb(msg.body.clone()) {
-            self.handle_financials_shell(&request, client_id, context_id)
+            self.handle_financials(&request, client_id, context_id)
         } else if let Ok((body, context_id)) = UiScanRequest::fmb(msg.body.clone()) {
             self.handle_externally_triggered_scan(
                 ctx,
@@ -578,7 +578,7 @@ impl Accountant {
     }
 
     fn balance_and_age(account: &ReceivableAccount) -> (String, Duration) {
-        let balance = format!("{}", (account.balance as f64) / 1_000_000_000.0);
+        let balance = format!("{}", (account.balance_wei as f64) / 1_000_000_000.0);
         let age = account
             .last_received_timestamp
             .elapsed()
@@ -604,7 +604,7 @@ impl Accountant {
         }
 
         if self.payable_threshold_tools.is_innocent_balance(
-            payable.balance,
+            payable.balance_wei,
             gwei_to_wei(self.config.payment_thresholds.permanent_debt_allowed_gwei),
         ) {
             return None;
@@ -614,7 +614,7 @@ impl Accountant {
             self.payable_threshold_tools
                 .calculate_payout_threshold(&self.config.payment_thresholds, time_since_last_paid),
         );
-        if payable.balance > threshold {
+        if payable.balance_wei > threshold {
             Some(threshold)
         } else {
             None
@@ -721,22 +721,23 @@ impl Accountant {
                 {
                     //look at a test if not understandable
                     let check_age_parameter_if_the_first_is_the_same =
-                        || -> bool { p.balance == biggest.balance && p_age > biggest.age };
+                        || -> bool { p.balance_wei == biggest.balance && p_age > biggest.age };
 
-                    if p.balance > biggest.balance || check_age_parameter_if_the_first_is_the_same()
+                    if p.balance_wei > biggest.balance
+                        || check_age_parameter_if_the_first_is_the_same()
                     {
                         biggest = PayableInfo {
-                            balance: p.balance,
+                            balance: p.balance_wei,
                             age: p_age,
                         }
                     }
 
                     let check_balance_parameter_if_the_first_is_the_same =
-                        || -> bool { p_age == oldest.age && p.balance > oldest.balance };
+                        || -> bool { p_age == oldest.age && p.balance_wei > oldest.balance };
 
                     if p_age > oldest.age || check_balance_parameter_if_the_first_is_the_same() {
                         oldest = PayableInfo {
-                            balance: p.balance,
+                            balance: p.balance_wei,
                             age: p_age,
                         }
                     }
@@ -762,7 +763,7 @@ impl Accountant {
                     .expect("Threshold suddenly changed!");
                 format!(
                     "{} Wei owed for {} sec exceeds threshold: {} Wei; creditor: {}",
-                    payable.balance.separate_with_commas(),
+                    payable.balance_wei.separate_with_commas(),
                     p_age.as_secs(),
                     threshold.separate_with_commas(),
                     payable.wallet
@@ -799,7 +800,7 @@ impl Accountant {
             self.receivable_dao
                 .as_mut()
                 .more_money_received(msg.payments);
-            self.financial_statistics.total_paid_receivable += total_newly_paid_receivable;
+            self.financial_statistics.total_paid_receivable_wei += total_newly_paid_receivable;
         }
         if let Some(response_skeleton) = msg.response_skeleton_opt {
             self.ui_message_sub
@@ -925,8 +926,8 @@ impl Accountant {
         );
     }
 
-    fn handle_financials_shell(&self, msg: &UiFinancialsRequest, client_id: u64, context_id: u64) {
-        let response_body = self.handle_financials_core(msg, context_id);
+    fn handle_financials(&self, msg: &UiFinancialsRequest, client_id: u64, context_id: u64) {
+        let response_body = self.compute_financials(msg, context_id);
         self.ui_message_sub
             .as_ref()
             .expect("UiGateway not bound")
@@ -937,16 +938,20 @@ impl Accountant {
             .expect("UiGateway is dead");
     }
 
-    fn handle_financials_core(&self, msg: &UiFinancialsRequest, context_id: u64) -> MessageBody {
+    fn compute_financials(&self, msg: &UiFinancialsRequest, context_id: u64) -> MessageBody {
         if let Err(message_body) = Self::financials_entry_check(msg, context_id) {
             return message_body;
         };
         let stats_opt = if msg.stats_required {
             Some(UiFinancialStatistics {
-                total_unpaid_and_pending_payable: self.payable_dao.total(),
-                total_paid_payable: self.financial_statistics.total_paid_payable,
-                total_unpaid_receivable: self.receivable_dao.total(),
-                total_paid_receivable: self.financial_statistics.total_paid_receivable,
+                total_unpaid_and_pending_payable_gwei: wei_to_gwei(self.payable_dao.total()),
+                total_paid_payable_gwei: wei_to_gwei(
+                    self.financial_statistics.total_paid_payable_wei,
+                ),
+                total_unpaid_receivable_gwei: wei_to_gwei(self.receivable_dao.total()),
+                total_paid_receivable_gwei: wei_to_gwei(
+                    self.financial_statistics.total_paid_receivable_wei,
+                ),
             })
         } else {
             None
@@ -986,7 +991,7 @@ impl Accountant {
 
     fn request_payable_accounts_by_specific_mode(
         &self,
-        mode: CustomQuery<u128>,
+        mode: CustomQuery<u64>,
     ) -> Option<Vec<UiPayableAccount>> {
         self.payable_dao
             .custom_query(mode)
@@ -995,7 +1000,7 @@ impl Accountant {
 
     fn request_receivable_accounts_by_specific_mode(
         &self,
-        mode: CustomQuery<i128>,
+        mode: CustomQuery<i64>,
     ) -> Option<Vec<UiReceivableAccount>> {
         self.receivable_dao
             .custom_query(mode)
@@ -1016,8 +1021,8 @@ impl Accountant {
                 CustomQuery::RangeQuery {
                     min_age: payable_specs.min_age,
                     max_age: payable_specs.max_age,
-                    min_amount: payable_specs.min_amount,
-                    max_amount: payable_specs.max_amount,
+                    min_amount_gwei: payable_specs.min_amount,
+                    max_amount_gwei: payable_specs.max_amount,
                 },
             )
         } else {
@@ -1084,7 +1089,8 @@ impl Accountant {
                 msg.pending_payable_fingerprint.hash, e
             )
         } else {
-            self.financial_statistics.total_paid_payable += msg.pending_payable_fingerprint.amount;
+            self.financial_statistics.total_paid_payable_wei +=
+                msg.pending_payable_fingerprint.amount;
             debug!(
                 self.logger,
                 "Confirmation of transaction {}; record for payable was modified",
@@ -1427,8 +1433,14 @@ pub fn politely_checked_conversion<T: Copy + Display, S: TryFrom<T>>(
     })
 }
 
-pub fn gwei_to_wei<T: Mul + Mul<Output = T> + From<u64> + From<S>, S>(gwei: S) -> T {
+pub fn gwei_to_wei<T: Mul<Output = T> + From<u32> + From<S>, S>(gwei: S) -> T {
     (T::from(gwei)).mul(T::from(1_000_000_000))
+}
+
+pub fn wei_to_gwei<T: Div + Div<Output = T> + From<u32> + TryFrom<S>, S: Display + Copy>(
+    wei: S,
+) -> T {
+    checked_conversion::<S, T>(wei).div(T::from(1_000_000_000))
 }
 
 fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
@@ -1487,7 +1499,8 @@ mod tests {
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
     use crate::bootstrapper::BootstrapperConfig;
     use crate::sub_lib::accountant::{
-        ReportRoutingServiceConsumedMessage, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS, GWEI_TO_WEI,
+        ReportRoutingServiceConsumedMessage, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
+        WEIS_OF_GWEI,
     };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::sub_lib::utils::{NotifyHandleReal, NotifyLaterHandleReal};
@@ -1687,8 +1700,8 @@ mod tests {
             .downcast_ref::<PayableThresholdToolsReal>()
             .unwrap();
         assert_eq!(result.crashable, false);
-        assert_eq!(result.financial_statistics.total_paid_receivable, 0);
-        assert_eq!(result.financial_statistics.total_paid_payable, 0);
+        assert_eq!(result.financial_statistics.total_paid_receivable_wei, 0);
+        assert_eq!(result.financial_statistics.total_paid_payable_wei, 0);
     }
 
     #[test]
@@ -1807,8 +1820,8 @@ mod tests {
         );
         let payable_account = PayableAccount {
             wallet: make_wallet("wallet"),
-            balance: (DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1) as u128
-                * (GWEI_TO_WEI as u128),
+            balance_wei: (DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1) as u128
+                * (WEIS_OF_GWEI as u128),
             last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(
                 (DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec + 1) as u64,
             )),
@@ -2173,7 +2186,7 @@ mod tests {
         let accounts = vec![
             PayableAccount {
                 wallet: make_wallet("blah"),
-                balance: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 55),
+                balance_wei: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 55),
                 last_paid_timestamp: from_time_t(
                     to_time_t(SystemTime::now())
                         - checked_conversion::<u64, i64>(
@@ -2185,7 +2198,7 @@ mod tests {
             },
             PayableAccount {
                 wallet: make_wallet("foo"),
-                balance: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 66),
+                balance_wei: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 66),
                 last_paid_timestamp: from_time_t(
                     to_time_t(SystemTime::now())
                         - checked_conversion::<u64, i64>(
@@ -2430,7 +2443,7 @@ mod tests {
         );
         let new_delinquent_account = ReceivableAccount {
             wallet: wallet_to_be_banned.clone(),
-            balance: 4567,
+            balance_wei: 4567,
             last_received_timestamp: from_time_t(200_000_000),
         };
         let system = System::new("periodical_scanning_for_receivables_and_delinquencies_works");
@@ -2649,7 +2662,7 @@ mod tests {
         // slightly above minimum balance, to the right of the curve (time intersection)
         let account = PayableAccount {
             wallet: make_wallet("wallet"),
-            balance: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 5),
+            balance_wei: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 5),
             last_paid_timestamp: from_time_t(
                 now - checked_conversion::<u64, i64>(
                     DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec + 10,
@@ -2780,7 +2793,7 @@ mod tests {
             // below minimum balance, to the right of time intersection (inside buffer zone)
             PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei - 1),
+                balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei - 1),
                 last_paid_timestamp: from_time_t(
                     now - checked_conversion::<u64, i64>(
                         payment_thresholds.threshold_interval_sec + 10,
@@ -2791,7 +2804,7 @@ mod tests {
             // above balance intersection, to the left of minimum time (outside buffer zone)
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: gwei_to_wei(payment_thresholds.debt_threshold_gwei + 1),
+                balance_wei: gwei_to_wei(payment_thresholds.debt_threshold_gwei + 1),
                 last_paid_timestamp: from_time_t(
                     now - checked_conversion::<u64, i64>(
                         payment_thresholds.maturity_threshold_sec - 10,
@@ -2802,7 +2815,7 @@ mod tests {
             // above minimum balance, to the right of minimum time (not in buffer zone, below the curve)
             PayableAccount {
                 wallet: make_wallet("wallet2"),
-                balance: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 55),
+                balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 55),
                 last_paid_timestamp: from_time_t(
                     now - checked_conversion::<u64, i64>(
                         payment_thresholds.maturity_threshold_sec + 15,
@@ -2857,7 +2870,9 @@ mod tests {
             // slightly above minimum balance, to the right of the curve (time intersection)
             PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.permanent_debt_allowed_gwei + 1),
+                balance_wei: gwei_to_wei(
+                    DEFAULT_PAYMENT_THRESHOLDS.permanent_debt_allowed_gwei + 1,
+                ),
                 last_paid_timestamp: from_time_t(
                     now - checked_conversion::<u64, i64>(
                         DEFAULT_PAYMENT_THRESHOLDS.threshold_interval_sec
@@ -2870,7 +2885,7 @@ mod tests {
             // slightly above the curve (balance intersection), to the right of minimum time
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1),
+                balance_wei: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1),
                 last_paid_timestamp: from_time_t(
                     now - checked_conversion::<u64, i64>(
                         DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec + 10,
@@ -3968,27 +3983,27 @@ mod tests {
         let payables = &[
             PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: same_amount_significance,
+                balance_wei: same_amount_significance,
                 last_paid_timestamp: from_time_t(now - 5000),
                 pending_payable_opt: None,
             },
             //this debt is more significant because beside being high in amount it's also older, so should be prioritized and picked
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: same_amount_significance,
+                balance_wei: same_amount_significance,
                 last_paid_timestamp: from_time_t(now - 10000),
                 pending_payable_opt: None,
             },
             //similarly these two wallets have debts equally old but the second has a bigger balance and should be chosen
             PayableAccount {
                 wallet: make_wallet("wallet3"),
-                balance: 100,
+                balance_wei: 100,
                 last_paid_timestamp: same_age_significance,
                 pending_payable_opt: None,
             },
             PayableAccount {
                 wallet: make_wallet("wallet2"),
-                balance: 330,
+                balance_wei: 330,
                 last_paid_timestamp: same_age_significance,
                 pending_payable_opt: None,
             },
@@ -4013,7 +4028,7 @@ mod tests {
         let qualified_payables = &[
             PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 2000),
+                balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 2000),
                 last_paid_timestamp: from_time_t(
                     now - checked_conversion::<u64, i64>(
                         payment_thresholds.maturity_threshold_sec
@@ -4024,7 +4039,7 @@ mod tests {
             },
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: gwei_to_wei(payment_thresholds.debt_threshold_gwei - 1),
+                balance_wei: gwei_to_wei(payment_thresholds.debt_threshold_gwei - 1),
                 last_paid_timestamp: from_time_t(
                     now - checked_conversion::<u64, i64>(
                         payment_thresholds.maturity_threshold_sec + 55,
@@ -4067,7 +4082,7 @@ mod tests {
         let tested_fn = |payment_thresholds: &PaymentThresholds, time| {
             PayableThresholdToolsReal {}.calculate_payout_threshold(payment_thresholds, time)
                 as i128
-                * GWEI_TO_WEI
+                * WEIS_OF_GWEI
         };
 
         assert_on_sloped_segment_of_payment_thresholds_and_its_proper_alignment(
@@ -4116,12 +4131,12 @@ mod tests {
         let safe_age_params_arc = Arc::new(Mutex::new(vec![]));
         let safe_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let calculate_payable_threshold_params_arc = Arc::new(Mutex::new(vec![]));
-        let balance = 5555 * GWEI_TO_WEI as u128;
+        let balance = 5555 * WEIS_OF_GWEI as u128;
         let how_far_in_past = Duration::from_secs(1111 + 1);
         let last_paid_timestamp = SystemTime::now().sub(how_far_in_past);
         let payable_account = PayableAccount {
             wallet: make_wallet("hi"),
-            balance,
+            balance_wei: balance,
             last_paid_timestamp,
             pending_payable_opt: None,
         };
@@ -4159,7 +4174,7 @@ mod tests {
 
         let result = subject.payable_exceeded_threshold(&payable_account);
 
-        assert_eq!(result, Some(4567 * GWEI_TO_WEI as u128));
+        assert_eq!(result, Some(4567 * WEIS_OF_GWEI as u128));
         let mut safe_age_params = safe_age_params_arc.lock().unwrap();
         let safe_age_single_params = safe_age_params.remove(0);
         assert_eq!(*safe_age_params, vec![]);
@@ -4176,7 +4191,7 @@ mod tests {
         assert_eq!(
             *safe_balance_params,
             vec![(
-                payable_account.balance,
+                payable_account.balance_wei,
                 gwei_to_wei(custom_payment_thresholds.permanent_debt_allowed_gwei)
             )]
         );
@@ -4268,14 +4283,14 @@ mod tests {
         let wallet_account_1 = make_wallet("creditor1");
         let account_1 = PayableAccount {
             wallet: wallet_account_1.clone(),
-            balance: payable_account_balance_1,
+            balance_wei: payable_account_balance_1,
             last_paid_timestamp: past_payable_timestamp_1,
             pending_payable_opt: None,
         };
         let wallet_account_2 = make_wallet("creditor2");
         let account_2 = PayableAccount {
             wallet: wallet_account_2.clone(),
-            balance: payable_account_balance_2,
+            balance_wei: payable_account_balance_2,
             last_paid_timestamp: past_payable_timestamp_2,
             pending_payable_opt: None,
         };
@@ -4931,8 +4946,8 @@ mod tests {
 
     #[test]
     fn financials_request_produces_financials_response() {
-        let payable_dao = PayableDaoMock::new().total_result(23456789);
-        let receivable_dao = ReceivableDaoMock::new().total_result(98765432);
+        let payable_dao = PayableDaoMock::new().total_result(264_567_894_578);
+        let receivable_dao = ReceivableDaoMock::new().total_result(987_654_328_996);
         let system = System::new("test");
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
@@ -4969,10 +4984,10 @@ mod tests {
             body,
             UiFinancialsResponse {
                 stats_opt: Some(UiFinancialStatistics {
-                    total_unpaid_and_pending_payable: 23456789,
-                    total_paid_payable: 0,
-                    total_unpaid_receivable: 98765432,
-                    total_paid_receivable: 0,
+                    total_unpaid_and_pending_payable_gwei: 264,
+                    total_paid_payable_gwei: 0,
+                    total_unpaid_receivable_gwei: 987,
+                    total_paid_receivable_gwei: 0,
                 }),
                 top_records_opt: None,
                 custom_query_records_opt: None
@@ -4981,9 +4996,9 @@ mod tests {
     }
 
     #[test]
-    fn handle_financials_core_processes_defaulted_request() {
-        let payable_dao = PayableDaoMock::new().total_result(1111111);
-        let receivable_dao = ReceivableDaoMock::new().total_result(333333);
+    fn compute_financials_processes_defaulted_request() {
+        let payable_dao = PayableDaoMock::new().total_result(1_111_111_000);
+        let receivable_dao = ReceivableDaoMock::new().total_result(333_000_054_686);
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
                 make_populated_accountant_config_with_defaults(),
@@ -4992,8 +5007,8 @@ mod tests {
             .receivable_dao(receivable_dao)
             .payable_dao(payable_dao)
             .build();
-        subject.financial_statistics.total_paid_payable = 123456;
-        subject.financial_statistics.total_paid_receivable = 334455;
+        subject.financial_statistics.total_paid_payable_wei = 172_345_602_235;
+        subject.financial_statistics.total_paid_receivable_wei = 4_455_656_989_415;
         let context_id = 1234;
         let request = UiFinancialsRequest {
             stats_required: true,
@@ -5001,16 +5016,16 @@ mod tests {
             custom_queries_opt: None,
         };
 
-        let result = subject.handle_financials_core(&request, context_id);
+        let result = subject.compute_financials(&request, context_id);
 
         assert_eq!(
             result,
             UiFinancialsResponse {
                 stats_opt: Some(UiFinancialStatistics {
-                    total_unpaid_and_pending_payable: 1111111,
-                    total_paid_payable: 123456,
-                    total_unpaid_receivable: 333333,
-                    total_paid_receivable: 334455
+                    total_unpaid_and_pending_payable_gwei: 1,
+                    total_paid_payable_gwei: 172,
+                    total_unpaid_receivable_gwei: 333,
+                    total_paid_receivable_gwei: 4455
                 }),
                 top_records_opt: None,
                 custom_query_records_opt: None
@@ -5020,19 +5035,19 @@ mod tests {
     }
 
     #[test]
-    fn handle_financials_core_processes_request_with_top_records_only() {
+    fn compute_financials_processes_request_with_top_records_only() {
         let payable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_accounts_retrieved = vec![
             PayableAccount {
                 wallet: make_wallet("abcd123"),
-                balance: 56868600,
+                balance_wei: 58_568_686_005,
                 last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(5000)),
                 pending_payable_opt: None,
             },
             PayableAccount {
                 wallet: make_wallet("bb123aa"),
-                balance: 568686,
+                balance_wei: 568_686, //too small
                 last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(68000)),
                 pending_payable_opt: None,
             },
@@ -5040,11 +5055,18 @@ mod tests {
         let payable_dao = PayableDaoMock::new()
             .custom_query_params(&payable_custom_query_params_arc)
             .custom_query_result(Some(payable_accounts_retrieved));
-        let receivable_accounts_retrieved = vec![ReceivableAccount {
-            wallet: make_wallet("efe4848"),
-            balance: 600556,
-            last_received_timestamp: SystemTime::now().sub(Duration::from_secs(6500)),
-        }];
+        let receivable_accounts_retrieved = vec![
+            ReceivableAccount {
+                wallet: make_wallet("efe4848"),
+                balance_wei: 3_788_455_600_556_898,
+                last_received_timestamp: SystemTime::now().sub(Duration::from_secs(6500)),
+            },
+            ReceivableAccount {
+                wallet: make_wallet("ef947ca"),
+                balance_wei: 85_121_000_656_445,
+                last_received_timestamp: SystemTime::now().sub(Duration::from_secs(8989)),
+            },
+        ];
         let receivable_dao = ReceivableDaoMock::new()
             .custom_query_params(&receivable_custom_query_params_arc)
             .custom_query_result(Some(receivable_accounts_retrieved));
@@ -5064,7 +5086,7 @@ mod tests {
         };
         let before = SystemTime::now();
 
-        let result = subject.handle_financials_core(&request, context_id_expected);
+        let result = subject.compute_financials(&request, context_id_expected);
 
         let after = SystemTime::now();
         let (computed_response, context_id) = UiFinancialsResponse::fmb(result).unwrap();
@@ -5084,25 +5106,24 @@ mod tests {
             UiFinancialsResponse {
                 stats_opt: None,
                 top_records_opt: Some(FirmQueryResult {
-                    payable: vec![
-                        UiPayableAccount {
-                            wallet: make_wallet("abcd123").to_string(),
-                            age: extracted_payable_ages[0],
-                            balance: 56868600,
-                            pending_payable_hash_opt: None
+                    payable: vec![UiPayableAccount {
+                        wallet: make_wallet("abcd123").to_string(),
+                        age: extracted_payable_ages[0],
+                        balance_gwei: 58,
+                        pending_payable_hash_opt: None
+                    },],
+                    receivable: vec![
+                        UiReceivableAccount {
+                            wallet: make_wallet("efe4848").to_string(),
+                            age: extracted_receivable_ages[0],
+                            balance_gwei: 3_788_455
                         },
-                        UiPayableAccount {
-                            wallet: make_wallet("bb123aa").to_string(),
-                            age: extracted_payable_ages[1],
-                            balance: 568686,
-                            pending_payable_hash_opt: None
+                        UiReceivableAccount {
+                            wallet: make_wallet("ef947ca").to_string(),
+                            age: extracted_receivable_ages[1],
+                            balance_gwei: 85_121
                         }
-                    ],
-                    receivable: vec![UiReceivableAccount {
-                        wallet: make_wallet("efe4848").to_string(),
-                        age: extracted_receivable_ages[0],
-                        balance: 600556
-                    }]
+                    ]
                 }),
                 custom_query_records_opt: None
             }
@@ -5113,13 +5134,17 @@ mod tests {
             extracted_payable_ages[0] >= 5000
                 && extracted_payable_ages[0] <= 5000 + time_needed_for_the_act_in_full_sec
         );
-        assert!(
-            extracted_payable_ages[1] >= 68000
-                && extracted_payable_ages[1] <= 68000 + time_needed_for_the_act_in_full_sec
-        );
+        // assert!(
+        //     extracted_payable_ages[1] >= 68000
+        //         && extracted_payable_ages[1] <= 68000 + time_needed_for_the_act_in_full_sec
+        // );
         assert!(
             extracted_receivable_ages[0] >= 6500
                 && extracted_receivable_ages[0] <= 6500 + time_needed_for_the_act_in_full_sec
+        );
+        assert!(
+            extracted_receivable_ages[1] >= 8989
+                && extracted_receivable_ages[1] <= 8989 + time_needed_for_the_act_in_full_sec
         );
         let payable_custom_query_params = payable_custom_query_params_arc.lock().unwrap();
         assert_eq!(
@@ -5142,12 +5167,12 @@ mod tests {
     }
 
     #[test]
-    fn handle_financials_core_processes_request_with_custom_queries_only() {
+    fn compute_financials_processes_request_with_custom_queries_only() {
         let payable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_accounts_retrieved = vec![PayableAccount {
             wallet: make_wallet("abcd123"),
-            balance: 5686860056,
+            balance_wei: 5686860056,
             last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(7580)),
             pending_payable_opt: None,
         }];
@@ -5157,12 +5182,12 @@ mod tests {
         let receivable_accounts_retrieved = vec![
             ReceivableAccount {
                 wallet: make_wallet("efe4848"),
-                balance: 60055600789,
+                balance_wei: 60055600789,
                 last_received_timestamp: SystemTime::now().sub(Duration::from_secs(3333)),
             },
             ReceivableAccount {
                 wallet: make_wallet("bb123aa"),
-                balance: 222555,
+                balance_wei: 222555,
                 last_received_timestamp: SystemTime::now().sub(Duration::from_secs(87000)),
             },
         ];
@@ -5198,7 +5223,7 @@ mod tests {
         };
         let before = SystemTime::now();
 
-        let result = subject.handle_financials_core(&request, context_id_expected);
+        let result = subject.compute_financials(&request, context_id_expected);
 
         let after = SystemTime::now();
         let (computed_response, context_id) = UiFinancialsResponse::fmb(result).unwrap();
@@ -5230,19 +5255,19 @@ mod tests {
                     payable_opt: Some(vec![UiPayableAccount {
                         wallet: make_wallet("abcd123").to_string(),
                         age: extracted_payable_ages[0],
-                        balance: 5686860056,
+                        balance_gwei: 5686860056,
                         pending_payable_hash_opt: None
                     },]),
                     receivable_opt: Some(vec![
                         UiReceivableAccount {
                             wallet: make_wallet("efe4848").to_string(),
                             age: extracted_receivable_ages[0],
-                            balance: 60055600789
+                            balance_gwei: 60055600789
                         },
                         UiReceivableAccount {
                             wallet: make_wallet("bb123aa").to_string(),
                             age: extracted_receivable_ages[1],
-                            balance: 222555,
+                            balance_gwei: 222555,
                         }
                     ])
                 })
@@ -5268,8 +5293,8 @@ mod tests {
             vec![CustomQuery::RangeQuery {
                 min_age: 0,
                 max_age: 8000,
-                min_amount: 0,
-                max_amount: 500000000000
+                min_amount_gwei: 0,
+                max_amount_gwei: 500000000000
             }]
         );
         let receivable_custom_query_params = receivable_custom_query_params_arc.lock().unwrap();
@@ -5278,18 +5303,18 @@ mod tests {
             vec![CustomQuery::RangeQuery {
                 min_age: 2000,
                 max_age: 200000,
-                min_amount: 0,
-                max_amount: 150000000000
+                min_amount_gwei: 0,
+                max_amount_gwei: 150000000000
             }]
         )
     }
 
     #[test]
-    fn handle_financials_core_allows_custom_query_aimed_only_at_one_table() {
+    fn compute_financials_allows_custom_query_aimed_only_at_one_table() {
         let receivable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_accounts_retrieved = vec![ReceivableAccount {
             wallet: make_wallet("efe4848"),
-            balance: 60055600789,
+            balance_wei: 60055600789,
             last_received_timestamp: SystemTime::now().sub(Duration::from_secs(3333)),
         }];
         let receivable_dao = ReceivableDaoMock::new()
@@ -5318,7 +5343,7 @@ mod tests {
         };
         let before = SystemTime::now();
 
-        let result = subject.handle_financials_core(&request, context_id_expected);
+        let result = subject.compute_financials(&request, context_id_expected);
 
         let after = SystemTime::now();
         let (computed_response, context_id) = UiFinancialsResponse::fmb(result).unwrap();
@@ -5342,7 +5367,7 @@ mod tests {
                     receivable_opt: Some(vec![UiReceivableAccount {
                         wallet: make_wallet("efe4848").to_string(),
                         age: extracted_receivable_ages[0],
-                        balance: 60055600789
+                        balance_gwei: 60055600789
                     }])
                 })
             }
@@ -5359,8 +5384,8 @@ mod tests {
             vec![CustomQuery::RangeQuery {
                 min_age: 2000,
                 max_age: 200000,
-                min_amount: 0,
-                max_amount: 150000000000
+                min_amount_gwei: 0,
+                max_amount_gwei: 150000000000
             }]
         )
     }
@@ -5387,14 +5412,17 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .payable_dao(payable_dao)
             .build();
-        subject.financial_statistics.total_paid_payable += 1111;
+        subject.financial_statistics.total_paid_payable_wei += 1111;
         let msg = ConfirmPendingTransaction {
             pending_payable_fingerprint: fingerprint.clone(),
         };
 
         subject.handle_confirm_pending_transaction(msg);
 
-        assert_eq!(subject.financial_statistics.total_paid_payable, 1111 + 5478);
+        assert_eq!(
+            subject.financial_statistics.total_paid_payable_wei,
+            1111 + 5478
+        );
         let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
         assert_eq!(*transaction_confirmed_params, vec![fingerprint])
     }
@@ -5408,7 +5436,7 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .receivable_dao(receivable_dao)
             .build();
-        subject.financial_statistics.total_paid_receivable += 2222;
+        subject.financial_statistics.total_paid_receivable_wei += 2222;
         let receivables = vec![
             BlockchainTransaction {
                 block_number: 4578910,
@@ -5428,7 +5456,7 @@ mod tests {
         });
 
         assert_eq!(
-            subject.financial_statistics.total_paid_receivable,
+            subject.financial_statistics.total_paid_receivable_wei,
             2222 + 45780 + 33345
         );
         let more_money_received_params = more_money_received_params_arc.lock().unwrap();
@@ -5470,5 +5498,27 @@ mod tests {
         let result = politely_checked_conversion::<u128, i128>(u128::MAX);
 
         assert_eq!(result,Err("Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128".to_string()))
+    }
+
+    #[test]
+    fn gwei_to_wei_works() {
+        let result: u128 = gwei_to_wei(12546_u64);
+
+        assert_eq!(result, 12_546_000_000_000)
+    }
+
+    #[test]
+    fn wei_to_gwei_works() {
+        let result: u64 = wei_to_gwei(127_300_050_500_u128);
+
+        assert_eq!(result, 127)
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to u64"
+    )]
+    fn wei_to_gwei_blows_up_on_overflow() {
+        let _: u64 = wei_to_gwei(u128::MAX);
     }
 }

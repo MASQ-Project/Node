@@ -402,7 +402,7 @@ impl BlockchainBridge {
         )) {
             Ok((hash, timestamp)) => Ok(Payable::new(
                 payable.wallet.clone(),
-                payable.balance,
+                payable.balance_wei,
                 hash,
                 timestamp,
             )),
@@ -552,7 +552,7 @@ mod tests {
         let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
-                balance: 42,
+                balance_wei: 42,
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],
@@ -588,7 +588,7 @@ mod tests {
         let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
-                balance: 42,
+                balance_wei: 42,
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],
@@ -642,13 +642,13 @@ mod tests {
                 accounts: vec![
                     PayableAccount {
                         wallet: make_wallet("blah"),
-                        balance: 420,
+                        balance_wei: 420,
                         last_paid_timestamp: from_time_t(150_000_000),
                         pending_payable_opt: None,
                     },
                     PayableAccount {
                         wallet: make_wallet("foo"),
-                        balance: 210,
+                        balance_wei: 210,
                         last_paid_timestamp: from_time_t(160_000_000),
                         pending_payable_opt: None,
                     },
@@ -732,7 +732,7 @@ mod tests {
         let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
-                balance: 42,
+                balance_wei: 42,
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],

@@ -2,6 +2,9 @@
 use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::messages::{
+    FromMessageBody, ToMessageBody, UiFinancialsRequest, UiFinancialsResponse,
+};
 use masq_lib::utils::{derivation_path, find_free_port, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::command::Command;
@@ -31,7 +34,6 @@ use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes, TransactionParameters};
 use web3::Web3;
-use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest, UiFinancialsResponse};
 
 #[test]
 fn verify_bill_payment() {
@@ -77,29 +79,34 @@ fn verify_bill_payment() {
         unban_below_gwei: 10_000_000,
     };
     let consuming_port = find_free_port();
-    let (consuming_config, _) =
-        build_config(&blockchain_server, &seed, payment_thresholds, deriv_path,Some(consuming_port));
+    let (consuming_config, _) = build_config(
+        &blockchain_server,
+        &seed,
+        payment_thresholds,
+        deriv_path,
+        Some(consuming_port),
+    );
 
     let (serving_node_1_config, serving_node_1_wallet) = build_config(
         &blockchain_server,
         &seed,
         payment_thresholds,
         derivation_path(0, 1),
-        None
+        None,
     );
     let (serving_node_2_config, serving_node_2_wallet) = build_config(
         &blockchain_server,
         &seed,
         payment_thresholds,
         derivation_path(0, 2),
-        None
+        None,
     );
     let (serving_node_3_config, serving_node_3_wallet) = build_config(
         &blockchain_server,
         &seed,
         payment_thresholds,
         derivation_path(0, 3),
-        None
+        None,
     );
 
     let amount = 10 * payment_thresholds.permanent_debt_allowed_gwei as u128 * GWEI_TO_WEI as u128;
@@ -323,18 +330,21 @@ fn verify_bill_payment() {
         UiFinancialsRequest {
             stats_required: true,
             top_records_opt: None,
-            custom_queries_opt: None
+            custom_queries_opt: None,
         }
-            .tmb(1234),
+        .tmb(1234),
     );
     let response = ui_client.wait_for_response(1234, Duration::from_secs(5));
-    let (financials_response,contex_id) = UiFinancialsResponse::fmb(response).unwrap();
-    assert_eq!(contex_id,1234);
-    assert_eq!(financials_response,UiFinancialsResponse{
-        stats_opt: None,
-        top_records_opt: None,
-        custom_query_records_opt: None
-    })
+    let (financials_response, contex_id) = UiFinancialsResponse::fmb(response).unwrap();
+    assert_eq!(contex_id, 1234);
+    assert_eq!(
+        financials_response,
+        UiFinancialsResponse {
+            stats_opt: None,
+            top_records_opt: None,
+            custom_query_records_opt: None
+        }
+    )
 }
 
 fn make_migrator_config(chain: Chain) -> MigratorConfig {
@@ -430,7 +440,7 @@ fn build_config(
     seed: &Seed,
     payment_thresholds: PaymentThresholds,
     wallet_derivation_path: String,
-    ui_port_opt: Option<u16>
+    ui_port_opt: Option<u16>,
 ) -> (NodeStartupConfig, Wallet) {
     let (serving_node_wallet, serving_node_secret) =
         make_node_wallet(seed, wallet_derivation_path.as_str());

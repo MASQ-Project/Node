@@ -571,9 +571,9 @@ conversation_message!(UiFinancialsRequest, "financials");
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct CustomQueries {
     #[serde(rename = "payableOpt")]
-    pub payable_opt: Option<RangeQuery<u128>>,
+    pub payable_opt: Option<RangeQuery<u64>>,
     #[serde(rename = "receivableOpt")]
-    pub receivable_opt: Option<RangeQuery<i128>>,
+    pub receivable_opt: Option<RangeQuery<i64>>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
@@ -601,14 +601,14 @@ conversation_message!(UiFinancialsResponse, "financials");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiFinancialStatistics {
-    #[serde(rename = "totalUnpaidAndPendingPayable")]
-    pub total_unpaid_and_pending_payable: u128,
-    #[serde(rename = "totalPaidPayable")]
-    pub total_paid_payable: u128,
-    #[serde(rename = "totalUnpaidReceivable")]
-    pub total_unpaid_receivable: i128,
-    #[serde(rename = "totalPaidReceivable")]
-    pub total_paid_receivable: u128,
+    #[serde(rename = "totalUnpaidAndPendingPayableGwei")]
+    pub total_unpaid_and_pending_payable_gwei: u64,
+    #[serde(rename = "totalPaidPayableGwei")]
+    pub total_paid_payable_gwei: u64,
+    #[serde(rename = "totalUnpaidReceivableGwei")]
+    pub total_unpaid_receivable_gwei: i64,
+    #[serde(rename = "totalPaidReceivableGwei")]
+    pub total_paid_receivable_gwei: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -629,7 +629,8 @@ pub struct CustomQueryResult {
 pub struct UiPayableAccount {
     pub wallet: String,
     pub age: u64,
-    pub balance: u128,
+    #[serde(rename = "balanceGwei")]
+    pub balance_gwei: u64,
     #[serde(rename = "pendingPayableHashOpt")]
     pub pending_payable_hash_opt: Option<String>,
 }
@@ -638,7 +639,8 @@ pub struct UiPayableAccount {
 pub struct UiReceivableAccount {
     pub wallet: String,
     pub age: u64,
-    pub balance: i128,
+    #[serde(rename = "balanceGwei")]
+    pub balance_gwei: i128,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]

@@ -13,7 +13,7 @@ use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::time::Duration;
 
-pub const GWEI_TO_WEI: i128 = 1_000_000_000;
+pub const WEIS_OF_GWEI: i128 = 1_000_000_000;
 
 lazy_static! {
     pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");
@@ -139,8 +139,8 @@ pub struct ReportExitServiceConsumedMessage {
 
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct FinancialStatistics {
-    pub total_paid_payable: u128,
-    pub total_paid_receivable: u128,
+    pub total_paid_payable_wei: u128,
+    pub total_paid_receivable_wei: u128,
 }
 
 #[derive(PartialEq, Debug)]

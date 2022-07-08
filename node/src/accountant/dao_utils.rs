@@ -5,6 +5,7 @@ use crate::accountant::{checked_conversion, sign_conversion};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
+use crate::sub_lib::accountant::WEIS_OF_GWEI;
 use masq_lib::messages::{UiPayableAccount, UiReceivableAccount};
 use masq_lib::utils::ExpectValue;
 use rusqlite::{params_from_iter, Row, ToSql};
@@ -65,8 +66,8 @@ pub enum CustomQuery<N> {
     RangeQuery {
         min_age: u64,
         max_age: u64,
-        min_amount: N,
-        max_amount: N,
+        min_amount_gwei: N,
+        max_amount_gwei: N,
     },
 }
 
@@ -76,30 +77,40 @@ impl<N: Copy + Display> CustomQuery<N> {
         conn: &dyn ConnectionWrapper,
         main_stm_assembler: F1,
         variant_range: &str,
-        variant_top: &str,
+        variant_top: (&str, &str),
         value_fetcher: F2,
     ) -> Option<Vec<R>>
     where
         F1: Fn(&str, &str) -> String,
         F2: Fn(&Row) -> rusqlite::Result<R>,
-        S: TryFrom<N> + ToSql,
+        S: TryFrom<N> + ToSql + PartialOrd<S> + From<u32>,
     {
         let (finalized_stm, params) = match self {
             Self::TopRecords(count) => (
-                main_stm_assembler("", variant_top),
-                vec![Box::new(count as i64) as Box<dyn ToSql>],
+                {
+                    let (a, b) = variant_top;
+                    main_stm_assembler(a, b)
+                },
+                vec![
+                    Box::new(WEIS_OF_GWEI) as Box<dyn ToSql>,
+                    Box::new(count as i64),
+                ],
             ),
             Self::RangeQuery {
                 min_age,
                 max_age,
-                min_amount,
-                max_amount,
+                min_amount_gwei: min_amount,
+                max_amount_gwei: max_amount,
             } => {
                 let now = to_time_t(SystemTime::now());
+                let min_money_resolution = S::from(10_u32.pow(9));
                 let params: Vec<Box<dyn ToSql>> = vec![
                     Box::new(now - min_age as i64),
                     Box::new(now - max_age as i64),
-                    Box::new(checked_conversion::<N, S>(min_amount)),
+                    Box::new(match checked_conversion::<N, S>(min_amount) {
+                        limit if limit >= min_money_resolution => limit,
+                        _ => min_money_resolution,
+                    }),
                     Box::new(checked_conversion::<N, S>(max_amount)),
                 ];
                 (main_stm_assembler(variant_range, ""), params)
@@ -131,7 +142,7 @@ pub fn remap_payable_accounts(accounts: Vec<PayableAccount>) -> Vec<UiPayableAcc
         .map(|account| UiPayableAccount {
             wallet: account.wallet.to_string(),
             age: (to_time_t(SystemTime::now()) - to_time_t(account.last_paid_timestamp)) as u64,
-            balance: account.balance,
+            balance_gwei: (account.balance_wei / (WEIS_OF_GWEI as u128)) as u64,
             pending_payable_hash_opt: account
                 .pending_payable_opt
                 .map(|full_id| full_id.hash.to_string()),
@@ -145,7 +156,7 @@ pub fn remap_receivable_accounts(accounts: Vec<ReceivableAccount>) -> Vec<UiRece
         .map(|account| UiReceivableAccount {
             wallet: account.wallet.to_string(),
             age: (to_time_t(SystemTime::now()) - to_time_t(account.last_received_timestamp)) as u64,
-            balance: account.balance,
+            balance_gwei: account.balance_wei,
         })
         .collect()
 }
@@ -194,7 +205,7 @@ mod tests {
             &conn_wrapped,
             |_v1: &str, _v2: &str| "select kind, price from fruits".to_string(),
             "",
-            "",
+            ("", ""),
             |_row| Ok(()),
         );
     }

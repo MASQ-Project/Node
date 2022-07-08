@@ -23,7 +23,7 @@ use crate::bootstrapper::BootstrapperConfig;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
-use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds, GWEI_TO_WEI};
+use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds, WEIS_OF_GWEI};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::unshared_test_utils::{
@@ -47,7 +47,7 @@ pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableA
             n,
             if expected_delinquent { "d" } else { "n" }
         )),
-        balance: (n * 1_000_000_000) as i128,
+        balance_wei: (n * 1_000_000_000) as i128,
         last_received_timestamp: from_time_t(now - (n as i64)),
     }
 }
@@ -69,7 +69,7 @@ pub fn make_payable_account_with_recipient_and_balance_and_timestamp_opt(
 ) -> PayableAccount {
     PayableAccount {
         wallet: recipient,
-        balance,
+        balance_wei: balance,
         last_paid_timestamp: timestamp_opt.unwrap_or(SystemTime::now()),
         pending_payable_opt: None,
     }
@@ -277,7 +277,7 @@ pub struct PayableDaoMock {
     transaction_confirmed_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     transaction_canceled_params: Arc<Mutex<Vec<PendingPayableId>>>,
     transaction_canceled_results: RefCell<Vec<Result<(), PayableDaoError>>>,
-    custom_query_params: Arc<Mutex<Vec<CustomQuery<u128>>>>,
+    custom_query_params: Arc<Mutex<Vec<CustomQuery<u64>>>>,
     custom_query_result: RefCell<Vec<Option<Vec<PayableAccount>>>>,
     total_results: RefCell<Vec<u128>>,
     pub have_non_pending_payable_shut_down_the_system: bool,
@@ -328,7 +328,7 @@ impl PayableDao for PayableDaoMock {
         self.non_pending_payable_results.borrow_mut().remove(0)
     }
 
-    fn custom_query(&self, custom_query: CustomQuery<u128>) -> Option<Vec<PayableAccount>> {
+    fn custom_query(&self, custom_query: CustomQuery<u64>) -> Option<Vec<PayableAccount>> {
         self.custom_query_params.lock().unwrap().push(custom_query);
         self.custom_query_result.borrow_mut().remove(0)
     }
@@ -412,7 +412,7 @@ impl PayableDaoMock {
         self
     }
 
-    pub fn custom_query_params(mut self, params: &Arc<Mutex<Vec<CustomQuery<u128>>>>) -> Self {
+    pub fn custom_query_params(mut self, params: &Arc<Mutex<Vec<CustomQuery<u64>>>>) -> Self {
         self.custom_query_params = params.clone();
         self
     }
@@ -438,7 +438,7 @@ pub struct ReceivableDaoMock {
     new_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     paid_delinquencies_parameters: Arc<Mutex<Vec<PaymentThresholds>>>,
     paid_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
-    custom_query_params: Arc<Mutex<Vec<CustomQuery<i128>>>>,
+    custom_query_params: Arc<Mutex<Vec<CustomQuery<i64>>>>,
     custom_query_result: RefCell<Vec<Option<Vec<ReceivableAccount>>>>,
     total_results: RefCell<Vec<i128>>,
     pub have_new_delinquencies_shutdown_the_system: bool,
@@ -490,7 +490,7 @@ impl ReceivableDao for ReceivableDaoMock {
         self.paid_delinquencies_results.borrow_mut().remove(0)
     }
 
-    fn custom_query(&self, custom_query: CustomQuery<i128>) -> Option<Vec<ReceivableAccount>> {
+    fn custom_query(&self, custom_query: CustomQuery<i64>) -> Option<Vec<ReceivableAccount>> {
         self.custom_query_params.lock().unwrap().push(custom_query);
         self.custom_query_result.borrow_mut().remove(0)
     }
@@ -562,7 +562,7 @@ impl ReceivableDaoMock {
         self
     }
 
-    pub fn custom_query_params(mut self, params: &Arc<Mutex<Vec<CustomQuery<i128>>>>) -> Self {
+    pub fn custom_query_params(mut self, params: &Arc<Mutex<Vec<CustomQuery<i64>>>>) -> Self {
         self.custom_query_params = params.clone();
         self
     }
@@ -967,14 +967,15 @@ pub fn assert_on_sloped_segment_of_payment_thresholds_and_its_proper_alignment<F
     let middle_point = tested_fn(&payment_thresholds, middle_point_timestamp);
     let lower_corner_point = tested_fn(&payment_thresholds, lower_corner_timestamp);
 
-    let allowed_imprecision = 1 * GWEI_TO_WEI;
-    let ideal_template_higher = payment_thresholds.debt_threshold_gwei as i128 * GWEI_TO_WEI;
+    let allowed_imprecision = 1 * WEIS_OF_GWEI;
+    let ideal_template_higher = payment_thresholds.debt_threshold_gwei as i128 * WEIS_OF_GWEI;
     let ideal_template_middle = ((payment_thresholds.debt_threshold_gwei
         - payment_thresholds.permanent_debt_allowed_gwei)
         / 2
         + payment_thresholds.permanent_debt_allowed_gwei) as i128
-        * GWEI_TO_WEI;
-    let ideal_template_lower = payment_thresholds.permanent_debt_allowed_gwei as i128 * GWEI_TO_WEI;
+        * WEIS_OF_GWEI;
+    let ideal_template_lower =
+        payment_thresholds.permanent_debt_allowed_gwei as i128 * WEIS_OF_GWEI;
     assert!(
         higher_corner_point <= ideal_template_higher + allowed_imprecision
             && ideal_template_higher - allowed_imprecision <= higher_corner_point,
