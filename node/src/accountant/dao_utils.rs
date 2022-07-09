@@ -64,11 +64,19 @@ impl DaoFactoryReal {
 pub enum CustomQuery<N> {
     TopRecords(u16),
     RangeQuery {
-        min_age: u64,
-        max_age: u64,
+        min_age_s: u64,
+        max_age_s: u64,
         min_amount_gwei: N,
         max_amount_gwei: N,
     },
+}
+
+pub struct RangeConfig {
+    pub main_where_clause: &'static str,
+    pub gwei_limit_clause: &'static str,
+    //note that this firm limit must be also supplied as query arguments
+    //because otherwise the value wouldn't have the rusqlite's 128_blob format
+    pub gwei_limit_params: Vec<Box<dyn ToSql>>,
 }
 
 impl<N: Copy + Display> CustomQuery<N> {
@@ -76,20 +84,20 @@ impl<N: Copy + Display> CustomQuery<N> {
         self,
         conn: &dyn ConnectionWrapper,
         main_stm_assembler: F1,
-        variant_range: &str,
+        variant_range: RangeConfig,
         variant_top: (&str, &str),
         value_fetcher: F2,
     ) -> Option<Vec<R>>
     where
-        F1: Fn(&str, &str) -> String,
+        F1: Fn(&str, &str, &str) -> String,
         F2: Fn(&Row) -> rusqlite::Result<R>,
-        S: TryFrom<N> + ToSql + PartialOrd<S> + From<u32>,
+        S: TryFrom<N> + ToSql,
     {
         let (finalized_stm, params) = match self {
             Self::TopRecords(count) => (
                 {
-                    let (a, b) = variant_top;
-                    main_stm_assembler(a, b)
+                    let (where_clause, limit_clause) = variant_top;
+                    main_stm_assembler(where_clause, "", limit_clause)
                 },
                 vec![
                     Box::new(WEIS_OF_GWEI) as Box<dyn ToSql>,
@@ -97,23 +105,29 @@ impl<N: Copy + Display> CustomQuery<N> {
                 ],
             ),
             Self::RangeQuery {
-                min_age,
-                max_age,
+                min_age_s: min_age,
+                max_age_s: max_age,
                 min_amount_gwei: min_amount,
                 max_amount_gwei: max_amount,
             } => {
                 let now = to_time_t(SystemTime::now());
-                let min_money_resolution = S::from(10_u32.pow(9));
                 let params: Vec<Box<dyn ToSql>> = vec![
-                    Box::new(now - min_age as i64),
+                    Box::new(now - min_age as i64) as Box<dyn ToSql>,
                     Box::new(now - max_age as i64),
-                    Box::new(match checked_conversion::<N, S>(min_amount) {
-                        limit if limit >= min_money_resolution => limit,
-                        _ => min_money_resolution,
-                    }),
+                    Box::new(checked_conversion::<N, S>(min_amount)),
                     Box::new(checked_conversion::<N, S>(max_amount)),
-                ];
-                (main_stm_assembler(variant_range, ""), params)
+                ]
+                .into_iter()
+                .chain(variant_range.gwei_limit_params.into_iter())
+                .collect();
+                (
+                    main_stm_assembler(
+                        variant_range.main_where_clause,
+                        variant_range.gwei_limit_clause,
+                        "",
+                    ),
+                    params,
+                )
             }
         };
         match conn
@@ -156,7 +170,7 @@ pub fn remap_receivable_accounts(accounts: Vec<ReceivableAccount>) -> Vec<UiRece
         .map(|account| UiReceivableAccount {
             wallet: account.wallet.to_string(),
             age: (to_time_t(SystemTime::now()) - to_time_t(account.last_received_timestamp)) as u64,
-            balance_gwei: account.balance_wei,
+            balance_gwei: (account.balance_wei / (WEIS_OF_GWEI as i128)) as i64,
         })
         .collect()
 }
@@ -203,8 +217,12 @@ mod tests {
 
         let _ = subject.query::<_, i128, _, _>(
             &conn_wrapped,
-            |_v1: &str, _v2: &str| "select kind, price from fruits".to_string(),
-            "",
+            |_va1: &str, _va2: &str, _vb: &str| "select kind, price from fruits".to_string(),
+            RangeConfig {
+                main_where_clause: "",
+                gwei_limit_clause: "",
+                gwei_limit_params: vec![],
+            },
             ("", ""),
             |_row| Ok(()),
         );

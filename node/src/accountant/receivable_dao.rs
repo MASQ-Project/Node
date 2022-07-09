@@ -1,3 +1,4 @@
+use std::ops::Neg;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::blob_utils::Table::Receivable;
 use crate::accountant::blob_utils::{
@@ -5,7 +6,9 @@ use crate::accountant::blob_utils::{
     InsertUpdateCoreReal, ParamKeyHolder, SQLExtendedParams, Table, UpdateConfig,
 };
 use crate::accountant::dao_utils;
-use crate::accountant::dao_utils::{now_time_t, to_time_t, CustomQuery, DaoFactoryReal};
+use crate::accountant::dao_utils::{
+    now_time_t, to_time_t, CustomQuery, DaoFactoryReal, RangeConfig,
+};
 use crate::accountant::receivable_dao::ReceivableDaoError::RusqliteError;
 use crate::accountant::{checked_conversion, ThresholdUtils};
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
@@ -180,27 +183,16 @@ impl ReceivableDao for ReceivableDaoReal {
     }
 
     fn custom_query(&self, custom_query: CustomQuery<i64>) -> Option<Vec<ReceivableAccount>> {
-        let statement_assembler = |range_query: &str, top_query: &str| {
-            format!(
-                "select
-                     wallet_address,
-                     balance,
-                     last_received_timestamp
-                 from
-                     receivable
-                 {}
-                 order by
-                     balance desc,
-                     last_received_timestamp desc
-                 {}",
-                range_query, top_query
-            )
+        let variant_range = RangeConfig{
+            main_where_clause: "where last_received_timestamp <= ? and last_received_timestamp >= ? and balance >= ? and balance <= ?",
+            gwei_limit_clause: "and (balance >= ? or balance <= ?)",
+            gwei_limit_params: vec![Box::new(WEIS_OF_GWEI),Box::new(WEIS_OF_GWEI.neg())]
         };
-        let variant_range = "where last_received_timestamp <= ? and last_received_timestamp >= ? and balance >= ? and balance <= ?";
-        let variant_top = ("blah", "limit ?");
+        let variant_top = ("where balance >= ?", "limit ?");
+
         custom_query.query::<_, i128, _, _>(
             self.conn.as_ref(),
-            statement_assembler,
+            Self::receivable_custom_query,
             variant_range,
             variant_top,
             Self::form_receivable_account,
@@ -377,6 +369,27 @@ impl ReceivableDaoReal {
                 e
             ),
         }
+    }
+
+    fn receivable_custom_query(
+        condition_a1: &str,
+        condition_a2: &str,
+        condition_b: &str,
+    ) -> String {
+        format!(
+            "select
+                 wallet_address,
+                 balance,
+                 last_received_timestamp
+             from
+                 receivable
+             {} {}
+             order by
+                 balance desc,
+                 last_received_timestamp desc
+             {}",
+            condition_a1, condition_a2, condition_b
+        )
     }
 
     fn more_money_received_pretty_error_log(
@@ -1280,7 +1293,7 @@ mod tests {
         let main_test_setup = |insert: &dyn Fn(&str, i128, i64)| {
             insert(
                 "0x1111111111111111111111111111111111111111",
-                999_454_656,
+                1_000_000_001,
                 timestamp1,
             );
             insert(
@@ -1290,31 +1303,31 @@ mod tests {
             );
             insert(
                 "0x3333333333333333333333333333333333333333",
-                990_000_000,
+                990_000_000, //below 1 Gwei
                 timestamp3,
             );
             insert(
                 "0x4444444444444444444444444444444444444444",
-                1_000_000_200,
+                32_000_000_200,
                 timestamp4,
             )
         };
         let subject =
             custom_query_test_body_receivable("custom_query_in_top_records_mode", main_test_setup);
 
-        let result = subject.custom_query(CustomQuery::TopRecords(2)).unwrap();
+        let result = subject.custom_query(CustomQuery::TopRecords(3)).unwrap();
 
         assert_eq!(
             result,
             vec![
                 ReceivableAccount {
                     wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
-                    balance_wei: 1_000_000_200,
+                    balance_wei: 32_000_000_200,
                     last_received_timestamp: from_time_t(timestamp4),
                 },
                 ReceivableAccount {
                     wallet: Wallet::new("0x1111111111111111111111111111111111111111"),
-                    balance_wei: 999_454_656,
+                    balance_wei: 1_000_000_001,
                     last_received_timestamp: from_time_t(timestamp1),
                 },
             ]
@@ -1330,8 +1343,8 @@ mod tests {
         );
 
         let result = subject.custom_query(CustomQuery::RangeQuery {
-            min_age: 20000,
-            max_age: 200000,
+            min_age_s: 20000,
+            max_age_s: 200000,
             min_amount_gwei: 500000000,
             max_amount_gwei: 3500000000,
         });
@@ -1349,21 +1362,21 @@ mod tests {
             insert(
                 "0x1111111111111111111111111111111111111111",
                 999_454_656,
-                timestamp1,
+                timestamp1, //too old
             );
             insert(
                 "0x2222222222222222222222222222222222222222",
-                600_655_455,
+                -6_655_455, //too small
                 timestamp2,
             );
             insert(
                 "0x3333333333333333333333333333333333333333",
-                990_000_000,
+                1_000_000_230,
                 timestamp3,
             );
             insert(
                 "0x4444444444444444444444444444444444444444",
-                1_000_000_200,
+                1_990_000_200, //too big
                 timestamp4,
             )
         };
@@ -1372,10 +1385,10 @@ mod tests {
 
         let result = subject
             .custom_query(CustomQuery::RangeQuery {
-                min_age: 60000,
-                max_age: 99000,
-                min_amount_gwei: 700000000,
-                max_amount_gwei: 1000000000,
+                min_age_s: 60000,
+                max_age_s: 99000,
+                min_amount_gwei: -560000,
+                max_amount_gwei: 1_100_000_000,
             })
             .unwrap();
 
@@ -1383,10 +1396,67 @@ mod tests {
             result,
             vec![ReceivableAccount {
                 wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
-                balance_wei: 990_000_000,
+                balance_wei: 1_000_000_230,
                 last_received_timestamp: from_time_t(timestamp3),
             }]
         );
+    }
+
+    #[test]
+    fn range_query_does_not_display_values_from_below_1_gwei() {
+        let timestamp1 = now_time_t() - 5000;
+        let timestamp2 = now_time_t() - 3232;
+        let main_setup = |insert: &dyn Fn(&str, i128, i64)| {
+            insert(
+                "0x1111111111111111111111111111111111111111",
+                400_005_601, //smaller than 1 Gwei
+                now_time_t() - 11_001,
+            );
+            insert(
+                "0x2222222222222222222222222222222222222222",
+                -100_005_601, //smaller than -1 Gwei
+                now_time_t() - 5_606,
+            );
+            insert(
+                "0x3333333333333333333333333333333333333333",
+                30_000_300_000,
+                timestamp1,
+            );
+            insert(
+                "0x4444444444444444444444444444444444444444",
+                -2_000_300_000,
+                timestamp2,
+            );
+        };
+        let subject = custom_query_test_body_receivable(
+            "range_query_does_not_display_values_from_below_1_gwei",
+            main_setup,
+        );
+
+        let result = subject
+            .custom_query(CustomQuery::RangeQuery {
+                min_age_s: 0,
+                max_age_s: 200000,
+                min_amount_gwei: i64::MIN,
+                max_amount_gwei: 35_000_000_000,
+            })
+            .unwrap();
+
+        assert_eq!(
+            result,
+            vec![
+                ReceivableAccount {
+                    wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
+                    balance_wei: 30_000_300_000,
+                    last_received_timestamp: from_time_t(timestamp1),
+                },
+                ReceivableAccount {
+                    wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
+                    balance_wei: -2_000_300_000,
+                    last_received_timestamp: from_time_t(timestamp2),
+                }
+            ]
+        )
     }
 
     #[test]

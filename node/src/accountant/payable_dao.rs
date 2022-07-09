@@ -5,10 +5,11 @@ use crate::accountant::blob_utils::{
     InsertUpdateCore, InsertUpdateCoreReal, ParamKeyHolder, SQLExtendedParams, Table, UpdateConfig,
 };
 use crate::accountant::dao_utils;
-use crate::accountant::dao_utils::{to_time_t, CustomQuery, DaoFactoryReal};
+use crate::accountant::dao_utils::{to_time_t, CustomQuery, DaoFactoryReal, RangeConfig};
 use crate::accountant::{checked_conversion, sign_conversion, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::sub_lib::accountant::WEIS_OF_GWEI;
 use crate::sub_lib::wallet::Wallet;
 #[cfg(test)]
 use ethereum_types::{BigEndianHash, U256};
@@ -177,31 +178,16 @@ impl PayableDao for PayableDaoReal {
     }
 
     fn custom_query(&self, custom_query: CustomQuery<u64>) -> Option<Vec<PayableAccount>> {
-        let statement_assembler = |condition_a: &str, condition_b: &str| {
-            format!(
-                "select
-                   wallet_address,
-                   balance,
-                   last_paid_timestamp,
-                   pending_payable_rowid,
-                   pending_payable.transaction_hash
-               from
-                   payable
-               left join pending_payable on
-                   pending_payable.rowid = payable.pending_payable_rowid
-               {}
-               order by
-                   balance desc,
-                   last_paid_timestamp desc
-               {}",
-                condition_a, condition_b
-            )
+        let variant_range = RangeConfig{
+            main_where_clause: "where last_paid_timestamp <= ? and last_paid_timestamp >= ? and balance >= ? and balance <= ?",
+            gwei_limit_clause: "and balance >= ?",
+            gwei_limit_params: vec![Box::new(WEIS_OF_GWEI)]
         };
-        let variant_range ="where last_paid_timestamp <= ? and last_paid_timestamp >= ? and balance >= ? and balance <= ?";
         let variant_top = ("where balance >= ?", "limit ?");
+
         custom_query.query::<_, i128, _, _>(
             self.conn.as_ref(),
-            statement_assembler,
+            Self::payable_custom_query,
             variant_range,
             variant_top,
             Self::form_payable_account,
@@ -301,6 +287,27 @@ impl PayableDaoReal {
                 e
             ),
         }
+    }
+
+    fn payable_custom_query(condition_a1: &str, condition_a2: &str, condition_b: &str) -> String {
+        format!(
+            "select
+               wallet_address,
+               balance,
+               last_paid_timestamp,
+               pending_payable_rowid,
+               pending_payable.transaction_hash
+           from
+               payable
+           left join pending_payable on
+               pending_payable.rowid = payable.pending_payable_rowid
+           {} {}
+           order by
+               balance desc,
+               last_paid_timestamp desc
+           {}",
+            condition_a1, condition_a2, condition_b
+        )
     }
 }
 
@@ -808,8 +815,8 @@ mod tests {
         );
 
         let result = subject.custom_query(CustomQuery::RangeQuery {
-            min_age: 20000,
-            max_age: 200000,
+            min_age_s: 20000,
+            max_age_s: 200000,
             min_amount_gwei: 500000000,
             max_amount_gwei: 3500000000,
         });
@@ -867,8 +874,8 @@ mod tests {
 
         let result = subject
             .custom_query(CustomQuery::RangeQuery {
-                min_age: 20000,
-                max_age: 200000,
+                min_age_s: 20000,
+                max_age_s: 200000,
                 min_amount_gwei: 500_000_000,
                 max_amount_gwei: 35_000_000_000,
             })
@@ -923,8 +930,8 @@ mod tests {
 
         let result = subject
             .custom_query(CustomQuery::RangeQuery {
-                min_age: 0,
-                max_age: 200000,
+                min_age_s: 0,
+                max_age_s: 200000,
                 min_amount_gwei: u64::MIN,
                 max_amount_gwei: 35_000_000_000,
             })

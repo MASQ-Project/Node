@@ -1019,10 +1019,10 @@ impl Accountant {
             convertor(
                 self,
                 CustomQuery::RangeQuery {
-                    min_age: payable_specs.min_age,
-                    max_age: payable_specs.max_age,
-                    min_amount_gwei: payable_specs.min_amount,
-                    max_amount_gwei: payable_specs.max_amount,
+                    min_age_s: payable_specs.min_age_seconds,
+                    max_age_s: payable_specs.max_age_seconds,
+                    min_amount_gwei: payable_specs.min_amount_gwei,
+                    max_amount_gwei: payable_specs.max_amount_gwei,
                 },
             )
         } else {
@@ -5038,20 +5038,12 @@ mod tests {
     fn compute_financials_processes_request_with_top_records_only() {
         let payable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
-        let payable_accounts_retrieved = vec![
-            PayableAccount {
-                wallet: make_wallet("abcd123"),
-                balance_wei: 58_568_686_005,
-                last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(5000)),
-                pending_payable_opt: None,
-            },
-            PayableAccount {
-                wallet: make_wallet("bb123aa"),
-                balance_wei: 568_686, //too small
-                last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(68000)),
-                pending_payable_opt: None,
-            },
-        ];
+        let payable_accounts_retrieved = vec![PayableAccount {
+            wallet: make_wallet("abcd123"),
+            balance_wei: 58_568_686_005,
+            last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(5000)),
+            pending_payable_opt: None,
+        }];
         let payable_dao = PayableDaoMock::new()
             .custom_query_params(&payable_custom_query_params_arc)
             .custom_query_result(Some(payable_accounts_retrieved));
@@ -5134,10 +5126,6 @@ mod tests {
             extracted_payable_ages[0] >= 5000
                 && extracted_payable_ages[0] <= 5000 + time_needed_for_the_act_in_full_sec
         );
-        // assert!(
-        //     extracted_payable_ages[1] >= 68000
-        //         && extracted_payable_ages[1] <= 68000 + time_needed_for_the_act_in_full_sec
-        // );
         assert!(
             extracted_receivable_ages[0] >= 6500
                 && extracted_receivable_ages[0] <= 6500 + time_needed_for_the_act_in_full_sec
@@ -5172,7 +5160,7 @@ mod tests {
         let receivable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_accounts_retrieved = vec![PayableAccount {
             wallet: make_wallet("abcd123"),
-            balance_wei: 5686860056,
+            balance_wei: 5_686_860_056,
             last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(7580)),
             pending_payable_opt: None,
         }];
@@ -5182,12 +5170,12 @@ mod tests {
         let receivable_accounts_retrieved = vec![
             ReceivableAccount {
                 wallet: make_wallet("efe4848"),
-                balance_wei: 60055600789,
+                balance_wei: 20_456_056_055_600_789,
                 last_received_timestamp: SystemTime::now().sub(Duration::from_secs(3333)),
             },
             ReceivableAccount {
                 wallet: make_wallet("bb123aa"),
-                balance_wei: 222555,
+                balance_wei: 550_555_565_233,
                 last_received_timestamp: SystemTime::now().sub(Duration::from_secs(87000)),
             },
         ];
@@ -5208,16 +5196,16 @@ mod tests {
             top_records_opt: None,
             custom_queries_opt: Some(CustomQueries {
                 payable_opt: Some(RangeQuery {
-                    min_age: 0,
-                    max_age: 8000,
-                    min_amount: 0,
-                    max_amount: 500000000000,
+                    min_age_seconds: 0,
+                    max_age_seconds: 8000,
+                    min_amount_gwei: 0,
+                    max_amount_gwei: 50_000_000,
                 }),
                 receivable_opt: Some(RangeQuery {
-                    min_age: 2000,
-                    max_age: 200000,
-                    min_amount: 0,
-                    max_amount: 150000000000,
+                    min_age_seconds: 2000,
+                    max_age_seconds: 200000,
+                    min_amount_gwei: 0,
+                    max_amount_gwei: 60_000_000,
                 }),
             }),
         };
@@ -5255,19 +5243,19 @@ mod tests {
                     payable_opt: Some(vec![UiPayableAccount {
                         wallet: make_wallet("abcd123").to_string(),
                         age: extracted_payable_ages[0],
-                        balance_gwei: 5686860056,
+                        balance_gwei: 5,
                         pending_payable_hash_opt: None
                     },]),
                     receivable_opt: Some(vec![
                         UiReceivableAccount {
                             wallet: make_wallet("efe4848").to_string(),
                             age: extracted_receivable_ages[0],
-                            balance_gwei: 60055600789
+                            balance_gwei: 20_456_056
                         },
                         UiReceivableAccount {
                             wallet: make_wallet("bb123aa").to_string(),
                             age: extracted_receivable_ages[1],
-                            balance_gwei: 222555,
+                            balance_gwei: 550,
                         }
                     ])
                 })
@@ -5291,20 +5279,20 @@ mod tests {
         assert_eq!(
             *payable_custom_query_params,
             vec![CustomQuery::RangeQuery {
-                min_age: 0,
-                max_age: 8000,
+                min_age_s: 0,
+                max_age_s: 8000,
                 min_amount_gwei: 0,
-                max_amount_gwei: 500000000000
+                max_amount_gwei: 50000000
             }]
         );
         let receivable_custom_query_params = receivable_custom_query_params_arc.lock().unwrap();
         assert_eq!(
             *receivable_custom_query_params,
             vec![CustomQuery::RangeQuery {
-                min_age: 2000,
-                max_age: 200000,
+                min_age_s: 2000,
+                max_age_s: 200000,
                 min_amount_gwei: 0,
-                max_amount_gwei: 150000000000
+                max_amount_gwei: 60000000
             }]
         )
     }
@@ -5334,10 +5322,10 @@ mod tests {
             custom_queries_opt: Some(CustomQueries {
                 payable_opt: None,
                 receivable_opt: Some(RangeQuery {
-                    min_age: 2000,
-                    max_age: 200000,
-                    min_amount: 0,
-                    max_amount: 150000000000,
+                    min_age_seconds: 2000,
+                    max_age_seconds: 200000,
+                    min_amount_gwei: 0,
+                    max_amount_gwei: 150000000000,
                 }),
             }),
         };
@@ -5367,7 +5355,7 @@ mod tests {
                     receivable_opt: Some(vec![UiReceivableAccount {
                         wallet: make_wallet("efe4848").to_string(),
                         age: extracted_receivable_ages[0],
-                        balance_gwei: 60055600789
+                        balance_gwei: 60
                     }])
                 })
             }
@@ -5382,8 +5370,8 @@ mod tests {
         assert_eq!(
             *receivable_custom_query_params,
             vec![CustomQuery::RangeQuery {
-                min_age: 2000,
-                max_age: 200000,
+                min_age_s: 2000,
+                max_age_s: 200000,
                 min_amount_gwei: 0,
                 max_amount_gwei: 150000000000
             }]

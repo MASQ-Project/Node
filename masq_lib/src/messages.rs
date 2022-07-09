@@ -578,14 +578,14 @@ pub struct CustomQueries {
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct RangeQuery<T> {
-    #[serde(rename = "minAge")]
-    pub min_age: u64,
-    #[serde(rename = "maxAge")]
-    pub max_age: u64,
-    #[serde(rename = "minAmount")]
-    pub min_amount: T,
-    #[serde(rename = "maxAmount")]
-    pub max_amount: T,
+    #[serde(rename = "minAgeSeconds")]
+    pub min_age_seconds: u64,
+    #[serde(rename = "maxAgeSeconds")]
+    pub max_age_seconds: u64,
+    #[serde(rename = "minAmountGwei")]
+    pub min_amount_gwei: T,
+    #[serde(rename = "maxAmountGwei")]
+    pub max_amount_gwei: T,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -640,7 +640,7 @@ pub struct UiReceivableAccount {
     pub wallet: String,
     pub age: u64,
     #[serde(rename = "balanceGwei")]
-    pub balance_gwei: i128,
+    pub balance_gwei: i64,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
