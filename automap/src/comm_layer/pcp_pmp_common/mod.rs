@@ -109,19 +109,19 @@ pub trait PoliteUdpSocketWrapperFactory: Send {
     fn make(&self, multicast_info: &MulticastInfo) -> io::Result<Box<dyn UdpSocketWrapper>>;
 }
 
-pub struct PoliteUdpSocketFactoryReal {}
+pub struct PoliteUdpSocketWrapperFactoryReal {}
 
-impl PoliteUdpSocketWrapperFactory for PoliteUdpSocketFactoryReal {
+impl PoliteUdpSocketWrapperFactory for PoliteUdpSocketWrapperFactoryReal {
     fn make(&self, multicast_info: &MulticastInfo) -> io::Result<Box<dyn UdpSocketWrapper>> {
         Ok(Box::new (UdpSocketWrapperReal::new (multicast_info.create_polite_socket()?)))
     }
 }
 
-impl PoliteUdpSocketFactoryReal {
+impl PoliteUdpSocketWrapperFactoryReal {
     pub fn new() -> Self {Self {}}
 }
 
-impl Default for PoliteUdpSocketFactoryReal {
+impl Default for PoliteUdpSocketWrapperFactoryReal {
     fn default() -> Self {Self::new()}
 }
 
