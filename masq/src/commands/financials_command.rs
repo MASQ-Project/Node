@@ -22,18 +22,20 @@ const FINANCIALS_SUBCOMMAND_ABOUT: &str =
 const TOP_ARG_HELP: &str = "Returns the first N records from both payable and receivable";
 const PAYABLE_ARG_HELP: &str = "Enables to configure a detailed query about the payable records by specifying two ranges, one for their age and another for their balance. The required format of the values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>";
 const RECEIVABLE_ARG_HELP: &str = "Enables to configure a detailed query about the receivable records by specifying two ranges, one for their age and another for their balance. The required format of the values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>";
-const NO_STATS_ARG_HELP: &str = "Disables the statistics that shows by default, with totals of paid and unpaid money from the view of both debtors and creditors. This argument is not allowed alone";
+const NO_STATS_ARG_HELP: &str = "Disables the statistics that displays by default, with totals of paid and unpaid money from the view of both debtors and creditors. This argument is not allowed alone";
+const GWEI_HELP: &str =
+    "Orders rendering money in Gwei of MASQ instead of whole MASQ which is the default";
 const WALLET_ADDRESS_LENGTH: usize = 42;
-const PAYABLE_HEADERS: &[&str] = &["Wallet", "Age [s]", "Balance [Wei]", "Pending tx"];
-const RECEIVABLE_HEADERS: &[&str] = &["Wallet", "Age [s]", "Balance [Wei]"];
 
 #[derive(Debug, Clone)]
 pub struct FinancialsCommand {
     stats_required: bool,
     top_records_opt: Option<u16>,
     custom_queries_opt: Option<CustomQueries>,
+    gwei_precision: bool,
 }
 
+//TODO short-hands???
 pub fn financials_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("financials")
         .about(FINANCIALS_SUBCOMMAND_ABOUT)
@@ -76,6 +78,15 @@ pub fn financials_subcommand() -> App<'static, 'static> {
                 .takes_value(false)
                 .required(false),
         )
+        .arg(
+            Arg::with_name("gwei")
+                .help(GWEI_HELP)
+                .value_name("GWEI")
+                .long("gwei")
+                .case_insensitive(false)
+                .takes_value(false)
+                .required(false),
+        )
         .groups(&[
             ArgGroup::with_name("no-stats-group")
                 .args(&["no-stats"])
@@ -95,57 +106,67 @@ impl Command for FinancialsCommand {
         };
         let output: Result<UiFinancialsResponse, CommandError> =
             transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
+        let gwei_flag = self.gwei_precision;
         match output {
             Ok(response) => {
                 let stdout = context.stdout();
                 if let Some(stats) = response.stats_opt {
-                    Self::financial_status_totals_header(stdout);
+                    Self::financial_status_totals_title(stdout, gwei_flag);
                     dump_parameter_line(
                         stdout,
                         "Unpaid and pending payable:",
                         &stats
-                            .total_unpaid_and_pending_payable
+                            .total_unpaid_and_pending_payable_gwei
                             .separate_with_commas(),
                     );
                     dump_parameter_line(
                         stdout,
                         "Paid payable:",
-                        &stats.total_paid_payable.separate_with_commas(),
+                        &stats.total_paid_payable_gwei.separate_with_commas(),
                     );
                     dump_parameter_line(
                         stdout,
                         "Unpaid receivable:",
-                        &stats.total_unpaid_receivable.separate_with_commas(),
+                        &stats.total_unpaid_receivable_gwei.separate_with_commas(),
                     );
                     dump_parameter_line(
                         stdout,
                         "Paid receivable:",
-                        &stats.total_paid_receivable.separate_with_commas(),
+                        &stats.total_paid_receivable_gwei.separate_with_commas(),
                     );
                 }
+
                 if let Some(top_records) = response.top_records_opt {
+                    let (payable_headers, receivable_headers) =
+                        Self::prepare_headings_of_records(gwei_flag);
                     if !top_records.payable.is_empty() {
-                        self.main_header_to_tops(stdout, "payable");
-                        self.render_payable(stdout, top_records.payable);
+                        self.title_for_tops(stdout, "payable");
+                        self.render_payable(stdout, top_records.payable, &payable_headers);
                     } else {
-                        self.main_header_to_tops(stdout, "payable");
-                        Self::no_records_found(stdout, PAYABLE_HEADERS, Self::write_payable_headers)
-                    }
-                    if !top_records.receivable.is_empty() {
-                        self.main_header_to_tops(stdout, "receivable");
-                        self.render_receivable(stdout, top_records.receivable)
-                    } else {
-                        self.main_header_to_tops(stdout, "receivable");
+                        self.title_for_tops(stdout, "payable");
                         Self::no_records_found(
                             stdout,
-                            RECEIVABLE_HEADERS,
-                            Self::write_receivable_headers,
+                            &payable_headers,
+                            Self::write_payable_headings,
+                        )
+                    }
+                    if !top_records.receivable.is_empty() {
+                        self.title_for_tops(stdout, "receivable");
+                        self.render_receivable(stdout, top_records.receivable, &receivable_headers)
+                    } else {
+                        self.title_for_tops(stdout, "receivable");
+                        Self::no_records_found(
+                            stdout,
+                            &receivable_headers,
+                            Self::write_receivable_headings,
                         )
                     }
                 }
                 if let Some(custom_query) = response.custom_query_records_opt {
+                    let (payable_headings, receivable_headings) =
+                        Self::prepare_headings_of_records(gwei_flag);
                     if let Some(payable_accounts) = custom_query.payable_opt {
-                        Self::custom_query_header(
+                        Self::title_for_custom_query(
                             stdout,
                             "Payable",
                             self.custom_queries_opt
@@ -154,8 +175,9 @@ impl Command for FinancialsCommand {
                                 .payable_opt
                                 .as_ref()
                                 .expectv("payable custom query"),
+                            gwei_flag,
                         );
-                        self.render_payable(stdout, payable_accounts)
+                        self.render_payable(stdout, payable_accounts, &payable_headings)
                     } else if self
                         .custom_queries_opt
                         .as_ref()
@@ -163,7 +185,7 @@ impl Command for FinancialsCommand {
                         .payable_opt
                         .is_some()
                     {
-                        Self::custom_query_header(
+                        Self::title_for_custom_query(
                             stdout,
                             "Payable",
                             self.custom_queries_opt
@@ -172,11 +194,16 @@ impl Command for FinancialsCommand {
                                 .payable_opt
                                 .as_ref()
                                 .expectv("payable custom query"),
+                            gwei_flag,
                         );
-                        Self::no_records_found(stdout, PAYABLE_HEADERS, Self::write_payable_headers)
+                        Self::no_records_found(
+                            stdout,
+                            &payable_headings,
+                            Self::write_payable_headings,
+                        )
                     }
                     if let Some(receivable_accounts) = custom_query.receivable_opt {
-                        Self::custom_query_header(
+                        Self::title_for_custom_query(
                             stdout,
                             "Receivable",
                             self.custom_queries_opt
@@ -185,8 +212,9 @@ impl Command for FinancialsCommand {
                                 .receivable_opt
                                 .as_ref()
                                 .expectv("receivable custom query"),
+                            gwei_flag,
                         );
-                        self.render_receivable(stdout, receivable_accounts)
+                        self.render_receivable(stdout, receivable_accounts, &receivable_headings)
                     } else if self
                         .custom_queries_opt
                         .as_ref()
@@ -194,7 +222,7 @@ impl Command for FinancialsCommand {
                         .receivable_opt
                         .is_some()
                     {
-                        Self::custom_query_header(
+                        Self::title_for_custom_query(
                             stdout,
                             "Receivable",
                             self.custom_queries_opt
@@ -203,11 +231,12 @@ impl Command for FinancialsCommand {
                                 .receivable_opt
                                 .as_ref()
                                 .expectv("receivable custom query"),
+                            gwei_flag,
                         );
                         Self::no_records_found(
                             stdout,
-                            RECEIVABLE_HEADERS,
-                            Self::write_receivable_headers,
+                            &receivable_headings,
+                            Self::write_receivable_headings,
                         )
                     }
                 }
@@ -234,6 +263,7 @@ impl FinancialsCommand {
         });
         let custom_payable_opt = Self::parse_range_query(&matches, "payable");
         let custom_receivable_opt = Self::parse_range_query(&matches, "receivable");
+        let gwei_precision = matches.is_present("gwei");
         Ok(Self {
             stats_required,
             top_records_opt,
@@ -244,6 +274,7 @@ impl FinancialsCommand {
                     receivable_opt: custom_receivable_opt,
                 }),
             },
+            gwei_precision,
         })
     }
 
@@ -261,20 +292,44 @@ impl FinancialsCommand {
                 .map(|half| half.rsplit_once('-').expect("blah"))
                 .fold(vec![], |acc, current| plus(plus(acc, current.0), current.1));
             RangeQuery {
-                min_age: Self::parse(params[0], "min_age"),
-                max_age: Self::parse(params[1], "max_age"),
-                min_amount: Self::parse::<T>(params[2], "min_amount"),
-                max_amount: Self::parse::<T>(params[3], "max_amount"),
+                min_age_seconds: Self::parse(params[0], "min_age"),
+                max_age_seconds: Self::parse(params[1], "max_age"),
+                min_amount_gwei: Self::parse::<T>(params[2], "min_amount"),
+                max_amount_gwei: Self::parse::<T>(params[3], "max_amount"),
             }
         })
     }
 
-    fn financial_status_totals_header(stdout: &mut dyn Write) {
-        short_writeln!(stdout, "Financial status totals in Wei");
-        short_writeln!(stdout, "{}", "=".repeat(30));
+    fn print_gwei_or_masq_unit_type(gwei: bool) -> &'static str {
+        if gwei {
+            "Gwei"
+        } else {
+            todo!()
+        }
     }
 
-    fn main_header_to_tops(&self, stdout: &mut dyn Write, distinguished: &str) {
+    fn prepare_headings_of_records(gwei: bool) -> (Vec<&'static str>, Vec<&'static str>) {
+        let balance = if !gwei {
+            "Balnce [MASQ]"
+        } else {
+            "Balance [Gwei]"
+        };
+        (
+            vec!["Wallet", "Age [s]", balance, "Pending tx"],
+            vec!["Wallet", "Age [s]", balance],
+        )
+    }
+
+    fn financial_status_totals_title(stdout: &mut dyn Write, gwei: bool) {
+        let title = format!(
+            "Financial status totals in {}",
+            Self::print_gwei_or_masq_unit_type(gwei)
+        );
+        short_writeln!(stdout, "{}", title);
+        short_writeln!(stdout, "{}", "=".repeat(title.len()));
+    }
+
+    fn title_for_tops(&self, stdout: &mut dyn Write, distinguished: &str) {
         Self::double_blank_line(stdout);
         let requested_count = self.top_records_opt.expectv("requested count");
         short_writeln!(
@@ -300,34 +355,38 @@ impl FinancialsCommand {
         optimal_widths.iter().sum::<usize>() + WALLET_ADDRESS_LENGTH + optimal_widths.len() + 2
     }
 
-    fn headers_underscore(optimal_widths: &[usize]) -> String {
+    fn heading_underscore(optimal_widths: &[usize]) -> String {
         "-".repeat(Self::full_length(optimal_widths))
     }
 
-    fn render_payable(&self, stdout: &mut dyn Write, accounts: Vec<UiPayableAccount>) {
-        let headers = PAYABLE_HEADERS;
+    fn render_payable(
+        &self,
+        stdout: &mut dyn Write,
+        accounts: Vec<UiPayableAccount>,
+        headings: &[&str],
+    ) {
         let optimal_widths = Self::width_precise_calculation(
-            headers,
+            headings,
             &accounts
                 .iter()
                 .map(|each| each as &dyn WidthInfo)
                 .collect::<Vec<&dyn WidthInfo>>(),
         );
-        Self::write_payable_headers(stdout, headers, &optimal_widths);
+        Self::write_payable_headings(stdout, headings, &optimal_widths);
         accounts
             .iter()
             .for_each(|account| Self::render_single_payable(stdout, account, &optimal_widths));
     }
 
-    fn write_payable_headers(stdout: &mut dyn Write, headers: &[&str], optimal_widths: &[usize]) {
+    fn write_payable_headings(stdout: &mut dyn Write, headings: &[&str], optimal_widths: &[usize]) {
         short_writeln!(
             stdout,
             "|{:^wallet_width$}|{:^age_width$}|{:^balance_width$}|{:^rowid_width$}|\n{}",
-            headers[0],
-            headers[1],
-            headers[2],
-            headers[3],
-            Self::headers_underscore(optimal_widths),
+            headings[0],
+            headings[1],
+            headings[2],
+            headings[3],
+            Self::heading_underscore(optimal_widths),
             wallet_width = WALLET_ADDRESS_LENGTH,
             age_width = optimal_widths[0],
             balance_width = optimal_widths[1],
@@ -345,7 +404,7 @@ impl FinancialsCommand {
             "|{:wallet_width$}|{:>age_width$}|{:>balance_width$}|{:>rowid_width$}|",
             account.wallet,
             account.age.separate_with_commas(),
-            account.balance.separate_with_commas(),
+            account.balance_gwei.separate_with_commas(),
             if let Some(hash) = &account.pending_payable_hash_opt {
                 hash.as_str()
             } else {
@@ -358,33 +417,37 @@ impl FinancialsCommand {
         )
     }
 
-    fn render_receivable(&self, stdout: &mut dyn Write, accounts: Vec<UiReceivableAccount>) {
-        let headers = &["Wallet", "Age [s]", "Balance [Wei]"];
+    fn render_receivable(
+        &self,
+        stdout: &mut dyn Write,
+        accounts: Vec<UiReceivableAccount>,
+        headings: &[&str],
+    ) {
         let optimal_widths = Self::width_precise_calculation(
-            headers,
+            headings,
             &accounts
                 .iter()
                 .map(|each| each as &dyn WidthInfo)
                 .collect::<Vec<&dyn WidthInfo>>(),
         );
-        Self::write_receivable_headers(stdout, RECEIVABLE_HEADERS, &optimal_widths);
+        Self::write_receivable_headings(stdout, headings, &optimal_widths);
         accounts
             .iter()
             .for_each(|account| Self::render_single_receivable(stdout, account, &optimal_widths));
     }
 
-    fn write_receivable_headers(
+    fn write_receivable_headings(
         stdout: &mut dyn Write,
-        headers: &[&str],
+        headings: &[&str],
         optimal_widths: &[usize],
     ) {
         short_writeln!(
             stdout,
             "|{:^wallet_width$}|{:^age_width$}|{:^balance_width$}|\n{}",
-            headers[0],
-            headers[1],
-            headers[2],
-            Self::headers_underscore(optimal_widths),
+            headings[0],
+            headings[1],
+            headings[2],
+            Self::heading_underscore(optimal_widths),
             wallet_width = WALLET_ADDRESS_LENGTH,
             age_width = optimal_widths[0],
             balance_width = optimal_widths[1],
@@ -401,48 +464,52 @@ impl FinancialsCommand {
             "|{:wallet_width$}|{:>age_width$}|{:>balance_width$}|",
             account.wallet,
             account.age.separate_with_commas(),
-            account.balance.separate_with_commas(),
+            account.balance_gwei.separate_with_commas(),
             wallet_width = WALLET_ADDRESS_LENGTH,
             age_width = width_config[0],
             balance_width = width_config[1],
         )
     }
 
-    fn custom_query_header<N: Display>(
+    fn title_for_custom_query<N: Display>(
         stdout: &mut dyn Write,
         distinguished: &str,
         range_query: &RangeQuery<N>,
+        gwei: bool,
     ) {
+        let unit = Self::print_gwei_or_masq_unit_type(gwei);
         Self::double_blank_line(stdout);
         short_writeln!(
             stdout,
-            "{} query with parameters: {}-{} s and {}-{} Wei\n{}",
+            "{} query with parameters: {}-{} s and {}-{} {}\n{}",
             distinguished,
-            range_query.min_age,
-            range_query.max_age,
-            range_query.min_amount,
-            range_query.max_amount,
+            range_query.min_age_seconds,
+            range_query.max_age_seconds,
+            range_query.min_amount_gwei,
+            range_query.max_amount_gwei,
+            unit,
             "=".repeat(
-                37 + distinguished.len()
-                    + range_query.min_age.to_string().len()
-                    + range_query.max_age.to_string().len()
-                    + range_query.min_amount.to_string().len()
-                    + range_query.max_amount.to_string().len()
+                34 + distinguished.len()
+                    + unit.len()
+                    + range_query.min_age_seconds.to_string().len()
+                    + range_query.max_age_seconds.to_string().len()
+                    + range_query.min_amount_gwei.to_string().len()
+                    + range_query.max_amount_gwei.to_string().len()
             )
         )
     }
 
-    fn no_records_found<F>(stdout: &mut dyn Write, headers: &[&str], write_headers: F)
+    fn no_records_found<F>(stdout: &mut dyn Write, headings: &[&str], write_headings: F)
     where
         F: Fn(&mut dyn Write, &[&str], &[usize]),
     {
-        let headers_widths = headers
+        let headings_widths = headings
             .iter()
             .skip(1)
             .map(|word| word.len() + 2)
             .collect::<Vec<usize>>();
-        let full_length = Self::full_length(&headers_widths);
-        write_headers(stdout, headers, &headers_widths);
+        let full_length = Self::full_length(&headings_widths);
+        write_headings(stdout, headings, &headings_widths);
         short_writeln!(
             stdout,
             "{:^width$}",
@@ -501,7 +568,7 @@ impl WidthInfo for UiPayableAccount {
     fn widths(&self) -> Vec<usize> {
         vec![
             FinancialsCommand::count_length_with_comma_separators(self.age),
-            FinancialsCommand::count_length_with_comma_separators(self.balance),
+            FinancialsCommand::count_length_with_comma_separators(self.balance_gwei),
             if let Some(transaction_hash) = &self.pending_payable_hash_opt {
                 transaction_hash.len()
             } else {
@@ -515,7 +582,7 @@ impl WidthInfo for UiReceivableAccount {
     fn widths(&self) -> Vec<usize> {
         vec![
             FinancialsCommand::count_length_with_comma_separators(self.age),
-            FinancialsCommand::count_length_with_comma_separators(self.balance),
+            FinancialsCommand::count_length_with_comma_separators(self.balance_gwei),
         ]
     }
 }
@@ -547,12 +614,11 @@ mod tests {
         assert_eq!(PAYABLE_ARG_HELP,"Enables to configure a detailed query about the payable records by specifying two ranges, one for their age and another for their balance. The required format of the values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>");
         assert_eq!(RECEIVABLE_ARG_HELP,"Enables to configure a detailed query about the receivable records by specifying two ranges, one for their age and another for their balance. The required format of the values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>");
         assert_eq!(NO_STATS_ARG_HELP,"Disables the statistics that shows by default, with totals of paid and unpaid money from the view of both debtors and creditors. This argument is not allowed alone");
-        assert_eq!(WALLET_ADDRESS_LENGTH, 42);
         assert_eq!(
-            PAYABLE_HEADERS,
-            &["Wallet", "Age [s]", "Balance [Wei]", "Pending tx"]
+            GWEI_HELP,
+            "Orders rendering money in Gwei of MASQ instead of whole MASQ which is the default"
         );
-        assert_eq!(RECEIVABLE_HEADERS, &["Wallet", "Age [s]", "Balance [Wei]"]);
+        assert_eq!(WALLET_ADDRESS_LENGTH, 42);
     }
 
     #[test]
@@ -560,10 +626,10 @@ mod tests {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new().transact_result(Ok(UiFinancialsResponse {
             stats_opt: Some(UiFinancialStatistics {
-                total_unpaid_and_pending_payable: 0,
-                total_paid_payable: 1111,
-                total_unpaid_receivable: 2222,
-                total_paid_receivable: 3333,
+                total_unpaid_and_pending_payable_gwei: 0,
+                total_paid_payable_gwei: 1111,
+                total_unpaid_receivable_gwei: 2222,
+                total_paid_receivable_gwei: 3333,
             }),
             top_records_opt: None,
             custom_query_records_opt: None,
@@ -607,10 +673,10 @@ mod tests {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new().transact_result(Ok(UiFinancialsResponse {
             stats_opt: Some(UiFinancialStatistics {
-                total_unpaid_and_pending_payable: 0,
-                total_paid_payable: 1111,
-                total_unpaid_receivable: 2222,
-                total_paid_receivable: 3333,
+                total_unpaid_and_pending_payable_gwei: 0,
+                total_paid_payable_gwei: 1111,
+                total_unpaid_receivable_gwei: 2222,
+                total_paid_receivable_gwei: 3333,
             }),
             top_records_opt: Some(FirmQueryResult {
                 payable: vec![],
@@ -629,6 +695,7 @@ mod tests {
                 "10",
                 "--payable",
                 "200-450|48000000111-158000008000",
+                "--gwei",
             ]))
             .unwrap();
 
@@ -659,10 +726,10 @@ mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiFinancialsResponse {
             stats_opt: Some(UiFinancialStatistics {
-                total_unpaid_and_pending_payable: 116688,
-                total_paid_payable: 55555458897001,
-                total_unpaid_receivable: 221144,
-                total_paid_receivable: 66555,
+                total_unpaid_and_pending_payable_gwei: 1_166_880_215,
+                total_paid_payable_gwei: 78_455_555,
+                total_unpaid_receivable_gwei: 221_144,
+                total_paid_receivable_gwei: 1_278_766_555_456,
             }),
             top_records_opt: None,
             custom_query_records_opt: None,
@@ -694,12 +761,12 @@ mod tests {
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
             "\
-                Financial status totals in Wei\n\
-                ==============================\n\
-                Unpaid and pending payable:       116,688\n\
-                Paid payable:                     55,555,458,897,001\n\
-                Unpaid receivable:                221,144\n\
-                Paid receivable:                  66,555\n"
+                Financial status totals in MASQ\n\
+                ===============================\n\
+                Unpaid and pending payable:       1.166\n\
+                Paid payable:                     0.078\n\
+                Unpaid receivable:                < 0.000\n\
+                Paid receivable:                  1278.766\n"
         );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
@@ -752,52 +819,9 @@ mod tests {
     }
 
     #[test]
-    fn financials_command_everything_demanded_happy_path() {
+    fn financials_command_everything_demanded_default_units_as_masq() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let expected_response = UiFinancialsResponse {
-            stats_opt: Some(UiFinancialStatistics {
-                total_unpaid_and_pending_payable: 116688555,
-                total_paid_payable: 555554578,
-                total_unpaid_receivable: 4572221144,
-                total_paid_receivable: 665557879787845,
-            }),
-            top_records_opt: Some(FirmQueryResult {
-                payable: vec![
-                    UiPayableAccount {
-                        wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
-                        age: 150000,
-                        balance: 8456582898,
-                        pending_payable_hash_opt: Some(
-                            "0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e"
-                                .to_string(),
-                        ),
-                    },
-                    UiPayableAccount {
-                        wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
-                        age: 5645405400,
-                        balance: 884332566,
-                        pending_payable_hash_opt: None,
-                    },
-                ],
-                receivable: vec![UiReceivableAccount {
-                    wallet: "0x6e250504DdfFDb986C4F0bb8Df162503B4118b05".to_string(),
-                    age: 22000,
-                    balance: 12444551012,
-                }],
-            }),
-            custom_query_records_opt: Some(CustomQueryResult {
-                payable_opt: Some(vec![UiPayableAccount {
-                    wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
-                    age: 150000,
-                    balance: 8456582898,
-                    pending_payable_hash_opt: Some(
-                        "0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e"
-                            .to_string(),
-                    ),
-                }]),
-                receivable_opt: None,
-            }),
-        };
+        let expected_response = everything_demanded_tests_expected_response();
         let args = array_of_borrows_to_vec(&[
             "financials",
             "--top",
@@ -826,16 +850,16 @@ mod tests {
                     top_records_opt: Some(123),
                     custom_queries_opt: Some(CustomQueries {
                         payable_opt: Some(RangeQuery {
-                            min_age: 0,
-                            max_age: 350000,
-                            min_amount: 5000000,
-                            max_amount: 9000000000
+                            min_age_seconds: 0,
+                            max_age_seconds: 350000,
+                            min_amount_gwei: 5000000,
+                            max_amount_gwei: 9000000000
                         }),
                         receivable_opt: Some(RangeQuery {
-                            min_age: 5000,
-                            max_age: 10000,
-                            min_amount: 3000000,
-                            max_amount: 5600070000
+                            min_age_seconds: 5000,
+                            max_age_seconds: 10000,
+                            min_amount_gwei: 3000000,
+                            max_amount_gwei: 5600070000
                         })
                     })
                 }
@@ -887,15 +911,156 @@ mod tests {
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
+    fn everything_demanded_tests_expected_response() -> UiFinancialsResponse {
+        UiFinancialsResponse {
+            stats_opt: Some(UiFinancialStatistics {
+                total_unpaid_and_pending_payable_gwei: 116688555,
+                total_paid_payable_gwei: 235555554578,
+                total_unpaid_receivable_gwei: 0,
+                total_paid_receivable_gwei: 665557,
+            }),
+            top_records_opt: Some(FirmQueryResult {
+                payable: vec![
+                    UiPayableAccount {
+                        wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
+                        age: 150000,
+                        balance_gwei: 8,
+                        pending_payable_hash_opt: Some(
+                            "0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e"
+                                .to_string(),
+                        ),
+                    },
+                    UiPayableAccount {
+                        wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
+                        age: 5645405400,
+                        balance_gwei: 68843325667,
+                        pending_payable_hash_opt: None,
+                    },
+                ],
+                receivable: vec![UiReceivableAccount {
+                    wallet: "0x6e250504DdfFDb986C4F0bb8Df162503B4118b05".to_string(),
+                    age: 22000,
+                    balance_gwei: 24445331245,
+                }],
+            }),
+            custom_query_records_opt: Some(CustomQueryResult {
+                payable_opt: Some(vec![UiPayableAccount {
+                    wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
+                    age: 150000,
+                    balance_gwei: 8,
+                    pending_payable_hash_opt: Some(
+                        "0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e"
+                            .to_string(),
+                    ),
+                }]),
+                receivable_opt: None,
+            }),
+        }
+    }
+
+    #[test]
+    fn financials_command_everything_demanded_with_gwei_precision() {
+        let transact_params_arc = Arc::new(Mutex::new(vec![]));
+        let expected_response = everything_demanded_tests_expected_response();
+        let args = array_of_borrows_to_vec(&[
+            "financials",
+            "--top",
+            "123",
+            "--payable",
+            "0-350000|5000000-9000000000",
+            "--receivable",
+            "5000-10000|4000-50003000000",
+            "--gwei",
+        ]);
+        let mut context = CommandContextMock::new()
+            .transact_params(&transact_params_arc)
+            .transact_result(Ok(expected_response.tmb(31)));
+        let stdout_arc = context.stdout_arc();
+        let stderr_arc = context.stderr_arc();
+        let subject = FinancialsCommand::new(&args).unwrap();
+
+        let result = subject.execute(&mut context);
+
+        assert_eq!(result, Ok(()));
+        let transact_params = transact_params_arc.lock().unwrap();
+        assert_eq!(
+            *transact_params,
+            vec![(
+                UiFinancialsRequest {
+                    stats_required: true,
+                    top_records_opt: Some(123),
+                    custom_queries_opt: Some(CustomQueries {
+                        payable_opt: Some(RangeQuery {
+                            min_age_seconds: 0,
+                            max_age_seconds: 350000,
+                            min_amount_gwei: 5000000,
+                            max_amount_gwei: 9000000000
+                        }),
+                        receivable_opt: Some(RangeQuery {
+                            min_age_seconds: 5000,
+                            max_age_seconds: 10000,
+                            min_amount_gwei: 4000,
+                            max_amount_gwei: 50003000000
+                        })
+                    })
+                }
+                .tmb(0),
+                STANDARD_COMMAND_TIMEOUT_MILLIS
+            )]
+        );
+        assert_eq!(stdout_arc.lock().unwrap().get_string(), {
+            let main_text_block: &str = "\
+                Financial status totals in Gwei\n\
+                ===============================\n\
+                Unpaid and pending payable:       116,688,555\n\
+                Paid payable:                     235,555,554,578\n\
+                Unpaid receivable:                0\n\
+                Paid receivable:                  665,557\n\
+                \n\
+                \n\
+                Top 123 accounts in payable\n\
+                ===========================\n\
+                |                  Wallet                  |   Age [s]   | Balance [Gwei] |                            Pending tx                            |\n\
+                ----------------------------------------------------------------------------------------------------------------------------------------------\n\
+                |0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440|      150,000|               8|0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e|\n\
+                |0xA884A2F1A5Ec6C2e499644666a5E6af97B966888|5,645,405,400|  68,843,325,667|                                                              None|\n\
+                \n\
+                \n\
+                Top 123 accounts in receivable\n\
+                ==============================\n\
+                |                  Wallet                  | Age [s] | Balance [Gwei] |\n\
+                -----------------------------------------------------------------------\n\
+                |0x6e250504DdfFDb986C4F0bb8Df162503B4118b05|   22,000|  24,445,331,245|\n\
+                \n\
+                \n\
+                Payable query with parameters: 0-350000 s and 5000000-9000000000 Gwei\n\
+                =====================================================================\n\
+                |                  Wallet                  | Age [s] | Balance [Gwei] |                            Pending tx                            |\n\
+                ------------------------------------------------------------------------------------------------------------------------------------------\n\
+                |0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440|  150,000|               8|0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e|\n\
+                \n\
+                \n\
+                Receivable query with parameters: 5000-10000 s and 4000-50003000000 Gwei\n\
+                ========================================================================\n\
+                |                  Wallet                  | Age [s] | Balance [Gwei] |\n\
+                -----------------------------------------------------------------------\n";
+            format!(
+                "{}                           No records found                            \n",
+                main_text_block
+            )
+        });
+        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+    }
+
     #[test]
     fn financials_command_no_records_found_with_everything_demanded() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiFinancialsResponse {
             stats_opt: Some(UiFinancialStatistics {
-                total_unpaid_and_pending_payable: 116688,
-                total_paid_payable: 55555,
-                total_unpaid_receivable: 221144,
-                total_paid_receivable: 66555,
+                total_unpaid_and_pending_payable_gwei: 116688,
+                total_paid_payable_gwei: 55555,
+                total_unpaid_receivable_gwei: 221144,
+                total_paid_receivable_gwei: 66555,
             }),
             top_records_opt: Some(FirmQueryResult {
                 payable: vec![],
@@ -934,16 +1099,16 @@ mod tests {
                     top_records_opt: Some(10),
                     custom_queries_opt: Some(CustomQueries {
                         payable_opt: Some(RangeQuery {
-                            min_age: 0,
-                            max_age: 400000,
-                            min_amount: 5000000,
-                            max_amount: 60000000
+                            min_age_seconds: 0,
+                            max_age_seconds: 400000,
+                            min_amount_gwei: 5000000,
+                            max_amount_gwei: 60000000
                         }),
                         receivable_opt: Some(RangeQuery {
-                            min_age: 40000,
-                            max_age: 80000,
-                            min_amount: 10000,
-                            max_amount: 1000000000
+                            min_age_seconds: 40000,
+                            max_age_seconds: 80000,
+                            min_amount_gwei: 10000,
+                            max_amount_gwei: 1000000000
                         })
                     })
                 }
@@ -1004,7 +1169,7 @@ mod tests {
                 payable: vec![UiPayableAccount {
                     wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
                     age: 5645405400,
-                    balance: 6000000,
+                    balance_gwei: 6000000,
                     pending_payable_hash_opt: Some(
                         "0x3648c8b8c7e067ac30b80b6936159326d564dd13b7ae465b26647154ada2c638"
                             .to_string(),
@@ -1013,7 +1178,7 @@ mod tests {
                 receivable: vec![UiReceivableAccount {
                     wallet: "0x6e250504DdfFDb986C4F0bb8Df162503B4118b05".to_string(),
                     age: 11111111,
-                    balance: 12444551012,
+                    balance_gwei: 12444551012,
                 }],
             }),
             custom_query_records_opt: None,
@@ -1073,7 +1238,7 @@ mod tests {
                     UiPayableAccount {
                         wallet: "0x6e250504DdfFDb986C4F0bb8Df162503B4118b05".to_string(),
                         age: 4445,
-                        balance: 9898999888,
+                        balance_gwei: 9898999888,
                         pending_payable_hash_opt: Some(
                             "0x5fe272ed1e941cc05fbd624ec4b1546cd03c25d53e24ba2c18b11feb83cd4581"
                                 .to_string(),
@@ -1082,13 +1247,13 @@ mod tests {
                     UiPayableAccount {
                         wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
                         age: 70000,
-                        balance: 708090,
+                        balance_gwei: 708090,
                         pending_payable_hash_opt: None,
                     },
                     UiPayableAccount {
                         wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
                         age: 6089909,
-                        balance: 66658,
+                        balance_gwei: 66658,
                         pending_payable_hash_opt: None,
                     },
                 ]),
@@ -1120,10 +1285,10 @@ mod tests {
                     top_records_opt: None,
                     custom_queries_opt: Some(CustomQueries {
                         payable_opt: Some(RangeQuery {
-                            min_age: 3000,
-                            max_age: 40000,
-                            min_amount: 8866,
-                            max_amount: 10000000
+                            min_age_seconds: 3000,
+                            max_age_seconds: 40000,
+                            min_amount_gwei: 8866,
+                            max_amount_gwei: 10000000
                         }),
                         receivable_opt: None
                     })
@@ -1159,17 +1324,17 @@ mod tests {
                     UiReceivableAccount {
                         wallet: "0x6e250504DdfFDb986C4F0bb8Df162503B4118b05".to_string(),
                         age: 4445,
-                        balance: 9898999888,
+                        balance_gwei: 9898999888,
                     },
                     UiReceivableAccount {
                         wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
                         age: 70000,
-                        balance: 708090,
+                        balance_gwei: 708090,
                     },
                     UiReceivableAccount {
                         wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
                         age: 6089909,
-                        balance: 66658,
+                        balance_gwei: 66658,
                     },
                 ]),
             }),
@@ -1200,10 +1365,10 @@ mod tests {
                     custom_queries_opt: Some(CustomQueries {
                         payable_opt: None,
                         receivable_opt: Some(RangeQuery {
-                            min_age: 3000,
-                            max_age: 40000,
-                            min_amount: 8866,
-                            max_amount: 10000000
+                            min_age_seconds: 3000,
+                            max_age_seconds: 40000,
+                            min_amount_gwei: 8866,
+                            max_amount_gwei: 10000000
                         })
                     })
                 }

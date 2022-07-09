@@ -1172,10 +1172,10 @@ mod tests {
         let node_server = MockWebSocketsServer::new(node_port).queue_response(
             UiFinancialsResponse {
                 stats_opt: Some(UiFinancialStatistics {
-                    total_unpaid_and_pending_payable: 10,
-                    total_paid_payable: 22,
-                    total_unpaid_receivable: 29,
-                    total_paid_receivable: 32,
+                    total_unpaid_and_pending_payable_gwei: 10,
+                    total_paid_payable_gwei: 22,
+                    total_unpaid_receivable_gwei: 29,
+                    total_paid_receivable_gwei: 32,
                 }),
                 top_records_opt: None,
                 custom_query_records_opt: None,
@@ -1215,10 +1215,10 @@ mod tests {
             response,
             UiFinancialsResponse {
                 stats_opt: Some(UiFinancialStatistics {
-                    total_unpaid_and_pending_payable: 10,
-                    total_paid_payable: 22,
-                    total_unpaid_receivable: 29,
-                    total_paid_receivable: 32,
+                    total_unpaid_and_pending_payable_gwei: 10,
+                    total_paid_payable_gwei: 22,
+                    total_unpaid_receivable_gwei: 29,
+                    total_paid_receivable_gwei: 32,
                 }),
                 top_records_opt: None,
                 custom_query_records_opt: None
