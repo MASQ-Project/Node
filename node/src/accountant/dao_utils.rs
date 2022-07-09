@@ -139,11 +139,7 @@ impl<N: Copy + Display> CustomQuery<N> {
             ) {
             Ok(accounts) => {
                 let vectored = accounts.flatten().collect::<Vec<R>>();
-                if vectored.is_empty() {
-                    None
-                } else {
-                    Some(vectored)
-                }
+                (!vectored.is_empty()).then_some(vectored)
             }
             Err(e) => panic!("database corrupt: {}", e),
         }
@@ -156,7 +152,10 @@ pub fn remap_payable_accounts(accounts: Vec<PayableAccount>) -> Vec<UiPayableAcc
         .map(|account| UiPayableAccount {
             wallet: account.wallet.to_string(),
             age: (to_time_t(SystemTime::now()) - to_time_t(account.last_paid_timestamp)) as u64,
-            balance_gwei: (account.balance_wei / (WEIS_OF_GWEI as u128)) as u64,
+            balance_gwei: match (account.balance_wei / (WEIS_OF_GWEI as u128)) as u64{
+                x if x > 0 => x,
+                _ => panic!("Broken code: PayableAccount with less than 1 Gwei passed through db query constrains; wallet: {}, balance: {}",account.wallet,account.balance_wei)
+            },
             pending_payable_hash_opt: account
                 .pending_payable_opt
                 .map(|full_id| full_id.hash.to_string()),
@@ -170,7 +169,14 @@ pub fn remap_receivable_accounts(accounts: Vec<ReceivableAccount>) -> Vec<UiRece
         .map(|account| UiReceivableAccount {
             wallet: account.wallet.to_string(),
             age: (to_time_t(SystemTime::now()) - to_time_t(account.last_received_timestamp)) as u64,
-            balance_gwei: (account.balance_wei / (WEIS_OF_GWEI as i128)) as i64,
+            balance_gwei: match (account.balance_wei / (WEIS_OF_GWEI as i128)) as i64{
+            x if x > 0 || x < 0 => x,
+            _ => panic!("Broken code: ReceivableAccount with balance between {} Gwei passed through db query constrains; wallet: {}, balance: {}",
+                        if account.balance_wei.is_positive() {"1 and 0"}else{"-1 and 0"},
+                        account.wallet,
+                        account.balance_wei
+            )
+        },
         })
         .collect()
 }
@@ -179,6 +185,7 @@ pub fn remap_receivable_accounts(accounts: Vec<ReceivableAccount>) -> Vec<UiRece
 mod tests {
     use super::*;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
+    use crate::test_utils::make_wallet;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, OpenFlags};
     use std::str::FromStr;
@@ -226,5 +233,72 @@ mod tests {
             ("", ""),
             |_row| Ok(()),
         );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Broken code: PayableAccount with less than 1 Gwei passed through db query constrains; \
+         wallet: 0x0000000000000000000000000061633336363563, balance: 565122333"
+    )]
+    fn remap_payable_accounts_getting_record_below_one_gwei_means_broken_database_query() {
+        let accounts = vec![
+            PayableAccount {
+                wallet: make_wallet("abc123"),
+                balance_wei: 4_888_123_457,
+                last_paid_timestamp: SystemTime::now(), //unimportant
+                pending_payable_opt: None,
+            },
+            PayableAccount {
+                wallet: make_wallet("ac3665c"),
+                balance_wei: 565_122_333,
+                last_paid_timestamp: SystemTime::now(), //unimportant
+                pending_payable_opt: None,
+            },
+        ];
+        remap_payable_accounts(accounts);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Broken code: ReceivableAccount with balance between 1 and 0 Gwei passed through db query \
+         constrains; wallet: 0x0000000000000000000000000061633336363563, balance: 300122333"
+    )]
+    fn remap_receivable_accounts_getting_record_between_one_and_zero_gwei_means_broken_database_query(
+    ) {
+        let accounts = vec![
+            ReceivableAccount {
+                wallet: make_wallet("ac45123"),
+                balance_wei: 4_888_123_457,
+                last_received_timestamp: SystemTime::now(), //unimportant
+            },
+            ReceivableAccount {
+                wallet: make_wallet("ac3665c"),
+                balance_wei: 300_122_333,
+                last_received_timestamp: SystemTime::now(), //unimportant
+            },
+        ];
+        remap_receivable_accounts(accounts);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Broken code: ReceivableAccount with balance between -1 and 0 Gwei passed through db query \
+         constrains; wallet: 0x0000000000000000000000000061633336363563, balance: -290122333"
+    )]
+    fn remap_receivable_accounts_getting_record_between_minus_one_and_zero_gwei_means_broken_database_query(
+    ) {
+        let accounts = vec![
+            ReceivableAccount {
+                wallet: make_wallet("ac45123"),
+                balance_wei: -4_000_123_457,
+                last_received_timestamp: SystemTime::now(), //unimportant
+            },
+            ReceivableAccount {
+                wallet: make_wallet("ac3665c"),
+                balance_wei: -290_122_333,
+                last_received_timestamp: SystemTime::now(), //unimportant
+            },
+        ];
+        remap_receivable_accounts(accounts);
     }
 }

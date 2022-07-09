@@ -5379,6 +5379,85 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(
+        expected = "Broken code: PayableAccount with less than 1 Gwei passed through db query \
+     constrains; wallet: 0x0000000000000000000000000061626364313233, balance: 8686005"
+    )]
+    fn compute_financials_blows_up_on_screwed_sql_query_for_payables_returning_balance_smaller_than_one_gwei(
+    ) {
+        let payable_accounts_retrieved = vec![PayableAccount {
+            wallet: make_wallet("abcd123"),
+            balance_wei: 8_686_005,
+            last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(5000)),
+            pending_payable_opt: None,
+        }];
+        let payable_dao =
+            PayableDaoMock::new().custom_query_result(Some(payable_accounts_retrieved));
+        let subject = AccountantBuilder::default()
+            .bootstrapper_config(bc_from_ac_plus_earning_wallet(
+                make_populated_accountant_config_with_defaults(),
+                make_wallet("some_wallet_address"),
+            ))
+            .payable_dao(payable_dao)
+            .build();
+        let context_id_expected = 1234;
+        let request = UiFinancialsRequest {
+            stats_required: false,
+            top_records_opt: None,
+            custom_queries_opt: Some(CustomQueries {
+                payable_opt: Some(RangeQuery {
+                    min_age_seconds: 2000,
+                    max_age_seconds: 200000,
+                    min_amount_gwei: 0,
+                    max_amount_gwei: 150000000000,
+                }),
+                receivable_opt: None,
+            }),
+        };
+
+        subject.compute_financials(&request, context_id_expected);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Broken code: ReceivableAccount with balance between 1 and 0 Gwei passed through \
+     db query constrains; wallet: 0x0000000000000000000000000061626364313233, balance: 7686005"
+    )]
+    fn compute_financials_blows_up_on_screwed_sql_query_for_receivables_returning_balance_smaller_than_one_gwei(
+    ) {
+        let receivable_accounts_retrieved = vec![ReceivableAccount {
+            wallet: make_wallet("abcd123"),
+            balance_wei: 7_686_005,
+            last_received_timestamp: SystemTime::now().sub(Duration::from_secs(5000)),
+        }];
+        let receivable_dao =
+            ReceivableDaoMock::new().custom_query_result(Some(receivable_accounts_retrieved));
+        let subject = AccountantBuilder::default()
+            .bootstrapper_config(bc_from_ac_plus_earning_wallet(
+                make_populated_accountant_config_with_defaults(),
+                make_wallet("some_wallet_address"),
+            ))
+            .receivable_dao(receivable_dao)
+            .build();
+        let context_id_expected = 1234;
+        let request = UiFinancialsRequest {
+            stats_required: false,
+            top_records_opt: None,
+            custom_queries_opt: Some(CustomQueries {
+                payable_opt: None,
+                receivable_opt: Some(RangeQuery {
+                    min_age_seconds: 2000,
+                    max_age_seconds: 200000,
+                    min_amount_gwei: 0,
+                    max_amount_gwei: 150000000000,
+                }),
+            }),
+        };
+
+        subject.compute_financials(&request, context_id_expected);
+    }
+
+    #[test]
     fn total_paid_payable_rises_with_each_bill_paid() {
         let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let fingerprint = PendingPayableFingerprint {
