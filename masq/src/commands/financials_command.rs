@@ -22,7 +22,7 @@ const FINANCIALS_SUBCOMMAND_ABOUT: &str =
 const TOP_ARG_HELP: &str = "Returns the first N records from both payable and receivable";
 const PAYABLE_ARG_HELP: &str = "Enables to configure a detailed query about the payable records by specifying two ranges, one for their age and another for their balance. The required format of the values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>";
 const RECEIVABLE_ARG_HELP: &str = "Enables to configure a detailed query about the receivable records by specifying two ranges, one for their age and another for their balance. The required format of the values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>";
-const NO_STATS_ARG_HELP: &str = "Disables the statistics that displays by default, with totals of paid and unpaid money from the view of both debtors and creditors. This argument is not allowed alone";
+const NO_STATS_ARG_HELP: &str = "Disables the statistics that displays by default, with totals of paid and unpaid money from the view of both debtors and creditors. This argument is not allowed alone and must stand before other arguments";
 const GWEI_HELP: &str =
     "Orders rendering money in Gwei of MASQ instead of whole MASQ which is the default";
 const WALLET_ADDRESS_LENGTH: usize = 42;
@@ -35,7 +35,6 @@ pub struct FinancialsCommand {
     gwei_precision: bool,
 }
 
-//TODO short-hands???
 pub fn financials_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("financials")
         .about(FINANCIALS_SUBCOMMAND_ABOUT)
@@ -44,6 +43,7 @@ pub fn financials_subcommand() -> App<'static, 'static> {
                 .help(TOP_ARG_HELP)
                 .value_name("TOP")
                 .long("top")
+                .short("t")
                 .required(false)
                 .case_insensitive(false)
                 .takes_value(true)
@@ -54,6 +54,7 @@ pub fn financials_subcommand() -> App<'static, 'static> {
                 .help(PAYABLE_ARG_HELP)
                 .value_name("PAYABLE")
                 .long("payable")
+                .short("p")
                 .required(false)
                 .case_insensitive(false)
                 .takes_value(true)
@@ -64,6 +65,7 @@ pub fn financials_subcommand() -> App<'static, 'static> {
                 .help(RECEIVABLE_ARG_HELP)
                 .value_name("PAYABLE")
                 .long("receivable")
+                .short("r")
                 .required(false)
                 .case_insensitive(false)
                 .takes_value(true)
@@ -74,6 +76,7 @@ pub fn financials_subcommand() -> App<'static, 'static> {
                 .help(NO_STATS_ARG_HELP)
                 .value_name("NO-STATS")
                 .long("no-stats")
+                .short("s")
                 .case_insensitive(false)
                 .takes_value(false)
                 .required(false),
@@ -83,6 +86,7 @@ pub fn financials_subcommand() -> App<'static, 'static> {
                 .help(GWEI_HELP)
                 .value_name("GWEI")
                 .long("gwei")
+                .short("g")
                 .case_insensitive(false)
                 .takes_value(false)
                 .required(false),
@@ -689,7 +693,8 @@ trait WidthInfo {
     fn widths(&self) -> Vec<usize>;
 }
 
-//TODO this could be a problem after I added decimal numbers
+//we can leave out special computation for balances in MASQ with dot and two decimal digits,
+//it would require more MASQ than possible
 impl WidthInfo for UiPayableAccount {
     fn widths(&self) -> Vec<usize> {
         vec![
@@ -740,7 +745,7 @@ mod tests {
         );
         assert_eq!(PAYABLE_ARG_HELP,"Enables to configure a detailed query about the payable records by specifying two ranges, one for their age and another for their balance. The required format of the values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>");
         assert_eq!(RECEIVABLE_ARG_HELP,"Enables to configure a detailed query about the receivable records by specifying two ranges, one for their age and another for their balance. The required format of the values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>");
-        assert_eq!(NO_STATS_ARG_HELP,"Disables the statistics that displays by default, with totals of paid and unpaid money from the view of both debtors and creditors. This argument is not allowed alone");
+        assert_eq!(NO_STATS_ARG_HELP,"Disables the statistics that displays by default, with totals of paid and unpaid money from the view of both debtors and creditors. This argument is not allowed alone and must stand before other arguments");
         assert_eq!(
             GWEI_HELP,
             "Orders rendering money in Gwei of MASQ instead of whole MASQ which is the default"
@@ -846,6 +851,61 @@ mod tests {
         assert!(err.contains(
             "financials <--no-stats> <--receivable <PAYABLE>|--payable <PAYABLE>|--top <TOP>>"
         ));
+    }
+
+    #[test]
+    fn financials_command_allows_shorthand_arguments() {
+        let transact_params_arc = Arc::new(Mutex::new(vec![]));
+        let irrelevant_response = UiFinancialsResponse {
+            stats_opt: None,
+            top_records_opt: None,
+            custom_query_records_opt: None,
+        };
+        let args = array_of_borrows_to_vec(&[
+            "financials",
+            "-g",
+            "-t",
+            "123",
+            "-p",
+            "0-350000|5000000-9000000000",
+            "-r",
+            "5000-10000|4000-50003000000",
+            "-s",
+        ]);
+        let mut context = CommandContextMock::new()
+            .transact_params(&transact_params_arc)
+            .transact_result(Ok(irrelevant_response.tmb(1)));
+        let subject = FinancialsCommand::new(&args).unwrap();
+
+        let result = subject.execute(&mut context);
+
+        assert_eq!(result, Ok(()));
+        let transact_params = transact_params_arc.lock().unwrap();
+        assert_eq!(
+            *transact_params,
+            vec![(
+                UiFinancialsRequest {
+                    stats_required: false,
+                    top_records_opt: Some(123),
+                    custom_queries_opt: Some(CustomQueries {
+                        payable_opt: Some(RangeQuery {
+                            min_age_seconds: 0,
+                            max_age_seconds: 350000,
+                            min_amount_gwei: 5000000,
+                            max_amount_gwei: 9000000000
+                        }),
+                        receivable_opt: Some(RangeQuery {
+                            min_age_seconds: 5000,
+                            max_age_seconds: 10000,
+                            min_amount_gwei: 4000,
+                            max_amount_gwei: 50003000000
+                        })
+                    })
+                }
+                .tmb(0),
+                STANDARD_COMMAND_TIMEOUT_MILLIS
+            )]
+        );
     }
 
     #[test]
@@ -967,14 +1027,18 @@ mod tests {
         );
     }
 
-    fn tests_with_everything_demanded_expected_response() -> UiFinancialsResponse {
+    fn response_of_everything_demanded_or_without_stats(with_stats: bool) -> UiFinancialsResponse {
         UiFinancialsResponse {
-            stats_opt: Some(UiFinancialStatistics {
-                total_unpaid_and_pending_payable_gwei: 116688555,
-                total_paid_payable_gwei: 235555554578,
-                total_unpaid_receivable_gwei: 0,
-                total_paid_receivable_gwei: 665557,
-            }),
+            stats_opt: if with_stats {
+                Some(UiFinancialStatistics {
+                    total_unpaid_and_pending_payable_gwei: 116688555,
+                    total_paid_payable_gwei: 235555554578,
+                    total_unpaid_receivable_gwei: 0,
+                    total_paid_receivable_gwei: 665557,
+                })
+            } else {
+                None
+            },
             top_records_opt: Some(FirmQueryResult {
                 payable: vec![
                     UiPayableAccount {
@@ -1024,7 +1088,7 @@ mod tests {
     #[test]
     fn financials_command_everything_demanded_default_units_as_masq() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let expected_response = tests_with_everything_demanded_expected_response();
+        let expected_response = response_of_everything_demanded_or_without_stats(true);
         let args = array_of_borrows_to_vec(&[
             "financials",
             "--top",
@@ -1118,7 +1182,7 @@ mod tests {
     #[test]
     fn financials_command_everything_demanded_with_gwei_precision() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let expected_response = tests_with_everything_demanded_expected_response();
+        let expected_response = response_of_everything_demanded_or_without_stats(true);
         let args = array_of_borrows_to_vec(&[
             "financials",
             "--top",
@@ -1420,9 +1484,9 @@ mod tests {
         };
         let args = array_of_borrows_to_vec(&[
             "financials",
-            "--no-stats",
             "--payable",
             "3000-40000|8866-10000000",
+            "--no-stats",
         ]);
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
