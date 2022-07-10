@@ -6,8 +6,8 @@ use crate::commands::commands_common::{
 };
 use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
 use masq_lib::messages::{
-    CustomQueries, RangeQuery, UiFinancialsRequest, UiFinancialsResponse, UiPayableAccount,
-    UiReceivableAccount,
+    CustomQueries, CustomQueryResult, FirmQueryResult, RangeQuery, UiFinancialStatistics,
+    UiFinancialsRequest, UiFinancialsResponse, UiPayableAccount, UiReceivableAccount,
 };
 use masq_lib::shared_schema::common_validators::{validate_two_ranges, validate_u16};
 use masq_lib::short_writeln;
@@ -97,17 +97,6 @@ pub fn financials_subcommand() -> App<'static, 'static> {
         ])
 }
 
-macro_rules! dump_statistics_lines {
- ($stdout: ident, $gwei_flag:expr,$stats:expr,$($parameter_name: literal),+, $($gwei:ident),+) => {
-       $(dump_parameter_line(
-                $stdout,
-                $parameter_name,
-                &Self::process_gwei_into_right_format($stats.$gwei, $gwei_flag),
-            )
-       );+
-    }
-}
-
 impl Command for FinancialsCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
         let input = UiFinancialsRequest {
@@ -122,125 +111,13 @@ impl Command for FinancialsCommand {
             Ok(response) => {
                 let stdout = context.stdout();
                 if let Some(stats) = response.stats_opt {
-                    Self::financial_status_totals_title(stdout, gwei_flag);
-                    dump_statistics_lines!(
-                        stdout,
-                        gwei_flag,
-                        stats,
-                        "Unpaid and pending payable:",
-                        "Paid payable:",
-                        "Unpaid receivable:",
-                        "Paid receivable:",
-                        total_unpaid_and_pending_payable_gwei,
-                        total_paid_payable_gwei,
-                        total_unpaid_receivable_gwei,
-                        total_paid_receivable_gwei
-                    );
+                    self.process_financial_status(stdout, stats, gwei_flag)
                 };
-
                 if let Some(top_records) = response.top_records_opt {
-                    let (payable_headings, receivable_headings) =
-                        Self::prepare_headings_of_records(gwei_flag);
-                    if !top_records.payable.is_empty() {
-                        self.title_for_tops(stdout, "payable");
-                        self.render_payable(stdout, top_records.payable, &payable_headings);
-                    } else {
-                        self.title_for_tops(stdout, "payable");
-                        Self::no_records_found(
-                            stdout,
-                            payable_headings.words(),
-                            Self::write_payable_headings,
-                        )
-                    }
-                    if !top_records.receivable.is_empty() {
-                        self.title_for_tops(stdout, "receivable");
-                        self.render_receivable(stdout, top_records.receivable, &receivable_headings)
-                    } else {
-                        self.title_for_tops(stdout, "receivable");
-                        Self::no_records_found(
-                            stdout,
-                            receivable_headings.words(),
-                            Self::write_receivable_headings,
-                        )
-                    }
+                    self.process_top_records(stdout, top_records, gwei_flag)
                 }
                 if let Some(custom_query) = response.custom_query_records_opt {
-                    let (payable_headings, receivable_headings) =
-                        Self::prepare_headings_of_records(gwei_flag);
-                    if let Some(payable_accounts) = custom_query.payable_opt {
-                        Self::title_for_custom_query(
-                            stdout,
-                            "Payable",
-                            self.custom_queries_opt
-                                .as_ref()
-                                .expectv("custom query")
-                                .payable_opt
-                                .as_ref()
-                                .expectv("payable custom query"),
-                            gwei_flag,
-                        );
-                        self.render_payable(stdout, payable_accounts, &payable_headings)
-                    } else if self
-                        .custom_queries_opt
-                        .as_ref()
-                        .expectv("custom query input")
-                        .payable_opt
-                        .is_some()
-                    {
-                        Self::title_for_custom_query(
-                            stdout,
-                            "Payable",
-                            self.custom_queries_opt
-                                .as_ref()
-                                .expectv("custom query")
-                                .payable_opt
-                                .as_ref()
-                                .expectv("payable custom query"),
-                            gwei_flag,
-                        );
-                        Self::no_records_found(
-                            stdout,
-                            payable_headings.words(),
-                            Self::write_payable_headings,
-                        )
-                    }
-                    if let Some(receivable_accounts) = custom_query.receivable_opt {
-                        Self::title_for_custom_query(
-                            stdout,
-                            "Receivable",
-                            self.custom_queries_opt
-                                .as_ref()
-                                .expectv("custom query")
-                                .receivable_opt
-                                .as_ref()
-                                .expectv("receivable custom query"),
-                            gwei_flag,
-                        );
-                        self.render_receivable(stdout, receivable_accounts, &receivable_headings)
-                    } else if self
-                        .custom_queries_opt
-                        .as_ref()
-                        .expectv("custom query input")
-                        .receivable_opt
-                        .is_some()
-                    {
-                        Self::title_for_custom_query(
-                            stdout,
-                            "Receivable",
-                            self.custom_queries_opt
-                                .as_ref()
-                                .expectv("custom query")
-                                .receivable_opt
-                                .as_ref()
-                                .expectv("receivable custom query"),
-                            gwei_flag,
-                        );
-                        Self::no_records_found(
-                            stdout,
-                            receivable_headings.words(),
-                            Self::write_receivable_headings,
-                        )
-                    }
+                    self.process_custom_query(stdout, custom_query, gwei_flag)
                 }
                 Ok(())
             }
@@ -250,6 +127,69 @@ impl Command for FinancialsCommand {
             }
         }
     }
+}
+
+macro_rules! dump_statistics_lines {
+ ($stdout: ident, $gwei_flag:expr,$stats:expr,$($parameter_name: literal),+, $($gwei:ident),+) => {
+       $(dump_parameter_line(
+                $stdout,
+                $parameter_name,
+                &Self::process_gwei_into_right_format($stats.$gwei, $gwei_flag),
+            )
+       );+
+    }
+}
+
+macro_rules! process_top_records {
+    ($self: expr,$stdout: expr, $account_type: literal, $headings: expr, $top_records: expr, $render_accounts_fn:ident,$write_headings_fn:ident) => {
+        if !$top_records.is_empty() {
+            $self.title_for_tops($stdout, $account_type);
+            $self.$render_accounts_fn($stdout, $top_records, &$headings);
+        } else {
+            $self.title_for_tops($stdout, $account_type);
+            Self::no_records_found($stdout, $headings.words(), Self::$write_headings_fn)
+        }
+    };
+}
+
+macro_rules! process_custom_query {
+    ($self:expr,$stdout: expr, $account_type: literal, $headings: expr, $correct_field:ident,$custom_query: expr,$gwei_flag: expr,$render_accounts_fn:ident,$write_headings_fn:ident) => {
+        if let Some(accounts) = $custom_query.$correct_field {
+            Self::title_for_custom_query(
+                $stdout,
+                $account_type,
+                $self
+                    .custom_queries_opt
+                    .as_ref()
+                    .expectv("custom query")
+                    .$correct_field
+                    .as_ref()
+                    .expectv("payable custom query"),
+                $gwei_flag,
+            );
+            $self.$render_accounts_fn($stdout, accounts, $headings)
+        } else if $self
+            .custom_queries_opt
+            .as_ref()
+            .expectv("custom query input")
+            .$correct_field
+            .is_some()
+        {
+            Self::title_for_custom_query(
+                $stdout,
+                $account_type,
+                $self
+                    .custom_queries_opt
+                    .as_ref()
+                    .expectv("custom query")
+                    .$correct_field
+                    .as_ref()
+                    .expectv("custom query filed"),
+                $gwei_flag,
+            );
+            Self::no_records_found($stdout, $headings.words(), Self::$write_headings_fn)
+        }
+    };
 }
 
 impl FinancialsCommand {
@@ -278,6 +218,86 @@ impl FinancialsCommand {
             },
             gwei_precision,
         })
+    }
+
+    fn process_financial_status(
+        &self,
+        stdout: &mut dyn Write,
+        stats: UiFinancialStatistics,
+        gwei_flag: bool,
+    ) {
+        Self::financial_status_totals_title(stdout, gwei_flag);
+        dump_statistics_lines!(
+            stdout,
+            gwei_flag,
+            stats,
+            "Unpaid and pending payable:",
+            "Paid payable:",
+            "Unpaid receivable:",
+            "Paid receivable:",
+            total_unpaid_and_pending_payable_gwei,
+            total_paid_payable_gwei,
+            total_unpaid_receivable_gwei,
+            total_paid_receivable_gwei
+        );
+    }
+
+    fn process_top_records(
+        &self,
+        stdout: &mut dyn Write,
+        top_records: FirmQueryResult,
+        gwei_flag: bool,
+    ) {
+        let (payable_headings, receivable_headings) = Self::prepare_headings_of_records(gwei_flag);
+        process_top_records!(
+            self,
+            stdout,
+            "payable",
+            payable_headings,
+            top_records.payable,
+            render_payable,
+            write_payable_headings
+        );
+        process_top_records!(
+            self,
+            stdout,
+            "receivable",
+            receivable_headings,
+            top_records.receivable,
+            render_receivable,
+            write_receivable_headings
+        );
+    }
+
+    fn process_custom_query(
+        &self,
+        stdout: &mut dyn Write,
+        custom_query_result: CustomQueryResult,
+        gwei_flag: bool,
+    ) {
+        let (payable_headings, receivable_headings) = Self::prepare_headings_of_records(gwei_flag);
+        process_custom_query!(
+            self,
+            stdout,
+            "Payable",
+            &payable_headings,
+            payable_opt,
+            custom_query_result,
+            gwei_flag,
+            render_payable,
+            write_payable_headings
+        );
+        process_custom_query!(
+            self,
+            stdout,
+            "Receivable",
+            &receivable_headings,
+            receivable_opt,
+            custom_query_result,
+            gwei_flag,
+            render_receivable,
+            write_receivable_headings
+        );
     }
 
     fn parse<N: FromStr>(str_val: &str, name: &str) -> N {
