@@ -337,25 +337,46 @@ impl FinancialsCommand {
         let stringify = gwei.to_string();
         let gross_length = stringify.len();
         if gwei == T::from(0) {
-            panic!("Broken code: Financials response is not supposed to return zero balances")
+            return "0".to_string();
         }
         match gross_length {
             x if x <= 7 => "< 0.01".to_string(),
-            _ => {
+            x => {
                 let full_range = &stringify[0..gross_length - 7];
-                let decimals = &full_range[full_range.len() - 2..full_range.len()];
+                eprintln!("gwei: {}", gwei);
+                eprintln!("fr: {}", full_range);
                 let is_positive = if &full_range[..=0] != "-" {
                     true
                 } else {
                     false
                 };
-                let integer_part = if is_positive {
-                    &full_range[..full_range.len() - 2]
-                } else {
-                    &full_range[1..full_range.len() - 2]
+                let decimal_double = if x > 8 { true } else { false };
+                eprintln!("decimal double: {}", decimal_double);
+                let (decimals, integer_part_unsigned): (String, &str) = {
+                    let (decimal_length, integer_part): (usize, &str) = match x {
+                        x if x == 8 && is_positive => (1, "0"),
+                        x if x == 8 => todo!(),
+                        x if x == 9 && is_positive => (2, "0"),
+                        x if x == 9 => (1, "0"),
+                        _ => (
+                            2,
+                            &full_range[if is_positive { 0 } else { 1 }..full_range.len() - 2],
+                        ),
+                    };
+                    (
+                        Self::proper_decimal_format(full_range, decimal_length),
+                        integer_part,
+                    )
                 };
-                let nummerical: u64 = integer_part.parse().expect("preceding checks failed");
-                let comma_delimited_int_part = nummerical.separate_with_commas();
+                let integer_part_checked = if integer_part_unsigned.is_empty() {
+                    "0"
+                } else {
+                    integer_part_unsigned
+                };
+                let numerical: u64 = integer_part_checked
+                    .parse()
+                    .expect("preceding checks failed");
+                let comma_delimited_int_part = numerical.separate_with_commas();
                 format!(
                     "{}{}.{}",
                     if is_positive { "" } else { "-" },
@@ -363,6 +384,19 @@ impl FinancialsCommand {
                     decimals
                 )
             }
+        }
+    }
+
+    fn proper_decimal_format(whole_number: &str, decimal_no_zero_length: usize) -> String {
+        match decimal_no_zero_length {
+            0 => todo!(),
+            1 => format!(
+                "0{}",
+                (&whole_number[whole_number.len() - decimal_no_zero_length..whole_number.len()])
+            ),
+            2 => (&whole_number[whole_number.len() - decimal_no_zero_length..whole_number.len()])
+                .to_string(),
+            _ => todo!(),
         }
     }
 
@@ -816,7 +850,7 @@ mod tests {
             stats_opt: Some(UiFinancialStatistics {
                 total_unpaid_and_pending_payable_gwei: 1_166_880_215,
                 total_paid_payable_gwei: 78_455_555,
-                total_unpaid_receivable_gwei: 221_144,
+                total_unpaid_receivable_gwei: -55_000_400,
                 total_paid_receivable_gwei: 1_278_766_555_456,
             }),
             top_records_opt: None,
@@ -851,10 +885,10 @@ mod tests {
             "\
                 Financial status totals in MASQ\n\
                 ===============================\n\
-                Unpaid and pending payable:       1.166\n\
-                Paid payable:                     0.078\n\
-                Unpaid receivable:                < 0.000\n\
-                Paid receivable:                  1278.766\n"
+                Unpaid and pending payable:       1.16\n\
+                Paid payable:                     0.07\n\
+                Unpaid receivable:                -0.05\n\
+                Paid receivable:                  1,278.76\n"
         );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
@@ -904,14 +938,6 @@ mod tests {
         let result = FinancialsCommand::count_length_with_comma_separators(number);
 
         assert_eq!(result, 14)
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Broken code: Financials response is not supposed to return zero balances"
-    )]
-    fn convert_masq_from_gwei_and_format_well_panics_on_zero_gwei_returned() {
-        FinancialsCommand::convert_masq_from_gwei_and_format_well(0_u64);
     }
 
     fn tests_with_everything_demanded_expected_response() -> UiFinancialsResponse {
@@ -1021,10 +1047,10 @@ mod tests {
             let main_text_block: &str = "\
                 Financial status totals in MASQ\n\
                 ===============================\n\
-                Unpaid and pending payable:       0.116\n\
-                Paid payable:                     235\n\
-                Unpaid receivable:                0 \n\
-                Paid receivable:                  < 0.000\n\
+                Unpaid and pending payable:       0.11\n\
+                Paid payable:                     235.55\n\
+                Unpaid receivable:                0\n\
+                Paid receivable:                  < 0.01\n\
                 \n\
                 \n\
                 Top 123 accounts in payable\n\
@@ -1037,10 +1063,10 @@ mod tests {
                 \n\
                 Top 123 accounts in receivable\n\
                 ==============================\n\
-                |                  Wallet                  | Age [s] | Balance [MASQ] |\n\
-                -----------------------------------------------------------------------\n\
-                |0x6e250504DdfFDb986C4F0bb8Df162503B4118b05|   22,000|        2,444.53|\n\
-                |0x8bA50675e590b545D2128905b89039256Eaa24F6|   19,000|         -328.12|\n\
+                |                  Wallet                  | Age [s] | Balance [MASQ]  |\n\
+                ------------------------------------------------------------------------\n\
+                |0x6e250504DdfFDb986C4F0bb8Df162503B4118b05|   22,000|         2,444.53|\n\
+                |0x8bA50675e590b545D2128905b89039256Eaa24F6|   19,000|          -328.12|\n\
                 \n\
                 \n\
                 Payable query with parameters: 0-350000 s and 5000000-9000000000 MASQ\n\
@@ -1050,8 +1076,8 @@ mod tests {
                 |0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440|  150,000|          < 0.01|0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e|\n\
                 \n\
                 \n\
-                Receivable query with parameters: 5000-10000 s and 4000-50003000000 MASQ\n\
-                ========================================================================\n\
+                Receivable query with parameters: 5000-10000 s and 3000000-5600070000 MASQ\n\
+                ==========================================================================\n\
                 |                  Wallet                  | Age [s] | Balance [MASQ] |\n\
                 -----------------------------------------------------------------------\n";
             format!(
@@ -1224,40 +1250,40 @@ mod tests {
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
             "\
-|Financial status totals in Wei
-|==============================
-|Unpaid and pending payable:       116,688
-|Paid payable:                     55,555
-|Unpaid receivable:                221,144
-|Paid receivable:                  66,555
+|Financial status totals in MASQ
+|===============================
+|Unpaid and pending payable:       < 0.01
+|Paid payable:                     < 0.01
+|Unpaid receivable:                < 0.01
+|Paid receivable:                  < 0.01
 |
 |
 |Top 10 accounts in payable
 |==========================
-||                  Wallet                  | Age [s] | Balance [Wei] | Pending tx |
-|-----------------------------------------------------------------------------------
-|                                 No records found                                  \n\
+||                  Wallet                  | Age [s] | Balance [MASQ] | Pending tx |
+|------------------------------------------------------------------------------------
+|                                  No records found                                  \n\
 |
 |
 |Top 10 accounts in receivable
 |=============================
-||                  Wallet                  | Age [s] | Balance [Wei] |
-|----------------------------------------------------------------------
-|                           No records found                           \n\
+||                  Wallet                  | Age [s] | Balance [MASQ] |
+|-----------------------------------------------------------------------
+|                           No records found                            \n\
 |
 |
-|Payable query with parameters: 0-400000 s and 5000000-60000000 Wei
-|==================================================================
-||                  Wallet                  | Age [s] | Balance [Wei] | Pending tx |
-|-----------------------------------------------------------------------------------
-|                                 No records found                                  \n\
+|Payable query with parameters: 0-400000 s and 5000000-60000000 MASQ
+|===================================================================
+||                  Wallet                  | Age [s] | Balance [MASQ] | Pending tx |
+|------------------------------------------------------------------------------------
+|                                  No records found                                  \n\
 |
 |
-|Receivable query with parameters: 40000-80000 s and 10000-1000000000 Wei
-|========================================================================
-||                  Wallet                  | Age [s] | Balance [Wei] |
-|----------------------------------------------------------------------
-|                           No records found                           "
+|Receivable query with parameters: 40000-80000 s and 10000-1000000000 MASQ
+|=========================================================================
+||                  Wallet                  | Age [s] | Balance [MASQ] |
+|-----------------------------------------------------------------------
+|                           No records found                            "
                 .lines()
                 .map(|line| format!("{}\n", line.strip_prefix("|").unwrap()))
                 .collect::<String>()
@@ -1274,7 +1300,7 @@ mod tests {
                 payable: vec![UiPayableAccount {
                     wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
                     age: 5645405400,
-                    balance_gwei: 6000000,
+                    balance_gwei: 644000000,
                     pending_payable_hash_opt: Some(
                         "0x3648c8b8c7e067ac30b80b6936159326d564dd13b7ae465b26647154ada2c638"
                             .to_string(),
@@ -1283,7 +1309,7 @@ mod tests {
                 receivable: vec![UiReceivableAccount {
                     wallet: "0x6e250504DdfFDb986C4F0bb8Df162503B4118b05".to_string(),
                     age: 11111111,
-                    balance_gwei: 12444551012,
+                    balance_gwei: 1352444551012,
                 }],
             }),
             custom_query_records_opt: None,
@@ -1318,16 +1344,16 @@ mod tests {
                 \n\
                 Top 7 accounts in payable\n\
                 =========================\n\
-                |                  Wallet                  |   Age [s]   | Balance [Wei] |                            Pending tx                            |\n\
-                ---------------------------------------------------------------------------------------------------------------------------------------------\n\
-                |0xA884A2F1A5Ec6C2e499644666a5E6af97B966888|5,645,405,400|      6,000,000|0x3648c8b8c7e067ac30b80b6936159326d564dd13b7ae465b26647154ada2c638|\n\
+                |                  Wallet                  |   Age [s]   | Balance [MASQ] |                            Pending tx                            |\n\
+                ----------------------------------------------------------------------------------------------------------------------------------------------\n\
+                |0xA884A2F1A5Ec6C2e499644666a5E6af97B966888|5,645,405,400|            0.64|0x3648c8b8c7e067ac30b80b6936159326d564dd13b7ae465b26647154ada2c638|\n\
                 \n\
                 \n\
                 Top 7 accounts in receivable\n\
                 ============================\n\
-                |                  Wallet                  | Age [s]  | Balance [Wei] |\n\
-                -----------------------------------------------------------------------\n\
-                |0x6e250504DdfFDb986C4F0bb8Df162503B4118b05|11,111,111| 12,444,551,012|\n"
+                |                  Wallet                  | Age [s]  | Balance [MASQ]  |\n\
+                -------------------------------------------------------------------------\n\
+                |0x6e250504DdfFDb986C4F0bb8Df162503B4118b05|11,111,111|         1,352.44|\n"
         );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
@@ -1406,13 +1432,13 @@ mod tests {
             stdout_arc.lock().unwrap().get_string(),
                "\n\
                 \n\
-                Payable query with parameters: 3000-40000 s and 8866-10000000 Wei\n\
-                =================================================================\n\
-                |                  Wallet                  | Age [s] | Balance [Wei] |                            Pending tx                            |\n\
-                -----------------------------------------------------------------------------------------------------------------------------------------\n\
-                |0x6e250504DdfFDb986C4F0bb8Df162503B4118b05|    4,445|  9,898,999,888|0x5fe272ed1e941cc05fbd624ec4b1546cd03c25d53e24ba2c18b11feb83cd4581|\n\
-                |0xA884A2F1A5Ec6C2e499644666a5E6af97B966888|   70,000|        708,090|                                                              None|\n\
-                |0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440|6,089,909|         66,658|                                                              None|\n"
+                Payable query with parameters: 3000-40000 s and 8866-10000000 MASQ\n\
+                ==================================================================\n\
+                |                  Wallet                  | Age [s] | Balance [MASQ] |                            Pending tx                            |\n\
+                ------------------------------------------------------------------------------------------------------------------------------------------\n\
+                |0x6e250504DdfFDb986C4F0bb8Df162503B4118b05|    4,445|            9.89|0x5fe272ed1e941cc05fbd624ec4b1546cd03c25d53e24ba2c18b11feb83cd4581|\n\
+                |0xA884A2F1A5Ec6C2e499644666a5E6af97B966888|   70,000|          < 0.01|                                                              None|\n\
+                |0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440|6,089,909|          < 0.01|                                                              None|\n"
         );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
