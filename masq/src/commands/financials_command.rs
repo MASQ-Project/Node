@@ -97,6 +97,17 @@ pub fn financials_subcommand() -> App<'static, 'static> {
         ])
 }
 
+macro_rules! dump_statistics_lines {
+ ($stdout: ident, $gwei_flag:expr,$stats:expr,$($parameter_name: literal),+, $($gwei:ident),+) => {
+       $(dump_parameter_line(
+                $stdout,
+                $parameter_name,
+                &Self::process_gwei_into_right_format($stats.$gwei, $gwei_flag),
+            )
+       );+
+    }
+}
+
 impl Command for FinancialsCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
         let input = UiFinancialsRequest {
@@ -112,39 +123,20 @@ impl Command for FinancialsCommand {
                 let stdout = context.stdout();
                 if let Some(stats) = response.stats_opt {
                     Self::financial_status_totals_title(stdout, gwei_flag);
-                    dump_parameter_line(
+                    dump_statistics_lines!(
                         stdout,
+                        gwei_flag,
+                        stats,
                         "Unpaid and pending payable:",
-                        &Self::process_gwei_into_right_format(
-                            stats.total_unpaid_and_pending_payable_gwei,
-                            gwei_flag,
-                        ),
-                    );
-                    dump_parameter_line(
-                        stdout,
                         "Paid payable:",
-                        &Self::process_gwei_into_right_format(
-                            stats.total_paid_payable_gwei,
-                            gwei_flag,
-                        ),
-                    );
-                    dump_parameter_line(
-                        stdout,
                         "Unpaid receivable:",
-                        &Self::process_gwei_into_right_format(
-                            stats.total_unpaid_receivable_gwei,
-                            gwei_flag,
-                        ),
-                    );
-                    dump_parameter_line(
-                        stdout,
                         "Paid receivable:",
-                        &Self::process_gwei_into_right_format(
-                            stats.total_paid_receivable_gwei,
-                            gwei_flag,
-                        ),
+                        total_unpaid_and_pending_payable_gwei,
+                        total_paid_payable_gwei,
+                        total_unpaid_receivable_gwei,
+                        total_paid_receivable_gwei
                     );
-                }
+                };
 
                 if let Some(top_records) = response.top_records_opt {
                     let (payable_headings, receivable_headings) =
