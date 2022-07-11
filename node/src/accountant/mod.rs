@@ -2,7 +2,7 @@
 pub mod payable_dao;
 pub mod pending_payable_dao;
 pub mod receivable_dao;
-pub mod tools;
+pub mod scanners;
 
 #[cfg(test)]
 pub mod test_utils;
@@ -17,7 +17,7 @@ use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDa
 use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDaoError, ReceivableDaoFactory,
 };
-use crate::accountant::tools::accountant_tools::{
+use crate::accountant::scanners::accountant_tools::{
     NotifyLaterForScanners, Scanner, Scanners, TransactionConfirmationTools,
 };
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
@@ -378,7 +378,7 @@ impl Handler<NodeFromUiMessage> for Accountant {
         if let Ok((_, context_id)) = UiFinancialsRequest::fmb(msg.body.clone()) {
             self.handle_financials(client_id, context_id);
         } else if let Ok((body, context_id)) = UiScanRequest::fmb(msg.body.clone()) {
-            if let Err(e) = self.handle_externally_triggered_scan(
+            if let Err(_e) = self.handle_externally_triggered_scan(
                 ctx,
                 body.scan_type,
                 ResponseSkeleton {
@@ -386,9 +386,9 @@ impl Handler<NodeFromUiMessage> for Accountant {
                     context_id,
                 },
             ) {
+                // TODO: The above fn returns a result, should we send a NodeToUIMessaage (send an info log) in case scan is already running, i.e. when we receive an error?
                 todo!();
             }
-            // TODO: The above fn returns a result, should we send a NodeToUIMessaage in case scan is already running, i.e. when we receive an error?
         } else {
             handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
         }
@@ -456,7 +456,10 @@ impl Accountant {
         response_skeleton_opt: Option<ResponseSkeleton>,
         ctx: &mut Context<Accountant>,
     ) {
-        scanner.scan(self, response_skeleton_opt);
+        if let Err(_e) = scanner.scan(self, response_skeleton_opt) {
+            todo!("Scan Message Received but scan is already running");
+            // TODO: Maybe write a log over here.
+        }
         scanner.notify_later_assertable(self, ctx)
     }
 
@@ -1291,6 +1294,7 @@ mod tests {
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
+    use crate::accountant::scanners::accountant_tools::Scanner;
     use crate::accountant::test_utils::{
         bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_pending_payable_fingerprint,
         make_receivable_account, BannedDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock,
@@ -1298,7 +1302,6 @@ mod tests {
         ReceivableDaoMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
-    use crate::accountant::tools::accountant_tools::Scanner;
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
     use crate::blockchain::blockchain_interface::BlockchainError;
@@ -1401,7 +1404,7 @@ mod tests {
     }
 
     fn null_scanner() -> Scanner {
-        Scanner::new(Box::new(|_, _| {}), Box::new(|_, _| {}))
+        Scanner::new(ScanType::Payables, Box::new(|_, _| {}), Box::new(|_, _| {}))
     }
 
     #[test]
@@ -2886,7 +2889,8 @@ mod tests {
     }
 
     #[test]
-    fn accountant_doesn_t_scans_for_payables_in_case_it_receives_the_message_and_flag_is_true() {
+    fn accountant_doesn_t_starts_another_scan_in_case_it_receives_the_message_and_is_scanner_running_flag_is_true(
+    ) {
         let payable_dao = PayableDaoMock::default();
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
         let report_accounts_payable_sub = blockchain_bridge.start().recipient();
@@ -2906,7 +2910,7 @@ mod tests {
             make_wallet("mine"),
         );
         let system = System::new(
-            "accountant_scans_for_payables_in_case_it_receives_the_message_and_flag_is_false",
+            "accountant_doesn_t_starts_another_scan_in_case_it_receives_the_message_and_is_scanner_running_flag_is_true",
         );
         let mut subject = AccountantBuilder::default()
             .payable_dao(payable_dao)

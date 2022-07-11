@@ -8,6 +8,7 @@ pub(in crate::accountant) mod accountant_tools {
     };
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
     use actix::{Context, Recipient};
+    use masq_lib::messages::ScanType;
     use std::cell::RefCell;
 
     pub type Scan = Box<dyn Fn(&Accountant, Option<ResponseSkeleton>)>;
@@ -23,6 +24,7 @@ pub(in crate::accountant) mod accountant_tools {
         fn default() -> Self {
             Scanners {
                 pending_payables: Scanner::new(
+                    ScanType::PendingPayables,
                     Box::new(|accountant, response_skeleton_opt| {
                         accountant.scan_for_pending_payable(response_skeleton_opt)
                     }),
@@ -43,6 +45,7 @@ pub(in crate::accountant) mod accountant_tools {
                     }),
                 ),
                 payables: Scanner::new(
+                    ScanType::Payables,
                     Box::new(|accountant, response_skeleton_opt| {
                         accountant.scan_for_payables(response_skeleton_opt)
                     }),
@@ -57,6 +60,7 @@ pub(in crate::accountant) mod accountant_tools {
                     }),
                 ),
                 receivables: Scanner::new(
+                    ScanType::Receivables,
                     Box::new(|accountant, response_skeleton_opt| {
                         // TODO: Figure out how to combine the results of these two into a single response to the UI
                         accountant.scan_for_receivables(response_skeleton_opt);
@@ -77,14 +81,20 @@ pub(in crate::accountant) mod accountant_tools {
     }
 
     pub struct Scanner {
+        scan_type: ScanType,
         is_scan_running: bool,
         scan: Scan,
         notify_later_assertable: RefCell<NotifyLaterAssertable>,
     }
 
     impl Scanner {
-        pub fn new(scan: Scan, notify_later_assertable: NotifyLaterAssertable) -> Scanner {
+        pub fn new(
+            scan_type: ScanType,
+            scan: Scan,
+            notify_later_assertable: NotifyLaterAssertable,
+        ) -> Scanner {
             Scanner {
+                scan_type,
                 is_scan_running: false,
                 scan,
                 notify_later_assertable: RefCell::new(notify_later_assertable),
@@ -97,7 +107,7 @@ pub(in crate::accountant) mod accountant_tools {
             response_skeleton_opt: Option<ResponseSkeleton>,
         ) -> Result<(), String> {
             if self.is_scan_running() {
-                return Err(format!("Scan is already running"));
+                return Err(format!("{:?} Scan is already running", self.scan_type));
             };
 
             (self.scan)(accountant, response_skeleton_opt);
@@ -110,6 +120,10 @@ pub(in crate::accountant) mod accountant_tools {
             ctx: &mut Context<Accountant>,
         ) {
             (self.notify_later_assertable.borrow_mut())(accountant, ctx);
+        }
+
+        pub fn scan_type(&self) -> ScanType {
+            self.scan_type
         }
 
         pub fn is_scan_running(&self) -> bool {
@@ -141,10 +155,11 @@ pub(in crate::accountant) mod accountant_tools {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::scanners::accountant_tools::Scanners;
     use crate::accountant::test_utils::{bc_from_ac_plus_earning_wallet, AccountantBuilder};
-    use crate::accountant::tools::accountant_tools::Scanners;
     use crate::test_utils::make_wallet;
     use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
+    use masq_lib::messages::ScanType;
 
     #[test]
     fn is_scan_running_flag_can_be_updated() {
@@ -159,9 +174,15 @@ mod tests {
     }
 
     #[test]
-    fn is_scanner_running_is_defaulted_to_false_for_each_scanner() {
+    fn scanners_are_defaulted_properly() {
         let subject = Scanners::default();
 
+        assert_eq!(
+            subject.pending_payables.scan_type(),
+            ScanType::PendingPayables
+        );
+        assert_eq!(subject.payables.scan_type(), ScanType::Payables);
+        assert_eq!(subject.receivables.scan_type(), ScanType::Receivables);
         assert_eq!(subject.pending_payables.is_scan_running(), false);
         assert_eq!(subject.payables.is_scan_running(), false);
         assert_eq!(subject.receivables.is_scan_running(), false);
@@ -176,10 +197,13 @@ mod tests {
                 make_wallet("some_wallet_address"),
             ))
             .build();
-        subject.payables.update_is_scan_running(true);
+        subject.pending_payables.update_is_scan_running(true);
 
-        let result = subject.payables.scan(&accountant, None);
+        let result = subject.pending_payables.scan(&accountant, None);
 
-        assert_eq!(result, Err(format!("Scan is already running")));
+        assert_eq!(
+            result,
+            Err(format!("PendingPayables Scan is already running"))
+        );
     }
 }
