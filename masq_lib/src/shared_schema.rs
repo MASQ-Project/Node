@@ -449,9 +449,9 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
 
 pub mod common_validators {
     use crate::constants::LOWEST_USABLE_INSECURE_PORT;
-    use crate::utils::plus;
     use regex::Regex;
     use std::net::IpAddr;
+    use std::ops::Mul;
     use std::str::FromStr;
     use tiny_hderive::bip44::DerivationPath;
 
@@ -572,102 +572,80 @@ pub mod common_validators {
         }
     }
 
-    pub fn validate_two_ranges<D: FromStr + PartialOrd>(double: String) -> Result<(), String> {
+    pub fn validate_two_ranges<N>(double: String) -> Result<(), String>
+    where
+        N: FromStr + From<u32> + Mul<Output = N> + PartialOrd,
+    {
         let separate_ranges = double.split('|').collect::<Vec<&str>>();
         if separate_ranges.len() != 2 {
-            return Err("Missing central pipe delimiter".to_string());
+            return Err("Central vertical delimiter misused".to_string());
         }
-        match two_fragments_by_two_numbers(separate_ranges) {
-           Ok(two_fragments) => {
-               let min_age = parse_integer::<u64>(&two_fragments[0].0)?;
-               let max_age = parse_integer::<u64>(&two_fragments[0].1)?;
-               let min_amount = parse::<D>(&two_fragments_by_two[1].0)?;
-               let max_amount = parse::<D>(&two_fragments_by_two[1].1)?;
-               if min_age > max_age || min_amount > max_amount {
-                   Err("Range must be ascending".to_string())
-               } else {
-                   Ok(())
-               }
-           },
-           Err(e) => Err(e) //"Misused delimiter in the range".to_string())
+        let time_range = separate_ranges[0].split('-').collect::<Vec<&str>>();
+        if time_range.len() != 2 {
+            return Err("First range is wrongly formatted".to_string());
+        }
+        let (min_age, max_age) = parse_time_params(&time_range)?;
+        let (min_amount, max_amount): (N, N) = parse_masq_range_to_gwei(&separate_ranges[1])?;
+        if min_age >= max_age || min_amount >= max_amount {
+            Err("Both ranges must be ascending".to_string())
+        } else {
+            Ok(())
         }
     }
 
     fn parse_integer<N: FromStr>(str_num: &str) -> Result<N, String> {
         str::parse::<N>(str_num)
-            .map_err(|_| "Non numeric value; all values must be numbers".to_string())
+            .map_err(|_| "Non numeric value, all must be valid numbers".to_string())
     }
 
-    fn extract_masq_and_return_gwei_str(){
-
-        //-?\d+\.?\d*)\s*-\s*(-?\d+\.?\d*)
-
+    fn parse_time_params(time_range: &[&str]) -> Result<(u64, u64), String> {
+        Ok((parse_integer(time_range[0])?, parse_integer(time_range[1])?))
     }
 
+    fn extract_masq_and_return_gwei_str(range_str: &str) -> Result<(String, String), String> {
+        let regex = Regex::new("(-?\\d+\\.?\\d*)\\s*-\\s*(-?\\d+\\.?\\d*)").expect("wrong regex");
+        match regex.captures(range_str).map(|captures| {
+            eprintln!("blah {:?}", captures);
+            let fetch = |idx: usize| captures.get(idx).map(|catch| catch.as_str().to_owned());
+            (fetch(1), fetch(2))
+        }) {
+            Some((Some(first), Some(second))) => Ok((first, second)),
+            _ => Err("Second range in improper format".to_string()),
+        }
+    }
 
+    pub fn parse_masq_range_to_gwei<N>(range_str: &str) -> Result<(N, N), String>
+    where
+        N: FromStr + From<u32> + Mul<Output = N>,
+    {
+        eprintln!("range: {}", range_str);
+        let (first, second) = extract_masq_and_return_gwei_str(range_str)?;
+        Ok((
+            process_optionally_fragmentary_number(&first)?,
+            process_optionally_fragmentary_number(&second)?,
+        ))
+    }
 
-    // pub fn two_fragments_by_two_numbers(two_ranges: Vec<&str>) -> Result<Vec<(String, String)>,String> {
-    //     two_ranges.into_iter().fold(Ok(vec![]), |acc, half| {
-    //         if let Ok(acc_vec) = acc {
-    //             let nums = if acc_vec.is_empty() {
-    //                 half.split('-').collect::<Vec<&str>>()
-    //             } else {
-    //                 let first_closing_bracket_opt = half.chars().position(|char| char == ')');
-    //                 if let Some(idx) = first_closing_bracket_opt {
-    //                     let last_element = half.len();
-    //                     if idx != last_element {
-    //                         let next_char =
-    //                             half.chars().skip(idx + 1).take(1).collect::<Vec<char>>();
-    //                         if next_char == vec!['-'] {
-    //                             let rest = &half[idx + 2..];
-    //                             eprintln!("{}", rest);
-    //                             let in_chars = rest.chars().collect::<Vec<char>>();
-    //                             if in_chars.len() > 2
-    //                                 && in_chars[0] == '('
-    //                                 && in_chars[in_chars.len() - 1] == ')'
-    //                             {
-    //                                 (&in_chars[1..in_chars.len() - 2])
-    //                                     .iter()
-    //                                     .collect::<String>();
-    //                                 todo!("we should parse the first one")
-    //                             } else {
-    //                                 todo!("broken...a")
-    //                             }
-    //                         } else {
-    //                             todo!("broken...b")
-    //                         }
-    //                     } else {
-    //                         todo!("broken...c")
-    //                     }
-    //                 } else {
-    //                     half.split('-').collect::<Vec<&str>>()
-    //                 }
-    //             };
-    //             if nums.len() != 2 {
-    //                 Err("Misused delimiter in the range".to_string())
-    //             } else {
-    //                 Ok(plus(acc_vec, (nums[0].to_string(), nums[1].to_string())))
-    //             }
-    //         } else {
-    //             Err("Misused delimiter in the range".to_string())
-    //         }
-    //     })
-    // }
-    //
-    // enum InFlightEvaluation{
-    //     Candidate(String),
-    //     Confirmed(String)
-    // }
-
-    pub fn parse_masq_range_to_gwei<R: FromStr>(num_1: &str,num_2:&str) -> Result<Vec<R>, String> {
-        [num_1,num_2].iter().map(|num| {
-            let dot_position_opt = num.chars().position(|char| char == '.');
-            if let Some(dot_idx) = dot_position_opt {
+    fn process_optionally_fragmentary_number<N>(num: &str) -> Result<N, String>
+    where
+        N: FromStr + From<u32> + Mul<Output = N>,
+    {
+        let dot_position_opt = num.chars().position(|char| char == '.');
+        if let Some(dot_idx) = dot_position_opt {
+            if dot_idx == num.len() {
                 todo!()
-            } else {
-                parse_integer(num) //TODO will be needed as *1_000_000_000
-            }
-        }).collect()
+            };
+            let dot_count = num.chars().filter(|char| *char == '.').count();
+            if dot_count != 1 {
+                todo!()
+            };
+            let decimal_num_count = num.chars().count() - dot_idx;
+            let root_parsed: N =
+                parse_integer(&num.chars().filter(|char| *char != '.').collect::<String>())?;
+            Ok(root_parsed * N::from(10_u32.pow(9 - decimal_num_count as u32)))
+        } else {
+            parse_integer(num) //TODO will be needed as *1_000_000_000
+        }
     }
 
     pub fn validate_separate_u64_values(values_with_delimiters: String) -> Result<(), String> {
@@ -1181,37 +1159,40 @@ mod tests {
 
     #[test]
     fn validate_two_ranges_even_integers_are_acceptable_for_masqs_range() {
-        let result = validate_two_ranges::<i128>("454-2000|2000-30000".to_string());
+        let result = validate_two_ranges::<i64>("454-2000|2000-30000".to_string());
 
         assert_eq!(result, Ok(()))
     }
 
     #[test]
     fn validate_two_ranges_even_one_side_negative_range_is_acceptable_for_masqs_range() {
-        let result = validate_two_ranges::<i128>("454-2000|(-2000)-30000".to_string());
+        let result = validate_two_ranges::<i64>("454-2000|-2000-30000".to_string());
 
-        assert_eq!(result, Err("Both ranges must be ascending".to_string()))
+        assert_eq!(result, Ok(()))
     }
 
     #[test]
     fn validate_two_ranges_even_both_side_negative_range_is_acceptable_for_masqs_range() {
-        let result = validate_two_ranges::<i128>("454-2000|(-2000)-(-1000)".to_string());
+        let result = validate_two_ranges::<i64>("454-2000|-2000--1000".to_string());
 
-        assert_eq!(result, Err("Both ranges must be ascending".to_string()))
+        assert_eq!(result, Ok(()))
     }
 
     #[test]
     fn validate_two_ranges_misused_central_delimiter() {
         let result = validate_two_ranges::<i64>("45-500545-006".to_string());
 
-        assert_eq!(result, Err("Missing central pipe delimiter".to_string()))
+        assert_eq!(
+            result,
+            Err("Central vertical delimiter misused".to_string())
+        )
     }
 
     #[test]
     fn validate_two_ranges_misused_range_delimiter() {
         let result = validate_two_ranges::<i64>("45+500|545+006".to_string());
 
-        assert_eq!(result, Err("Misused delimiter in the range".to_string()))
+        assert_eq!(result, Err("First range is wrongly formatted".to_string()))
     }
 
     #[test]
@@ -1223,57 +1204,47 @@ mod tests {
 
     #[test]
     fn validate_two_ranges_values_the_same_for_time() {
-        let result = validate_two_ranges::<i128>("2000-2000|20000.0-30000.0".to_string());
-
-        assert_eq!(result, Err("Both ranges must be ascending".to_string()))
-    }
-
-    #[test]
-    fn validate_two_ranges_second_value_smaller_than_the_first_for_masqs() {
-        let result = validate_two_ranges::<i128>("2000-4545|20.120-30.00".to_string());
-
-        assert_eq!(result, Err("Both ranges must be ascending".to_string()))
-    }
-
-    #[test]
-    fn validate_two_ranges_second_value_smaller_than_the_first_for_masqs_but_not_in_decimals() {
-        let result = validate_two_ranges::<i128>("2000-4545|30.0-30.0".to_string());
-
-        assert_eq!(result, Err("Both ranges must be ascending".to_string()))
-    }
-
-    #[test]
-    fn validate_two_ranges_second_value_smaller_than_the_first_for_masqs_in_decimals() {
-        let result = validate_two_ranges::<i128>("2000-4545|20.13-20.11".to_string());
+        let result = validate_two_ranges::<i64>("2000-2000|20000.0-30000.0".to_string());
 
         assert_eq!(result, Err("Both ranges must be ascending".to_string()))
     }
 
     #[test]
     fn validate_two_ranges_values_the_same_for_masqs() {
-        let result = validate_two_ranges::<i128>("2000-4545|20.13-20.11".to_string());
+        let result = validate_two_ranges::<i64>("1000-2000|20000.0-20000.0".to_string());
+
+        assert_eq!(result, Err("Both ranges must be ascending".to_string()))
+    }
+
+    #[test]
+    fn validate_two_ranges_second_value_smaller_than_the_first_for_masqs_but_not_in_decimals() {
+        let result = validate_two_ranges::<i64>("2000-4545|30.0-27.0".to_string());
+
+        assert_eq!(result, Err("Both ranges must be ascending".to_string()))
+    }
+
+    #[test]
+    fn validate_two_ranges_second_value_smaller_than_the_first_for_masqs_in_decimals() {
+        let result = validate_two_ranges::<u64>("2000-4545|20.13-20.11".to_string());
 
         assert_eq!(result, Err("Both ranges must be ascending".to_string()))
     }
 
     #[test]
     fn validate_two_ranges_non_numeric_value_error_for_first_range() {
-        let result = validate_two_ranges::<i128>("blah-1234|899-999".to_string());
+        let result = validate_two_ranges::<i64>("blah-1234|899-999".to_string());
 
         assert_eq!(
             result,
-            Err("Non numeric value; all values must be numbers".to_string())
+            Err("Non numeric value, all must be valid numbers".to_string())
         )
     }
 
     #[test]
     fn validate_two_ranges_non_numeric_value_error_for_second() {
-        let result = validate_two_ranges::<i128>("1000-1234|7878.0-a lot".to_string());
+        let result = validate_two_ranges::<i64>("1000-1234|7878.0-a lot".to_string());
 
-        assert_eq!(
-            result,
-            Err("Non numeric value; all values must be numbers".to_string())
-        )
+        assert_eq!(result, Err("Second range in improper format".to_string()))
     }
 
     #[test]
