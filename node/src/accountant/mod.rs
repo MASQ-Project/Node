@@ -378,7 +378,7 @@ impl Handler<NodeFromUiMessage> for Accountant {
         if let Ok((_, context_id)) = UiFinancialsRequest::fmb(msg.body.clone()) {
             self.handle_financials(client_id, context_id);
         } else if let Ok((body, context_id)) = UiScanRequest::fmb(msg.body.clone()) {
-            if let Err(_e) = self.handle_externally_triggered_scan(
+            if let Err(error) = self.handle_externally_triggered_scan(
                 ctx,
                 body.scan_type,
                 ResponseSkeleton {
@@ -387,7 +387,7 @@ impl Handler<NodeFromUiMessage> for Accountant {
                 },
             ) {
                 // TODO: The above fn returns a result, should we send a NodeToUIMessaage (send an info log) in case scan is already running, i.e. when we receive an error?
-                todo!();
+                info!(self.logger, "{}", error);
             }
         } else {
             handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
@@ -456,9 +456,8 @@ impl Accountant {
         response_skeleton_opt: Option<ResponseSkeleton>,
         ctx: &mut Context<Accountant>,
     ) {
-        if let Err(_e) = scanner.scan(self, response_skeleton_opt) {
-            todo!("Scan Message Received but scan is already running");
-            // TODO: Maybe write a log over here.
+        if let Err(error) = scanner.scan(self, response_skeleton_opt) {
+            warning!(self.logger, "{}", error);
         }
         scanner.notify_later_assertable(self, ctx)
     }
@@ -1782,6 +1781,7 @@ mod tests {
 
     #[test]
     fn scan_request_from_ui_is_handled_in_case_the_scan_is_already_running() {
+        init_test_logging();
         let config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
                 scan_intervals: ScanIntervals {
@@ -1824,6 +1824,8 @@ mod tests {
         System::current().stop();
         system.run();
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
+        TestLogHandler::new()
+            .exists_log_containing("INFO: Accountant: PendingPayables Scan is already running");
         assert_eq!(blockchain_bridge_recording.len(), 0);
     }
 
@@ -2891,6 +2893,7 @@ mod tests {
     #[test]
     fn accountant_doesn_t_starts_another_scan_in_case_it_receives_the_message_and_is_scanner_running_flag_is_true(
     ) {
+        init_test_logging();
         let payable_dao = PayableDaoMock::default();
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
         let report_accounts_payable_sub = blockchain_bridge.start().recipient();
@@ -2931,6 +2934,8 @@ mod tests {
         let recording = blockchain_bridge_recording.lock().unwrap();
         let messages_received = recording.len();
         assert_eq!(messages_received, 0);
+        TestLogHandler::new()
+            .exists_log_containing("WARN: Accountant: Payables Scan is already running");
     }
 
     #[test]
