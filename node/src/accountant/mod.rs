@@ -378,14 +378,16 @@ impl Handler<NodeFromUiMessage> for Accountant {
         if let Ok((_, context_id)) = UiFinancialsRequest::fmb(msg.body.clone()) {
             self.handle_financials(client_id, context_id);
         } else if let Ok((body, context_id)) = UiScanRequest::fmb(msg.body.clone()) {
-            self.handle_externally_triggered_scan(
+            if let Err(e) = self.handle_externally_triggered_scan(
                 ctx,
                 body.scan_type,
                 ResponseSkeleton {
                     client_id,
                     context_id,
                 },
-            );
+            ) {
+                todo!();
+            }
             // TODO: The above fn returns a result, should we send a NodeToUIMessaage in case scan is already running, i.e. when we receive an error?
         } else {
             handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
@@ -1773,6 +1775,53 @@ mod tests {
                 }),
             }
         );
+    }
+
+    #[test]
+    fn scan_request_from_ui_is_handled_in_case_the_scan_is_already_running() {
+        let config = bc_from_ac_plus_earning_wallet(
+            AccountantConfig {
+                scan_intervals: ScanIntervals {
+                    payable_scan_interval: Duration::from_millis(10_000),
+                    receivable_scan_interval: Duration::from_millis(10_000),
+                    pending_payable_scan_interval: Duration::from_secs(100),
+                },
+                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
+                suppress_initial_scans: true,
+                payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
+            },
+            make_wallet("some_wallet_address"),
+        );
+        let pending_payable_dao = PendingPayableDaoMock::default();
+        let mut subject = AccountantBuilder::default()
+            .bootstrapper_config(config)
+            .pending_payable_dao(pending_payable_dao)
+            .build();
+        subject
+            .scanners
+            .pending_payables
+            .update_is_scan_running(true);
+        let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
+        let subject_addr = subject.start();
+        let system = System::new("test");
+        let peer_actors = peer_actors_builder()
+            .blockchain_bridge(blockchain_bridge)
+            .build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let ui_message = NodeFromUiMessage {
+            client_id: 1234,
+            body: UiScanRequest {
+                scan_type: ScanType::PendingPayables,
+            }
+            .tmb(4321),
+        };
+
+        subject_addr.try_send(ui_message).unwrap();
+
+        System::current().stop();
+        system.run();
+        let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
+        assert_eq!(blockchain_bridge_recording.len(), 0);
     }
 
     #[test]
