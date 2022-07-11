@@ -304,8 +304,10 @@ impl FinancialsCommand {
         );
     }
 
+    //TODO test this one...the panic
     fn parse<N: FromStr>(str_val: &str, name: &str) -> N {
-        str::parse::<N>(str_val).unwrap_or_else(|_| panic!("{} non properly required", name))
+        todo!();
+        str::parse::<N>(str_val).unwrap_or_else(|_| panic!("{} not properly required", name))
     }
 
     fn parse_range_query<T: FromStr>(
