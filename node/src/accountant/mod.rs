@@ -17,7 +17,7 @@ use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDa
 use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDaoError, ReceivableDaoFactory,
 };
-use crate::accountant::scanners::accountant_tools::{
+use crate::accountant::scanners::scanners::{
     NotifyLaterForScanners, Scanner, Scanners, TransactionConfirmationTools,
 };
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
@@ -1293,7 +1293,7 @@ mod tests {
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
-    use crate::accountant::scanners::accountant_tools::Scanner;
+    use crate::accountant::scanners::scanners::Scanner;
     use crate::accountant::test_utils::{
         bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_pending_payable_fingerprint,
         make_receivable_account, BannedDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock,

@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub(in crate::accountant) mod accountant_tools {
+pub(in crate::accountant) mod scanners {
     use crate::accountant::{
         Accountant, CancelFailedPendingTransaction, ConfirmPendingTransaction,
         RequestTransactionReceipts, ResponseSkeleton, ScanForPayables, ScanForPendingPayables,
@@ -155,7 +155,7 @@ pub(in crate::accountant) mod accountant_tools {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::accountant_tools::Scanners;
+    use crate::accountant::scanners::scanners::Scanners;
     use crate::accountant::test_utils::{bc_from_ac_plus_earning_wallet, AccountantBuilder};
     use crate::test_utils::make_wallet;
     use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
