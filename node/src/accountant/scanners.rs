@@ -8,6 +8,7 @@ pub(in crate::accountant) mod scanners {
     };
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
     use actix::{Context, Recipient};
+    use masq_lib::logger::timestamp_as_string;
     use masq_lib::messages::ScanType;
     use std::cell::RefCell;
     use std::time::SystemTime;
@@ -107,8 +108,11 @@ pub(in crate::accountant) mod scanners {
             accountant: &Accountant,
             response_skeleton_opt: Option<ResponseSkeleton>,
         ) -> Result<(), String> {
-            if self.is_scan_running() {
-                return Err(format!("{:?} Scan is already running", self.scan_type));
+            if let Some(initiated_at) = self.initiated_at {
+                return Err(format!(
+                    "{:?} scan was already initiated at {}. Hence, this scan request will be ignored.",
+                    self.scan_type, timestamp_as_string(&initiated_at)
+                ));
             };
 
             (self.scan)(accountant, response_skeleton_opt);
@@ -160,6 +164,7 @@ mod tests {
     use crate::accountant::test_utils::{bc_from_ac_plus_earning_wallet, AccountantBuilder};
     use crate::test_utils::make_wallet;
     use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
+    use masq_lib::logger::timestamp_as_string;
     use masq_lib::messages::ScanType;
     use std::time::SystemTime;
 
@@ -207,7 +212,11 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(format!("PendingPayables Scan is already running"))
+            Err(format!(
+                "PendingPayables scan was already initiated at {}. \
+                Hence, this scan request will be ignored.",
+                timestamp_as_string(&now)
+            ))
         );
     }
 }

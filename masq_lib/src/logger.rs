@@ -8,6 +8,9 @@ use crate::test_utils::utils::MutexIncrementInset;
 use crate::ui_gateway::MessageTarget;
 use crate::ui_gateway::NodeToUiMessage;
 use actix::Recipient;
+use chrono::format::StrftimeItems;
+use chrono::DateTime;
+use chrono::Local;
 use lazy_static::lazy_static;
 use log::logger;
 use log::Level;
@@ -16,6 +19,7 @@ use log::Metadata;
 #[allow(unused_imports)]
 use log::Record;
 use std::sync::Mutex;
+use std::time::SystemTime;
 
 const UI_MESSAGE_LOG_LEVEL: Level = Level::Info;
 
@@ -217,6 +221,12 @@ impl From<Level> for SerializableLogLevel {
     }
 }
 
+pub fn timestamp_as_string(timestamp: &SystemTime) -> String {
+    let date_time: DateTime<Local> = DateTime::from(timestamp.clone());
+    let fmt = StrftimeItems::new("%Y-%m-%dT%H:%M:%S%.3f");
+    date_time.format_with_items(fmt).to_string()
+}
+
 #[cfg(feature = "log_recipient_test")]
 lazy_static! {
     pub static ref INITIALIZATION_COUNTER: Mutex<MutexIncrementInset> =
@@ -257,8 +267,6 @@ mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
     use actix::{Actor, AsyncContext, Context, Handler, Message, System};
-    use chrono::format::StrftimeItems;
-    use chrono::{DateTime, Local};
     use crossbeam_channel::{unbounded, Sender};
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Barrier, Mutex, MutexGuard};
@@ -846,12 +854,6 @@ mod tests {
         tlh.exists_log_containing("info! 42");
         tlh.exists_log_containing("warning! 42");
         tlh.exists_log_containing("error! 42");
-    }
-
-    fn timestamp_as_string(timestamp: &SystemTime) -> String {
-        let date_time: DateTime<Local> = DateTime::from(timestamp.clone());
-        let fmt = StrftimeItems::new("%Y-%m-%dT%H:%M:%S%.3f");
-        date_time.format_with_items(fmt).to_string()
     }
 
     fn thread_id_as_string(thread_id: ThreadId) -> String {

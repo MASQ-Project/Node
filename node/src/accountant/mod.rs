@@ -1325,6 +1325,7 @@ mod tests {
         SystemKillerActor,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
+    use masq_lib::logger::timestamp_as_string;
     use web3::types::{TransactionReceipt, H256};
 
     #[derive(Default)]
@@ -1800,6 +1801,8 @@ mod tests {
             .bootstrapper_config(config)
             .pending_payable_dao(pending_payable_dao)
             .build();
+        subject.logger =
+            Logger::new("scan_request_from_ui_is_handled_in_case_the_scan_is_already_running");
         let now = SystemTime::now();
         subject.scanners.pending_payables.mark_as_started(now);
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
@@ -1822,8 +1825,12 @@ mod tests {
         System::current().stop();
         system.run();
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
-        TestLogHandler::new()
-            .exists_log_containing("INFO: Accountant: PendingPayables Scan is already running");
+        TestLogHandler::new().exists_log_containing(&format!(
+            "INFO: scan_request_from_ui_is_handled_in_case_the_scan_is_already_running: \
+            PendingPayables scan was already initiated at {}. \
+            Hence, this scan request will be ignored.",
+            timestamp_as_string(&now)
+        ));
         assert_eq!(blockchain_bridge_recording.len(), 0);
     }
 
@@ -2938,10 +2945,12 @@ mod tests {
         let recording = blockchain_bridge_recording.lock().unwrap();
         let messages_received = recording.len();
         assert_eq!(messages_received, 0);
-        TestLogHandler::new().exists_log_containing(
-            "WARN: accountant_doesn_t_starts_another_scan_in_case_\
-            it_receives_the_message_and_the_scanner_is_running: Payables Scan is already running",
-        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "WARN: accountant_doesn_t_starts_another_scan_in_case_it_receives_the_message_\
+            and_the_scanner_is_running: Payables scan was already initiated at {}. \
+            Hence, this scan request will be ignored.",
+            timestamp_as_string(&now)
+        ));
     }
 
     #[test]
