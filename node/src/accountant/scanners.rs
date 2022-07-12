@@ -10,6 +10,7 @@ pub(in crate::accountant) mod scanners {
     use actix::{Context, Recipient};
     use masq_lib::messages::ScanType;
     use std::cell::RefCell;
+    use std::time::SystemTime;
 
     pub type Scan = Box<dyn Fn(&Accountant, Option<ResponseSkeleton>)>;
     pub type NotifyLaterAssertable = Box<dyn FnMut(&Accountant, &mut Context<Accountant>)>;
@@ -82,7 +83,7 @@ pub(in crate::accountant) mod scanners {
 
     pub struct Scanner {
         scan_type: ScanType,
-        is_scan_running: bool,
+        initiated_at: Option<SystemTime>,
         scan: Scan,
         notify_later_assertable: RefCell<NotifyLaterAssertable>,
     }
@@ -95,7 +96,7 @@ pub(in crate::accountant) mod scanners {
         ) -> Scanner {
             Scanner {
                 scan_type,
-                is_scan_running: false,
+                initiated_at: None,
                 scan,
                 notify_later_assertable: RefCell::new(notify_later_assertable),
             }
@@ -127,11 +128,11 @@ pub(in crate::accountant) mod scanners {
         }
 
         pub fn is_scan_running(&self) -> bool {
-            self.is_scan_running
+            self.initiated_at.is_some()
         }
 
-        pub fn update_is_scan_running(&mut self, flag: bool) {
-            self.is_scan_running = flag;
+        pub fn mark_as_started(&mut self, timestamp: SystemTime) {
+            self.initiated_at = Some(timestamp)
         }
     }
 
@@ -160,13 +161,15 @@ mod tests {
     use crate::test_utils::make_wallet;
     use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
     use masq_lib::messages::ScanType;
+    use std::time::SystemTime;
 
     #[test]
-    fn is_scan_running_flag_can_be_updated() {
+    fn scan_can_be_marked_as_started() {
         let mut subject = Scanners::default();
         let initial_flag = subject.payables.is_scan_running();
+        let now = SystemTime::now();
 
-        subject.payables.update_is_scan_running(true);
+        subject.payables.mark_as_started(now);
 
         let final_flag = subject.payables.is_scan_running();
         assert_eq!(initial_flag, false);
@@ -197,7 +200,8 @@ mod tests {
                 make_wallet("some_wallet_address"),
             ))
             .build();
-        subject.pending_payables.update_is_scan_running(true);
+        let now = SystemTime::now();
+        subject.pending_payables.mark_as_started(now);
 
         let result = subject.pending_payables.scan(&accountant, None);
 

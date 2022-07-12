@@ -1800,10 +1800,8 @@ mod tests {
             .bootstrapper_config(config)
             .pending_payable_dao(pending_payable_dao)
             .build();
-        subject
-            .scanners
-            .pending_payables
-            .update_is_scan_running(true);
+        let now = SystemTime::now();
+        subject.scanners.pending_payables.mark_as_started(now);
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         let system = System::new("test");
@@ -2844,7 +2842,7 @@ mod tests {
     }
 
     #[test]
-    fn accountant_scans_for_payables_in_case_it_receives_the_message_and_flag_is_false() {
+    fn accountant_starts_a_scan_in_case_it_receives_the_message_and_scan_is_not_running() {
         let payable_dao = PayableDaoMock::default();
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
         let report_accounts_payable_sub = blockchain_bridge.start().recipient();
@@ -2864,7 +2862,7 @@ mod tests {
             make_wallet("mine"),
         );
         let system = System::new(
-            "accountant_scans_for_payables_in_case_it_receives_the_message_and_flag_is_false",
+            "accountant_starts_a_scan_in_case_it_receives_the_message_and_scan_is_not_running",
         );
         let mut subject = AccountantBuilder::default()
             .payable_dao(payable_dao)
@@ -2872,7 +2870,7 @@ mod tests {
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
         subject.config.scan_intervals.payable_scan_interval = Duration::from_millis(10);
-        subject.scanners.payables.update_is_scan_running(false);
+        let is_scan_running_initially = subject.scanners.payables.is_scan_running();
         let addr = subject.start();
 
         addr.try_send(ScanForPayables {
@@ -2887,11 +2885,12 @@ mod tests {
             accounts: vec![payable_account],
             response_skeleton_opt: None,
         };
+        assert_eq!(is_scan_running_initially, false);
         assert_eq!(message, &expected_message);
     }
 
     #[test]
-    fn accountant_doesn_t_starts_another_scan_in_case_it_receives_the_message_and_is_scanner_running_flag_is_true(
+    fn accountant_doesn_t_starts_another_scan_in_case_it_receives_the_message_and_the_scanner_is_running(
     ) {
         init_test_logging();
         let payable_dao = PayableDaoMock::default();
@@ -2913,7 +2912,7 @@ mod tests {
             make_wallet("mine"),
         );
         let system = System::new(
-            "accountant_doesn_t_starts_another_scan_in_case_it_receives_the_message_and_is_scanner_running_flag_is_true",
+            "accountant_doesn_t_starts_another_scan_in_case_it_receives_the_message_and_the_scanner_is_running",
         );
         let mut subject = AccountantBuilder::default()
             .payable_dao(payable_dao)
@@ -2921,7 +2920,12 @@ mod tests {
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
         subject.config.scan_intervals.payable_scan_interval = Duration::from_millis(10);
-        subject.scanners.payables.update_is_scan_running(true);
+        subject.logger = Logger::new(
+            "accountant_doesn_t_starts_another_scan_in_case_\
+        it_receives_the_message_and_the_scanner_is_running",
+        );
+        let now = SystemTime::now();
+        subject.scanners.payables.mark_as_started(now);
         let addr = subject.start();
 
         addr.try_send(ScanForPayables {
@@ -2934,8 +2938,10 @@ mod tests {
         let recording = blockchain_bridge_recording.lock().unwrap();
         let messages_received = recording.len();
         assert_eq!(messages_received, 0);
-        TestLogHandler::new()
-            .exists_log_containing("WARN: Accountant: Payables Scan is already running");
+        TestLogHandler::new().exists_log_containing(
+            "WARN: accountant_doesn_t_starts_another_scan_in_case_\
+            it_receives_the_message_and_the_scanner_is_running: Payables Scan is already running",
+        );
     }
 
     #[test]
