@@ -451,7 +451,6 @@ pub mod common_validators {
     use crate::constants::LOWEST_USABLE_INSECURE_PORT;
     use regex::Regex;
     use std::net::IpAddr;
-    use std::ops::Mul;
     use std::str::FromStr;
     use tiny_hderive::bip44::DerivationPath;
 
@@ -572,82 +571,6 @@ pub mod common_validators {
         }
     }
 
-    pub fn validate_two_ranges<N>(double: String) -> Result<(), String>
-    where
-        N: FromStr + From<u32> + Mul<Output = N> + PartialOrd,
-    {
-        let separate_ranges = double.split('|').collect::<Vec<&str>>();
-        if separate_ranges.len() != 2 {
-            return Err("Central vertical delimiter misused".to_string());
-        }
-        let time_range = separate_ranges[0].split('-').collect::<Vec<&str>>();
-        if time_range.len() != 2 {
-            return Err("First range is wrongly formatted".to_string());
-        }
-        let (min_age, max_age) = parse_time_params(&time_range)?;
-        let (min_amount, max_amount): (N, N) = parse_masq_range_to_gwei(&separate_ranges[1])?;
-        if min_age >= max_age || min_amount >= max_amount {
-            Err("Both ranges must be ascending".to_string())
-        } else {
-            Ok(())
-        }
-    }
-
-    fn parse_integer<N: FromStr>(str_num: &str) -> Result<N, String> {
-        str::parse::<N>(str_num)
-            .map_err(|_| "Non numeric value, all must be valid numbers".to_string())
-    }
-
-    fn parse_time_params(time_range: &[&str]) -> Result<(u64, u64), String> {
-        Ok((parse_integer(time_range[0])?, parse_integer(time_range[1])?))
-    }
-
-    fn extract_masq_and_return_gwei_str(range_str: &str) -> Result<(String, String), String> {
-        let regex = Regex::new("(-?\\d+\\.?\\d*)\\s*-\\s*(-?\\d+\\.?\\d*)").expect("wrong regex");
-        match regex.captures(range_str).map(|captures| {
-            eprintln!("blah {:?}", captures);
-            let fetch = |idx: usize| captures.get(idx).map(|catch| catch.as_str().to_owned());
-            (fetch(1), fetch(2))
-        }) {
-            Some((Some(first), Some(second))) => Ok((first, second)),
-            _ => Err("Second range in improper format".to_string()),
-        }
-    }
-
-    pub fn parse_masq_range_to_gwei<N>(range_str: &str) -> Result<(N, N), String>
-    where
-        N: FromStr + From<u32> + Mul<Output = N>,
-    {
-        eprintln!("range: {}", range_str);
-        let (first, second) = extract_masq_and_return_gwei_str(range_str)?;
-        Ok((
-            process_optionally_fragmentary_number(&first)?,
-            process_optionally_fragmentary_number(&second)?,
-        ))
-    }
-
-    fn process_optionally_fragmentary_number<N>(num: &str) -> Result<N, String>
-    where
-        N: FromStr + From<u32> + Mul<Output = N>,
-    {
-        let dot_position_opt = num.chars().position(|char| char == '.');
-        if let Some(dot_idx) = dot_position_opt {
-            if dot_idx == num.len() {
-                todo!()
-            };
-            let dot_count = num.chars().filter(|char| *char == '.').count();
-            if dot_count != 1 {
-                todo!()
-            };
-            let decimal_num_count = num.chars().count() - dot_idx;
-            let root_parsed: N =
-                parse_integer(&num.chars().filter(|char| *char != '.').collect::<String>())?;
-            Ok(root_parsed * N::from(10_u32.pow(9 - decimal_num_count as u32)))
-        } else {
-            parse_integer(num) //TODO will be needed as *1_000_000_000
-        }
-    }
-
     pub fn validate_separate_u64_values(values_with_delimiters: String) -> Result<(), String> {
         values_with_delimiters.split('|').try_for_each(|segment| {
             segment
@@ -715,7 +638,7 @@ mod tests {
 
     use super::*;
     use crate::blockchains::chains::Chain;
-    use crate::shared_schema::common_validators::{validate_two_ranges, validate_u16};
+    use crate::shared_schema::common_validators::validate_u16;
     use crate::shared_schema::{common_validators, official_chain_names};
 
     #[test]
@@ -1148,103 +1071,6 @@ mod tests {
         let result = validate_u16("garbage".to_string());
 
         assert_eq!(result, Err("garbage".to_string()))
-    }
-
-    #[test]
-    fn validate_two_ranges_happy_path() {
-        let result = validate_two_ranges::<u64>("454-5000|0.000130-55.0".to_string());
-
-        assert_eq!(result, Ok(()))
-    }
-
-    #[test]
-    fn validate_two_ranges_even_integers_are_acceptable_for_masqs_range() {
-        let result = validate_two_ranges::<i64>("454-2000|2000-30000".to_string());
-
-        assert_eq!(result, Ok(()))
-    }
-
-    #[test]
-    fn validate_two_ranges_even_one_side_negative_range_is_acceptable_for_masqs_range() {
-        let result = validate_two_ranges::<i64>("454-2000|-2000-30000".to_string());
-
-        assert_eq!(result, Ok(()))
-    }
-
-    #[test]
-    fn validate_two_ranges_even_both_side_negative_range_is_acceptable_for_masqs_range() {
-        let result = validate_two_ranges::<i64>("454-2000|-2000--1000".to_string());
-
-        assert_eq!(result, Ok(()))
-    }
-
-    #[test]
-    fn validate_two_ranges_misused_central_delimiter() {
-        let result = validate_two_ranges::<i64>("45-500545-006".to_string());
-
-        assert_eq!(
-            result,
-            Err("Central vertical delimiter misused".to_string())
-        )
-    }
-
-    #[test]
-    fn validate_two_ranges_misused_range_delimiter() {
-        let result = validate_two_ranges::<i64>("45+500|545+006".to_string());
-
-        assert_eq!(result, Err("First range is wrongly formatted".to_string()))
-    }
-
-    #[test]
-    fn validate_two_ranges_second_value_smaller_than_the_first_for_time() {
-        let result = validate_two_ranges::<u64>("4545-2000|20000.0-30000.0".to_string());
-
-        assert_eq!(result, Err("Both ranges must be ascending".to_string()))
-    }
-
-    #[test]
-    fn validate_two_ranges_values_the_same_for_time() {
-        let result = validate_two_ranges::<i64>("2000-2000|20000.0-30000.0".to_string());
-
-        assert_eq!(result, Err("Both ranges must be ascending".to_string()))
-    }
-
-    #[test]
-    fn validate_two_ranges_values_the_same_for_masqs() {
-        let result = validate_two_ranges::<i64>("1000-2000|20000.0-20000.0".to_string());
-
-        assert_eq!(result, Err("Both ranges must be ascending".to_string()))
-    }
-
-    #[test]
-    fn validate_two_ranges_second_value_smaller_than_the_first_for_masqs_but_not_in_decimals() {
-        let result = validate_two_ranges::<i64>("2000-4545|30.0-27.0".to_string());
-
-        assert_eq!(result, Err("Both ranges must be ascending".to_string()))
-    }
-
-    #[test]
-    fn validate_two_ranges_second_value_smaller_than_the_first_for_masqs_in_decimals() {
-        let result = validate_two_ranges::<u64>("2000-4545|20.13-20.11".to_string());
-
-        assert_eq!(result, Err("Both ranges must be ascending".to_string()))
-    }
-
-    #[test]
-    fn validate_two_ranges_non_numeric_value_error_for_first_range() {
-        let result = validate_two_ranges::<i64>("blah-1234|899-999".to_string());
-
-        assert_eq!(
-            result,
-            Err("Non numeric value, all must be valid numbers".to_string())
-        )
-    }
-
-    #[test]
-    fn validate_two_ranges_non_numeric_value_error_for_second() {
-        let result = validate_two_ranges::<i64>("1000-1234|7878.0-a lot".to_string());
-
-        assert_eq!(result, Err("Second range in improper format".to_string()))
     }
 
     #[test]

@@ -18,6 +18,7 @@ itertools = "0.8.0"
 lazy_static = "1.4.0"
 linefeed = "0.6.0"
 masq_lib = { path = "../masq_lib" }
+num = "0.4.0"
 regex = "1.5.4"
 thousands = "0.2.0"
 websocket = {version = "0.26.2", default-features = false, features = ["sync"]}
