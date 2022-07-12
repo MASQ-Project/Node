@@ -321,6 +321,7 @@ impl BlockchainBridge {
                 _ => so_far,
             });
         let (vector_of_results, error_opt) = short_circuit_result;
+        // TODO: Write a test to handle the empty vector.
         if !vector_of_results.is_empty() {
             let pairs = vector_of_results
                 .into_iter()

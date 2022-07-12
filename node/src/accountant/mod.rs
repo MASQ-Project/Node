@@ -313,6 +313,8 @@ impl Handler<ReportTransactionReceipts> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ReportTransactionReceipts, ctx: &mut Self::Context) -> Self::Result {
+        // TODO: PendingPayables scan ends here.
+        // TODO: Make accountant to handle empty vector. Maybe log it as an error.
         debug!(
             self.logger,
             "Processing receipts for {} transactions",
