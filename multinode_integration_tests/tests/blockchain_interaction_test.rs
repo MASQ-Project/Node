@@ -113,7 +113,7 @@ fn debtors_are_credited_once_but_not_twice() {
             .custom_query(CustomQuery::TopRecords(100))
             .unwrap_or_default();
         assert_eq!(receivable_accounts.len(), 1);
-        assert_eq!(receivable_accounts[0].balance, 1234); // this will probably fail
+        assert_eq!(receivable_accounts[0].balance_wei, 1234); // this will probably fail
     }
     {
         // Use the config DAO to verify that the start block has been advanced to 2001

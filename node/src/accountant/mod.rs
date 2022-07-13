@@ -1437,10 +1437,8 @@ pub fn gwei_to_wei<T: Mul<Output = T> + From<u32> + From<S>, S>(gwei: S) -> T {
     (T::from(gwei)).mul(T::from(1_000_000_000))
 }
 
-pub fn wei_to_gwei<T: Div + Div<Output = T> + From<u32> + TryFrom<S>, S: Display + Copy>(
-    wei: S,
-) -> T {
-    checked_conversion::<S, T>(wei).div(T::from(1_000_000_000))
+pub fn wei_to_gwei<T: TryFrom<S>, S: Display + Copy + Div<Output = S> + From<u32>>(wei: S) -> T {
+    checked_conversion::<S, T>(wei.div(S::from(1_000_000_000)))
 }
 
 fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
@@ -4997,8 +4995,8 @@ mod tests {
 
     #[test]
     fn compute_financials_processes_defaulted_request() {
-        let payable_dao = PayableDaoMock::new().total_result(1_111_111_000);
-        let receivable_dao = ReceivableDaoMock::new().total_result(333_000_054_686);
+        let payable_dao = PayableDaoMock::new().total_result(u64::MAX as u128 + 123456);
+        let receivable_dao = ReceivableDaoMock::new().total_result((i64::MAX as i128) * 3);
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
                 make_populated_accountant_config_with_defaults(),
@@ -5007,8 +5005,8 @@ mod tests {
             .receivable_dao(receivable_dao)
             .payable_dao(payable_dao)
             .build();
-        subject.financial_statistics.total_paid_payable_wei = 172_345_602_235;
-        subject.financial_statistics.total_paid_receivable_wei = 4_455_656_989_415;
+        subject.financial_statistics.total_paid_payable_wei = 172_345_602_235_454_454;
+        subject.financial_statistics.total_paid_receivable_wei = 4_455_656_989_415_777_555;
         let context_id = 1234;
         let request = UiFinancialsRequest {
             stats_required: true,
@@ -5022,10 +5020,10 @@ mod tests {
             result,
             UiFinancialsResponse {
                 stats_opt: Some(UiFinancialStatistics {
-                    total_unpaid_and_pending_payable_gwei: 1,
-                    total_paid_payable_gwei: 172,
-                    total_unpaid_receivable_gwei: 333,
-                    total_paid_receivable_gwei: 4455
+                    total_unpaid_and_pending_payable_gwei: 18446744073,
+                    total_paid_payable_gwei: 172345602,
+                    total_unpaid_receivable_gwei: 27670116110,
+                    total_paid_receivable_gwei: 4455656989
                 }),
                 top_records_opt: None,
                 custom_query_records_opt: None
@@ -5576,14 +5574,14 @@ mod tests {
 
     #[test]
     fn wei_to_gwei_works() {
-        let result: u64 = wei_to_gwei(127_300_050_500_u128);
+        let result: u64 = wei_to_gwei((127_300_050_500_u64 + 111) as u128);
 
         assert_eq!(result, 127)
     }
 
     #[test]
     #[should_panic(
-        expected = "Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to u64"
+        expected = "Overflow detected with 340282366920938463463374607431: cannot be converted from u128 to u64"
     )]
     fn wei_to_gwei_blows_up_on_overflow() {
         let _: u64 = wei_to_gwei(u128::MAX);

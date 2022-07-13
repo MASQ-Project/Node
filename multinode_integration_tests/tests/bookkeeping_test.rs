@@ -46,7 +46,9 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
         .flat_map(|node| {
             receivables(node)
                 .into_iter()
-                .map(move |receivable_account| (node.earning_wallet(), receivable_account.balance))
+                .map(move |receivable_account| {
+                    (node.earning_wallet(), receivable_account.balance_wei)
+                })
         })
         .collect::<HashMap<Wallet, i128>>();
 
@@ -66,7 +68,7 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
 
     payables.iter().for_each(|payable| {
         assert_eq!(
-            payable.balance,
+            payable.balance_wei,
             *receivable_balances.get(&payable.wallet).unwrap() as u128,
         );
     });

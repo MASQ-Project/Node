@@ -2,9 +2,6 @@
 use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::messages::{
-    FromMessageBody, ToMessageBody, UiFinancialsRequest, UiFinancialsResponse,
-};
 use masq_lib::utils::{derivation_path, find_free_port, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::command::Command;
@@ -22,7 +19,7 @@ use node_lib::blockchain::blockchain_interface::{
 };
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
 use node_lib::database::db_migrations::{ExternalData, MigratorConfig};
-use node_lib::sub_lib::accountant::{PaymentThresholds, GWEI_TO_WEI};
+use node_lib::sub_lib::accountant::{PaymentThresholds, WEIS_OF_GWEI};
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
 use rustc_hex::{FromHex, ToHex};
@@ -109,7 +106,7 @@ fn verify_bill_payment() {
         None,
     );
 
-    let amount = 10 * payment_thresholds.permanent_debt_allowed_gwei as u128 * GWEI_TO_WEI as u128;
+    let amount = 10 * payment_thresholds.permanent_debt_allowed_gwei as u128 * WEIS_OF_GWEI as u128;
 
     let project_root = MASQNodeUtils::find_project_root();
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
@@ -304,47 +301,25 @@ fn verify_bill_payment() {
 
     test_utils::wait_for(Some(1000), Some(15000), || {
         if let Some(status) = serving_node_1_receivable_dao.account_status(&contract_owner_wallet) {
-            status.balance == 0
+            status.balance_wei == 0
         } else {
             false
         }
     });
     test_utils::wait_for(Some(1000), Some(15000), || {
         if let Some(status) = serving_node_2_receivable_dao.account_status(&contract_owner_wallet) {
-            status.balance == 0
+            status.balance_wei == 0
         } else {
             false
         }
     });
     test_utils::wait_for(Some(1000), Some(15000), || {
         if let Some(status) = serving_node_3_receivable_dao.account_status(&contract_owner_wallet) {
-            status.balance == 0
+            status.balance_wei == 0
         } else {
             false
         }
     });
-
-    //formal confirmation from the other side, the consuming Node
-    let ui_client = real_consuming_node.make_ui(consuming_port);
-    ui_client.send_request(
-        UiFinancialsRequest {
-            stats_required: true,
-            top_records_opt: None,
-            custom_queries_opt: None,
-        }
-        .tmb(1234),
-    );
-    let response = ui_client.wait_for_response(1234, Duration::from_secs(5));
-    let (financials_response, contex_id) = UiFinancialsResponse::fmb(response).unwrap();
-    assert_eq!(contex_id, 1234);
-    assert_eq!(
-        financials_response,
-        UiFinancialsResponse {
-            stats_opt: None,
-            top_records_opt: None,
-            custom_query_records_opt: None
-        }
-    )
 }
 
 fn make_migrator_config(chain: Chain) -> MigratorConfig {
