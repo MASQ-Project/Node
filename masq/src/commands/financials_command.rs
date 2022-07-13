@@ -4,6 +4,7 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use crate::commands::financials_command::ChangeDone::{Changed, Unchanged};
 use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
 use masq_lib::messages::{
     CustomQueries, CustomQueryResult, FirmQueryResult, RangeQuery, UiFinancialStatistics,
@@ -43,8 +44,8 @@ pub struct FinancialsCommand {
 #[derive(Debug)]
 struct CustomQueryInput {
     query: RefCell<Option<CustomQueries>>,
-    user_payable_format_opt: Option<(String, String)>,
-    user_receivable_format_opt: Option<(String, String)>,
+    user_payable_format_opt: Option<((String, String), (String, String))>,
+    user_receivable_format_opt: Option<((String, String), (String, String))>,
 }
 
 pub fn financials_subcommand() -> App<'static, 'static> {
@@ -183,7 +184,7 @@ macro_rules! process_custom_query {
                     .expectv("custom query")
                     .$correct_field
                     .as_ref()
-                    .expectv("payable custom query"),
+                    .expectv("custom query field"),
             );
             $self.$render_accounts_fn($stdout, accounts, $headings)
         } else if $self
@@ -202,7 +203,7 @@ macro_rules! process_custom_query {
                     .expectv("custom query")
                     .$correct_field
                     .as_ref()
-                    .expectv("custom query filed"),
+                    .expectv("custom query field"),
             );
             Self::no_records_found($stdout, $headings.words(), Self::$write_headings_fn)
         }
@@ -222,21 +223,26 @@ impl FinancialsCommand {
             stats_required,
             top_records_opt,
             custom_queries_opt: match (
-                Self::parse_range_query_arg(&matches, "payable"),
-                Self::parse_range_query_arg(&matches, "receivable"),
+                Self::parse_range_query_arg::<u64>(&matches, "payable"),
+                Self::parse_range_query_arg::<i64>(&matches, "receivable"),
             ) {
                 (None, None) => None,
                 (payable_opt, receivable_opt) => {
-                    let user_payable_format_opt = payable_opt
-                        .as_ref()
-                        .map(|tuple| (tuple.1.to_string(), tuple.2.to_string()));
-                    let user_receivable_format_opt = receivable_opt
-                        .as_ref()
-                        .map(|tuple| (tuple.1.to_string(), tuple.2.to_string()));
+                    let (payable_opt, user_payable_format_opt) = if let Some(x) = payable_opt {
+                        x
+                    } else {
+                        (None, None)
+                    };
+                    let (receivable_opt, user_receivable_format_opt) =
+                        if let Some(x) = receivable_opt {
+                            x
+                        } else {
+                            (None, None)
+                        };
                     Some(CustomQueryInput {
                         query: RefCell::new(Some(CustomQueries {
-                            payable_opt: payable_opt.map(|tuple| tuple.0),
-                            receivable_opt: receivable_opt.map(|tuple| tuple.0),
+                            payable_opt,
+                            receivable_opt,
                         })),
                         user_payable_format_opt,
                         user_receivable_format_opt,
@@ -318,7 +324,7 @@ impl FinancialsCommand {
             stdout,
             "receivable",
             &receivable_headings,
-            user_payable_format_opt,
+            user_receivable_format_opt,
             custom_query_result.receivable_opt,
             render_receivable,
             write_receivable_headings
@@ -338,24 +344,30 @@ impl FinancialsCommand {
     >(
         matches: &'a ArgMatches,
         parameter_name: &'a str,
-    ) -> Option<(RangeQuery<T>, &'a str, &'a str)> {
+    ) -> Option<(
+        Option<RangeQuery<T>>,
+        Option<((String, String), (String, String))>,
+    )> {
         matches.value_of(parameter_name).map(|double| {
             //this is already after tight validation
             let separated_ranges = double.split('|').collect::<Vec<&str>>();
             let time_range = separated_ranges[0].split('-').collect::<Vec<&str>>();
             let (min_age, max_age) =
                 parse_time_params(&time_range).expect("blows up after validation?");
-            let (min_amount, max_amount) =
+            let (min_amount_num, max_amount_num, min_amount_str, max_amount_str) =
                 parse_masq_range_to_gwei(&separated_ranges[1]).expect("blows up after validation?");
+            //I'm arranging these types so that I can easily use them in the next step outside of here
             (
-                RangeQuery {
+                Some(RangeQuery {
                     min_age_seconds: min_age,
                     max_age_seconds: max_age,
-                    min_amount_gwei: min_amount,
-                    max_amount_gwei: max_amount,
-                },
-                separated_ranges[0],
-                separated_ranges[1],
+                    min_amount_gwei: min_amount_num,
+                    max_amount_gwei: max_amount_num,
+                }),
+                Some((
+                    (time_range[0].to_string(), time_range[1].to_string()),
+                    (min_amount_str, max_amount_str),
+                )),
             )
         })
     }
@@ -610,31 +622,28 @@ impl FinancialsCommand {
     fn title_for_custom_query(
         stdout: &mut dyn Write,
         distinguished: &str,
-        user_written_ranges: &(String, String),
+        user_written_ranges: &((String, String), (String, String)),
     ) {
-        let mut do_write = |range_params: &(String, String)| {
-            let (time, amounts) = range_params;
-            Self::double_blank_line(stdout);
-            short_writeln!(
-                stdout,
-                "Specific {} query: {} sec {} MASQ\n{}",
-                distinguished,
-                time,
-                amounts,
-                "=".repeat(29 + distinguished.len() + time.len() + amounts.len())
-            )
-        };
-        if let Some(range_params) = Self::correct_users_writing_if_needed(user_written_ranges) {
-            do_write(&range_params)
-        } else {
-            todo!() //do_write()
-        }
+        let processed = Self::correct_users_writing_if_needed(user_written_ranges);
+        let (time, amounts) = processed.value();
+        Self::double_blank_line(stdout);
+        short_writeln!(
+            stdout,
+            "Specific {} query: {} sec {} MASQ\n{}",
+            distinguished,
+            time,
+            amounts,
+            "=".repeat(27 + distinguished.len() + time.len() + amounts.len())
+        )
     }
 
-    fn correct_users_writing_if_needed(user_ranges: &(String, String)) -> Option<(String, String)> {
+    fn correct_users_writing_if_needed(
+        user_ranges: &((String, String), (String, String)),
+    ) -> ChangeDone<(String, String)> {
         fn apply_care(str: &String) -> Option<String> {
             fn front_care(str: &String, decimal_dot_position: Option<usize>) -> String {
                 fn count_leading_zeros(str: &String) -> (usize, bool) {
+                    eprintln!("we are processing: {}", str);
                     str.chars().fold((0, true), |acc, char| {
                         if acc.1 {
                             if char == '0' {
@@ -648,6 +657,7 @@ impl FinancialsCommand {
                     })
                 }
                 let leading_zeros = count_leading_zeros(str);
+                eprintln!("leading zeros: {:?}", leading_zeros);
                 str.chars()
                     .skip(if leading_zeros.0 == 0 {
                         0
@@ -660,7 +670,11 @@ impl FinancialsCommand {
                                     0
                                 }
                             } else {
-                                0
+                                if leading_zeros.0 == str.len() {
+                                    1
+                                } else {
+                                    0
+                                }
                             }
                     })
                     .collect()
@@ -691,12 +705,28 @@ impl FinancialsCommand {
                 make_decision(after_care, str)
             }
         }
-        let (first, second) = user_ranges;
-        match (apply_care(first), apply_care(second)) {
-            (None, None) => None,
-            (a, b) => Some((
-                a.unwrap_or(first.to_string()),
-                b.unwrap_or(second.to_string()),
+        let ((time_min, time_max), (amount_min, amount_max)) = user_ranges;
+        match (
+            apply_care(time_min),
+            apply_care(time_max),
+            apply_care(amount_min),
+            apply_care(amount_max),
+        ) {
+            (None, None, None, None) => Unchanged((
+                format!("{}-{}", time_min, time_max),
+                format!("{}-{}", amount_min, amount_max),
+            )),
+            (a, b, c, d) => Changed((
+                format!(
+                    "{}-{}",
+                    a.unwrap_or(time_min.to_string()),
+                    b.unwrap_or(time_max.to_string())
+                ),
+                format!(
+                    "{}-{}",
+                    c.unwrap_or(amount_min.to_string()),
+                    d.unwrap_or(amount_max.to_string())
+                ),
             )),
         }
     }
@@ -759,6 +789,21 @@ impl FinancialsCommand {
 
     fn double_blank_line(stdout: &mut dyn Write) {
         short_writeln!(stdout, "\n")
+    }
+}
+
+#[derive(Debug, PartialEq)]
+enum ChangeDone<T> {
+    Changed(T),
+    Unchanged(T),
+}
+
+impl<T> ChangeDone<T> {
+    fn value(self) -> T {
+        match self {
+            Changed(val) => val,
+            Unchanged(val) => val,
+        }
     }
 }
 
@@ -841,7 +886,8 @@ where
     let separate_ranges = checked_division(&double, '|', "Central vertical delimiter misused")?;
     let time_range = checked_division(separate_ranges[0], '-', "First range is formatted wrong")?;
     let (min_age, max_age) = parse_time_params(&time_range)?;
-    let (min_amount, max_amount): (N, N) = parse_masq_range_to_gwei(&separate_ranges[1])?;
+    let (min_amount, max_amount, _, _): (N, N, _, _) =
+        parse_masq_range_to_gwei(&separate_ranges[1])?;
     if min_age >= max_age || min_amount >= max_amount {
         Err("Both ranges must be ascending".to_string())
     } else {
@@ -852,8 +898,8 @@ where
 fn parse_integer<N: FromStr<Err = ParseIntError>>(str_num: &str) -> Result<N, String> {
     str::parse::<N>(str_num).map_err(|e| match e.kind() {
         IntErrorKind::NegOverflow | IntErrorKind::PosOverflow => todo!(),
-        x => todo!("{:?}", x),
-    }) //"Non numeric value, all must be valid numbers".to_string())
+        x => "Non numeric value, all must be valid numbers".to_string(),
+    })
 }
 
 fn parse_time_params(time_range: &[&str]) -> Result<(u64, u64), String> {
@@ -871,7 +917,7 @@ fn extract_masq_and_return_gwei_str(range_str: &str) -> Result<(String, String),
     }
 }
 
-pub fn parse_masq_range_to_gwei<N>(range_str: &str) -> Result<(N, N), String>
+pub fn parse_masq_range_to_gwei<N>(range_str: &str) -> Result<(N, N, String, String), String>
 where
     N: FromStr<Err = ParseIntError> + From<u32> + Mul<Output = N> + CheckedMul + Display,
 {
@@ -879,6 +925,8 @@ where
     Ok((
         process_optionally_fragmentary_number(&first)?,
         process_optionally_fragmentary_number(&second)?,
+        first,
+        second,
     ))
 }
 
@@ -1023,7 +1071,7 @@ mod tests {
                 "--top",
                 "10",
                 "--payable",
-                "200-450|48000000111-158000008000",
+                "200-450|480000-158000008",
                 "--gwei",
             ]))
             .unwrap();
@@ -1273,47 +1321,78 @@ mod tests {
         );
     }
 
+    fn transpose_inputs_to_nested_tuples(
+        inputs: [&str; 4],
+    ) -> ((String, String), (String, String)) {
+        (
+            (inputs[0].to_string(), inputs[1].to_string()),
+            (inputs[2].to_string(), inputs[3].to_string()),
+        )
+    }
+
     #[test]
     fn correct_users_writing_if_needed_handles_leading_and_tailing_zeros() {
-        let result = FinancialsCommand::correct_users_writing_if_needed(&(
-            "00045656".to_string(),
-            "03548.1500000".to_string(),
-        ));
+        let result =
+            FinancialsCommand::correct_users_writing_if_needed(&transpose_inputs_to_nested_tuples(
+                ["00045656", "0354865.1500000", "000124856", "01561785.3300"],
+            ));
 
-        assert_eq!(result, Some(("45656".to_string(), "3548.15".to_string())))
+        assert_eq!(
+            result,
+            Changed((
+                "45656-354865.15".to_string(),
+                "124856-1561785.33".to_string()
+            ))
+        )
     }
 
     #[test]
     fn correct_users_writing_if_needed_returns_none_if_no_change() {
-        let result = FinancialsCommand::correct_users_writing_if_needed(&(
-            "-4565.546".to_string(),
-            "354815".to_string(),
-        ));
+        let result = FinancialsCommand::correct_users_writing_if_needed(
+            &transpose_inputs_to_nested_tuples(["456500", "35481533", "-500", "0.4545"]),
+        );
 
-        assert_eq!(result, None)
+        assert_eq!(
+            result,
+            Unchanged(("456500-35481533".to_string(), "-500-0.4545".to_string()))
+        )
+    }
+
+    #[test]
+    fn correct_users_writing_if_needed_returns_none_if_no_change_with_negative_range() {
+        let result = FinancialsCommand::correct_users_writing_if_needed(
+            &transpose_inputs_to_nested_tuples(["456500", "35481533", "-500", "-45"]),
+        );
+
+        assert_eq!(
+            result,
+            Unchanged(("456500-35481533".to_string(), "-500--45".to_string()))
+        )
     }
 
     #[test]
     fn correct_users_writing_if_needed_leaves_non_decimal_numbers_untouched_from_right() {
-        let result = FinancialsCommand::correct_users_writing_if_needed(&(
-            "456500000".to_string(),
-            "000354815".to_string(),
-        ));
+        let result = FinancialsCommand::correct_users_writing_if_needed(
+            &transpose_inputs_to_nested_tuples(["456500000", "000354815", "0033330", "000454"]),
+        );
 
         assert_eq!(
             result,
-            Some(("456500000".to_string(), "354815".to_string()))
+            Changed(("456500000-354815".to_string(), "33330-454".to_string()))
         )
     }
 
     #[test]
     fn correct_users_writing_if_needed_threats_0_followed_decimal_numbers_gently() {
-        let result = FinancialsCommand::correct_users_writing_if_needed(&(
-            "0.45545000".to_string(),
-            "000.333300".to_string(),
-        ));
+        let result =
+            FinancialsCommand::correct_users_writing_if_needed(&transpose_inputs_to_nested_tuples(
+                ["0.45545000", "000.333300", "000.00010000", "565.454500"],
+            ));
 
-        assert_eq!(result, Some(("0.45545".to_string(), "0.3333".to_string())))
+        assert_eq!(
+            result,
+            Changed(("0.45545-0.3333".to_string(), "0.0001-565.4545".to_string()))
+        )
     }
 
     fn response_of_everything_demanded_or_without_stats(with_stats: bool) -> UiFinancialsResponse {
@@ -1383,9 +1462,9 @@ mod tests {
             "--top",
             "123",
             "--payable",
-            "0-350000|5000000-9000000000",
+            "0-350000|0.005-9",
             "--receivable",
-            "5000-10000|3000000-5600070000",
+            "5000-10000|0.003000000-5.600070000",
         ]);
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
@@ -1456,7 +1535,7 @@ mod tests {
                 |0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440|  150,000|          < 0.01|0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e|\n\
                 \n\
                 \n\
-                Specific receivable query: 5000-10000 sec 0.003-5.60007 MASQ\n
+                Specific receivable query: 5000-10000 sec 0.003-5.60007 MASQ\n\
                 ============================================================\n\
                 |                  Wallet                  | Age [s] | Balance [MASQ] |\n\
                 -----------------------------------------------------------------------\n";
@@ -1587,9 +1666,9 @@ mod tests {
             "--top",
             "10",
             "--payable",
-            "0-400000|5000000-60000000",
+            "0-400000|355-6000",
             "--receivable",
-            "40000-80000|10000-1000000000",
+            "40000-80000|111-10000",
         ]);
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
@@ -1612,14 +1691,14 @@ mod tests {
                         payable_opt: Some(RangeQuery {
                             min_age_seconds: 0,
                             max_age_seconds: 400000,
-                            min_amount_gwei: 5000000,
-                            max_amount_gwei: 60000000
+                            min_amount_gwei: 355000000000,
+                            max_amount_gwei: 6000000000000
                         }),
                         receivable_opt: Some(RangeQuery {
                             min_age_seconds: 40000,
                             max_age_seconds: 80000,
-                            min_amount_gwei: 10000,
-                            max_amount_gwei: 1000000000
+                            min_amount_gwei: 111000000000,
+                            max_amount_gwei: 10000000000000
                         })
                     })
                 }
@@ -1638,29 +1717,29 @@ mod tests {
 |Paid receivable:                  < 0.01
 |
 |
-|Top 10 accounts in payable
-|==========================
+|Top 10 payable accounts
+|=======================
 ||                  Wallet                  | Age [s] | Balance [MASQ] | Pending tx |
 |------------------------------------------------------------------------------------
 |                                  No records found                                  \n\
 |
 |
-|Top 10 accounts in receivable
-|=============================
+|Top 10 receivable accounts
+|==========================
 ||                  Wallet                  | Age [s] | Balance [MASQ] |
 |-----------------------------------------------------------------------
 |                           No records found                            \n\
 |
 |
-|Payable query with parameters: 0-400000 s and 5000000-60000000 MASQ
-|===================================================================
+|Specific payable query: 0-400000 sec 355-6000 MASQ
+|==================================================
 ||                  Wallet                  | Age [s] | Balance [MASQ] | Pending tx |
 |------------------------------------------------------------------------------------
 |                                  No records found                                  \n\
 |
 |
-|Receivable query with parameters: 40000-80000 s and 10000-1000000000 MASQ
-|=========================================================================
+|Specific receivable query: 40000-80000 sec 111-10000 MASQ
+|=========================================================
 ||                  Wallet                  | Age [s] | Balance [MASQ] |
 |-----------------------------------------------------------------------
 |                           No records found                            "
@@ -1722,15 +1801,15 @@ mod tests {
             stdout_arc.lock().unwrap().get_string(),
                "\n\
                 \n\
-                Top 7 accounts in payable\n\
-                =========================\n\
+                Top 7 payable accounts\n\
+                ======================\n\
                 |                  Wallet                  |   Age [s]   | Balance [MASQ] |                            Pending tx                            |\n\
                 ----------------------------------------------------------------------------------------------------------------------------------------------\n\
                 |0xA884A2F1A5Ec6C2e499644666a5E6af97B966888|5,645,405,400|            0.64|0x3648c8b8c7e067ac30b80b6936159326d564dd13b7ae465b26647154ada2c638|\n\
                 \n\
                 \n\
-                Top 7 accounts in receivable\n\
-                ============================\n\
+                Top 7 receivable accounts\n\
+                =========================\n\
                 |                  Wallet                  | Age [s]  | Balance [MASQ] |\n\
                 ------------------------------------------------------------------------\n\
                 |0x6e250504DdfFDb986C4F0bb8Df162503B4118b05|11,111,111|   -0.01 < x < 0|\n"
@@ -1774,7 +1853,7 @@ mod tests {
         let args = array_of_borrows_to_vec(&[
             "financials",
             "--payable",
-            "3000-40000|8866-10000000",
+            "3000-40000|88-1000",
             "--no-stats",
         ]);
         let mut context = CommandContextMock::new()
@@ -1798,8 +1877,8 @@ mod tests {
                         payable_opt: Some(RangeQuery {
                             min_age_seconds: 3000,
                             max_age_seconds: 40000,
-                            min_amount_gwei: 8866,
-                            max_amount_gwei: 10000000
+                            min_amount_gwei: 88000000000,
+                            max_amount_gwei: 1000000000000
                         }),
                         receivable_opt: None
                     })
@@ -1812,8 +1891,8 @@ mod tests {
             stdout_arc.lock().unwrap().get_string(),
                "\n\
                 \n\
-                Payable query with parameters: 3000-40000 s and 8866.0-1000000.0 MASQ\n\
-                ==================================================================\n\
+                Specific payable query: 3000-40000 sec 88-1000 MASQ\n\
+                ===================================================\n\
                 |                  Wallet                  | Age [s] | Balance [MASQ] |                            Pending tx                            |\n\
                 ------------------------------------------------------------------------------------------------------------------------------------------\n\
                 |0x6e250504DdfFDb986C4F0bb8Df162503B4118b05|    4,445|            9.89|0x5fe272ed1e941cc05fbd624ec4b1546cd03c25d53e24ba2c18b11feb83cd4581|\n\
@@ -1854,7 +1933,7 @@ mod tests {
             "financials",
             "--no-stats",
             "--receivable",
-            "3000-40000|8866-10000000",
+            "3000-40000|66-980",
             "--gwei",
         ]);
         let mut context = CommandContextMock::new()
@@ -1879,8 +1958,8 @@ mod tests {
                         receivable_opt: Some(RangeQuery {
                             min_age_seconds: 3000,
                             max_age_seconds: 40000,
-                            min_amount_gwei: 8866,
-                            max_amount_gwei: 10000000
+                            min_amount_gwei: 66000000000,
+                            max_amount_gwei: 980000000000
                         })
                     })
                 }
@@ -1892,8 +1971,8 @@ mod tests {
             stdout_arc.lock().unwrap().get_string(),
             "\n\
                 \n\
-                Receivable query with parameters: 3000-40000 s and 8866-10000000 Gwei\n\
-                =====================================================================\n\
+                Specific receivable query: 3000-40000 sec 66-980 MASQ\n\
+                =====================================================\n\
                 |                  Wallet                  | Age [s] | Balance [Gwei] |\n\
                 -----------------------------------------------------------------------\n\
                 |0x6e250504DdfFDb986C4F0bb8Df162503B4118b05|    4,445|   9,898,999,888|\n\
