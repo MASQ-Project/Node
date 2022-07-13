@@ -160,10 +160,18 @@ pub(in crate::accountant) mod scanners {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::payable_dao::PayableAccount;
     use crate::accountant::scanners::scanners::Scanners;
-    use crate::accountant::test_utils::{bc_from_ac_plus_earning_wallet, AccountantBuilder};
+    use crate::accountant::test_utils::{
+        bc_from_ac_plus_earning_wallet, AccountantBuilder, PayableDaoMock,
+    };
+    use crate::accountant::Accountant;
+    use crate::database::dao_utils::{from_time_t, to_time_t};
+    use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
     use crate::test_utils::make_wallet;
+    use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
+    use actix::Actor;
     use masq_lib::logger::timestamp_as_string;
     use masq_lib::messages::ScanType;
     use std::time::SystemTime;
@@ -218,5 +226,42 @@ mod tests {
                 timestamp_as_string(&now)
             ))
         );
+    }
+
+    #[test]
+    #[ignore]
+    fn scan_function_marks_scan_has_started_when_a_scan_is_not_already_running() {
+        let subject = Scanners::default();
+        let accountant = make_accountant_for_payables();
+
+        let result = subject.payables.scan(&accountant, None);
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(subject.payables.is_scan_running(), true);
+    }
+
+    fn make_accountant_for_payables() -> Accountant {
+        let payable_dao = PayableDaoMock::default();
+        let (blockchain_bridge, _, _) = make_recorder();
+        let report_accounts_payable_sub = blockchain_bridge.start().recipient();
+        let now =
+            to_time_t(SystemTime::now()) - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec - 1;
+        let payable_account = PayableAccount {
+            wallet: make_wallet("scan_for_payables"),
+            balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1,
+            last_paid_timestamp: from_time_t(now),
+            pending_payable_opt: None,
+        };
+        let payable_dao = payable_dao.non_pending_payables_result(vec![payable_account.clone()]);
+        let mut accountant = AccountantBuilder::default()
+            .bootstrapper_config(bc_from_ac_plus_earning_wallet(
+                make_populated_accountant_config_with_defaults(),
+                make_wallet("some_wallet_address"),
+            ))
+            .payable_dao(payable_dao)
+            .build();
+        accountant.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
+
+        accountant
     }
 }
