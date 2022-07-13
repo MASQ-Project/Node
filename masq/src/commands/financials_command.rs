@@ -33,7 +33,7 @@ const GWEI_HELP: &str =
     "Orders rendering money in Gwei of MASQ instead of whole MASQ which is the default";
 const WALLET_ADDRESS_LENGTH: usize = 42;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub struct FinancialsCommand {
     stats_required: bool,
     top_records_opt: Option<u16>,
@@ -41,7 +41,7 @@ pub struct FinancialsCommand {
     gwei_precision: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 struct CustomQueryInput {
     query: RefCell<Option<CustomQueries>>,
     user_payable_format_opt: Option<((String, String), (String, String))>,
@@ -643,7 +643,6 @@ impl FinancialsCommand {
         fn apply_care(str: &String) -> Option<String> {
             fn front_care(str: &String, decimal_dot_position: Option<usize>) -> String {
                 fn count_leading_zeros(str: &String) -> (usize, bool) {
-                    eprintln!("we are processing: {}", str);
                     str.chars().fold((0, true), |acc, char| {
                         if acc.1 {
                             if char == '0' {
@@ -657,7 +656,6 @@ impl FinancialsCommand {
                     })
                 }
                 let leading_zeros = count_leading_zeros(str);
-                eprintln!("leading zeros: {:?}", leading_zeros);
                 str.chars()
                     .skip(if leading_zeros.0 == 0 {
                         0
@@ -897,8 +895,14 @@ where
 
 fn parse_integer<N: FromStr<Err = ParseIntError>>(str_num: &str) -> Result<N, String> {
     str::parse::<N>(str_num).map_err(|e| match e.kind() {
-        IntErrorKind::NegOverflow | IntErrorKind::PosOverflow => todo!(),
-        x => "Non numeric value, all must be valid numbers".to_string(),
+        IntErrorKind::NegOverflow | IntErrorKind::PosOverflow => panic!(
+            "Broken code: Clap validation should have detected the overflow of {} earlier",
+            str_num
+        ),
+        _ => format!(
+            "Non numeric value > {} <, all must be valid numbers",
+            str_num
+        ),
     })
 }
 
@@ -1193,13 +1197,65 @@ mod tests {
 
     #[test]
     fn financials_command_allows_obscure_leading_zeros_in_positive_numbers() {
-        todo!()
+        let args =
+            array_of_borrows_to_vec(&["financials", "--receivable", "05000-0010000|040-050"]);
+
+        let result = FinancialsCommand::new(&args).unwrap();
+
+        assert_eq!(
+            result,
+            FinancialsCommand {
+                stats_required: true,
+                top_records_opt: None,
+                custom_queries_opt: Some(CustomQueryInput {
+                    query: RefCell::new(Some(CustomQueries {
+                        payable_opt: None,
+                        receivable_opt: Some(RangeQuery {
+                            min_age_seconds: 5000,
+                            max_age_seconds: 10000,
+                            min_amount_gwei: 40000000000,
+                            max_amount_gwei: 50000000000
+                        })
+                    })),
+                    user_payable_format_opt: None,
+                    user_receivable_format_opt: Some(transpose_inputs_to_nested_tuples([
+                        "05000", "0010000", "040", "050"
+                    ]))
+                }),
+                gwei_precision: false
+            }
+        );
     }
 
     #[test]
-    fn financials_command_allows_obscure_leading_zeros_in_negative_numbers() //really???
-    {
-        todo!()
+    fn financials_command_allows_obscure_leading_zeros_in_negative_numbers() {
+        let args = array_of_borrows_to_vec(&["financials", "--receivable", "5000-10000|-050--040"]);
+
+        let result = FinancialsCommand::new(&args).unwrap();
+
+        assert_eq!(
+            result,
+            FinancialsCommand {
+                stats_required: true,
+                top_records_opt: None,
+                custom_queries_opt: Some(CustomQueryInput {
+                    query: RefCell::new(Some(CustomQueries {
+                        payable_opt: None,
+                        receivable_opt: Some(RangeQuery {
+                            min_age_seconds: 5000,
+                            max_age_seconds: 10000,
+                            min_amount_gwei: -50000000000,
+                            max_amount_gwei: -40000000000
+                        })
+                    })),
+                    user_payable_format_opt: None,
+                    user_receivable_format_opt: Some(transpose_inputs_to_nested_tuples([
+                        "5000", "10000", "-050", "-040"
+                    ]))
+                }),
+                gwei_precision: false
+            }
+        );
     }
 
     #[test]
@@ -1393,6 +1449,14 @@ mod tests {
             result,
             Changed(("0.45545-0.3333".to_string(), "0.0001-565.4545".to_string()))
         )
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Broken code: Clap validation should have detected the overflow of 40000000000000000000 earlier"
+    )]
+    fn parse_integer_overflow_indicates_broken_code() {
+        let _: Result<u64, String> = parse_integer("40000000000000000000");
     }
 
     fn response_of_everything_demanded_or_without_stats(with_stats: bool) -> UiFinancialsResponse {
@@ -2102,7 +2166,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("Non numeric value, all must be valid numbers".to_string())
+            Err("Non numeric value > blah <, all must be valid numbers".to_string())
         )
     }
 
