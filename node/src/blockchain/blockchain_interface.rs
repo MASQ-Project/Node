@@ -97,7 +97,7 @@ pub trait BlockchainInterface {
 
     fn send_transaction(
         &self,
-        inputs: TxInputs,
+        inputs: TxnInputs,
     ) -> Result<(H256, SystemTime), BlockchainTransactionError>;
 
     fn get_eth_balance(&self, address: &Wallet) -> Balance;
@@ -159,7 +159,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
 
     fn send_transaction<'a>(
         &self,
-        _inputs: TxInputs,
+        _inputs: TxnInputs,
     ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
         let msg = "Can't send transactions clandestinely yet".to_string();
         error!(self.logger, "{}", &msg);
@@ -304,7 +304,7 @@ where
 
     fn send_transaction<'a>(
         &self,
-        inputs: TxInputs,
+        inputs: TxnInputs,
     ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
         self.logger.debug(|| self.preparation_log(&inputs));
         let signed_transaction = self.prepare_signed_transaction(&inputs)?;
@@ -391,9 +391,9 @@ where
         }
     }
 
-    fn prepare_signed_transaction<'a>(
+    fn prepare_signed_transaction(
         &self,
-        inputs: &TxInputs,
+        inputs: &TxnInputs,
     ) -> Result<SignedTransaction, BlockchainTransactionError> {
         let mut data = [0u8; 4 + 32 + 32];
         data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
@@ -437,7 +437,7 @@ where
         }
     }
 
-    fn preparation_log(&self, inputs: &TxInputs) -> String {
+    fn preparation_log(&self, inputs: &TxnInputs) -> String {
         format!("Preparing transaction for {} Wei to {} from {} (chain_id: {}, contract: {:#x}, gas price: {})",
         inputs.amount.separate_with_commas(),
         inputs.recipient,
@@ -475,7 +475,7 @@ where
 }
 
 #[derive(Debug, Clone)]
-pub struct TxInputs<'a> {
+pub struct TxnInputs<'a> {
     tools: &'a dyn SendTransactionToolsWrapper,
     recipient: &'a Wallet,
     consuming_wallet: &'a Wallet,
@@ -484,7 +484,7 @@ pub struct TxInputs<'a> {
     gas_price: u64,
 }
 
-impl<'a> TxInputs<'a> {
+impl<'a> TxnInputs<'a> {
     pub fn new(
         account: &'a PayableAccount,
         consuming_wallet: &'a Wallet,
@@ -1156,7 +1156,7 @@ mod tests {
         );
         let consuming_wallet = make_paying_wallet(b"gdasgsa");
         let tools = subject.send_transaction_tools(&recipient_of_pending_payable_fingerprint);
-        let inputs = TxInputs::new(
+        let inputs = TxnInputs::new(
             &account,
             &consuming_wallet,
             U256::from(1),
@@ -1254,7 +1254,7 @@ mod tests {
             None,
         );
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
-        let inputs = TxInputs::new(
+        let inputs = TxnInputs::new(
             &account,
             &consuming_wallet,
             nonce,
@@ -1363,7 +1363,7 @@ mod tests {
             .sign_transaction_result(Err(Web3Error::Internal));
         let payable_account = make_payable_account(1);
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
-        let inputs = TxInputs::new(
+        let inputs = TxnInputs::new(
             &payable_account,
             &consuming_wallet,
             U256::from(5),
@@ -1406,7 +1406,7 @@ mod tests {
             None,
         );
         let tools = subject.send_transaction_tools(&recipient);
-        let inputs = TxInputs::new(
+        let inputs = TxnInputs::new(
             &account,
             &address_only_wallet,
             U256::from(1),
@@ -1446,7 +1446,7 @@ mod tests {
             None,
         );
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
-        let inputs = TxInputs::new(
+        let inputs = TxnInputs::new(
             &account,
             &consuming_wallet,
             U256::from(1),
@@ -1486,7 +1486,7 @@ mod tests {
             None,
         );
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret_raw_bytes);
-        let inputs = TxInputs::new(
+        let inputs = TxnInputs::new(
             &account,
             &consuming_wallet,
             U256::from(1),
@@ -1552,7 +1552,7 @@ mod tests {
             TEST_PAYMENT_AMOUNT,
             None,
         );
-        let inputs = TxInputs::new(
+        let inputs = TxnInputs::new(
             &payable_account,
             &consuming_wallet,
             nonce_correct_type,

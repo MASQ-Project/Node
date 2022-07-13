@@ -44,9 +44,11 @@ pub struct FinancialsCommand {
 #[derive(Debug, PartialEq)]
 struct CustomQueryInput {
     query: RefCell<Option<CustomQueries>>,
-    user_payable_format_opt: Option<((String, String), (String, String))>,
-    user_receivable_format_opt: Option<((String, String), (String, String))>,
+    user_payable_format_opt: Option<UsersLiteralRangeDefinition>,
+    user_receivable_format_opt: Option<UsersLiteralRangeDefinition>,
 }
+
+type UsersLiteralRangeDefinition = ((String, String), (String, String));
 
 pub fn financials_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("financials")
@@ -344,10 +346,7 @@ impl FinancialsCommand {
     >(
         matches: &'a ArgMatches,
         parameter_name: &'a str,
-    ) -> Option<(
-        Option<RangeQuery<T>>,
-        Option<((String, String), (String, String))>,
-    )> {
+    ) -> Option<(Option<RangeQuery<T>>, Option<UsersLiteralRangeDefinition>)> {
         matches.value_of(parameter_name).map(|double| {
             //this is already after tight validation
             let separated_ranges = double.split('|').collect::<Vec<&str>>();
@@ -355,7 +354,7 @@ impl FinancialsCommand {
             let (min_age, max_age) =
                 parse_time_params(&time_range).expect("blows up after validation?");
             let (min_amount_num, max_amount_num, min_amount_str, max_amount_str) =
-                parse_masq_range_to_gwei(&separated_ranges[1]).expect("blows up after validation?");
+                parse_masq_range_to_gwei(separated_ranges[1]).expect("blows up after validation?");
             //I'm arranging these types so that I can easily use them in the next step outside of here
             (
                 Some(RangeQuery {
@@ -405,11 +404,7 @@ impl FinancialsCommand {
             x if x <= 7 => "< 0.01".to_string(),
             x => {
                 let full_range = &stringified[0..gross_length - 7];
-                let is_positive = if &full_range[..=0] != "-" {
-                    true
-                } else {
-                    false
-                };
+                let is_positive = &full_range[..=0] != "-";
                 let (decimals, integer_part_unsigned) = {
                     let (decimal_length, integer_part) = match x {
                         x if x == 8 && is_positive => (1, "0"),
@@ -622,7 +617,7 @@ impl FinancialsCommand {
     fn title_for_custom_query(
         stdout: &mut dyn Write,
         distinguished: &str,
-        user_written_ranges: &((String, String), (String, String)),
+        user_written_ranges: &UsersLiteralRangeDefinition,
     ) {
         let processed = Self::correct_users_writing_if_needed(user_written_ranges);
         let (time, amounts) = processed.value();
@@ -638,11 +633,11 @@ impl FinancialsCommand {
     }
 
     fn correct_users_writing_if_needed(
-        user_ranges: &((String, String), (String, String)),
+        user_ranges: &UsersLiteralRangeDefinition,
     ) -> ChangeDone<(String, String)> {
         fn apply_care(str: &String) -> Option<String> {
             fn front_care(str: &String, decimal_dot_position: Option<usize>) -> String {
-                fn count_leading_zeros(str: &String) -> (usize, bool) {
+                fn count_leading_zeros(str: &str) -> (usize, bool) {
                     str.chars().fold((0, true), |acc, char| {
                         if acc.1 {
                             if char == '0' {
@@ -655,7 +650,7 @@ impl FinancialsCommand {
                         }
                     })
                 }
-                let leading_zeros = count_leading_zeros(str);
+                let leading_zeros = count_leading_zeros(str.as_str());
                 str.chars()
                     .skip(if leading_zeros.0 == 0 {
                         0
@@ -667,12 +662,10 @@ impl FinancialsCommand {
                                 } else {
                                     0
                                 }
+                            } else if leading_zeros.0 == str.len() {
+                                1
                             } else {
-                                if leading_zeros.0 == str.len() {
-                                    1
-                                } else {
-                                    0
-                                }
+                                0
                             }
                     })
                     .collect()
@@ -717,13 +710,13 @@ impl FinancialsCommand {
             (a, b, c, d) => Changed((
                 format!(
                     "{}-{}",
-                    a.unwrap_or(time_min.to_string()),
-                    b.unwrap_or(time_max.to_string())
+                    a.unwrap_or_else(|| time_min.to_string()),
+                    b.unwrap_or_else(|| time_max.to_string())
                 ),
                 format!(
                     "{}-{}",
-                    c.unwrap_or(amount_min.to_string()),
-                    d.unwrap_or(amount_max.to_string())
+                    c.unwrap_or_else(|| amount_min.to_string()),
+                    d.unwrap_or_else(|| amount_max.to_string())
                 ),
             )),
         }
@@ -885,7 +878,7 @@ where
     let time_range = checked_division(separate_ranges[0], '-', "First range is formatted wrong")?;
     let (min_age, max_age) = parse_time_params(&time_range)?;
     let (min_amount, max_amount, _, _): (N, N, _, _) =
-        parse_masq_range_to_gwei(&separate_ranges[1])?;
+        parse_masq_range_to_gwei(separate_ranges[1])?;
     if min_age >= max_age || min_amount >= max_amount {
         Err("Both ranges must be ascending".to_string())
     } else {
@@ -1097,11 +1090,12 @@ mod tests {
                 "200-450|480000-15800000800045",
             ]))
             .unwrap_err();
+        let err_message = match result {
+            CommandFactoryError::CommandSyntax(msg) => msg,
+            x => panic!("we expected CommandSyntax error but got: {:?}", x),
+        };
 
-        assert_eq!(
-            result,
-            CommandFactoryError::CommandSyntax("error: Invalid value for '--payable <PAYABLE>': Attempt with too big amount of MASQ: 15800000800045\n".to_string())
-        );
+        assert!(err_message.contains("Attempt with too big amount of MASQ: 15800000800045"))
     }
 
     #[test]
@@ -1116,11 +1110,12 @@ mod tests {
                 "200-450|480045454455.00-158000008000455",
             ]))
             .unwrap_err();
+        let err_message = match result {
+            CommandFactoryError::CommandSyntax(msg) => msg,
+            x => panic!("we expected CommandSyntax error but got: {:?}", x),
+        };
 
-        assert_eq!(
-            result,
-            CommandFactoryError::CommandSyntax("error: Invalid value for '--payable <PAYABLE>': Attempt with too big amount of MASQ: 480045454455.00\n".to_string())
-        );
+        assert!(err_message.contains("Attempt with too big amount of MASQ: 480045454455.00"))
     }
 
     #[test]

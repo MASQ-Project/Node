@@ -15,6 +15,7 @@ use std::any::Any;
 use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::iter::once;
+use thousands::Separable;
 
 const COLUMN_WIDTH: usize = 33;
 
@@ -186,12 +187,14 @@ impl ConfigurationCommand {
         }
     }
 
-    fn preprocess_combined_parameters(parameters: &[(&str, &dyn Display, &str)]) -> Vec<String> {
+    fn preprocess_combined_parameters(
+        parameters: &[(&str, &dyn DisplaySeparable, &str)],
+    ) -> Vec<String> {
         let iter_of_strings = parameters.iter().map(|(description, value, unit)| {
             format!(
                 "{:width$} {} {}",
                 description,
-                value,
+                value.separate_with_commas(),
                 unit,
                 width = COLUMN_WIDTH
             )
@@ -199,6 +202,10 @@ impl ConfigurationCommand {
         once(String::from("")).chain(iter_of_strings).collect()
     }
 }
+
+trait DisplaySeparable: Display + Separable {}
+impl DisplaySeparable for u64 {}
+impl DisplaySeparable for String {}
 
 #[cfg(test)]
 mod tests {
@@ -306,23 +313,23 @@ mod tests {
             past_neighbors: vec!["neighbor 1".to_string(), "neighbor 2".to_string()],
             payment_thresholds: UiPaymentThresholds {
                 threshold_interval_sec: 11111,
-                debt_threshold_gwei: 1212,
+                debt_threshold_gwei: 1201412000,
                 payment_grace_period_sec: 4578,
-                permanent_debt_allowed_gwei: 11222,
+                permanent_debt_allowed_gwei: 112000,
                 maturity_threshold_sec: 3333,
-                unban_below_gwei: 12000,
+                unban_below_gwei: 120000,
             },
             rate_pack: UiRatePack {
-                routing_byte_rate: 8,
-                routing_service_rate: 9,
-                exit_byte_rate: 12,
-                exit_service_rate: 14,
+                routing_byte_rate: 99025000,
+                routing_service_rate: 138000000,
+                exit_byte_rate: 129000000,
+                exit_service_rate: 160000000,
             },
             start_block: 3456,
             scan_intervals: UiScanIntervals {
-                pending_payable_sec: 150,
-                payable_sec: 155,
-                receivable_sec: 250,
+                pending_payable_sec: 150500,
+                payable_sec: 155000,
+                receivable_sec: 250666,
             },
         };
         let mut context = CommandContextMock::new()
@@ -366,21 +373,21 @@ mod tests {
 |Past neighbors:                   neighbor 1\n\
 |                                  neighbor 2\n\
 |Payment thresholds:               \n\
-|                                  Debt threshold:                   1212 Gwei\n\
-|                                  Maturity threshold:               3333 s\n\
-|                                  Payment grace period:             4578 s\n\
-|                                  Permanent debt allowed:           11222 Gwei\n\
-|                                  Threshold interval:               11111 s\n\
-|                                  Unban below:                      12000 Gwei\n\
+|                                  Debt threshold:                   1,201,412,000 Gwei\n\
+|                                  Maturity threshold:               3,333 s\n\
+|                                  Payment grace period:             4,578 s\n\
+|                                  Permanent debt allowed:           112,000 Gwei\n\
+|                                  Threshold interval:               11,111 s\n\
+|                                  Unban below:                      120,000 Gwei\n\
 |Rate pack:                        \n\
-|                                  Routing byte rate:                8 Wei\n\
-|                                  Routing service rate:             9 Wei\n\
-|                                  Exit byte rate:                   12 Wei\n\
-|                                  Exit service rate:                14 Wei\n\
+|                                  Routing byte rate:                99,025,000 Wei\n\
+|                                  Routing service rate:             138,000,000 Wei\n\
+|                                  Exit byte rate:                   129,000,000 Wei\n\
+|                                  Exit service rate:                160,000,000 Wei\n\
 |Scan intervals:                   \n\
-|                                  Pending payable:                  150 s\n\
-|                                  Payable:                          155 s\n\
-|                                  Receivable:                       250 s\n"
+|                                  Pending payable:                  150,500 s\n\
+|                                  Payable:                          155,000 s\n\
+|                                  Receivable:                       250,666 s\n"
             )
             .replace('|', "")
         );
@@ -461,21 +468,21 @@ mod tests {
 |Start block:                      3456\n\
 |Past neighbors:                   [?]\n\
 |Payment thresholds:               \n\
-|                                  Debt threshold:                   2500 Gwei\n\
+|                                  Debt threshold:                   2,500 Gwei\n\
 |                                  Maturity threshold:               500 s\n\
 |                                  Payment grace period:             666 s\n\
-|                                  Permanent debt allowed:           1200 Gwei\n\
-|                                  Threshold interval:               1000 s\n\
-|                                  Unban below:                      1400 Gwei\n\
+|                                  Permanent debt allowed:           1,200 Gwei\n\
+|                                  Threshold interval:               1,000 s\n\
+|                                  Unban below:                      1,400 Gwei\n\
 |Rate pack:                        \n\
 |                                  Routing byte rate:                15 Wei\n\
 |                                  Routing service rate:             17 Wei\n\
 |                                  Exit byte rate:                   20 Wei\n\
 |                                  Exit service rate:                30 Wei\n\
 |Scan intervals:                   \n\
-|                                  Pending payable:                  1000 s\n\
-|                                  Payable:                          1000 s\n\
-|                                  Receivable:                       1000 s\n",
+|                                  Pending payable:                  1,000 s\n\
+|                                  Payable:                          1,000 s\n\
+|                                  Receivable:                       1,000 s\n",
             )
             .replace('|', "")
         );

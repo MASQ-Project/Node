@@ -7,7 +7,7 @@ use crate::accountant::{
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
-    BlockchainInterfaceNonClandestine, BlockchainResult, TxInputs,
+    BlockchainInterfaceNonClandestine, BlockchainResult, TxnInputs,
 };
 use crate::database::db_initializer::{DbInitializer, DATABASE_FILE};
 use crate::database::db_migrations::MigratorConfig;
@@ -393,7 +393,7 @@ impl BlockchainBridge {
                 .as_ref()
                 .expect("Accountant is unbound"),
         );
-        match self.blockchain_interface.send_transaction(TxInputs::new(
+        match self.blockchain_interface.send_transaction(TxnInputs::new(
             payable,
             consuming_wallet,
             nonce,

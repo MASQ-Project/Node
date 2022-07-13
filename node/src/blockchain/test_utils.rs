@@ -5,7 +5,7 @@
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::{
     Balance, BlockchainError, BlockchainInterface, BlockchainResult, BlockchainTransactionError,
-    Nonce, Receipt, TxInputs, REQUESTS_IN_PARALLEL,
+    Nonce, Receipt, TxnInputs, REQUESTS_IN_PARALLEL,
 };
 use crate::blockchain::tool_wrappers::SendTransactionToolsWrapper;
 use crate::sub_lib::wallet::Wallet;
@@ -153,7 +153,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 
     fn send_transaction<'b>(
         &self,
-        inputs: TxInputs,
+        inputs: TxnInputs,
     ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
         self.send_transaction_parameters
             .lock()
