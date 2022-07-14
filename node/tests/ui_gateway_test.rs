@@ -70,10 +70,10 @@ fn ui_requests_something_and_gets_corresponding_response() {
         response,
         UiFinancialsResponse {
             stats_opt: Some(UiFinancialStatistics {
-                total_unpaid_and_pending_payable: 45678357,
-                total_paid_payable: 0,
-                total_unpaid_receivable: 654327768,
-                total_paid_receivable: 0,
+                total_unpaid_and_pending_payable_gwei: 45678357,
+                total_paid_payable_gwei: 0,
+                total_unpaid_receivable_gwei: 654327768,
+                total_paid_receivable_gwei: 0,
             }),
             top_records_opt: None,
             custom_query_records_opt: None
