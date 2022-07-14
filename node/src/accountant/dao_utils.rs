@@ -74,8 +74,8 @@ pub enum CustomQuery<N> {
 pub struct RangeConfig {
     pub main_where_clause: &'static str,
     pub gwei_limit_clause: &'static str,
-    //note that this firm limit must be also supplied as query arguments
-    //because otherwise the value wouldn't have the rusqlite's 128_blob format
+    //note that this limit, even though unchangeable, must be also supplied among other arguments
+    //because otherwise the value won't adopt the rusqlite's specific 128_blob binary format
     pub gwei_limit_params: Vec<Box<dyn ToSql>>,
 }
 

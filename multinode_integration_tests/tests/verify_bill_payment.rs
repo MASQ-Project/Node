@@ -2,7 +2,7 @@
 use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::utils::{derivation_path, find_free_port, NeighborhoodModeLight};
+use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::command::Command;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils};
@@ -75,35 +75,26 @@ fn verify_bill_payment() {
         permanent_debt_allowed_gwei: 10_000_000,
         unban_below_gwei: 10_000_000,
     };
-    let consuming_port = find_free_port();
-    let (consuming_config, _) = build_config(
-        &blockchain_server,
-        &seed,
-        payment_thresholds,
-        deriv_path,
-        Some(consuming_port),
-    );
+    let (consuming_config, _) =
+        build_config(&blockchain_server, &seed, payment_thresholds, deriv_path);
 
     let (serving_node_1_config, serving_node_1_wallet) = build_config(
         &blockchain_server,
         &seed,
         payment_thresholds,
         derivation_path(0, 1),
-        None,
     );
     let (serving_node_2_config, serving_node_2_wallet) = build_config(
         &blockchain_server,
         &seed,
         payment_thresholds,
         derivation_path(0, 2),
-        None,
     );
     let (serving_node_3_config, serving_node_3_wallet) = build_config(
         &blockchain_server,
         &seed,
         payment_thresholds,
         derivation_path(0, 3),
-        None,
     );
 
     let amount = 10 * payment_thresholds.permanent_debt_allowed_gwei as u128 * WEIS_OF_GWEI as u128;
@@ -415,7 +406,6 @@ fn build_config(
     seed: &Seed,
     payment_thresholds: PaymentThresholds,
     wallet_derivation_path: String,
-    ui_port_opt: Option<u16>,
 ) -> (NodeStartupConfig, Wallet) {
     let (serving_node_wallet, serving_node_secret) =
         make_node_wallet(seed, wallet_derivation_path.as_str());
@@ -427,12 +417,8 @@ fn build_config(
         .earning_wallet_info(EarningWalletInfo::Address(format!(
             "{}",
             serving_node_wallet.clone()
-        )));
-    let config = if let Some(port) = ui_port_opt {
-        config.ui_port(port).build()
-    } else {
-        config.build()
-    };
+        )))
+        .build();
     (config, serving_node_wallet)
 }
 

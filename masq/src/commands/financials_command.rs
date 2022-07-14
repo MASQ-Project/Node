@@ -10,7 +10,7 @@ use masq_lib::messages::{
     CustomQueries, CustomQueryResult, FirmQueryResult, RangeQuery, UiFinancialStatistics,
     UiFinancialsRequest, UiFinancialsResponse, UiPayableAccount, UiReceivableAccount,
 };
-use masq_lib::shared_schema::common_validators::validate_u16;
+use masq_lib::shared_schema::common_validators::validate_non_zero_u16;
 use masq_lib::short_writeln;
 use masq_lib::utils::{plus, ExpectValue};
 use num::CheckedMul;
@@ -62,7 +62,7 @@ pub fn financials_subcommand() -> App<'static, 'static> {
                 .required(false)
                 .case_insensitive(false)
                 .takes_value(true)
-                .validator(validate_u16),
+                .validator(validate_non_zero_u16),
         )
         .arg(
             Arg::with_name("payable")
@@ -214,6 +214,16 @@ macro_rules! process_custom_query {
 
 impl FinancialsCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
+        fn rearrange_range_query_output<T>(
+            outputs: Option<(Option<RangeQuery<T>>, Option<UsersLiteralRangeDefinition>)>,
+        ) -> (Option<RangeQuery<T>>, Option<UsersLiteralRangeDefinition>) {
+            if let Some(x) = outputs {
+                x
+            } else {
+                (None, None)
+            }
+        }
+
         let matches = match financials_subcommand().get_matches_from_safe(pieces) {
             Ok(matches) => matches,
             Err(e) => return Err(e.to_string()),
@@ -230,17 +240,10 @@ impl FinancialsCommand {
             ) {
                 (None, None) => None,
                 (payable_opt, receivable_opt) => {
-                    let (payable_opt, user_payable_format_opt) = if let Some(x) = payable_opt {
-                        x
-                    } else {
-                        (None, None)
-                    };
+                    let (payable_opt, user_payable_format_opt) =
+                        rearrange_range_query_output(payable_opt);
                     let (receivable_opt, user_receivable_format_opt) =
-                        if let Some(x) = receivable_opt {
-                            x
-                        } else {
-                            (None, None)
-                        };
+                        rearrange_range_query_output(receivable_opt);
                     Some(CustomQueryInput {
                         query: RefCell::new(Some(CustomQueries {
                             payable_opt,
@@ -358,8 +361,8 @@ impl FinancialsCommand {
             //I'm arranging these types so that I can easily use them in the next step outside of here
             (
                 Some(RangeQuery {
-                    min_age_seconds: min_age,
-                    max_age_seconds: max_age,
+                    min_age_s: min_age,
+                    max_age_s: max_age,
                     min_amount_gwei: min_amount_num,
                     max_amount_gwei: max_amount_num,
                 }),
@@ -391,7 +394,7 @@ impl FinancialsCommand {
         )
     }
 
-    fn convert_masq_from_gwei_and_format_well<T>(gwei: T) -> String
+    fn convert_masq_from_gwei_and_dress_well<T>(gwei: T) -> String
     where
         T: Display + PartialEq + From<u32>,
     {
@@ -456,7 +459,7 @@ impl FinancialsCommand {
         if should_be_gwei {
             gwei.separate_with_commas()
         } else {
-            Self::convert_masq_from_gwei_and_format_well(gwei)
+            Self::convert_masq_from_gwei_and_dress_well(gwei)
         }
     }
 
@@ -481,14 +484,14 @@ impl FinancialsCommand {
         )
     }
 
-    fn width_precise_calculation(headers: &[&str], accounts: &[&dyn WidthInfo]) -> Vec<usize> {
-        let headers_widths = headers
+    fn width_precise_calculation(headings: &[&str], accounts: &[&dyn WidthInfo]) -> Vec<usize> {
+        let headings_widths = headings
             .iter()
             .skip(1)
             .map(|word| word.len() + 2)
             .collect::<Vec<usize>>();
         let values_widths = Self::figure_out_max_widths(accounts);
-        Self::yield_bigger_values_from_vecs(headers_widths.len(), headers_widths, values_widths)
+        Self::yield_bigger_values_from_vecs(headings_widths.len(), headings_widths, values_widths)
     }
 
     fn full_length(optimal_widths: &[usize]) -> usize {
@@ -696,6 +699,7 @@ impl FinancialsCommand {
                 make_decision(after_care, str)
             }
         }
+
         let ((time_min, time_max), (amount_min, amount_max)) = user_ranges;
         match (
             apply_care(time_min),
@@ -829,8 +833,8 @@ trait WidthInfo {
     fn widths(&self) -> Vec<usize>;
 }
 
-//we can leave out special computation for balances in MASQ with dot and two decimal digits,
-//it would require more MASQ than possible
+//we can ignore a special case of width computation of balances in MASQ with dot and two decimal digits,
+//it would require more MASQ than exist to grow wider beyond the heading of the column
 impl WidthInfo for UiPayableAccount {
     fn widths(&self) -> Vec<usize> {
         vec![
@@ -889,7 +893,7 @@ where
 fn parse_integer<N: FromStr<Err = ParseIntError>>(str_num: &str) -> Result<N, String> {
     str::parse::<N>(str_num).map_err(|e| match e.kind() {
         IntErrorKind::NegOverflow | IntErrorKind::PosOverflow => panic!(
-            "Broken code: Clap validation should have detected the overflow of {} earlier",
+            "Broken code: Clap validation should have caught this overflow of {} earlier",
             str_num
         ),
         _ => format!(
@@ -1079,7 +1083,7 @@ mod tests {
     }
 
     #[test]
-    fn command_factory_big_masq_values_supplied_are_not_fatal_for_non_decimal_values() {
+    fn command_factory_supplied_big_masq_values_are_not_fatal_for_non_decimal_values() {
         let factory = CommandFactoryReal::new();
         let result = factory
             .make(&array_of_borrows_to_vec(&[
@@ -1099,7 +1103,7 @@ mod tests {
     }
 
     #[test]
-    fn command_factory_big_masq_values_supplied_are_not_fatal_for_decimal_values() {
+    fn command_factory_supplied_big_masq_values_are_not_fatal_for_decimal_values() {
         let factory = CommandFactoryReal::new();
         let result = factory
             .make(&array_of_borrows_to_vec(&[
@@ -1119,7 +1123,7 @@ mod tests {
     }
 
     #[test]
-    fn command_factory_no_stats_forbidden_if_no_other_arg_present() {
+    fn command_factory_no_stats_arg_is_forbidden_if_no_other_arg_present() {
         let factory = CommandFactoryReal::new();
 
         let result = factory.make(&array_of_borrows_to_vec(&["financials", "--no-stats"]));
@@ -1136,7 +1140,7 @@ mod tests {
     }
 
     #[test]
-    fn financials_command_allows_shorthand_arguments() {
+    fn financials_command_allows_shorthands() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let irrelevant_response = UiFinancialsResponse {
             stats_opt: None,
@@ -1171,14 +1175,14 @@ mod tests {
                     top_records_opt: Some(123),
                     custom_queries_opt: Some(CustomQueries {
                         payable_opt: Some(RangeQuery {
-                            min_age_seconds: 0,
-                            max_age_seconds: 350000,
+                            min_age_s: 0,
+                            max_age_s: 350000,
                             min_amount_gwei: 5000000,
                             max_amount_gwei: 9000000000
                         }),
                         receivable_opt: Some(RangeQuery {
-                            min_age_seconds: 5000,
-                            max_age_seconds: 10000,
+                            min_age_s: 5000,
+                            max_age_s: 10000,
                             min_amount_gwei: 4000,
                             max_amount_gwei: 50003000000
                         })
@@ -1206,8 +1210,8 @@ mod tests {
                     query: RefCell::new(Some(CustomQueries {
                         payable_opt: None,
                         receivable_opt: Some(RangeQuery {
-                            min_age_seconds: 5000,
-                            max_age_seconds: 10000,
+                            min_age_s: 5000,
+                            max_age_s: 10000,
                             min_amount_gwei: 40000000000,
                             max_amount_gwei: 50000000000
                         })
@@ -1237,8 +1241,8 @@ mod tests {
                     query: RefCell::new(Some(CustomQueries {
                         payable_opt: None,
                         receivable_opt: Some(RangeQuery {
-                            min_age_seconds: 5000,
-                            max_age_seconds: 10000,
+                            min_age_s: 5000,
+                            max_age_s: 10000,
                             min_amount_gwei: -50000000000,
                             max_amount_gwei: -40000000000
                         })
@@ -1448,13 +1452,15 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Broken code: Clap validation should have detected the overflow of 40000000000000000000 earlier"
+        expected = "Broken code: Clap validation should have caught this overflow of 40000000000000000000 earlier"
     )]
     fn parse_integer_overflow_indicates_broken_code() {
         let _: Result<u64, String> = parse_integer("40000000000000000000");
     }
 
-    fn response_of_everything_demanded_or_without_stats(with_stats: bool) -> UiFinancialsResponse {
+    fn response_for_everything_demanded_with_or_without_stats(
+        with_stats: bool,
+    ) -> UiFinancialsResponse {
         UiFinancialsResponse {
             stats_opt: if with_stats {
                 Some(UiFinancialStatistics {
@@ -1515,7 +1521,7 @@ mod tests {
     #[test]
     fn financials_command_everything_demanded_default_units_as_masq() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let expected_response = response_of_everything_demanded_or_without_stats(true);
+        let expected_response = response_for_everything_demanded_with_or_without_stats(true);
         let args = array_of_borrows_to_vec(&[
             "financials",
             "--top",
@@ -1544,14 +1550,14 @@ mod tests {
                     top_records_opt: Some(123),
                     custom_queries_opt: Some(CustomQueries {
                         payable_opt: Some(RangeQuery {
-                            min_age_seconds: 0,
-                            max_age_seconds: 350000,
+                            min_age_s: 0,
+                            max_age_s: 350000,
                             min_amount_gwei: 5000000,
                             max_amount_gwei: 9000000000
                         }),
                         receivable_opt: Some(RangeQuery {
-                            min_age_seconds: 5000,
-                            max_age_seconds: 10000,
+                            min_age_s: 5000,
+                            max_age_s: 10000,
                             min_amount_gwei: 3000000,
                             max_amount_gwei: 5600070000
                         })
@@ -1609,7 +1615,7 @@ mod tests {
     #[test]
     fn financials_command_everything_demanded_with_gwei_precision() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let expected_response = response_of_everything_demanded_or_without_stats(true);
+        let expected_response = response_for_everything_demanded_with_or_without_stats(true);
         let args = array_of_borrows_to_vec(&[
             "financials",
             "--top",
@@ -1639,14 +1645,14 @@ mod tests {
                     top_records_opt: Some(123),
                     custom_queries_opt: Some(CustomQueries {
                         payable_opt: Some(RangeQuery {
-                            min_age_seconds: 0,
-                            max_age_seconds: 350000,
+                            min_age_s: 0,
+                            max_age_s: 350000,
                             min_amount_gwei: 5000000,
                             max_amount_gwei: 9000000000
                         }),
                         receivable_opt: Some(RangeQuery {
-                            min_age_seconds: 5000,
-                            max_age_seconds: 10000,
+                            min_age_s: 5000,
+                            max_age_s: 10000,
                             min_amount_gwei: 4000,
                             max_amount_gwei: 455000000
                         })
@@ -1748,14 +1754,14 @@ mod tests {
                     top_records_opt: Some(10),
                     custom_queries_opt: Some(CustomQueries {
                         payable_opt: Some(RangeQuery {
-                            min_age_seconds: 0,
-                            max_age_seconds: 400000,
+                            min_age_s: 0,
+                            max_age_s: 400000,
                             min_amount_gwei: 355000000000,
                             max_amount_gwei: 6000000000000
                         }),
                         receivable_opt: Some(RangeQuery {
-                            min_age_seconds: 40000,
-                            max_age_seconds: 80000,
+                            min_age_s: 40000,
+                            max_age_s: 80000,
                             min_amount_gwei: 111000000000,
                             max_amount_gwei: 10000000000000
                         })
@@ -1934,8 +1940,8 @@ mod tests {
                     top_records_opt: None,
                     custom_queries_opt: Some(CustomQueries {
                         payable_opt: Some(RangeQuery {
-                            min_age_seconds: 3000,
-                            max_age_seconds: 40000,
+                            min_age_s: 3000,
+                            max_age_s: 40000,
                             min_amount_gwei: 88000000000,
                             max_amount_gwei: 1000000000000
                         }),
@@ -2015,8 +2021,8 @@ mod tests {
                     custom_queries_opt: Some(CustomQueries {
                         payable_opt: None,
                         receivable_opt: Some(RangeQuery {
-                            min_age_seconds: 3000,
-                            max_age_seconds: 40000,
+                            min_age_s: 3000,
+                            max_age_s: 40000,
                             min_amount_gwei: 66000000000,
                             max_amount_gwei: 980000000000
                         })
@@ -2083,28 +2089,28 @@ mod tests {
     }
 
     #[test]
-    fn validate_two_ranges_even_integers_are_acceptable_for_masqs_range() {
+    fn validate_two_ranges_also_integers_are_acceptable_for_masqs_range() {
         let result = validate_two_ranges::<i64>("454-2000|2000-30000".to_string());
 
         assert_eq!(result, Ok(()))
     }
 
     #[test]
-    fn validate_two_ranges_even_one_side_negative_range_is_acceptable_for_masqs_range() {
+    fn validate_two_ranges_one_side_negative_range_is_acceptable_for_masqs_range() {
         let result = validate_two_ranges::<i64>("454-2000|-2000-30000".to_string());
 
         assert_eq!(result, Ok(()))
     }
 
     #[test]
-    fn validate_two_ranges_even_both_side_negative_range_is_acceptable_for_masqs_range() {
+    fn validate_two_ranges_both_side_negative_range_is_acceptable_for_masqs_range() {
         let result = validate_two_ranges::<i64>("454-2000|-2000--1000".to_string());
 
         assert_eq!(result, Ok(()))
     }
 
     #[test]
-    fn validate_two_ranges_misused_central_delimiter() {
+    fn validate_two_ranges_with_misused_central_delimiter() {
         let result = validate_two_ranges::<i64>("45-500545-006".to_string());
 
         assert_eq!(
@@ -2114,7 +2120,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_two_ranges_misused_range_delimiter() {
+    fn validate_two_ranges_with_misused_range_delimiter() {
         let result = validate_two_ranges::<i64>("45+500|545+006".to_string());
 
         assert_eq!(result, Err("First range is formatted wrong".to_string()))
@@ -2128,14 +2134,14 @@ mod tests {
     }
 
     #[test]
-    fn validate_two_ranges_values_the_same_for_time() {
+    fn validate_two_ranges_both_values_the_same_for_time() {
         let result = validate_two_ranges::<i64>("2000-2000|20000.0-30000.0".to_string());
 
         assert_eq!(result, Err("Both ranges must be ascending".to_string()))
     }
 
     #[test]
-    fn validate_two_ranges_values_the_same_for_masqs() {
+    fn validate_two_ranges_both_values_the_same_for_masqs() {
         let result = validate_two_ranges::<i64>("1000-2000|20000.0-20000.0".to_string());
 
         assert_eq!(result, Err("Both ranges must be ascending".to_string()))
@@ -2156,7 +2162,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_two_ranges_non_numeric_value_error_for_first_range() {
+    fn validate_two_ranges_non_numeric_value_for_first_range() {
         let result = validate_two_ranges::<i64>("blah-1234|899-999".to_string());
 
         assert_eq!(
@@ -2166,7 +2172,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_two_ranges_non_numeric_value_error_for_second() {
+    fn validate_two_ranges_non_numeric_value_for_second_range() {
         let result = validate_two_ranges::<i64>("1000-1234|7878.0-a lot".to_string());
 
         assert_eq!(result, Err("Second range in improper format".to_string()))

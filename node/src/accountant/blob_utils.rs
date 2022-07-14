@@ -259,7 +259,6 @@ macro_rules! update_configuration_common_impl {
 }
 
 update_configuration_common_impl!(InsertUpdateConfig);
-
 update_configuration_common_impl!(UpdateConfig);
 
 fn select_statement(table: &str, in_table_param_name: &str, sql_param_name: &str) -> String {
@@ -558,7 +557,6 @@ mod tests {
         assert_eq!(addition, BalanceChange { change: 50_i128 });
     }
 
-    //loosing one unit but I can dare it, such an amount of our tokens doesn't exist
     #[test]
     fn constructor_for_balance_change_works_for_subtraction() {
         let subtraction = BalanceChange::new_subtraction(i128::MIN as u128 - 1);

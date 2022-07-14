@@ -104,7 +104,6 @@ enum InitiationState<T> {
     Initiated(T),
 }
 
-//TODO add a check that U128 works just up to i128 max
 impl CombinedParams {
     pub fn parse(&self, parameters_str: &str) -> Result<Self, String> {
         let parsed_values = Self::parse_combined_params(

@@ -999,7 +999,7 @@ pub fn assert_on_sloped_segment_of_payment_thresholds_and_its_proper_alignment<F
     );
 }
 
-pub fn assert_database_blows_up_on_unexpected_error<F, R>(tested_fn: F)
+pub fn assert_database_blows_up_on_an_unexpected_error<F, R>(tested_fn: F)
 where
     F: Fn(&Row) -> rusqlite::Result<R>,
 {

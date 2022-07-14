@@ -38,8 +38,8 @@ pub struct PayableAccount {
     pub pending_payable_opt: Option<PendingPayableId>,
 }
 
-//TODO two to three of these fields can be eliminated but I think my old plan was to keep it because it was potentially useful information,
-// I somehow didn't trust unconditionally to a pending payable record to be always there - and so I think this should wait for GH-576
+//TODO two to three of these fields can be technically eliminated now but I think my old plan was not to do that because it could be potentially useful set of information,
+// I somehow didn't trust unconditionally to the pending payable record to be always secure - and so I still think this might wait for GH-576
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Payable {
     pub to: Wallet,
@@ -317,7 +317,7 @@ mod tests {
     use crate::accountant::blob_utils::{InsertUpdateError, Table};
     use crate::accountant::dao_utils::{from_time_t, to_time_t};
     use crate::accountant::test_utils::{
-        assert_database_blows_up_on_unexpected_error, convert_to_all_string_values,
+        assert_database_blows_up_on_an_unexpected_error, convert_to_all_string_values,
         make_pending_payable_fingerprint, InsertUpdateCoreMock,
     };
     use crate::database::connection_wrapper::ConnectionWrapperReal;
@@ -734,7 +734,7 @@ mod tests {
     #[test]
     fn custom_query_handles_empty_table_in_top_records_mode() {
         let main_test_setup = |_insert: &dyn Fn(&str, i128, i64, Option<i64>)| {};
-        let subject = custom_query_test_body_payable(
+        let subject = custom_query_test_body_for_payable(
             "custom_query_handles_empty_table_in_top_records_mode",
             main_test_setup,
         );
@@ -777,7 +777,7 @@ mod tests {
             );
         };
         let subject =
-            custom_query_test_body_payable("custom_query_in_top_records_mode", main_test_setup);
+            custom_query_test_body_for_payable("custom_query_in_top_records_mode", main_test_setup);
 
         let result = subject.custom_query(CustomQuery::TopRecords(3)).unwrap();
 
@@ -809,7 +809,7 @@ mod tests {
     #[test]
     fn custom_query_handles_empty_table_in_range_mode() {
         let main_test_setup = |_insert: &dyn Fn(&str, i128, i64, Option<i64>)| {};
-        let subject = custom_query_test_body_payable(
+        let subject = custom_query_test_body_for_payable(
             "custom_query_handles_empty_table_in_range_mode",
             main_test_setup,
         );
@@ -870,7 +870,7 @@ mod tests {
                 None,
             );
         };
-        let subject = custom_query_test_body_payable("custom_query_in_range_mode", main_setup);
+        let subject = custom_query_test_body_for_payable("custom_query_in_range_mode", main_setup);
 
         let result = subject
             .custom_query(CustomQuery::RangeQuery {
@@ -923,7 +923,7 @@ mod tests {
                 None,
             );
         };
-        let subject = custom_query_test_body_payable(
+        let subject = custom_query_test_body_for_payable(
             "range_query_does_not_display_values_from_below_1_gwei",
             main_setup,
         );
@@ -1045,7 +1045,7 @@ mod tests {
         expected = "Database is corrupt: PAYABLE table columns and/or types: (Err(FromSqlConversionFailure(0, Text, InvalidAddress)), Err(InvalidColumnIndex(1))"
     )]
     fn form_payable_account_panics_on_database_error() {
-        assert_database_blows_up_on_unexpected_error(PayableDaoReal::form_payable_account);
+        assert_database_blows_up_on_an_unexpected_error(PayableDaoReal::form_payable_account);
     }
 
     #[test]
@@ -1132,7 +1132,7 @@ mod tests {
         )
     }
 
-    fn custom_query_test_body_payable<F>(test_name: &str, main_setup_fn: F) -> PayableDaoReal
+    fn custom_query_test_body_for_payable<F>(test_name: &str, main_setup_fn: F) -> PayableDaoReal
     where
         F: Fn(&dyn Fn(&str, i128, i64, Option<i64>)),
     {

@@ -1020,8 +1020,8 @@ impl Accountant {
             convertor(
                 self,
                 CustomQuery::RangeQuery {
-                    min_age_s: payable_specs.min_age_seconds,
-                    max_age_s: payable_specs.max_age_seconds,
+                    min_age_s: payable_specs.min_age_s,
+                    max_age_s: payable_specs.max_age_s,
                     min_amount_gwei: payable_specs.min_amount_gwei,
                     max_amount_gwei: payable_specs.max_amount_gwei,
                 },
@@ -4075,7 +4075,7 @@ mod tests {
     }
 
     #[test]
-    fn payout_sloped_segment_in_payment_thresholds_goes_along_a_proper_line() {
+    fn payout_sloped_segment_in_payment_thresholds_goes_along_proper_line() {
         let payment_thresholds = PaymentThresholds {
             maturity_threshold_sec: 333,
             payment_grace_period_sec: 444,
@@ -5206,14 +5206,14 @@ mod tests {
             top_records_opt: None,
             custom_queries_opt: Some(CustomQueries {
                 payable_opt: Some(RangeQuery {
-                    min_age_seconds: 0,
-                    max_age_seconds: 8000,
+                    min_age_s: 0,
+                    max_age_s: 8000,
                     min_amount_gwei: 0,
                     max_amount_gwei: 50_000_000,
                 }),
                 receivable_opt: Some(RangeQuery {
-                    min_age_seconds: 2000,
-                    max_age_seconds: 200000,
+                    min_age_s: 2000,
+                    max_age_s: 200000,
                     min_amount_gwei: 0,
                     max_amount_gwei: 60_000_000,
                 }),
@@ -5332,8 +5332,8 @@ mod tests {
             custom_queries_opt: Some(CustomQueries {
                 payable_opt: None,
                 receivable_opt: Some(RangeQuery {
-                    min_age_seconds: 2000,
-                    max_age_seconds: 200000,
+                    min_age_s: 2000,
+                    max_age_s: 200000,
                     min_amount_gwei: 0,
                     max_amount_gwei: 150000000000,
                 }),
@@ -5416,8 +5416,8 @@ mod tests {
             top_records_opt: None,
             custom_queries_opt: Some(CustomQueries {
                 payable_opt: Some(RangeQuery {
-                    min_age_seconds: 2000,
-                    max_age_seconds: 200000,
+                    min_age_s: 2000,
+                    max_age_s: 200000,
                     min_amount_gwei: 0,
                     max_amount_gwei: 150000000000,
                 }),
@@ -5456,8 +5456,8 @@ mod tests {
             custom_queries_opt: Some(CustomQueries {
                 payable_opt: None,
                 receivable_opt: Some(RangeQuery {
-                    min_age_seconds: 2000,
-                    max_age_seconds: 200000,
+                    min_age_s: 2000,
+                    max_age_s: 200000,
                     min_amount_gwei: 0,
                     max_amount_gwei: 150000000000,
                 }),
@@ -5566,7 +5566,7 @@ mod tests {
     #[should_panic(
         expected = "Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128"
     )]
-    fn overflow_check_works_for_overflow() {
+    fn checked_conversion_works_for_overflow() {
         checked_conversion::<u128, i128>(u128::MAX);
     }
 

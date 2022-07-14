@@ -1,4 +1,3 @@
-use std::ops::Neg;
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::blob_utils::Table::Receivable;
 use crate::accountant::blob_utils::{
@@ -24,6 +23,7 @@ use rusqlite::types::ToSql;
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::{named_params, params_from_iter, Error};
+use std::ops::Neg;
 use std::time::SystemTime;
 
 #[derive(Debug, PartialEq)]
@@ -79,7 +79,7 @@ pub trait ReceivableDao: Send {
 
     fn total(&self) -> i128;
 
-    //test-only method, shared with multi-node tests, thus conditional compilation disallowed
+    //test only intended method but because of share with multi-node tests conditional compilation is disallowed
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 }
 
@@ -318,7 +318,7 @@ impl ReceivableDaoReal {
     }
 
     fn truncate_metadata_table(&self) {
-        //delete statement without where clause substitutes 'truncate' in sqlite
+        //a delete statement without where the clause substitutes 'truncate' in sqlite
         let _ = self
             .conn
             .prepare("delete from delinquency_metadata")
@@ -339,7 +339,7 @@ impl ReceivableDaoReal {
                     params: SQLExtendedParams::new(
                         vec![
                             (":wallet", &ParamKeyHolder::new(&transaction.from,"wallet_address")),
-                            //:balance is later recomputed into :updated_balance
+                            //:balance is later in the code transformed into :updated_balance
                             (":balance", &BalanceChange::polite_new_subtraction(transaction.wei_amount).map_err(|e|ReceivableDaoError::SignConversion(SignConversionError::Msg(e)))?),
                             (":last_received", &now_time_t()),
                         ]),
@@ -421,7 +421,7 @@ mod tests {
     use crate::accountant::blob_utils::{InsertUpdateError, Table};
     use crate::accountant::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::accountant::test_utils::{
-        assert_database_blows_up_on_unexpected_error,
+        assert_database_blows_up_on_an_unexpected_error,
         assert_on_sloped_segment_of_payment_thresholds_and_its_proper_alignment,
         convert_to_all_string_values, make_receivable_account, InsertUpdateCoreMock,
     };
@@ -596,7 +596,7 @@ mod tests {
 
     #[test]
     fn more_money_received_works_for_existing_addresses() {
-        let before = dao_utils::to_time_t(SystemTime::now());
+        let before = to_time_t(SystemTime::now());
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
             "more_money_received_works_for_existing_address",
@@ -753,7 +753,7 @@ mod tests {
     }
 
     #[test]
-    fn delinquency_high_detection_goes_along_a_proper_line() {
+    fn delinquency_high_detection_goes_along_proper_line() {
         let payment_thresholds = PaymentThresholds {
             maturity_threshold_sec: 333,
             payment_grace_period_sec: 444,
@@ -798,7 +798,8 @@ mod tests {
     }
 
     #[test]
-    fn despite_unrealistic_situation_timestamp_gap_smaller_than_grace_period_can_never_blow_up() {
+    fn despite_unrealistic_scenario_we_make_sure_timestamp_gap_smaller_than_grace_period_can_never_blow_up(
+    ) {
         let payment_thresholds = PaymentThresholds {
             maturity_threshold_sec: 25,
             payment_grace_period_sec: 50,
@@ -894,10 +895,10 @@ mod tests {
     #[should_panic(
         expected = "Database corrupt: (Ok(\"456\"), Err(InvalidColumnType(1, \"last_received_timestamp\", Text)))"
     )]
-    fn mine_metadata_of_yet_unbanned_blows_up_on_unexpected_error_processing_rows() {
+    fn mine_metadata_of_yet_unbanned_blows_up_on_an_unexpected_error_processing_rows() {
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
-            "mine_metadata_of_yet_unbanned_blows_up_on_unexpected_error_processing_rows",
+            "mine_metadata_of_yet_unbanned_blows_up_on_an_unexpected_error_processing_rows",
         );
         let wrong_params: &[&dyn ToSql] = &[&456, &"happy birthday", &"mr.president"];
         let conn = DbInitializerReal::default()
@@ -1274,7 +1275,7 @@ mod tests {
     #[test]
     fn custom_query_handles_empty_table_in_top_records_mode() {
         let main_test_setup = |_insert: &dyn Fn(&str, i128, i64)| {};
-        let subject = custom_query_test_body_receivable(
+        let subject = custom_query_test_body_for_receivable(
             "custom_query_handles_empty_table_in_top_records_mode",
             main_test_setup,
         );
@@ -1312,8 +1313,10 @@ mod tests {
                 timestamp4,
             )
         };
-        let subject =
-            custom_query_test_body_receivable("custom_query_in_top_records_mode", main_test_setup);
+        let subject = custom_query_test_body_for_receivable(
+            "custom_query_in_top_records_mode",
+            main_test_setup,
+        );
 
         let result = subject.custom_query(CustomQuery::TopRecords(3)).unwrap();
 
@@ -1337,7 +1340,7 @@ mod tests {
     #[test]
     fn custom_query_handles_empty_table_in_range_mode() {
         let main_test_setup = |_insert: &dyn Fn(&str, i128, i64)| {};
-        let subject = custom_query_test_body_receivable(
+        let subject = custom_query_test_body_for_receivable(
             "custom_query_handles_empty_table_in_range_mode",
             main_test_setup,
         );
@@ -1381,7 +1384,7 @@ mod tests {
             )
         };
         let subject =
-            custom_query_test_body_receivable("custom_query_in_range_mode", main_test_setup);
+            custom_query_test_body_for_receivable("custom_query_in_range_mode", main_test_setup);
 
         let result = subject
             .custom_query(CustomQuery::RangeQuery {
@@ -1428,7 +1431,7 @@ mod tests {
                 timestamp2,
             );
         };
-        let subject = custom_query_test_body_receivable(
+        let subject = custom_query_test_body_for_receivable(
             "range_query_does_not_display_values_from_below_1_gwei",
             main_setup,
         );
@@ -1515,7 +1518,7 @@ mod tests {
         expected = "Database is corrupt: RECEIVABLE table columns and/or types: (Err(FromSqlConversionFailure(0, Text, InvalidAddress)), Err(InvalidColumnIndex(1))"
     )]
     fn form_receivable_account_panics_on_database_error() {
-        assert_database_blows_up_on_unexpected_error(ReceivableDaoReal::form_receivable_account);
+        assert_database_blows_up_on_an_unexpected_error(ReceivableDaoReal::form_receivable_account);
     }
 
     #[test]
@@ -1631,7 +1634,7 @@ mod tests {
         stmt.execute(&[&account.wallet]).unwrap();
     }
 
-    fn custom_query_test_body_receivable<F>(
+    fn custom_query_test_body_for_receivable<F>(
         test_name: &str,
         main_test_setup: F,
     ) -> ReceivableDaoReal

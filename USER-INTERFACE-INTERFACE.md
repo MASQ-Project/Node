@@ -569,14 +569,14 @@ field will be null or absent.
     "topRecordsOpt": <optional positive integer>
     "customQueriesOpt": <optional {
         "payableOpt" : <optional {
-            "minAgeSeconds": <positive integer>,
-            "maxAgeSeconds": <positive integer>,
+            "minAgeS": <positive integer>,
+            "maxAgeS": <positive integer>,
             "minBalanceGwei": <positive integer>,
             "maxBalanceGwei": <positive integer>
         }>,
         "receivableOpt": <optional {
-            "minAgeSeconds": <positive integer>,
-            "maxAgeSeconds": <positive integer>,
+            "minAgeS": <positive integer>,
+            "maxAgeS": <positive integer>,
             "minBalanceGwei": <positive integer>,
             "maxBalanceGwei": <positive integer>
         }> 
@@ -607,10 +607,10 @@ zero. This information is also optional and so it stays out unless specified.
 `customQueriesOpt` provides a way how to get a summary of accounts filtered by more specific parameters. It works for
 both payable and receivable, and it makes it possible to scope only one of those.
 
-`minAgeSeconds` is measured in seconds from the present time and represents a constraint for the accounts we will be 
+`minAgeS` is measured in seconds from the present time and represents a constraint for the accounts we will be 
 searching over; this is the lower limit of the debt's age, respectively how long has it been since the last payment.
 
-`maxAgeSeconds` is measured in seconds from the present time and represents a constraint for the accounts we will be
+`maxAgeS` is measured in seconds from the present time and represents a constraint for the accounts we will be
 searching over; this is the upper limit of the debt's age, respectively how long has it been since the last payment.
 
 `minBalanceGwei` means an amount of Gwei, the minimal value to what the accounts to be reported should fit in with
