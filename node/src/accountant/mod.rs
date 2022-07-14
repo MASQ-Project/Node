@@ -489,11 +489,7 @@ impl Accountant {
             "Chose {} qualified debts to pay",
             qualified_payables.len()
         );
-        debug!(
-            self.logger,
-            "{}",
-            self.payables_debug_summary(&qualified_payables)
-        );
+        self.payables_debug_summary(&qualified_payables);
         if !qualified_payables.is_empty() {
             self.report_accounts_payable_sub
                 .as_ref()
@@ -750,27 +746,32 @@ impl Accountant {
         }
     }
 
-    fn payables_debug_summary(&self, qualified_payables: &[PayableAccount]) -> String {
-        let now = SystemTime::now();
-        let list = qualified_payables
-            .iter()
-            .map(|payable| {
-                let p_age = now
-                    .duration_since(payable.last_paid_timestamp)
-                    .expect("Payable time is corrupt");
-                let threshold = self
-                    .payable_exceeded_threshold(payable)
-                    .expect("Threshold suddenly changed!");
-                format!(
-                    "{} Wei owed for {} sec exceeds threshold: {} Wei; creditor: {}",
-                    payable.balance_wei.separate_with_commas(),
-                    p_age.as_secs(),
-                    threshold.separate_with_commas(),
-                    payable.wallet
-                )
-            })
-            .join("\n");
-        String::from("Paying qualified debts:\n").add(&list)
+    fn payables_debug_summary(&self, qualified_payables: &[PayableAccount]) {
+        if qualified_payables.is_empty() {
+            return;
+        }
+        debug!(self.logger, "{}", {
+            let now = SystemTime::now();
+            let list = qualified_payables
+                .iter()
+                .map(|payable| {
+                    let p_age = now
+                        .duration_since(payable.last_paid_timestamp)
+                        .expect("Payable time is corrupt");
+                    let threshold = self
+                        .payable_exceeded_threshold(payable)
+                        .expect("Threshold suddenly changed!");
+                    format!(
+                        "{} Wei owed for {} sec exceeds threshold: {} Wei; creditor: {}",
+                        payable.balance_wei.separate_with_commas(),
+                        p_age.as_secs(),
+                        threshold.separate_with_commas(),
+                        payable.wallet
+                    )
+                })
+                .join("\n");
+            String::from("Paying qualified debts:\n").add(&list)
+        })
     }
 
     fn handle_bind_message(&mut self, msg: BindMessage) {
@@ -4014,6 +4015,7 @@ mod tests {
 
     #[test]
     fn payables_debug_summary_prints_pretty_summary() {
+        init_test_logging();
         let now = to_time_t(SystemTime::now());
         let payment_thresholds = PaymentThresholds {
             threshold_interval_sec: 2_592_000,
@@ -4053,13 +4055,23 @@ mod tests {
             .build();
         subject.config.payment_thresholds = payment_thresholds;
 
-        let result = subject.payables_debug_summary(qualified_payables);
+        subject.payables_debug_summary(qualified_payables);
 
-        assert_eq!(result,
-                   "Paying qualified debts:\n\
+        TestLogHandler::new().exists_log_containing("Paying qualified debts:\n\
                    10,002,000,000,000,000 Wei owed for 2678400 sec exceeds threshold: 10,000,000,000,000,000 Wei; creditor: 0x0000000000000000000000000077616c6c657430\n\
-                   999,999,999,000,000,000 Wei owed for 86455 sec exceeds threshold: 999,978,993,000,000,000 Wei; creditor: 0x0000000000000000000000000077616c6c657431"
-        )
+                   999,999,999,000,000,000 Wei owed for 86455 sec exceeds threshold: 999,978,993,000,000,000 Wei; creditor: 0x0000000000000000000000000077616c6c657431");
+    }
+
+    #[test]
+    fn payables_debug_summary_stays_still_if_no_qualified_payments() {
+        init_test_logging();
+        let mut subject = AccountantBuilder::default().build();
+        subject.logger =
+            Logger::new("payables_debug_summary_prints_nothing_if_no_qualified_payments");
+
+        subject.payables_debug_summary(&vec![]);
+
+        TestLogHandler::new().exists_no_log_containing("DEBUG: payables_debug_summary_prints_nothing_if_no_qualified_payments: Paying qualified debts:");
     }
 
     #[test]
