@@ -84,7 +84,7 @@ pub(in crate::accountant) mod scanners {
 
     pub struct Scanner {
         scan_type: ScanType,
-        initiated_at: Option<SystemTime>,
+        initiated_at: RefCell<Option<SystemTime>>,
         scan: Scan,
         notify_later_assertable: RefCell<NotifyLaterAssertable>,
     }
@@ -97,7 +97,7 @@ pub(in crate::accountant) mod scanners {
         ) -> Scanner {
             Scanner {
                 scan_type,
-                initiated_at: None,
+                initiated_at: RefCell::new(None),
                 scan,
                 notify_later_assertable: RefCell::new(notify_later_assertable),
             }
@@ -108,7 +108,7 @@ pub(in crate::accountant) mod scanners {
             accountant: &Accountant,
             response_skeleton_opt: Option<ResponseSkeleton>,
         ) -> Result<(), String> {
-            if let Some(initiated_at) = self.initiated_at {
+            if let Some(initiated_at) = self.initiated_at.borrow().as_ref() {
                 return Err(format!(
                     "{:?} scan was already initiated at {}. Hence, this scan request will be ignored.",
                     self.scan_type, timestamp_as_string(&initiated_at)
@@ -132,11 +132,11 @@ pub(in crate::accountant) mod scanners {
         }
 
         pub fn is_scan_running(&self) -> bool {
-            self.initiated_at.is_some()
+            self.initiated_at.borrow().is_some()
         }
 
-        pub fn mark_as_started(&mut self, timestamp: SystemTime) {
-            self.initiated_at = Some(timestamp)
+        pub fn mark_as_started(&self, timestamp: SystemTime) {
+            *self.initiated_at.borrow_mut() = Some(timestamp);
         }
     }
 
@@ -170,7 +170,7 @@ mod tests {
 
     #[test]
     fn scan_can_be_marked_as_started() {
-        let mut subject = Scanners::default();
+        let subject = Scanners::default();
         let initial_flag = subject.payables.is_scan_running();
         let now = SystemTime::now();
 
@@ -198,7 +198,7 @@ mod tests {
 
     #[test]
     fn scan_function_throws_error_in_case_scan_is_already_running() {
-        let mut subject = Scanners::default();
+        let subject = Scanners::default();
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
                 make_populated_accountant_config_with_defaults(),
