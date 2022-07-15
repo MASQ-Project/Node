@@ -18,7 +18,7 @@ use masq_lib::logger::Logger;
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::{debug, warning};
 
-use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig, UdpSocketWrapperFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory, HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS, ROUTER_SERVER_PORT, PoliteUdpSocketWrapperFactory, PoliteUdpSocketWrapperFactoryReal};
+use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig, UdpSocketWrapperFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory, HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS, ROUTER_SERVER_PORT, PoliteUdpSocketWrapperFactory, PoliteUdpSocketWrapperFactoryReal, NullUdpSocketWrapper};
 use crate::comm_layer::{AutomapError, AutomapErrorCause, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal, MulticastInfo, Transactor};
 use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
 use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
@@ -62,36 +62,6 @@ impl Default for Factories {
             mapping_nonce_factory: Box::new(MappingNonceFactoryReal::new()),
             free_port_factory: Box::new(FreePortFactoryReal::new()),
         }
-    }
-}
-
-struct NullUdpSocketWrapper {}
-
-impl UdpSocketWrapper for NullUdpSocketWrapper {
-    fn recv(&self, _buf: &mut [u8]) -> io::Result<usize> {
-        Err (io::Error::from (ErrorKind::TimedOut))
-    }
-
-    fn recv_from(&self, _buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
-        Err (io::Error::from (ErrorKind::TimedOut))
-    }
-
-    fn send_to(&self, buf: &[u8], _addr: SocketAddr) -> io::Result<usize> {
-        Ok (buf.len())
-    }
-
-    fn set_read_timeout(&self, _dur: Option<Duration>) -> io::Result<()> {
-        Ok(())
-    }
-
-    fn set_nonblocking(&self, _nonblocking: bool) -> io::Result<()> {
-        Ok(())
-    }
-}
-
-impl NullUdpSocketWrapper {
-    fn new() -> Self {
-        Self {}
     }
 }
 

@@ -19,6 +19,7 @@ use crate::comm_layer::pcp_pmp_common::windows_specific::{
 use crate::comm_layer::{AutomapError, MulticastInfo};
 use masq_lib::utils::find_free_port;
 use std::io;
+use std::io::ErrorKind;
 pub use std::net::UdpSocket;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::process::Command;
@@ -78,6 +79,36 @@ impl UdpSocketWrapper for UdpSocketWrapperReal {
 impl UdpSocketWrapperReal {
     pub fn new(delegate: UdpSocket) -> Self {
         Self { delegate }
+    }
+}
+
+pub struct NullUdpSocketWrapper {}
+
+impl UdpSocketWrapper for NullUdpSocketWrapper {
+    fn recv(&self, _buf: &mut [u8]) -> io::Result<usize> {
+        Err (io::Error::from (ErrorKind::TimedOut))
+    }
+
+    fn recv_from(&self, _buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
+        Err (io::Error::from (ErrorKind::TimedOut))
+    }
+
+    fn send_to(&self, buf: &[u8], _addr: SocketAddr) -> io::Result<usize> {
+        Ok (buf.len())
+    }
+
+    fn set_read_timeout(&self, _dur: Option<Duration>) -> io::Result<()> {
+        Ok(())
+    }
+
+    fn set_nonblocking(&self, _nonblocking: bool) -> io::Result<()> {
+        Ok(())
+    }
+}
+
+impl NullUdpSocketWrapper {
+    pub fn new() -> Self {
+        Self {}
     }
 }
 
