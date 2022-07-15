@@ -115,6 +115,8 @@ pub(in crate::accountant) mod scanners {
                 ));
             };
 
+            self.mark_as_started(SystemTime::now());
+
             (self.scan)(accountant, response_skeleton_opt);
             Ok(())
         }
@@ -229,7 +231,6 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn scan_function_marks_scan_has_started_when_a_scan_is_not_already_running() {
         let subject = Scanners::default();
         let accountant = make_accountant_for_payables();
