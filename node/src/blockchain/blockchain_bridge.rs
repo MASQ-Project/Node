@@ -321,22 +321,19 @@ impl BlockchainBridge {
                 _ => so_far,
             });
         let (vector_of_results, error_opt) = short_circuit_result;
-        // TODO: Write a test to handle the empty vector.
-        if !vector_of_results.is_empty() {
-            let pairs = vector_of_results
-                .into_iter()
-                .zip(msg.pending_payable.iter().cloned())
-                .collect_vec();
-            self.payment_confirmation
-                .report_transaction_receipts_sub_opt
-                .as_ref()
-                .expect("Accountant is unbound")
-                .try_send(ReportTransactionReceipts {
-                    fingerprints_with_receipts: pairs,
-                    response_skeleton_opt: msg.response_skeleton_opt,
-                })
-                .expect("Accountant is dead");
-        }
+        let pairs = vector_of_results
+            .into_iter()
+            .zip(msg.pending_payable.iter().cloned())
+            .collect_vec();
+        self.payment_confirmation
+            .report_transaction_receipts_sub_opt
+            .as_ref()
+            .expect("Accountant is unbound")
+            .try_send(ReportTransactionReceipts {
+                fingerprints_with_receipts: pairs,
+                response_skeleton_opt: msg.response_skeleton_opt,
+            })
+            .expect("Accountant is dead");
         if let Some((e, hash)) = error_opt {
             return Err (format! (
                 "Aborting scanning; request of a transaction receipt for '{:?}' failed due to '{:?}'",
@@ -977,6 +974,41 @@ mod tests {
         });
         TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: Aborting scanning; request of a transaction receipt \
          for '0x000000000000000000000000000000000000000000000000000000000001348d' failed due to 'QueryFailed(\"bad bad bad\")'");
+    }
+
+    #[test]
+    fn blockchain_bridge_can_return_report_transaction_receipts_with_an_empty_vector() {
+        let (accountant, _, accountant_recording) = make_recorder();
+        let recipient = accountant.start().recipient();
+        let mut subject = BlockchainBridge::new(
+            Box::new(BlockchainInterfaceClandestine::new(Chain::Dev)),
+            Box::new(PersistentConfigurationMock::default()),
+            false,
+            Some(Wallet::new("mine")),
+        );
+        subject
+            .payment_confirmation
+            .report_transaction_receipts_sub_opt = Some(recipient);
+        let msg = RequestTransactionReceipts {
+            pending_payable: vec![],
+            response_skeleton_opt: None,
+        };
+        let system = System::new(
+            "blockchain_bridge_can_return_report_transaction_receipts_with_an_empty_vector",
+        );
+
+        let _ = subject.handle_request_transaction_receipts(&msg);
+
+        System::current().stop();
+        system.run();
+        let recording = accountant_recording.lock().unwrap();
+        assert_eq!(
+            recording.get_record::<ReportTransactionReceipts>(0),
+            &ReportTransactionReceipts {
+                fingerprints_with_receipts: vec![],
+                response_skeleton_opt: None
+            }
+        )
     }
 
     #[test]
