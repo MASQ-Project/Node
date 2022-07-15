@@ -807,7 +807,7 @@ impl Accountant {
     }
 
     fn handle_sent_payable(&self, sent_payable: SentPayable) {
-        // TODO: The flag should be put to false for scan for payables over here.
+        self.scanners.payables.mark_as_ended();
         let (ok, err) = Self::separate_early_errors(&sent_payable, &self.logger);
         debug!(self.logger, "We gathered these errors at sending transactions for payable: {:?}, out of the total of {} attempts", err, ok.len() + err.len());
         self.mark_pending_payable(ok);
@@ -3730,6 +3730,7 @@ mod tests {
             .payable_dao(PayableDaoMock::new().mark_pending_payable_rowid_result(Ok(())))
             .pending_payable_dao(pending_payable_dao)
             .build();
+        subject.scanners.payables.mark_as_started(SystemTime::now());
 
         subject.handle_sent_payable(sent_payable);
 
@@ -3741,6 +3742,7 @@ mod tests {
         log_handler.exists_log_containing("WARN: Accountant: Encountered transaction error at this end: 'TransactionFailed { msg: \"closing hours, sorry\", hash_opt: None }'");
         log_handler.exists_log_containing("DEBUG: Accountant: Forgetting a transaction attempt that even did not reach the signing stage");
         // TODO: Assert subject.scan_for_payables_in_progress [No scan in progress]
+        assert_eq!(subject.scanners.payables.is_scan_running(), false);
     }
 
     #[test]

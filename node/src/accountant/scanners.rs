@@ -133,12 +133,20 @@ pub(in crate::accountant) mod scanners {
             self.scan_type
         }
 
+        pub fn initiated_at(&self) -> Option<SystemTime> {
+            *self.initiated_at.borrow()
+        }
+
         pub fn is_scan_running(&self) -> bool {
             self.initiated_at.borrow().is_some()
         }
 
         pub fn mark_as_started(&self, timestamp: SystemTime) {
             *self.initiated_at.borrow_mut() = Some(timestamp);
+        }
+
+        pub fn mark_as_ended(&self) {
+            *self.initiated_at.borrow_mut() = None;
         }
     }
 
@@ -189,6 +197,21 @@ mod tests {
         let final_flag = subject.payables.is_scan_running();
         assert_eq!(initial_flag, false);
         assert_eq!(final_flag, true);
+        assert_eq!(subject.payables.initiated_at(), Some(now));
+    }
+
+    #[test]
+    fn scan_can_be_marked_as_ended() {
+        let subject = Scanners::default();
+        subject.payables.mark_as_started(SystemTime::now());
+        let is_scan_running_initially = subject.payables.is_scan_running();
+
+        subject.payables.mark_as_ended();
+
+        let is_scan_running_finally = subject.payables.is_scan_running();
+        assert_eq!(is_scan_running_initially, true);
+        assert_eq!(is_scan_running_finally, false);
+        assert_eq!(subject.payables.initiated_at(), None)
     }
 
     #[test]
