@@ -4,7 +4,7 @@ use std::any::Any;
 use std::convert::TryFrom;
 use std::io::ErrorKind;
 use std::net::{IpAddr, SocketAddr};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -44,6 +44,7 @@ impl Default for Factories {
 pub struct PmpTransactorInner {
     mapping_adder: Box<dyn MappingAdder>,
     factories: Factories,
+    socket_read_timeout: Duration,
     external_ip_addr_opt: Option<IpAddr>,
 }
 
@@ -226,6 +227,7 @@ impl Default for PmpTransactor {
             inner_arc: Arc::new (Mutex::new (PmpTransactorInner {
                 mapping_adder: Box::new (MappingAdderReal::default()),
                 factories: Factories::default(),
+                socket_read_timeout: Duration::from_millis(PMP_READ_TIMEOUT_MS),
                 external_ip_addr_opt: None,
             })),
             router_port: ROUTER_SERVER_PORT,
@@ -454,9 +456,14 @@ impl ThreadGuts {
             Ok (len) => {
                 match PmpPacket::try_from (&buffer[0..len]) {
                     Ok (packet) if packet.opcode == Opcode::MapUdp => {
-                        Self::process_unsolicited_map(&self.inner_arc, packet,
-                            self.router_addr, mapping_config_opt, last_remapped,
-                             &self.change_handler, &self.logger)
+                        if let Some (opcode_data) = packet.opcode_data.as_any().downcast_ref::<MapOpcodeData>() {
+                            Self::process_unsolicited_map(&self.inner_arc, opcode_data,
+                                self.router_addr, mapping_config_opt, last_remapped,
+                                &self.change_handler, &self.logger)
+                        }
+                        else {
+                            todo! ("Packet syntax problem");
+                        }
                     },
                     Ok (packet) => {
                         todo! ("Complete me!");
@@ -480,58 +487,134 @@ impl ThreadGuts {
 
     fn process_unsolicited_map(
         inner_arc: &Arc<Mutex<PmpTransactorInner>>,
-        map_packet: PmpPacket,
+        map_opcode_data: &MapOpcodeData,
         router_server_addr: SocketAddr,
         mapping_config_opt: &mut Option<MappingConfig>,
         last_remapped: &mut Instant,
         change_handler: &ChangeHandler,
         logger: &Logger
     ) {
-        let inner = inner_arc.lock().expect ("PmpTransactor is dead");
+        let mut inner = inner_arc.lock().expect ("PmpTransactor is dead");
         match mapping_config_opt.as_mut() {
             Some (mut mapping_config) => {
-                match inner.factories.socket_factory.make (router_server_addr) {
-                    Ok(socket) => {
-                        socket.set_read_timeout (something).expect ("Couldn't set read timeout on socket");
-                        socket.send_to()
-                        socket.recv_from()
-                    },
-                    Err (e) => todo! ("Error: {:?}", e),
-                }
-                match inner.mapping_adder.add_mapping(&inner.factories, router_server_addr, &mut mapping_config) {
-                    Ok(approved_lifetime) => {
-                        mapping_config.next_lifetime = Duration::from_secs(approved_lifetime as u64);
-                        mapping_config.remap_interval = Duration::from_secs(approved_lifetime as u64 / 2);
-                        *last_remapped = Instant::now();
-                        // TODO: Transact a Get packet to grab the new IP address
-                        // TODO: Drive me back in
-                        // let changed = {
-                        //     let mut inner = inner_arc.lock().expect("PmpTransactor died");
-                        //     let changed = inner.external_ip_addr_opt != Some (opcode_data.external_ip_address);
-                        //     inner.external_ip_addr_opt = Some(opcode_data.external_ip_address);
-                        //     changed
-                        // };
-                        // TODO: Drive me back in
-                        // if changed {
-                        // info!(logger, "Received PMP MAP notification that ISP changed IP address to {}", opcode_data.external_ip_address);
-                        // change_handler(AutomapChange::NewIp(opcode_data.external_ip_address));
-                        // }
-                        // else {
-                        //     info!(logger, "Received PMP MAP notification that ISP changed IP address; but address is unchanged from {}; ignoring", opcode_data.external_ip_address);
-                        // }
-                    },
-                    Err(e) => {
-                        todo!("Complete me");
-                        // error!(logger, "Unsolicited mapping response from router failed: {:?}", e);
-                        // change_handler(AutomapChange::Error(e));
-                    },
-                }
+                Self::process_unsolicited_map_with_mapping_config(inner, map_opcode_data,
+                    router_server_addr, &mut mapping_config, last_remapped, change_handler, logger)
             },
             None => {
                 todo! ("Complete me");
                 // info!(logger, "IP address changed before being used for any mappings");
                 // change_handler(AutomapChange::NewIp(opcode_data.external_ip_address));
             }
+        }
+    }
+
+    fn process_unsolicited_map_with_mapping_config(
+        mut inner: MutexGuard<PmpTransactorInner>,
+        map_opcode_data: &MapOpcodeData,
+        router_server_addr: SocketAddr,
+        mapping_config: &mut MappingConfig,
+        last_remapped: &mut Instant,
+        change_handler: &ChangeHandler,
+        logger: &Logger
+    ) {
+        match inner.factories.socket_factory.make(router_server_addr) {
+            Ok(socket) => {
+                Self::execute_get_transaction(socket, inner, map_opcode_data,
+                                              router_server_addr, mapping_config, last_remapped, change_handler, logger)
+            },
+            Err(e) => todo!("{:?}", e),
+        }
+    }
+
+    fn execute_get_transaction(
+        socket: Box<dyn UdpSocketWrapper>,
+        mut inner: MutexGuard<PmpTransactorInner>,
+        map_opcode_data: &MapOpcodeData,
+        router_server_addr: SocketAddr,
+        mapping_config: &mut MappingConfig,
+        last_remapped: &mut Instant,
+        change_handler: &ChangeHandler,
+        logger: &Logger
+    ) {
+        socket.set_read_timeout(Some(inner.socket_read_timeout)).expect("Couldn't set read timeout on socket");
+        let get_request = PmpPacket {
+            direction: Direction::Request,
+            opcode: Opcode::Get,
+            result_code_opt: None,
+            opcode_data: Box::new(GetOpcodeData { epoch_opt: None, external_ip_address_opt: None })
+        };
+        let mut get_request_bytes = [0u8; 64];
+        let get_request_len = get_request.marshal(&mut get_request_bytes).expect("Bad message format");
+        match socket.send_to(&mut get_request_bytes[0..get_request_len], router_server_addr) {
+            Ok(_) => {
+                Self::receive_get_response(socket, &mut inner, map_opcode_data, router_server_addr,
+                    mapping_config, last_remapped, change_handler, logger)
+            },
+            Err(e) => todo!("{:?}", e),
+        }
+    }
+
+    fn receive_get_response(
+        socket: Box<dyn UdpSocketWrapper>,
+        inner: &mut MutexGuard<PmpTransactorInner>,
+        map_opcode_data: &MapOpcodeData,
+        router_server_addr: SocketAddr,
+        mapping_config: &mut MappingConfig,
+        last_remapped: &mut Instant,
+        change_handler: &ChangeHandler,
+        logger: &Logger
+    ) {
+        let mut get_response_bytes = [0u8; 64];
+        match socket.recv_from(&mut get_response_bytes[..]) {
+            Ok((get_response_len, addr)) if addr == router_server_addr => {
+                match PmpPacket::try_from(&get_response_bytes[0..get_response_len]) {
+                    Ok(get_response) => {
+                        match get_response.opcode_data.as_any().downcast_ref::<GetOpcodeData>() {
+                            Some(opcode_data) => {
+                                Self::process_get_response(opcode_data, inner, map_opcode_data,
+                                    mapping_config, last_remapped, change_handler, logger)
+                            }
+                            None => todo!("Downcast error"),
+                        }
+                    },
+                    Err(e) => todo!("{:?}", e),
+                }
+            },
+            Ok(_) => todo!("Not for us"),
+            Err(e) => todo!("{:?}", e),
+        }
+    }
+
+    fn process_get_response(
+        opcode_data: &GetOpcodeData,
+        inner: &mut MutexGuard<PmpTransactorInner>,
+        map_opcode_data: &MapOpcodeData,
+        mapping_config: &mut MappingConfig,
+        last_remapped: &mut Instant,
+        change_handler: &ChangeHandler,
+        logger: &Logger
+    ) {
+        if let Some(external_ip_address) = opcode_data.external_ip_address_opt {
+            // let changed = {
+            //     let mut inner = inner_arc.lock().expect("PmpTransactor died");
+            //     let changed = inner.external_ip_addr_opt != Some (opcode_data.external_ip_address);
+            //     inner.external_ip_addr_opt = Some(opcode_data.external_ip_address);
+            //     changed
+            // };
+            // TODO: Drive me back in
+            // if changed {
+            mapping_config.next_lifetime = Duration::from_secs(map_opcode_data.lifetime as u64);
+            mapping_config.remap_interval = Duration::from_secs((map_opcode_data.lifetime / 2) as u64);
+            *last_remapped = Instant::now();
+            inner.external_ip_addr_opt = Some(IpAddr::V4(external_ip_address));
+            info!(logger, "Received PMP MAP notification that ISP changed IP address to {}", external_ip_address);
+            change_handler(AutomapChange::NewIp(IpAddr::V4(external_ip_address)));
+            // }
+            // else {
+            //     info!(logger, "Received PMP MAP notification that ISP changed IP address; but address is unchanged from {}; ignoring", opcode_data.external_ip_address);
+            // }
+        } else {
+            todo!("Bad response packet")
         }
     }
 }
@@ -1481,13 +1564,14 @@ mod tests {
         let inner = PmpTransactorInner {
             mapping_adder: Box::new(MappingAdderMock::new()),
             factories,
+            socket_read_timeout: Duration::from_millis (1000),
             external_ip_addr_opt: None,
         };
         let inner_arc = Arc::new(Mutex::new(inner));
         let mut transactor = PmpTransactor::new();
         transactor.inner_arc = inner_arc;
         let router_multicast_info = MulticastInfo::new (IpAddr::from_str("1.2.3.4").unwrap(), 5, 8888);
-        let read_timeout_millis = 1000;
+        // let read_timeout_millis = 1000;
         let received_error_arc: Arc<Mutex<Vec<AutomapError>>> = Arc::new (Mutex::new (vec![]));
         let inner_received_error_arc = received_error_arc.clone();
         let change_handler: ChangeHandler = Box::new (move |msg| {
@@ -1658,8 +1742,10 @@ mod tests {
             };
         });
         let logger = Logger::new ("check_unsolicited_socket_handles_unsolicited_map_packet");
+        let set_read_timeout_params_arc = Arc::new (Mutex::new(vec![]));
         let send_to_params_arc = Arc::new(Mutex::new(vec![]));
         let socket = UdpSocketWrapperMock::new()
+            .set_read_timeout_params (&set_read_timeout_params_arc)
             .set_read_timeout_result(Ok(()))
             .send_to_params(&send_to_params_arc)
             .send_to_result(Ok(get_request_len))
@@ -1670,7 +1756,8 @@ mod tests {
         factories.socket_factory = Box::new (socket_factory);
         let inner = PmpTransactorInner {
             mapping_adder: Box::new(MappingAdderReal::default()),
-            factories: Factories::default(),
+            factories,
+            socket_read_timeout: Duration::from_millis(15),
             external_ip_addr_opt: Some (old_ip_addr),
         };
         let inner_arc = Arc::new (Mutex::new (inner));
@@ -1697,24 +1784,18 @@ mod tests {
         );
 
         let after = Instant::now();
-        let add_mapping_params = add_mapping_params_arc.lock().unwrap();
-        assert_eq! (*add_mapping_params, vec![(router_server_addr, MappingConfig {
-            hole_port: 1234,
-            next_lifetime: Duration::from_secs(600),
-            remap_interval: Duration::from_secs(300),
-        })]);
         let change = received_new_ip.lock().unwrap().take().unwrap();
         assert_eq! (change, new_ip_addr);
         assert_eq! (mapping_config_opt, Some (MappingConfig {
             hole_port: 1234,
-            next_lifetime: Duration::from_secs (10),
-            remap_interval: Duration::from_secs (5)
+            next_lifetime: Duration::from_secs (600),
+            remap_interval: Duration::from_secs (300)
         }));
         assert! (last_remapped.ge (&before));
         assert! (last_remapped.le (&after));
         let assertable_inner = assertable_inner_arc.lock().unwrap();
         assert_eq! (assertable_inner.external_ip_addr_opt, Some (new_ip_addr));
-        TestLogHandler::new().exists_log_containing("INFO: check_unsolicited_socket_handles_unsolicited_map_packet: Received PCP MAP notification that ISP changed IP address to 4.3.2.1");
+        TestLogHandler::new().exists_log_containing("INFO: check_unsolicited_socket_handles_unsolicited_map_packet: Received PMP MAP notification that ISP changed IP address to 4.3.2.1");
     }
 
     #[test]
@@ -1852,6 +1933,7 @@ mod tests {
                 )))
             ),
             factories: Factories::default(),
+            socket_read_timeout: Duration::from_millis(100),
             external_ip_addr_opt: None,
         }));
         let mut transactor = PmpTransactor::new();
@@ -1893,6 +1975,7 @@ mod tests {
         let inner_arc = Arc::new (Mutex::new (PmpTransactorInner {
             mapping_adder: Box::new (mapping_adder),
             factories: Factories::default(),
+            socket_read_timeout: Duration::from_millis (100),
             external_ip_addr_opt: None,
         }));
         let mut transactor = PmpTransactor::new();
