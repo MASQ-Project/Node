@@ -487,14 +487,12 @@ impl ThreadGuts {
         match inner.factories.socket_factory.make(self.router_addr) {
             Ok(socket) => {
                 if let Some (get_opcode_data) = self.execute_get_transaction(socket, &inner) {
-                    Self::process_get_response(
+                    self.process_get_response(
                         &map_opcode_data,
                         &get_opcode_data,
                         &mut inner,
                         &mut mapping_config_opt,
-                        &mut last_remapped,
-                        &self.change_handler,
-                        &self.logger
+                        &mut last_remapped
                     );
                 }
             },
@@ -594,13 +592,12 @@ impl ThreadGuts {
      */
 
     fn process_get_response(
+        &self,
         map_opcode_data: &MapOpcodeData,
         get_opcode_data: &GetOpcodeData,
         inner: &mut MutexGuard<PmpTransactorInner>,
         mapping_config_opt: &mut Option<MappingConfig>,
         last_remapped: &mut Instant,
-        change_handler: &ChangeHandler,
-        logger: &Logger
     ) {
         if let Some(external_ip_address) = get_opcode_data.external_ip_address_opt {
             if let Some(mapping_config) = mapping_config_opt.as_mut() {
@@ -610,15 +607,15 @@ impl ThreadGuts {
             *last_remapped = Instant::now();
             if Some(IpAddr::V4(external_ip_address)) != inner.external_ip_addr_opt {
                 inner.external_ip_addr_opt = Some(IpAddr::V4(external_ip_address));
-                info!(logger, "Received PMP MAP notification that ISP changed IP address to {}", external_ip_address);
-                change_handler(AutomapChange::NewIp(IpAddr::V4(external_ip_address)));
+                info!(self.logger, "Received PMP MAP notification that ISP changed IP address to {}", external_ip_address);
+                (self.change_handler)(AutomapChange::NewIp(IpAddr::V4(external_ip_address)));
             }
             else {
-                info!(logger, "Ignoring notification that public IP address is still {}", external_ip_address);
+                info!(self.logger, "Ignoring notification that public IP address is still {}", external_ip_address);
             }
         } else {
-            change_handler(AutomapChange::Error(AutomapError::ProtocolError("GET response contained no external IP address".to_string())));
-            error! (logger, "Corrupt GET response from router, manual portmapping may be required");
+            (self.change_handler)(AutomapChange::Error(AutomapError::ProtocolError("GET response contained no external IP address".to_string())));
+            error! (self.logger, "Corrupt GET response from router, manual portmapping may be required");
         }
     }
 }
@@ -1929,6 +1926,7 @@ mod tests {
         let (change_handler, received_error_arc) = make_change_handler_expecting_error();
         let logger = Logger::new ("execute_get_transaction_handles_send_error");
         let mut transactor = PmpTransactor::new();
+        transactor.router_port = router_server_addr.port();
         let mut subject = ThreadGuts::new (&transactor, router_server_addr.ip(),
                                            MulticastInfo::for_test(32), change_handler, unbounded().1);
         subject.logger = logger;
@@ -1964,7 +1962,7 @@ mod tests {
         let (change_handler, received_error_arc) = make_change_handler_expecting_error();
         let logger = Logger::new ("execute_get_transaction_handles_try_again_and_give_up_receive_failures");
         let mut transactor = PmpTransactor::new();
-        transactor.router_port = 5000;
+        transactor.router_port = router_server_addr.port();
         let mut subject = ThreadGuts::new (&transactor, router_server_addr.ip(),
             MulticastInfo::for_test(32), change_handler, unbounded().1);
         subject.logger = logger;
@@ -1999,6 +1997,7 @@ mod tests {
         let (change_handler, received_error_arc) = make_change_handler_expecting_error();
         let logger = Logger::new ("execute_get_transaction_does_not_try_again_forever");
         let mut transactor = PmpTransactor::new();
+        transactor.router_port = router_server_addr.port();
         let mut subject = ThreadGuts::new (&transactor, router_server_addr.ip(),
             MulticastInfo::for_test(32), change_handler, unbounded().1);
         subject.logger = logger;
@@ -2023,6 +2022,7 @@ mod tests {
         let (change_handler, received_error_arc) = make_change_handler_expecting_error();
         let logger = Logger::new ("receive_get_response_handles_receive_error");
         let mut transactor = PmpTransactor::new();
+        transactor.router_port = router_server_addr.port();
         let mut subject = ThreadGuts::new (&transactor, router_server_addr.ip(),
             MulticastInfo::for_test(32), change_handler, unbounded().1);
         subject.logger = logger;
@@ -2046,7 +2046,7 @@ mod tests {
         let (change_handler, received_error_arc) = make_change_handler_expecting_error();
         let logger = Logger::new ("receive_get_response_handles_bad_packet");
         let mut transactor = PmpTransactor::new();
-        transactor.router_port = 5000;
+        transactor.router_port = router_server_addr.port();
         let mut subject = ThreadGuts::new (&transactor, router_server_addr.ip(),
             MulticastInfo::for_test(32), change_handler, unbounded().1);
         subject.logger = logger;
@@ -2082,7 +2082,7 @@ mod tests {
         let (change_handler, received_error_arc) = make_change_handler_expecting_error();
         let logger = Logger::new ("receive_get_response_handles_wrong_packet");
         let mut transactor = PmpTransactor::new();
-        transactor.router_port = 5000;
+        transactor.router_port = router_server_addr.port();
         let mut subject = ThreadGuts::new (&transactor, router_server_addr.ip(),
             MulticastInfo::for_test(32), change_handler, unbounded().1);
         subject.logger = logger;
@@ -2117,6 +2117,7 @@ mod tests {
         let (change_handler, received_error_arc) = make_change_handler_expecting_error();
         let logger = Logger::new ("receive_get_response_handles_response_thats_not_for_us");
         let mut transactor = PmpTransactor::new();
+        transactor.router_port = router_server_addr.port();
         let mut subject = ThreadGuts::new (&transactor, router_server_addr.ip(),
             MulticastInfo::for_test(32), change_handler, unbounded().1);
         subject.logger = logger;
@@ -2147,15 +2148,18 @@ mod tests {
         let mut last_remapped = Instant::now();
         let (change_handler, received_error_arc) = make_change_handler_expecting_error();
         let logger = Logger::new("process_get_response_handles_missing_external_ip_address");
+        let mut transactor = PmpTransactor::new();
+        transactor.router_port = 5000;
+        let mut subject = ThreadGuts::new (&transactor, localhost(),
+           MulticastInfo::for_test(32), change_handler, unbounded().1);
+        subject.logger = logger;
 
-        ThreadGuts::process_get_response (
+        subject.process_get_response (
             &map_opcode_data, // irrelevant
             &get_opcode_data,
             &mut inner, // irrelevant
             &mut mapping_config_opt, // irrelevant
             &mut last_remapped, // irrelevant
-            &change_handler,
-            &logger
         );
 
         let received_error = received_error_arc.lock().unwrap();
@@ -2193,16 +2197,19 @@ mod tests {
         let mut last_remapped = Instant::now().sub (Duration::from_secs(3600));
         let (change_handler, received_ip_arc) = make_change_handler_expecting_new_ip();
         let logger = Logger::new("process_get_response_handles_change_to_different_address");
+        let mut transactor = PmpTransactor::new();
+        transactor.router_port = 5000;
+        let mut subject = ThreadGuts::new (&transactor, old_address,
+           MulticastInfo::for_test(32), change_handler, unbounded().1);
+        subject.logger = logger;
         let before = Instant::now();
 
-        ThreadGuts::process_get_response (
+        subject.process_get_response (
             &map_opcode_data,
             &get_opcode_data,
             &mut inner, // irrelevant
             &mut mapping_config_opt,
             &mut last_remapped,
-            &change_handler,
-            &logger
         );
 
         let after = Instant::now();
@@ -2249,16 +2256,19 @@ mod tests {
         let mut last_remapped = Instant::now().sub (Duration::from_secs(3600));
         let (change_handler, received_ip_arc) = make_change_handler_expecting_new_ip();
         let logger = Logger::new("process_get_response_handles_change_to_same_address");
+        let mut transactor = PmpTransactor::new();
+        transactor.router_port = 5000;
+        let mut subject = ThreadGuts::new (&transactor, old_address,
+            MulticastInfo::for_test(32), change_handler, unbounded().1);
+        subject.logger = logger;
         let before = Instant::now();
 
-        ThreadGuts::process_get_response (
+        subject.process_get_response (
             &map_opcode_data,
             &get_opcode_data,
             &mut inner, // irrelevant
             &mut mapping_config_opt,
             &mut last_remapped,
-            &change_handler,
-            &logger
         );
 
         let after = Instant::now();
