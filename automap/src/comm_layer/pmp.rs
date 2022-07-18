@@ -388,7 +388,7 @@ impl ThreadGuts {
             }
             Err(_) => (),
         };
-        thread::sleep(Duration::from_millis(self.read_timeout_millis)); // used to be a read timeout
+        self.check_unsolicited_socket(unsolicited_socket, mapping_config_opt, last_remapped);
         true
     }
 
@@ -449,10 +449,10 @@ impl ThreadGuts {
     fn check_unsolicited_socket (
         &self,
         unsolicited_socket: &dyn UdpSocketWrapper,
-        buffer: &mut [u8],
         mapping_config_opt: &mut Option<MappingConfig>,
         last_remapped: &mut Instant,
     ) {
+        let mut buffer = [0u8; 64];
         match unsolicited_socket.recv(&mut buffer[..]) {
             Ok (len) => {
                 match PmpPacket::try_from (&buffer[0..len]) {
@@ -466,13 +466,15 @@ impl ThreadGuts {
                         warning! (&self.logger, "Discarding unsolicited {:?} packet from router", packet.opcode);
                     },
                     Err (e) => {
-                        error!(&self.logger, "Could not parse unsolicited PCP packet from router: {:?}", e)
+                        error!(&self.logger, "Could not parse unsolicited PMP packet from router: {:?}", e);
+                        (self.change_handler)(AutomapChange::Error (AutomapError::PacketParseError(e)));
                     },
                 }
             },
             Err (e) if (e.kind() == ErrorKind::TimedOut) || (e.kind() == ErrorKind::WouldBlock) => (),
             Err (e) => {
-                error!(&self.logger, "Could not read from unsolicited router socket: {:?}", e)
+                error!(&self.logger, "Could not read from unsolicited router socket: {:?}", e);
+                (self.change_handler)(AutomapChange::Error (AutomapError::SocketReceiveError(AutomapErrorCause::SocketFailure)));
             }
         };
     }
@@ -580,16 +582,6 @@ impl ThreadGuts {
             },
         }
     }
-
-    /*
-    housekeeper_commander: Receiver<HousekeepingThreadCommand>,
-    inner_arc: Arc<Mutex<PmpTransactorInner>>,
-    router_multicast_info: MulticastInfo,
-    router_addr: SocketAddr,
-    change_handler: ChangeHandler,
-    read_timeout_millis: u64,
-    logger: Logger,
-     */
 
     fn process_get_response(
         &self,
@@ -1680,6 +1672,32 @@ mod tests {
     }
 
     #[test]
+    fn thread_guts_iteration_checks_unsolicited_socket() {
+        let router_addr = SocketAddr::from_str ("1.2.3.4:5000").unwrap();
+        let unsolicited_socket = UdpSocketWrapperMock::new()
+            .recv_result (Err (Error::from (ErrorKind::AddrNotAvailable)), vec![]);
+        let mut mapping_config_opt = None;
+        let mut last_remapped = Instant::now();
+        let (change_handler, received_error_arc) = make_change_handler_expecting_error();
+        let logger = Logger::new ("thread_guts_iteration_checks_unsolicited_socket");
+        let mut transactor = PmpTransactor::new();
+        transactor.router_port = router_addr.port();
+        let mut subject = ThreadGuts::new(&transactor, router_addr.ip(),
+            MulticastInfo::for_test(34), change_handler, unbounded().1);
+        subject.logger = logger;
+
+        let result = subject.thread_guts_iteration(
+            &unsolicited_socket,
+            &mut mapping_config_opt,
+            &mut last_remapped,
+        );
+
+        assert_eq! (result, true);
+        let received_error = received_error_arc.lock().unwrap();
+        assert_eq! (*received_error, Some (AutomapError::SocketReceiveError(AutomapErrorCause::SocketFailure)));
+    }
+
+    #[test]
     fn check_unsolicited_socket_handles_unsolicited_map_packet() {
         init_test_logging();
         let old_ip_addr = IpAddr::from_str("2.2.2.2").unwrap();
@@ -1768,7 +1786,6 @@ mod tests {
 
         subject.check_unsolicited_socket(
             &unsolicited_socket,
-            &mut map_response_buffer[..],
             &mut mapping_config_opt,
             &mut last_remapped,
         );
@@ -1794,7 +1811,6 @@ mod tests {
         let unsolicited_socket = UdpSocketWrapperMock::new()
             .recv_result (Err (io::Error::from (ErrorKind::BrokenPipe)), vec![]);
         let (change_handler, received_error_arc) = make_change_handler_expecting_error();
-        let mut buffer = [0u8; 0];
         let mut mapping_config_opt = None;
         let subject = ThreadGuts::new (
             &PmpTransactor::new(),
@@ -1804,11 +1820,11 @@ mod tests {
             unbounded().1
         );
 
-        subject.check_unsolicited_socket(&unsolicited_socket, &mut buffer[..],
+        subject.check_unsolicited_socket(&unsolicited_socket,
             &mut mapping_config_opt, &mut Instant::now());
 
         let received_error = received_error_arc.lock().unwrap();
-        assert_eq! (*received_error, None);
+        assert_eq! (*received_error, Some (AutomapError::SocketReceiveError(AutomapErrorCause::SocketFailure)));
         TestLogHandler::new().exists_log_containing("ERROR: PmpTransactor: Could not read from unsolicited router socket: Kind(BrokenPipe)");
     }
 
@@ -1826,7 +1842,6 @@ mod tests {
         let unsolicited_socket = UdpSocketWrapperMock::new()
             .recv_result (Ok(get_packet_len), get_packet_bytes[0..get_packet_len].to_vec());
         let (change_handler, received_error_arc) = make_change_handler_expecting_error();
-        let mut buffer = [0u8; 64];
         let mut mapping_config_opt = None;
         let subject = ThreadGuts::new (
             &PmpTransactor::new(),
@@ -1836,7 +1851,7 @@ mod tests {
             unbounded().1
         );
 
-        subject.check_unsolicited_socket(&unsolicited_socket, &mut buffer[..],
+        subject.check_unsolicited_socket(&unsolicited_socket,
             &mut mapping_config_opt, &mut Instant::now());
 
         let received_error = received_error_arc.lock().unwrap();
@@ -1852,7 +1867,6 @@ mod tests {
         let unsolicited_socket = UdpSocketWrapperMock::new()
             .recv_result (Ok(packet_len), packet_bytes[0..packet_len].to_vec());
         let (change_handler, received_error_arc) = make_change_handler_expecting_error();
-        let mut buffer = [0u8; 64];
         let mut mapping_config_opt = None;
         let subject = ThreadGuts::new (
             &PmpTransactor::new(),
@@ -1862,12 +1876,12 @@ mod tests {
             unbounded().1
         );
 
-        subject.check_unsolicited_socket(&unsolicited_socket, &mut buffer[..],
+        subject.check_unsolicited_socket(&unsolicited_socket,
             &mut mapping_config_opt, &mut Instant::now());
 
         let received_error = received_error_arc.lock().unwrap();
-        assert_eq! (*received_error, None);
-        TestLogHandler::new().exists_log_containing("ERROR: PmpTransactor: Could not parse unsolicited PCP packet from router: ShortBuffer");
+        assert_eq! (*received_error, Some (AutomapError::PacketParseError(ParseError::ShortBuffer(2, 1))));
+        TestLogHandler::new().exists_log_containing("ERROR: PmpTransactor: Could not parse unsolicited PMP packet from router: ShortBuffer");
     }
 
     #[test]
