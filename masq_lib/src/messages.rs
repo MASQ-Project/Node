@@ -5,6 +5,7 @@ use crate::shared_schema::ConfiguratorError;
 use crate::ui_gateway::MessageBody;
 use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
 use itertools::Itertools;
+use nix::libc::aio_return;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -562,11 +563,36 @@ pub struct UiFinancialsRequest {
     #[serde(rename = "statsRequired")]
     pub stats_required: bool,
     #[serde(rename = "topRecordsOpt")]
-    pub top_records_opt: Option<u16>,
+    pub top_records_opt: Option<TopRecordsConfig>,
     #[serde(rename = "customQueriesOpt")]
     pub custom_queries_opt: Option<CustomQueries>,
 }
 conversation_message!(UiFinancialsRequest, "financials");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct TopRecordsConfig {
+    pub count: u16,
+    #[serde(rename = "sortedBy")]
+    pub sorted_by: TopRecordsSorting,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub enum TopRecordsSorting {
+    Age,
+    Balance,
+}
+
+impl TryFrom<&str> for TopRecordsSorting {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Ok(match value {
+            "balance" => Self::Balance,
+            "age" => Self::Age,
+            x => return Err(format!("Unrecognized sorting: '{}'", x)),
+        })
+    }
+}
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct CustomQueries {
@@ -1142,6 +1168,26 @@ mod tests {
         assert_eq!(
             result,
             Err("Unrecognized ScanType: 'unrecognized'".to_string())
+        );
+    }
+
+    #[test]
+    fn top_records_sorting_from_str() {
+        assert_eq!(
+            TopRecordsSorting::try_from("balance").unwrap(),
+            TopRecordsSorting::Balance
+        );
+        assert_eq!(
+            TopRecordsSorting::try_from("age").unwrap(),
+            TopRecordsSorting::Age
+        )
+    }
+
+    #[test]
+    fn top_records_sorting_from_str_error() {
+        assert_eq!(
+            TopRecordsSorting::try_from("upside-down"),
+            Err("Unrecognized sorting: 'upside-down'".to_string())
         );
     }
 }
