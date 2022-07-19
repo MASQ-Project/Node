@@ -64,7 +64,7 @@ pub fn financials_subcommand() -> App<'static, 'static> {
                 .required(false)
                 .case_insensitive(false)
                 .takes_value(true)
-                .validator(validate_non_zero_u16), // .requires("sorted")
+                .validator(validate_non_zero_u16),
         )
         .arg(
             Arg::with_name("payable")
@@ -117,23 +117,25 @@ pub fn financials_subcommand() -> App<'static, 'static> {
                 .case_insensitive(false)
                 .default_value_if("top", None, "balance")
                 .possible_values(&["balance", "age"])
-                //  .conflicts_with_all(&["payable","receivable"])
                 .required(false),
         )
         .groups(&[
-            ArgGroup::with_name("no-stats-group")
+            ArgGroup::with_name("no-stats-requirement-group")
                 .arg("no-stats")
-                .requires("various-queries"),
-            ArgGroup::with_name("various-queries")
-                .args(&["receivable", "payable", "top"])
-                .multiple(true),
+                .requires("all-queries"),
             ArgGroup::with_name("top-records-conflicting-args")
                 .args(&["top"])
-                .conflicts_with_all(&["payable", "receivable"])
+                .conflicts_with("custom-queries")
                 .requires("sorted"),
-            ArgGroup::with_name("sorted-allowed_args")
+            ArgGroup::with_name("sorted-conflicting-args")
                 .arg("sorted")
-                .conflicts_with_all(&["payable", "receivable"]),
+                .conflicts_with("custom-queries"),
+            ArgGroup::with_name("all-queries")
+                .args(&["receivable", "payable", "top"])
+                .multiple(true),
+            ArgGroup::with_name("custom-queries")
+                .args(&["payable","receivable"])
+                .multiple(true)
         ])
 }
 
@@ -152,6 +154,7 @@ impl Command for FinancialsCommand {
         let gwei_flag = self.gwei_precision;
         match output {
             Ok(response) => {
+                //TODO you can think of a way how to format it without unnecessary leading blank lines
                 let stdout = context.stdout();
                 if let Some(stats) = response.stats_opt {
                     self.process_financial_status(stdout, stats, gwei_flag)
@@ -491,16 +494,11 @@ impl FinancialsCommand {
     }
 
     fn financial_status_totals_title(stdout: &mut dyn Write, gwei: bool) {
-        let title = format!(
-            "Financial status totals in {}",
-            Self::print_gwei_or_masq_unit_type(gwei)
-        );
-        short_writeln!(stdout, "{}", title);
-        short_writeln!(stdout, "{}", "=".repeat(title.len()));
+        short_writeln!(stdout, "Financial status totals in {}\n", Self::print_gwei_or_masq_unit_type(gwei));
     }
 
     fn title_for_tops(&self, stdout: &mut dyn Write, distinguished: &str) {
-        Self::double_blank_line(stdout);
+        Self::triple_blank_line(stdout);
         let requested_count = self.top_records_opt.as_ref().expectv("requested count");
         short_writeln!(
             stdout,
@@ -511,11 +509,7 @@ impl FinancialsCommand {
     }
 
     fn width_precise_calculation(headings: &[&str], accounts: &[&dyn WidthInfo]) -> Vec<usize> {
-        let headings_widths = headings
-            .iter()
-            .filter(|phrase| **phrase != "Wallet")
-            .map(|phrase| phrase.len()) //TODO make sure this is right
-            .collect::<Vec<usize>>();
+        let headings_widths = Self::widths_of_dynamical_headings(headings);
         let values_widths = Self::figure_out_max_widths(accounts);
         Self::yield_bigger_values_from_vecs(headings_widths.len(), headings_widths, values_widths)
     }
@@ -526,6 +520,14 @@ impl FinancialsCommand {
 
     fn heading_underscore(optimal_widths: &[usize]) -> String {
         "-".repeat(Self::full_length(optimal_widths))
+    }
+
+    fn widths_of_dynamical_headings(headings: &[&str])->Vec<usize>{
+        headings
+            .iter()
+            .filter(|phrase| **phrase != "Wallet")
+            .map(|phrase| phrase.len())
+            .collect()
     }
 
     fn prepare_trait_objects<W: WidthInfo>(accounts: &[W]) -> Vec<&dyn (WidthInfo)> {
@@ -675,14 +677,13 @@ impl FinancialsCommand {
     ) {
         let processed = Self::correct_users_writing_if_needed(user_written_ranges);
         let (time, amounts) = processed.value();
-        Self::double_blank_line(stdout);
+        Self::triple_blank_line(stdout);
         short_writeln!(
             stdout,
-            "Specific {} query: {} sec {} MASQ\n{}",
+            "Specific {} query: {} sec {} MASQ\n",
             distinguished,
             time,
-            amounts,
-            "=".repeat(27 + distinguished.len() + time.len() + amounts.len())
+            amounts
         )
     }
 
@@ -781,18 +782,11 @@ impl FinancialsCommand {
     where
         F: Fn(&mut dyn Write, &[&str], &[usize]),
     {
-        let headings_widths = headings
-            .iter()
-            .skip(1)
-            .map(|word| word.len() + 2)
-            .collect::<Vec<usize>>();
-        let full_length = Self::full_length(&headings_widths);
+        let headings_widths = Self::widths_of_dynamical_headings(headings);
         write_headings(stdout, headings, &headings_widths);
         short_writeln!(
             stdout,
-            "{:^width$}",
-            "No records found",
-            width = full_length
+            "\nNo records found",
         )
     }
 
@@ -835,8 +829,8 @@ impl FinancialsCommand {
         }
     }
 
-    fn double_blank_line(stdout: &mut dyn Write) {
-        short_writeln!(stdout, "\n")
+    fn triple_blank_line(stdout: &mut dyn Write) {
+        short_writeln!(stdout, "\n\n")
     }
 }
 
@@ -1219,7 +1213,7 @@ mod tests {
             err
         );
         assert!(err.contains(
-            "financials <--no-stats> <--receivable <RECEIVABLE>|--payable <PAYABLE>|--top <TOP>>"
+            "financials <--receivable <RECEIVABLE>|--payable <PAYABLE>|--top <TOP>> <--no-stats>"
         ),"{}",err);
     }
 
@@ -1234,7 +1228,7 @@ mod tests {
             Err(e) => panic!("we expected CommandSyntax error but got: {:?}", e),
         };
         assert!(err.contains(err_msg_first_part), "{}", err);
-        assert!(err.contains("financials <--sorted <SORTED>> <--top <TOP>> <--receivable <RECEIVABLE>|--payable <PAYABLE>|--top <TOP>>"),"{}",err)
+        assert!(err.contains("financials <--receivable <RECEIVABLE>|--payable <PAYABLE>|--top <TOP>> <--payable <PAYABLE>|--receivable <RECEIVABLE>> <--sorted <SORTED>> <--top <TOP>>"),"{}",err)
     }
 
     #[test]
@@ -1279,7 +1273,7 @@ mod tests {
             Err(e) => panic!("we expected CommandSyntax error but got: {:?}", e),
         };
         assert!(err.contains("The argument '--receivable <RECEIVABLE>' cannot be used with one or more of the other specified arguments"),"{}",err);
-        assert!(err.contains("financials <--sorted <SORTED>> <--receivable <RECEIVABLE>|--payable <PAYABLE>|--top <TOP>>"),"{}",err)
+        assert!(err.contains("financials <--receivable <RECEIVABLE>|--payable <PAYABLE>|--top <TOP>> <--payable <PAYABLE>|--receivable <RECEIVABLE>> <--sorted <SORTED>>"),"{}",err)
     }
 
     #[test]
@@ -1550,7 +1544,7 @@ mod tests {
             stdout_arc.lock().unwrap().get_string(),
             "\
                 Financial status totals in MASQ\n\
-                ===============================\n\
+                \n\
                 Unpaid and pending payable:       1.16\n\
                 Paid payable:                     0.07\n\
                 Unpaid receivable:                -0.05\n\
@@ -1795,20 +1789,7 @@ mod tests {
                         count: 123,
                         sorted_by: TopRecordsSorting::Balance
                     }),
-                    custom_queries_opt: Some(CustomQueries {
-                        payable_opt: Some(RangeQuery {
-                            min_age_s: 0,
-                            max_age_s: 350000,
-                            min_amount_gwei: 5000000,
-                            max_amount_gwei: 9000000000
-                        }),
-                        receivable_opt: Some(RangeQuery {
-                            min_age_s: 5000,
-                            max_age_s: 10000,
-                            min_amount_gwei: 3000000,
-                            max_amount_gwei: 5600070000
-                        })
-                    })
+                    custom_queries_opt:None
                 }
                 .tmb(0),
                 STANDARD_COMMAND_TIMEOUT_MILLIS
@@ -1826,20 +1807,18 @@ mod tests {
                 \n\
                 \n\
                 Top 123 payable accounts\n\
-
+                \n\
                 #   Wallet                                       Age [s]         Balance [MASQ]   Pending tx                                                        \n\
-
                 1   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   5,645,405,400   68.84            None                                                              \n\
                 2   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   150,000         < 0.01           0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e\n\
                 \n\
                 \n\
                 \n\
                 Top 123 receivable accounts\n\
-
-                #   Wallet                                       Age [s]   Balance [MASQ]  \n\
-
-                1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   22,000    2,444.53        \n\
-                2   0x8bA50675e590b545D2128905b89039256Eaa24F6   19,000    -328.12         \n");
+                \n\
+                #   Wallet                                       Age [s]   Balance [MASQ]   \n\
+                1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   22,000    2,444.53         \n\
+                2   0x8bA50675e590b545D2128905b89039256Eaa24F6   19,000    -328.12          \n");
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
@@ -1870,10 +1849,7 @@ mod tests {
             vec![(
                 UiFinancialsRequest {
                     stats_required: true,
-                    top_records_opt: Some(TopRecordsConfig {
-                        count: 123,
-                        sorted_by: TopRecordsSorting::Balance
-                    }),
+                    top_records_opt: None,
                     custom_queries_opt: Some(CustomQueries {
                         payable_opt: Some(RangeQuery {
                             min_age_s: 0,
@@ -1893,8 +1869,8 @@ mod tests {
                 STANDARD_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        assert_eq!(stdout_arc.lock().unwrap().get_string(), {
-            let main_text_block: &str = "\
+        assert_eq!(stdout_arc.lock().unwrap().get_string(),
+            "\
                 Financial status totals in MASQ\n\
                 \n\
                 Unpaid and pending payable:       0.11\n\
@@ -1906,20 +1882,17 @@ mod tests {
                 \n\
                 Specific payable query: 0-350000 sec 0.005-9 MASQ\n\
                 \n\
-                #  Wallet                                      Age [s]  Balance [MASQ]  Pending tx                                                        \n\
-                1  0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440  150,000  < 0.01          0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e\n\
+                #   Wallet                                       Age [s]   Balance [MASQ]   Pending tx                                                        \n\
+                1   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   150,000   < 0.01           0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e\n\
                 \n\
                 \n\
                 \n\
                 Specific receivable query: 5000-10000 sec 0.003-5.60007 MASQ\n\
-
-                Wallet                  | Age [s] | Balance [MASQ] |\n\
-                \n";
-            format!(
-                "{}                           No records found                            \n",
-                main_text_block
-            )
-        });
+                \n\
+                #   Wallet                                       Age [s]   Balance [MASQ]\n\
+                \n\
+                No records found\n"
+            );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
@@ -1948,20 +1921,7 @@ mod tests {
                         count: 123,
                         sorted_by: TopRecordsSorting::Balance
                     }),
-                    custom_queries_opt: Some(CustomQueries {
-                        payable_opt: Some(RangeQuery {
-                            min_age_s: 0,
-                            max_age_s: 350000,
-                            min_amount_gwei: 5000000,
-                            max_amount_gwei: 9000000000
-                        }),
-                        receivable_opt: Some(RangeQuery {
-                            min_age_s: 5000,
-                            max_age_s: 10000,
-                            min_amount_gwei: 4000,
-                            max_amount_gwei: 455000000
-                        })
-                    })
+                    custom_queries_opt: None
                 }
                 .tmb(0),
                 STANDARD_COMMAND_TIMEOUT_MILLIS
@@ -1970,7 +1930,7 @@ mod tests {
         assert_eq!(stdout_arc.lock().unwrap().get_string(),
             "\
                 Financial status totals in Gwei\n\
-
+                \n\
                 Unpaid and pending payable:       116,688,555\n\
                 Paid payable:                     235,555,554,578\n\
                 Unpaid receivable:                0\n\
@@ -1979,7 +1939,7 @@ mod tests {
                 \n\
                 \n\
                 Top 123 payable accounts\n\
-
+                \n\
                 #   Wallet                                       Age [s]         Balance [Gwei]   Pending tx                                                        \n\
                 1   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   5,645,405,400   68,843,325,667   None                                                              \n\
                 2   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   150,000         8                0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e\n\
@@ -1987,10 +1947,10 @@ mod tests {
                 \n\
                 \n\
                 Top 123 receivable accounts\n\
-
-                #   Wallet                                       Age [s]  Balance [Gwei]  \n\
-                1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   22,000   2,444,533,124,512 \n\
-                2   0x8bA50675e590b545D2128905b89039256Eaa24F6   19,000   -328,123,256,546 \n"
+                \n\
+                #   Wallet                                       Age [s]   Balance [Gwei]   \n\
+                1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   22,000    2,444,533,124,512\n\
+                2   0x8bA50675e590b545D2128905b89039256Eaa24F6   19,000    -328,123,256,546 \n"
             );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
@@ -2023,10 +1983,7 @@ mod tests {
             vec![(
                 UiFinancialsRequest {
                     stats_required: true,
-                    top_records_opt: Some(TopRecordsConfig {
-                        count: 123,
-                        sorted_by: TopRecordsSorting::Balance
-                    }),
+                    top_records_opt: None,
                     custom_queries_opt: Some(CustomQueries {
                         payable_opt: Some(RangeQuery {
                             min_age_s: 0,
@@ -2046,10 +2003,9 @@ mod tests {
                 STANDARD_COMMAND_TIMEOUT_MILLIS
             )]
         );
-        assert_eq!(stdout_arc.lock().unwrap().get_string(), {
-            let main_text_block: &str = "\
+        assert_eq!(stdout_arc.lock().unwrap().get_string(), "\
                 Financial status totals in Gwei\n\
-
+                \n\
                 Unpaid and pending payable:       116,688,555\n\
                 Paid payable:                     235,555,554,578\n\
                 Unpaid receivable:                0\n\
@@ -2059,19 +2015,16 @@ mod tests {
                 \n\
                 Specific payable query: 0-350000 sec 0.005-9 MASQ\n\
                 \n\
-                #   Wallet                                        Age [s]   Balance [Gwei]   Pending tx                                                        \n\
-                1   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440    150,000   8                0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e\n\
+                #   Wallet                                       Age [s]   Balance [Gwei]   Pending tx                                                        \n\
+                1   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   150,000   8                0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e\n\
                 \n\
                 \n\
                 \n\
                 Specific receivable query: 5000-10000 sec 0.000004-0.455 MASQ\n\
                 \n\
-                #   Wallet                     Age [s]    Balance [Gwei]  \n";
-            format!(
-                "{}                           No records found                            \n",
-                main_text_block
-            )
-        });
+                #   Wallet                                       Age [s]   Balance [Gwei]\n\
+                \n\
+                No records found\n");
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
@@ -2079,104 +2032,6 @@ mod tests {
     fn custom_query_balance_range_can_be_shorthanded() {
         todo!("write this test about range with just one limit")
     }
-
-    // #[test]
-    // fn financials_command_everything_demanded_with_gwei_precision() {
-    //     let transact_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let expected_response = response_for_everything_demanded_with_or_without_stats(true);
-    //     let args = array_of_borrows_to_vec(&[
-    //         "financials",
-    //         "--top",
-    //         "123",
-    //         "--payable",
-    //         "0-350000|0.005-9",
-    //         "--receivable",
-    //         "5000-10000|0.000004-0.4550",
-    //         "--gwei",
-    //     ]);
-    //     let mut context = CommandContextMock::new()
-    //         .transact_params(&transact_params_arc)
-    //         .transact_result(Ok(expected_response.tmb(31)));
-    //     let stdout_arc = context.stdout_arc();
-    //     let stderr_arc = context.stderr_arc();
-    //     let subject = FinancialsCommand::new(&args).unwrap();
-    //
-    //     let result = subject.execute(&mut context);
-    //
-    //     assert_eq!(result, Ok(()));
-    //     let transact_params = transact_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *transact_params,
-    //         vec![(
-    //             UiFinancialsRequest {
-    //                 stats_required: true,
-    //                 top_records_opt: Some(123),
-    //                 custom_queries_opt: Some(CustomQueries {
-    //                     payable_opt: Some(RangeQuery {
-    //                         min_age_s: 0,
-    //                         max_age_s: 350000,
-    //                         min_amount_gwei: 5000000,
-    //                         max_amount_gwei: 9000000000
-    //                     }),
-    //                     receivable_opt: Some(RangeQuery {
-    //                         min_age_s: 5000,
-    //                         max_age_s: 10000,
-    //                         min_amount_gwei: 4000,
-    //                         max_amount_gwei: 455000000
-    //                     })
-    //                 })
-    //             }
-    //                 .tmb(0),
-    //             STANDARD_COMMAND_TIMEOUT_MILLIS
-    //         )]
-    //     );
-    //     assert_eq!(stdout_arc.lock().unwrap().get_string(), {
-    //         let main_text_block: &str = "\
-    //             Financial status totals in Gwei\n\
-    //
-    //             Unpaid and pending payable:       116,688,555\n\
-    //             Paid payable:                     235,555,554,578\n\
-    //             Unpaid receivable:                0\n\
-    //             Paid receivable:                  665,557\n\
-    //             \n\
-    //             \n\
-    //             \n\
-    //             Top 123 payable accounts\n\
-    //
-    //                               Wallet                        Age [s]     Balance [Gwei]                             Pending tx                              \n\
-    //
-    //             0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440        150,000                 8  0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e\n\
-    //             0xA884A2F1A5Ec6C2e499644666a5E6af97B966888  5,645,405,400    68,843,325,667                                                                None\n\
-    //             \n\
-    //             \n\
-    //             \n\
-    //             Top 123 receivable accounts\n\
-    //
-    //                                Wallet                    Age [s]      Balance [Gwei]  \n\
-    //
-    //             0x6e250504DdfFDb986C4F0bb8Df162503B4118b05     22,000  2,444,533,124,512 \n\
-    //             0x8bA50675e590b545D2128905b89039256Eaa24F6     19,000   -328,123,256,546 \n\
-    //             \n\
-    //             \n\
-    //             \n\
-    //             Specific payable query: 0-350000 sec 0.005-9 MASQ\n\
-    //
-    //                                Wallet                     Age [s]    Balance [Gwei]                              Pending tx                            \n\
-    //
-    //             0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440    150,000                 8  0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e\n\
-    //             \n\
-    //             \n\
-    //             \n\
-    //             Specific receivable query: 5000-10000 sec 0.000004-0.455 MASQ\n\
-    //
-    //                                 Wallet                     Age [s]    Balance [Gwei]  \n";
-    //         format!(
-    //             "{}                           No records found                            \n",
-    //             main_text_block
-    //         )
-    //     });
-    //     assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
-    // }
 
     #[test]
     fn financials_command_no_records_found_with_stats_and_top_records() {
@@ -2234,18 +2089,18 @@ mod tests {
 |
 |
 |Top 10 payable accounts
-|=======================
-||                  Wallet                  | Age [s] | Balance [MASQ] | Pending tx |
-|------------------------------------------------------------------------------------
-|                                  No records found                                  \n\
+|
+|#   Wallet                                       Age [s]   Balance [MASQ]   Pending tx
+|
+|No records found
 |
 |
 |
 |Top 10 receivable accounts
-|==========================
-||                  Wallet                  | Age [s] | Balance [MASQ] |
-|-----------------------------------------------------------------------
-|                           No records found                            \n"
+|
+|#   Wallet                                       Age [s]   Balance [MASQ]
+|
+|No records found\n"
                 .lines()
                 .map(|line| format!("{}\n", line.strip_prefix("|").unwrap()))
                 .collect::<String>()
@@ -2325,17 +2180,18 @@ mod tests {
 |
 |
 |Specific payable query: 0-400000 sec 355-6000 MASQ
-|==================================================
-||                  Wallet                  | Age [s] | Balance [MASQ] | Pending tx |
-|------------------------------------------------------------------------------------
-|                                  No records found                                  \n\
+|
+|#   Wallet                                       Age [s]   Balance [MASQ]   Pending tx
+|
+|No records found
+|
 |
 |
 |Specific receivable query: 40000-80000 sec 111-10000 MASQ
-|=========================================================
-||                  Wallet                  | Age [s] | Balance [MASQ] |
-|-----------------------------------------------------------------------
-|                           No records found                            "
+|
+|#   Wallet                                       Age [s]   Balance [MASQ]
+|
+|No records found"
                 .lines()
                 .map(|line| format!("{}\n", line.strip_prefix("|").unwrap()))
                 .collect::<String>()
@@ -2417,11 +2273,13 @@ mod tests {
             stdout_arc.lock().unwrap().get_string(),
                "\n\
                 \n\
+                \n\
                 Top 7 payable accounts\n\
                 \n\
                 #   Wallet                                       Age [s]      Balance [MASQ]   Pending tx                                                        \n\
                 1   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   5,405,400    0.64             0x3648c8b8c7e067ac30b80b6936159326d564dd13b7ae465b26647154ada2c638\n\
                 2   0xEA674fdac714fd979de3EdF0F56AA9716B198ec8   28,120,444   0.09             None                                                              \n\
+                \n\
                 \n\
                 \n\
                 Top 7 receivable accounts\n\
@@ -2507,13 +2365,13 @@ mod tests {
             stdout_arc.lock().unwrap().get_string(),
                "\n\
                 \n\
+                \n\
                 Specific payable query: 3000-40000 sec 88-1000 MASQ\n\
-                ===================================================\n\
-                |                  Wallet                  | Age [s] | Balance [MASQ] |                            Pending tx                            |\n\
-                ------------------------------------------------------------------------------------------------------------------------------------------\n\
-                |0x6e250504DdfFDb986C4F0bb8Df162503B4118b05|    4,445|            9.89|0x5fe272ed1e941cc05fbd624ec4b1546cd03c25d53e24ba2c18b11feb83cd4581|\n\
-                |0xA884A2F1A5Ec6C2e499644666a5E6af97B966888|   70,000|          < 0.01|                                                              None|\n\
-                |0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440|6,089,909|          < 0.01|                                                              None|\n"
+                \n\
+                #   Wallet                                       Age [s]     Balance [MASQ]   Pending tx                                                        \n\
+                1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   4,445       9.89             0x5fe272ed1e941cc05fbd624ec4b1546cd03c25d53e24ba2c18b11feb83cd4581\n\
+                2   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   70,000      < 0.01           None                                                              \n\
+                3   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   6,089,909   < 0.01           None                                                              \n"
         );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
@@ -2587,13 +2445,13 @@ mod tests {
             stdout_arc.lock().unwrap().get_string(),
             "\n\
                 \n\
+                \n\
                 Specific receivable query: 3000-40000 sec 66-980 MASQ\n\
-                =====================================================\n\
-                |                  Wallet                  | Age [s] | Balance [Gwei] |\n\
-                -----------------------------------------------------------------------\n\
-                |0x6e250504DdfFDb986C4F0bb8Df162503B4118b05|    4,445|   9,898,999,888|\n\
-                |0xA884A2F1A5Ec6C2e499644666a5E6af97B966888|   70,000|         708,090|\n\
-                |0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440|6,089,909|          66,658|\n"
+                \n\
+                #   Wallet                                       Age [s]     Balance [Gwei]\n\
+                1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   4,445       9,898,999,888 \n\
+                2   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   70,000      708,090       \n\
+                3   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   6,089,909   66,658        \n"
         );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
