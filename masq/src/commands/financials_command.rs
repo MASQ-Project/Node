@@ -8,8 +8,8 @@ use crate::commands::financials_command::ChangeDone::{Changed, Unchanged};
 use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
 use masq_lib::messages::{
     CustomQueries, CustomQueryResult, FirmQueryResult, RangeQuery, TopRecordsConfig,
-    TopRecordsSorting, UiFinancialStatistics, UiFinancialsRequest, UiFinancialsResponse,
-    UiPayableAccount, UiReceivableAccount,
+    UiFinancialStatistics, UiFinancialsRequest, UiFinancialsResponse, UiPayableAccount,
+    UiReceivableAccount,
 };
 use masq_lib::shared_schema::common_validators::validate_non_zero_u16;
 use masq_lib::short_writeln;
@@ -134,8 +134,8 @@ pub fn financials_subcommand() -> App<'static, 'static> {
                 .args(&["receivable", "payable", "top"])
                 .multiple(true),
             ArgGroup::with_name("custom-queries")
-                .args(&["payable","receivable"])
-                .multiple(true)
+                .args(&["payable", "receivable"])
+                .multiple(true),
         ])
 }
 
@@ -375,7 +375,7 @@ impl FinancialsCommand {
 
     fn parse_range_query_arg<
         'a,
-        T: FromStr<Err = ParseIntError> + From<u32> + CheckedMul + Display,
+        T: FromStr<Err = ParseIntError> + From<u32> + CheckedMul + Display + MaxValue,
     >(
         matches: &'a ArgMatches,
         parameter_name: &'a str,
@@ -494,7 +494,11 @@ impl FinancialsCommand {
     }
 
     fn financial_status_totals_title(stdout: &mut dyn Write, gwei: bool) {
-        short_writeln!(stdout, "Financial status totals in {}\n", Self::print_gwei_or_masq_unit_type(gwei));
+        short_writeln!(
+            stdout,
+            "Financial status totals in {}\n",
+            Self::print_gwei_or_masq_unit_type(gwei)
+        );
     }
 
     fn title_for_tops(&self, stdout: &mut dyn Write, distinguished: &str) {
@@ -508,21 +512,16 @@ impl FinancialsCommand {
         )
     }
 
-    fn width_precise_calculation(headings: &[&str], accounts: &[&dyn WidthInfo]) -> Vec<usize> {
-        let headings_widths = Self::widths_of_dynamical_headings(headings);
-        let values_widths = Self::figure_out_max_widths(accounts);
+    fn width_precise_calculation(
+        headings: &dyn Headings,
+        accounts: &[&dyn WidthInfo],
+    ) -> Vec<usize> {
+        let headings_widths = Self::widths_of_dynamical_headings(headings.words());
+        let values_widths = Self::figure_out_max_widths(accounts, headings.is_gwei());
         Self::yield_bigger_values_from_vecs(headings_widths.len(), headings_widths, values_widths)
     }
 
-    fn full_length(optimal_widths: &[usize]) -> usize {
-        optimal_widths.iter().sum::<usize>() + WALLET_ADDRESS_LENGTH + optimal_widths.len() + 2
-    }
-
-    fn heading_underscore(optimal_widths: &[usize]) -> String {
-        "-".repeat(Self::full_length(optimal_widths))
-    }
-
-    fn widths_of_dynamical_headings(headings: &[&str])->Vec<usize>{
+    fn widths_of_dynamical_headings(headings: &[&str]) -> Vec<usize> {
         headings
             .iter()
             .filter(|phrase| **phrase != "Wallet")
@@ -543,10 +542,8 @@ impl FinancialsCommand {
         accounts: Vec<UiPayableAccount>,
         headings: &PayableHeadings,
     ) {
-        let optimal_widths = Self::width_precise_calculation(
-            headings.words(),
-            &Self::prepare_trait_objects(&accounts),
-        );
+        let optimal_widths =
+            Self::width_precise_calculation(headings, &Self::prepare_trait_objects(&accounts));
         Self::write_payable_headings(stdout, headings.words(), &optimal_widths);
         let mut ordinal_number = 0_usize;
         accounts.iter().for_each(|account| {
@@ -612,10 +609,8 @@ impl FinancialsCommand {
         accounts: Vec<UiReceivableAccount>,
         headings: &ReceivableHeadings,
     ) {
-        let optimal_widths = Self::width_precise_calculation(
-            headings.words(),
-            &Self::prepare_trait_objects(&accounts),
-        );
+        let optimal_widths =
+            Self::width_precise_calculation(headings, &Self::prepare_trait_objects(&accounts));
         Self::write_receivable_headings(stdout, headings.words(), &optimal_widths);
         let mut ordinal_number = 0_usize;
         accounts.iter().for_each(|account| {
@@ -687,6 +682,7 @@ impl FinancialsCommand {
         )
     }
 
+    //TODO eliminate this with regex
     fn correct_users_writing_if_needed(
         user_ranges: &UsersLiteralRangeDefinition,
     ) -> ChangeDone<(String, String)> {
@@ -784,21 +780,19 @@ impl FinancialsCommand {
     {
         let headings_widths = Self::widths_of_dynamical_headings(headings);
         write_headings(stdout, headings, &headings_widths);
-        short_writeln!(
-            stdout,
-            "\nNo records found",
-        )
+        short_writeln!(stdout, "\nNo records found",)
     }
 
-    fn figure_out_max_widths(records: &[&dyn WidthInfo]) -> Vec<usize> {
-        let cell_count = records[0].widths(1).len();
+    fn figure_out_max_widths(records: &[&dyn WidthInfo], is_gwei: bool) -> Vec<usize> {
+        let cell_count = records[0].widths(is_gwei).len();
         let init = vec![0_usize; cell_count];
-        let mut ordinal_number = 0_usize;
-        records.iter().fold(init, |acc, record| {
-            ordinal_number += 1;
-            let cells = record.widths(ordinal_number);
+        let widths_except_ordinal_num = records.iter().fold(init, |acc, record| {
+            let cells = record.widths(is_gwei);
             Self::yield_bigger_values_from_vecs(cell_count, acc, cells)
-        })
+        });
+        let mut result = vec![records.len().to_string().len()];
+        result.extend(widths_except_ordinal_num);
+        result
     }
 
     fn yield_bigger_values_from_vecs(
@@ -806,27 +800,48 @@ impl FinancialsCommand {
         first: Vec<usize>,
         second: Vec<usize>,
     ) -> Vec<usize> {
-        fn yield_bigger(a: usize, b: usize) -> usize {
-            if a > b {
-                a
-            } else {
-                b
-            }
-        }
         (0..cell_count).fold(vec![], |acc_inner, idx| {
-            plus(acc_inner, yield_bigger(first[idx], second[idx]))
+            plus(acc_inner, first[idx].max(second[idx]))
         })
     }
 
-    fn count_length_with_comma_separators<N: Display>(value: N) -> usize {
-        let gross_length = value.to_string().len();
-        let triple_chars = gross_length / 3;
-        let possible_reminder = gross_length % 3;
-        if possible_reminder == 0 {
-            triple_chars * 3 + triple_chars - 1
-        } else {
-            triple_chars * 3 + possible_reminder + triple_chars
+    fn count_length_with_comma_separators<N: Display>(value: N, is_plain_integer: bool) -> usize {
+        fn add_in_commas_count(integer_length: usize) -> usize {
+            let triple_chars = integer_length / 3;
+            let possible_reminder = integer_length % 3;
+            if possible_reminder == 0 {
+                triple_chars * 3 + triple_chars - 1
+            } else {
+                triple_chars * 3 + possible_reminder + triple_chars
+            }
         }
+        let string_like = value.to_string();
+        let gross_length = string_like.len();
+        let is_negative = &string_like[0..=0] == "-";
+        let unsigned_num_length = if is_negative {
+            gross_length - 1
+        } else {
+            gross_length
+        };
+        let unsigned_processed = if is_plain_integer {
+            add_in_commas_count(unsigned_num_length)
+        } else {
+            if unsigned_num_length <= 7 {
+                return if !is_negative {
+                    6 //means '< 0.01'
+                } else {
+                    13 //means '-0.01 < x < 0'
+                };
+            } else if unsigned_num_length == 8 {
+                4
+            } else if unsigned_num_length == 9 {
+                4
+            } else {
+                let integer_part_length = unsigned_num_length - 9;
+                add_in_commas_count(integer_part_length) + 3
+            }
+        };
+        unsigned_processed + if !is_negative { 0 } else { 1 }
     }
 
     fn triple_blank_line(stdout: &mut dyn Write) {
@@ -877,17 +892,17 @@ impl Headings for ReceivableHeadings {
 }
 
 trait WidthInfo {
-    fn widths(&self, ordinal_num: usize) -> Vec<usize>;
+    fn widths(&self, is_gwei: bool) -> Vec<usize>;
 }
 
 //we can ignore a special case of width computation of balances in MASQ with dot and two decimal digits,
 //it would require more MASQ than exist to grow wider beyond the heading of the column
 impl WidthInfo for UiPayableAccount {
-    fn widths(&self, ordinal_num: usize) -> Vec<usize> {
+    fn widths(&self, is_gwei: bool) -> Vec<usize> {
         vec![
-            ordinal_num.to_string().len(),
-            FinancialsCommand::count_length_with_comma_separators(self.age),
-            FinancialsCommand::count_length_with_comma_separators(self.balance_gwei),
+            //TODO can be computed as the whole number of accounts and doing this on it, just once
+            FinancialsCommand::count_length_with_comma_separators(self.age, true),
+            FinancialsCommand::count_length_with_comma_separators(self.balance_gwei, is_gwei),
             if let Some(transaction_hash) = &self.pending_payable_hash_opt {
                 transaction_hash.len()
             } else {
@@ -898,11 +913,10 @@ impl WidthInfo for UiPayableAccount {
 }
 
 impl WidthInfo for UiReceivableAccount {
-    fn widths(&self, ordinal_num: usize) -> Vec<usize> {
+    fn widths(&self, is_gwei: bool) -> Vec<usize> {
         vec![
-            ordinal_num.to_string().len(),
-            FinancialsCommand::count_length_with_comma_separators(self.age),
-            FinancialsCommand::count_length_with_comma_separators(self.balance_gwei),
+            FinancialsCommand::count_length_with_comma_separators(self.age, true),
+            FinancialsCommand::count_length_with_comma_separators(self.balance_gwei, is_gwei),
         ]
     }
 }
@@ -914,7 +928,8 @@ where
         + Mul<Output = N>
         + PartialOrd
         + Display
-        + CheckedMul,
+        + CheckedMul
+        + MaxValue,
 {
     fn checked_division<'a>(
         str: &'a str,
@@ -956,27 +971,50 @@ fn parse_time_params(time_range: &[&str]) -> Result<(u64, u64), String> {
     Ok((parse_integer(time_range[0])?, parse_integer(time_range[1])?))
 }
 
-fn extract_masq_and_return_gwei_str(range_str: &str) -> Result<(String, String), String> {
-    let regex = Regex::new("(-?\\d+\\.?\\d*)\\s*-\\s*(-?\\d+\\.?\\d*)").expect("wrong regex");
+fn extract_masq_and_return_gwei_str_envelope_fn(
+    range_str: &str,
+) -> Result<(String, Option<String>), String> {
+    let regex = Regex::new("((-?\\d+\\.?\\d*)\\s*-\\s*(-?\\d+\\.?\\d*))|(-?\\d+\\.?\\d*)$")
+        .expect("wrong regex");
+    extract_masq_and_return_gwei_str(&regex, range_str)
+}
+
+fn extract_masq_and_return_gwei_str(
+    regex: &Regex,
+    range_str: &str,
+) -> Result<(String, Option<String>), String> {
     match regex.captures(range_str).map(|captures| {
-        let fetch = |idx: usize| captures.get(idx).map(|catch| catch.as_str().to_owned());
-        (fetch(1), fetch(2))
+        let fetch_group = |idx: usize| captures.get(idx).map(|catch| catch.as_str().to_owned());
+        match (fetch_group(2), fetch_group(3)) {
+            (Some(second), Some(third)) => (Some(second), Some(third)),
+            (None, None) => match fetch_group(4) {
+                Some(fourth) => (Some(fourth), None),
+                None => todo!(),
+            },
+            (first, second) => todo!(),
+        }
     }) {
-        Some((Some(first), Some(second))) => Ok((first, second)),
+        Some((Some(first), Some(second))) => Ok((first, Some(second))),
+        Some((Some(first), None)) => Ok((first, None)),
         _ => Err("Second range in improper format".to_string()),
     }
 }
 
 pub fn parse_masq_range_to_gwei<N>(range_str: &str) -> Result<(N, N, String, String), String>
 where
-    N: FromStr<Err = ParseIntError> + From<u32> + Mul<Output = N> + CheckedMul + Display,
+    N: FromStr<Err = ParseIntError> + From<u32> + Mul<Output = N> + CheckedMul + Display + MaxValue,
 {
-    let (first, second) = extract_masq_and_return_gwei_str(range_str)?;
+    eprintln!("range str: {}", range_str);
+    let (first, second_opt) = extract_masq_and_return_gwei_str_envelope_fn(range_str)?;
     Ok((
         process_optionally_fragmentary_number(&first)?,
-        process_optionally_fragmentary_number(&second)?,
+        if let Some(second) = second_opt.as_ref() {
+            process_optionally_fragmentary_number(second)?
+        } else {
+            N::max()
+        },
         first,
-        second,
+        second_opt.unwrap_or(String::from("UNLIMITED")),
     ))
 }
 
@@ -1010,6 +1048,22 @@ fn pre_parsing_check(num: &str, dot_idx: usize) -> Result<(), String> {
         Err("Misused decimal number dot delimiter".to_string())
     } else {
         Ok(())
+    }
+}
+
+pub trait MaxValue {
+    fn max() -> Self;
+}
+
+impl MaxValue for i64 {
+    fn max() -> Self {
+        i64::MAX
+    }
+}
+
+impl MaxValue for u64 {
+    fn max() -> Self {
+        u64::MAX
     }
 }
 
@@ -1561,8 +1615,8 @@ mod tests {
     }
 
     impl WidthInfo for TestAccount {
-        fn widths(&self, ordinal_num: usize) -> Vec<usize> {
-            vec![ordinal_num.to_string().len(), self.a, self.b, self.c]
+        fn widths(&self, is_gwei: bool) -> Vec<usize> {
+            vec![self.a, self.b, self.c]
         }
     }
 
@@ -1581,27 +1635,100 @@ mod tests {
             .map(|each| each as &dyn WidthInfo)
             .collect::<Vec<&dyn WidthInfo>>();
 
-        let result = FinancialsCommand::figure_out_max_widths(&to_inspect);
+        let result = FinancialsCommand::figure_out_max_widths(&to_inspect, false);
 
         assert_eq!(result, vec![3, 5, 6, 7])
     }
 
     #[test]
-    fn count_length_with_comma_separators_works_for_exact_triples() {
-        let number = 200_560_800;
+    fn count_length_with_comma_separators_works_for_integers_and_exact_triples() {
+        let number = 200_560_800_u64;
 
-        let result = FinancialsCommand::count_length_with_comma_separators(number);
+        let result = FinancialsCommand::count_length_with_comma_separators(number, true);
 
         assert_eq!(result, 11)
     }
 
     #[test]
-    fn count_length_with_comma_separators_works_for_incomplete_triples() {
+    fn count_length_with_comma_separators_works_for_integers_and_incomplete_triples() {
         let number = 12_200_560_800_u64;
 
-        let result = FinancialsCommand::count_length_with_comma_separators(number);
+        let result = FinancialsCommand::count_length_with_comma_separators(number, true);
 
         assert_eq!(result, 14)
+    }
+
+    #[test]
+    fn count_length_with_comma_separators_works_for_mask_format_a_few_thousandths_of_mask() {
+        let number = 4_560_800_u64;
+
+        let result = FinancialsCommand::count_length_with_comma_separators(number, false);
+
+        assert_eq!(result, 6) //means '< 0.01'
+    }
+
+    #[test]
+    fn count_length_with_comma_separators_works_for_mask_format_a_few_hundredths_of_mask() {
+        let number = 80_560_800_u64;
+
+        let result = FinancialsCommand::count_length_with_comma_separators(number, false);
+
+        assert_eq!(result, 4)
+    }
+
+    #[test]
+    fn count_length_with_comma_separators_works_for_masq_format_a_few_tenths_of_masq() {
+        let number = 200_560_800_u64;
+
+        let result = FinancialsCommand::count_length_with_comma_separators(number, false);
+
+        assert_eq!(result, 4)
+    }
+
+    #[test]
+    fn count_length_with_comma_separators_works_for_masq_and_complete_triples() {
+        let number = 456_456_200_560_800_u64;
+
+        let result = FinancialsCommand::count_length_with_comma_separators(number, false);
+
+        assert_eq!(result, 10)
+    }
+
+    #[test]
+    fn count_length_with_comma_separators_works_for_masq_format_and_incomplete_triples() {
+        let number = 2_200_568_560_800_u64;
+
+        let result = FinancialsCommand::count_length_with_comma_separators(number, false);
+
+        assert_eq!(result, 8)
+    }
+
+    #[test]
+    fn count_length_with_comma_separators_works_for_masq_negative_number() {
+        let number = -2_200_568_560_800_i64;
+
+        let result = FinancialsCommand::count_length_with_comma_separators(number, false);
+
+        assert_eq!(result, 9)
+    }
+
+    #[test]
+    fn count_length_with_comma_separators_works_for_masq_negative_number_smaller_than_one() {
+        let number = -68_560_800_i64;
+
+        let result = FinancialsCommand::count_length_with_comma_separators(number, false);
+
+        assert_eq!(result, 5)
+    }
+
+    #[test]
+    fn count_length_with_comma_separators_works_for_masq_negative_number_smaller_than_resolution_of_rendered_masqs(
+    ) {
+        let number = -68_800_i64;
+
+        let result = FinancialsCommand::count_length_with_comma_separators(number, false);
+
+        assert_eq!(result, 13) //means '-0.01 < x < 0'
     }
 
     #[test]
@@ -1789,7 +1916,7 @@ mod tests {
                         count: 123,
                         sorted_by: TopRecordsSorting::Balance
                     }),
-                    custom_queries_opt:None
+                    custom_queries_opt: None
                 }
                 .tmb(0),
                 STANDARD_COMMAND_TIMEOUT_MILLIS
@@ -1816,9 +1943,9 @@ mod tests {
                 \n\
                 Top 123 receivable accounts\n\
                 \n\
-                #   Wallet                                       Age [s]   Balance [MASQ]   \n\
-                1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   22,000    2,444.53         \n\
-                2   0x8bA50675e590b545D2128905b89039256Eaa24F6   19,000    -328.12          \n");
+                #   Wallet                                       Age [s]   Balance [MASQ]\n\
+                1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   22,000    2,444.53      \n\
+                2   0x8bA50675e590b545D2128905b89039256Eaa24F6   19,000    -328.12       \n");
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
@@ -2030,7 +2157,87 @@ mod tests {
 
     #[test]
     fn custom_query_balance_range_can_be_shorthanded() {
-        todo!("write this test about range with just one limit")
+        let transact_params_arc = Arc::new(Mutex::new(vec![]));
+        let expected_response = UiFinancialsResponse {
+            stats_opt: None,
+            top_records_opt: None,
+            custom_query_records_opt: Some(CustomQueryResult {
+                payable_opt: Some(vec![UiPayableAccount {
+                    wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
+                    age: 150000,
+                    balance_gwei: 1200000000000,
+                    pending_payable_hash_opt: Some(
+                        "0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e"
+                            .to_string(),
+                    ),
+                }]),
+                receivable_opt: Some(vec![UiReceivableAccount {
+                    wallet: "0x8bA50675e590b545D2128905b89039256Eaa24F6".to_string(),
+                    age: 45700,
+                    balance_gwei: 5050330000,
+                }]),
+            }),
+        };
+        let args = array_of_borrows_to_vec(&[
+            "financials",
+            "--payable",
+            "0-350000|5",
+            "--receivable",
+            "5000-10000|0.8",
+        ]);
+        let mut context = CommandContextMock::new()
+            .transact_params(&transact_params_arc)
+            .transact_result(Ok(expected_response.tmb(31)));
+        let stdout_arc = context.stdout_arc();
+        let stderr_arc = context.stderr_arc();
+        let subject = FinancialsCommand::new(&args).unwrap();
+
+        let result = subject.execute(&mut context);
+
+        assert_eq!(result, Ok(()));
+        let transact_params = transact_params_arc.lock().unwrap();
+        assert_eq!(
+            *transact_params,
+            vec![(
+                UiFinancialsRequest {
+                    stats_required: true,
+                    top_records_opt: None,
+                    custom_queries_opt: Some(CustomQueries {
+                        payable_opt: Some(RangeQuery {
+                            min_age_s: 0,
+                            max_age_s: 350000,
+                            min_amount_gwei: 5000000000,
+                            max_amount_gwei: u64::MAX
+                        }),
+                        receivable_opt: Some(RangeQuery {
+                            min_age_s: 5000,
+                            max_age_s: 10000,
+                            min_amount_gwei: 800000000,
+                            max_amount_gwei: i64::MAX
+                        })
+                    })
+                }
+                .tmb(0),
+                STANDARD_COMMAND_TIMEOUT_MILLIS
+            )]
+        );
+        assert_eq!(stdout_arc.lock().unwrap().get_string(),
+           "\n\
+            \n\
+            \n\
+            Specific payable query: 0-350000 sec 5-UNLIMITED MASQ\n\
+            \n\
+            #   Wallet                                       Age [s]   Balance [MASQ]   Pending tx                                                        \n\
+            1   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   150,000   1,200.00         0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e\n\
+            \n\
+            \n\
+            \n\
+            Specific receivable query: 5000-10000 sec 0.8-UNLIMITED MASQ\n\
+            \n\
+            #   Wallet                                       Age [s]   Balance [MASQ]\n\
+            1   0x8bA50675e590b545D2128905b89039256Eaa24F6   45,700    5.05          \n"
+        );
+        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
     #[test]
@@ -2452,6 +2659,60 @@ mod tests {
                 1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   4,445       9,898,999,888 \n\
                 2   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   70,000      708,090       \n\
                 3   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   6,089,909   66,658        \n"
+        );
+        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
+    }
+
+    #[test]
+    fn financials_returned_big_gwei_values_do_not_affect_the_column_width_for_values_in_masqs() {
+        let expected_response = UiFinancialsResponse {
+            stats_opt: None,
+            top_records_opt: None,
+            custom_query_records_opt: Some(CustomQueryResult {
+                payable_opt: Some(vec![UiPayableAccount {
+                    wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
+                    age: 70000,
+                    balance_gwei: 3862654858809045,
+                    pending_payable_hash_opt: None,
+                }]),
+                receivable_opt: Some(vec![UiReceivableAccount {
+                    wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
+                    age: 6089909,
+                    balance_gwei: 66658454845151517,
+                }]),
+            }),
+        };
+        let args = array_of_borrows_to_vec(&[
+            "financials",
+            "--receivable",
+            "3000-40000|88-1000",
+            "--payable",
+            "3000-40000|88-1000",
+            "--no-stats",
+        ]);
+        let mut context = CommandContextMock::new().transact_result(Ok(expected_response.tmb(31)));
+        let stdout_arc = context.stdout_arc();
+        let stderr_arc = context.stderr_arc();
+        let subject = FinancialsCommand::new(&args).unwrap();
+
+        let _ = subject.execute(&mut context).unwrap();
+
+        assert_eq!(
+            stdout_arc.lock().unwrap().get_string(),
+            "\n\
+                \n\
+                \n\
+                Specific payable query: 3000-40000 sec 88-1000 MASQ\n\
+                \n\
+                #   Wallet                                       Age [s]   Balance [MASQ]   Pending tx\n\
+                1   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   70,000    3,862,654.85     None      \n\
+                \n\
+                \n\
+                \n\
+                Specific receivable query: 3000-40000 sec 88-1000 MASQ\n\
+                \n\
+                #   Wallet                                       Age [s]     Balance [MASQ]\n\
+                1   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   6,089,909   66,658,454.84 \n"
         );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
