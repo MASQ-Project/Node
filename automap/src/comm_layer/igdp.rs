@@ -139,7 +139,8 @@ impl Transactor for IgdpTransactor {
     }
 
     fn get_multicast_info(&self) -> MulticastInfo {
-        todo!()
+        MulticastInfo::default()
+        // todo!()
     }
 
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {

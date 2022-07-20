@@ -181,7 +181,8 @@ impl Transactor for PmpTransactor {
         }
         let (tx, rx) = unbounded();
         self.housekeeper_commander_opt = Some(tx.clone());
-        let thread_guts = ThreadGuts::new(self, router_ip, MulticastInfo::for_test(10), change_handler, rx);
+        let thread_guts = ThreadGuts::new(self, router_ip,
+            MulticastInfo::default(), change_handler, rx);
         self.join_handle_opt = Some(thread_guts.go());
         Ok(tx)
     }

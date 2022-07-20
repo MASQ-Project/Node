@@ -1,5 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+mod isp_change_test;
+
 use automap_lib::automap_core_functions::{
     change_handler, run_probe_test, tester_for, AutomapParameters, TestStatus,
 };
@@ -32,6 +34,11 @@ AWS firewall.
  */
 
 pub fn main() {
+    // old_main();
+    isp_change_test::new_main();
+}
+
+fn old_main() {
     let parameters = AutomapParameters::new(std::env::args(), SERVER_SOCKET_ADDRESS);
 
     println!("\nDetailed information about this run will appear in the log.");
@@ -43,6 +50,10 @@ pub fn main() {
     } else {
         manual(parameters);
     }
+}
+
+fn new_main() {
+
 }
 
 fn manual(parameters: AutomapParameters) {
