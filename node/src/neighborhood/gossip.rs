@@ -97,37 +97,51 @@ impl TryFrom<&Value> for GossipNodeRecord {
 impl GossipNodeRecord {
     fn to_human_readable(&self) -> String {
         let mut human_readable = String::new();
-        human_readable.push_str("\nGossipNodeRecord {");
+        human_readable = format!("{}\nGossipNodeRecord {{", human_readable);
         match NodeRecordInner_0v1::try_from(self) {
             Ok(nri) => {
-                human_readable.push_str("\n\tinner: NodeRecordInner_0v1 {");
-                human_readable.push_str(&format!("\n\t\tpublic_key: {:?},", &nri.public_key));
-                human_readable.push_str(&format!("\n\t\tnode_addr_opt: {:?},", self.node_addr_opt));
-                human_readable
-                    .push_str(&format!("\n\t\tearning_wallet: {:?},", nri.earning_wallet));
-                human_readable.push_str(&format!("\n\t\trate_pack: {:?},", nri.rate_pack));
-                human_readable.push_str(&format!(
-                    "\n\t\tneighbors: {:?},",
+                human_readable = format!("{}\n\tinner: NodeRecordInner_0v1 {{", human_readable);
+                human_readable =
+                    format!("{}\n\t\tpublic_key: {:?},", human_readable, &nri.public_key);
+                human_readable = format!(
+                    "{}\n\t\tnode_addr_opt: {:?},",
+                    human_readable, self.node_addr_opt
+                );
+                human_readable = format!(
+                    "{}\n\t\tearning_wallet: {:?},",
+                    human_readable, nri.earning_wallet
+                );
+                human_readable = format!("{}\n\t\trate_pack: {:?},", human_readable, nri.rate_pack);
+                human_readable = format!(
+                    "{}\n\t\tneighbors: {:?},",
+                    human_readable,
                     nri.neighbors
                         .clone()
                         .into_iter()
                         .collect::<Vec<PublicKey>>()
-                ));
-                human_readable.push_str(&format!("\n\t\tversion: {:?},", nri.version));
-                human_readable.push_str("\n\t},");
+                );
+                human_readable = format!("{}\n\t\tversion: {:?},", human_readable, nri.version);
+                human_readable = format!("{}\n\t}},", human_readable);
             }
-            Err(_e) => human_readable.push_str("\n\tinner: <non-deserializable>"),
+            Err(_e) => {
+                human_readable = format!("{}\n\tinner: <non-deserializable>", human_readable)
+            }
         };
-        human_readable.push_str(&format!("\n\tnode_addr_opt: {:?},", self.node_addr_opt));
-        human_readable.push_str(&format!(
-            "\n\tsigned_data:\n{:?}",
+        human_readable = format!(
+            "{}\n\tnode_addr_opt: {:?},",
+            human_readable, self.node_addr_opt
+        );
+        human_readable = format!(
+            "{}\n\tsigned_data:\n{:?}",
+            human_readable,
             self.signed_data.as_slice().hex_dump()
-        ));
-        human_readable.push_str(&format!(
-            "\n\tsignature:\n{:?}",
+        );
+        human_readable = format!(
+            "{}\n\tsignature:\n{:?}",
+            human_readable,
             self.signature.as_slice().hex_dump()
-        ));
-        human_readable.push_str("\n}");
+        );
+        human_readable = format!("{}\n}}", human_readable);
         human_readable
     }
 }

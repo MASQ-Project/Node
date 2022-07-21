@@ -124,8 +124,9 @@ fn write_log(from: &RequestRecord, to: &ResponseRecord, addr: &SocketAddr, logge
                 Ok(c) => <&'static str>::from(c),
                 Err(_) => UNKNOWN,
             };
-            query_list += &format!(
-                "{}/{}/{}",
+            query_list = format!(
+                "{}{}/{}/{}",
+                query_list,
                 RecordType::from(query.get_query_type()),
                 class_string,
                 query.get_query_name()

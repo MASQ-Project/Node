@@ -25,7 +25,7 @@ pub struct NodeRenderable {
 impl DotRenderable for NodeRenderable {
     fn render(&self) -> String {
         let mut result = String::new();
-        result.push_str(&format!("\"{}\"", self.public_key));
+        result = format!("{}\"{}\"", result, self.public_key);
         result.push_str(&self.render_label());
         if !self.is_present {
             result.push_str(" [shape=none]")
@@ -77,7 +77,7 @@ pub struct EdgeRenderable {
 impl DotRenderable for EdgeRenderable {
     fn render(&self) -> String {
         let mut result = String::new();
-        result.push_str(&format!("\"{}\" -> \"{}\";", self.from, self.to));
+        result = format!("{}\"{}\" -> \"{}\";", result, self.from, self.to);
         result
     }
 }
@@ -85,7 +85,7 @@ impl DotRenderable for EdgeRenderable {
 pub fn render_dot_graph(renderables: Vec<Box<dyn DotRenderable>>) -> String {
     let mut result = String::from("digraph db {");
     for renderable in renderables {
-        result.push_str(&format!(" {}", renderable.render()))
+        result = format!("{} {}", result, renderable.render())
     }
     result.push_str(" }");
     result

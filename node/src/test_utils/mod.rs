@@ -513,7 +513,7 @@ pub struct TestRawTransaction {
 pub mod unshared_test_utils {
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::apps::app_node;
-    use crate::daemon::ChannelFactory;
+    use crate::daemon::{ChannelFactory, DaemonBindMessage};
     use crate::db_config::config_dao_null::ConfigDaoNull;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
@@ -525,6 +525,7 @@ pub mod unshared_test_utils {
         NLSpawnHandleHolder, NLSpawnHandleHolderReal, NotifyHandle, NotifyLaterHandle,
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::recorder::{make_recorder, Recorder};
     use actix::{Actor, Addr, AsyncContext, Context, Handler, System};
     use actix::{Message, SpawnHandle};
     use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -533,7 +534,7 @@ pub mod unshared_test_utils {
     use masq_lib::multi_config::MultiConfig;
     #[cfg(not(feature = "no_test_share"))]
     use masq_lib::test_utils::utils::MutexIncrementInset;
-    use masq_lib::ui_gateway::NodeFromUiMessage;
+    use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
     use masq_lib::utils::array_of_borrows_to_vec;
     use std::cell::RefCell;
     use std::collections::HashMap;
@@ -614,6 +615,20 @@ pub mod unshared_test_utils {
             payment_thresholds: Default::default(),
             when_pending_too_long_sec: Default::default(),
             suppress_initial_scans: false,
+        }
+    }
+
+    pub fn make_daemon_bind_message(ui_gateway: Recorder) -> DaemonBindMessage {
+        let (stub, _, _) = make_recorder();
+        let stub_sub = stub.start().recipient::<NodeFromUiMessage>();
+        let (daemon, _, _) = make_recorder();
+        let crash_notification_recipient = daemon.start().recipient();
+        let ui_gateway_sub = ui_gateway.start().recipient::<NodeToUiMessage>();
+        DaemonBindMessage {
+            to_ui_message_recipient: ui_gateway_sub,
+            from_ui_message_recipient: stub_sub,
+            from_ui_message_recipients: vec![],
+            crash_notification_recipient,
         }
     }
 
