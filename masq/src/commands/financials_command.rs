@@ -4,7 +4,6 @@ use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use crate::commands::financials_command::ChangeDone::{Changed, Unchanged};
 use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
 use masq_lib::messages::{
     CustomQueries, CustomQueryResult, FirmQueryResult, RangeQuery, TopRecordsConfig,
@@ -15,12 +14,14 @@ use masq_lib::shared_schema::common_validators::validate_non_zero_u16;
 use masq_lib::short_writeln;
 use masq_lib::utils::{plus, ExpectValue};
 use num::CheckedMul;
-use regex::Regex;
+use regex::{Captures, Regex};
 use std::cell::RefCell;
+use std::collections::VecDeque;
+use std::default::Default;
 use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::num::{IntErrorKind, ParseIntError};
-use std::ops::Mul;
+use std::ops::{Add, Mul};
 use std::str::FromStr;
 use thousands::Separable;
 
@@ -194,7 +195,11 @@ macro_rules! process_top_records {
             $self.$render_accounts_fn($stdout, $top_records, &$headings);
         } else {
             $self.title_for_tops($stdout, $account_type);
-            Self::no_records_found($stdout, $headings.words(), Self::$write_headings_fn)
+            Self::no_records_found(
+                $stdout,
+                $headings.words.as_slice(),
+                Self::$write_headings_fn,
+            )
         }
     };
 }
@@ -232,7 +237,11 @@ macro_rules! process_custom_query {
                     .as_ref()
                     .expectv("custom query field"),
             );
-            Self::no_records_found($stdout, $headings.words(), Self::$write_headings_fn)
+            Self::no_records_found(
+                $stdout,
+                $headings.words.as_slice(),
+                Self::$write_headings_fn,
+            )
         }
     };
 }
@@ -318,7 +327,7 @@ impl FinancialsCommand {
             "payable",
             payable_headings,
             top_records.payable,
-            render_payable,
+            render_payables,
             write_payable_headings
         );
         process_top_records!(
@@ -327,7 +336,7 @@ impl FinancialsCommand {
             "receivable",
             receivable_headings,
             top_records.receivable,
-            render_receivable,
+            render_receivables,
             write_receivable_headings
         );
     }
@@ -346,7 +355,7 @@ impl FinancialsCommand {
             &payable_headings,
             user_payable_format_opt,
             custom_query_result.payable_opt,
-            render_payable,
+            render_payables,
             write_payable_headings
         );
         process_custom_query!(
@@ -356,7 +365,7 @@ impl FinancialsCommand {
             &receivable_headings,
             user_receivable_format_opt,
             custom_query_result.receivable_opt,
-            render_receivable,
+            render_receivables,
             write_receivable_headings
         );
     }
@@ -386,11 +395,12 @@ impl FinancialsCommand {
             let separated_ranges = double.split('|').collect::<Vec<&str>>();
             let time_range = separated_ranges[0].split('-').collect::<Vec<&str>>();
             let (min_age, max_age) =
-                parse_time_params(&time_range).expect("blows up after validation?");
+                Self::parse_time_params(&time_range).expect("blows up after validation?");
             let (min_amount_num, max_amount_num, min_amount_str, max_amount_str) =
-                parse_masq_range_to_gwei(separated_ranges[1]).expect("blows up after validation?");
+                Self::parse_masq_range_to_gwei(separated_ranges[1])
+                    .expect("blows up after validation?");
             //I'm arranging these types so that I can easily use them in the next step outside of here
-            eprintln!("min: {}, max {}",min_amount_str,max_amount_str);
+            eprintln!("min: {}, max {}", min_amount_str, max_amount_str);
             (
                 Some(RangeQuery {
                     min_age_s: min_age,
@@ -414,15 +424,21 @@ impl FinancialsCommand {
         }
     }
 
-    fn prepare_headings_of_records(gwei: bool) -> (PayableHeadings, ReceivableHeadings) {
-        let balance = if !gwei {
+    fn prepare_headings_of_records(is_gwei: bool) -> (HeadingsHolder, HeadingsHolder) {
+        let balance = if !is_gwei {
             "Balance [MASQ]"
         } else {
             "Balance [Gwei]"
         };
         (
-            PayableHeadings(vec!["#", "Wallet", "Age [s]", balance, "Pending tx"], gwei),
-            ReceivableHeadings(vec!["#", "Wallet", "Age [s]", balance], gwei),
+            HeadingsHolder {
+                words: vec!["#", "Wallet", "Age [s]", balance, "Pending tx"],
+                is_gwei,
+            },
+            HeadingsHolder {
+                words: vec!["#", "Wallet", "Age [s]", balance],
+                is_gwei,
+            },
         )
     }
 
@@ -474,12 +490,9 @@ impl FinancialsCommand {
         match decimal_length_except_zeros {
             1 => format!(
                 "0{}",
-                (&whole_number
-                    [whole_number.len() - decimal_length_except_zeros..whole_number.len()])
+                (&whole_number[whole_number.len() - 1..whole_number.len()])
             ),
-            2 => (&whole_number
-                [whole_number.len() - decimal_length_except_zeros..whole_number.len()])
-                .to_string(),
+            2 => (&whole_number[whole_number.len() - 2..whole_number.len()]).to_string(),
             x => panic!("Broken code: this number {} shouldn't get here", x),
         }
     }
@@ -515,11 +528,11 @@ impl FinancialsCommand {
     }
 
     fn width_precise_calculation(
-        headings: &dyn Headings,
+        headings: &HeadingsHolder,
         accounts: &[&dyn WidthInfo],
     ) -> Vec<usize> {
-        let headings_widths = Self::widths_of_dynamical_headings(headings.words());
-        let values_widths = Self::figure_out_max_widths(accounts, headings.is_gwei());
+        let headings_widths = Self::widths_of_dynamical_headings(headings.words.as_slice());
+        let values_widths = Self::figure_out_max_widths(accounts, headings.is_gwei);
         Self::yield_bigger_values_from_vecs(headings_widths.len(), headings_widths, values_widths)
     }
 
@@ -538,15 +551,15 @@ impl FinancialsCommand {
             .collect::<Vec<&dyn WidthInfo>>()
     }
 
-    fn render_payable(
+    fn render_payables(
         &self,
         stdout: &mut dyn Write,
         accounts: Vec<UiPayableAccount>,
-        headings: &PayableHeadings,
+        headings: &HeadingsHolder,
     ) {
         let optimal_widths =
             Self::width_precise_calculation(headings, &Self::prepare_trait_objects(&accounts));
-        Self::write_payable_headings(stdout, headings.words(), &optimal_widths);
+        Self::write_payable_headings(stdout, headings.words.as_slice(), &optimal_widths);
         let mut ordinal_number = 0_usize;
         accounts.iter().for_each(|account| {
             ordinal_number += 1;
@@ -555,7 +568,7 @@ impl FinancialsCommand {
                 account,
                 &optimal_widths,
                 ordinal_number,
-                headings.is_gwei(),
+                headings.is_gwei,
             )
         });
     }
@@ -605,15 +618,15 @@ impl FinancialsCommand {
         )
     }
 
-    fn render_receivable(
+    fn render_receivables(
         &self,
         stdout: &mut dyn Write,
         accounts: Vec<UiReceivableAccount>,
-        headings: &ReceivableHeadings,
+        headings: &HeadingsHolder,
     ) {
         let optimal_widths =
             Self::width_precise_calculation(headings, &Self::prepare_trait_objects(&accounts));
-        Self::write_receivable_headings(stdout, headings.words(), &optimal_widths);
+        Self::write_receivable_headings(stdout, headings.words.as_slice(), &optimal_widths);
         let mut ordinal_number = 0_usize;
         accounts.iter().for_each(|account| {
             ordinal_number += 1;
@@ -622,7 +635,7 @@ impl FinancialsCommand {
                 account,
                 &optimal_widths,
                 ordinal_number,
-                headings.is_gwei(),
+                headings.is_gwei,
             )
         });
     }
@@ -672,113 +685,80 @@ impl FinancialsCommand {
         distinguished: &str,
         user_written_ranges: &UsersLiteralRangeDefinition,
     ) {
-        let processed = Self::correct_users_writing_if_needed(user_written_ranges);
-        let (time, amounts) = processed.value();
+        let (age_range, balance_range) = Self::correct_users_writing_if_needed(user_written_ranges);
         Self::triple_blank_line(stdout);
         short_writeln!(
             stdout,
             "Specific {} query: {} sec {} MASQ\n",
             distinguished,
-            time,
-            amounts
+            age_range,
+            balance_range
         )
     }
 
-    //TODO eliminate this with regex
-    // ((-?)0*(\d+?)(\.[0-9]*)?0*$)|UNLIMITED    ???
-    // here I could match against empty string and then to choose "unlimited"
     fn correct_users_writing_if_needed(
         user_ranges: &UsersLiteralRangeDefinition,
-    ) -> ChangeDone<(String, String)> {
-        todo!()
+    ) -> (String, String) {
+        fn resolve_captures(captures: Captures) -> [Option<String>; 3] {
+            let fetch_group = |idx: usize| FinancialsCommand::single_capture(&captures, idx);
+            match [
+                fetch_group(1),
+                fetch_group(2),
+                fetch_group(5).or(fetch_group(3)),
+            ] {
+                [_, None, _] => todo!(),
+                triple_of_optional_strings => triple_of_optional_strings,
+            }
+        }
+        fn assemble_optional_strings_into_single_number(strings: [Option<String>; 3]) -> String {
+            strings.into_iter().fold(String::new(), |acc, current| {
+                if let Some(piece) = current {
+                    acc.add(&piece)
+                } else {
+                    acc
+                }
+            })
+        }
+        fn compose_ranges(mut numbers: VecDeque<String>) -> (String, String) {
+            let mut pop = |param: &str| numbers.pop_front().expectv(param);
+            (
+                format!("{}-{}", pop("age min"), pop("age max")),
+                format!("{}-{}", pop("balance min"), {
+                    let balance_max_str = pop("balance max");
+                    if balance_max_str.is_empty() {
+                        "UNLIMITED".to_string()
+                    } else {
+                        balance_max_str
+                    }
+                }),
+            )
+        }
 
-
-        // fn apply_care(str: &String) -> Option<String> {
-        //     fn front_care(str: &String, decimal_dot_position: Option<usize>) -> String {
-        //         fn count_leading_zeros(str: &str) -> (usize, bool) {
-        //             str.chars().fold((0, true), |acc, char| {
-        //                 if acc.1 {
-        //                     if char == '0' {
-        //                         (acc.0 + 1, true)
-        //                     } else {
-        //                         (acc.0, false)
-        //                     }
-        //                 } else {
-        //                     acc
-        //                 }
-        //             })
-        //         }
-        //         let leading_zeros = count_leading_zeros(str.as_str());
-        //         str.chars()
-        //             .skip(if leading_zeros.0 == 0 {
-        //                 0
-        //             } else {
-        //                 leading_zeros.0
-        //                     - if let Some(idx) = decimal_dot_position {
-        //                         if (idx - leading_zeros.0) == 0 {
-        //                             1
-        //                         } else {
-        //                             0
-        //                         }
-        //                     } else if leading_zeros.0 == str.len() {
-        //                         1
-        //                     } else {
-        //                         0
-        //                     }
-        //             })
-        //             .collect()
-        //     }
-        //     fn make_decision(after_care: String, before: &String) -> Option<String> {
-        //         if after_care.len() != before.len() {
-        //             Some(after_care)
-        //         } else {
-        //             None
-        //         }
-        //     }
-        //     if let Some(idx) = str.chars().position(|char| char == '.') {
-        //         let after_care = front_care(str, Some(idx))
-        //             .chars()
-        //             .rev()
-        //             .skip_while(|char| *char == '0')
-        //             .collect::<String>()
-        //             .chars()
-        //             .rev()
-        //             .collect::<String>();
-        //         if after_care.len() != str.len() {
-        //             Some(after_care)
-        //         } else {
-        //             None
-        //         }
-        //     } else {
-        //         let after_care = front_care(str, None);
-        //         make_decision(after_care, str)
-        //     }
-        // }
-        //
-        // let ((time_min, time_max), (amount_min, amount_max)) = user_ranges;
-        // match (
-        //     apply_care(time_min),
-        //     apply_care(time_max),
-        //     apply_care(amount_min),
-        //     apply_care(amount_max),
-        // ) {
-        //     (None, None, None, None) => Unchanged((
-        //         format!("{}-{}", time_min, time_max),
-        //         format!("{}-{}", amount_min, amount_max),
-        //     )),
-        //     (a, b, c, d) => Changed((
-        //         format!(
-        //             "{}-{}",
-        //             a.unwrap_or_else(|| time_min.to_string()),
-        //             b.unwrap_or_else(|| time_max.to_string())
-        //         ),
-        //         format!(
-        //             "{}-{}",
-        //             c.unwrap_or_else(|| amount_min.to_string()),
-        //             d.unwrap_or_else(|| amount_max.to_string())
-        //         ),
-        //     )),
-        // }
+        let simpler_syntax_extractor =
+            Regex::new("(-?)0*(\\d+?)(((\\.\\d*[1-9])0*$)|$)|^$").expect("wrong regex");
+        let apply_care = |remembered_user_input: &str| {
+            simpler_syntax_extractor
+                .captures(remembered_user_input)
+                .map(resolve_captures)
+                .unwrap_or_else(
+                    || todo!(), //       panic!("Broken code: value must have been present during check but still wrong: {}",remembered_user_input
+                )
+        };
+        let ((time_min, time_max), (amount_min, amount_max)) = user_ranges;
+        let vec_of_correct_values = [
+            apply_care(time_min),
+            apply_care(time_max),
+            apply_care(amount_min),
+            if amount_max.is_empty() {
+                Default::default()
+            } else {
+                apply_care(amount_max)
+            },
+        ]
+        .into_iter()
+        .map(assemble_optional_strings_into_single_number)
+        .collect::<VecDeque<String>>();
+        compose_ranges(vec_of_correct_values)
     }
 
     fn no_records_found<F>(stdout: &mut dyn Write, headings: &[&str], write_headings: F)
@@ -854,48 +834,120 @@ impl FinancialsCommand {
     fn triple_blank_line(stdout: &mut dyn Write) {
         short_writeln!(stdout, "\n\n")
     }
-}
 
-#[derive(Debug, PartialEq)]
-enum ChangeDone<T> {
-    Changed(T),
-    Unchanged(T),
-}
+    fn parse_integer<N: FromStr<Err = ParseIntError>>(str_num: &str) -> Result<N, String> {
+        str::parse::<N>(str_num).map_err(|e| match e.kind() {
+            IntErrorKind::NegOverflow | IntErrorKind::PosOverflow => panic!(
+                "Broken code: Clap validation should have caught this overflow of {} earlier",
+                str_num
+            ),
+            _ => format!(
+                "Non numeric value > {} <, all must be valid numbers",
+                str_num
+            ),
+        })
+    }
 
-impl<T> ChangeDone<T> {
-    fn value(self) -> T {
-        match self {
-            Changed(val) => val,
-            Unchanged(val) => val,
+    fn parse_time_params(time_range: &[&str]) -> Result<(u64, u64), String> {
+        Ok((
+            Self::parse_integer(time_range[0])?,
+            Self::parse_integer(time_range[1])?,
+        ))
+    }
+
+    fn single_capture(captures: &Captures, idx: usize) -> Option<String> {
+        captures.get(idx).map(|catch| catch.as_str().to_owned())
+    }
+
+    fn extract_individual_masq_values(
+        masq_range_str: &str,
+    ) -> Result<(String, Option<String>), String> {
+        fn resolve_captures(captures: Captures) -> (Option<String>, Option<String>) {
+            let fetch_group = |idx: usize| FinancialsCommand::single_capture(&captures, idx);
+            match (fetch_group(2), fetch_group(3)) {
+                (Some(second), Some(third)) => (Some(second), Some(third)),
+                (None, None) => (
+                    Some(fetch_group(4).expect("the regex is wrong if it allows this panic")),
+                    None,
+                ),
+                (first, second) => todo!(),
+            }
+        }
+
+        let valid_masq_range_syntax =
+            Regex::new("((-?\\d+\\.?\\d*)\\s*-\\s*(-?\\d+\\.?\\d*))|(-?\\d+\\.?\\d*)$")
+                .expect("wrong regex");
+        match valid_masq_range_syntax
+            .captures(masq_range_str)
+            .map(resolve_captures)
+        {
+            Some((Some(first), Some(second))) => Ok((first, Some(second))),
+            Some((Some(first), None)) => Ok((first, None)),
+            _ => Err("Second range in improper format".to_string()),
+        }
+    }
+
+    pub fn parse_masq_range_to_gwei<N>(range_str: &str) -> Result<(N, N, String, String), String>
+    where
+        N: FromStr<Err = ParseIntError>
+            + From<u32>
+            + Mul<Output = N>
+            + CheckedMul
+            + Display
+            + MaxValue,
+    {
+        let (first, second_opt) = Self::extract_individual_masq_values(range_str)?;
+        let first_as_num = Self::process_optionally_fragmentary_number(&first)?;
+        let second_as_num = if let Some(second) = second_opt.as_ref() {
+            Self::process_optionally_fragmentary_number(second)?
+        } else {
+            N::max()
+        };
+        Ok((
+            first_as_num,
+            second_as_num,
+            first,
+            second_opt.unwrap_or(String::new()), //empty string signifies unlimited
+        ))
+    }
+
+    fn process_optionally_fragmentary_number<N>(num: &str) -> Result<N, String>
+    where
+        N: FromStr<Err = ParseIntError> + From<u32> + CheckedMul + Display,
+    {
+        let final_unit_conversion = |parse_result: N, pow_factor: u32| {
+            if let Some(int) = parse_result.checked_mul(&N::from(10_u32.pow(pow_factor))) {
+                Ok(int)
+            } else {
+                Err(format!("Attempt with too big amount of MASQ: {}", num))
+            }
+        };
+        if let Some(dot_idx) = num.chars().position(|char| char == '.') {
+            Self::pre_parsing_check(num, dot_idx)?;
+            let decimal_digits_count = num.chars().count() - dot_idx - 1;
+            let root_parsed: N =
+                Self::parse_integer(&num.chars().filter(|char| *char != '.').collect::<String>())?;
+            final_unit_conversion(root_parsed, 9 - decimal_digits_count as u32)
+        } else {
+            let root_parsed = Self::parse_integer::<N>(num)?;
+            final_unit_conversion(root_parsed, 9)
+        }
+    }
+
+    fn pre_parsing_check(num: &str, dot_idx: usize) -> Result<(), String> {
+        if dot_idx == num.len() - 1 {
+            Err("Ending dot at decimal number is unsupported".to_string())
+        } else if num.chars().filter(|char| *char == '.').count() != 1 {
+            Err("Misused decimal number dot delimiter".to_string())
+        } else {
+            Ok(())
         }
     }
 }
 
-trait Headings {
-    fn words(&self) -> &[&'static str];
-    fn is_gwei(&self) -> bool;
-}
-
-struct PayableHeadings(Vec<&'static str>, bool);
-impl Headings for PayableHeadings {
-    fn words(&self) -> &[&'static str] {
-        &self.0
-    }
-
-    fn is_gwei(&self) -> bool {
-        self.1
-    }
-}
-
-struct ReceivableHeadings(Vec<&'static str>, bool);
-impl Headings for ReceivableHeadings {
-    fn words(&self) -> &[&'static str] {
-        &self.0
-    }
-
-    fn is_gwei(&self) -> bool {
-        self.1
-    }
+struct HeadingsHolder {
+    words: Vec<&'static str>,
+    is_gwei: bool,
 }
 
 trait WidthInfo {
@@ -927,13 +979,7 @@ impl WidthInfo for UiReceivableAccount {
 
 pub fn validate_two_ranges<N>(double: String) -> Result<(), String>
 where
-    N: FromStr<Err = ParseIntError>
-        + From<u32>
-        + Mul<Output = N>
-        + PartialOrd
-        + Display
-        + CheckedMul
-        + MaxValue,
+    N: FromStr<Err = ParseIntError> + From<u32> + PartialOrd + Display + CheckedMul + MaxValue,
 {
     fn checked_division<'a>(
         str: &'a str,
@@ -948,108 +994,11 @@ where
     }
     let separate_ranges = checked_division(&double, '|', "Central vertical delimiter misused")?;
     let time_range = checked_division(separate_ranges[0], '-', "First range is formatted wrong")?;
-    let (min_age, max_age) = parse_time_params(&time_range)?;
+    let (min_age, max_age) = FinancialsCommand::parse_time_params(&time_range)?;
     let (min_amount, max_amount, _, _): (N, N, _, _) =
-        parse_masq_range_to_gwei(separate_ranges[1])?;
+        FinancialsCommand::parse_masq_range_to_gwei(separate_ranges[1])?;
     if min_age >= max_age || min_amount >= max_amount {
         Err("Both ranges must be ascending".to_string())
-    } else {
-        Ok(())
-    }
-}
-
-fn parse_integer<N: FromStr<Err = ParseIntError>>(str_num: &str) -> Result<N, String> {
-    str::parse::<N>(str_num).map_err(|e| match e.kind() {
-        IntErrorKind::NegOverflow | IntErrorKind::PosOverflow => panic!(
-            "Broken code: Clap validation should have caught this overflow of {} earlier",
-            str_num
-        ),
-        _ => format!(
-            "Non numeric value > {} <, all must be valid numbers",
-            str_num
-        ),
-    })
-}
-
-fn parse_time_params(time_range: &[&str]) -> Result<(u64, u64), String> {
-    Ok((parse_integer(time_range[0])?, parse_integer(time_range[1])?))
-}
-
-fn envelope_for_extract_masq_and_return_gwei_str(
-    range_str: &str,
-) -> Result<(String, Option<String>), String> {
-    let regex = Regex::new("((-?\\d+\\.?\\d*)\\s*-\\s*(-?\\d+\\.?\\d*))|(-?\\d+\\.?\\d*)$")
-        .expect("wrong regex");
-    extract_masq_and_return_gwei_str(&regex, range_str)
-}
-
-fn extract_masq_and_return_gwei_str(
-    regex: &Regex,
-    range_str: &str,
-) -> Result<(String, Option<String>), String> {
-    match regex.captures(range_str).map(|captures| {
-        let fetch_group = |idx: usize| captures.get(idx).map(|catch| catch.as_str().to_owned());
-        match (fetch_group(2), fetch_group(3)) {
-            (Some(second), Some(third)) => (Some(second), Some(third)),
-            (None, None) => match fetch_group(4) {
-                Some(fourth) => (Some(fourth), None),
-                None => todo!(),
-            },
-            (first, second) => todo!(),
-        }
-    }) {
-        Some((Some(first), Some(second))) => Ok((first, Some(second))),
-        Some((Some(first), None)) => Ok((first, None)),
-        _ => Err("Second range in improper format".to_string()),
-    }
-}
-
-pub fn parse_masq_range_to_gwei<N>(range_str: &str) -> Result<(N, N, String, String), String>
-where
-    N: FromStr<Err = ParseIntError> + From<u32> + Mul<Output = N> + CheckedMul + Display + MaxValue,
-{
-    eprintln!("range str: {}", range_str);
-    let (first, second_opt) = envelope_for_extract_masq_and_return_gwei_str(range_str)?;
-    Ok((
-        process_optionally_fragmentary_number(&first)?,
-        if let Some(second) = second_opt.as_ref() {
-            process_optionally_fragmentary_number(second)?
-        } else {
-            N::max()
-        },
-        first,
-        second_opt.unwrap_or(String::from("UNLIMITED")), //TODO could be an empty string
-    ))
-}
-
-fn process_optionally_fragmentary_number<N>(num: &str) -> Result<N, String>
-where
-    N: FromStr<Err = ParseIntError> + From<u32> + CheckedMul + Display,
-{
-    let final_unit_conversion = |parse_result: N, pow_factor: u32| {
-        if let Some(int) = parse_result.checked_mul(&N::from(10_u32.pow(pow_factor))) {
-            Ok(int)
-        } else {
-            Err(format!("Attempt with too big amount of MASQ: {}", num))
-        }
-    };
-    if let Some(dot_idx) = num.chars().position(|char| char == '.') {
-        pre_parsing_check(num, dot_idx)?;
-        let decimal_num_count = num.chars().count() - dot_idx - 1;
-        let root_parsed: N =
-            parse_integer(&num.chars().filter(|char| *char != '.').collect::<String>())?;
-        final_unit_conversion(root_parsed, 9 - decimal_num_count as u32)
-    } else {
-        let root_parsed = parse_integer::<N>(num)?;
-        final_unit_conversion(root_parsed, 9)
-    }
-}
-
-fn pre_parsing_check(num: &str, dot_idx: usize) -> Result<(), String> {
-    if dot_idx == num.len() - 1 {
-        Err("Ending dot at decimal number is unsupported".to_string())
-    } else if num.chars().filter(|char| *char == '.').count() != 1 {
-        Err("Misused decimal number dot delimiter".to_string())
     } else {
         Ok(())
     }
@@ -1775,10 +1724,10 @@ mod tests {
 
         assert_eq!(
             result,
-            Changed((
+            (
                 "45656-354865.15".to_string(),
                 "124856-1561785.33".to_string()
-            ))
+            )
         )
     }
 
@@ -1790,7 +1739,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Unchanged(("456500-35481533".to_string(), "-500-0.4545".to_string()))
+            ("456500-35481533".to_string(), "-500-0.4545".to_string())
         )
     }
 
@@ -1802,7 +1751,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Unchanged(("456500-35481533".to_string(), "-500--45".to_string()))
+            ("456500-35481533".to_string(), "-500--45".to_string())
         )
     }
 
@@ -1814,7 +1763,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Changed(("456500000-354815".to_string(), "33330-454".to_string()))
+            ("456500000-354815".to_string(), "33330-454".to_string())
         )
     }
 
@@ -1827,7 +1776,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Changed(("0.45545-0.3333".to_string(), "0.0001-565.4545".to_string()))
+            ("0.45545-0.3333".to_string(), "0.0001-565.4545".to_string())
         )
     }
 
@@ -1836,7 +1785,7 @@ mod tests {
         expected = "Broken code: Clap validation should have caught this overflow of 40000000000000000000 earlier"
     )]
     fn parse_integer_overflow_indicates_broken_code() {
-        let _: Result<u64, String> = parse_integer("40000000000000000000");
+        let _: Result<u64, String> = FinancialsCommand::parse_integer("40000000000000000000");
     }
 
     fn response_with_stats_and_either_top_records_or_top_queries(
@@ -2849,7 +2798,7 @@ mod tests {
 
     #[test]
     fn process_optionally_fragmentary_number_dislikes_dot_as_the_last_char() {
-        let result = process_optionally_fragmentary_number::<i64>("4556.");
+        let result = FinancialsCommand::process_optionally_fragmentary_number::<i64>("4556.");
 
         assert_eq!(
             result,
@@ -2859,7 +2808,7 @@ mod tests {
 
     #[test]
     fn process_optionally_fragmentary_number_dislikes_more_than_one_dot() {
-        let result = process_optionally_fragmentary_number::<i64>("45.056.000");
+        let result = FinancialsCommand::process_optionally_fragmentary_number::<i64>("45.056.000");
 
         assert_eq!(
             result,
