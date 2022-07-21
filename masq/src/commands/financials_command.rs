@@ -32,7 +32,7 @@ const RECEIVABLE_ARG_HELP: &str = "Forms a detailed query about receivable recor
 const NO_STATS_ARG_HELP: &str = "Disables statistics that displays by default, containing totals of paid and unpaid money from the perspective of debtors and creditors. This argument is not accepted alone and must be placed before other arguments";
 const GWEI_HELP: &str =
     "Orders rendering amounts of money in Gwei of MASQ instead of whole MASQs as the default";
-const SORTED_HELP: &str = "blah";
+const SORTED_HELP: &str = "Allows a choice of parameter by which the returned records are sorted. This option works only together with the '--top' argument. Possible values: 'balance' or 'age', but 'balance' is defaulted and so hidden";
 const WALLET_ADDRESS_LENGTH: usize = 42;
 
 #[derive(Debug, PartialEq)]
@@ -159,6 +159,7 @@ impl Command for FinancialsCommand {
                 if let Some(stats) = response.stats_opt {
                     self.process_financial_status(stdout, stats, gwei_flag)
                 };
+                //TODO what about making it more obvious these are mutual exclusive disregard the Clap's safe limitation?
                 if let Some(top_records) = response.top_records_opt {
                     self.process_top_records(stdout, top_records, gwei_flag)
                 }
@@ -389,6 +390,7 @@ impl FinancialsCommand {
             let (min_amount_num, max_amount_num, min_amount_str, max_amount_str) =
                 parse_masq_range_to_gwei(separated_ranges[1]).expect("blows up after validation?");
             //I'm arranging these types so that I can easily use them in the next step outside of here
+            eprintln!("min: {}, max {}",min_amount_str,max_amount_str);
             (
                 Some(RangeQuery {
                     min_age_s: min_age,
@@ -582,7 +584,7 @@ impl FinancialsCommand {
         ordinal_num: usize,
         gwei: bool,
     ) {
-        //TODO we could have a tailored macro to use the same forward in the headings and here
+        //TODO we could have a tailored macro to use the same format in the headings and here
         short_writeln!(
             stdout,
             "{:<ordinal_num_width$}   {:wallet_width$}   {:<age_width$}   {:<balance_width$}   {:<hash_width$}",
@@ -683,95 +685,100 @@ impl FinancialsCommand {
     }
 
     //TODO eliminate this with regex
+    // ((-?)0*(\d+?)(\.[0-9]*)?0*$)|UNLIMITED    ???
+    // here I could match against empty string and then to choose "unlimited"
     fn correct_users_writing_if_needed(
         user_ranges: &UsersLiteralRangeDefinition,
     ) -> ChangeDone<(String, String)> {
-        fn apply_care(str: &String) -> Option<String> {
-            fn front_care(str: &String, decimal_dot_position: Option<usize>) -> String {
-                fn count_leading_zeros(str: &str) -> (usize, bool) {
-                    str.chars().fold((0, true), |acc, char| {
-                        if acc.1 {
-                            if char == '0' {
-                                (acc.0 + 1, true)
-                            } else {
-                                (acc.0, false)
-                            }
-                        } else {
-                            acc
-                        }
-                    })
-                }
-                let leading_zeros = count_leading_zeros(str.as_str());
-                str.chars()
-                    .skip(if leading_zeros.0 == 0 {
-                        0
-                    } else {
-                        leading_zeros.0
-                            - if let Some(idx) = decimal_dot_position {
-                                if (idx - leading_zeros.0) == 0 {
-                                    1
-                                } else {
-                                    0
-                                }
-                            } else if leading_zeros.0 == str.len() {
-                                1
-                            } else {
-                                0
-                            }
-                    })
-                    .collect()
-            }
-            fn make_decision(after_care: String, before: &String) -> Option<String> {
-                if after_care.len() != before.len() {
-                    Some(after_care)
-                } else {
-                    None
-                }
-            }
-            if let Some(idx) = str.chars().position(|char| char == '.') {
-                let after_care = front_care(str, Some(idx))
-                    .chars()
-                    .rev()
-                    .skip_while(|char| *char == '0')
-                    .collect::<String>()
-                    .chars()
-                    .rev()
-                    .collect::<String>();
-                if after_care.len() != str.len() {
-                    Some(after_care)
-                } else {
-                    None
-                }
-            } else {
-                let after_care = front_care(str, None);
-                make_decision(after_care, str)
-            }
-        }
+        todo!()
 
-        let ((time_min, time_max), (amount_min, amount_max)) = user_ranges;
-        match (
-            apply_care(time_min),
-            apply_care(time_max),
-            apply_care(amount_min),
-            apply_care(amount_max),
-        ) {
-            (None, None, None, None) => Unchanged((
-                format!("{}-{}", time_min, time_max),
-                format!("{}-{}", amount_min, amount_max),
-            )),
-            (a, b, c, d) => Changed((
-                format!(
-                    "{}-{}",
-                    a.unwrap_or_else(|| time_min.to_string()),
-                    b.unwrap_or_else(|| time_max.to_string())
-                ),
-                format!(
-                    "{}-{}",
-                    c.unwrap_or_else(|| amount_min.to_string()),
-                    d.unwrap_or_else(|| amount_max.to_string())
-                ),
-            )),
-        }
+
+        // fn apply_care(str: &String) -> Option<String> {
+        //     fn front_care(str: &String, decimal_dot_position: Option<usize>) -> String {
+        //         fn count_leading_zeros(str: &str) -> (usize, bool) {
+        //             str.chars().fold((0, true), |acc, char| {
+        //                 if acc.1 {
+        //                     if char == '0' {
+        //                         (acc.0 + 1, true)
+        //                     } else {
+        //                         (acc.0, false)
+        //                     }
+        //                 } else {
+        //                     acc
+        //                 }
+        //             })
+        //         }
+        //         let leading_zeros = count_leading_zeros(str.as_str());
+        //         str.chars()
+        //             .skip(if leading_zeros.0 == 0 {
+        //                 0
+        //             } else {
+        //                 leading_zeros.0
+        //                     - if let Some(idx) = decimal_dot_position {
+        //                         if (idx - leading_zeros.0) == 0 {
+        //                             1
+        //                         } else {
+        //                             0
+        //                         }
+        //                     } else if leading_zeros.0 == str.len() {
+        //                         1
+        //                     } else {
+        //                         0
+        //                     }
+        //             })
+        //             .collect()
+        //     }
+        //     fn make_decision(after_care: String, before: &String) -> Option<String> {
+        //         if after_care.len() != before.len() {
+        //             Some(after_care)
+        //         } else {
+        //             None
+        //         }
+        //     }
+        //     if let Some(idx) = str.chars().position(|char| char == '.') {
+        //         let after_care = front_care(str, Some(idx))
+        //             .chars()
+        //             .rev()
+        //             .skip_while(|char| *char == '0')
+        //             .collect::<String>()
+        //             .chars()
+        //             .rev()
+        //             .collect::<String>();
+        //         if after_care.len() != str.len() {
+        //             Some(after_care)
+        //         } else {
+        //             None
+        //         }
+        //     } else {
+        //         let after_care = front_care(str, None);
+        //         make_decision(after_care, str)
+        //     }
+        // }
+        //
+        // let ((time_min, time_max), (amount_min, amount_max)) = user_ranges;
+        // match (
+        //     apply_care(time_min),
+        //     apply_care(time_max),
+        //     apply_care(amount_min),
+        //     apply_care(amount_max),
+        // ) {
+        //     (None, None, None, None) => Unchanged((
+        //         format!("{}-{}", time_min, time_max),
+        //         format!("{}-{}", amount_min, amount_max),
+        //     )),
+        //     (a, b, c, d) => Changed((
+        //         format!(
+        //             "{}-{}",
+        //             a.unwrap_or_else(|| time_min.to_string()),
+        //             b.unwrap_or_else(|| time_max.to_string())
+        //         ),
+        //         format!(
+        //             "{}-{}",
+        //             c.unwrap_or_else(|| amount_min.to_string()),
+        //             d.unwrap_or_else(|| amount_max.to_string())
+        //         ),
+        //     )),
+        // }
     }
 
     fn no_records_found<F>(stdout: &mut dyn Write, headings: &[&str], write_headings: F)
@@ -895,12 +902,9 @@ trait WidthInfo {
     fn widths(&self, is_gwei: bool) -> Vec<usize>;
 }
 
-//we can ignore a special case of width computation of balances in MASQ with dot and two decimal digits,
-//it would require more MASQ than exist to grow wider beyond the heading of the column
 impl WidthInfo for UiPayableAccount {
     fn widths(&self, is_gwei: bool) -> Vec<usize> {
         vec![
-            //TODO can be computed as the whole number of accounts and doing this on it, just once
             FinancialsCommand::count_length_with_comma_separators(self.age, true),
             FinancialsCommand::count_length_with_comma_separators(self.balance_gwei, is_gwei),
             if let Some(transaction_hash) = &self.pending_payable_hash_opt {
@@ -971,7 +975,7 @@ fn parse_time_params(time_range: &[&str]) -> Result<(u64, u64), String> {
     Ok((parse_integer(time_range[0])?, parse_integer(time_range[1])?))
 }
 
-fn extract_masq_and_return_gwei_str_envelope_fn(
+fn envelope_for_extract_masq_and_return_gwei_str(
     range_str: &str,
 ) -> Result<(String, Option<String>), String> {
     let regex = Regex::new("((-?\\d+\\.?\\d*)\\s*-\\s*(-?\\d+\\.?\\d*))|(-?\\d+\\.?\\d*)$")
@@ -1005,7 +1009,7 @@ where
     N: FromStr<Err = ParseIntError> + From<u32> + Mul<Output = N> + CheckedMul + Display + MaxValue,
 {
     eprintln!("range str: {}", range_str);
-    let (first, second_opt) = extract_masq_and_return_gwei_str_envelope_fn(range_str)?;
+    let (first, second_opt) = envelope_for_extract_masq_and_return_gwei_str(range_str)?;
     Ok((
         process_optionally_fragmentary_number(&first)?,
         if let Some(second) = second_opt.as_ref() {
@@ -1014,7 +1018,7 @@ where
             N::max()
         },
         first,
-        second_opt.unwrap_or(String::from("UNLIMITED")),
+        second_opt.unwrap_or(String::from("UNLIMITED")), //TODO could be an empty string
     ))
 }
 
@@ -1099,7 +1103,7 @@ mod tests {
             GWEI_HELP,
             "Orders rendering amounts of money in Gwei of MASQ instead of whole MASQs as the default"
         );
-        assert_eq!(SORTED_HELP, "write me up");
+        assert_eq!(SORTED_HELP, "Allows a choice of parameter by which the returned records are sorted. This option works only together with the '--top' argument. Possible values: 'balance' or 'age', but 'balance' is defaulted and so hidden");
         assert_eq!(WALLET_ADDRESS_LENGTH, 42);
     }
 
@@ -2406,9 +2410,10 @@ mod tests {
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
-    //TODO this can be changed back to inlined code
-    fn top_records_tests_command_response() -> UiFinancialsResponse {
-        UiFinancialsResponse {
+    #[test]
+    fn financials_command_only_top_records_demanded() {
+        let transact_params_arc = Arc::new(Mutex::new(vec![]));
+        let expected_response = UiFinancialsResponse {
             stats_opt: None,
             top_records_opt: Some(FirmQueryResult {
                 payable: vec![
@@ -2442,13 +2447,7 @@ mod tests {
                 ],
             }),
             custom_query_records_opt: None,
-        }
-    }
-
-    #[test]
-    fn financials_command_only_top_records_demanded() {
-        let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let expected_response = top_records_tests_command_response();
+        };
         let args = array_of_borrows_to_vec(&["financials", "--no-stats", "--top", "7"]);
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
