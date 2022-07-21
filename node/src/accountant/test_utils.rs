@@ -721,6 +721,10 @@ impl PendingPayableDao for PendingPayableDaoMock {
 }
 
 impl PendingPayableDaoMock {
+    pub fn new() -> Self {
+        PendingPayableDaoMock::default()
+    }
+
     pub fn fingerprint_rowid_params(mut self, params: &Arc<Mutex<Vec<H256>>>) -> Self {
         self.fingerprint_rowid_params = params.clone();
         self

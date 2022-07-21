@@ -1,7 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub(in crate::accountant) mod scanners {
-    use crate::accountant::payable_dao::PayableDao;
+    use crate::accountant::payable_dao::{PayableDao, PayableDaoReal};
+    use crate::accountant::pending_payable_dao::PendingPayableDao;
+    use crate::accountant::receivable_dao::ReceivableDao;
     use crate::accountant::{
         Accountant, CancelFailedPendingTransaction, ConfirmPendingTransaction, ReceivedPayments,
         ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
@@ -14,6 +16,8 @@ pub(in crate::accountant) mod scanners {
     use actix::{Context, Message, Recipient};
     use masq_lib::logger::timestamp_as_string;
     use masq_lib::messages::ScanType;
+    use masq_lib::messages::ScanType::PendingPayables;
+    use std::any::Any;
     use std::cell::RefCell;
     use std::time::SystemTime;
 
@@ -26,17 +30,17 @@ pub(in crate::accountant) mod scanners {
         pub receivables: Box<dyn Scanner<RetrieveTransactions, ReceivedPayments>>,
     }
 
-    //
-    // pub struct Scanners {
-    //     pub payables: Box<dyn Scanner<ReportAccountsPayable, SentPayable>>,
-    //     pub pending_payable:
-    //     Box<dyn Scanner<RequestTransactionReceipts, ReportTransactionReceipts>>,
-    //     pub receivables: Box<dyn Scanner<RetrieveTransactions, ReceivedPayments>>,
-    // }
-
-    impl Default for Scanners {
-        fn default() -> Self {
-            todo!()
+    impl Scanners {
+        pub(crate) fn new(
+            payable_dao: Box<dyn PayableDao>,
+            pending_payable_dao: Box<dyn PendingPayableDao>,
+            receivable_dao: Box<dyn ReceivableDao>,
+        ) -> Self {
+            Scanners {
+                payables: Box::new(PayableScanner::new(payable_dao)),
+                pending_payables: Box::new(PendingPayableScanner::new(pending_payable_dao)),
+                receivables: Box::new(ReceivableScanner::new(receivable_dao)),
+            }
         }
     }
 
@@ -81,6 +85,7 @@ pub(in crate::accountant) mod scanners {
         ) -> Result<Box<dyn BeginMessageWrapper<BeginMessage>>, Error>;
         fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error>;
         fn scan_started_at(&self) -> Option<SystemTime>;
+        as_any_dcl!();
     }
 
     struct ScannerCommon {
@@ -129,6 +134,8 @@ pub(in crate::accountant) mod scanners {
             todo!()
             // common::scan_started_at(&self.common)
         }
+
+        as_any_impl!();
     }
 
     impl PayableScanner {
@@ -140,35 +147,85 @@ pub(in crate::accountant) mod scanners {
         }
     }
 
-    // pub struct ScannerB {
-    //     common: ScannerCommon,
-    //     dao: ScannerBDao,
-    // }
-    //
-    // impl ScannerB {
-    //     pub fn new(dao: ScannerBDao) -> Self {
-    //         Self {
-    //             common: ScannerCommon::default(),
-    //             dao,
-    //         }
-    //     }
-    // }
-    //
-    // mod common {
-    //     use crate::scanner_experiment::ScannerCommon;
-    //     use std::time::SystemTime;
-    //
-    //     pub fn scan_started_at(scanner: &ScannerCommon) -> Option<DateTime> {
-    //         scanner.initiated_at_opt
-    //     }
-    //
-    //     pub fn start_scan_at(scanner: &mut ScannerCommon, timestamp: SystemTime) {
-    //         if let Some(initiated_at) = scanner.initiated_at_opt {
-    //             panic! ("Scan {:?} has been running for {:?} seconds; it cannot be restarted until it finishes.", "blah", SystemTime::now().duration_since(initiated_at));
-    //         }
-    //         scanner.initiated_at_opt = Some(timestamp);
-    //     }
-    // }
+    pub struct PendingPayableScanner {
+        common: ScannerCommon,
+        dao: Box<dyn PendingPayableDao>,
+    }
+
+    impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for PendingPayableScanner
+    where
+        BeginMessage: Message + Send + 'static,
+        BeginMessage::Result: Send,
+        EndMessage: Message,
+    {
+        fn begin_scan(
+            &mut self,
+            timestamp: SystemTime,
+            response_skeleton_opt: Option<ResponseSkeleton>,
+            ctx: &mut Context<Accountant>,
+        ) -> Result<Box<dyn BeginMessageWrapper<BeginMessage>>, Error> {
+            todo!()
+        }
+
+        fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error> {
+            todo!()
+        }
+
+        fn scan_started_at(&self) -> Option<SystemTime> {
+            todo!()
+        }
+
+        as_any_impl!();
+    }
+
+    impl PendingPayableScanner {
+        pub fn new(dao: Box<dyn PendingPayableDao>) -> Self {
+            Self {
+                common: ScannerCommon::default(),
+                dao,
+            }
+        }
+    }
+
+    pub struct ReceivableScanner {
+        common: ScannerCommon,
+        dao: Box<dyn ReceivableDao>,
+    }
+
+    impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for ReceivableScanner
+    where
+        BeginMessage: Message + Send + 'static,
+        BeginMessage::Result: Send,
+        EndMessage: Message,
+    {
+        fn begin_scan(
+            &mut self,
+            timestamp: SystemTime,
+            response_skeleton_opt: Option<ResponseSkeleton>,
+            ctx: &mut Context<Accountant>,
+        ) -> Result<Box<dyn BeginMessageWrapper<BeginMessage>>, Error> {
+            todo!()
+        }
+
+        fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error> {
+            todo!()
+        }
+
+        fn scan_started_at(&self) -> Option<SystemTime> {
+            todo!()
+        }
+
+        as_any_impl!();
+    }
+
+    impl ReceivableScanner {
+        pub fn new(dao: Box<dyn ReceivableDao>) -> Self {
+            Self {
+                common: ScannerCommon::default(),
+                dao,
+            }
+        }
+    }
 
     pub trait BeginMessageWrapper<BeginMessage>
     where
@@ -205,6 +262,8 @@ pub(in crate::accountant) mod scanners {
         fn scan_started_at(&self) -> Option<SystemTime> {
             todo!()
         }
+
+        as_any_impl!();
     }
 
     #[derive(Default)]
@@ -229,8 +288,35 @@ pub(in crate::accountant) mod scanners {
 mod tests {
     use super::*;
     use crate::accountant::payable_dao::PayableDaoReal;
-    use crate::accountant::scanners::scanners::PayableScanner;
-    use crate::accountant::test_utils::PayableDaoMock;
+    use crate::accountant::scanners::scanners::{
+        PayableScanner, PendingPayableScanner, ReceivableScanner, Scanners,
+    };
+    use crate::accountant::test_utils::{PayableDaoMock, PendingPayableDaoMock, ReceivableDaoMock};
+
+    #[test]
+    fn scanners_struct_can_be_constructed_with_the_respective_scanners() {
+        let scanners = Scanners::new(
+            Box::new(PayableDaoMock::new()),
+            Box::new(PendingPayableDaoMock::new()),
+            Box::new(ReceivableDaoMock::new()),
+        );
+
+        scanners
+            .payables
+            .as_any()
+            .downcast_ref::<PayableScanner>()
+            .unwrap();
+        scanners
+            .pending_payables
+            .as_any()
+            .downcast_ref::<PendingPayableScanner>()
+            .unwrap();
+        scanners
+            .receivables
+            .as_any()
+            .downcast_ref::<ReceivableScanner>()
+            .unwrap();
+    }
 
     #[test]
     fn payable_scanner_can_be_constructed() {

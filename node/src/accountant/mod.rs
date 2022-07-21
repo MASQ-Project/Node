@@ -432,7 +432,12 @@ impl Accountant {
             pending_payable_dao: pending_payable_dao_factory.make(),
             banned_dao: banned_dao_factory.make(),
             crashable: config.crash_point == CrashPoint::Message,
-            scanners: Scanners::default(),
+            // TODO: pending_payable_dao and receivable_dao can live inside Scanners instead of Accountant
+            scanners: Scanners::new(
+                payable_dao_factory.make(),
+                pending_payable_dao_factory.make(),
+                receivable_dao_factory.make(),
+            ),
             tools: TransactionConfirmationTools::default(),
             notify_later: NotifyLaterForScanners::default(),
             financial_statistics: FinancialStatistics::default(),
