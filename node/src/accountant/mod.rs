@@ -187,7 +187,10 @@ impl Handler<ScanForPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
-        self.handle_scan_message(&self.scanners.payables, msg.response_skeleton_opt, ctx)
+        // self.handle_scan_message(&mut self.scanners.payables, msg.response_skeleton_opt, ctx)
+        self.scanners
+            .payables
+            .begin_scan(SystemTime::now(), msg.response_skeleton_opt, ctx);
     }
 }
 
@@ -195,11 +198,16 @@ impl Handler<ScanForPendingPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
-        self.handle_scan_message(
-            &self.scanners.pending_payables,
+        // self.handle_scan_message(
+        //     &mut self.scanners.pending_payables,
+        //     msg.response_skeleton_opt,
+        //     ctx,
+        // )
+        self.scanners.pending_payables.begin_scan(
+            SystemTime::now(),
             msg.response_skeleton_opt,
             ctx,
-        )
+        );
     }
 }
 
@@ -207,7 +215,14 @@ impl Handler<ScanForReceivables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
-        self.handle_scan_message(&self.scanners.receivables, msg.response_skeleton_opt, ctx)
+        // self.handle_scan_message(
+        //     &mut self.scanners.receivables,
+        //     msg.response_skeleton_opt,
+        //     ctx,
+        // );
+        self.scanners
+            .receivables
+            .begin_scan(SystemTime::now(), msg.response_skeleton_opt, ctx);
     }
 }
 
@@ -452,17 +467,24 @@ impl Accountant {
         DaoFactoryReal::new(data_directory, false, MigratorConfig::panic_on_migration())
     }
 
-    fn handle_scan_message(
-        &self,
-        scanner: &Scanner,
-        response_skeleton_opt: Option<ResponseSkeleton>,
-        ctx: &mut Context<Accountant>,
-    ) {
-        if let Err(error) = scanner.scan(self, response_skeleton_opt) {
-            warning!(self.logger, "{}", error);
-        }
-        scanner.notify_later_assertable(self, ctx)
-    }
+    // fn handle_scan_message<BeginMessage, EndMessage>(
+    //     &self,
+    //     scanner: &mut dyn Scanner<BeginMessage, EndMessage>,
+    //     response_skeleton_opt: Option<ResponseSkeleton>,
+    //     ctx: &mut Context<Accountant>,
+    // ) where
+    //     BeginMessage: Message,
+    //     EndMessage: Message,
+    // {
+    //
+    //     if let Err(error) = scanner.begin_scan(SystemTime::now(), response_skeleton_opt, ctx) {
+    //         warning!(self.logger, "{}", error);
+    //     } else {
+    //         // Received the message, send it to blockchain bridge
+    //         todo!()
+    //     }
+    //     // TODO: migrate the scanner.notify_later_assertable(self, ctx) to begin_scan()
+    // }
 
     fn scan_for_payables(&self, response_skeleton_opt: Option<ResponseSkeleton>) {
         info!(self.logger, "Scanning for payables");
@@ -947,17 +969,18 @@ impl Accountant {
         scan_type: ScanType,
         response_skeleton: ResponseSkeleton,
     ) -> Result<(), String> {
-        match scan_type {
-            ScanType::Payables => self.scanners.payables.scan(self, Some(response_skeleton)),
-            ScanType::Receivables => self
-                .scanners
-                .receivables
-                .scan(self, Some(response_skeleton)),
-            ScanType::PendingPayables => self
-                .scanners
-                .pending_payables
-                .scan(self, Some(response_skeleton)),
-        }
+        todo!()
+        // match scan_type {
+        //     ScanType::Payables => self.scanners.payables.scan(self, Some(response_skeleton)),
+        //     ScanType::Receivables => self
+        //         .scanners
+        //         .receivables
+        //         .scan(self, Some(response_skeleton)),
+        //     ScanType::PendingPayables => self
+        //         .scanners
+        //         .pending_payables
+        //         .scan(self, Some(response_skeleton)),
+        // }
     }
 
     fn handle_cancel_pending_transaction(&self, msg: CancelFailedPendingTransaction) {
@@ -1295,7 +1318,7 @@ mod tests {
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
-    use crate::accountant::scanners::scanners::Scanner;
+    use crate::accountant::scanners::scanners::{NullScanner, Scanner};
     use crate::accountant::test_utils::{
         bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_pending_payable_fingerprint,
         make_receivable_account, BannedDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock,
@@ -1405,9 +1428,9 @@ mod tests {
         }
     }
 
-    fn null_scanner() -> Scanner {
-        Scanner::new(ScanType::Payables, Box::new(|_, _| {}), Box::new(|_, _| {}))
-    }
+    // fn Box::new(NullScanner {}) -> Scanner {
+    //     Scanner::new(ScanType::Payables, Box::new(|_, _| {}), Box::new(|_, _| {}))
+    // }
 
     #[test]
     fn constants_have_correct_values() {
@@ -1806,7 +1829,7 @@ mod tests {
         subject.logger =
             Logger::new("scan_request_from_ui_is_handled_in_case_the_scan_is_already_running");
         let now = SystemTime::now();
-        subject.scanners.pending_payables.mark_as_started(now);
+        // subject.scanners.pending_payables.mark_as_started(now);
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         let system = System::new("test");
@@ -2079,8 +2102,8 @@ mod tests {
             ))
             .payable_dao(payable_dao)
             .build();
-        subject.scanners.pending_payables = null_scanner();
-        subject.scanners.receivables = null_scanner();
+        subject.scanners.pending_payables = Box::new(NullScanner {});
+        subject.scanners.receivables = Box::new(NullScanner {});
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
         let peer_actors = peer_actors_builder()
@@ -2129,8 +2152,8 @@ mod tests {
             .payable_dao(payable_dao)
             .receivable_dao(receivable_dao)
             .build();
-        subject.scanners.pending_payables = null_scanner();
-        subject.scanners.payables = null_scanner();
+        subject.scanners.pending_payables = Box::new(NullScanner {});
+        subject.scanners.payables = Box::new(NullScanner {});
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
         let peer_actors = peer_actors_builder()
@@ -2324,8 +2347,8 @@ mod tests {
             .receivable_dao(receivable_dao)
             .banned_dao(banned_dao)
             .build();
-        subject.scanners.pending_payables = null_scanner();
-        subject.scanners.payables = null_scanner();
+        subject.scanners.pending_payables = Box::new(NullScanner {});
+        subject.scanners.payables = Box::new(NullScanner {});
         subject.notify_later.scan_for_receivable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_receivable_params_arc)
@@ -2440,8 +2463,8 @@ mod tests {
             .bootstrapper_config(config)
             .pending_payable_dao(pending_payable_dao)
             .build();
-        subject.scanners.receivables = null_scanner(); //skipping
-        subject.scanners.payables = null_scanner(); //skipping
+        subject.scanners.receivables = Box::new(NullScanner {}); //skipping
+        subject.scanners.payables = Box::new(NullScanner {}); //skipping
         subject.notify_later.scan_for_pending_payable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_pending_payable_params_arc)
@@ -2541,8 +2564,8 @@ mod tests {
             .bootstrapper_config(config)
             .payable_dao(payable_dao)
             .build();
-        subject.scanners.pending_payables = null_scanner(); //skipping
-        subject.scanners.receivables = null_scanner(); //skipping
+        subject.scanners.pending_payables = Box::new(NullScanner {}); //skipping
+        subject.scanners.receivables = Box::new(NullScanner {}); //skipping
         subject.notify_later.scan_for_payable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_payables_params_arc)
@@ -2753,8 +2776,8 @@ mod tests {
             .bootstrapper_config(config)
             .payable_dao(payable_dao)
             .build();
-        subject.scanners.pending_payables = null_scanner();
-        subject.scanners.receivables = null_scanner();
+        subject.scanners.pending_payables = Box::new(NullScanner {});
+        subject.scanners.receivables = Box::new(NullScanner {});
         let subject_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&subject_addr);
         send_bind_message!(accountant_subs, peer_actors);
@@ -2879,7 +2902,7 @@ mod tests {
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
         subject.config.scan_intervals.payable_scan_interval = Duration::from_millis(10);
-        let is_scan_running_initially = subject.scanners.payables.is_scan_running();
+        // let is_scan_running_initially = subject.scanners.payables.is_scan_running();
         let addr = subject.start();
 
         addr.try_send(ScanForPayables {
@@ -2894,7 +2917,7 @@ mod tests {
             accounts: vec![payable_account],
             response_skeleton_opt: None,
         };
-        assert_eq!(is_scan_running_initially, false);
+        // assert_eq!(is_scan_running_initially, false);
         assert_eq!(message, &expected_message);
     }
 
@@ -2934,7 +2957,7 @@ mod tests {
         it_receives_the_message_and_the_scanner_is_running",
         );
         let now = SystemTime::now();
-        subject.scanners.payables.mark_as_started(now);
+        // subject.scanners.payables.mark_as_started(now);
         let addr = subject.start();
 
         addr.try_send(ScanForPayables {
@@ -4278,7 +4301,7 @@ mod tests {
                     .payable_dao(payable_dao)
                     .pending_payable_dao(pending_payable_dao)
                     .build();
-                subject.scanners.receivables = null_scanner();
+                subject.scanners.receivables = Box::new(NullScanner {});
                 let notify_later_half_mock = NotifyLaterHandleMock::default()
                     .notify_later_params(&notify_later_scan_for_pending_payable_arc_cloned)
                     .permit_to_send_out();
