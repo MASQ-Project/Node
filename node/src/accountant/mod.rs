@@ -1447,10 +1447,11 @@ mod tests {
     fn new_calls_factories_properly() {
         let mut config = BootstrapperConfig::new();
         config.accountant_config_opt = Some(make_accountant_config_null());
-        let payable_dao_factory_called = Rc::new(RefCell::new(false));
         let payable_dao = PayableDaoMock::new();
-        let payable_dao_factory =
-            PayableDaoFactoryMock::new(payable_dao).called(&payable_dao_factory_called);
+        let payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
+        let payable_dao_factory = PayableDaoFactoryMock::new()
+            .make_params(&payable_dao_factory_params_arc)
+            .make_result(PayableDaoMock::new());
         let receivable_dao_factory_called = Rc::new(RefCell::new(false));
         let receivable_dao = ReceivableDaoMock::new();
         let receivable_dao_factory =
@@ -1472,7 +1473,7 @@ mod tests {
             Box::new(banned_dao_factory),
         );
 
-        assert_eq!(payable_dao_factory_called.as_ref(), &RefCell::new(true));
+        assert_eq!(*payable_dao_factory_params_arc.lock().unwrap(), vec![()]);
         assert_eq!(receivable_dao_factory_called.as_ref(), &RefCell::new(true));
         assert_eq!(
             pending_payable_dao_factory_called.as_ref(),
@@ -1492,7 +1493,8 @@ mod tests {
         let mut bootstrapper_config = BootstrapperConfig::new();
         bootstrapper_config.accountant_config_opt =
             Some(make_populated_accountant_config_with_defaults());
-        let payable_dao_factory = Box::new(PayableDaoFactoryMock::new(PayableDaoMock::new()));
+        let payable_dao_factory =
+            Box::new(PayableDaoFactoryMock::new().make_result(PayableDaoMock::new()));
         let receivable_dao_factory =
             Box::new(ReceivableDaoFactoryMock::new(ReceivableDaoMock::new()));
         let pending_payable_dao_factory = Box::new(PendingPayableDaoFactoryMock::new(
@@ -2206,6 +2208,7 @@ mod tests {
                 earning_wallet.clone(),
             ))
             .payable_dao(PayableDaoMock::new().non_pending_payables_result(vec![]))
+            .payable_dao(PayableDaoMock::new())
             .receivable_dao(receivable_dao)
             .build();
         let system = System::new("accountant_receives_new_payments_to_the_receivables_dao");
@@ -3927,7 +3930,8 @@ mod tests {
             PendingPayableDaoError::UpdateFailed("no no no".to_string()),
         ));
         let subject = AccountantBuilder::default()
-            .payable_dao(payable_dao)
+            .payable_dao(payable_dao) // For Accountant
+            .payable_dao(PayableDaoMock::new()) // For Scanner
             .pending_payable_dao(pending_payable_dao)
             .build();
         let rowid = 2;

@@ -70,7 +70,7 @@ pub fn make_payable_account_with_recipient_and_balance_and_timestamp_opt(
 
 pub struct AccountantBuilder {
     config: Option<BootstrapperConfig>,
-    payable_dao_factory: Option<Box<dyn PayableDaoFactory>>,
+    payable_dao_factory: Option<PayableDaoFactoryMock>,
     receivable_dao_factory: Option<Box<dyn ReceivableDaoFactory>>,
     pending_payable_dao_factory: Option<Box<dyn PendingPayableDaoFactory>>,
     banned_dao_factory: Option<Box<dyn BannedDaoFactory>>,
@@ -97,7 +97,15 @@ impl AccountantBuilder {
     }
 
     pub fn payable_dao(mut self, payable_dao: PayableDaoMock) -> Self {
-        self.payable_dao_factory = Some(Box::new(PayableDaoFactoryMock::new(payable_dao)));
+        match self.payable_dao_factory {
+            None => {
+                self.payable_dao_factory =
+                    Some(PayableDaoFactoryMock::new().make_result(payable_dao))
+            }
+            Some(payable_dao_factory) => {
+                self.payable_dao_factory = Some(payable_dao_factory.make_result(payable_dao))
+            }
+        }
         self
     }
 
@@ -129,9 +137,11 @@ impl AccountantBuilder {
             config.accountant_config_opt = Some(make_populated_accountant_config_with_defaults());
             config
         });
-        let payable_dao_factory = self
-            .payable_dao_factory
-            .unwrap_or(Box::new(PayableDaoFactoryMock::new(PayableDaoMock::new())));
+        let payable_dao_factory = self.payable_dao_factory.unwrap_or(
+            PayableDaoFactoryMock::new()
+                .make_result(PayableDaoMock::new())
+                .make_result(PayableDaoMock::new()),
+        );
         let receivable_dao_factory =
             self.receivable_dao_factory
                 .unwrap_or(Box::new(ReceivableDaoFactoryMock::new(
@@ -145,7 +155,7 @@ impl AccountantBuilder {
             .unwrap_or(Box::new(BannedDaoFactoryMock::new(BannedDaoMock::new())));
         let accountant = Accountant::new(
             &config,
-            payable_dao_factory,
+            Box::new(payable_dao_factory),
             receivable_dao_factory,
             pending_payable_dao_factory,
             banned_dao_factory,
@@ -155,27 +165,32 @@ impl AccountantBuilder {
 }
 
 pub struct PayableDaoFactoryMock {
-    called: Rc<RefCell<bool>>,
-    mock: RefCell<Vec<PayableDaoMock>>,
+    make_params: Arc<Mutex<Vec<()>>>,
+    make_results: RefCell<Vec<Box<dyn PayableDao>>>,
 }
 
 impl PayableDaoFactory for PayableDaoFactoryMock {
     fn make(&self) -> Box<dyn PayableDao> {
-        *self.called.borrow_mut() = true;
-        Box::new(self.mock.borrow_mut().remove(0))
+        self.make_params.lock().unwrap().push(());
+        self.make_results.borrow_mut().remove(0)
     }
 }
 
 impl PayableDaoFactoryMock {
-    pub fn new(mock: PayableDaoMock) -> Self {
+    pub fn new() -> Self {
         Self {
-            called: Rc::new(RefCell::new(false)),
-            mock: RefCell::new(vec![mock]),
+            make_params: Arc::new(Mutex::new(vec![])),
+            make_results: RefCell::new(vec![]),
         }
     }
 
-    pub fn called(mut self, called: &Rc<RefCell<bool>>) -> Self {
-        self.called = called.clone();
+    pub fn make_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.make_params = params.clone();
+        self
+    }
+
+    pub fn make_result(self, result: PayableDaoMock) -> Self {
+        self.make_results.borrow_mut().push(Box::new(result));
         self
     }
 }
