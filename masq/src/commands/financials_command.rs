@@ -121,22 +121,22 @@ pub fn financials_subcommand() -> App<'static, 'static> {
                 .required(false),
         )
         .groups(&[
-            ArgGroup::with_name("no-stats-requirement-group")
-                .arg("no-stats")
-                .requires("all-queries"),
-            ArgGroup::with_name("top-records-conflicting-args")
-                .args(&["top"])
-                .conflicts_with("custom-queries")
-                .requires("sorted"),
-            ArgGroup::with_name("sorted-conflicting-args")
-                .arg("sorted")
-                .conflicts_with("custom-queries"),
-            ArgGroup::with_name("all-queries")
+            ArgGroup::with_name("at_least_one_query")
                 .args(&["receivable", "payable", "top"])
                 .multiple(true),
+            ArgGroup::with_name("no-stats-requirement-group")
+                .arg("no-stats")
+                .requires("at_least_one_query"),
             ArgGroup::with_name("custom-queries")
                 .args(&["payable", "receivable"])
                 .multiple(true),
+            ArgGroup::with_name("top-records-conflicts")
+                .args(&["top"])
+                .conflicts_with("custom-queries")
+                .requires("sorted"),
+            ArgGroup::with_name("sorted-conflicts")
+                .arg("sorted")
+                .conflicts_with("custom-queries"),
         ])
 }
 
@@ -155,17 +155,24 @@ impl Command for FinancialsCommand {
         let gwei_flag = self.gwei_precision;
         match output {
             Ok(response) => {
-                //TODO you can think of a way how to format it without unnecessary leading blank lines
                 let stdout = context.stdout();
-                if let Some(stats) = response.stats_opt {
+                if let Some(stats) = response.stats_opt.as_ref() {
                     self.process_financial_status(stdout, stats, gwei_flag)
                 };
-                //TODO what about making it more obvious these are mutual exclusive disregard the Clap's safe limitation?
                 if let Some(top_records) = response.top_records_opt {
-                    self.process_top_records(stdout, top_records, gwei_flag)
-                }
-                if let Some(custom_query) = response.custom_query_records_opt {
-                    self.process_custom_query(stdout, custom_query, gwei_flag)
+                    self.process_top_records(
+                        stdout,
+                        top_records,
+                        response.stats_opt.is_none(),
+                        gwei_flag,
+                    )
+                } else if let Some(custom_query) = response.custom_query_records_opt {
+                    self.process_custom_query(
+                        stdout,
+                        custom_query,
+                        response.stats_opt.is_none(),
+                        gwei_flag,
+                    )
                 }
                 Ok(())
             }
@@ -295,7 +302,7 @@ impl FinancialsCommand {
     fn process_financial_status(
         &self,
         stdout: &mut dyn Write,
-        stats: UiFinancialStatistics,
+        stats: &UiFinancialStatistics,
         gwei_flag: bool,
     ) {
         Self::financial_status_totals_title(stdout, gwei_flag);
@@ -318,9 +325,11 @@ impl FinancialsCommand {
         &self,
         stdout: &mut dyn Write,
         top_records: FirmQueryResult,
+        leading_dump: bool,
         gwei_flag: bool,
     ) {
         let (payable_headings, receivable_headings) = Self::prepare_headings_of_records(gwei_flag);
+        Self::triple_or_single_blank_line(stdout, leading_dump);
         process_top_records!(
             self,
             stdout,
@@ -330,6 +339,7 @@ impl FinancialsCommand {
             render_payables,
             write_payable_headings
         );
+        Self::triple_or_single_blank_line(stdout, false);
         process_top_records!(
             self,
             stdout,
@@ -345,9 +355,12 @@ impl FinancialsCommand {
         &self,
         stdout: &mut dyn Write,
         custom_query_result: CustomQueryResult,
+        leading_dump: bool,
         gwei_flag: bool,
     ) {
+        let two_dumps_to_be_printed = self.are_two_dumps_to_be_printed(&custom_query_result);
         let (payable_headings, receivable_headings) = Self::prepare_headings_of_records(gwei_flag);
+        Self::triple_or_single_blank_line(stdout, leading_dump);
         process_custom_query!(
             self,
             stdout,
@@ -358,6 +371,9 @@ impl FinancialsCommand {
             render_payables,
             write_payable_headings
         );
+        if two_dumps_to_be_printed {
+            Self::triple_or_single_blank_line(stdout, false)
+        }
         process_custom_query!(
             self,
             stdout,
@@ -368,6 +384,23 @@ impl FinancialsCommand {
             render_receivables,
             write_receivable_headings
         );
+    }
+
+    fn are_two_dumps_to_be_printed(&self, custom_query_result: &CustomQueryResult) -> bool {
+        (custom_query_result.payable_opt.is_some()
+            || self
+                .custom_queries_opt
+                .as_ref()
+                .expectv("custom queries input")
+                .user_payable_format_opt
+                .is_some())
+            && (custom_query_result.receivable_opt.is_some()
+                || self
+                    .custom_queries_opt
+                    .as_ref()
+                    .expectv("custom queries input")
+                    .user_receivable_format_opt
+                    .is_some())
     }
 
     fn parse_top_records_arg(matches: &ArgMatches) -> Option<TopRecordsConfig> {
@@ -400,7 +433,6 @@ impl FinancialsCommand {
                 Self::parse_masq_range_to_gwei(separated_ranges[1])
                     .expect("blows up after validation?");
             //I'm arranging these types so that I can easily use them in the next step outside of here
-            eprintln!("min: {}, max {}", min_amount_str, max_amount_str);
             (
                 Some(RangeQuery {
                     min_age_s: min_age,
@@ -511,13 +543,12 @@ impl FinancialsCommand {
     fn financial_status_totals_title(stdout: &mut dyn Write, gwei: bool) {
         short_writeln!(
             stdout,
-            "Financial status totals in {}\n",
+            "\nFinancial status totals in {}\n",
             Self::print_gwei_or_masq_unit_type(gwei)
         );
     }
 
     fn title_for_tops(&self, stdout: &mut dyn Write, distinguished: &str) {
-        Self::triple_blank_line(stdout);
         let requested_count = self.top_records_opt.as_ref().expectv("requested count");
         short_writeln!(
             stdout,
@@ -597,7 +628,6 @@ impl FinancialsCommand {
         ordinal_num: usize,
         gwei: bool,
     ) {
-        //TODO we could have a tailored macro to use the same format in the headings and here
         short_writeln!(
             stdout,
             "{:<ordinal_num_width$}   {:wallet_width$}   {:<age_width$}   {:<balance_width$}   {:<hash_width$}",
@@ -686,7 +716,6 @@ impl FinancialsCommand {
         user_written_ranges: &UsersLiteralRangeDefinition,
     ) {
         let (age_range, balance_range) = Self::correct_users_writing_if_needed(user_written_ranges);
-        Self::triple_blank_line(stdout);
         short_writeln!(
             stdout,
             "Specific {} query: {} sec {} MASQ\n",
@@ -701,14 +730,11 @@ impl FinancialsCommand {
     ) -> (String, String) {
         fn resolve_captures(captures: Captures) -> [Option<String>; 3] {
             let fetch_group = |idx: usize| FinancialsCommand::single_capture(&captures, idx);
-            match [
+            [
                 fetch_group(1),
                 fetch_group(2),
                 fetch_group(5).or(fetch_group(3)),
-            ] {
-                [_, None, _] => todo!(),
-                triple_of_optional_strings => triple_of_optional_strings,
-            }
+            ]
         }
         fn assemble_optional_strings_into_single_number(strings: [Option<String>; 3]) -> String {
             strings.into_iter().fold(String::new(), |acc, current| {
@@ -735,13 +761,13 @@ impl FinancialsCommand {
         }
 
         let simpler_syntax_extractor =
-            Regex::new("(-?)0*(\\d+?)(((\\.\\d*[1-9])0*$)|$)|^$").expect("wrong regex");
+            Regex::new("^(-?)0*(\\d+?)(((\\.\\d*[1-9])0*$)|$)|^$").expect("wrong regex");
         let apply_care = |remembered_user_input: &str| {
             simpler_syntax_extractor
                 .captures(remembered_user_input)
                 .map(resolve_captures)
                 .unwrap_or_else(
-                    || todo!(), //       panic!("Broken code: value must have been present during check but still wrong: {}",remembered_user_input
+                    || panic!("Broken code: value must have been present during the check but yet wrong: {}",remembered_user_input)
                 )
         };
         let ((time_min, time_max), (amount_min, amount_max)) = user_ranges;
@@ -792,6 +818,7 @@ impl FinancialsCommand {
         })
     }
 
+    //TODO we might do this more simply...converting all to strings first...
     fn count_length_with_comma_separators<N: Display>(value: N, is_plain_integer: bool) -> usize {
         fn add_in_commas_count(integer_length: usize) -> usize {
             let triple_chars = integer_length / 3;
@@ -831,8 +858,12 @@ impl FinancialsCommand {
         unsigned_processed + if !is_negative { 0 } else { 1 }
     }
 
-    fn triple_blank_line(stdout: &mut dyn Write) {
-        short_writeln!(stdout, "\n\n")
+    fn triple_or_single_blank_line(stdout: &mut dyn Write, leading_dump: bool) {
+        if leading_dump {
+            short_writeln!(stdout)
+        } else {
+            short_writeln!(stdout, "\n\n")
+        }
     }
 
     fn parse_integer<N: FromStr<Err = ParseIntError>>(str_num: &str) -> Result<N, String> {
@@ -870,12 +901,16 @@ impl FinancialsCommand {
                     Some(fetch_group(4).expect("the regex is wrong if it allows this panic")),
                     None,
                 ),
-                (first, second) => todo!(),
+                //TODO ask Dan if it's mandatory to have a test here if it closely resembles 'expect()' in this use
+                (first, second) => unreachable!(
+                    "the regex was designed not to allow this: {:?}, {:?}",
+                    first, second
+                ),
             }
         }
 
         let valid_masq_range_syntax =
-            Regex::new("((-?\\d+\\.?\\d*)\\s*-\\s*(-?\\d+\\.?\\d*))|(-?\\d+\\.?\\d*)$")
+            Regex::new("(^(-?\\d+\\.?\\d*)\\s*-\\s*(-?\\d+\\.?\\d*))|(^-?\\d+\\.?\\d*)$")
                 .expect("wrong regex");
         match valid_masq_range_syntax
             .captures(masq_range_str)
@@ -1550,6 +1585,7 @@ mod tests {
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
             "\
+                \n\
                 Financial status totals in MASQ\n\
                 \n\
                 Unpaid and pending payable:       1.16\n\
@@ -1568,7 +1604,7 @@ mod tests {
     }
 
     impl WidthInfo for TestAccount {
-        fn widths(&self, is_gwei: bool) -> Vec<usize> {
+        fn widths(&self, _is_gwei: bool) -> Vec<usize> {
             vec![self.a, self.b, self.c]
         }
     }
@@ -1782,6 +1818,19 @@ mod tests {
 
     #[test]
     #[should_panic(
+        expected = "Broken code: value must have been present during the check but yet wrong: 0.4554booooga45"
+    )]
+    fn correct_users_writing_complains_about_leaked_string_with_bad_syntax() {
+        FinancialsCommand::correct_users_writing_if_needed(&transpose_inputs_to_nested_tuples([
+            "0.4554booooga45",
+            "333300",
+            "0.0001",
+            "565",
+        ]));
+    }
+
+    #[test]
+    #[should_panic(
         expected = "Broken code: Clap validation should have caught this overflow of 40000000000000000000 earlier"
     )]
     fn parse_integer_overflow_indicates_broken_code() {
@@ -1877,6 +1926,7 @@ mod tests {
         );
         assert_eq!(stdout_arc.lock().unwrap().get_string(),
             "\
+                \n\
                 Financial status totals in MASQ\n\
                 \n\
                 Unpaid and pending payable:       0.11\n\
@@ -1951,6 +2001,7 @@ mod tests {
         );
         assert_eq!(stdout_arc.lock().unwrap().get_string(),
             "\
+                \n\
                 Financial status totals in MASQ\n\
                 \n\
                 Unpaid and pending payable:       0.11\n\
@@ -2009,6 +2060,7 @@ mod tests {
         );
         assert_eq!(stdout_arc.lock().unwrap().get_string(),
             "\
+                \n\
                 Financial status totals in Gwei\n\
                 \n\
                 Unpaid and pending payable:       116,688,555\n\
@@ -2084,6 +2136,7 @@ mod tests {
             )]
         );
         assert_eq!(stdout_arc.lock().unwrap().get_string(), "\
+                \n\
                 Financial status totals in Gwei\n\
                 \n\
                 Unpaid and pending payable:       116,688,555\n\
@@ -2176,8 +2229,6 @@ mod tests {
         );
         assert_eq!(stdout_arc.lock().unwrap().get_string(),
            "\n\
-            \n\
-            \n\
             Specific payable query: 0-350000 sec 5-UNLIMITED MASQ\n\
             \n\
             #   Wallet                                       Age [s]   Balance [MASQ]   Pending tx                                                        \n\
@@ -2239,6 +2290,7 @@ mod tests {
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
             "\
+|
 |Financial status totals in MASQ
 |
 |Unpaid and pending payable:       < 0.01
@@ -2330,6 +2382,7 @@ mod tests {
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
             "\
+|
 |Financial status totals in MASQ
 |
 |Unpaid and pending payable:       < 0.01
@@ -2427,8 +2480,6 @@ mod tests {
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
                "\n\
-                \n\
-                \n\
                 Top 7 payable accounts\n\
                 \n\
                 #   Wallet                                       Age [s]      Balance [MASQ]   Pending tx                                                        \n\
@@ -2519,8 +2570,6 @@ mod tests {
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
                "\n\
-                \n\
-                \n\
                 Specific payable query: 3000-40000 sec 88-1000 MASQ\n\
                 \n\
                 #   Wallet                                       Age [s]     Balance [MASQ]   Pending tx                                                        \n\
@@ -2599,8 +2648,6 @@ mod tests {
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
             "\n\
-                \n\
-                \n\
                 Specific receivable query: 3000-40000 sec 66-980 MASQ\n\
                 \n\
                 #   Wallet                                       Age [s]     Balance [Gwei]\n\
@@ -2648,8 +2695,6 @@ mod tests {
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
             "\n\
-                \n\
-                \n\
                 Specific payable query: 3000-40000 sec 88-1000 MASQ\n\
                 \n\
                 #   Wallet                                       Age [s]   Balance [MASQ]   Pending tx\n\
