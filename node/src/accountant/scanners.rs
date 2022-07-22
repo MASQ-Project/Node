@@ -31,7 +31,7 @@ pub(in crate::accountant) mod scanners {
     }
 
     impl Scanners {
-        pub(crate) fn new(
+        pub fn new(
             payable_dao: Box<dyn PayableDao>,
             pending_payable_dao: Box<dyn PendingPayableDao>,
             receivable_dao: Box<dyn ReceivableDao>,
@@ -73,8 +73,7 @@ pub(in crate::accountant) mod scanners {
 
     pub trait Scanner<BeginMessage, EndMessage>
     where
-        BeginMessage: Message + Send + 'static,
-        BeginMessage::Result: Send,
+        BeginMessage: Message,
         EndMessage: Message,
     {
         fn begin_scan(
@@ -82,7 +81,7 @@ pub(in crate::accountant) mod scanners {
             timestamp: SystemTime,
             response_skeleton_opt: Option<ResponseSkeleton>,
             ctx: &mut Context<Accountant>,
-        ) -> Result<Box<dyn BeginMessageWrapper<BeginMessage>>, Error>;
+        ) -> Result<BeginMessage, Error>;
         fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error>;
         fn scan_started_at(&self) -> Option<SystemTime>;
         as_any_dcl!();
@@ -107,8 +106,7 @@ pub(in crate::accountant) mod scanners {
 
     impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for PayableScanner
     where
-        BeginMessage: Message + Send + 'static,
-        BeginMessage::Result: Send,
+        BeginMessage: Message,
         EndMessage: Message,
     {
         fn begin_scan(
@@ -116,8 +114,8 @@ pub(in crate::accountant) mod scanners {
             timestamp: SystemTime,
             response_skeleton_opt: Option<ResponseSkeleton>,
             ctx: &mut Context<Accountant>,
-        ) -> Result<Box<dyn BeginMessageWrapper<BeginMessage>>, Error> {
-            todo!()
+        ) -> Result<BeginMessage, Error> {
+            todo!("Begin Scan for PayableScanner");
             // common::start_scan_at(&mut self.common, timestamp);
             // let start_message = BeginScanAMessage {};
             // // Use the DAO, if necessary, to populate start_message
@@ -154,8 +152,7 @@ pub(in crate::accountant) mod scanners {
 
     impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for PendingPayableScanner
     where
-        BeginMessage: Message + Send + 'static,
-        BeginMessage::Result: Send,
+        BeginMessage: Message,
         EndMessage: Message,
     {
         fn begin_scan(
@@ -163,7 +160,7 @@ pub(in crate::accountant) mod scanners {
             timestamp: SystemTime,
             response_skeleton_opt: Option<ResponseSkeleton>,
             ctx: &mut Context<Accountant>,
-        ) -> Result<Box<dyn BeginMessageWrapper<BeginMessage>>, Error> {
+        ) -> Result<BeginMessage, Error> {
             todo!()
         }
 
@@ -194,8 +191,7 @@ pub(in crate::accountant) mod scanners {
 
     impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for ReceivableScanner
     where
-        BeginMessage: Message + Send + 'static,
-        BeginMessage::Result: Send,
+        BeginMessage: Message,
         EndMessage: Message,
     {
         fn begin_scan(
@@ -203,7 +199,7 @@ pub(in crate::accountant) mod scanners {
             timestamp: SystemTime,
             response_skeleton_opt: Option<ResponseSkeleton>,
             ctx: &mut Context<Accountant>,
-        ) -> Result<Box<dyn BeginMessageWrapper<BeginMessage>>, Error> {
+        ) -> Result<BeginMessage, Error> {
             todo!()
         }
 
@@ -227,17 +223,6 @@ pub(in crate::accountant) mod scanners {
         }
     }
 
-    pub trait BeginMessageWrapper<BeginMessage>
-    where
-        BeginMessage: Message + Send + 'static,
-        BeginMessage::Result: Send,
-    {
-        fn try_send(
-            &mut self,
-            recipient: &Recipient<BeginMessage>,
-        ) -> Result<(), SendError<BeginMessage>>;
-    }
-
     pub struct NullScanner {}
 
     impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for NullScanner
@@ -251,7 +236,7 @@ pub(in crate::accountant) mod scanners {
             timestamp: SystemTime,
             response_skeleton_opt: Option<ResponseSkeleton>,
             ctx: &mut Context<Accountant>,
-        ) -> Result<Box<dyn BeginMessageWrapper<BeginMessage>>, Error> {
+        ) -> Result<BeginMessage, Error> {
             todo!()
         }
 
@@ -316,12 +301,5 @@ mod tests {
             .as_any()
             .downcast_ref::<ReceivableScanner>()
             .unwrap();
-    }
-
-    #[test]
-    fn payable_scanner_can_be_constructed() {
-        let payable_dao = PayableDaoMock::new();
-
-        let payable_scanner = PayableScanner::new(Box::new(payable_dao));
     }
 }
