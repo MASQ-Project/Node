@@ -736,7 +736,7 @@ mod tests {
     use crate::comm_layer::pcp_pmp_common::MappingConfig;
     use crate::comm_layer::{AutomapErrorCause, MulticastInfo};
     use crate::control_layer::automap_control::AutomapChange;
-    use crate::mocks::{FreePortFactoryMock, PoliteUdpSocketWrapperFactoryMock, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock};
+    use crate::mocks::{FreePortFactoryMock, make_change_handler_expecting_error, make_change_handler_expecting_new_ip, PoliteUdpSocketWrapperFactoryMock, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock};
     use crate::protocols::pmp::get_packet::GetOpcodeData;
     use crate::protocols::pmp::map_packet::MapOpcodeData;
     use crate::protocols::pmp::pmp_packet::{Opcode, PmpOpcodeData, PmpPacket, ResultCode};
@@ -2537,29 +2537,5 @@ mod tests {
             external_port: port,
             lifetime,
         })
-    }
-
-    fn make_change_handler_expecting_new_ip() -> (ChangeHandler, Arc<Mutex<Option<IpAddr>>>) {
-        let received_ip_arc: Arc<Mutex<Option<IpAddr>>> = Arc::new (Mutex::new (None));
-        let inner_received_ip = received_ip_arc.clone();
-        let change_handler: ChangeHandler = Box::new (move |msg| {
-            match msg {
-                AutomapChange::NewIp(ip_addr) => inner_received_ip.lock().unwrap().replace (ip_addr),
-                _ => None,
-            };
-        });
-        (change_handler, received_ip_arc)
-    }
-
-    fn make_change_handler_expecting_error() -> (ChangeHandler, Arc<Mutex<Option<AutomapError>>>) {
-        let received_error_arc: Arc<Mutex<Option<AutomapError>>> = Arc::new (Mutex::new (None));
-        let inner_received_error = received_error_arc.clone();
-        let change_handler: ChangeHandler = Box::new (move |msg| {
-            match msg {
-                AutomapChange::Error(error) => inner_received_error.lock().unwrap().replace (error),
-                _ => None,
-            };
-        });
-        (change_handler, received_error_arc)
     }
 }

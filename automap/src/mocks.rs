@@ -4,9 +4,7 @@
 
 use crate::comm_layer::pcp_pmp_common::{FindRoutersCommand, FreePortFactory, PoliteUdpSocketWrapperFactory, UdpSocketWrapper, UdpSocketWrapperFactory};
 use crate::comm_layer::{AutomapError, HousekeepingThreadCommand, LocalIpFinder, MulticastInfo, Transactor};
-use crate::control_layer::automap_control::{
-    replace_transactor, AutomapControlReal, ChangeHandler,
-};
+use crate::control_layer::automap_control::{replace_transactor, AutomapControlReal, ChangeHandler, AutomapChange};
 use crossbeam_channel::Sender;
 use lazy_static::lazy_static;
 use masq_lib::utils::AutomapProtocol;
@@ -574,4 +572,28 @@ pub fn await_value<F, T, E>(
             }
         }
     }
+}
+
+pub fn make_change_handler_expecting_new_ip() -> (ChangeHandler, Arc<Mutex<Option<IpAddr>>>) {
+    let received_ip_arc: Arc<Mutex<Option<IpAddr>>> = Arc::new (Mutex::new (None));
+    let inner_received_ip = received_ip_arc.clone();
+    let change_handler: ChangeHandler = Box::new (move |msg| {
+        match msg {
+            AutomapChange::NewIp(ip_addr) => inner_received_ip.lock().unwrap().replace (ip_addr),
+            _ => None,
+        };
+    });
+    (change_handler, received_ip_arc)
+}
+
+pub fn make_change_handler_expecting_error() -> (ChangeHandler, Arc<Mutex<Option<AutomapError>>>) {
+    let received_error_arc: Arc<Mutex<Option<AutomapError>>> = Arc::new (Mutex::new (None));
+    let inner_received_error = received_error_arc.clone();
+    let change_handler: ChangeHandler = Box::new (move |msg| {
+        match msg {
+            AutomapChange::Error(error) => inner_received_error.lock().unwrap().replace (error),
+            _ => None,
+        };
+    });
+    (change_handler, received_error_arc)
 }
