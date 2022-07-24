@@ -105,10 +105,6 @@ impl Transactor for PcpTransactor {
         find_routers()
     }
 
-    fn get_multicast_info(&self) -> MulticastInfo {
-        self.multicast_info.clone()
-    }
-
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
         debug!(
             self.logger,

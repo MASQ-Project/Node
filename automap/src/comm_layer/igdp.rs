@@ -1,7 +1,7 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::comm_layer::pcp_pmp_common::MappingConfig;
-use crate::comm_layer::{AutomapError, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal, MulticastInfo, Transactor};
+use crate::comm_layer::{AutomapError, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal, Transactor};
 use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use igd::{
@@ -136,11 +136,6 @@ impl Transactor for IgdpTransactor {
                 .get_gateway_addr()
                 .ip(),
         )])
-    }
-
-    fn get_multicast_info(&self) -> MulticastInfo {
-        MulticastInfo::default()
-        // todo!()
     }
 
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
@@ -466,7 +461,10 @@ impl IgdpTransactor {
                                     mapping_config.next_lifetime = Duration::from_secs(lifetime_granted as u64);
                                     mapping_config.remap_interval = Duration::from_secs(lifetime_granted as u64 / 2);
                                 },
-                                Err(e) => todo!("{:?}", e),
+                                Err(e) => {
+                                    change_handler(AutomapChange::Error (e.clone()));
+                                    error! (logger, "Could not remap router to new IP, manual portmapping may be required: {:?}", e);
+                                },
                             }
                         }
                         inner.external_ip_address_opt = Some (ip_addr);
@@ -1422,12 +1420,12 @@ mod tests {
     }
 
     #[test]
-    fn check_for_external_ip_change_handles_error() {
+    fn check_for_external_ip_change_handles_error_getting_external_ip() {
         init_test_logging();
         let gateway = GatewayWrapperMock::new()
             .get_external_ip_result(Err(GetExternalIpError::ActionNotAuthorized));
         let (change_handler, received_error_arc) = make_change_handler_expecting_error();
-        let logger = Logger::new ("check_for_external_ip_change_handles_error");
+        let logger = Logger::new ("check_for_external_ip_change_handles_error_getting_external_ip");
         let mut inner = IgdpTransactorInner {
             gateway_opt: Some(Box::new (gateway)),
             housekeeping_commander_opt: None,
@@ -1446,7 +1444,44 @@ mod tests {
         assert_eq! (inner.external_ip_address_opt, None);
         let received_error = received_error_arc.lock().unwrap();
         assert_eq! (*received_error, Some(AutomapError::GetPublicIpError("ActionNotAuthorized".to_string())));
-        TestLogHandler::new().exists_log_containing("ERROR: check_for_external_ip_change_handles_error: Could not check for external IP, manual portmapping may be required: ActionNotAuthorized");
+        TestLogHandler::new().exists_log_containing("ERROR: check_for_external_ip_change_handles_error_getting_external_ip: Could not check for external IP, manual portmapping may be required: ActionNotAuthorized");
+    }
+
+    #[test]
+    fn check_for_external_ip_change_handles_error_remapping_port() {
+        init_test_logging();
+        let old_address = IpAddr::from_str ("1.2.3.4").unwrap();
+        let new_address = IpAddr::from_str ("4.3.2.1").unwrap();
+        let gateway = GatewayWrapperMock::new()
+            .get_external_ip_result (Ok (Ipv4Addr::from_str(&new_address.to_string()).unwrap()));
+        let mapping_adder = MappingAdderMock::new()
+            .add_mapping_result (Err (AutomapError::PermanentLeasesOnly));
+        let (change_handler, received_error_arc) = make_change_handler_expecting_error();
+        let logger = Logger::new ("check_for_external_ip_change_handles_error_remapping_port");
+        let mut inner = IgdpTransactorInner {
+            gateway_opt: Some(Box::new (gateway)),
+            housekeeping_commander_opt: None,
+            mapping_adder: Box::new(mapping_adder),
+            external_ip_address_opt: Some(old_address),
+            logger: logger.clone(),
+        };
+        let mut mapping_config_opt = Some(MappingConfig {
+            hole_port: 2345,
+            next_lifetime: Duration::from_secs (600),
+            remap_interval: Duration::from_secs (300),
+        });
+
+        IgdpTransactor::check_for_external_ip_change(
+            &change_handler,
+            &mut inner,
+            &mut mapping_config_opt,
+            &logger,
+        );
+
+        assert_eq! (inner.external_ip_address_opt, Some(new_address));
+        let received_error = received_error_arc.lock().unwrap();
+        assert_eq! (*received_error, Some(AutomapError::PermanentLeasesOnly));
+        TestLogHandler::new().exists_log_containing("ERROR: check_for_external_ip_change_handles_error_remapping_port: Could not remap router to new IP, manual portmapping may be required: PermanentLeasesOnly");
     }
 
     #[test]

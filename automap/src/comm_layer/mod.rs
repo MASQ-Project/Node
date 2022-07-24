@@ -102,7 +102,6 @@ impl AutomapError {
 
 pub trait Transactor {
     fn find_routers(&self) -> Result<Vec<IpAddr>, AutomapError>;
-    fn get_multicast_info(&self) -> MulticastInfo;
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError>;
     fn add_mapping(
         &self,

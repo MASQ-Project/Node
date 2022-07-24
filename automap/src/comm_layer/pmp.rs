@@ -64,10 +64,6 @@ impl Transactor for PmpTransactor {
         find_routers()
     }
 
-    fn get_multicast_info(&self) -> MulticastInfo {
-        MulticastInfo::default()
-    }
-
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
         debug!(
             self.logger,

@@ -330,14 +330,6 @@ impl Transactor for TransactorMock {
         self.find_routers_results.borrow_mut().remove(0)
     }
 
-    fn get_multicast_info(&self) -> MulticastInfo {
-        let result = self.get_multicast_info_result.borrow().clone();
-        if result.multicast_group == 0 {
-            panic! ("Call get_multicast_info_result() to initialize the TransactorMock");
-        }
-        result
-    }
-
     fn get_public_ip(&self, router_ip: IpAddr) -> Result<IpAddr, AutomapError> {
         if !self.housekeeping_thread_started {
             panic!("Housekeeping thread must be started before get_public_ip()")
