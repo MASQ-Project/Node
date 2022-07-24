@@ -170,7 +170,6 @@ impl Transactor for PmpTransactor {
         &mut self,
         change_handler: ChangeHandler,
         router_ip: IpAddr,
-        _router_multicast_info: &MulticastInfo,
     ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
         debug!(
             self.logger,
@@ -1307,7 +1306,7 @@ mod tests {
         let socket_factory = UdpSocketWrapperFactoryMock::new().make_result(Ok(main_socket));
         let mut subject = make_socket_subject(socket_factory);
         subject
-            .start_housekeeping_thread(Box::new(|_| ()), router_ip, &MulticastInfo::for_test(8))
+            .start_housekeeping_thread(Box::new(|_| ()), router_ip)
             .unwrap();
 
         let result = subject.add_mapping(router_ip, 7777, 10);
@@ -1449,7 +1448,6 @@ mod tests {
             .start_housekeeping_thread(
                 Box::new(|_| ()),
                 router_ip,
-                &MulticastInfo::for_test(9)
             )
             .unwrap();
 
@@ -1480,7 +1478,7 @@ mod tests {
         let mapping_adder = MappingAdderMock::new().add_mapping_result(Ok(1000));
         let mut subject = make_mapping_adder_subject(mapping_adder);
         let _ =
-            subject.start_housekeeping_thread(change_handler, IpAddr::from_str("1.2.3.4").unwrap(), &MulticastInfo::for_test(10));
+            subject.start_housekeeping_thread(change_handler, IpAddr::from_str("1.2.3.4").unwrap());
 
         let change_handler = subject.stop_housekeeping_thread().unwrap();
 

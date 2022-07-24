@@ -206,7 +206,6 @@ impl Transactor for PcpTransactor {
         &mut self,
         change_handler: ChangeHandler,
         router_ip: IpAddr,
-        router_multicast_info: &MulticastInfo,
     ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
         debug!(
             self.logger,
@@ -221,7 +220,7 @@ impl Transactor for PcpTransactor {
         let router_server_addr = SocketAddr::new(router_ip, self.router_server_port);
         let read_timeout_millis = self.read_timeout_millis;
         let logger = self.logger.clone();
-        let multicast_info_clone = router_multicast_info.clone();
+        let multicast_info_clone = self.multicast_info.clone();
         self.join_handle_opt = Some(thread::spawn(move || {
             Self::thread_guts(
                 &rx,
@@ -1494,7 +1493,6 @@ mod tests {
         let result = subject.start_housekeeping_thread(
             Box::new(change_handler),
             localhost(),
-            &MulticastInfo::for_test(3),
         );
 
         assert_eq!(
@@ -1517,7 +1515,7 @@ mod tests {
         let multicast_info = MulticastInfo::for_test (4);
         subject.multicast_info = multicast_info.clone();
         let commander = subject.start_housekeeping_thread(Box::new (change_handler),
-            IpAddr::from_str("1.2.3.4").unwrap(), &multicast_info).unwrap();
+            IpAddr::from_str("1.2.3.4").unwrap()).unwrap();
         let mut map_response = PcpPacket::default();
         map_response.opcode = Opcode::Map;
         map_response.direction = Direction::Response;
@@ -2262,7 +2260,6 @@ mod tests {
             subject.start_housekeeping_thread(
                 change_handler,
                 IpAddr::from_str("1.2.3.4").unwrap(),
-                &MulticastInfo::for_test(6),
             );
 
         let change_handler = subject.stop_housekeeping_thread().unwrap();

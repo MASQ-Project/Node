@@ -118,7 +118,6 @@ pub trait Transactor {
         &mut self,
         change_handler: ChangeHandler,
         router_ip: IpAddr,
-        router_multicast_info: &MulticastInfo,
     ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError>;
     fn stop_housekeeping_thread(&mut self) -> Result<ChangeHandler, AutomapError>;
     fn as_any(&self) -> &dyn Any;

@@ -205,8 +205,7 @@ fn start_housekeeping_thread(
         "Starting housekeeping thread for router at {}",
         router_ip
     ));
-    match transactor.start_housekeeping_thread(Box::new(change_handler), router_ip,
-                                               &transactor.get_multicast_info()) {
+    match transactor.start_housekeeping_thread(Box::new(change_handler), router_ip) {
         Ok(_) => status.succeed(),
         Err(e) => status.fail(e),
     }

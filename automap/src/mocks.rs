@@ -318,7 +318,7 @@ pub struct TransactorMock {
     add_permanent_mapping_results: RefCell<Vec<Result<u32, AutomapError>>>,
     delete_mapping_params: Arc<Mutex<Vec<(IpAddr, u16)>>>,
     delete_mapping_results: RefCell<Vec<Result<(), AutomapError>>>,
-    start_housekeeping_thread_params: Arc<Mutex<Vec<(ChangeHandler, IpAddr, MulticastInfo)>>>,
+    start_housekeeping_thread_params: Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
     start_housekeeping_thread_results:
         RefCell<Vec<Result<Sender<HousekeepingThreadCommand>, AutomapError>>>,
     stop_housekeeping_thread_params: Arc<Mutex<Vec<()>>>,
@@ -393,12 +393,11 @@ impl Transactor for TransactorMock {
         &mut self,
         change_handler: ChangeHandler,
         router_ip: IpAddr,
-        router_multicast_info: &MulticastInfo,
     ) -> Result<Sender<HousekeepingThreadCommand>, AutomapError> {
         self.start_housekeeping_thread_params
             .lock()
             .unwrap()
-            .push((change_handler, router_ip, router_multicast_info.clone()));
+            .push((change_handler, router_ip));
         let result = self
             .start_housekeeping_thread_results
             .borrow_mut()
@@ -507,7 +506,7 @@ impl TransactorMock {
 
     pub fn start_housekeeping_thread_params(
         mut self,
-        params: &Arc<Mutex<Vec<(ChangeHandler, IpAddr, MulticastInfo)>>>,
+        params: &Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
     ) -> Self {
         self.start_housekeeping_thread_params = params.clone();
         self

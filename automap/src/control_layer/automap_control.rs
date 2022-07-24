@@ -157,7 +157,7 @@ impl AutomapControlReal {
         let mut housekeeping_tools = self.housekeeping_tools.borrow_mut(); //to avoid multiple borrows a time
         if let Some(change_handler) = housekeeping_tools.change_handler_opt.take() {
             debug!(self.logger, "Attempting to start housekeeping thread");
-            match transactor.start_housekeeping_thread(change_handler, router_ip, &transactor.get_multicast_info()) {
+            match transactor.start_housekeeping_thread(change_handler, router_ip) {
                 Err(AutomapError::HousekeeperAlreadyRunning) => {
                     debug!(
                         self.logger,
@@ -611,7 +611,6 @@ mod tests {
             &start_change_handler_params_arc,
             tx,
         );
-        let expected_multicast_info = subject.transactors.borrow()[0].get_multicast_info();
         subject.housekeeping_tools.borrow_mut().change_handler_opt = Some(Box::new(change_handler));
         subject.inner_opt = None;
 
@@ -622,10 +621,9 @@ mod tests {
         let get_public_ip_params = get_public_ip_params_arc.lock().unwrap();
         assert_eq!(*get_public_ip_params, vec![*ROUTER_IP]);
         assert!(add_mapping_params_arc.lock().unwrap().is_empty());
-        let (actual_change_handler, router_ip, multicast_info) =
+        let (actual_change_handler, router_ip) =
             start_change_handler_params_arc.lock().unwrap().remove(0);
         assert_eq!(router_ip, *ROUTER_IP);
-        assert_eq!(multicast_info, expected_multicast_info);
         // Run a change through this handler to make sure it's the same one we sent in
         let change = AutomapChange::Error(AutomapError::ProtocolError("Booga!".to_string()));
         actual_change_handler(change.clone());
@@ -750,7 +748,6 @@ mod tests {
             &start_change_handler_params_arc,
             tx,
         );
-        let expected_multicast_info = subject.transactors.borrow()[0].get_multicast_info();
         subject.inner_opt = None;
         subject.housekeeping_tools.borrow_mut().change_handler_opt = Some(Box::new(change_handler));
         subject
@@ -772,10 +769,9 @@ mod tests {
         assert!(get_public_ip_params_arc.lock().unwrap().is_empty());
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq!(*add_mapping_params, vec![(*ROUTER_IP, 4567, 600)]);
-        let (actual_change_handler, router_ip, multicast_info) =
+        let (actual_change_handler, router_ip) =
             start_change_handler_params_arc.lock().unwrap().remove(0);
         assert_eq!(router_ip, *ROUTER_IP);
-        assert_eq!(multicast_info, expected_multicast_info);
         let change = AutomapChange::Error(AutomapError::ProtocolError("Booga!".to_string()));
         actual_change_handler(change.clone());
         let change_handler_log = change_handler_log_arc.lock().unwrap();
@@ -1304,7 +1300,7 @@ mod tests {
         multicast_group: u8,
         get_public_ip_params_arc: &Arc<Mutex<Vec<IpAddr>>>,
         add_mapping_params_arc: &Arc<Mutex<Vec<(IpAddr, u16, u32)>>>,
-        start_housekeeping_thread_params_arc: &Arc<Mutex<Vec<(ChangeHandler, IpAddr, MulticastInfo)>>>,
+        start_housekeeping_thread_params_arc: &Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
         housekeeper_commander: Sender<HousekeepingThreadCommand>,
     ) -> AutomapControlReal {
         let subject = make_general_failure_subject();
@@ -1338,7 +1334,7 @@ mod tests {
         multicast_group: u8,
         get_public_ip_params_arc: &Arc<Mutex<Vec<IpAddr>>>,
         add_mapping_params_arc: &Arc<Mutex<Vec<(IpAddr, u16, u32)>>>,
-        start_housekeeping_thread_params_arc: &Arc<Mutex<Vec<(ChangeHandler, IpAddr, MulticastInfo)>>>,
+        start_housekeeping_thread_params_arc: &Arc<Mutex<Vec<(ChangeHandler, IpAddr)>>>,
         housekeeper_commander: Sender<HousekeepingThreadCommand>,
     ) -> Box<dyn Transactor> {
         Box::new(

@@ -2,16 +2,16 @@
 
 mod isp_change_test;
 
-use automap_lib::automap_core_functions::{
-    change_handler, run_probe_test, tester_for, AutomapParameters, TestStatus,
-};
-use automap_lib::comm_layer::AutomapErrorCause;
-use automap_lib::control_layer::automap_control::{AutomapControl, AutomapControlReal};
-use automap_lib::logger::initiate_logger;
-use log::info;
-use masq_lib::utils::AutomapProtocol;
+// use automap_lib::automap_core_functions::{
+//     change_handler, run_probe_test, tester_for, AutomapParameters, TestStatus,
+// };
+// use automap_lib::comm_layer::AutomapErrorCause;
+// use automap_lib::control_layer::automap_control::{AutomapControl, AutomapControlReal};
+// use automap_lib::logger::initiate_logger;
+// use log::info;
+// use masq_lib::utils::AutomapProtocol;
 
-const SERVER_SOCKET_ADDRESS: &str = "54.212.109.41:8081";
+// const SERVER_SOCKET_ADDRESS: &str = "54.212.109.41:8081";
 /*
 If the probe server's virtual machine isn't running, get @BrianSoCal to start it. If it comes up
 on an IP address different from the one above, change SERVER_SOCKET_ADDRESS to contain the IP
@@ -38,6 +38,7 @@ pub fn main() {
     isp_change_test::new_main();
 }
 
+/*
 fn old_main() {
     let parameters = AutomapParameters::new(std::env::args(), SERVER_SOCKET_ADDRESS);
 
@@ -50,10 +51,6 @@ fn old_main() {
     } else {
         manual(parameters);
     }
-}
-
-fn new_main() {
-
 }
 
 fn manual(parameters: AutomapParameters) {
@@ -131,3 +128,4 @@ fn report_on_method(
     };
     info!("{}: {}", method, msg);
 }
+*/
