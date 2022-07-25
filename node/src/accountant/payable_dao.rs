@@ -5,7 +5,9 @@ use crate::accountant::blob_utils::{
     InsertUpdateCore, InsertUpdateCoreReal, ParamKeyHolder, SQLExtendedParams, Table, UpdateConfig,
 };
 use crate::accountant::dao_utils;
-use crate::accountant::dao_utils::{to_time_t, CustomQuery, DaoFactoryReal, RangeConfig};
+use crate::accountant::dao_utils::{
+    to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal, RangeStmConfig, TopStmConfig,
+};
 use crate::accountant::{checked_conversion, sign_conversion, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -178,18 +180,20 @@ impl PayableDao for PayableDaoReal {
     }
 
     fn custom_query(&self, custom_query: CustomQuery<u64>) -> Option<Vec<PayableAccount>> {
-        let variant_range = RangeConfig{
-            main_where_clause: "where last_paid_timestamp <= ? and last_paid_timestamp >= ? and balance >= ? and balance <= ?",
-            gwei_limit_clause: "and balance >= ?",
-            gwei_limit_params: vec![Box::new(WEIS_OF_GWEI)]
+        let variant_top = TopStmConfig::new("last_paid_timestamp asc"); //TODO balance second ordering untested
+
+        let variant_range = RangeStmConfig {
+            where_clause: "where last_paid_timestamp <= ? and last_paid_timestamp >= ? and balance >= ? and balance <= ?",
+            gwei_min_resolution_clause: "and balance >= ?",
+            gwei_min_resolution_params: vec![Box::new(WEIS_OF_GWEI)],
+            secondary_order_param: "last_paid_timestamp asc" // TODO untested
         };
-        let variant_top = ("where balance >= ?", "limit ?");
 
         custom_query.query::<_, i128, _, _>(
             self.conn.as_ref(),
-            Self::payable_custom_query,
-            variant_range,
+            Self::stm_assembler_of_payable_custom_query,
             variant_top,
+            variant_range,
             Self::form_payable_account,
         )
     }
@@ -289,7 +293,7 @@ impl PayableDaoReal {
         }
     }
 
-    fn payable_custom_query(condition_a1: &str, condition_a2: &str, condition_b: &str) -> String {
+    fn stm_assembler_of_payable_custom_query(feeder: AssemblerFeeder) -> String {
         format!(
             "select
                wallet_address,
@@ -303,19 +307,48 @@ impl PayableDaoReal {
                pending_payable.rowid = payable.pending_payable_rowid
            {} {}
            order by
-               balance desc,
-               last_paid_timestamp desc
+               {},
+               {}
            {}",
-            condition_a1, condition_a2, condition_b
+            feeder.main_where_clause,
+            feeder.where_clause_extension,
+            feeder.order_by_first_param,
+            feeder.order_by_second_param,
+            feeder.limit_clause
         )
     }
+
+    // fn assembler_of_payable_custom_query(
+    //     condition_a1: &str,
+    //     condition_a2: &str,
+    //     condition_b: &str,
+    // ) -> String {
+    //     format!(
+    //         "select
+    //            wallet_address,
+    //            balance,
+    //            last_paid_timestamp,
+    //            pending_payable_rowid,
+    //            pending_payable.transaction_hash
+    //        from
+    //            payable
+    //        left join pending_payable on
+    //            pending_payable.rowid = payable.pending_payable_rowid
+    //        {} {}
+    //        order by
+    //            balance desc,
+    //            last_paid_timestamp desc
+    //        {}",
+    //         condition_a1, condition_a2, condition_b
+    //     )
+    // }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::accountant::blob_utils::{InsertUpdateError, Table};
-    use crate::accountant::dao_utils::{from_time_t, to_time_t};
+    use crate::accountant::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::accountant::test_utils::{
         assert_database_blows_up_on_an_unexpected_error, convert_to_all_string_values,
         make_pending_payable_fingerprint, InsertUpdateCoreMock,
@@ -327,6 +360,7 @@ mod tests {
     use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::make_wallet;
     use ethereum_types::BigEndianHash;
+    use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::Connection as RusqliteConnection;
     use rusqlite::{Connection, OpenFlags};
@@ -739,18 +773,22 @@ mod tests {
             main_test_setup,
         );
 
-        let result = subject.custom_query(CustomQuery::TopRecords(6));
+        let result = subject.custom_query(CustomQuery::TopRecords {
+            count: 6,
+            ordered_by: Balance,
+        });
 
         assert_eq!(result, None)
     }
 
-    #[test]
-    fn custom_query_in_top_records_mode() {
-        let timestamp1 = dao_utils::now_time_t() - 80_000;
-        let timestamp2 = dao_utils::now_time_t() - 86_401;
-        let timestamp3 = dao_utils::now_time_t() - 86_000;
-        let timestamp4 = dao_utils::now_time_t() - 86_001;
-        let main_test_setup = |insert: &dyn Fn(&str, i128, i64, Option<i64>)| {
+    fn common_setup_of_accounts_for_tests_of_top_records(
+        now: i64,
+    ) -> Box<dyn Fn(&dyn Fn(&str, i128, i64, Option<i64>))> {
+        let timestamp1 = now - 80_000;
+        let timestamp2 = now - 86_001;
+        let timestamp3 = now - 86_000;
+        let timestamp4 = now - 86_401;
+        Box::new(move |insert: &dyn Fn(&str, i128, i64, Option<i64>)| {
             insert(
                 "0x1111111111111111111111111111111111111111",
                 888_005_601,
@@ -775,11 +813,24 @@ mod tests {
                 timestamp4,
                 Some(1),
             );
-        };
-        let subject =
-            custom_query_test_body_for_payable("custom_query_in_top_records_mode", main_test_setup);
+        })
+    }
 
-        let result = subject.custom_query(CustomQuery::TopRecords(3)).unwrap();
+    #[test]
+    fn custom_query_in_top_records_mode_with_default_sorting() {
+        let now = now_time_t();
+        let main_test_setup = common_setup_of_accounts_for_tests_of_top_records(now);
+        let subject = custom_query_test_body_for_payable(
+            "custom_query_in_top_records_mode_with_default_sorting",
+            main_test_setup,
+        );
+
+        let result = subject
+            .custom_query(CustomQuery::TopRecords {
+                count: 3,
+                ordered_by: Balance,
+            })
+            .unwrap();
 
         assert_eq!(
             result,
@@ -787,13 +838,13 @@ mod tests {
                 PayableAccount {
                     wallet: Wallet::new("0x2222222222222222222222222222222222222222"),
                     balance_wei: 7_562_000_300_000,
-                    last_paid_timestamp: from_time_t(timestamp2),
+                    last_paid_timestamp: from_time_t(now - 86_001),
                     pending_payable_opt: None
                 },
                 PayableAccount {
                     wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
                     balance_wei: 10_000_000_001,
-                    last_paid_timestamp: from_time_t(timestamp4),
+                    last_paid_timestamp: from_time_t(now - 86_401),
                     pending_payable_opt: Some(PendingPayableId {
                         rowid: 1,
                         hash: H256::from_str(
@@ -801,6 +852,47 @@ mod tests {
                         )
                         .unwrap()
                     })
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn custom_query_in_top_records_mode_sorted_by_age() {
+        let now = now_time_t();
+        let main_test_setup = common_setup_of_accounts_for_tests_of_top_records(now);
+        let subject = custom_query_test_body_for_payable(
+            "custom_query_in_top_records_mode_sorted_by_age",
+            main_test_setup,
+        );
+
+        let result = subject
+            .custom_query(CustomQuery::TopRecords {
+                count: 3,
+                ordered_by: Age,
+            })
+            .unwrap();
+
+        assert_eq!(
+            result,
+            vec![
+                PayableAccount {
+                    wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
+                    balance_wei: 10_000_000_001,
+                    last_paid_timestamp: from_time_t(now - 86_401),
+                    pending_payable_opt: Some(PendingPayableId {
+                        rowid: 1,
+                        hash: H256::from_str(
+                            "abc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"
+                        )
+                        .unwrap()
+                    })
+                },
+                PayableAccount {
+                    wallet: Wallet::new("0x2222222222222222222222222222222222222222"),
+                    balance_wei: 7_562_000_300_000,
+                    last_paid_timestamp: from_time_t(now - 86_001),
+                    pending_payable_opt: None
                 },
             ]
         );

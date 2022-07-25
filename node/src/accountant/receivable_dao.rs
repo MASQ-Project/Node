@@ -6,7 +6,8 @@ use crate::accountant::blob_utils::{
 };
 use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
-    now_time_t, to_time_t, CustomQuery, DaoFactoryReal, RangeConfig,
+    now_time_t, to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal, RangeStmConfig,
+    TopStmConfig,
 };
 use crate::accountant::receivable_dao::ReceivableDaoError::RusqliteError;
 use crate::accountant::{checked_conversion, ThresholdUtils};
@@ -183,18 +184,20 @@ impl ReceivableDao for ReceivableDaoReal {
     }
 
     fn custom_query(&self, custom_query: CustomQuery<i64>) -> Option<Vec<ReceivableAccount>> {
-        let variant_range = RangeConfig{
-            main_where_clause: "where last_received_timestamp <= ? and last_received_timestamp >= ? and balance >= ? and balance <= ?",
-            gwei_limit_clause: "and (balance >= ? or balance <= ?)",
-            gwei_limit_params: vec![Box::new(WEIS_OF_GWEI),Box::new(WEIS_OF_GWEI.neg())]
+        let variant_top = TopStmConfig::new("last_received_timestamp"); //TODO balance second ordering untested
+
+        let variant_range = RangeStmConfig {
+            where_clause: "where last_received_timestamp <= ? and last_received_timestamp >= ? and balance >= ? and balance <= ?",
+            gwei_min_resolution_clause: "and (balance >= ? or balance <= ?)",
+            gwei_min_resolution_params: vec![Box::new(WEIS_OF_GWEI), Box::new(WEIS_OF_GWEI.neg())],
+            secondary_order_param: "last_received_timestamp" // TODO untested
         };
-        let variant_top = ("where balance >= ?", "limit ?");
 
         custom_query.query::<_, i128, _, _>(
             self.conn.as_ref(),
-            Self::receivable_custom_query,
-            variant_range,
+            Self::stm_assembler_of_receivable_custom_query,
             variant_top,
+            variant_range,
             Self::form_receivable_account,
         )
     }
@@ -371,11 +374,7 @@ impl ReceivableDaoReal {
         }
     }
 
-    fn receivable_custom_query(
-        condition_a1: &str,
-        condition_a2: &str,
-        condition_b: &str,
-    ) -> String {
+    fn stm_assembler_of_receivable_custom_query(feeder: AssemblerFeeder) -> String {
         format!(
             "select
                  wallet_address,
@@ -385,12 +384,37 @@ impl ReceivableDaoReal {
                  receivable
              {} {}
              order by
-                 balance desc,
-                 last_received_timestamp desc
+                 {},
+                 {}
              {}",
-            condition_a1, condition_a2, condition_b
+            feeder.main_where_clause,
+            feeder.where_clause_extension,
+            feeder.order_by_first_param,
+            feeder.order_by_second_param,
+            feeder.limit_clause
         )
     }
+
+    // fn stm_assembler_of_receivable_custom_query(
+    //     condition_a1: &str,
+    //     condition_a2: &str,
+    //     condition_b: &str,
+    // ) -> String {
+    //     format!(
+    //         "select
+    //              wallet_address,
+    //              balance,
+    //              last_received_timestamp
+    //          from
+    //              receivable
+    //          {} {}
+    //          order by
+    //              balance desc,
+    //              last_received_timestamp desc
+    //          {}",
+    //         condition_a1, condition_a2, condition_b
+    //     )
+    // }
 
     fn more_money_received_pretty_error_log(
         &self,
@@ -433,6 +457,7 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_wallet;
+    use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, OpenFlags};
@@ -1280,18 +1305,22 @@ mod tests {
             main_test_setup,
         );
 
-        let result = subject.custom_query(CustomQuery::TopRecords(6));
+        let result = subject.custom_query(CustomQuery::TopRecords {
+            count: 6,
+            ordered_by: Balance,
+        });
 
         assert_eq!(result, None)
     }
 
-    #[test]
-    fn custom_query_in_top_records_mode() {
-        let timestamp1 = now_time_t() - 100_000;
-        let timestamp2 = now_time_t() - 86_401;
-        let timestamp3 = now_time_t() - 86_000;
-        let timestamp4 = now_time_t() - 86_001;
-        let main_test_setup = |insert: &dyn Fn(&str, i128, i64)| {
+    fn common_setup_of_accounts_for_tests_of_top_records(
+        now: i64,
+    ) -> Box<dyn Fn(&dyn Fn(&str, i128, i64))> {
+        let timestamp1 = now - 86_480;
+        let timestamp2 = now - 100_000;
+        let timestamp3 = now - 86_000;
+        let timestamp4 = now - 86_111;
+        Box::new(move |insert: &dyn Fn(&str, i128, i64)| {
             insert(
                 "0x1111111111111111111111111111111111111111",
                 1_000_000_001,
@@ -1312,13 +1341,24 @@ mod tests {
                 32_000_000_200,
                 timestamp4,
             )
-        };
+        })
+    }
+
+    #[test]
+    fn custom_query_in_top_records_mode_default_sorting() {
+        let now = now_time_t();
+        let main_test_setup = common_setup_of_accounts_for_tests_of_top_records(now);
         let subject = custom_query_test_body_for_receivable(
-            "custom_query_in_top_records_mode",
+            "custom_query_in_top_records_mode_default_sorting",
             main_test_setup,
         );
 
-        let result = subject.custom_query(CustomQuery::TopRecords(3)).unwrap();
+        let result = subject
+            .custom_query(CustomQuery::TopRecords {
+                count: 3,
+                ordered_by: Balance,
+            })
+            .unwrap();
 
         assert_eq!(
             result,
@@ -1326,12 +1366,45 @@ mod tests {
                 ReceivableAccount {
                     wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
                     balance_wei: 32_000_000_200,
-                    last_received_timestamp: from_time_t(timestamp4),
+                    last_received_timestamp: from_time_t(now - 86_111),
                 },
                 ReceivableAccount {
                     wallet: Wallet::new("0x1111111111111111111111111111111111111111"),
                     balance_wei: 1_000_000_001,
-                    last_received_timestamp: from_time_t(timestamp1),
+                    last_received_timestamp: from_time_t(now - 86_480),
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn custom_query_in_top_records_mode_sorted_by_age() {
+        let now = now_time_t();
+        let main_test_setup = common_setup_of_accounts_for_tests_of_top_records(now);
+        let subject = custom_query_test_body_for_receivable(
+            "custom_query_in_top_records_mode_sorted_by_age",
+            main_test_setup,
+        );
+
+        let result = subject
+            .custom_query(CustomQuery::TopRecords {
+                count: 3,
+                ordered_by: Age,
+            })
+            .unwrap();
+
+        assert_eq!(
+            result,
+            vec![
+                ReceivableAccount {
+                    wallet: Wallet::new("0x1111111111111111111111111111111111111111"),
+                    balance_wei: 1_000_000_001,
+                    last_received_timestamp: from_time_t(now - 86_480),
+                },
+                ReceivableAccount {
+                    wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
+                    balance_wei: 32_000_000_200,
+                    last_received_timestamp: from_time_t(now - 86_111),
                 },
             ]
         );

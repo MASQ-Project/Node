@@ -6,7 +6,9 @@ use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
 use crate::sub_lib::accountant::WEIS_OF_GWEI;
-use masq_lib::messages::{UiPayableAccount, UiReceivableAccount};
+use masq_lib::messages::{
+    TopRecordsConfig, TopRecordsOrdering, UiPayableAccount, UiReceivableAccount,
+};
 use masq_lib::utils::ExpectValue;
 use rusqlite::{params_from_iter, Row, ToSql};
 use std::cell::RefCell;
@@ -60,9 +62,21 @@ impl DaoFactoryReal {
     }
 }
 
+impl<T> From<TopRecordsConfig> for CustomQuery<T> {
+    fn from(config: TopRecordsConfig) -> Self {
+        CustomQuery::TopRecords {
+            count: config.count,
+            ordered_by: config.ordered_by,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum CustomQuery<N> {
-    TopRecords(u16),
+    TopRecords {
+        count: u16,
+        ordered_by: TopRecordsOrdering,
+    },
     RangeQuery {
         min_age_s: u64,
         max_age_s: u64,
@@ -71,39 +85,72 @@ pub enum CustomQuery<N> {
     },
 }
 
-pub struct RangeConfig {
-    pub main_where_clause: &'static str,
-    pub gwei_limit_clause: &'static str,
-    //note that this limit, even though unchangeable, must be also supplied among other arguments
+pub struct TopStmConfig {
+    limit_clause: &'static str,
+    //this constrain, unlike to the other case, has a clear look and a constant value
+    gwei_min_resolution_clause: &'static str,
+    age_param: &'static str,
+}
+
+impl TopStmConfig {
+    pub fn new(age_param: &'static str) -> Self {
+        Self {
+            limit_clause: "limit ?",
+            gwei_min_resolution_clause: "where balance >= ?",
+            age_param,
+        }
+    }
+}
+
+pub struct RangeStmConfig {
+    pub where_clause: &'static str,
+    pub gwei_min_resolution_clause: &'static str,
+    //note that this constrain, even though unchangeable, must be also supplied among other arguments
     //because otherwise the value won't adopt the rusqlite's specific 128_blob binary format
-    pub gwei_limit_params: Vec<Box<dyn ToSql>>,
+    pub gwei_min_resolution_params: Vec<Box<dyn ToSql>>,
+    pub secondary_order_param: &'static str,
+}
+
+pub struct AssemblerFeeder {
+    pub main_where_clause: &'static str,
+    pub where_clause_extension: &'static str,
+    pub order_by_first_param: &'static str,
+    pub order_by_second_param: &'static str,
+    pub limit_clause: &'static str,
 }
 
 impl<N: Copy + Display> CustomQuery<N> {
     pub fn query<R, S, F1, F2>(
         self,
         conn: &dyn ConnectionWrapper,
-        main_stm_assembler: F1,
-        variant_range: RangeConfig,
-        variant_top: (&str, &str),
+        stm_assembler: F1,
+        variant_top: TopStmConfig,
+        variant_range: RangeStmConfig,
         value_fetcher: F2,
     ) -> Option<Vec<R>>
     where
-        F1: Fn(&str, &str, &str) -> String,
+        F1: Fn(AssemblerFeeder) -> String,
         F2: Fn(&Row) -> rusqlite::Result<R>,
         S: TryFrom<N> + ToSql,
     {
         let (finalized_stm, params) = match self {
-            Self::TopRecords(count) => (
-                {
-                    let (where_clause, limit_clause) = variant_top;
-                    main_stm_assembler(where_clause, "", limit_clause)
-                },
-                vec![
-                    Box::new(WEIS_OF_GWEI) as Box<dyn ToSql>,
-                    Box::new(count as i64),
-                ],
-            ),
+            Self::TopRecords { count, ordered_by } => {
+                let (order_by_first_param, order_by_second_param) =
+                    Self::ordering(ordered_by, variant_top.age_param);
+                (
+                    stm_assembler(AssemblerFeeder {
+                        main_where_clause: variant_top.gwei_min_resolution_clause,
+                        where_clause_extension: "",
+                        order_by_first_param,
+                        order_by_second_param,
+                        limit_clause: variant_top.limit_clause,
+                    }),
+                    vec![
+                        Box::new(WEIS_OF_GWEI) as Box<dyn ToSql>,
+                        Box::new(count as i64),
+                    ],
+                )
+            }
             Self::RangeQuery {
                 min_age_s: min_age,
                 max_age_s: max_age,
@@ -118,14 +165,16 @@ impl<N: Copy + Display> CustomQuery<N> {
                     Box::new(checked_conversion::<N, S>(max_amount)),
                 ]
                 .into_iter()
-                .chain(variant_range.gwei_limit_params.into_iter())
+                .chain(variant_range.gwei_min_resolution_params.into_iter())
                 .collect();
                 (
-                    main_stm_assembler(
-                        variant_range.main_where_clause,
-                        variant_range.gwei_limit_clause,
-                        "",
-                    ),
+                    stm_assembler(AssemblerFeeder {
+                        main_where_clause: variant_range.where_clause,
+                        where_clause_extension: variant_range.gwei_min_resolution_clause,
+                        order_by_first_param: "balance desc",
+                        order_by_second_param: variant_range.secondary_order_param,
+                        limit_clause: "",
+                    }),
                     params,
                 )
             }
@@ -134,7 +183,7 @@ impl<N: Copy + Display> CustomQuery<N> {
             .prepare(&finalized_stm)
             .expect("select statement is wrong")
             .query_map(
-                params_from_iter(params.iter().map(|param| param.as_ref())),
+                params_from_iter(params.iter().map(|param| &*param)),
                 value_fetcher,
             ) {
             Ok(accounts) => {
@@ -142,6 +191,16 @@ impl<N: Copy + Display> CustomQuery<N> {
                 (!vectored.is_empty()).then_some(vectored)
             }
             Err(e) => panic!("database corrupt: {}", e),
+        }
+    }
+
+    fn ordering(
+        ordering: TopRecordsOrdering,
+        age_param: &'static str,
+    ) -> (&'static str, &'static str) {
+        match ordering {
+            TopRecordsOrdering::Age => (age_param, "balance desc"),
+            TopRecordsOrdering::Balance => ("balance desc", age_param),
         }
     }
 }
@@ -186,6 +245,7 @@ mod tests {
     use super::*;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::test_utils::make_wallet;
+    use masq_lib::messages::TopRecordsOrdering::Balance;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, OpenFlags};
     use std::str::FromStr;
@@ -220,17 +280,25 @@ mod tests {
         let conn_read_only =
             Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
         let conn_wrapped = ConnectionWrapperReal::new(conn_read_only);
-        let subject = CustomQuery::<u128>::TopRecords(12);
+        let subject = CustomQuery::<u128>::TopRecords {
+            count: 12,
+            ordered_by: Balance,
+        };
 
         let _ = subject.query::<_, i128, _, _>(
             &conn_wrapped,
-            |_va1: &str, _va2: &str, _vb: &str| "select kind, price from fruits".to_string(),
-            RangeConfig {
-                main_where_clause: "",
-                gwei_limit_clause: "",
-                gwei_limit_params: vec![],
+            |_feeder: AssemblerFeeder| "select kind, price from fruits".to_string(),
+            TopStmConfig {
+                limit_clause: "",
+                gwei_min_resolution_clause: "",
+                age_param: "",
             },
-            ("", ""),
+            RangeStmConfig {
+                where_clause: "",
+                gwei_min_resolution_clause: "",
+                gwei_min_resolution_params: vec![],
+                secondary_order_param: "",
+            },
             |_row| Ok(()),
         );
     }

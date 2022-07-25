@@ -568,27 +568,27 @@ pub struct UiFinancialsRequest {
 }
 conversation_message!(UiFinancialsRequest, "financials");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
 pub struct TopRecordsConfig {
     pub count: u16,
-    #[serde(rename = "sortedBy")]
-    pub sorted_by: TopRecordsSorting,
+    #[serde(rename = "orderedBy")]
+    pub ordered_by: TopRecordsOrdering,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub enum TopRecordsSorting {
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
+pub enum TopRecordsOrdering {
     Age,
     Balance,
 }
 
-impl TryFrom<&str> for TopRecordsSorting {
+impl TryFrom<&str> for TopRecordsOrdering {
     type Error = String;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
         Ok(match value {
             "balance" => Self::Balance,
             "age" => Self::Age,
-            x => return Err(format!("Unrecognized sorting: '{}'", x)),
+            x => return Err(format!("Unrecognized ordering: '{}'", x)),
         })
     }
 }
@@ -1171,22 +1171,22 @@ mod tests {
     }
 
     #[test]
-    fn top_records_sorting_from_str() {
+    fn top_records_ordering_from_str() {
         assert_eq!(
-            TopRecordsSorting::try_from("balance").unwrap(),
-            TopRecordsSorting::Balance
+            TopRecordsOrdering::try_from("balance").unwrap(),
+            TopRecordsOrdering::Balance
         );
         assert_eq!(
-            TopRecordsSorting::try_from("age").unwrap(),
-            TopRecordsSorting::Age
+            TopRecordsOrdering::try_from("age").unwrap(),
+            TopRecordsOrdering::Age
         )
     }
 
     #[test]
-    fn top_records_sorting_from_str_error() {
+    fn top_records_ordering_from_str_error() {
         assert_eq!(
-            TopRecordsSorting::try_from("upside-down"),
-            Err("Unrecognized sorting: 'upside-down'".to_string())
+            TopRecordsOrdering::try_from("upside-down"),
+            Err("Unrecognized ordering: 'upside-down'".to_string())
         );
     }
 }

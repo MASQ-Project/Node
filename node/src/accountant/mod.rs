@@ -957,12 +957,12 @@ impl Accountant {
         } else {
             None
         };
-        let top_records_opt = msg.top_records_opt.map(|count| FirmQueryResult {
+        let top_records_opt = msg.top_records_opt.map(|config| FirmQueryResult {
             payable: self
-                .request_payable_accounts_by_specific_mode(CustomQuery::TopRecords(count))
+                .request_payable_accounts_by_specific_mode(config.into())
                 .unwrap_or_default(),
             receivable: self
-                .request_receivable_accounts_by_specific_mode(CustomQuery::TopRecords(count))
+                .request_receivable_accounts_by_specific_mode(config.into())
                 .unwrap_or_default(),
         });
         let custom_query_records_opt =
@@ -1467,8 +1467,9 @@ mod tests {
     use web3::types::U256;
 
     use masq_lib::messages::{
-        CustomQueries, FirmQueryResult, RangeQuery, ScanType, UiFinancialStatistics,
-        UiMessageError, UiPayableAccount, UiReceivableAccount, UiScanRequest, UiScanResponse,
+        CustomQueries, FirmQueryResult, RangeQuery, ScanType, TopRecordsConfig,
+        UiFinancialStatistics, UiMessageError, UiPayableAccount, UiReceivableAccount,
+        UiScanRequest, UiScanResponse,
     };
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -1513,6 +1514,7 @@ mod tests {
         SystemKillerActor,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
+    use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use web3::types::{TransactionReceipt, H256};
 
@@ -5045,7 +5047,7 @@ mod tests {
     }
 
     #[test]
-    fn compute_financials_processes_request_with_top_records_only() {
+    fn compute_financials_processes_request_with_top_records_only_and_balance_sorting() {
         let payable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_accounts_retrieved = vec![PayableAccount {
@@ -5083,7 +5085,10 @@ mod tests {
         let context_id_expected = 1234;
         let request = UiFinancialsRequest {
             stats_required: false,
-            top_records_opt: Some(6),
+            top_records_opt: Some(TopRecordsConfig {
+                count: 6,
+                ordered_by: Balance,
+            }),
             custom_queries_opt: None,
         };
         let before = SystemTime::now();
@@ -5147,12 +5152,79 @@ mod tests {
         let payable_custom_query_params = payable_custom_query_params_arc.lock().unwrap();
         assert_eq!(
             *payable_custom_query_params,
-            vec![CustomQuery::TopRecords(6)]
+            vec![CustomQuery::TopRecords {
+                count: 6,
+                ordered_by: Balance
+            }]
         );
         let receivable_custom_query_params = receivable_custom_query_params_arc.lock().unwrap();
         assert_eq!(
             *receivable_custom_query_params,
-            vec![CustomQuery::TopRecords(6)]
+            vec![CustomQuery::TopRecords {
+                count: 6,
+                ordered_by: Balance
+            }]
+        )
+    }
+
+    #[test]
+    fn compute_financials_processes_request_with_top_records_only_and_age_sorting() {
+        let payable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
+        let receivable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
+        let payable_dao = PayableDaoMock::new()
+            .custom_query_params(&payable_custom_query_params_arc)
+            .custom_query_result(None);
+        let receivable_dao = ReceivableDaoMock::new()
+            .custom_query_params(&receivable_custom_query_params_arc)
+            .custom_query_result(None);
+        let subject = AccountantBuilder::default()
+            .bootstrapper_config(bc_from_ac_plus_earning_wallet(
+                make_populated_accountant_config_with_defaults(),
+                make_wallet("some_wallet_address"),
+            ))
+            .receivable_dao(receivable_dao)
+            .payable_dao(payable_dao)
+            .build();
+        let context_id_expected = 1234;
+        let request = UiFinancialsRequest {
+            stats_required: false,
+            top_records_opt: Some(TopRecordsConfig {
+                count: 80,
+                ordered_by: Age,
+            }),
+            custom_queries_opt: None,
+        };
+
+        let result = subject.compute_financials(&request, context_id_expected);
+
+        let (response, context_id) = UiFinancialsResponse::fmb(result).unwrap();
+        assert_eq!(context_id, context_id_expected);
+        assert_eq!(
+            response,
+            UiFinancialsResponse {
+                stats_opt: None,
+                top_records_opt: Some(FirmQueryResult {
+                    payable: vec![],
+                    receivable: vec![]
+                }),
+                custom_query_records_opt: None
+            }
+        );
+        let payable_custom_query_params = payable_custom_query_params_arc.lock().unwrap();
+        assert_eq!(
+            *payable_custom_query_params,
+            vec![CustomQuery::TopRecords {
+                count: 80,
+                ordered_by: Age
+            }]
+        );
+        let receivable_custom_query_params = receivable_custom_query_params_arc.lock().unwrap();
+        assert_eq!(
+            *receivable_custom_query_params,
+            vec![CustomQuery::TopRecords {
+                count: 80,
+                ordered_by: Age
+            }]
         )
     }
 

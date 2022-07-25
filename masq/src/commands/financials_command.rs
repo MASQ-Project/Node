@@ -420,7 +420,7 @@ impl FinancialsCommand {
             count: str
                 .parse::<u16>()
                 .expect("top records count not properly validated"),
-            sorted_by: matches
+            ordered_by: matches
                 .value_of("sorted")
                 .expect("should be required and defaulted")
                 .try_into()
@@ -1018,7 +1018,7 @@ mod tests {
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{
-        CustomQueryResult, FirmQueryResult, ToMessageBody, TopRecordsSorting,
+        CustomQueryResult, FirmQueryResult, ToMessageBody, TopRecordsOrdering,
         UiFinancialStatistics, UiFinancialsResponse, UiPayableAccount, UiReceivableAccount,
     };
     use masq_lib::utils::array_of_borrows_to_vec;
@@ -1299,7 +1299,7 @@ mod tests {
                     stats_required: false,
                     top_records_opt: Some(TopRecordsConfig {
                         count: 123,
-                        sorted_by: TopRecordsSorting::Balance
+                        ordered_by: TopRecordsOrdering::Balance
                     }),
                     custom_queries_opt: None
                 }
@@ -1388,7 +1388,7 @@ mod tests {
                     stats_required: false,
                     top_records_opt: Some(TopRecordsConfig {
                         count: 7,
-                        sorted_by: TopRecordsSorting::Age
+                        ordered_by: TopRecordsOrdering::Age
                     }),
                     custom_queries_opt: None
                 }
@@ -1409,7 +1409,7 @@ mod tests {
             result,
             Some(TopRecordsConfig {
                 count: 11,
-                sorted_by: TopRecordsSorting::Balance
+                ordered_by: TopRecordsOrdering::Balance
             })
         )
     }
@@ -1803,7 +1803,7 @@ mod tests {
                     stats_required: true,
                     top_records_opt: Some(TopRecordsConfig {
                         count: 123,
-                        sorted_by: TopRecordsSorting::Balance
+                        ordered_by: TopRecordsOrdering::Balance
                     }),
                     custom_queries_opt: None
                 }
@@ -1937,7 +1937,7 @@ mod tests {
                     stats_required: true,
                     top_records_opt: Some(TopRecordsConfig {
                         count: 123,
-                        sorted_by: TopRecordsSorting::Balance
+                        ordered_by: TopRecordsOrdering::Balance
                     }),
                     custom_queries_opt: None
                 }
@@ -2166,7 +2166,7 @@ mod tests {
                     stats_required: true,
                     top_records_opt: Some(TopRecordsConfig {
                         count: 10,
-                        sorted_by: TopRecordsSorting::Balance
+                        ordered_by: TopRecordsOrdering::Balance
                     }),
                     custom_queries_opt: None
                 }
@@ -2356,7 +2356,7 @@ mod tests {
                     stats_required: false,
                     top_records_opt: Some(TopRecordsConfig {
                         count: 7,
-                        sorted_by: TopRecordsSorting::Balance
+                        ordered_by: TopRecordsOrdering::Balance
                     }),
                     custom_queries_opt: None
                 }
