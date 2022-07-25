@@ -811,46 +811,6 @@ impl FinancialsCommand {
         })
     }
 
-    //TODO we might do this more simply...converting all to strings first...
-    fn count_length_with_comma_separators<N: Display>(value: N, is_plain_integer: bool) -> usize {
-        fn add_in_commas_count(integer_length: usize) -> usize {
-            let triple_chars = integer_length / 3;
-            let possible_reminder = integer_length % 3;
-            if possible_reminder == 0 {
-                triple_chars * 3 + triple_chars - 1
-            } else {
-                triple_chars * 3 + possible_reminder + triple_chars
-            }
-        }
-        let string_like = value.to_string();
-        let gross_length = string_like.len();
-        let is_negative = &string_like[0..=0] == "-";
-        let unsigned_num_length = if is_negative {
-            gross_length - 1
-        } else {
-            gross_length
-        };
-        let unsigned_processed = if is_plain_integer {
-            add_in_commas_count(unsigned_num_length)
-        } else {
-            if unsigned_num_length <= 7 {
-                return if !is_negative {
-                    6 //means '< 0.01'
-                } else {
-                    13 //means '-0.01 < x < 0'
-                };
-            } else if unsigned_num_length == 8 {
-                4
-            } else if unsigned_num_length == 9 {
-                4
-            } else {
-                let integer_part_length = unsigned_num_length - 9;
-                add_in_commas_count(integer_part_length) + 3
-            }
-        };
-        unsigned_processed + if !is_negative { 0 } else { 1 }
-    }
-
     fn triple_or_single_blank_line(stdout: &mut dyn Write, leading_dump: bool) {
         if leading_dump {
             short_writeln!(stdout)
@@ -1648,97 +1608,6 @@ mod tests {
     }
 
     #[test]
-    fn count_length_with_comma_separators_works_for_integers_and_exact_triples() {
-        let number = 200_560_800_u64;
-
-        let result = FinancialsCommand::count_length_with_comma_separators(number, true);
-
-        assert_eq!(result, 11)
-    }
-
-    #[test]
-    fn count_length_with_comma_separators_works_for_integers_and_incomplete_triples() {
-        let number = 12_200_560_800_u64;
-
-        let result = FinancialsCommand::count_length_with_comma_separators(number, true);
-
-        assert_eq!(result, 14)
-    }
-
-    #[test]
-    fn count_length_with_comma_separators_works_for_mask_format_a_few_thousandths_of_mask() {
-        let number = 4_560_800_u64;
-
-        let result = FinancialsCommand::count_length_with_comma_separators(number, false);
-
-        assert_eq!(result, 6) //means '< 0.01'
-    }
-
-    #[test]
-    fn count_length_with_comma_separators_works_for_mask_format_a_few_hundredths_of_mask() {
-        let number = 80_560_800_u64;
-
-        let result = FinancialsCommand::count_length_with_comma_separators(number, false);
-
-        assert_eq!(result, 4)
-    }
-
-    #[test]
-    fn count_length_with_comma_separators_works_for_masq_format_a_few_tenths_of_masq() {
-        let number = 200_560_800_u64;
-
-        let result = FinancialsCommand::count_length_with_comma_separators(number, false);
-
-        assert_eq!(result, 4)
-    }
-
-    #[test]
-    fn count_length_with_comma_separators_works_for_masq_and_complete_triples() {
-        let number = 456_456_200_560_800_u64;
-
-        let result = FinancialsCommand::count_length_with_comma_separators(number, false);
-
-        assert_eq!(result, 10)
-    }
-
-    #[test]
-    fn count_length_with_comma_separators_works_for_masq_format_and_incomplete_triples() {
-        let number = 2_200_568_560_800_u64;
-
-        let result = FinancialsCommand::count_length_with_comma_separators(number, false);
-
-        assert_eq!(result, 8)
-    }
-
-    #[test]
-    fn count_length_with_comma_separators_works_for_masq_negative_number() {
-        let number = -2_200_568_560_800_i64;
-
-        let result = FinancialsCommand::count_length_with_comma_separators(number, false);
-
-        assert_eq!(result, 9)
-    }
-
-    #[test]
-    fn count_length_with_comma_separators_works_for_masq_negative_number_smaller_than_one() {
-        let number = -68_560_800_i64;
-
-        let result = FinancialsCommand::count_length_with_comma_separators(number, false);
-
-        assert_eq!(result, 5)
-    }
-
-    #[test]
-    fn count_length_with_comma_separators_works_for_masq_negative_number_smaller_than_resolution_of_rendered_masqs(
-    ) {
-        let number = -68_800_i64;
-
-        let result = FinancialsCommand::count_length_with_comma_separators(number, false);
-
-        assert_eq!(result, 13) //means '-0.01 < x < 0'
-    }
-
-    #[test]
     fn proper_decimal_format_expect_only_one_and_two() {
         fn test_body(num: usize) -> String {
             let panic = catch_unwind(|| FinancialsCommand::proper_decimal_format("456565", num))
@@ -2526,7 +2395,7 @@ mod tests {
                     UiPayableAccount {
                         wallet: "0x6e250504DdfFDb986C4F0bb8Df162503B4118b05".to_string(),
                         age: 4445,
-                        balance_gwei: 9898999888,
+                        balance_gwei: 3862654858938090,
                         pending_payable_hash_opt: Some(
                             "0x5fe272ed1e941cc05fbd624ec4b1546cd03c25d53e24ba2c18b11feb83cd4581"
                                 .to_string(),
@@ -2591,7 +2460,7 @@ mod tests {
                 Specific payable query: 3000-40000 sec 88-1000 MASQ\n\
                 \n\
                 #   Wallet                                       Age [s]     Balance [MASQ]   Pending tx                                                        \n\
-                1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   4,445       9.89             0x5fe272ed1e941cc05fbd624ec4b1546cd03c25d53e24ba2c18b11feb83cd4581\n\
+                1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   4,445       3,862,654.85     0x5fe272ed1e941cc05fbd624ec4b1546cd03c25d53e24ba2c18b11feb83cd4581\n\
                 2   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   70,000      < 0.01           None                                                              \n\
                 3   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   6,089,909   < 0.01           None                                                              \n"
         );
@@ -2672,58 +2541,6 @@ mod tests {
                 1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   4,445       9,898,999,888 \n\
                 2   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   70,000      708,090       \n\
                 3   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   6,089,909   66,658        \n"
-        );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
-    }
-
-    #[test]
-    fn financials_returned_big_gwei_values_do_not_affect_the_column_width_for_values_in_masqs() {
-        let expected_response = UiFinancialsResponse {
-            stats_opt: None,
-            top_records_opt: None,
-            custom_query_records_opt: Some(CustomQueryResult {
-                payable_opt: Some(vec![UiPayableAccount {
-                    wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
-                    age: 70000,
-                    balance_gwei: 3862654858809045,
-                    pending_payable_hash_opt: None,
-                }]),
-                receivable_opt: Some(vec![UiReceivableAccount {
-                    wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
-                    age: 6089909,
-                    balance_gwei: 66658454845151517,
-                }]),
-            }),
-        };
-        let args = array_of_borrows_to_vec(&[
-            "financials",
-            "--receivable",
-            "3000-40000|88-1000",
-            "--payable",
-            "3000-40000|88-1000",
-            "--no-stats",
-        ]);
-        let mut context = CommandContextMock::new().transact_result(Ok(expected_response.tmb(31)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
-        let subject = FinancialsCommand::new(&args).unwrap();
-
-        let _ = subject.execute(&mut context).unwrap();
-
-        assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
-            "\n\
-                Specific payable query: 3000-40000 sec 88-1000 MASQ\n\
-                \n\
-                #   Wallet                                       Age [s]   Balance [MASQ]   Pending tx\n\
-                1   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   70,000    3,862,654.85     None      \n\
-                \n\
-                \n\
-                \n\
-                Specific receivable query: 3000-40000 sec 88-1000 MASQ\n\
-                \n\
-                #   Wallet                                       Age [s]     Balance [MASQ]\n\
-                1   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   6,089,909   66,658,454.84 \n"
         );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
