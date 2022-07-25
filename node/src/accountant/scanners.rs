@@ -115,7 +115,7 @@ pub(in crate::accountant) mod scanners {
             response_skeleton_opt: Option<ResponseSkeleton>,
             ctx: &mut Context<Accountant>,
         ) -> Result<BeginMessage, Error> {
-            todo!("Begin Scan for PayableScanner");
+            todo!("Implement PayableScanner");
             // common::start_scan_at(&mut self.common, timestamp);
             // let start_message = BeginScanAMessage {};
             // // Use the DAO, if necessary, to populate start_message
@@ -161,7 +161,7 @@ pub(in crate::accountant) mod scanners {
             response_skeleton_opt: Option<ResponseSkeleton>,
             ctx: &mut Context<Accountant>,
         ) -> Result<BeginMessage, Error> {
-            todo!()
+            todo!("Implement PendingPayableScanner")
         }
 
         fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error> {
@@ -237,7 +237,7 @@ pub(in crate::accountant) mod scanners {
             response_skeleton_opt: Option<ResponseSkeleton>,
             ctx: &mut Context<Accountant>,
         ) -> Result<BeginMessage, Error> {
-            todo!()
+            todo!("Implement NullScanner")
         }
 
         fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error> {

@@ -189,6 +189,11 @@ pub struct PayableDaoFactoryMock {
 
 impl PayableDaoFactory for PayableDaoFactoryMock {
     fn make(&self) -> Box<dyn PayableDao> {
+        if self.make_results.borrow().len() == 0 {
+            panic!(
+                "PayableDao Missing. This problem mostly occurs when PayableDao is only supplied for Accountant and not for the Scanner while building Accountant."
+            )
+        };
         self.make_params.lock().unwrap().push(());
         self.make_results.borrow_mut().remove(0)
     }
@@ -220,6 +225,11 @@ pub struct ReceivableDaoFactoryMock {
 
 impl ReceivableDaoFactory for ReceivableDaoFactoryMock {
     fn make(&self) -> Box<dyn ReceivableDao> {
+        if self.make_results.borrow().len() == 0 {
+            panic!(
+                "ReceivableDao Missing. This problem mostly occurs when ReceivableDao is only supplied for Accountant and not for the Scanner while building Accountant."
+            )
+        };
         self.make_params.lock().unwrap().push(());
         self.make_results.borrow_mut().remove(0)
     }
@@ -836,6 +846,11 @@ pub struct PendingPayableDaoFactoryMock {
 
 impl PendingPayableDaoFactory for PendingPayableDaoFactoryMock {
     fn make(&self) -> Box<dyn PendingPayableDao> {
+        if self.make_results.borrow().len() == 0 {
+            panic!(
+                "PendingPayableDao Missing. This problem mostly occurs when PendingPayableDao is only supplied for Accountant and not for the Scanner while building Accountant."
+            )
+        };
         self.make_params.lock().unwrap().push(());
         self.make_results.borrow_mut().remove(0)
     }
