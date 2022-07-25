@@ -160,7 +160,7 @@ impl ExtendedParamsMarker for BalanceChange {
         self
     }
 }
-impl ExtendedParamsMarker for ParamKeyHolder<'_> {
+impl ExtendedParamsMarker for KeyParamHolder<'_> {
     fn key_name_opt(&self) -> Option<String> {
         Some(self.key_param.0.to_string())
     }
@@ -308,11 +308,11 @@ impl Display for BalanceChange {
     }
 }
 
-pub struct ParamKeyHolder<'a> {
+pub struct KeyParamHolder<'a> {
     key_param: (&'a str, &'a dyn ExtendedParamsMarker),
 }
 
-impl<'a> ParamKeyHolder<'a> {
+impl<'a> KeyParamHolder<'a> {
     pub fn new(inner_value: &'a dyn ExtendedParamsMarker, key_parameter_name: &'a str) -> Self {
         Self {
             key_param: (key_parameter_name, inner_value),
@@ -320,13 +320,13 @@ impl<'a> ParamKeyHolder<'a> {
     }
 }
 
-impl ToSql for ParamKeyHolder<'_> {
+impl ToSql for KeyParamHolder<'_> {
     fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
         self.key_param.1.to_sql()
     }
 }
 
-impl Display for ParamKeyHolder<'_> {
+impl Display for KeyParamHolder<'_> {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(f, "{}", self.key_param.1)
     }
@@ -474,7 +474,7 @@ mod tests {
     #[test]
     fn fetch_key_works() {
         let wallet = make_wallet("blah");
-        let key_holder = ParamKeyHolder::new(&wallet, "wallet");
+        let key_holder = KeyParamHolder::new(&wallet, "wallet");
         let params: ExtendedParamsVec = &vec![
             (":something", &"yo-yo"),
             (":wonderful_wallet", &key_holder),
@@ -493,8 +493,8 @@ mod tests {
     #[should_panic(expected = "only one key parameter is allowed")]
     fn we_support_only_one_key_a_time_now() {
         let wallet = make_wallet("blah");
-        let key_holder_1 = ParamKeyHolder::new(&wallet, "param_name");
-        let key_holder_2 = ParamKeyHolder::new(&66_i64, "param_name_2");
+        let key_holder_1 = KeyParamHolder::new(&wallet, "param_name");
+        let key_holder_2 = KeyParamHolder::new(&66_i64, "param_name_2");
         let params: ExtendedParamsVec = &vec![
             (":something", &"yo-yo"),
             (":wonderful_wallet", &key_holder_1),
@@ -579,11 +579,11 @@ mod tests {
     }
 
     #[test]
-    fn display_for_param_key_holder_works() {
+    fn display_for_key_param_holder_works() {
         let wallet = make_wallet("booga");
-        let key_holder_with_wallet = ParamKeyHolder::new(&wallet, "wallet_address");
+        let key_holder_with_wallet = KeyParamHolder::new(&wallet, "wallet_address");
         let rowid = 56_i64;
-        let key_holder_with_rowid = ParamKeyHolder::new(&rowid, "pending_payable_rowid");
+        let key_holder_with_rowid = KeyParamHolder::new(&rowid, "pending_payable_rowid");
 
         assert_eq!(key_holder_with_wallet.to_string(), wallet.to_string());
         assert_eq!(key_holder_with_rowid.to_string(), rowid.to_string())
@@ -593,8 +593,8 @@ mod tests {
     fn to_sql_for_param_key_holder_works() {
         let value_1 = make_wallet("boooga");
         let value_2 = 235_i64;
-        let key_holder_1 = ParamKeyHolder::new(&value_1, "random_wallet");
-        let key_holder_2 = ParamKeyHolder::new(&value_2, "random_parameter");
+        let key_holder_1 = KeyParamHolder::new(&value_1, "random_wallet");
+        let key_holder_2 = KeyParamHolder::new(&value_2, "random_parameter");
 
         let result_1 = key_holder_1.to_sql();
         let result_2 = key_holder_2.to_sql();
@@ -615,9 +615,9 @@ mod tests {
     }
 
     #[test]
-    fn get_key_for_param_key_holder_is_something() {
+    fn getter_for_key_param_holder_returns_something_reasonable() {
         //notice that i64 alone returns None but inside this holder it is Some()...
-        let key_object = ParamKeyHolder::new(&8989_i64, "balance").key_name_opt();
+        let key_object = KeyParamHolder::new(&8989_i64, "balance").key_name_opt();
 
         let in_table_param_name = key_object.unwrap();
         assert_eq!(in_table_param_name, "balance".to_string());
@@ -642,7 +642,7 @@ mod tests {
     #[test]
     fn update_handles_error_for_insert_update_config() {
         let wallet_address = "a11122";
-        let wallet_as_key = ParamKeyHolder::new(&wallet_address, "wallet_address");
+        let wallet_as_key = KeyParamHolder::new(&wallet_address, "wallet_address");
         let conn = Connection::open_in_memory().unwrap();
         conn.prepare(
             "create table payable
@@ -674,7 +674,7 @@ mod tests {
     #[test]
     fn update_handles_error_on_a_row_due_to_unfitting_data_types() {
         let wallet_address = "a11122";
-        let wallet_as_key = ParamKeyHolder::new(&wallet_address, "wallet_address");
+        let wallet_as_key = KeyParamHolder::new(&wallet_address, "wallet_address");
         let path = ensure_node_home_directory_exists(
             "dao_shared_methods",
             "update_handles_error_on_a_row_due_to_unfitting_data_types",
@@ -707,7 +707,7 @@ mod tests {
     #[test]
     fn update_handles_error_of_bad_sql_params() {
         let wallet_address = "a11122";
-        let wallet_as_key = ParamKeyHolder::new(&wallet_address, "wallet_address");
+        let wallet_as_key = KeyParamHolder::new(&wallet_address, "wallet_address");
         let path = ensure_node_home_directory_exists(
             "dao_shared_methods",
             "update_handles_error_of_bad_sql_params",
@@ -792,7 +792,7 @@ mod tests {
             .execute(&[&60_i128])
             .unwrap();
         let subject = InsertUpdateCoreReal {};
-        let key_holder = ParamKeyHolder::new(&"Joe", "name");
+        let key_holder = KeyParamHolder::new(&"Joe", "name");
         let balance_change = BalanceChange::new_addition(5555);
         let config = InsertUpdateConfig {
             insert_sql: "insert into test_table (name,balance) values (:name,:balance)",
@@ -829,7 +829,7 @@ mod tests {
             .execute(&[&60_i64])
             .unwrap();
         let subject = InsertUpdateCoreReal {};
-        let key_holder = ParamKeyHolder::new(&"Joe", "name");
+        let key_holder = KeyParamHolder::new(&"Joe", "name");
         let balance_change = BalanceChange::new_addition(5555);
         let config = InsertUpdateConfig {
             insert_sql: "insert into test_table (name,balance) values (:name,:balance)",
@@ -860,7 +860,7 @@ mod tests {
             false,
         );
         let subject = InsertUpdateCoreReal {};
-        let key_holder = ParamKeyHolder::new(&"Joe", "name");
+        let key_holder = KeyParamHolder::new(&"Joe", "name");
         let balance_change = BalanceChange::new_addition(5555);
         let config = InsertUpdateConfig {
             insert_sql: "insert into test_table (name,balance) values (:name,:balance)",
@@ -891,7 +891,7 @@ mod tests {
             true,
         );
         let subject = InsertUpdateCoreReal {};
-        let key_holder = ParamKeyHolder::new(&"Joe", "name");
+        let key_holder = KeyParamHolder::new(&"Joe", "name");
         let balance_change = BalanceChange::new_addition(5555);
         let config = InsertUpdateConfig {
             insert_sql: "insert into test_table (name,balance) values (:name,:balance)",

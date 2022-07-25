@@ -2,7 +2,7 @@
 use crate::accountant::blob_utils::Table::Receivable;
 use crate::accountant::blob_utils::{
     collect_and_sum_i128_values_from_table, BalanceChange, InsertUpdateConfig, InsertUpdateCore,
-    InsertUpdateCoreReal, ParamKeyHolder, SQLExtendedParams, Table, UpdateConfig,
+    InsertUpdateCoreReal, KeyParamHolder, SQLExtendedParams, Table, UpdateConfig,
 };
 use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
@@ -111,7 +111,7 @@ impl ReceivableDao for ReceivableDaoReal {
             update_sql: "update receivable set balance = :updated_balance where wallet_address = :wallet",
             params: SQLExtendedParams::new(
                 vec![
-                    (":wallet", &ParamKeyHolder::new(wallet,"wallet_address")),
+                    (":wallet", &KeyParamHolder::new(wallet, "wallet_address")),
                     (":balance", &BalanceChange::new_addition(amount))
                 ]),
             table: Receivable,
@@ -184,13 +184,13 @@ impl ReceivableDao for ReceivableDaoReal {
     }
 
     fn custom_query(&self, custom_query: CustomQuery<i64>) -> Option<Vec<ReceivableAccount>> {
-        let variant_top = TopStmConfig::new("last_received_timestamp"); //TODO balance second ordering untested
+        let variant_top = TopStmConfig::new("last_received_timestamp asc");
 
         let variant_range = RangeStmConfig {
             where_clause: "where last_received_timestamp <= ? and last_received_timestamp >= ? and balance >= ? and balance <= ?",
             gwei_min_resolution_clause: "and (balance >= ? or balance <= ?)",
             gwei_min_resolution_params: vec![Box::new(WEIS_OF_GWEI), Box::new(WEIS_OF_GWEI.neg())],
-            secondary_order_param: "last_received_timestamp" // TODO untested
+            secondary_order_param: "last_received_timestamp asc"
         };
 
         custom_query.query::<_, i128, _, _>(
@@ -341,7 +341,7 @@ impl ReceivableDaoReal {
                     update_sql: "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet",
                     params: SQLExtendedParams::new(
                         vec![
-                            (":wallet", &ParamKeyHolder::new(&transaction.from,"wallet_address")),
+                            (":wallet", &KeyParamHolder::new(&transaction.from, "wallet_address")),
                             //:balance is later in the code transformed into :updated_balance
                             (":balance", &BalanceChange::polite_new_subtraction(transaction.wei_amount).map_err(|e|ReceivableDaoError::SignConversion(SignConversionError::Msg(e)))?),
                             (":last_received", &now_time_t()),
@@ -394,27 +394,6 @@ impl ReceivableDaoReal {
             feeder.limit_clause
         )
     }
-
-    // fn stm_assembler_of_receivable_custom_query(
-    //     condition_a1: &str,
-    //     condition_a2: &str,
-    //     condition_b: &str,
-    // ) -> String {
-    //     format!(
-    //         "select
-    //              wallet_address,
-    //              balance,
-    //              last_received_timestamp
-    //          from
-    //              receivable
-    //          {} {}
-    //          order by
-    //              balance desc,
-    //              last_received_timestamp desc
-    //          {}",
-    //         condition_a1, condition_a2, condition_b
-    //     )
-    // }
 
     fn more_money_received_pretty_error_log(
         &self,
@@ -1317,9 +1296,11 @@ mod tests {
         now: i64,
     ) -> Box<dyn Fn(&dyn Fn(&str, i128, i64))> {
         let timestamp1 = now - 86_480;
-        let timestamp2 = now - 100_000;
-        let timestamp3 = now - 86_000;
-        let timestamp4 = now - 86_111;
+        let timestamp2 = now - 222_000;
+        let timestamp3 = now - 100_000;
+        let timestamp4 = now - 86_000;
+        let timestamp5 = now - 86_111;
+        let timestamp6 = timestamp1;
         Box::new(move |insert: &dyn Fn(&str, i128, i64)| {
             insert(
                 "0x1111111111111111111111111111111111111111",
@@ -1328,24 +1309,37 @@ mod tests {
             );
             insert(
                 "0x2222222222222222222222222222222222222222",
-                920_655_455,
+                1_000_000_001,
                 timestamp2,
             );
             insert(
                 "0x3333333333333333333333333333333333333333",
-                990_000_000, //below 1 Gwei
+                920_655_455,
                 timestamp3,
             );
             insert(
                 "0x4444444444444444444444444444444444444444",
-                32_000_000_200,
+                990_000_000, //below 1 Gwei
                 timestamp4,
+            );
+            insert(
+                "0x5555555555555555555555555555555555555555",
+                1_000_000_000,
+                timestamp5,
+            );
+            insert(
+                "0x6666666666666666666666666666666666666666",
+                32_000_000_200,
+                timestamp6,
             )
         })
     }
 
     #[test]
     fn custom_query_in_top_records_mode_default_sorting() {
+        //Accounts of balances smaller than one gwei don't qualify.
+        //Two accounts differ only in debt's age but not balance which allows to check doubled ordering,
+        //here by balance and then by age.
         let now = now_time_t();
         let main_test_setup = common_setup_of_accounts_for_tests_of_top_records(now);
         let subject = custom_query_test_body_for_receivable(
@@ -1364,9 +1358,14 @@ mod tests {
             result,
             vec![
                 ReceivableAccount {
-                    wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
+                    wallet: Wallet::new("0x6666666666666666666666666666666666666666"),
                     balance_wei: 32_000_000_200,
-                    last_received_timestamp: from_time_t(now - 86_111),
+                    last_received_timestamp: from_time_t(now - 86_480),
+                },
+                ReceivableAccount {
+                    wallet: Wallet::new("0x2222222222222222222222222222222222222222"),
+                    balance_wei: 1_000_000_001,
+                    last_received_timestamp: from_time_t(now - 222_000),
                 },
                 ReceivableAccount {
                     wallet: Wallet::new("0x1111111111111111111111111111111111111111"),
@@ -1379,6 +1378,9 @@ mod tests {
 
     #[test]
     fn custom_query_in_top_records_mode_sorted_by_age() {
+        //Accounts of balances smaller than one gwei don't qualify.
+        //Two accounts differ only in balance but not the debt's age which allows to check doubled ordering,
+        //here by age and then by balance.
         let now = now_time_t();
         let main_test_setup = common_setup_of_accounts_for_tests_of_top_records(now);
         let subject = custom_query_test_body_for_receivable(
@@ -1397,14 +1399,19 @@ mod tests {
             result,
             vec![
                 ReceivableAccount {
-                    wallet: Wallet::new("0x1111111111111111111111111111111111111111"),
+                    wallet: Wallet::new("0x2222222222222222222222222222222222222222"),
                     balance_wei: 1_000_000_001,
+                    last_received_timestamp: from_time_t(now - 222_000),
+                },
+                ReceivableAccount {
+                    wallet: Wallet::new("0x6666666666666666666666666666666666666666"),
+                    balance_wei: 32_000_000_200,
                     last_received_timestamp: from_time_t(now - 86_480),
                 },
                 ReceivableAccount {
-                    wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
-                    balance_wei: 32_000_000_200,
-                    last_received_timestamp: from_time_t(now - 86_111),
+                    wallet: Wallet::new("0x1111111111111111111111111111111111111111"),
+                    balance_wei: 1_000_000_001,
+                    last_received_timestamp: from_time_t(now - 86_480),
                 },
             ]
         );
@@ -1430,10 +1437,14 @@ mod tests {
 
     #[test]
     fn custom_query_in_range_mode() {
+        //Two accounts differ only in debt's age but not balance which allows to check doubled ordering,
+        //by balance and then by age.
         let timestamp1 = now_time_t() - 100_000;
         let timestamp2 = now_time_t() - 86_401;
-        let timestamp3 = now_time_t() - 86_000;
+        let timestamp3 = now_time_t() - 70_000;
         let timestamp4 = now_time_t() - 50_001;
+        let timestamp5 = now_time_t() - 86_000;
+        let timestamp6 = now_time_t() - 66_244;
         let main_test_setup = |insert: &dyn Fn(&str, i128, i64)| {
             insert(
                 "0x1111111111111111111111111111111111111111",
@@ -1454,7 +1465,17 @@ mod tests {
                 "0x4444444444444444444444444444444444444444",
                 1_990_000_200, //too big
                 timestamp4,
-            )
+            );
+            insert(
+                "0x5555555555555555555555555555555555555555",
+                1_000_000_230,
+                timestamp5,
+            );
+            insert(
+                "0x6666666666666666666666666666666666666666",
+                1_050_444_230,
+                timestamp6,
+            );
         };
         let subject =
             custom_query_test_body_for_receivable("custom_query_in_range_mode", main_test_setup);
@@ -1470,11 +1491,23 @@ mod tests {
 
         assert_eq!(
             result,
-            vec![ReceivableAccount {
-                wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
-                balance_wei: 1_000_000_230,
-                last_received_timestamp: from_time_t(timestamp3),
-            }]
+            vec![
+                ReceivableAccount {
+                    wallet: Wallet::new("0x6666666666666666666666666666666666666666"),
+                    balance_wei: 1_050_444_230,
+                    last_received_timestamp: from_time_t(timestamp6),
+                },
+                ReceivableAccount {
+                    wallet: Wallet::new("0x5555555555555555555555555555555555555555"),
+                    balance_wei: 1_000_000_230,
+                    last_received_timestamp: from_time_t(timestamp5),
+                },
+                ReceivableAccount {
+                    wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
+                    balance_wei: 1_000_000_230,
+                    last_received_timestamp: from_time_t(timestamp3),
+                }
+            ]
         );
     }
 
