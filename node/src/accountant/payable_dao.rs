@@ -2,7 +2,7 @@
 
 use crate::accountant::blob_utils::{
     collect_and_sum_i128_values_from_table, get_unsized_128, BalanceChange, InsertUpdateConfig,
-    InsertUpdateCore, InsertUpdateCoreReal, ParamKeyHolder, SQLExtendedParams, Table, UpdateConfig,
+    InsertUpdateCore, InsertUpdateCoreReal, KeyParamHolder, SQLExtendedParams, Table, UpdateConfig,
 };
 use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
@@ -108,7 +108,7 @@ impl PayableDao for PayableDaoReal {
             update_sql: "update payable set balance = :updated_balance where wallet_address = :wallet",
             params: SQLExtendedParams::new(
                 vec![
-                    (":wallet", &ParamKeyHolder::new(wallet,"wallet_address")),
+                    (":wallet", &KeyParamHolder::new(wallet, "wallet_address")),
                     (":balance", &BalanceChange::new_addition(amount))
                 ]),
             table: Table::Payable,
@@ -143,13 +143,15 @@ impl PayableDao for PayableDaoReal {
         &self,
         fingerprint: &PendingPayableFingerprint,
     ) -> Result<(), PayableDaoError> {
+        let key =
+            checked_conversion::<u64, i64>(fingerprint.rowid_opt.expectv("initialized rowid"));
         Ok(self.insert_update_core.update(Either::Left(self.conn.as_ref()), &UpdateConfig{
             update_sql: "update payable set balance = :updated_balance, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid",
             params: SQLExtendedParams::new(
                 vec![
                     (":balance", &BalanceChange::new_subtraction(fingerprint.amount)),
                     (":last_paid", &to_time_t(fingerprint.timestamp)),
-                    (":rowid", &ParamKeyHolder::new(&checked_conversion::<u64, i64>(fingerprint.rowid_opt.expectv("initialized rowid")),"pending_payable_rowid")),
+                    (":rowid", &KeyParamHolder::new(&key, "pending_payable_rowid")),
                 ]),
             table: Table::Payable,
         })?)
@@ -180,13 +182,13 @@ impl PayableDao for PayableDaoReal {
     }
 
     fn custom_query(&self, custom_query: CustomQuery<u64>) -> Option<Vec<PayableAccount>> {
-        let variant_top = TopStmConfig::new("last_paid_timestamp asc"); //TODO balance second ordering untested
+        let variant_top = TopStmConfig::new("last_paid_timestamp asc");
 
         let variant_range = RangeStmConfig {
             where_clause: "where last_paid_timestamp <= ? and last_paid_timestamp >= ? and balance >= ? and balance <= ?",
             gwei_min_resolution_clause: "and balance >= ?",
             gwei_min_resolution_params: vec![Box::new(WEIS_OF_GWEI)],
-            secondary_order_param: "last_paid_timestamp asc" // TODO untested
+            secondary_order_param: "last_paid_timestamp asc"
         };
 
         custom_query.query::<_, i128, _, _>(
@@ -317,31 +319,6 @@ impl PayableDaoReal {
             feeder.limit_clause
         )
     }
-
-    // fn assembler_of_payable_custom_query(
-    //     condition_a1: &str,
-    //     condition_a2: &str,
-    //     condition_b: &str,
-    // ) -> String {
-    //     format!(
-    //         "select
-    //            wallet_address,
-    //            balance,
-    //            last_paid_timestamp,
-    //            pending_payable_rowid,
-    //            pending_payable.transaction_hash
-    //        from
-    //            payable
-    //        left join pending_payable on
-    //            pending_payable.rowid = payable.pending_payable_rowid
-    //        {} {}
-    //        order by
-    //            balance desc,
-    //            last_paid_timestamp desc
-    //        {}",
-    //         condition_a1, condition_a2, condition_b
-    //     )
-    // }
 }
 
 #[cfg(test)]
@@ -784,14 +761,15 @@ mod tests {
     fn common_setup_of_accounts_for_tests_of_top_records(
         now: i64,
     ) -> Box<dyn Fn(&dyn Fn(&str, i128, i64, Option<i64>))> {
-        let timestamp1 = now - 80_000;
+        let timestamp1 = now - 86_401;
         let timestamp2 = now - 86_001;
         let timestamp3 = now - 86_000;
-        let timestamp4 = now - 86_401;
+        let timestamp4 = now - 86_300;
+        let timestamp5 = now - 86_401;
         Box::new(move |insert: &dyn Fn(&str, i128, i64, Option<i64>)| {
             insert(
                 "0x1111111111111111111111111111111111111111",
-                888_005_601,
+                1_000_000_002,
                 timestamp1,
                 None,
             );
@@ -809,8 +787,14 @@ mod tests {
             );
             insert(
                 "0x4444444444444444444444444444444444444444",
-                10_000_000_001,
+                10_000_000_100,
                 timestamp4,
+                None,
+            );
+            insert(
+                "0x5555555555555555555555555555555555555555",
+                10_000_000_100,
+                timestamp5,
                 Some(1),
             );
         })
@@ -818,6 +802,9 @@ mod tests {
 
     #[test]
     fn custom_query_in_top_records_mode_with_default_sorting() {
+        //Accounts of balances smaller than one gwei don't qualify.
+        //Two accounts differ only in debt's age but not balance which allows to check doubled ordering,
+        //here by balance and then by age.
         let now = now_time_t();
         let main_test_setup = common_setup_of_accounts_for_tests_of_top_records(now);
         let subject = custom_query_test_body_for_payable(
@@ -842,8 +829,8 @@ mod tests {
                     pending_payable_opt: None
                 },
                 PayableAccount {
-                    wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
-                    balance_wei: 10_000_000_001,
+                    wallet: Wallet::new("0x5555555555555555555555555555555555555555"),
+                    balance_wei: 10_000_000_100,
                     last_paid_timestamp: from_time_t(now - 86_401),
                     pending_payable_opt: Some(PendingPayableId {
                         rowid: 1,
@@ -853,12 +840,21 @@ mod tests {
                         .unwrap()
                     })
                 },
+                PayableAccount {
+                    wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
+                    balance_wei: 10_000_000_100,
+                    last_paid_timestamp: from_time_t(now - 86_300),
+                    pending_payable_opt: None
+                },
             ]
         );
     }
 
     #[test]
     fn custom_query_in_top_records_mode_sorted_by_age() {
+        //Accounts of balances smaller than one gwei don't qualify.
+        //Two accounts differ only in balance but not in the debt's age which allows to check doubled ordering,
+        //here by age and then by balance.
         let now = now_time_t();
         let main_test_setup = common_setup_of_accounts_for_tests_of_top_records(now);
         let subject = custom_query_test_body_for_payable(
@@ -877,8 +873,8 @@ mod tests {
             result,
             vec![
                 PayableAccount {
-                    wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
-                    balance_wei: 10_000_000_001,
+                    wallet: Wallet::new("0x5555555555555555555555555555555555555555"),
+                    balance_wei: 10_000_000_100,
                     last_paid_timestamp: from_time_t(now - 86_401),
                     pending_payable_opt: Some(PendingPayableId {
                         rowid: 1,
@@ -889,9 +885,15 @@ mod tests {
                     })
                 },
                 PayableAccount {
-                    wallet: Wallet::new("0x2222222222222222222222222222222222222222"),
-                    balance_wei: 7_562_000_300_000,
-                    last_paid_timestamp: from_time_t(now - 86_001),
+                    wallet: Wallet::new("0x1111111111111111111111111111111111111111"),
+                    balance_wei: 1_000_000_002,
+                    last_paid_timestamp: from_time_t(now - 86_401),
+                    pending_payable_opt: None
+                },
+                PayableAccount {
+                    wallet: Wallet::new("0x4444444444444444444444444444444444444444"),
+                    balance_wei: 10_000_000_100,
+                    last_paid_timestamp: from_time_t(now - 86_300),
                     pending_payable_opt: None
                 },
             ]
@@ -918,12 +920,15 @@ mod tests {
 
     #[test]
     fn custom_query_in_range_mode() {
+        //Two accounts differ only in debt's age but not balance which allows to check doubled ordering,
+        //by balance and then by age.
         let timestamp1 = dao_utils::now_time_t() - 70_000;
-        let timestamp2 = dao_utils::now_time_t() - 100_401;
+        let timestamp2 = dao_utils::now_time_t() - 55_120;
         let timestamp3 = dao_utils::now_time_t() - 330_000;
         let timestamp4 = dao_utils::now_time_t() - 11_001;
         let timestamp5 = dao_utils::now_time_t() - 30_786;
-        let timestamp6 = dao_utils::now_time_t() - 55_120;
+        let timestamp6 = dao_utils::now_time_t() - 100_401;
+        let timestamp7 = dao_utils::now_time_t() - 80_333;
         let main_setup = |insert: &dyn Fn(&str, i128, i64, Option<i64>)| {
             insert(
                 "0x1111111111111111111111111111111111111111",
@@ -933,7 +938,7 @@ mod tests {
             );
             insert(
                 "0x2222222222222222222222222222222222222222",
-                30_000_300_000,
+                1_800_456_000,
                 timestamp2,
                 Some(1),
             );
@@ -961,6 +966,12 @@ mod tests {
                 timestamp6,
                 None,
             );
+            insert(
+                "0x7777777777777777777777777777777777777777",
+                2_500_647_000,
+                timestamp7,
+                None,
+            );
         };
         let subject = custom_query_test_body_for_payable("custom_query_in_range_mode", main_setup);
 
@@ -977,8 +988,20 @@ mod tests {
             result,
             vec![
                 PayableAccount {
+                    wallet: Wallet::new("0x7777777777777777777777777777777777777777"),
+                    balance_wei: 2_500_647_000,
+                    last_paid_timestamp: from_time_t(timestamp7),
+                    pending_payable_opt: None
+                },
+                PayableAccount {
+                    wallet: Wallet::new("0x6666666666666666666666666666666666666666"),
+                    balance_wei: 1_800_456_000,
+                    last_paid_timestamp: from_time_t(timestamp6),
+                    pending_payable_opt: None
+                },
+                PayableAccount {
                     wallet: Wallet::new("0x2222222222222222222222222222222222222222"),
-                    balance_wei: 30_000_300_000,
+                    balance_wei: 1_800_456_000,
                     last_paid_timestamp: from_time_t(timestamp2),
                     pending_payable_opt: Some(PendingPayableId {
                         rowid: 1,
@@ -987,12 +1010,6 @@ mod tests {
                         )
                         .unwrap()
                     })
-                },
-                PayableAccount {
-                    wallet: Wallet::new("0x6666666666666666666666666666666666666666"),
-                    balance_wei: 1_800_456_000,
-                    last_paid_timestamp: from_time_t(timestamp6),
-                    pending_payable_opt: None
                 }
             ]
         );
