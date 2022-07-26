@@ -1077,7 +1077,12 @@ impl Neighborhood {
             minimum_hops,
             payload_size,
             direction,
-            &mut minimum_undesirability)
+            &mut minimum_undesirability
+        )
+        .into_iter()
+        .filter (|cr| cr.undesirability <= minimum_undesirability)
+        .map (|cr| cr.nodes)
+        .collect()
     }
 
     fn complete_routes_inner<'a>(
@@ -1089,7 +1094,7 @@ impl Neighborhood {
         payload_size: usize,
         direction: RouteDirection,
         minimum_undesirability: &mut i64,
-    ) -> Vec<Vec<&'a PublicKey>> {
+    ) -> Vec<ComputedRoute<'a>> {
         if undesirability > *minimum_undesirability {
             return vec![];
         }
@@ -1110,7 +1115,7 @@ impl Neighborhood {
             if undesirability < *minimum_undesirability {
                 *minimum_undesirability = undesirability;
             }
-            vec![prefix]
+            vec![ComputedRoute::new(prefix, undesirability)]
         } else if (hops_remaining == 0) && target_opt.is_none() {
             // don't continue a targetless search past the minimum hop count
             vec![]
@@ -1310,6 +1315,17 @@ enum LinkType {
     Relay,
     Exit,
     Origin,
+}
+
+struct ComputedRoute<'a> {
+    pub nodes: Vec<&'a PublicKey>,
+    pub undesirability: i64,
+}
+
+impl<'a> ComputedRoute<'a> {
+    pub fn new (nodes: Vec<&'a PublicKey>, undesirability: i64) -> Self {
+        Self {nodes, undesirability}
+    }
 }
 
 #[cfg(test)]
