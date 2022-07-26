@@ -895,12 +895,12 @@ impl Accountant {
             self.logger,
             "Accruing debt to wallet {} for consuming exit service {} bytes",
             msg.exit_service.earning_wallet,
-            msg.payload_size
+            msg.exit_service.payload_size
         );
         self.record_service_consumed(
             msg.exit_service.service_rate,
             msg.exit_service.byte_rate,
-            msg.payload_size,
+            msg.exit_service.payload_size,
             &msg.exit_service.earning_wallet,
         );
         msg.routing.iter().for_each(|routing_service| {
@@ -908,12 +908,12 @@ impl Accountant {
                 self.logger,
                 "Accruing debt to wallet {} for consuming routing service {} bytes",
                 routing_service.earning_wallet,
-                msg.payload_size
+                msg.routing_payload_size
             );
             self.record_service_consumed(
                 routing_service.service_rate,
                 routing_service.byte_rate,
-                msg.payload_size,
+                msg.routing_payload_size,
                 &routing_service.earning_wallet,
             );
         })
@@ -3180,23 +3180,21 @@ mod tests {
         let earning_wallet_routing_2 = make_wallet("routing 2");
         subject_addr
             .try_send(ReportServicesConsumedMessage {
-                payload_size: 3456,
                 exit_service: ExitServiceConsumed {
                     earning_wallet: earning_wallet_exit.clone(),
                     payload_size: 0,
                     service_rate: 120,
                     byte_rate: 30,
                 },
+                routing_payload_size: 1234,
                 routing: vec![
                     RoutingServiceConsumed {
                         earning_wallet: earning_wallet_routing_1.clone(),
-                        payload_size: 1234,
                         service_rate: 42,
                         byte_rate: 24,
                     },
                     RoutingServiceConsumed {
                         earning_wallet: earning_wallet_routing_2.clone(),
-                        payload_size: 1234,
                         service_rate: 52,
                         byte_rate: 33,
                     },

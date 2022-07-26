@@ -125,6 +125,8 @@ impl Handler<NewPublicIp> for Neighborhood {
     }
 }
 
+//TODO comes across as basically dead code
+// I think the idea was to supply the wallet if wallets hadn't been generated until recently during the ongoing Node's run
 impl Handler<SetConsumingWalletMessage> for Neighborhood {
     type Result = ();
 
