@@ -24,10 +24,10 @@ use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransac
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_migrations::MigratorConfig;
-use crate::sub_lib::accountant::ReportExitServiceConsumed;
+use crate::sub_lib::accountant::ExitServiceConsumed;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
-use crate::sub_lib::accountant::ReportRoutingServiceConsumed;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
+use crate::sub_lib::accountant::RoutingServiceConsumed;
 use crate::sub_lib::accountant::{AccountantConfig, FinancialStatistics, PaymentThresholds};
 use crate::sub_lib::accountant::{AccountantSubs, ReportServicesConsumedMessage};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
@@ -891,22 +891,18 @@ impl Accountant {
     }
 
     fn handle_report_services_consumed_message(&mut self, msg: ReportServicesConsumedMessage) {
-        if let Some(exit_service) = msg.exit_service_opt {
-            debug!(
-                self.logger,
-                "Accruing debt to wallet {} for consuming exit service {} bytes",
-                exit_service.earning_wallet,
-                msg.payload_size
-            );
-            self.record_service_consumed(
-                exit_service.service_rate,
-                exit_service.byte_rate,
-                msg.payload_size,
-                &exit_service.earning_wallet,
-            );
-        } else {
-            todo!("remove this todo later, but test this situation somehow")
-        }
+        debug!(
+            self.logger,
+            "Accruing debt to wallet {} for consuming exit service {} bytes",
+            msg.exit_service.earning_wallet,
+            msg.payload_size
+        );
+        self.record_service_consumed(
+            msg.exit_service.service_rate,
+            msg.exit_service.byte_rate,
+            msg.payload_size,
+            &msg.exit_service.earning_wallet,
+        );
         msg.routing.iter().for_each(|routing_service| {
             debug!(
                 self.logger,
@@ -1317,7 +1313,7 @@ mod tests {
     use crate::database::dao_utils::from_time_t;
     use crate::database::dao_utils::to_time_t;
     use crate::sub_lib::accountant::{
-        ReportRoutingServiceConsumed, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
+        RoutingServiceConsumed, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::sub_lib::utils::{NotifyHandleReal, NotifyLaterHandleReal};
@@ -3185,20 +3181,20 @@ mod tests {
         subject_addr
             .try_send(ReportServicesConsumedMessage {
                 payload_size: 3456,
-                exit_service_opt: Some(ReportExitServiceConsumed {
+                exit_service: ExitServiceConsumed {
                     earning_wallet: earning_wallet_exit.clone(),
                     payload_size: 0,
                     service_rate: 120,
                     byte_rate: 30,
-                }),
+                },
                 routing: vec![
-                    ReportRoutingServiceConsumed {
+                    RoutingServiceConsumed {
                         earning_wallet: earning_wallet_routing_1.clone(),
                         payload_size: 1234,
                         service_rate: 42,
                         byte_rate: 24,
                     },
-                    ReportRoutingServiceConsumed {
+                    RoutingServiceConsumed {
                         earning_wallet: earning_wallet_routing_2.clone(),
                         payload_size: 1234,
                         service_rate: 52,

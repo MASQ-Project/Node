@@ -114,12 +114,13 @@ pub struct ReportExitServiceProvidedMessage {
 #[derive(Clone, PartialEq, Debug, Message)]
 pub struct ReportServicesConsumedMessage {
     pub payload_size: usize,
-    pub exit_service_opt: Option<ReportExitServiceConsumed>,
-    pub routing: Vec<ReportRoutingServiceConsumed>,
+    //exit Node always ends or starts one segment of RoundTrip
+    pub exit_service: ExitServiceConsumed,
+    pub routing: Vec<RoutingServiceConsumed>,
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct ReportRoutingServiceConsumed {
+pub struct RoutingServiceConsumed {
     pub earning_wallet: Wallet,
     pub payload_size: usize,
     pub service_rate: u64,
@@ -127,7 +128,7 @@ pub struct ReportRoutingServiceConsumed {
 }
 
 #[derive(Clone, PartialEq, Debug)]
-pub struct ReportExitServiceConsumed {
+pub struct ExitServiceConsumed {
     pub earning_wallet: Wallet,
     pub payload_size: usize,
     pub service_rate: u64,
