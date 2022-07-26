@@ -430,6 +430,7 @@ pub struct RouteQueryMessage {
     pub target_component: Component,
     pub minimum_hop_count: usize,
     pub return_component_opt: Option<Component>,
+    pub payload_size: usize,
 }
 
 impl Message for RouteQueryMessage {
@@ -437,12 +438,13 @@ impl Message for RouteQueryMessage {
 }
 
 impl RouteQueryMessage {
-    pub fn data_indefinite_route_request(minimum_hop_count: usize) -> RouteQueryMessage {
+    pub fn data_indefinite_route_request(minimum_hop_count: usize, payload_size: usize) -> RouteQueryMessage {
         RouteQueryMessage {
             target_key_opt: None,
             target_component: Component::ProxyClient,
             minimum_hop_count,
             return_component_opt: Some(Component::ProxyServer),
+            payload_size,
         }
     }
 }
@@ -906,7 +908,7 @@ mod tests {
 
     #[test]
     fn data_indefinite_route_request() {
-        let result = RouteQueryMessage::data_indefinite_route_request(2);
+        let result = RouteQueryMessage::data_indefinite_route_request(2, 7500);
 
         assert_eq!(
             result,
@@ -915,6 +917,7 @@ mod tests {
                 target_component: Component::ProxyClient,
                 minimum_hop_count: 2,
                 return_component_opt: Some(Component::ProxyServer),
+                payload_size: 7500,
             }
         );
     }
