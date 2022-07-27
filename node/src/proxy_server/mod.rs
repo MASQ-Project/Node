@@ -898,35 +898,34 @@ impl ProxyServer {
             .expected_services
             .iter()
             .flat_map(|service| match service {
-                ExpectedService::Exit(key, wallet, rate_pack) => {
-                    todo!();
+                ExpectedService::Exit(_, wallet, rate_pack) => {
                     Some(ExitServiceConsumed {
-                        earning_wallet: todo!(),
-                        payload_size: 0,
-                        service_rate: 0,
-                        byte_rate: 0,
+                        earning_wallet: wallet.clone(),//TODO can I do anything with this clone?
+                        payload_size: exit_size,
+                        service_rate: rate_pack.exit_service_rate,
+                        byte_rate: rate_pack.exit_byte_rate,
                     })
                 }
-                _ => todo!(),
+                _ => None,
             })
             .fold(
                 None,
-                |acc: Option<ExitServiceConsumed>, service_report| todo!(),
+                |acc: Option<ExitServiceConsumed>, service_report|
+                if acc.is_some() {todo!()} else {Some(service_report)}
             )
             .expectv("exit service");
         let routing_service_reports = return_route_info
             .expected_services
             .iter()
             .flat_map(|service| match service {
-                ExpectedService::Routing(key, wallet, rate_pack) => {
-                    todo!();
+                ExpectedService::Routing(_, wallet, rate_pack) => {
                     Some(RoutingServiceConsumed {
-                        earning_wallet: todo!(),
-                        service_rate: 0,
-                        byte_rate: 0,
+                        earning_wallet:wallet.clone(), //TODO can I do anything with this clone?
+                        service_rate: rate_pack.routing_service_rate,
+                        byte_rate: rate_pack.routing_byte_rate,
                     })
                 }
-                _ => todo!(),
+                _ => None,
             })
             .collect::<Vec<_>>();
         let report_message = ReportServicesConsumedMessage {
@@ -3316,26 +3315,7 @@ mod tests {
                 ]
             }
         );
-        // check_exit_report(
-        //     &accountant_recording,
-        //     0,
-        //     &incoming_route_d_wallet,
-        //     first_exit_size,
-        //     rate_pack(101),
-        // );
-        // check_routing_report(
-        //     &accountant_recording,
-        //     1,
-        //     &incoming_route_e_wallet,
-        //     routing_size,
-        // );
-        // check_routing_report(
-        //     &accountant_recording,
-        //     2,
-        //     &incoming_route_f_wallet,
-        //     routing_size,
-        // );
-        let second_report = accountant_recording.get_record::<ReportServicesConsumedMessage>(0);
+        let second_report = accountant_recording.get_record::<ReportServicesConsumedMessage>(1);
         let routing_size = second_expired_cores_package.payload_len;
         assert_eq!(
             second_report,
@@ -3344,7 +3324,7 @@ mod tests {
                     earning_wallet: incoming_route_g_wallet,
                     payload_size: second_exit_size,
                     service_rate: rate_pack_g.exit_service_rate,
-                    byte_rate: rate_pack_g.routing_service_rate
+                    byte_rate: rate_pack_g.exit_byte_rate
                 },
                 routing_payload_size: routing_size,
                 routing: vec![
@@ -3361,25 +3341,6 @@ mod tests {
                 ]
             }
         );
-        // check_exit_report(
-        //     &accountant_recording,
-        //     3,
-        //     &incoming_route_g_wallet,
-        //     second_exit_size,
-        //     rate_pack(104),
-        // );
-        // check_routing_report(
-        //     &accountant_recording,
-        //     4,
-        //     &incoming_route_h_wallet,
-        //     routing_size,
-        // );
-        // check_routing_report(
-        //     &accountant_recording,
-        //     5,
-        //     &incoming_route_i_wallet,
-        //     routing_size,
-        // );
         assert_eq!(accountant_recording.len(), 2);
     }
 
