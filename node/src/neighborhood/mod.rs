@@ -895,7 +895,7 @@ impl Neighborhood {
         payload_size: usize,
         direction: RouteDirection,
     ) -> Result<RouteSegment, String> {
-        let route_opt = self.best_route_segment(
+        let route_opt = self.find_best_route_segment(
             origin,
             target_opt,
             minimum_hop_count,
@@ -1016,11 +1016,12 @@ impl Neighborhood {
             LinkType::Origin => (0, 0),
         };
         let rate_undesirability = per_cores as i64 + (per_byte as i64 * payload_size as i64);
-        let desirable_undesirability = if !node_record.metadata.desirable_for_exit && (link_type == LinkType::Exit) {
-            UNDESIRABLE_FOR_EXIT_PENALTY
-        } else {
-            0
-        };
+        let desirable_undesirability =
+            if !node_record.metadata.desirable_for_exit && (link_type == LinkType::Exit) {
+                UNDESIRABLE_FOR_EXIT_PENALTY
+            } else {
+                0
+            };
         rate_undesirability + desirable_undesirability
     }
 
@@ -1044,14 +1045,14 @@ impl Neighborhood {
         return_route_id
     }
 
-    // Main routing engine. Supply source key, target key, if any, in target_opt, minimum hop count
-    // in hops_remaining, size of payload in bytes, and the route direction.
+    // Interface to main routing engine. Supply source key, target key, if any, in target_opt,
+    // minimum hop count in hops_remaining, size of payload in bytes, and the route direction.
     //
     // Return value is the least undesirable route that will either go from the origin to the
     // target in hops_remaining or more hops with no cycles, or from the origin hops_remaining hops
     // out into the MASQ Network. No round trips; if you want a round trip, call this method twice.
     // If the return value is None, no qualifying route was found.
-    fn best_route_segment<'a>(
+    fn find_best_route_segment<'a>(
         &'a self,
         source: &'a PublicKey,
         target_opt: Option<&'a PublicKey>,
@@ -1060,7 +1061,7 @@ impl Neighborhood {
         direction: RouteDirection,
     ) -> Option<Vec<&'a PublicKey>> {
         let mut minimum_undesirability = i64::MAX;
-        self.complete_routes_inner(
+        self.routing_engine(
             vec![source],
             0,
             target_opt,
@@ -1076,7 +1077,7 @@ impl Neighborhood {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn complete_routes_inner<'a>(
+    fn routing_engine<'a>(
         &'a self,
         prefix: Vec<&'a PublicKey>,
         undesirability: i64,
@@ -1139,7 +1140,7 @@ impl Neighborhood {
                         direction,
                     );
 
-                    self.complete_routes_inner(
+                    self.routing_engine(
                         new_prefix.clone(),
                         new_undesirability,
                         target_opt,
@@ -1323,7 +1324,7 @@ pub fn regenerate_signed_gossip(
     (signed_gossip, signature)
 }
 
-#[derive (PartialEq)]
+#[derive(PartialEq)]
 enum LinkType {
     Relay,
     Exit,
@@ -2429,30 +2430,30 @@ mod tests {
         db.add_arbitrary_full_neighbor(s, r);
 
         // At least two hops from p to anywhere standard
-        let route_opt = subject.best_route_segment(p, None, 2, 10000, RouteDirection::Over);
+        let route_opt = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over);
 
         assert_eq!(route_opt.unwrap(), vec![p, s, t]);
         // no [p, r, s] or [p, s, r] because s and r are both neighbors of p and can't exit for it
 
         // At least two hops over from p to t
-        let route_opt = subject.best_route_segment(p, Some(t), 2, 10000, RouteDirection::Over);
+        let route_opt = subject.find_best_route_segment(p, Some(t), 2, 10000, RouteDirection::Over);
 
         assert_eq!(route_opt.unwrap(), vec![p, s, t]);
 
         // At least two hops over from t to p
-        let route_opt = subject.best_route_segment(t, Some(p), 2, 10000, RouteDirection::Over);
+        let route_opt = subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Over);
 
         assert_eq!(route_opt, None);
         // p is consume-only; can't be an exit Node.
 
         // At least two hops back from t to p
-        let route_opt = subject.best_route_segment(t, Some(p), 2, 10000, RouteDirection::Back);
+        let route_opt = subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Back);
 
         assert_eq!(route_opt.unwrap(), vec![t, s, p]);
         // p is consume-only, but it's the originating Node, so including it is okay
 
         // At least two hops from p to Q - impossible
-        let route_opt = subject.best_route_segment(p, Some(q), 2, 10000, RouteDirection::Over);
+        let route_opt = subject.find_best_route_segment(p, Some(q), 2, 10000, RouteDirection::Over);
 
         assert_eq!(route_opt, None);
     }
@@ -2525,19 +2526,11 @@ mod tests {
 
         // All the target-designated routes from L to N
         let route = subject
-            .best_route_segment(&l, Some(&n), 3, 10000, RouteDirection::Back)
+            .find_best_route_segment(&l, Some(&n), 3, 10000, RouteDirection::Back)
             .unwrap();
 
         let after = Instant::now();
-        let northern_route = vec![&l, &g, &h, &i, &n];
-        let southern_route = vec![&l, &q, &r, &s, &n];
-        assert!(
-            (route == northern_route) || (route == southern_route),
-            "Route should have been {:?} or {:?}, but was {:?}",
-            northern_route,
-            southern_route,
-            route
-        );
+        assert_eq!(route, vec![&l, &g, &h, &i, &n]); // Cheaper than [&l, &q, &r, &s, &n]
         let interval = after.duration_since(before);
         assert!(
             interval.as_millis() <= 100,
@@ -2567,7 +2560,7 @@ mod tests {
         db.add_arbitrary_full_neighbor(q, r);
 
         // At least two hops from P to anywhere standard
-        let route_opt = subject.best_route_segment(p, None, 2, 10000, RouteDirection::Over);
+        let route_opt = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over);
 
         assert_eq!(route_opt, None);
     }
