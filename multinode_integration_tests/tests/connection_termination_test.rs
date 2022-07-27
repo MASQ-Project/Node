@@ -206,7 +206,7 @@ fn reported_client_drop() {
         )
         .unwrap();
 
-    wait_for_server_shutdown(&real_node, server_port);
+    wait_for_server_shutdown(&real_node, server.local_addr());
     ensure_no_further_traffic(&mock_node, &masquerader);
 }
 
@@ -335,8 +335,8 @@ fn create_request_icp(
             &ClientRequestPayload_0v1 {
                 stream_key,
                 sequenced_packet: SequencedPacket::new(Vec::from(HTTP_REQUEST), 0, false),
-                target_hostname: Some(format!("{}", server.socket_addr().ip())),
-                target_port: server.socket_addr().port(),
+                target_hostname: Some(format!("{}", server.local_addr().ip())),
+                target_port: server.local_addr().port(),
                 protocol: ProxyProtocol::HTTP,
                 originator_public_key: originating_node.main_public_key().clone(),
             },
@@ -507,15 +507,14 @@ fn wait_for_client_shutdown(real_node: &MASQRealNode) {
     );
 }
 
-fn wait_for_server_shutdown(real_node: &MASQRealNode, server_port: u16) {
+fn wait_for_server_shutdown(real_node: &MASQRealNode, local_addr: SocketAddr) {
     // This is a jury-rigged way to wait for a shutdown, since server.wait_for_shutdown() doesn't
     // work, but it serves the purpose.
     MASQNodeUtils::wrote_log_containing(
         real_node.name(),
         &format!(
-            "Shutting down stream to server at {}:{} in response to client-drop report",
-            MASQNodeCluster::host_ip_addr(),
-            server_port
+            "Shutting down stream to server at {} in response to client-drop report",
+            local_addr
         ),
         Duration::from_secs(1),
     );
