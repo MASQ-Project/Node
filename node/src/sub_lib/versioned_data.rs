@@ -341,7 +341,7 @@ impl Migrations {
 #[macro_export]
 macro_rules! dv {
     ($j:expr, $n:expr) => {
-        crate::sub_lib::versioned_data::DataVersion::new($j, $n)
+        $crate::sub_lib::versioned_data::DataVersion::new($j, $n)
     };
 }
 
@@ -370,16 +370,16 @@ macro_rules! migrate_item {
     ($fv:expr, $ft:ty, $tv:expr, $tt:ty, $mt:ident, $b:block) => {
         #[allow(non_camel_case_types)]
         struct $mt {}
-        impl crate::sub_lib::versioned_data::MigrationStep for $mt {
+        impl $crate::sub_lib::versioned_data::MigrationStep for $mt {
             fn migrate(
                 &self,
                 data: Vec<u8>,
-            ) -> Result<Vec<u8>, crate::sub_lib::versioned_data::StepError> {
+            ) -> Result<Vec<u8>, $crate::sub_lib::versioned_data::StepError> {
                 let in_item = match serde_cbor::de::from_slice::<$ft>(&data) {
                     Ok(item) => item,
                     Err(_) => {
                         return Err(
-                            crate::sub_lib::versioned_data::StepError::DeserializationError(
+                            $crate::sub_lib::versioned_data::StepError::DeserializationError(
                                 $fv,
                                 $tv,
                                 "Fibble".to_string(),
@@ -387,7 +387,7 @@ macro_rules! migrate_item {
                         )
                     }
                 };
-                let result: Result<$tt, crate::sub_lib::versioned_data::StepError> = $b(in_item);
+                let result: Result<$tt, $crate::sub_lib::versioned_data::StepError> = $b(in_item);
                 match result {
                     Ok(out_item) => {
                         Ok(serde_cbor::ser::to_vec(&out_item).expect("Serialization failed"))
@@ -395,7 +395,7 @@ macro_rules! migrate_item {
                     Err(e) => Err(e),
                 }
             }
-            fn dup(&self) -> Box<dyn crate::sub_lib::versioned_data::MigrationStep> {
+            fn dup(&self) -> Box<dyn $crate::sub_lib::versioned_data::MigrationStep> {
                 Box::new($mt {})
             }
         }
@@ -425,16 +425,16 @@ macro_rules! migrate_value {
         #[allow(non_camel_case_types)]
         #[allow(clippy::upper_case_acronyms)]
         struct $mt {}
-        impl crate::sub_lib::versioned_data::MigrationStep for $mt {
+        impl $crate::sub_lib::versioned_data::MigrationStep for $mt {
             fn migrate(
                 &self,
                 data: Vec<u8>,
-            ) -> Result<Vec<u8>, crate::sub_lib::versioned_data::StepError> {
+            ) -> Result<Vec<u8>, $crate::sub_lib::versioned_data::StepError> {
                 let value: serde_cbor::Value = match serde_cbor::de::from_slice(&data) {
                     Ok(v) => v,
                     Err(_) => {
                         return Err(
-                            crate::sub_lib::versioned_data::StepError::DeserializationError(
+                            $crate::sub_lib::versioned_data::StepError::DeserializationError(
                                 FUTURE_VERSION,
                                 $tv,
                                 "Wampum".to_string(),
@@ -442,7 +442,7 @@ macro_rules! migrate_value {
                         )
                     }
                 };
-                let result: Result<$tt, crate::sub_lib::versioned_data::StepError> = $b(value);
+                let result: Result<$tt, $crate::sub_lib::versioned_data::StepError> = $b(value);
                 match result {
                     Ok(out_item) => {
                         Ok(serde_cbor::ser::to_vec(&out_item).expect("Serialization failed"))
@@ -450,7 +450,7 @@ macro_rules! migrate_value {
                     Err(e) => Err(e),
                 }
             }
-            fn dup(&self) -> Box<dyn crate::sub_lib::versioned_data::MigrationStep> {
+            fn dup(&self) -> Box<dyn $crate::sub_lib::versioned_data::MigrationStep> {
                 Box::new($mt {})
             }
         }

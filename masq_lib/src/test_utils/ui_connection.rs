@@ -99,8 +99,7 @@ impl UiConnection {
             Err(UiMessageError::PayloadError(message_body)) => {
                 let payload_error = message_body
                     .payload
-                    .err()
-                    .expect("PayloadError message body contained no payload error");
+                    .expect_err("PayloadError message body contained no payload error");
                 ReceiveResult::TransactionError(payload_error)
             }
             Err(e) => ReceiveResult::MarshalError((incoming_msg, e)),

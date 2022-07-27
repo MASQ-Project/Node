@@ -5,6 +5,7 @@ use super::packet_facade::ResourceRecord;
 use masq_lib::logger::Logger;
 use std::convert::From;
 use std::convert::TryFrom;
+use std::fmt::Write as _;
 use std::net::SocketAddr;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::time::Instant;
@@ -124,7 +125,8 @@ fn write_log(from: &RequestRecord, to: &ResponseRecord, addr: &SocketAddr, logge
                 Ok(c) => <&'static str>::from(c),
                 Err(_) => UNKNOWN,
             };
-            query_list += &format!(
+            let _ = write!(
+                query_list,
                 "{}/{}/{}",
                 RecordType::from(query.get_query_type()),
                 class_string,

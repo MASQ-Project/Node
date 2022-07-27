@@ -245,7 +245,7 @@ fn first_dividing(descriptor: &str) -> Result<(&str, &str), String> {
         CENTRAL_DELIMITER,
         DescriptorParsingError::CentralDelimiterProbablyMissing(descriptor),
     )?;
-    let _ = approx_position_assertion(descriptor, &halves)?;
+    approx_position_assertion(descriptor, &halves)?;
     Ok((halves[0], halves[1]))
 }
 
@@ -438,7 +438,10 @@ impl Message for RouteQueryMessage {
 }
 
 impl RouteQueryMessage {
-    pub fn data_indefinite_route_request(minimum_hop_count: usize, payload_size: usize) -> RouteQueryMessage {
+    pub fn data_indefinite_route_request(
+        minimum_hop_count: usize,
+        payload_size: usize,
+    ) -> RouteQueryMessage {
         RouteQueryMessage {
             target_key_opt: None,
             target_component: Component::ProxyClient,
