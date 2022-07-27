@@ -71,6 +71,7 @@ use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
+pub const UNDESIRABLE_FOR_EXIT_PENALTY: i64 = 100_000_000;
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -257,7 +258,7 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
                         self.logger,
                         "About to set desirable '{}' for '{:?}'", desirable, public_key
                     );
-                    node_record.set_desirable(desirable);
+                    node_record.set_desirable_for_exit(desirable);
                 };
             }
         };
@@ -1015,10 +1016,10 @@ impl Neighborhood {
             LinkType::Origin => (0, 0),
         };
         let rate_undesirability = per_cores as i64 + (per_byte as i64 * payload_size as i64);
-        let desirable_undesirability = if node_record.metadata.desirable {
-            0
+        let desirable_undesirability = if !node_record.metadata.desirable_for_exit && (link_type == LinkType::Exit) {
+            UNDESIRABLE_FOR_EXIT_PENALTY
         } else {
-            100_000_000
+            0
         };
         rate_undesirability + desirable_undesirability
     }
@@ -1322,6 +1323,7 @@ pub fn regenerate_signed_gossip(
     (signed_gossip, signature)
 }
 
+#[derive (PartialEq)]
 enum LinkType {
     Relay,
     Exit,
@@ -1963,9 +1965,9 @@ mod tests {
             .set_earning_wallet(earning_wallet);
         subject.consuming_wallet_opt = None;
         // These happen to be extracted in the desired order. We could not think of a way to guarantee it.
-        let mut undesirable_exit_node = make_node_record(2345, true);
-        let desirable_exit_node = make_node_record(3456, false);
-        undesirable_exit_node.set_desirable(false);
+        let desirable_exit_node = make_node_record(2345, false);
+        let mut undesirable_exit_node = make_node_record(3456, true);
+        undesirable_exit_node.set_desirable_for_exit(false);
         let originating_node = &subject.neighborhood_database.root().clone();
         {
             let db = &mut subject.neighborhood_database;
@@ -2017,14 +2019,14 @@ mod tests {
                     ExpectedService::Exit(
                         desirable_exit_node.public_key().clone(),
                         desirable_exit_node.earning_wallet(),
-                        rate_pack(3456),
+                        rate_pack(2345),
                     ),
                 ],
                 vec![
                     ExpectedService::Exit(
                         desirable_exit_node.public_key().clone(),
                         desirable_exit_node.earning_wallet(),
-                        rate_pack(3456),
+                        rate_pack(2345),
                     ),
                     ExpectedService::Nothing,
                 ],
@@ -2166,7 +2168,7 @@ mod tests {
         let r = &make_node_record(4567, false);
         let s = &make_node_record(5678, false);
         let mut t = make_node_record(7777, false);
-        t.set_desirable(false);
+        t.set_desirable_for_exit(false);
         {
             let db = &mut subject.neighborhood_database;
             db.add_node(q.clone()).unwrap();
@@ -2574,7 +2576,7 @@ mod tests {
     fn compute_undesirability_for_relay_nodes() {
         let subject = make_standard_subject();
         let mut node_record = make_node_record(1, false);
-        node_record.metadata.desirable = true;
+        node_record.metadata.desirable_for_exit = true; // not used as exit: irrelevant
         node_record.inner.rate_pack = RatePack {
             routing_byte_rate: 100,
             routing_service_rate: 200,
@@ -2591,7 +2593,7 @@ mod tests {
     fn compute_undesirability_for_exit_nodes() {
         let subject = make_standard_subject();
         let mut node_record = make_node_record(1, false);
-        node_record.metadata.desirable = true;
+        node_record.metadata.desirable_for_exit = true; // used as exit, but leave out penalty for now
         node_record.inner.rate_pack = RatePack {
             routing_byte_rate: 123456,
             routing_service_rate: 234567,
@@ -2608,7 +2610,7 @@ mod tests {
     fn compute_undesirability_for_origin() {
         let subject = make_standard_subject();
         let mut node_record = make_node_record(1, false);
-        node_record.metadata.desirable = true;
+        node_record.metadata.desirable_for_exit = true; // not used as exit: irrelevant
         node_record.inner.rate_pack = RatePack {
             routing_byte_rate: 123456,
             routing_service_rate: 234567,
@@ -2619,6 +2621,23 @@ mod tests {
         let result = subject.compute_undesirability(&node_record, 10000, LinkType::Origin);
 
         assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn compute_undesirability_for_undesirable_for_exit_node_used_as_exit() {
+        let subject = make_standard_subject();
+        let mut node_record = make_node_record(1, false);
+        node_record.metadata.desirable_for_exit = false; // used as exit: penalty is effective
+        node_record.inner.rate_pack = RatePack {
+            routing_byte_rate: 123456,
+            routing_service_rate: 234567,
+            exit_byte_rate: 1,
+            exit_service_rate: 1,
+        };
+
+        let result = subject.compute_undesirability(&node_record, 10000, LinkType::Exit);
+
+        assert_eq!(result, 1 + (1 * 10000) + UNDESIRABLE_FOR_EXIT_PENALTY);
     }
 
     #[test]
