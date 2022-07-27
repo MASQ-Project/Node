@@ -159,6 +159,7 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::SocketAddr;
     use std::str::FromStr;
+    use std::time::SystemTime;
 
     #[test]
     fn constants_have_correct_values() {
@@ -187,6 +188,7 @@ mod tests {
             .into();
 
         let inbound_client_data = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr,
             reception_port: None,
             last_data: false,

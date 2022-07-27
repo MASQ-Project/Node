@@ -10,7 +10,7 @@ pub mod test_utils;
 use masq_lib::constants::SCAN_ERROR;
 
 use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
-use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
+use masq_lib::ui_gateway::{MessageBody, MessagePath};
 
 use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError, PayableDaoFactory};
 use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
@@ -96,12 +96,14 @@ pub struct ResponseSkeleton {
 
 #[derive(Debug, Eq, Message, PartialEq)]
 pub struct ReceivedPayments {
+    pub timestamp: SystemTime,
     pub payments: Vec<BlockchainTransaction>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
 #[derive(Debug, Message, PartialEq)]
 pub struct SentPayable {
+    pub timestamp: SystemTime,
     pub payable: Vec<Result<Payable, BlockchainError>>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
@@ -222,7 +224,7 @@ impl Handler<ScanError> for Accountant {
     fn handle(&mut self, scan_error: ScanError, _ctx: &mut Self::Context) -> Self::Result {
         error!(self.logger, "Received ScanError: {:?}", scan_error);
         let error_msg = NodeToUiMessage {
-            target: MessageTarget::ClientId(scan_error.response_skeleton.client_id),
+            target: ClientId(scan_error.response_skeleton.client_id),
             body: MessageBody {
                 opcode: "scan".to_string(),
                 path: MessagePath::Conversation(scan_error.response_skeleton.context_id),
@@ -330,7 +332,7 @@ impl Handler<ReportTransactionReceipts> for Accountant {
                 .as_ref()
                 .expect("UIGateway not bound")
                 .try_send(NodeToUiMessage {
-                    target: MessageTarget::ClientId(response_skeleton.client_id),
+                    target: ClientId(response_skeleton.client_id),
                     body: UiScanResponse {}.tmb(response_skeleton.context_id),
                 })
                 .expect("UIGateway is dead");
@@ -615,6 +617,7 @@ impl Accountant {
         &self,
         service_rate: u64,
         byte_rate: u64,
+        timestamp: SystemTime,
         payload_size: usize,
         wallet: &Wallet,
     ) {
@@ -623,7 +626,7 @@ impl Accountant {
         if !self.our_wallet(wallet) {
             match self.receivable_dao
                 .as_ref()
-                .more_money_receivable(wallet, total_charge) {
+                .more_money_receivable(timestamp,wallet, total_charge) {
                 Ok(_) => (),
                 Err(ReceivableDaoError::SignConversion(_)) => error! (
                     self.logger,
@@ -647,6 +650,7 @@ impl Accountant {
         &self,
         service_rate: u64,
         byte_rate: u64,
+        timestamp: SystemTime,
         payload_size: usize,
         wallet: &Wallet,
     ) {
@@ -655,7 +659,7 @@ impl Accountant {
         if !self.our_wallet(wallet) {
             match self.payable_dao
                 .as_ref()
-                .more_money_payable(wallet, total_charge) {
+                .more_money_payable(timestamp, wallet, total_charge) {
                 Ok(_) => (),
                 Err(PayableDaoError::SignConversion(_)) => error! (
                     self.logger,
@@ -779,16 +783,14 @@ impl Accountant {
     }
 
     fn handle_received_payments(&mut self, msg: ReceivedPayments) {
-        if msg.payments.is_empty() {
-            warning!(self.logger, "Handling received payments we got zero payments but expected some, skipping database operations")
-        } else {
+        if !msg.payments.is_empty() {
             let total_newly_paid_receivable = msg
                 .payments
                 .iter()
                 .fold(0, |so_far, now| so_far + now.gwei_amount);
             self.receivable_dao
                 .as_mut()
-                .more_money_received(msg.payments);
+                .more_money_received(msg.timestamp, msg.payments);
             self.financial_statistics.total_paid_receivable += total_newly_paid_receivable;
         }
         if let Some(response_skeleton) = msg.response_skeleton_opt {
@@ -796,7 +798,7 @@ impl Accountant {
                 .as_ref()
                 .expect("UIGateway is not bound")
                 .try_send(NodeToUiMessage {
-                    target: MessageTarget::ClientId(response_skeleton.client_id),
+                    target: ClientId(response_skeleton.client_id),
                     body: UiScanResponse {}.tmb(response_skeleton.context_id),
                 })
                 .expect("UIGateway is dead");
@@ -818,7 +820,7 @@ impl Accountant {
                 .as_ref()
                 .expect("UIGateway is not bound")
                 .try_send(NodeToUiMessage {
-                    target: MessageTarget::ClientId(response_skeleton.client_id),
+                    target: ClientId(response_skeleton.client_id),
                     body: UiScanResponse {}.tmb(response_skeleton.context_id),
                 })
                 .expect("UIGateway is dead");
@@ -854,6 +856,7 @@ impl Accountant {
         self.record_service_provided(
             msg.service_rate,
             msg.byte_rate,
+            msg.timestamp,
             msg.payload_size,
             &msg.paying_wallet,
         );
@@ -874,6 +877,7 @@ impl Accountant {
         self.record_service_provided(
             msg.service_rate,
             msg.byte_rate,
+            msg.timestamp,
             msg.payload_size,
             &msg.paying_wallet,
         );
@@ -892,6 +896,7 @@ impl Accountant {
         self.record_service_consumed(
             msg.service_rate,
             msg.byte_rate,
+            msg.timestamp,
             msg.payload_size,
             &msg.earning_wallet,
         );
@@ -910,6 +915,7 @@ impl Accountant {
         self.record_service_consumed(
             msg.service_rate,
             msg.byte_rate,
+            msg.timestamp,
             msg.payload_size,
             &msg.earning_wallet,
         );
@@ -1284,9 +1290,7 @@ mod tests {
     use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
-    use masq_lib::ui_gateway::{
-        MessageBody, MessagePath, MessageTarget, NodeFromUiMessage, NodeToUiMessage,
-    };
+    use masq_lib::ui_gateway::{MessageBody, MessagePath, NodeFromUiMessage, NodeToUiMessage};
 
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
@@ -1586,6 +1590,7 @@ mod tests {
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let received_payments = ReceivedPayments {
+            timestamp: SystemTime::now(),
             payments: vec![],
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
@@ -1601,7 +1606,7 @@ mod tests {
         assert_eq!(
             ui_gateway_recording.get_record::<NodeToUiMessage>(0),
             &NodeToUiMessage {
-                target: MessageTarget::ClientId(1234),
+                target: ClientId(1234),
                 body: UiScanResponse {}.tmb(4321),
             }
         );
@@ -1692,6 +1697,7 @@ mod tests {
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let sent_payable = SentPayable {
+            timestamp: SystemTime::now(),
             payable: vec![],
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
@@ -1707,7 +1713,7 @@ mod tests {
         assert_eq!(
             ui_gateway_recording.get_record::<NodeToUiMessage>(0),
             &NodeToUiMessage {
-                target: MessageTarget::ClientId(1234),
+                target: ClientId(1234),
                 body: UiScanResponse {}.tmb(4321),
             }
         );
@@ -1813,7 +1819,7 @@ mod tests {
         assert_eq!(
             ui_gateway_recording.get_record::<NodeToUiMessage>(0),
             &NodeToUiMessage {
-                target: MessageTarget::ClientId(1234),
+                target: ClientId(1234),
                 body: UiScanResponse {}.tmb(4321),
             }
         );
@@ -1850,6 +1856,7 @@ mod tests {
             expected_timestamp,
         );
         let sent_payable = SentPayable {
+            timestamp: SystemTime::now(),
             payable: vec![Ok(expected_payable.clone())],
             response_skeleton_opt: None,
         };
@@ -1880,6 +1887,7 @@ mod tests {
             .build();
         let hash = H256::from_uint(&U256::from(12345));
         let sent_payable = SentPayable {
+            timestamp: SystemTime::now(),
             payable: vec![Err(BlockchainError::TransactionFailed {
                 msg: "SQLite migraine".to_string(),
                 hash_opt: Some(hash),
@@ -1936,6 +1944,7 @@ mod tests {
         let hash_tx_1 = H256::from_uint(&U256::from(5555));
         let hash_tx_2 = H256::from_uint(&U256::from(12345));
         let sent_payable = SentPayable {
+            timestamp: SystemTime::now(),
             payable: vec![
                 Ok(Payable {
                     to: wallet.clone(),
@@ -2095,6 +2104,7 @@ mod tests {
 
     #[test]
     fn accountant_receives_new_payments_to_the_receivables_dao() {
+        let now = SystemTime::now();
         let earning_wallet = make_wallet("earner3000");
         let expected_receivable_1 = BlockchainTransaction {
             block_number: 7,
@@ -2123,6 +2133,7 @@ mod tests {
 
         subject
             .try_send(ReceivedPayments {
+                timestamp: now,
                 payments: vec![expected_receivable_1.clone(), expected_receivable_2.clone()],
                 response_skeleton_opt: None,
             })
@@ -2133,7 +2144,7 @@ mod tests {
         let more_money_received_params = more_money_received_params_arc.lock().unwrap();
         assert_eq!(
             *more_money_received_params,
-            vec![vec![expected_receivable_1, expected_receivable_2]]
+            vec![(now, vec![expected_receivable_1, expected_receivable_2])]
         )
     }
 
@@ -2853,6 +2864,7 @@ mod tests {
     #[test]
     fn report_routing_service_provided_message_is_received() {
         init_test_logging();
+        let now = SystemTime::now();
         let mut bootstrapper_config = BootstrapperConfig::default();
         bootstrapper_config.accountant_config_opt = Some(make_accountant_config_null());
         bootstrapper_config.earning_wallet = make_wallet("hi");
@@ -2877,6 +2889,7 @@ mod tests {
         let paying_wallet = make_wallet("booga");
         subject_addr
             .try_send(ReportRoutingServiceProvidedMessage {
+                timestamp: now,
                 paying_wallet: paying_wallet.clone(),
                 payload_size: 1234,
                 service_rate: 42,
@@ -2889,7 +2902,7 @@ mod tests {
         let more_money_receivable_parameters = more_money_receivable_parameters_arc.lock().unwrap();
         assert_eq!(
             more_money_receivable_parameters[0],
-            (make_wallet("booga"), (1 * 42) + (1234 * 24))
+            (now, make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: Accountant: Charging routing of 1234 bytes to wallet {}",
@@ -2925,6 +2938,7 @@ mod tests {
 
         subject_addr
             .try_send(ReportRoutingServiceProvidedMessage {
+                timestamp: SystemTime::now(),
                 paying_wallet: consuming_wallet.clone(),
                 payload_size: 1234,
                 service_rate: 42,
@@ -2972,6 +2986,7 @@ mod tests {
 
         subject_addr
             .try_send(ReportRoutingServiceProvidedMessage {
+                timestamp: SystemTime::now(),
                 paying_wallet: earning_wallet.clone(),
                 payload_size: 1234,
                 service_rate: 42,
@@ -2995,6 +3010,7 @@ mod tests {
     #[test]
     fn report_routing_service_consumed_message_is_received() {
         init_test_logging();
+        let now = SystemTime::now();
         let config = bc_from_ac_plus_earning_wallet(
             make_populated_accountant_config_with_defaults(),
             make_wallet("hi"),
@@ -3019,6 +3035,7 @@ mod tests {
         let earning_wallet = make_wallet("booga");
         subject_addr
             .try_send(ReportRoutingServiceConsumedMessage {
+                timestamp: now,
                 earning_wallet: earning_wallet.clone(),
                 payload_size: 1234,
                 service_rate: 42,
@@ -3031,7 +3048,7 @@ mod tests {
         let more_money_payable_parameters = more_money_payable_parameters_arc.lock().unwrap();
         assert_eq!(
             more_money_payable_parameters[0],
-            (make_wallet("booga"), (1 * 42) + (1234 * 24))
+            (now, make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
         TestLogHandler::new().exists_log_containing(
             &format!("DEBUG: Accountant: Accruing debt to wallet {} for consuming routing service 1234 bytes", earning_wallet),
@@ -3065,6 +3082,7 @@ mod tests {
 
         subject_addr
             .try_send(ReportRoutingServiceConsumedMessage {
+                timestamp: SystemTime::now(),
                 earning_wallet: consuming_wallet.clone(),
                 payload_size: 1234,
                 service_rate: 42,
@@ -3108,6 +3126,7 @@ mod tests {
 
         subject_addr
             .try_send(ReportRoutingServiceConsumedMessage {
+                timestamp: SystemTime::now(),
                 earning_wallet: earning_wallet.clone(),
                 payload_size: 1234,
                 service_rate: 42,
@@ -3127,6 +3146,7 @@ mod tests {
     #[test]
     fn report_exit_service_provided_message_is_received() {
         init_test_logging();
+        let now = SystemTime::now();
         let config = bc_from_ac_plus_earning_wallet(
             make_populated_accountant_config_with_defaults(),
             make_wallet("hi"),
@@ -3152,6 +3172,7 @@ mod tests {
         let paying_wallet = make_wallet("booga");
         subject_addr
             .try_send(ReportExitServiceProvidedMessage {
+                timestamp: now,
                 paying_wallet: paying_wallet.clone(),
                 payload_size: 1234,
                 service_rate: 42,
@@ -3164,7 +3185,7 @@ mod tests {
         let more_money_receivable_parameters = more_money_receivable_parameters_arc.lock().unwrap();
         assert_eq!(
             more_money_receivable_parameters[0],
-            (make_wallet("booga"), (1 * 42) + (1234 * 24))
+            (now, make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: Accountant: Charging exit service for 1234 bytes to wallet {}",
@@ -3200,6 +3221,7 @@ mod tests {
 
         subject_addr
             .try_send(ReportExitServiceProvidedMessage {
+                timestamp: SystemTime::now(),
                 paying_wallet: consuming_wallet.clone(),
                 payload_size: 1234,
                 service_rate: 42,
@@ -3245,6 +3267,7 @@ mod tests {
 
         subject_addr
             .try_send(ReportExitServiceProvidedMessage {
+                timestamp: SystemTime::now(),
                 paying_wallet: earning_wallet.clone(),
                 payload_size: 1234,
                 service_rate: 42,
@@ -3266,22 +3289,9 @@ mod tests {
     }
 
     #[test]
-    fn handle_received_payments_aborts_if_no_payments_supplied() {
-        init_test_logging();
-        let mut subject = AccountantBuilder::default().build();
-        let msg = ReceivedPayments {
-            payments: vec![],
-            response_skeleton_opt: None,
-        };
-
-        let _ = subject.handle_received_payments(msg);
-
-        TestLogHandler::new().exists_log_containing("WARN: Accountant: Handling received payments we got zero payments but expected some, skipping database operations");
-    }
-
-    #[test]
     fn report_exit_service_consumed_message_is_received() {
         init_test_logging();
+        let now = SystemTime::now();
         let config =
             bc_from_ac_plus_earning_wallet(make_accountant_config_null(), make_wallet("hi"));
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -3304,6 +3314,7 @@ mod tests {
         let earning_wallet = make_wallet("booga");
         subject_addr
             .try_send(ReportExitServiceConsumedMessage {
+                timestamp: now,
                 earning_wallet: earning_wallet.clone(),
                 payload_size: 1234,
                 service_rate: 42,
@@ -3316,7 +3327,7 @@ mod tests {
         let more_money_payable_parameters = more_money_payable_parameters_arc.lock().unwrap();
         assert_eq!(
             more_money_payable_parameters[0],
-            (make_wallet("booga"), (1 * 42) + (1234 * 24))
+            (now, make_wallet("booga"), (1 * 42) + (1234 * 24))
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: Accountant: Accruing debt to wallet {} for consuming exit service 1234 bytes",
@@ -3351,6 +3362,7 @@ mod tests {
 
         subject_addr
             .try_send(ReportExitServiceConsumedMessage {
+                timestamp: SystemTime::now(),
                 earning_wallet: consuming_wallet.clone(),
                 payload_size: 1234,
                 service_rate: 42,
@@ -3392,6 +3404,7 @@ mod tests {
 
         subject_addr
             .try_send(ReportExitServiceConsumedMessage {
+                timestamp: SystemTime::now(),
                 earning_wallet: earning_wallet.clone(),
                 payload_size: 1234,
                 service_rate: 42,
@@ -3426,7 +3439,7 @@ mod tests {
             .receivable_dao(receivable_dao)
             .build();
 
-        let _ = subject.record_service_provided(i64::MAX as u64, 1, 2, &wallet);
+        let _ = subject.record_service_provided(i64::MAX as u64, 1, SystemTime::now(), 2, &wallet);
     }
 
     #[test]
@@ -3439,7 +3452,7 @@ mod tests {
             .receivable_dao(receivable_dao)
             .build();
 
-        subject.record_service_provided(i64::MAX as u64, 1, 2, &wallet);
+        subject.record_service_provided(i64::MAX as u64, 1, SystemTime::now(), 2, &wallet);
 
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: Accountant: Overflow error recording service provided for {}: service rate {}, byte rate 1, payload size 2. Skipping",
@@ -3459,7 +3472,7 @@ mod tests {
             .build();
         let service_rate = i64::MAX as u64;
 
-        subject.record_service_consumed(service_rate, 1, 2, &wallet);
+        subject.record_service_consumed(service_rate, 1, SystemTime::now(), 2, &wallet);
 
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: Accountant: Overflow error recording consumed services from {}: total charge {}, service rate {}, byte rate 1, payload size 2. Skipping",
@@ -3484,7 +3497,7 @@ mod tests {
             .payable_dao(payable_dao)
             .build();
 
-        let _ = subject.record_service_consumed(i64::MAX as u64, 1, 2, &wallet);
+        let _ = subject.record_service_consumed(i64::MAX as u64, 1, SystemTime::now(), 2, &wallet);
     }
 
     #[test]
@@ -3520,6 +3533,7 @@ mod tests {
         let rowid = 4;
         let hash = H256::from_uint(&U256::from(123));
         let sent_payable = SentPayable {
+            timestamp: SystemTime::now(),
             payable: vec![Err(BlockchainError::TransactionFailed {
                 msg: "blah".to_string(),
                 hash_opt: Some(hash),
@@ -3553,6 +3567,7 @@ mod tests {
             hash_opt: None,
         });
         let sent_payable = SentPayable {
+            timestamp: SystemTime::now(),
             payable: vec![payable_1, Ok(payable_2.clone()), payable_3],
             response_skeleton_opt: None,
         };
@@ -4526,6 +4541,7 @@ mod tests {
         };
         let error = BlockchainError::SignedValueConversion(666);
         let sent_payable = SentPayable {
+            timestamp: SystemTime::now(),
             payable: vec![Ok(payable_ok.clone()), Err(error.clone())],
             response_skeleton_opt: None,
         };
@@ -4600,7 +4616,7 @@ mod tests {
         assert_eq!(
             ui_gateway_recording.get_record::<NodeToUiMessage>(0),
             &NodeToUiMessage {
-                target: MessageTarget::ClientId(1234),
+                target: ClientId(1234),
                 body: MessageBody {
                     opcode: "scan".to_string(),
                     path: MessagePath::Conversation(4321),
@@ -4643,7 +4659,7 @@ mod tests {
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
         let response = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
-        assert_eq!(response.target, MessageTarget::ClientId(1234));
+        assert_eq!(response.target, ClientId(1234));
         let (body, context_id) = UiFinancialsResponse::fmb(response.body.clone()).unwrap();
         assert_eq!(context_id, 2222);
         assert_eq!(
@@ -4713,8 +4729,10 @@ mod tests {
                 gwei_amount: 33345,
             },
         ];
+        let now = SystemTime::now();
 
         subject.handle_received_payments(ReceivedPayments {
+            timestamp: now,
             payments: receivables.clone(),
             response_skeleton_opt: None,
         });
@@ -4724,7 +4742,7 @@ mod tests {
             2222 + 45780 + 33345
         );
         let more_money_received_params = more_money_received_params_arc.lock().unwrap();
-        assert_eq!(*more_money_received_params, vec![receivables]);
+        assert_eq!(*more_money_received_params, vec![(now, receivables)]);
     }
 
     #[test]
