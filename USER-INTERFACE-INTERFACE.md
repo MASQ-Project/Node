@@ -565,7 +565,7 @@ field will be null or absent.
 ##### Layout:
 ```
 "payload": {
-    "statsRequired": <bolean>,
+    "statsRequired": <boolean>,
     "topRecordsOpt": <optional positive integer>
     "customQueriesOpt": <optional {
         "payableOpt" : <optional {
@@ -588,7 +588,7 @@ This command can serve several purposes. The standard one is to request financia
 other options like to ask for a configurable view into the database, to be able to look at tracked debts of accounts
 written in it. Available for both the payable and receivable table. This can be achieved with different input,
 configurable parameters affecting the look of the output.
-One way is a query of top N records, ordered by balances, which automatically returns an overview for each table.
+One way is a query of top N records, ordered by balances, which automatically returns a given overview for each table.
 Other time, the user has a possibility to make up a more customized query for each table (possibly needing just one,
 but it works as well as both at the same time). That is done by supplying one range for ages and one for balances,
 limiting a subset of records that fit between those values.   
@@ -617,7 +617,10 @@ searching over; this is the upper limit of the debt's age, respectively how long
 their balances.
 
 `maxBalanceGwei` means an amount of Gwei, the maximal value to what the accounts to be reported should fit in with
-their balances.
+their balances. Suggestion: In our command line interface, we implemented this parameter as optional from the view of
+the user, if not specified, we automatically choose the biggest value under the hood, which is either a maximum of
+an unsigned 64-bit long integer or the signed version of it, depending on what table is queried (receivables are
+believed to be able to go down under zero). 
 
 #### `financials`
 ##### Direction: Response
@@ -635,7 +638,7 @@ their balances.
         "payable": [
             {
               "wallet": <string>,
-              "age": <integer>,
+              "ageS": <integer>,
               "balanceGwei": <integer>, 
               "pendingPayableHashOpt": <optional string> 
             },
@@ -644,7 +647,7 @@ their balances.
         "receivable": [
             {
               "wallet": <string>,
-              "age": <integer>,
+              "ageS": <integer>,
               "balanceGwei": <integer>
             },
             [...]
@@ -654,7 +657,7 @@ their balances.
         "payableOpt": <optional [
             {
               "wallet": <string>,
-              "age": <integer>,
+              "ageS": <integer>,
               "balanceGwei": <integer>, 
               "pendingPayableHashOpt": <optional string> 
             },
@@ -663,7 +666,7 @@ their balances.
         "receivableOpt": <optional [
             {
               "wallet": <string>,
-              "age": <integer>,
+              "ageS": <integer>,
               "balanceGwei": <integer>
             },
             [...]
@@ -672,7 +675,7 @@ their balances.
 }
 ```
 ##### Description:
-Contains the requested financial statistics or parametrized views into the database.
+Contains the requested financial statistics or parameterized views into the database.
 
 `statsOpt` provides a collection of metrics about services consumed and provided.
 
@@ -699,7 +702,7 @@ than requested, a smaller amount is sent back.
 
 `wallet` is a wallet of the Node that we owe to.
 
-`age` is a number of seconds that elapsed since we settled a payment to this particular Node last time.
+`ageS` is a number of seconds that elapsed since we settled a payment to this particular Node last time.
 
 `balanceGwei` is a number of Gwei we owe to this particular Node.
 

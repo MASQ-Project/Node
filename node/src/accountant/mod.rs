@@ -9,7 +9,7 @@ pub mod tools;
 #[cfg(test)]
 pub mod test_utils;
 
-use masq_lib::constants::{REQUEST_WITH_NO_VALUES, SCAN_ERROR};
+use masq_lib::constants::{MUTUALLY_EXCLUSIVE_REQUEST_PARAMS, REQUEST_WITH_NO_VALUES, SCAN_ERROR};
 
 use masq_lib::messages::{
     CustomQueryResult, FirmQueryResult, RangeQuery, ScanType, UiFinancialStatistics,
@@ -1035,17 +1035,32 @@ impl Accountant {
         msg: &UiFinancialsRequest,
         context_id: u64,
     ) -> Result<(), MessageBody> {
-        if msg.stats_required || msg.top_records_opt.is_some() || msg.custom_queries_opt.is_some() {
-            Ok(())
-        } else {
-            Err(MessageBody {
+        fn envelope_bad_news(err_code: u64, err_msg: &str, context_id: u64) ->MessageBody{
+            MessageBody {
                 opcode: "financials".to_string(),
                 path: MessagePath::Conversation(context_id),
                 payload: Err((
-                    REQUEST_WITH_NO_VALUES,
-                    "Request with missing queries not to be processed".to_string(),
-                )),
-            })
+                    err_code,
+                    err_msg.to_string(),
+                ))
+            }
+        }
+
+        if !msg.stats_required && msg.top_records_opt.is_none() && msg.custom_queries_opt.is_none() {
+            Err(envelope_bad_news(
+                REQUEST_WITH_NO_VALUES,
+                "Empty requests with missing queries not to be processed",
+                    context_id
+            ))
+        } else if msg.top_records_opt.is_some() && msg.custom_queries_opt.is_some(){
+            Err(envelope_bad_news(
+                MUTUALLY_EXCLUSIVE_REQUEST_PARAMS,
+                    "Requesting top records and the more customized subset of records is not allowed both at the same time",
+                    context_id
+                )
+            )
+        } else {
+           Ok(())
         }
     }
 
@@ -4951,9 +4966,38 @@ mod tests {
         assert_eq!(err_code, REQUEST_WITH_NO_VALUES);
         assert_eq!(
             err_message,
-            "Request with missing queries not to be processed"
+            "Empty requests with missing queries not to be processed"
         );
         assert!(matches!(err_message_body.path, Conversation(2222)));
+    }
+
+    #[test]
+    fn financials_request_allows_only_one_kind_of_view_into_books_a_time() {
+        let subject = AccountantBuilder::default()
+            .bootstrapper_config(bc_from_ac_plus_earning_wallet(
+                make_populated_accountant_config_with_defaults(),
+                make_wallet("some_wallet_address"),
+            ))
+            .build();
+        let request = UiFinancialsRequest{
+            stats_required: false,
+            top_records_opt: Some(TopRecordsConfig{ count: 13, ordered_by: Age }),
+            custom_queries_opt: Some(CustomQueries{ payable_opt: Some(RangeQuery{
+                min_age_s: 5000,
+                max_age_s: 11000,
+                min_amount_gwei: 1_454_050_000,
+                max_amount_gwei: 555_000_000_000
+            }), receivable_opt: None })
+        };
+
+        let result = subject.compute_financials(&request,4567);
+
+        assert_eq!(result,MessageBody{
+            opcode: "financials".to_string(),
+            path: Conversation(4567),
+            payload: Err((MUTUALLY_EXCLUSIVE_REQUEST_PARAMS,"Requesting top records and the more customized subset of \
+             records is not allowed both at the same time".to_string()))
+        });
     }
 
     #[test]
@@ -5115,19 +5159,19 @@ mod tests {
                 top_records_opt: Some(FirmQueryResult {
                     payable: vec![UiPayableAccount {
                         wallet: make_wallet("abcd123").to_string(),
-                        age: extracted_payable_ages[0],
+                        age_s: extracted_payable_ages[0],
                         balance_gwei: 58,
                         pending_payable_hash_opt: None
                     },],
                     receivable: vec![
                         UiReceivableAccount {
                             wallet: make_wallet("efe4848").to_string(),
-                            age: extracted_receivable_ages[0],
+                            age_s: extracted_receivable_ages[0],
                             balance_gwei: 3_788_455
                         },
                         UiReceivableAccount {
                             wallet: make_wallet("ef947ca").to_string(),
-                            age: extracted_receivable_ages[1],
+                            age_s: extracted_receivable_ages[1],
                             balance_gwei: 85_121
                         }
                     ]
@@ -5229,11 +5273,11 @@ mod tests {
     }
 
     fn extract_ages_from_ui_payable_accounts(accounts: &[UiPayableAccount]) -> Vec<u64> {
-        accounts.iter().map(|account| account.age).collect()
+        accounts.iter().map(|account| account.age_s).collect()
     }
 
     fn extract_ages_from_ui_receivable_accounts(accounts: &[UiReceivableAccount]) -> Vec<u64> {
-        accounts.iter().map(|account| account.age).collect()
+        accounts.iter().map(|account| account.age_s).collect()
     }
 
     #[test]
@@ -5324,19 +5368,19 @@ mod tests {
                 custom_query_records_opt: Some(CustomQueryResult {
                     payable_opt: Some(vec![UiPayableAccount {
                         wallet: make_wallet("abcd123").to_string(),
-                        age: extracted_payable_ages[0],
+                        age_s: extracted_payable_ages[0],
                         balance_gwei: 5,
                         pending_payable_hash_opt: None
                     },]),
                     receivable_opt: Some(vec![
                         UiReceivableAccount {
                             wallet: make_wallet("efe4848").to_string(),
-                            age: extracted_receivable_ages[0],
+                            age_s: extracted_receivable_ages[0],
                             balance_gwei: 20_456_056
                         },
                         UiReceivableAccount {
                             wallet: make_wallet("bb123aa").to_string(),
-                            age: extracted_receivable_ages[1],
+                            age_s: extracted_receivable_ages[1],
                             balance_gwei: 550,
                         }
                     ])
@@ -5436,7 +5480,7 @@ mod tests {
                     payable_opt: None,
                     receivable_opt: Some(vec![UiReceivableAccount {
                         wallet: make_wallet("efe4848").to_string(),
-                        age: extracted_receivable_ages[0],
+                        age_s: extracted_receivable_ages[0],
                         balance_gwei: 60
                     }])
                 })

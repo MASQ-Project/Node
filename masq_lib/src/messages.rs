@@ -653,7 +653,8 @@ pub struct CustomQueryResult {
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiPayableAccount {
     pub wallet: String,
-    pub age: u64,
+    #[serde(rename = "ageS")]
+    pub age_s: u64,
     #[serde(rename = "balanceGwei")]
     pub balance_gwei: u64,
     #[serde(rename = "pendingPayableHashOpt")]
@@ -663,7 +664,8 @@ pub struct UiPayableAccount {
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct UiReceivableAccount {
     pub wallet: String,
-    pub age: u64,
+    #[serde(rename = "ageS")]
+    pub age_s: u64,
     #[serde(rename = "balanceGwei")]
     pub balance_gwei: i64,
 }

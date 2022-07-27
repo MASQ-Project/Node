@@ -55,6 +55,7 @@ pub const SCAN_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 7;
 //accountant
 pub const ACCOUNTANT_PREFIX: u64 = 0x0040_0000_0000_0000;
 pub const REQUEST_WITH_NO_VALUES: u64 = ACCOUNTANT_PREFIX | 1;
+pub const MUTUALLY_EXCLUSIVE_REQUEST_PARAMS: u64 = ACCOUNTANT_PREFIX | 2;
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
