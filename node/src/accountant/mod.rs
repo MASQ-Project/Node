@@ -3238,7 +3238,7 @@ mod tests {
 
     fn do_we_ignore_own_wallets_when_recording_consumed_services(
         config: BootstrapperConfig,
-        message: ReportServicesConsumedMessage
+        message: ReportServicesConsumedMessage,
     ) -> Arc<Mutex<Vec<(Wallet, u64)>>> {
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new()
@@ -3283,17 +3283,14 @@ mod tests {
             },
             routing_payload_size: 3333,
             routing: vec![RoutingServiceConsumed {
-                earning_wallet:consuming_wallet.clone(),
+                earning_wallet: consuming_wallet.clone(),
                 service_rate: 42,
                 byte_rate: 6,
             }],
         };
 
         let more_money_payable_params_arc =
-            do_we_ignore_own_wallets_when_recording_consumed_services(
-                config,
-                report_message
-            );
+            do_we_ignore_own_wallets_when_recording_consumed_services(config, report_message);
 
         let more_money_payable_params = more_money_payable_params_arc.lock().unwrap();
         assert_eq!(
@@ -3327,17 +3324,14 @@ mod tests {
             },
             routing_payload_size: 3333,
             routing: vec![RoutingServiceConsumed {
-                earning_wallet:earning_wallet.clone(),
+                earning_wallet: earning_wallet.clone(),
                 service_rate: 42,
                 byte_rate: 6,
             }],
         };
 
         let more_money_payable_params_arc =
-            do_we_ignore_own_wallets_when_recording_consumed_services(
-                config,
-                report_message
-            );
+            do_we_ignore_own_wallets_when_recording_consumed_services(config, report_message);
 
         let more_money_payable_params = more_money_payable_params_arc.lock().unwrap();
         assert_eq!(
@@ -3374,10 +3368,7 @@ mod tests {
         };
 
         let more_money_payable_params_arc =
-            do_we_ignore_own_wallets_when_recording_consumed_services(
-            config,
-            report_message
-        );
+            do_we_ignore_own_wallets_when_recording_consumed_services(config, report_message);
 
         assert!(more_money_payable_params_arc.lock().unwrap().is_empty());
         TestLogHandler::new().exists_log_containing(&format!(
@@ -3404,10 +3395,7 @@ mod tests {
         };
 
         let more_money_payable_params_arc =
-            do_we_ignore_own_wallets_when_recording_consumed_services(
-                config,
-                report_message
-            );
+            do_we_ignore_own_wallets_when_recording_consumed_services(config, report_message);
 
         assert!(more_money_payable_params_arc.lock().unwrap().is_empty());
         TestLogHandler::new().exists_log_containing(&format!(

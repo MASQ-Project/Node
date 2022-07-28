@@ -907,40 +907,37 @@ impl ProxyServer {
             .iter()
             .filter(|service| !matches!(service, ExpectedService::Nothing))
             .fold(ZeroHop, |acc, service| {
-                if let Definite(Ok(..)) = acc {
+                if let Definite(..) = acc {
                     acc
                 } else {
                     match service {
                         ExpectedService::Exit(_, wallet, rate_pack) => {
-                            Definite(Ok(ExitServiceConsumed {
-                                earning_wallet: wallet.clone(), //TODO can I do anything with this clone?
+                            Definite(ExitServiceConsumed {
+                                earning_wallet: wallet.clone(), //sadly, the whole data structure is a reference
                                 payload_size: exit_size,
                                 service_rate: rate_pack.exit_service_rate,
                                 byte_rate: rate_pack.exit_byte_rate,
-                            }))
+                            })
                         }
-                        _ => todo!(), // Definite(Err(())),
+                        _ => unreachable!(
+                            "Return route has to begin with an exit service if not zero hop"
+                        ),
                     }
                 }
             });
         let exit_service_report = match exit_service_report {
             ZeroHop => return,
-            Definite(result) => match result {
-                Ok(report) => report,
-                Err(()) => todo!(),
-            },
+            Definite(report) => report,
         };
         let routing_service_reports = return_route_info
             .expected_services
             .iter()
             .flat_map(|service| match service {
-                ExpectedService::Routing(_, wallet, rate_pack) => {
-                    Some(RoutingServiceConsumed {
-                        earning_wallet: wallet.clone(), //TODO can I do anything with this clone?
-                        service_rate: rate_pack.routing_service_rate,
-                        byte_rate: rate_pack.routing_byte_rate,
-                    })
-                }
+                ExpectedService::Routing(_, wallet, rate_pack) => Some(RoutingServiceConsumed {
+                    earning_wallet: wallet.clone(),
+                    service_rate: rate_pack.routing_service_rate,
+                    byte_rate: rate_pack.routing_byte_rate,
+                }),
                 _ => None,
             })
             .collect::<Vec<_>>();
@@ -959,7 +956,7 @@ impl ProxyServer {
 }
 
 enum ExitServiceSearch {
-    Definite(Result<ExitServiceConsumed, ()>),
+    Definite(ExitServiceConsumed),
     ZeroHop,
 }
 
@@ -2413,7 +2410,7 @@ mod tests {
         init_test_logging();
         let cryptde = main_cryptde();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
-        let (accountant_mock, accountant_awaiter, recorder) = make_recorder();
+        let (accountant_mock, accountant_awaiter, _) = make_recorder();
         let (neighborhood_mock, _, _) = make_recorder();
         let mut route_query_response = zero_hop_route_response(&cryptde.public_key(), cryptde);
         route_query_response.expected_services = ExpectedServices::RoundTrip(
@@ -2598,6 +2595,40 @@ mod tests {
             &peer_actors.proxy_server.add_return_route,
             None,
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "Return route has to begin with an exit service if not zero hop")]
+    fn report_response_services_consumed_does_not_allow_for_other_order_than_started_at_exit_service(
+    ) {
+        let main_cryptde = main_cryptde();
+        let alias_cryptde = alias_cryptde();
+        let subject = ProxyServer::new(
+            main_cryptde,
+            alias_cryptde,
+            true,
+            Some(STANDARD_CONSUMING_WALLET_BALANCE),
+            false,
+        );
+        let add_return_route_message = AddReturnRouteMessage {
+            return_route_id: 0,
+            expected_services: vec![
+                ExpectedService::Routing(
+                    PublicKey::from(&b"key"[..]),
+                    make_wallet("some wallet"),
+                    rate_pack(10),
+                ),
+                ExpectedService::Exit(
+                    PublicKey::from(&b"exit_key"[..]),
+                    make_wallet("exit"),
+                    rate_pack(11),
+                ),
+            ],
+            protocol: ProxyProtocol::HTTP,
+            server_name: None,
+        };
+
+        subject.report_response_services_consumed(&add_return_route_message, 1234, 3456);
     }
 
     #[test]
