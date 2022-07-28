@@ -2,6 +2,7 @@
 
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::node_addr::NodeAddr;
+use std::fmt::Write;
 
 pub trait DotRenderable {
     fn render(&self) -> String;
@@ -25,17 +26,17 @@ pub struct NodeRenderable {
 impl DotRenderable for NodeRenderable {
     fn render(&self) -> String {
         let mut result = String::new();
-        result = format!("{}\"{}\"", result, self.public_key);
-        result.push_str(&self.render_label());
+        write!(result, "\"{}\"", self.public_key).expect("write failed");
+        write!(result, "{}", &self.render_label()).expect("write failed");
         if !self.is_present {
-            result.push_str(" [shape=none]")
+            write!(result, " [shape=none]").expect("write failed");
         } else if self.known_target {
-            result.push_str(" [shape=box]")
+            write!(result, " [shape=box]").expect("write failed");
         }
         if self.known_source {
-            result.push_str(" [style=filled]")
+            write!(result, " [style=filled]").expect("write failed");
         }
-        result.push(';');
+        write!(result, ";").expect("write failed");
         result
     }
 }
@@ -77,7 +78,7 @@ pub struct EdgeRenderable {
 impl DotRenderable for EdgeRenderable {
     fn render(&self) -> String {
         let mut result = String::new();
-        result = format!("{}\"{}\" -> \"{}\";", result, self.from, self.to);
+        write!(result, "\"{}\" -> \"{}\";", self.from, self.to).expect("write failed");
         result
     }
 }
@@ -85,7 +86,7 @@ impl DotRenderable for EdgeRenderable {
 pub fn render_dot_graph(renderables: Vec<Box<dyn DotRenderable>>) -> String {
     let mut result = String::from("digraph db {");
     for renderable in renderables {
-        result = format!("{} {}", result, renderable.render())
+        write!(result, " {}", renderable.render()).expect("write failed");
     }
     result.push_str(" }");
     result
