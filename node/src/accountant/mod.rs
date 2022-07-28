@@ -1274,8 +1274,8 @@ mod tests {
     use actix::{Arbiter, System};
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
-    use regex::Regex;
     use masq_lib::constants::SCAN_ERROR;
+    use regex::Regex;
     use web3::types::U256;
 
     use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
@@ -3202,7 +3202,10 @@ mod tests {
         let after = Accountant::msg_id();
         let more_money_payable_params = more_money_payable_params_arc.lock().unwrap();
         assert_eq!(
-            more_money_payable_params.iter().map(|(wallet,amount)|(wallet,amount)).collect::<Vec<_>>(),
+            more_money_payable_params
+                .iter()
+                .map(|(wallet, amount)| (wallet, amount))
+                .collect::<Vec<_>>(),
             vec![
                 (&earning_wallet_exit, &((1 * 120) + (1200 * 30))),
                 (&earning_wallet_routing_1, &((1 * 42) + (3456 * 24))),
@@ -3215,189 +3218,202 @@ mod tests {
             earning_wallet_exit
         ));
         let log_msg = test_log_handler.get_log_at(log_index);
-        let str_timestamp = Regex::new("MsgId (\\d\\d\\d):").unwrap().captures(&log_msg).unwrap().get(1).unwrap().as_str();
-        test_log_handler.exists_log_containing(
-            &format!("DEBUG: Accountant: MsgId {}: Accruing debt to {} for consuming 3456 routed bytes", str_timestamp, earning_wallet_routing_1),
-        );
-        test_log_handler.exists_log_containing(
-            &format!("DEBUG: Accountant: MsgId {}: Accruing debt to {} for consuming 3456 routed bytes", str_timestamp, earning_wallet_routing_2),
-        );
+        let str_timestamp = Regex::new("MsgId (\\d\\d\\d):")
+            .unwrap()
+            .captures(&log_msg)
+            .unwrap()
+            .get(1)
+            .unwrap()
+            .as_str();
+        test_log_handler.exists_log_containing(&format!(
+            "DEBUG: Accountant: MsgId {}: Accruing debt to {} for consuming 3456 routed bytes",
+            str_timestamp, earning_wallet_routing_1
+        ));
+        test_log_handler.exists_log_containing(&format!(
+            "DEBUG: Accountant: MsgId {}: Accruing debt to {} for consuming 3456 routed bytes",
+            str_timestamp, earning_wallet_routing_2
+        ));
         assert!(before.as_str() <= str_timestamp && str_timestamp <= after.as_str())
+    }
+
+    fn do_we_ignore_own_wallets_when_recording_consumed_services(
+        config: BootstrapperConfig,
+        message: ReportServicesConsumedMessage
+    ) -> Arc<Mutex<Vec<(Wallet, u64)>>> {
+        let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let payable_dao_mock = PayableDaoMock::new()
+            .non_pending_payables_result(vec![])
+            .more_money_payable_result(Ok(()))
+            .more_money_payable_params(more_money_payable_parameters_arc.clone());
+        let subject = AccountantBuilder::default()
+            .bootstrapper_config(config)
+            .payable_dao(payable_dao_mock)
+            .build();
+        let system = System::new("test");
+        let subject_addr: Addr<Accountant> = subject.start();
+        subject_addr
+            .try_send(BindMessage {
+                peer_actors: peer_actors_builder().build(),
+            })
+            .unwrap();
+
+        subject_addr.try_send(message).unwrap();
+
+        System::current().stop();
+        system.run();
+        more_money_payable_parameters_arc
     }
 
     #[test]
     fn report_routing_service_consumed_message_is_received_for_our_consuming_wallet() {
-        todo!("fix me - report routing service, our wallet");
-        // init_test_logging();
-        // let consuming_wallet = make_wallet("the consuming wallet");
-        // let config = bc_from_ac_plus_wallets(
-        //     make_populated_accountant_config_with_defaults(),
-        //     consuming_wallet.clone(),
-        //     make_wallet("the earning wallet"),
-        // );
-        // let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
-        // let payable_dao_mock = PayableDaoMock::new()
-        //     .non_pending_payables_result(vec![])
-        //     .more_money_payable_parameters(more_money_payable_parameters_arc.clone());
-        // let subject = AccountantBuilder::default()
-        //     .bootstrapper_config(config)
-        //     .payable_dao(payable_dao_mock)
-        //     .build();
-        // let system = System::new("report_routing_service_consumed_message_is_received");
-        // let subject_addr: Addr<Accountant> = subject.start();
-        // subject_addr
-        //     .try_send(BindMessage {
-        //         peer_actors: peer_actors_builder().build(),
-        //     })
-        //     .unwrap();
-        //
-        // subject_addr
-        //     .try_send(ReportRoutingServiceConsumed {
-        //         earning_wallet: consuming_wallet.clone(),
-        //         payload_size: 1234,
-        //         service_rate: 42,
-        //         byte_rate: 24,
-        //     })
-        //     .unwrap();
-        //
-        // System::current().stop_with_code(0);
-        // system.run();
-        // assert!(more_money_payable_parameters_arc.lock().unwrap().is_empty());
-        //
-        // TestLogHandler::new().exists_log_containing(&format!(
-        //     "INFO: Accountant: Not recording service consumed to our wallet {}",
-        //     consuming_wallet,
-        // ));
+        init_test_logging();
+        let consuming_wallet = make_wallet("the consuming wallet");
+        let config = bc_from_ac_plus_wallets(
+            make_populated_accountant_config_with_defaults(),
+            consuming_wallet.clone(),
+            make_wallet("the earning wallet"),
+        );
+        let foreign_wallet = make_wallet("exit wallet");
+        let report_message = ReportServicesConsumedMessage {
+            exit: ExitServiceConsumed {
+                earning_wallet: foreign_wallet.clone(),
+                payload_size: 1234,
+                service_rate: 45,
+                byte_rate: 10,
+            },
+            routing_payload_size: 3333,
+            routing: vec![RoutingServiceConsumed {
+                earning_wallet:consuming_wallet.clone(),
+                service_rate: 42,
+                byte_rate: 6,
+            }],
+        };
+
+        let more_money_payable_params_arc =
+            do_we_ignore_own_wallets_when_recording_consumed_services(
+                config,
+                report_message
+            );
+
+        let more_money_payable_params = more_money_payable_params_arc.lock().unwrap();
+        assert_eq!(
+            *more_money_payable_params,
+            //except processing the exit service there was no change in payables
+            vec![(foreign_wallet, (45 + 10 * 1234))]
+        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "INFO: Accountant: Not recording service consumed to our wallet {}",
+            consuming_wallet
+        ));
     }
 
     #[test]
     fn report_routing_service_consumed_message_is_received_for_our_earning_wallet() {
-        todo!("fix me - report routing service, our wallet")
-        // init_test_logging();
-        // let earning_wallet = make_wallet("the earning wallet");
-        // let config = bc_from_ac_plus_earning_wallet(
-        //     make_populated_accountant_config_with_defaults(),
-        //     earning_wallet.clone(),
-        // );
-        // let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
-        // let payable_dao_mock = PayableDaoMock::new()
-        //     .non_pending_payables_result(vec![])
-        //     .more_money_payable_parameters(more_money_payable_parameters_arc.clone());
-        // let subject = AccountantBuilder::default()
-        //     .bootstrapper_config(config)
-        //     .payable_dao(payable_dao_mock)
-        //     .build();
-        // let system = System::new("report_routing_service_consumed_message_is_received");
-        // let subject_addr: Addr<Accountant> = subject.start();
-        // subject_addr
-        //     .try_send(BindMessage {
-        //         peer_actors: peer_actors_builder().build(),
-        //     })
-        //     .unwrap();
-        //
-        // subject_addr
-        //     .try_send(ReportRoutingServiceConsumed {
-        //         earning_wallet: earning_wallet.clone(),
-        //         payload_size: 1234,
-        //         service_rate: 42,
-        //         byte_rate: 24,
-        //     })
-        //     .unwrap();
-        //
-        // System::current().stop_with_code(0);
-        // system.run();
-        // assert!(more_money_payable_parameters_arc.lock().unwrap().is_empty());
-        // TestLogHandler::new().exists_log_containing(&format!(
-        //     "INFO: Accountant: Not recording service consumed to our wallet {}",
-        //     earning_wallet
-        // ));
+        init_test_logging();
+        let earning_wallet = make_wallet(
+            "report_routing_service_consumed_message_is_received_for_our_earning_wallet",
+        );
+        let foreign_wallet = make_wallet("exit wallet");
+        let config = bc_from_ac_plus_earning_wallet(
+            make_populated_accountant_config_with_defaults(),
+            earning_wallet.clone(),
+        );
+        let report_message = ReportServicesConsumedMessage {
+            exit: ExitServiceConsumed {
+                earning_wallet: foreign_wallet.clone(),
+                payload_size: 1234,
+                service_rate: 45,
+                byte_rate: 10,
+            },
+            routing_payload_size: 3333,
+            routing: vec![RoutingServiceConsumed {
+                earning_wallet:earning_wallet.clone(),
+                service_rate: 42,
+                byte_rate: 6,
+            }],
+        };
+
+        let more_money_payable_params_arc =
+            do_we_ignore_own_wallets_when_recording_consumed_services(
+                config,
+                report_message
+            );
+
+        let more_money_payable_params = more_money_payable_params_arc.lock().unwrap();
+        assert_eq!(
+            *more_money_payable_params,
+            //except processing the exit service there was no change in payables
+            vec![(foreign_wallet, (45 + 10 * 1234))]
+        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "INFO: Accountant: Not recording service consumed to our wallet {}",
+            earning_wallet
+        ));
     }
 
     #[test]
     fn report_exit_service_consumed_message_is_received_for_our_consuming_wallet() {
-        todo!("repair me - exit service consumed - our message")
-        // init_test_logging();
-        // let consuming_wallet = make_wallet("own consuming wallet");
-        // let config = bc_from_ac_plus_wallets(
-        //     make_accountant_config_null(),
-        //     consuming_wallet.clone(),
-        //     make_wallet("own earning wallet"),
-        // );
-        // let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
-        // let payable_dao_mock = PayableDaoMock::new()
-        //     .non_pending_payables_result(vec![])
-        //     .more_money_payable_parameters(more_money_payable_parameters_arc.clone());
-        // let subject = AccountantBuilder::default()
-        //     .bootstrapper_config(config)
-        //     .payable_dao(payable_dao_mock)
-        //     .build();
-        // let system = System::new("report_exit_service_consumed_message_is_received");
-        // let subject_addr: Addr<Accountant> = subject.start();
-        // subject_addr
-        //     .try_send(BindMessage {
-        //         peer_actors: peer_actors_builder().build(),
-        //     })
-        //     .unwrap();
-        //
-        // subject_addr
-        //     .try_send(ReportExitServiceConsumed {
-        //         earning_wallet: consuming_wallet.clone(),
-        //         payload_size: 1234,
-        //         service_rate: 42,
-        //         byte_rate: 24,
-        //     })
-        //     .unwrap();
-        //
-        // System::current().stop_with_code(0);
-        // system.run();
-        // assert!(more_money_payable_parameters_arc.lock().unwrap().is_empty());
-        //
-        // TestLogHandler::new().exists_log_containing(&format!(
-        //     "INFO: Accountant: Not recording service consumed to our wallet {}",
-        //     consuming_wallet
-        // ));
+        init_test_logging();
+        let consuming_wallet = make_wallet(
+            "report_exit_service_consumed_message_is_received_for_our_consuming_wallet",
+        );
+        let config = bc_from_ac_plus_wallets(
+            make_accountant_config_null(),
+            consuming_wallet.clone(),
+            make_wallet("own earning wallet"),
+        );
+        let report_message = ReportServicesConsumedMessage {
+            exit: ExitServiceConsumed {
+                earning_wallet: consuming_wallet.clone(),
+                payload_size: 1234,
+                service_rate: 42,
+                byte_rate: 24,
+            },
+            routing_payload_size: 3333,
+            routing: vec![],
+        };
+
+        let more_money_payable_params_arc =
+            do_we_ignore_own_wallets_when_recording_consumed_services(
+            config,
+            report_message
+        );
+
+        assert!(more_money_payable_params_arc.lock().unwrap().is_empty());
+        TestLogHandler::new().exists_log_containing(&format!(
+            "INFO: Accountant: Not recording service consumed to our wallet {}",
+            consuming_wallet
+        ));
     }
 
     #[test]
     fn report_exit_service_consumed_message_is_received_for_our_earning_wallet() {
-        todo!("repair me - exit service consumed - our message")
-        // init_test_logging();
-        // let earning_wallet = make_wallet("own earning wallet");
-        // let config =
-        //     bc_from_ac_plus_earning_wallet(make_accountant_config_null(), earning_wallet.clone());
-        // let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
-        // let payable_dao_mock = PayableDaoMock::new()
-        //     .non_pending_payables_result(vec![])
-        //     .more_money_payable_parameters(more_money_payable_parameters_arc.clone());
-        // let subject = AccountantBuilder::default()
-        //     .bootstrapper_config(config)
-        //     .payable_dao(payable_dao_mock)
-        //     .build();
-        // let system = System::new("report_exit_service_consumed_message_is_received");
-        // let subject_addr: Addr<Accountant> = subject.start();
-        // subject_addr
-        //     .try_send(BindMessage {
-        //         peer_actors: peer_actors_builder().build(),
-        //     })
-        //     .unwrap();
-        //
-        // subject_addr
-        //     .try_send(ReportExitServiceConsumed {
-        //         earning_wallet: earning_wallet.clone(),
-        //         payload_size: 1234,
-        //         service_rate: 42,
-        //         byte_rate: 24,
-        //     })
-        //     .unwrap();
-        //
-        // System::current().stop_with_code(0);
-        // system.run();
-        // assert!(more_money_payable_parameters_arc.lock().unwrap().is_empty());
-        //
-        // TestLogHandler::new().exists_log_containing(&format!(
-        //     "INFO: Accountant: Not recording service consumed to our wallet {}",
-        //     earning_wallet
-        // ));
+        init_test_logging();
+        let earning_wallet = make_wallet("own earning wallet");
+        let config =
+            bc_from_ac_plus_earning_wallet(make_accountant_config_null(), earning_wallet.clone());
+        let report_message = ReportServicesConsumedMessage {
+            exit: ExitServiceConsumed {
+                earning_wallet: earning_wallet.clone(),
+                payload_size: 1234,
+                service_rate: 42,
+                byte_rate: 24,
+            },
+            routing_payload_size: 3333,
+            routing: vec![],
+        };
+
+        let more_money_payable_params_arc =
+            do_we_ignore_own_wallets_when_recording_consumed_services(
+                config,
+                report_message
+            );
+
+        assert!(more_money_payable_params_arc.lock().unwrap().is_empty());
+        TestLogHandler::new().exists_log_containing(&format!(
+            "INFO: Accountant: Not recording service consumed to our wallet {}",
+            earning_wallet
+        ));
     }
 
     #[test]

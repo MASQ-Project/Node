@@ -2413,7 +2413,7 @@ mod tests {
         init_test_logging();
         let cryptde = main_cryptde();
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
-        let (accountant_mock, _, accountant_log_arc) = make_recorder();
+        let (accountant_mock, accountant_awaiter, recorder) = make_recorder();
         let (neighborhood_mock, _, _) = make_recorder();
         let mut route_query_response = zero_hop_route_response(&cryptde.public_key(), cryptde);
         route_query_response.expected_services = ExpectedServices::RoundTrip(
@@ -2464,7 +2464,8 @@ mod tests {
         TestLogHandler::new()
             .await_log_containing("DEBUG: ProxyServer: No routing services requested.", 1000);
 
-        assert_eq!(accountant_log_arc.lock().unwrap().len(), 1);
+        //report about consumed services is sent anyway, exit service is mandatory ever
+        accountant_awaiter.await_message_count(1)
     }
 
     #[test]
