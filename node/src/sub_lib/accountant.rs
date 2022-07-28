@@ -114,7 +114,7 @@ pub struct ReportExitServiceProvidedMessage {
 #[derive(Clone, PartialEq, Debug, Message)]
 pub struct ReportServicesConsumedMessage {
     //exit Node always ends or starts in each segment of RoundTrip
-    pub exit_service: ExitServiceConsumed,
+    pub exit: ExitServiceConsumed,
     pub routing_payload_size: usize,
     pub routing: Vec<RoutingServiceConsumed>,
 }

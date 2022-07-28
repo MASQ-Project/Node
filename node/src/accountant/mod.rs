@@ -27,7 +27,6 @@ use crate::database::db_migrations::MigratorConfig;
 use crate::sub_lib::accountant::ExitServiceConsumed;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
-use crate::sub_lib::accountant::RoutingServiceConsumed;
 use crate::sub_lib::accountant::{AccountantConfig, FinancialStatistics, PaymentThresholds};
 use crate::sub_lib::accountant::{AccountantSubs, ReportServicesConsumedMessage};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
@@ -894,14 +893,14 @@ impl Accountant {
         debug!(
             self.logger,
             "Accruing debt to wallet {} for consuming exit service {} bytes",
-            msg.exit_service.earning_wallet,
-            msg.exit_service.payload_size
+            msg.exit.earning_wallet,
+            msg.exit.payload_size
         );
         self.record_service_consumed(
-            msg.exit_service.service_rate,
-            msg.exit_service.byte_rate,
-            msg.exit_service.payload_size,
-            &msg.exit_service.earning_wallet,
+            msg.exit.service_rate,
+            msg.exit.byte_rate,
+            msg.exit.payload_size,
+            &msg.exit.earning_wallet,
         );
         msg.routing.iter().for_each(|routing_service| {
             debug!(
@@ -3180,7 +3179,7 @@ mod tests {
         let earning_wallet_routing_2 = make_wallet("routing 2");
         subject_addr
             .try_send(ReportServicesConsumedMessage {
-                exit_service: ExitServiceConsumed {
+                exit: ExitServiceConsumed {
                     earning_wallet: earning_wallet_exit.clone(),
                     payload_size: 0,
                     service_rate: 120,

@@ -10,6 +10,7 @@ pub mod tls_protocol_pack;
 use crate::proxy_server::client_request_payload_factory::ClientRequestPayloadFactory;
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::proxy_server::protocol_pack::{from_ibcd, from_protocol, ProtocolPack};
+use crate::proxy_server::ExitServiceSearch::{Definite, ZeroHop};
 use crate::stream_messages::NonClandestineAttributes;
 use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::accountant::RoutingServiceConsumed;
@@ -23,7 +24,7 @@ use crate::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage};
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{ExpectedService, NodeRecordMetadataMessage};
-use crate::sub_lib::neighborhood::{ExpectedServices, RatePack, DEFAULT_RATE_PACK};
+use crate::sub_lib::neighborhood::{ExpectedServices, DEFAULT_RATE_PACK};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
@@ -37,7 +38,6 @@ use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::ttl_hashmap::TtlHashMap;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
-use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
@@ -45,7 +45,6 @@ use actix::Handler;
 use actix::Recipient;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use masq_lib::utils::ExpectValue;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
@@ -708,7 +707,7 @@ impl ProxyServer {
         }
     }
 
-    fn report_of_routing_services(
+    fn report_on_routing_services(
         expected_services: Vec<ExpectedService>,
         logger: &Logger,
     ) -> Vec<RoutingServiceConsumed> {
@@ -732,7 +731,7 @@ impl ProxyServer {
         report_of_routing_services
     }
 
-    fn report_of_exit_service(
+    fn report_on_exit_service(
         expected_services: &[ExpectedService],
         payload_size: usize,
     ) -> ExitServiceConsumed {
@@ -751,7 +750,10 @@ impl ProxyServer {
                 byte_rate: rate_pack.exit_byte_rate,
             },
             None => {
-                todo!()
+                panic!(
+                    "Exit service must go in each route while missing here: {:?}",
+                    expected_services
+                )
             }
         }
     }
@@ -789,6 +791,7 @@ impl ProxyServer {
                     logger,
                     "transmit to hopper with destination key {:?}", payload_destination_key
                 );
+                let payload_size = payload.sequenced_packet.data.len();
                 let stream_key = payload.stream_key;
                 let pkg = IncipientCoresPackage::new(
                     cryptde.as_ref(),
@@ -797,17 +800,22 @@ impl ProxyServer {
                     &payload_destination_key,
                 )
                 .expect("Key magically disappeared");
-                let exit_service =
-                    ProxyServer::report_of_exit_service(&expected_services, pkg.payload.len());
-                let routing_services =
-                    ProxyServer::report_of_routing_services(expected_services, logger);
-                accountant_sub
-                    .try_send(ReportServicesConsumedMessage {
-                        exit_service,
-                        routing_payload_size: pkg.payload.len(),
-                        routing: routing_services,
-                    })
-                    .expect("Accountant is dead");
+                if !expected_services
+                    .iter()
+                    .all(|service| matches!(service, ExpectedService::Nothing))
+                {
+                    let exit =
+                        ProxyServer::report_on_exit_service(&expected_services, payload_size);
+                    let routing =
+                        ProxyServer::report_on_routing_services(expected_services, logger);
+                    accountant_sub
+                        .try_send(ReportServicesConsumedMessage {
+                            exit,
+                            routing_payload_size: pkg.payload.len(),
+                            routing,
+                        })
+                        .expect("Accountant is dead");
+                }
                 hopper.try_send(pkg).expect("Hopper is dead");
                 if let Some(shutdown_sub) = retire_stream_key_via {
                     debug!(
@@ -894,33 +902,41 @@ impl ProxyServer {
         exit_size: usize,
         routing_size: usize,
     ) {
-        let exit_service_report = return_route_info
+        let exit_service_report: ExitServiceSearch = return_route_info
             .expected_services
             .iter()
-            .flat_map(|service| match service {
-                ExpectedService::Exit(_, wallet, rate_pack) => {
-                    Some(ExitServiceConsumed {
-                        earning_wallet: wallet.clone(),//TODO can I do anything with this clone?
-                        payload_size: exit_size,
-                        service_rate: rate_pack.exit_service_rate,
-                        byte_rate: rate_pack.exit_byte_rate,
-                    })
+            .filter(|service| !matches!(service, ExpectedService::Nothing))
+            .fold(ZeroHop, |acc, service| {
+                if let Definite(Ok(..)) = acc {
+                    acc
+                } else {
+                    match service {
+                        ExpectedService::Exit(_, wallet, rate_pack) => {
+                            Definite(Ok(ExitServiceConsumed {
+                                earning_wallet: wallet.clone(), //TODO can I do anything with this clone?
+                                payload_size: exit_size,
+                                service_rate: rate_pack.exit_service_rate,
+                                byte_rate: rate_pack.exit_byte_rate,
+                            }))
+                        }
+                        _ => todo!(), // Definite(Err(())),
+                    }
                 }
-                _ => None,
-            })
-            .fold(
-                None,
-                |acc: Option<ExitServiceConsumed>, service_report|
-                if acc.is_some() {todo!()} else {Some(service_report)}
-            )
-            .expectv("exit service");
+            });
+        let exit_service_report = match exit_service_report {
+            ZeroHop => return,
+            Definite(result) => match result {
+                Ok(report) => report,
+                Err(()) => todo!(),
+            },
+        };
         let routing_service_reports = return_route_info
             .expected_services
             .iter()
             .flat_map(|service| match service {
                 ExpectedService::Routing(_, wallet, rate_pack) => {
                     Some(RoutingServiceConsumed {
-                        earning_wallet:wallet.clone(), //TODO can I do anything with this clone?
+                        earning_wallet: wallet.clone(), //TODO can I do anything with this clone?
                         service_rate: rate_pack.routing_service_rate,
                         byte_rate: rate_pack.routing_byte_rate,
                     })
@@ -929,7 +945,7 @@ impl ProxyServer {
             })
             .collect::<Vec<_>>();
         let report_message = ReportServicesConsumedMessage {
-            exit_service: exit_service_report,
+            exit: exit_service_report,
             routing_payload_size: routing_size,
             routing: routing_service_reports,
         };
@@ -940,6 +956,11 @@ impl ProxyServer {
             .try_send(report_message)
             .expect("Accountant is dead");
     }
+}
+
+enum ExitServiceSearch {
+    Definite(Result<ExitServiceConsumed, ()>),
+    ZeroHop,
 }
 
 trait StreamKeyFactory: Send {
@@ -979,14 +1000,12 @@ mod tests {
     use crate::sub_lib::sequence_buffer::SequencedPacket;
     use crate::sub_lib::ttl_hashmap::TtlHashMap;
     use crate::sub_lib::versioned_data::VersionedData;
-    use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::recorder::Recording;
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::zero_hop_route_response;
     use crate::test_utils::{alias_cryptde, rate_pack};
@@ -1000,7 +1019,7 @@ mod tests {
     use std::cell::RefCell;
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use std::sync::{Arc, Mutex, MutexGuard};
+    use std::sync::{Arc, Mutex};
     use std::thread;
 
     #[test]
@@ -1089,39 +1108,6 @@ mod tests {
             },
         )
         .unwrap()
-    }
-
-    fn check_exit_report(
-        accountant_recording: &MutexGuard<Recording>,
-        idx: usize,
-        wallet: &Wallet,
-        payload_size: usize,
-        rate_pack: RatePack,
-    ) {
-        assert_eq!(
-            accountant_recording.get_record::<ExitServiceConsumed>(idx),
-            &ExitServiceConsumed {
-                earning_wallet: wallet.clone(),
-                payload_size,
-                service_rate: rate_pack.exit_service_rate,
-                byte_rate: rate_pack.exit_byte_rate,
-            }
-        );
-    }
-
-    fn check_routing_report(
-        accountant_recording: &MutexGuard<Recording>,
-        idx: usize,
-        wallet: &Wallet,
-    ) {
-        assert_eq!(
-            accountant_recording.get_record::<RoutingServiceConsumed>(idx),
-            &RoutingServiceConsumed {
-                earning_wallet: wallet.clone(),
-                service_rate: DEFAULT_RATE_PACK.routing_service_rate,
-                byte_rate: DEFAULT_RATE_PACK.routing_byte_rate,
-            }
-        );
     }
 
     #[test]
@@ -2325,7 +2311,7 @@ mod tests {
         assert_eq!(
             record,
             &ReportServicesConsumedMessage {
-                exit_service: ExitServiceConsumed {
+                exit: ExitServiceConsumed {
                     earning_wallet: exit_earning_wallet,
                     payload_size: exit_payload_size,
                     service_rate: exit_node_rate_pack.exit_service_rate,
@@ -2429,9 +2415,18 @@ mod tests {
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
         let (accountant_mock, _, accountant_log_arc) = make_recorder();
         let (neighborhood_mock, _, _) = make_recorder();
-        let zero_hop_route_reponse = zero_hop_route_response(&cryptde.public_key(), cryptde);
+        let mut route_query_response = zero_hop_route_response(&cryptde.public_key(), cryptde);
+        route_query_response.expected_services = ExpectedServices::RoundTrip(
+            vec![ExpectedService::Exit(
+                cryptde.public_key().clone(),
+                make_wallet("exit wallet"),
+                rate_pack(3),
+            )],
+            vec![],
+            0,
+        );
         let neighborhood_mock =
-            neighborhood_mock.route_query_response(Some(zero_hop_route_reponse.clone()));
+            neighborhood_mock.route_query_response(Some(route_query_response.clone()));
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
@@ -2469,48 +2464,23 @@ mod tests {
         TestLogHandler::new()
             .await_log_containing("DEBUG: ProxyServer: No routing services requested.", 1000);
 
-        assert_eq!(accountant_log_arc.lock().unwrap().len(), 0);
+        assert_eq!(accountant_log_arc.lock().unwrap().len(), 1);
     }
 
     #[test]
-    #[should_panic(expected = "blaaaaaaaaaaaah")]
-    fn proxy_server_panics_when_exit_services_are_not_requested() {
-        init_test_logging();
-        let cryptde = main_cryptde();
-        let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
-        let (neighborhood_mock, _, _) = make_recorder();
-        let zero_hop_route_reponse = zero_hop_route_response(&cryptde.public_key(), cryptde);
-        let neighborhood_mock =
-            neighborhood_mock.route_query_response(Some(zero_hop_route_reponse.clone()));
-        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let stream_key = make_meaningless_stream_key();
-        let expected_data = http_request.to_vec();
-        let msg_from_dispatcher = InboundClientData {
-            peer_addr: socket_addr.clone(),
-            reception_port: Some(HTTP_PORT),
-            sequence_number: Some(0),
-            last_data: true,
-            is_clandestine: false,
-            data: expected_data.clone(),
-        };
-        let stream_key_factory = StreamKeyFactoryMock::new().make_result(stream_key);
-        let system = System::new("proxy_server_logs_message_when_exit_services_are_not_consumed");
-        let mut subject = ProxyServer::new(
-            cryptde,
-            alias_cryptde(),
-            true,
-            Some(STANDARD_CONSUMING_WALLET_BALANCE),
-            false,
-        );
-        subject.stream_key_factory = Box::new(stream_key_factory);
-        let subject_addr: Addr<ProxyServer> = subject.start();
-        let mut peer_actors = peer_actors_builder()
-            .neighborhood(neighborhood_mock)
-            .build();
-        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        subject_addr.try_send(msg_from_dispatcher).unwrap();
-        system.run();
+    #[should_panic(
+        expected = "Exit service must go in each route while missing here: [Routing(cm91dGluZ19rZXlfMQ, \
+    Wallet { kind: Address(0x00000000726f7574696e675f77616c6c65745f31) }, RatePack { routing_byte_rate: 9, \
+    routing_service_rate: 10, exit_byte_rate: 11, exit_service_rate: 12 })]"
+    )]
+    fn proxy_server_panics_when_exit_services_are_not_requested_in_non_zero_hop_mode() {
+        let expected_services = vec![ExpectedService::Routing(
+            PublicKey::from(&b"routing_key_1"[..]),
+            make_wallet("routing_wallet_1"),
+            rate_pack(8),
+        )];
+
+        ProxyServer::report_on_exit_service(&expected_services, 10000);
     }
 
     #[test]
@@ -3294,7 +3264,7 @@ mod tests {
         assert_eq!(
             first_report,
             &ReportServicesConsumedMessage {
-                exit_service: ExitServiceConsumed {
+                exit: ExitServiceConsumed {
                     earning_wallet: incoming_route_d_wallet,
                     payload_size: first_exit_size,
                     service_rate: rate_pack_d.exit_service_rate,
@@ -3320,7 +3290,7 @@ mod tests {
         assert_eq!(
             second_report,
             &ReportServicesConsumedMessage {
-                exit_service: ExitServiceConsumed {
+                exit: ExitServiceConsumed {
                     earning_wallet: incoming_route_g_wallet,
                     payload_size: second_exit_size,
                     service_rate: rate_pack_g.exit_service_rate,
@@ -3424,7 +3394,7 @@ mod tests {
         assert_eq!(
             services_consumed_report,
             &ReportServicesConsumedMessage {
-                exit_service: ExitServiceConsumed {
+                exit: ExitServiceConsumed {
                     earning_wallet: incoming_route_d_wallet,
                     payload_size: exit_size,
                     service_rate: rate_pack_d.exit_service_rate,
@@ -3598,7 +3568,7 @@ mod tests {
         assert_eq!(
             services_consumed_message,
             &ReportServicesConsumedMessage {
-                exit_service: ExitServiceConsumed {
+                exit: ExitServiceConsumed {
                     earning_wallet: incoming_route_d_wallet,
                     payload_size: 0,
                     service_rate: rate_pack_d.exit_service_rate,
@@ -3903,6 +3873,7 @@ mod tests {
         assert!(subject.tunneled_hosts.is_empty());
     }
 
+    //TODO you can theoretically bind Accountant to go through down to Dispatcher unbound, but do we really want tests like this?
     #[test]
     #[should_panic(expected = "Dispatcher unbound in ProxyServer")]
     fn panics_if_dispatcher_is_unbound() {
