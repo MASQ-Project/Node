@@ -55,7 +55,7 @@ use std::any::Any;
 use std::default::Default;
 use std::ops::Add;
 use std::path::Path;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use web3::types::{TransactionReceipt, H256};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
@@ -266,30 +266,6 @@ impl Handler<ReportExitServiceProvidedMessage> for Accountant {
         self.handle_report_exit_service_provided_message(msg);
     }
 }
-
-// impl Handler<ReportRoutingServiceConsumed> for Accountant {
-//     type Result = ();
-//
-//     fn handle(
-//         &mut self,
-//         msg: ReportRoutingServiceConsumed,
-//         _ctx: &mut Self::Context,
-//     ) -> Self::Result {
-//         self.handle_report_routing_service_consumed_message(msg);
-//     }
-// }
-//
-// impl Handler<ReportExitServiceConsumed> for Accountant {
-//     type Result = ();
-//
-//     fn handle(
-//         &mut self,
-//         msg: ReportExitServiceConsumed,
-//         _ctx: &mut Self::Context,
-//     ) -> Self::Result {
-//         self.handle_report_exit_service_consumed_message(msg);
-//     }
-// }
 
 impl Handler<ReportServicesConsumedMessage> for Accountant {
     type Result = ();
@@ -889,10 +865,26 @@ impl Accountant {
         );
     }
 
+    fn msg_id() -> String {
+        let full = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("time travelers")
+            .as_millis()
+            .to_string();
+        let len = full.len();
+        (&full[len - 3..len]).to_string()
+    }
+
     fn handle_report_services_consumed_message(&mut self, msg: ReportServicesConsumedMessage) {
+        let msg_id_opt = if self.logger.debug_enabled() {
+            Some(Self::msg_id())
+        } else {
+            None
+        };
         debug!(
             self.logger,
-            "Accruing debt to wallet {} for consuming exit service {} bytes",
+            "MsgId {}: Accruing debt to {} for consuming {} exited bytes",
+            msg_id_opt.as_ref().expectv("msg id"),
             msg.exit.earning_wallet,
             msg.exit.payload_size
         );
@@ -905,7 +897,8 @@ impl Accountant {
         msg.routing.iter().for_each(|routing_service| {
             debug!(
                 self.logger,
-                "Accruing debt to wallet {} for consuming routing service {} bytes",
+                "MsgId {}: Accruing debt to {} for consuming {} routed bytes",
+                msg_id_opt.as_ref().expectv("msg id"),
                 routing_service.earning_wallet,
                 msg.routing_payload_size
             );
@@ -1281,6 +1274,7 @@ mod tests {
     use actix::{Arbiter, System};
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
+    use regex::Regex;
     use masq_lib::constants::SCAN_ERROR;
     use web3::types::U256;
 
@@ -3177,15 +3171,16 @@ mod tests {
         let earning_wallet_exit = make_wallet("exit");
         let earning_wallet_routing_1 = make_wallet("routing 1");
         let earning_wallet_routing_2 = make_wallet("routing 2");
+
         subject_addr
             .try_send(ReportServicesConsumedMessage {
                 exit: ExitServiceConsumed {
                     earning_wallet: earning_wallet_exit.clone(),
-                    payload_size: 0,
+                    payload_size: 1200,
                     service_rate: 120,
                     byte_rate: 30,
                 },
-                routing_payload_size: 1234,
+                routing_payload_size: 3456,
                 routing: vec![
                     RoutingServiceConsumed {
                         earning_wallet: earning_wallet_routing_1.clone(),
@@ -3202,129 +3197,33 @@ mod tests {
             .unwrap();
 
         System::current().stop();
+        let before = Accountant::msg_id();
         system.run();
-        let test_log_handler = TestLogHandler::new();
-        test_log_handler.exists_log_containing(
-            &format!("DEBUG: Accountant: Accruing debt to wallet {} for consuming routing service 3456 bytes", earning_wallet_routing_1),
-        );
-        test_log_handler.exists_log_containing(
-            &format!("DEBUG: Accountant: Accruing debt to wallet {} for consuming routing service 3456 bytes", earning_wallet_routing_2),
-        );
-        test_log_handler.exists_log_containing(&format!(
-            "DEBUG: Accountant: Accruing debt to wallet {} for consuming exit service 3456 bytes",
-            earning_wallet_exit
-        ));
+        let after = Accountant::msg_id();
         let more_money_payable_params = more_money_payable_params_arc.lock().unwrap();
         assert_eq!(
-            *more_money_payable_params,
+            more_money_payable_params.iter().map(|(wallet,amount)|(wallet,amount)).collect::<Vec<_>>(),
             vec![
-                (earning_wallet_exit, (1 * 120) + (3456 * 30)),
-                (earning_wallet_routing_1, (1 * 42) + (3456 * 24)),
-                (earning_wallet_routing_2, (1 * 52) + (3456 * 33))
+                (&earning_wallet_exit, &((1 * 120) + (1200 * 30))),
+                (&earning_wallet_routing_1, &((1 * 42) + (3456 * 24))),
+                (&earning_wallet_routing_2, &((1 * 52) + (3456 * 33)))
             ]
         );
+        let test_log_handler = TestLogHandler::new();
+        let log_index = test_log_handler.exists_log_matching(&format!(
+            "DEBUG: Accountant: MsgId \\d\\d\\d: Accruing debt to {} for consuming 1200 exited bytes",
+            earning_wallet_exit
+        ));
+        let log_msg = test_log_handler.get_log_at(log_index);
+        let str_timestamp = Regex::new("MsgId (\\d\\d\\d):").unwrap().captures(&log_msg).unwrap().get(1).unwrap().as_str();
+        test_log_handler.exists_log_containing(
+            &format!("DEBUG: Accountant: MsgId {}: Accruing debt to {} for consuming 3456 routed bytes", str_timestamp, earning_wallet_routing_1),
+        );
+        test_log_handler.exists_log_containing(
+            &format!("DEBUG: Accountant: MsgId {}: Accruing debt to {} for consuming 3456 routed bytes", str_timestamp, earning_wallet_routing_2),
+        );
+        assert!(before.as_str() <= str_timestamp && str_timestamp <= after.as_str())
     }
-
-    // #[test]
-    // fn report_routing_service_consumed_message_is_received() {
-    //     init_test_logging();
-    //     let config = bc_from_ac_plus_earning_wallet(
-    //         make_populated_accountant_config_with_defaults(),
-    //         make_wallet("hi"),
-    //     );
-    //     let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
-    //     let payable_dao_mock = PayableDaoMock::new()
-    //         .non_pending_payables_result(vec![])
-    //         .more_money_payable_params(more_money_payable_parameters_arc.clone())
-    //         .more_money_payable_result(Ok(()));
-    //     let subject = AccountantBuilder::default()
-    //         .bootstrapper_config(config)
-    //         .payable_dao(payable_dao_mock)
-    //         .build();
-    //     let system = System::new("report_routing_service_consumed_message_is_received");
-    //     let subject_addr: Addr<Accountant> = subject.start();
-    //     subject_addr
-    //         .try_send(BindMessage {
-    //             peer_actors: peer_actors_builder().build(),
-    //         })
-    //         .unwrap();
-    //
-    //     let earning_wallet = make_wallet("booga");
-    //     subject_addr
-    //         .try_send(
-    //             ReportServicesConsumedMessage {
-    //                 payload_size: 0,
-    //                 exit_service: ReportExitServiceConsumed {
-    //                     earning_wallet,
-    //                     payload_size: 0,
-    //                     service_rate: 0,
-    //                     byte_rate: 0
-    //                 },
-    //                 routing: vec![ReportRoutingServiceConsumed {
-    //                     earning_wallet: earning_wallet.clone(),
-    //                     payload_size: 1234,
-    //                     service_rate: 42,
-    //                     byte_rate: 24,
-    //                 }]
-    //             })
-    //         .unwrap();
-    //
-    //     System::current().stop_with_code(0);
-    //     system.run();
-    //     let more_money_payable_parameters = more_money_payable_parameters_arc.lock().unwrap();
-    //     assert_eq!(
-    //         more_money_payable_parameters[0],
-    //         (make_wallet("booga"), (1 * 42) + (1234 * 24))
-    //     );
-    //     TestLogHandler::new().exists_log_containing(
-    //         &format!("DEBUG: Accountant: Accruing debt to wallet {} for consuming routing service 1234 bytes", earning_wallet),
-    //     );
-    // }
-
-    // #[test]
-    // fn report_exit_service_consumed_message_is_received() {
-    //     init_test_logging();
-    //     let config =
-    //         bc_from_ac_plus_earning_wallet(make_accountant_config_null(), make_wallet("hi"));
-    //     let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
-    //     let payable_dao_mock = PayableDaoMock::new()
-    //         .non_pending_payables_result(vec![])
-    //         .more_money_payable_params(more_money_payable_parameters_arc.clone())
-    //         .more_money_payable_result(Ok(()));
-    //     let subject = AccountantBuilder::default()
-    //         .bootstrapper_config(config)
-    //         .payable_dao(payable_dao_mock)
-    //         .build();
-    //     let system = System::new("report_exit_service_consumed_message_is_received");
-    //     let subject_addr: Addr<Accountant> = subject.start();
-    //     subject_addr
-    //         .try_send(BindMessage {
-    //             peer_actors: peer_actors_builder().build(),
-    //         })
-    //         .unwrap();
-    //
-    //     let earning_wallet = make_wallet("booga");
-    //     subject_addr
-    //         .try_send(ReportExitServiceConsumed {
-    //             earning_wallet: earning_wallet.clone(),
-    //             payload_size: 1234,
-    //             service_rate: 42,
-    //             byte_rate: 24,
-    //         })
-    //         .unwrap();
-    //
-    //     System::current().stop_with_code(0);
-    //     system.run();
-    //     let more_money_payable_parameters = more_money_payable_parameters_arc.lock().unwrap();
-    //     assert_eq!(
-    //         more_money_payable_parameters[0],
-    //         (make_wallet("booga"), (1 * 42) + (1234 * 24))
-    //     );
-    //     TestLogHandler::new().exists_log_containing(&format!(
-    //         "DEBUG: Accountant: Accruing debt to wallet {} for consuming exit service 1234 bytes",
-    //         earning_wallet
-    //     ));
-    // }
 
     #[test]
     fn report_routing_service_consumed_message_is_received_for_our_consuming_wallet() {

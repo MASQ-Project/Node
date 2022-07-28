@@ -3408,19 +3408,6 @@ mod tests {
                 }]
             }
         );
-        // check_exit_report(
-        //     &accountant_recording,
-        //     0,
-        //     &incoming_route_d_wallet,
-        //     exit_size,
-        //     rate_pack(101),
-        // );
-        // check_routing_report(
-        //     &accountant_recording,
-        //     1,
-        //     &incoming_route_e_wallet,
-        //     routing_size,
-        // );
         assert_eq!(accountant_recording.len(), 1);
     }
 
@@ -3589,25 +3576,6 @@ mod tests {
                 ]
             }
         );
-        // check_exit_report(
-        //     &accountant_recording,
-        //     0,
-        //     &incoming_route_d_wallet,
-        //     0,
-        //     rate_pack(101),
-        // );
-        // check_routing_report(
-        //     &accountant_recording,
-        //     1,
-        //     &incoming_route_e_wallet,
-        //     routing_size,
-        // );
-        // check_routing_report(
-        //     &accountant_recording,
-        //     2,
-        //     &incoming_route_f_wallet,
-        //     routing_size,
-        // );
         assert_eq!(accountant_recording.len(), 1);
     }
 
@@ -3873,7 +3841,6 @@ mod tests {
         assert!(subject.tunneled_hosts.is_empty());
     }
 
-    //TODO you can theoretically bind Accountant to go through down to Dispatcher unbound, but do we really want tests like this?
     #[test]
     #[should_panic(expected = "Dispatcher unbound in ProxyServer")]
     fn panics_if_dispatcher_is_unbound() {
