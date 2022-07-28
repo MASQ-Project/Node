@@ -10,6 +10,7 @@ use actix::Recipient;
 use masq_lib::logger::Logger;
 use std::borrow::Borrow;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use std::time::SystemTime;
 
 pub struct ConsumingService {
     cryptde: &'static dyn CryptDE,
@@ -93,6 +94,7 @@ impl ConsumingService {
 
     fn zero_hop(&self, encrypted_package: CryptData) {
         let ibcd = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0),
             reception_port: None,
             last_data: false,
@@ -130,6 +132,7 @@ impl ConsumingService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node_test_utils::check_timestamp;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::dispatcher::{Component, InboundClientData};
     use crate::sub_lib::node_addr::NodeAddr;
@@ -144,6 +147,7 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::{IpAddr, Ipv4Addr};
     use std::str::FromStr;
+    use std::time::SystemTime;
 
     #[test]
     fn converts_no_lookup_incipient_message_to_live_and_sends_to_dispatcher() {
@@ -281,18 +285,23 @@ mod tests {
             peer_actors.dispatcher.from_dispatcher_client,
             peer_actors.hopper.from_dispatcher,
         );
+        let before = SystemTime::now();
 
         subject.consume(incipient_cores_package.clone());
 
         System::current().stop();
         system.run();
+        let after = SystemTime::now();
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let record = hopper_recording.get_record::<InboundClientData>(0);
+        check_timestamp(before, record.timestamp, after);
         let (expected_lcp, _) =
             LiveCoresPackage::from_incipient(incipient_cores_package, cryptde).unwrap();
         let expected_lcp_enc = encodex(cryptde, &destination_key, &expected_lcp).unwrap();
         assert_eq!(
+            *record,
             InboundClientData {
+                timestamp: record.timestamp,
                 peer_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 0),
                 reception_port: None,
                 last_data: false,
@@ -300,7 +309,6 @@ mod tests {
                 sequence_number: None,
                 data: expected_lcp_enc.into(),
             },
-            *record,
         );
     }
 

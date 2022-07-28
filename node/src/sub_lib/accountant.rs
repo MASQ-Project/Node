@@ -9,7 +9,7 @@ use lazy_static::lazy_static;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 lazy_static! {
     pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");
@@ -95,8 +95,10 @@ impl Debug for AccountantSubs {
     }
 }
 
+// TODO: These four structures all consist of exactly the same five fields. They could be factored out.
 #[derive(Clone, PartialEq, Debug, Message)]
 pub struct ReportRoutingServiceProvidedMessage {
+    pub timestamp: SystemTime,
     pub paying_wallet: Wallet,
     pub payload_size: usize,
     pub service_rate: u64,
@@ -105,6 +107,7 @@ pub struct ReportRoutingServiceProvidedMessage {
 
 #[derive(Clone, PartialEq, Debug, Message)]
 pub struct ReportExitServiceProvidedMessage {
+    pub timestamp: SystemTime,
     pub paying_wallet: Wallet,
     pub payload_size: usize,
     pub service_rate: u64,
@@ -113,7 +116,8 @@ pub struct ReportExitServiceProvidedMessage {
 
 #[derive(Clone, PartialEq, Debug, Message)]
 pub struct ReportServicesConsumedMessage {
-    //exit Node always ends or starts in each segment of RoundTrip
+    pub timestamp: SystemTime,
+    //exit Node always either starts or closes each segment of RoundTrip
     pub exit: ExitServiceConsumed,
     pub routing_payload_size: usize,
     pub routing: Vec<RoutingServiceConsumed>,

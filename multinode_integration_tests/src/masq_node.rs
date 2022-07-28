@@ -212,8 +212,10 @@ pub struct MASQNodeUtils {}
 
 impl MASQNodeUtils {
     pub fn clean_up_existing_container(name: &str) {
-        let mut command = Command::new("docker", Command::strings(vec!["rm", name]));
-        command.wait_for_exit(); // success, failure, don't care
+        let mut command = Command::new("docker", Command::strings(vec!["stop", "-t", "0", name]));
+        command.stdout_and_stderr(); // success, failure, don't care
+        let mut command = Command::new("docker", Command::strings(vec!["rm", "-f", name]));
+        command.stdout_and_stderr(); // success, failure, don't care
     }
 
     pub fn find_project_root() -> String {

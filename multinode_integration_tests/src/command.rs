@@ -44,6 +44,20 @@ impl Command {
         }
     }
 
+    pub fn stdout_and_stderr(&mut self) -> String {
+        let exit_code = self.wait_for_exit();
+        self.combine_exit_code_stdout_and_stderr(exit_code)
+    }
+
+    fn combine_exit_code_stdout_and_stderr(&self, exit_code: i32) -> String {
+        format!(
+            "EXIT CODE: {}\nSTDOUT:\n{}\n\nSTDERR:\n{}\n\n",
+            exit_code,
+            self.stdout_as_string(),
+            self.stderr_as_string()
+        )
+    }
+
     fn diagnosis(&self) -> String {
         let stdout = self.stdout_as_string();
         let stderr = self.stderr_as_string();
@@ -52,11 +66,6 @@ impl Command {
         } else {
             stderr
         }
-    }
-
-    pub fn stdout_and_stderr(&mut self) -> String {
-        self.wait_for_exit();
-        self.stdout_as_string() + self.stderr_as_string().as_str()
     }
 
     pub fn stdout_as_string(&self) -> String {

@@ -4,13 +4,13 @@ use futures::Future;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
-use multinode_integration_tests_lib::command::Command;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
     ConsumingWalletInfo, EarningWalletInfo, MASQRealNode, NodeStartupConfig,
     NodeStartupConfigBuilder,
 };
+use multinode_integration_tests_lib::utils::{open_all_file_permissions, UrlHolder};
 use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
 use node_lib::blockchain::bip32::Bip32ECKeyProvider;
@@ -26,7 +26,7 @@ use rustc_hex::{FromHex, ToHex};
 use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
 use std::thread;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes, TransactionParameters};
@@ -43,11 +43,8 @@ fn verify_bill_payment() {
     };
     blockchain_server.start();
     blockchain_server.wait_until_ready();
-    let (_event_loop_handle, http) = Http::with_max_parallel(
-        blockchain_server.service_url().as_ref(),
-        REQUESTS_IN_PARALLEL,
-    )
-    .unwrap();
+    let url = blockchain_server.url().to_string();
+    let (_event_loop_handle, http) = Http::with_max_parallel(&url, REQUESTS_IN_PARALLEL).unwrap();
     let web3 = Web3::new(http.clone());
     let deriv_path = derivation_path(0, 0);
     let seed = make_seed();
@@ -127,14 +124,15 @@ fn verify_bill_payment() {
         format!("{}", &serving_node_3_wallet),
         "0xb329c8b029a2d3d217e71bc4d188e8e1a4a8b924"
     );
+    let now = SystemTime::now();
     consuming_payable_dao
-        .more_money_payable(&serving_node_1_wallet, amount)
+        .more_money_payable(now, &serving_node_1_wallet, amount)
         .unwrap();
     consuming_payable_dao
-        .more_money_payable(&serving_node_2_wallet, amount)
+        .more_money_payable(now, &serving_node_2_wallet, amount)
         .unwrap();
     consuming_payable_dao
-        .more_money_payable(&serving_node_3_wallet, amount)
+        .more_money_payable(now, &serving_node_3_wallet, amount)
         .unwrap();
 
     let (serving_node_1_name, serving_node_1_index) =
@@ -149,7 +147,7 @@ fn verify_bill_payment() {
         .unwrap();
     let serving_node_1_receivable_dao = ReceivableDaoReal::new(serving_node_1_connection);
     serving_node_1_receivable_dao
-        .more_money_receivable(&contract_owner_wallet, amount)
+        .more_money_receivable(SystemTime::now(), &contract_owner_wallet, amount)
         .unwrap();
     open_all_file_permissions(serving_node_1_path.clone().into());
 
@@ -165,7 +163,7 @@ fn verify_bill_payment() {
         .unwrap();
     let serving_node_2_receivable_dao = ReceivableDaoReal::new(serving_node_2_connection);
     serving_node_2_receivable_dao
-        .more_money_receivable(&contract_owner_wallet, amount)
+        .more_money_receivable(SystemTime::now(), &contract_owner_wallet, amount)
         .unwrap();
     open_all_file_permissions(serving_node_2_path.clone().into());
 
@@ -181,7 +179,7 @@ fn verify_bill_payment() {
         .unwrap();
     let serving_node_3_receivable_dao = ReceivableDaoReal::new(serving_node_3_connection);
     serving_node_3_receivable_dao
-        .more_money_receivable(&contract_owner_wallet, amount)
+        .more_money_receivable(SystemTime::now(), &contract_owner_wallet, amount)
         .unwrap();
     open_all_file_permissions(serving_node_3_path.clone().into());
 
@@ -219,7 +217,7 @@ fn verify_bill_payment() {
     );
 
     let real_consuming_node =
-        cluster.start_named_real_node(consuming_node_name, consuming_node_index, consuming_config);
+        cluster.start_named_real_node(&consuming_node_name, consuming_node_index, consuming_config);
     for _ in 0..6 {
         cluster.start_real_node(
             NodeStartupConfigBuilder::standard()
@@ -265,17 +263,17 @@ fn verify_bill_payment() {
     );
 
     let serving_node_1 = cluster.start_named_real_node(
-        serving_node_1_name,
+        &serving_node_1_name,
         serving_node_1_index,
         serving_node_1_config,
     );
     let serving_node_2 = cluster.start_named_real_node(
-        serving_node_2_name,
+        &serving_node_2_name,
         serving_node_2_index,
         serving_node_2_config,
     );
     let serving_node_3 = cluster.start_named_real_node(
-        serving_node_3_name,
+        &serving_node_3_name,
         serving_node_3_index,
         serving_node_3_config,
     );
@@ -402,7 +400,7 @@ fn make_seed() -> Seed {
 }
 
 fn build_config(
-    server: &BlockchainServer,
+    server_url_holder: &dyn UrlHolder,
     seed: &Seed,
     payment_thresholds: PaymentThresholds,
     wallet_derivation_path: String,
@@ -410,7 +408,7 @@ fn build_config(
     let (serving_node_wallet, serving_node_secret) =
         make_node_wallet(seed, wallet_derivation_path.as_str());
     let config = NodeStartupConfigBuilder::standard()
-        .blockchain_service_url(server.service_url())
+        .blockchain_service_url(server_url_holder.url())
         .chain(Chain::Dev)
         .payment_thresholds(payment_thresholds)
         .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(serving_node_secret))
@@ -450,19 +448,4 @@ fn expire_receivables(path: PathBuf) {
         .prepare("update config set value = '0' where name = 'start_block'")
         .unwrap();
     config_stmt.execute([]).unwrap();
-}
-
-fn open_all_file_permissions(dir: PathBuf) {
-    match Command::new(
-        "chmod",
-        Command::strings(vec!["-R", "777", dir.to_str().unwrap()]),
-    )
-    .wait_for_exit()
-    {
-        0 => (),
-        _ => panic!(
-            "Couldn't chmod 777 files in directory {}",
-            dir.to_str().unwrap()
-        ),
-    }
 }
