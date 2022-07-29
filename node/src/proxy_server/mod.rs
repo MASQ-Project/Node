@@ -21,10 +21,10 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{Endpoint, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage};
-use crate::sub_lib::neighborhood::ExpectedServices;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{ExpectedService, NodeRecordMetadataMessage};
+use crate::sub_lib::neighborhood::{ExpectedServices, RatePack};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
@@ -38,6 +38,7 @@ use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::ttl_hashmap::TtlHashMap;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
@@ -721,14 +722,13 @@ impl ProxyServer {
             .iter()
             .filter_map(|service| match service {
                 ExpectedService::Routing(_, earning_wallet, rate_pack) => {
-                    Some((earning_wallet, rate_pack))
+                    Some(RoutingServiceConsumed {
+                        earning_wallet: earning_wallet.clone(),
+                        service_rate: rate_pack.routing_service_rate,
+                        byte_rate: rate_pack.routing_byte_rate,
+                    })
                 }
                 _ => None,
-            })
-            .map(|(earning_wallet, rate_pack)| RoutingServiceConsumed {
-                earning_wallet: earning_wallet.clone(),
-                service_rate: rate_pack.routing_service_rate,
-                byte_rate: rate_pack.routing_byte_rate,
             })
             .collect();
         if report_of_routing_services.is_empty() {
@@ -741,14 +741,26 @@ impl ProxyServer {
         expected_services: &[ExpectedService],
         payload_size: usize,
     ) -> ExitServiceConsumed {
-        match expected_services
-            .iter()
-            .find_map(|expected_service| match expected_service {
-                ExpectedService::Exit(_, earning_wallet, rate_pack) => {
-                    Some((earning_wallet, rate_pack))
+        match expected_services.iter().fold(
+            None,
+            |acc: Option<(&Wallet, &RatePack)>, current_service| {
+                if acc.is_some() && matches!(current_service, ExpectedService::Exit(..)) {
+                    panic!(
+                        "Detected more than one exit service in one-way route: {:?}",
+                        expected_services
+                    )
+                } else if acc.is_none() {
+                    match current_service {
+                        ExpectedService::Exit(_, earning_wallet, rate_pack) => {
+                            Some((earning_wallet, rate_pack))
+                        }
+                        _ => None,
+                    }
+                } else {
+                    acc
                 }
-                _ => None,
-            }) {
+            },
+        ) {
             Some((earning_wallet, rate_pack)) => ExitServiceConsumed {
                 earning_wallet: earning_wallet.clone(),
                 payload_size,
@@ -2507,6 +2519,31 @@ mod tests {
             make_wallet("routing_wallet_1"),
             rate_pack(8),
         )];
+
+        ProxyServer::report_on_exit_service(&expected_services, 10000);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Detected more than one exit service in one-way route: [Exit(ZXhpdCBrZXkgMQ, Wallet { kind: \
+    Address(0x00000000000000657869742077616c6c65742031) }, RatePack { routing_byte_rate: 7, routing_service_rate: \
+    8, exit_byte_rate: 9, exit_service_rate: 10 }), Exit(ZXhpdCBrZXkgMg, Wallet { kind: \
+    Address(0x00000000000000657869742077616c6c65742032) }, RatePack { routing_byte_rate: 6, routing_service_rate: \
+    7, exit_byte_rate: 8, exit_service_rate: 9 })]"
+    )]
+    fn proxy_server_panics_when_there_are_more_than_one_exit_services_in_the_route() {
+        let expected_services = vec![
+            ExpectedService::Exit(
+                PublicKey::from(&b"exit key 1"[..]),
+                make_wallet("exit wallet 1"),
+                rate_pack(6),
+            ),
+            ExpectedService::Exit(
+                PublicKey::from(&b"exit key 2"[..]),
+                make_wallet("exit wallet 2"),
+                rate_pack(5),
+            ),
+        ];
 
         ProxyServer::report_on_exit_service(&expected_services, 10000);
     }

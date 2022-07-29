@@ -868,11 +868,11 @@ impl Accountant {
         );
     }
 
-    fn msg_id() -> String {
-        let full = SystemTime::now()
+    fn msg_id(timestamp: SystemTime) -> String {
+        let full = timestamp
             .duration_since(UNIX_EPOCH)
             .expect("time travelers")
-            .as_millis()
+            .as_micros()
             .to_string();
         let len = full.len();
         (&full[len - 3..len]).to_string()
@@ -880,7 +880,7 @@ impl Accountant {
 
     fn handle_report_services_consumed_message(&mut self, msg: ReportServicesConsumedMessage) {
         let msg_id_opt = if self.logger.debug_enabled() {
-            Some(Self::msg_id())
+            Some(Self::msg_id(msg.timestamp))
         } else {
             None
         };
@@ -1280,7 +1280,6 @@ mod tests {
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
     use masq_lib::constants::SCAN_ERROR;
-    use regex::Regex;
     use web3::types::U256;
 
     use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
@@ -3203,9 +3202,7 @@ mod tests {
             .unwrap();
 
         System::current().stop();
-        let before = Accountant::msg_id();
         system.run();
-        let after = Accountant::msg_id();
         let more_money_payable_params = more_money_payable_params_arc.lock().unwrap();
         assert_eq!(
             more_money_payable_params
@@ -3227,27 +3224,19 @@ mod tests {
             ]
         );
         let test_log_handler = TestLogHandler::new();
-        let log_index = test_log_handler.exists_log_matching(&format!(
-            "DEBUG: Accountant: MsgId \\d\\d\\d: Accruing debt to {} for consuming 1200 exited bytes",
-            earning_wallet_exit
-        ));
-        let log_msg = test_log_handler.get_log_at(log_index);
-        let str_timestamp = Regex::new("MsgId (\\d\\d\\d):")
-            .unwrap()
-            .captures(&log_msg)
-            .unwrap()
-            .get(1)
-            .unwrap()
-            .as_str();
+        let expected_msg_id = Accountant::msg_id(timestamp);
         test_log_handler.exists_log_containing(&format!(
-            "DEBUG: Accountant: MsgId {}: Accruing debt to {} for consuming 3456 routed bytes",
-            str_timestamp, earning_wallet_routing_1
+            "DEBUG: Accountant: MsgId {}: Accruing debt to {} for consuming 1200 exited bytes",
+            expected_msg_id, earning_wallet_exit
         ));
         test_log_handler.exists_log_containing(&format!(
             "DEBUG: Accountant: MsgId {}: Accruing debt to {} for consuming 3456 routed bytes",
-            str_timestamp, earning_wallet_routing_2
+            expected_msg_id, earning_wallet_routing_1
         ));
-        assert!(before.as_str() <= str_timestamp && str_timestamp <= after.as_str())
+        test_log_handler.exists_log_containing(&format!(
+            "DEBUG: Accountant: MsgId {}: Accruing debt to {} for consuming 3456 routed bytes",
+            expected_msg_id, earning_wallet_routing_2
+        ));
     }
 
     fn do_we_ignore_own_wallets_when_recording_consumed_services(
