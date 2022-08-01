@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::blob_utils::Table::Receivable;
 use crate::accountant::blob_utils::{
-    collect_and_sum_i128_values_from_table, BalanceChange, InsertUpdateConfig, InsertUpdateCore,
-    InsertUpdateCoreReal, KeyParamHolder, SQLExtendedParams, Table, UpdateConfig,
+    collect_and_sum_i128_values_from_table, BalanceChange, BlobInsertUpdate,
+    BlobInsertUpdateConfig, BlobInsertUpdateReal, DAOTableIdentifier, KeyParamHolder,
+    SQLExtendedParams, UpdateConfig,
 };
 use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
@@ -94,9 +94,10 @@ impl ReceivableDaoFactory for DaoFactoryReal {
     }
 }
 
+#[derive(Debug)]
 pub struct ReceivableDaoReal {
     conn: Box<dyn ConnectionWrapper>,
-    insert_update_core: Box<dyn InsertUpdateCore>,
+    blob_insert_update: Box<dyn BlobInsertUpdate<Self>>,
     logger: Logger,
 }
 
@@ -106,7 +107,7 @@ impl ReceivableDao for ReceivableDaoReal {
         wallet: &Wallet,
         amount: u128,
     ) -> Result<(), ReceivableDaoError> {
-        Ok(self.insert_update_core.upsert(&*self.conn,  InsertUpdateConfig{
+        Ok(self.blob_insert_update.upsert(&*self.conn, BlobInsertUpdateConfig {
             insert_sql: "insert into receivable (wallet_address, balance, last_received_timestamp) values (:wallet,:balance,strftime('%s','now'))",
             update_sql: "update receivable set balance = :updated_balance where wallet_address = :wallet",
             params: SQLExtendedParams::new(
@@ -114,7 +115,6 @@ impl ReceivableDao for ReceivableDaoReal {
                     (":wallet", &KeyParamHolder::new(wallet, "wallet_address")),
                     (":balance", &BalanceChange::new_addition(amount))
                 ]),
-            table: Receivable,
         })?)
     }
 
@@ -203,7 +203,7 @@ impl ReceivableDao for ReceivableDaoReal {
     }
 
     fn total(&self) -> i128 {
-        collect_and_sum_i128_values_from_table(self.conn.as_ref(), Table::Receivable, "balance")
+        collect_and_sum_i128_values_from_table(self.conn.as_ref(), &Self::table_name(), "balance")
     }
 
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount> {
@@ -227,7 +227,7 @@ impl ReceivableDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> ReceivableDaoReal {
         ReceivableDaoReal {
             conn,
-            insert_update_core: Box::new(InsertUpdateCoreReal),
+            blob_insert_update: Box::new(BlobInsertUpdateReal::new()),
             logger: Logger::new("ReceivableDaoReal"),
         }
     }
@@ -337,7 +337,7 @@ impl ReceivableDaoReal {
         let xactn = self.conn.transaction()?;
         {
             for transaction in payments {
-                self.insert_update_core.update(Either::Right(&xactn), &UpdateConfig {
+                self.blob_insert_update.update(Either::Right(&xactn), &UpdateConfig {
                     update_sql: "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet",
                     params: SQLExtendedParams::new(
                         vec![
@@ -346,7 +346,6 @@ impl ReceivableDaoReal {
                             (":balance", &BalanceChange::polite_new_subtraction(transaction.wei_amount).map_err(|e|ReceivableDaoError::SignConversion(SignConversionError::Msg(e)))?),
                             (":last_received", &now_time_t()),
                         ]),
-                    table: Receivable
                 })?
             }
         }
@@ -418,10 +417,16 @@ impl ReceivableDaoReal {
     }
 }
 
+impl DAOTableIdentifier for ReceivableDaoReal {
+    fn table_name() -> String {
+        String::from("receivable")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::blob_utils::{InsertUpdateError, Table};
+    use crate::accountant::blob_utils::BlobInsertUpdateError;
     use crate::accountant::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::accountant::test_utils::{
         assert_database_blows_up_on_an_unexpected_error,
@@ -1634,11 +1639,11 @@ mod tests {
         let amount = 100;
         let insert_update_core = InsertUpdateCoreMock::default()
             .upsert_params(&insert_or_update_params_arc)
-            .upsert_results(Err(InsertUpdateError("SomethingWrong".to_string())));
+            .upsert_results(Err(BlobInsertUpdateError("SomethingWrong".to_string())));
         let conn = ConnectionWrapperMock::new();
         let conn_id_stamp = conn.set_arbitrary_id_stamp();
         let mut subject = ReceivableDaoReal::new(Box::new(conn));
-        subject.insert_update_core = Box::new(insert_update_core);
+        subject.blob_insert_update = Box::new(insert_update_core);
 
         let result = subject.more_money_receivable(&wallet, amount);
 
@@ -1653,7 +1658,7 @@ mod tests {
             "update receivable set balance = :updated_balance where wallet_address = :wallet"
         );
         assert_eq!(insert_sql,"insert into receivable (wallet_address, balance, last_received_timestamp) values (:wallet,:balance,strftime('%s','now'))");
-        assert_eq!(table, Table::Receivable);
+        assert_eq!(table, "receivable".to_string());
         assert_eq!(
             sql_param_names,
             convert_to_all_string_values(vec![
@@ -1675,9 +1680,9 @@ mod tests {
         let insert_or_update_params_arc = Arc::new(Mutex::new(vec![]));
         let insert_update_core = InsertUpdateCoreMock::default()
             .update_params(&insert_or_update_params_arc)
-            .update_result(Err(InsertUpdateError("SomethingWrong".to_string())));
+            .update_result(Err(BlobInsertUpdateError("SomethingWrong".to_string())));
         let mut subject = ReceivableDaoReal::new(conn);
-        subject.insert_update_core = Box::new(insert_update_core);
+        subject.blob_insert_update = Box::new(insert_update_core);
         let payments = vec![
             BlockchainTransaction {
                 block_number: 42u64,
@@ -1708,7 +1713,7 @@ mod tests {
             "select balance from receivable where wallet_address = :wallet"
         );
         assert_eq!(update_sql, "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet");
-        assert_eq!(table, Table::Receivable.to_string());
+        assert_eq!(table, "receivable".to_string());
         let sql_param_names_assertable: Vec<(String, String)> = sql_param_names
             .into_iter()
             .filter(|(param, _)| param.as_str() != ":last_received")
@@ -1721,6 +1726,11 @@ mod tests {
             ])
         );
         assert_eq!(insert_or_update_params.pop(), None)
+    }
+
+    #[test]
+    fn receivable_dao_implements_dao_table_identifier() {
+        assert_eq!(ReceivableDaoReal::table_name(), "receivable")
     }
 
     fn add_receivable_account(conn: &Box<dyn ConnectionWrapper>, account: &ReceivableAccount) {

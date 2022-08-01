@@ -1,8 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::blob_utils::{
-    collect_and_sum_i128_values_from_table, get_unsized_128, BalanceChange, InsertUpdateConfig,
-    InsertUpdateCore, InsertUpdateCoreReal, KeyParamHolder, SQLExtendedParams, Table, UpdateConfig,
+    collect_and_sum_i128_values_from_table, get_unsized_128, BalanceChange, BlobInsertUpdate,
+    BlobInsertUpdateConfig, BlobInsertUpdateReal, DAOTableIdentifier, KeyParamHolder,
+    SQLExtendedParams, UpdateConfig,
 };
 use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
@@ -98,12 +99,12 @@ impl PayableDaoFactory for DaoFactoryReal {
 #[derive(Debug)]
 pub struct PayableDaoReal {
     conn: Box<dyn ConnectionWrapper>,
-    insert_update_core: Box<dyn InsertUpdateCore>,
+    blob_insert_update: Box<dyn BlobInsertUpdate<Self>>,
 }
 
 impl PayableDao for PayableDaoReal {
     fn more_money_payable(&self, wallet: &Wallet, amount: u128) -> Result<(), PayableDaoError> {
-        Ok(self.insert_update_core.upsert(self.conn.as_ref(), InsertUpdateConfig{
+        Ok(self.blob_insert_update.upsert(self.conn.as_ref(), BlobInsertUpdateConfig {
             insert_sql: "insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet,:balance,strftime('%s','now'),null)",
             update_sql: "update payable set balance = :updated_balance where wallet_address = :wallet",
             params: SQLExtendedParams::new(
@@ -111,7 +112,6 @@ impl PayableDao for PayableDaoReal {
                     (":wallet", &KeyParamHolder::new(wallet, "wallet_address")),
                     (":balance", &BalanceChange::new_addition(amount))
                 ]),
-            table: Table::Payable,
         })?)
     }
 
@@ -145,7 +145,7 @@ impl PayableDao for PayableDaoReal {
     ) -> Result<(), PayableDaoError> {
         let key =
             checked_conversion::<u64, i64>(fingerprint.rowid_opt.expectv("initialized rowid"));
-        Ok(self.insert_update_core.update(Either::Left(self.conn.as_ref()), &UpdateConfig{
+        Ok(self.blob_insert_update.update(Either::Left(self.conn.as_ref()), &UpdateConfig{
             update_sql: "update payable set balance = :updated_balance, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid",
             params: SQLExtendedParams::new(
                 vec![
@@ -153,7 +153,6 @@ impl PayableDao for PayableDaoReal {
                     (":last_paid", &to_time_t(fingerprint.timestamp)),
                     (":rowid", &KeyParamHolder::new(&key, "pending_payable_rowid")),
                 ]),
-            table: Table::Payable,
         })?)
     }
 
@@ -203,7 +202,7 @@ impl PayableDao for PayableDaoReal {
     fn total(&self) -> u128 {
         sign_conversion::<i128, u128>(collect_and_sum_i128_values_from_table(
             self.conn.as_ref(),
-            Table::Payable,
+            &Self::table_name(),
             "balance",
         ))
         .unwrap_or_else(|num| {
@@ -255,7 +254,7 @@ impl PayableDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> PayableDaoReal {
         PayableDaoReal {
             conn,
-            insert_update_core: Box::new(InsertUpdateCoreReal),
+            blob_insert_update: Box::new(BlobInsertUpdateReal::new()),
         }
     }
 
@@ -321,10 +320,16 @@ impl PayableDaoReal {
     }
 }
 
+impl DAOTableIdentifier for PayableDaoReal {
+    fn table_name() -> String {
+        String::from("payable")
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::blob_utils::{InsertUpdateError, Table};
+    use crate::accountant::blob_utils::BlobInsertUpdateError;
     use crate::accountant::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::accountant::test_utils::{
         assert_database_blows_up_on_an_unexpected_error, convert_to_all_string_values,
@@ -1164,11 +1169,11 @@ mod tests {
         let amount = 100;
         let insert_update_core = InsertUpdateCoreMock::default()
             .upsert_params(&insert_or_update_params_arc)
-            .upsert_results(Err(InsertUpdateError("SomethingWrong".to_string())));
+            .upsert_results(Err(BlobInsertUpdateError("SomethingWrong".to_string())));
         let conn = ConnectionWrapperMock::new();
         let conn_id_stamp = conn.set_arbitrary_id_stamp();
         let mut subject = PayableDaoReal::new(Box::new(conn));
-        subject.insert_update_core = Box::new(insert_update_core);
+        subject.blob_insert_update = Box::new(insert_update_core);
 
         let result = subject.more_money_payable(&wallet, amount);
 
@@ -1188,7 +1193,7 @@ mod tests {
         assert_eq!(insert_sql,"insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) \
          values (:wallet,:balance,strftime('%s','now'),null)"
         );
-        assert_eq!(table, Table::Payable);
+        assert_eq!(table, "payable".to_string());
         assert_eq!(
             sql_param_names,
             convert_to_all_string_values(vec![
@@ -1208,7 +1213,7 @@ mod tests {
             .update_params(&update_params_arc)
             .update_result(Ok(()));
         let mut subject = PayableDaoReal::new(Box::new(wrapped_conn));
-        subject.insert_update_core = Box::new(insert_update_core);
+        subject.blob_insert_update = Box::new(insert_update_core);
 
         let result = subject.transaction_confirmed(&fingerprint);
 
@@ -1227,7 +1232,7 @@ mod tests {
             "update payable set balance = :updated_balance, last_paid_timestamp = :last_paid, \
          pending_payable_rowid = null where pending_payable_rowid = :rowid"
         );
-        assert_eq!(table, Table::Payable.to_string());
+        assert_eq!(table, "payable".to_string());
         assert_eq!(
             sql_param_names,
             convert_to_all_string_values(vec![
@@ -1239,6 +1244,11 @@ mod tests {
                 (":rowid", &33_i64.to_string())
             ])
         )
+    }
+
+    #[test]
+    fn payable_dao_implements_dao_table_identifier() {
+        assert_eq!(PayableDaoReal::table_name(), "payable")
     }
 
     fn custom_query_test_body_for_payable<F>(test_name: &str, main_setup_fn: F) -> PayableDaoReal

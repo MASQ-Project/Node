@@ -1035,24 +1035,22 @@ impl Accountant {
         msg: &UiFinancialsRequest,
         context_id: u64,
     ) -> Result<(), MessageBody> {
-        fn envelope_bad_news(err_code: u64, err_msg: &str, context_id: u64) ->MessageBody{
+        fn envelope_bad_news(err_code: u64, err_msg: &str, context_id: u64) -> MessageBody {
             MessageBody {
                 opcode: "financials".to_string(),
                 path: MessagePath::Conversation(context_id),
-                payload: Err((
-                    err_code,
-                    err_msg.to_string(),
-                ))
+                payload: Err((err_code, err_msg.to_string())),
             }
         }
 
-        if !msg.stats_required && msg.top_records_opt.is_none() && msg.custom_queries_opt.is_none() {
+        if !msg.stats_required && msg.top_records_opt.is_none() && msg.custom_queries_opt.is_none()
+        {
             Err(envelope_bad_news(
                 REQUEST_WITH_NO_VALUES,
                 "Empty requests with missing queries not to be processed",
-                    context_id
+                context_id,
             ))
-        } else if msg.top_records_opt.is_some() && msg.custom_queries_opt.is_some(){
+        } else if msg.top_records_opt.is_some() && msg.custom_queries_opt.is_some() {
             Err(envelope_bad_news(
                 MUTUALLY_EXCLUSIVE_REQUEST_PARAMS,
                     "Requesting top records and the more customized subset of records is not allowed both at the same time",
@@ -1060,7 +1058,7 @@ impl Accountant {
                 )
             )
         } else {
-           Ok(())
+            Ok(())
         }
     }
 
@@ -4979,25 +4977,38 @@ mod tests {
                 make_wallet("some_wallet_address"),
             ))
             .build();
-        let request = UiFinancialsRequest{
+        let request = UiFinancialsRequest {
             stats_required: false,
-            top_records_opt: Some(TopRecordsConfig{ count: 13, ordered_by: Age }),
-            custom_queries_opt: Some(CustomQueries{ payable_opt: Some(RangeQuery{
-                min_age_s: 5000,
-                max_age_s: 11000,
-                min_amount_gwei: 1_454_050_000,
-                max_amount_gwei: 555_000_000_000
-            }), receivable_opt: None })
+            top_records_opt: Some(TopRecordsConfig {
+                count: 13,
+                ordered_by: Age,
+            }),
+            custom_queries_opt: Some(CustomQueries {
+                payable_opt: Some(RangeQuery {
+                    min_age_s: 5000,
+                    max_age_s: 11000,
+                    min_amount_gwei: 1_454_050_000,
+                    max_amount_gwei: 555_000_000_000,
+                }),
+                receivable_opt: None,
+            }),
         };
 
-        let result = subject.compute_financials(&request,4567);
+        let result = subject.compute_financials(&request, 4567);
 
-        assert_eq!(result,MessageBody{
-            opcode: "financials".to_string(),
-            path: Conversation(4567),
-            payload: Err((MUTUALLY_EXCLUSIVE_REQUEST_PARAMS,"Requesting top records and the more customized subset of \
-             records is not allowed both at the same time".to_string()))
-        });
+        assert_eq!(
+            result,
+            MessageBody {
+                opcode: "financials".to_string(),
+                path: Conversation(4567),
+                payload: Err((
+                    MUTUALLY_EXCLUSIVE_REQUEST_PARAMS,
+                    "Requesting top records and the more customized subset of \
+             records is not allowed both at the same time"
+                        .to_string()
+                ))
+            }
+        );
     }
 
     #[test]

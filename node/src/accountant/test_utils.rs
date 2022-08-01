@@ -3,7 +3,8 @@
 #![cfg(test)]
 
 use crate::accountant::blob_utils::{
-    FetchValue, InsertUpdateConfig, InsertUpdateCore, InsertUpdateError, Table, UpdateConfiguration,
+    BlobInsertUpdate, BlobInsertUpdateConfig, BlobInsertUpdateError, DAOTableIdentifier,
+    UpdateConfiguration,
 };
 use crate::accountant::dao_utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payable_dao::{
@@ -832,37 +833,34 @@ pub struct InsertUpdateCoreMock {
             )>,
         >,
     >, //trait-object-like params tested specially
-    update_results: RefCell<Vec<Result<(), InsertUpdateError>>>,
+    update_results: RefCell<Vec<Result<(), BlobInsertUpdateError>>>,
     upsert_params: Arc<
         Mutex<
             Vec<(
                 ArbitraryIdStamp,
                 String,
                 String,
-                Table,
+                String,
                 Vec<(String, String)>,
             )>,
         >,
     >,
-    upsert_results: RefCell<Vec<Result<(), InsertUpdateError>>>,
+    upsert_results: RefCell<Vec<Result<(), BlobInsertUpdateError>>>,
 }
 
-impl InsertUpdateCore for InsertUpdateCoreMock {
+impl<T: DAOTableIdentifier + 'static> BlobInsertUpdate<T> for InsertUpdateCoreMock {
     fn update<'a>(
         &self,
         conn: Either<&dyn ConnectionWrapper, &RusqliteTransaction>,
-        config: &'a (dyn UpdateConfiguration<'a> + 'a),
-    ) -> Result<(), InsertUpdateError> {
+        config: &'a (dyn UpdateConfiguration<'a, T> + 'a),
+    ) -> Result<(), BlobInsertUpdateError> {
         let owned_params: Vec<(String, String)> = config
             .update_params()
-            .extended_params()
+            .extended_params_ref()
             .iter()
             .map(|(str, to_sql)| (str.to_string(), (to_sql as &dyn Display).to_string()))
             .collect();
-        let (in_table_key, sql_key, _) = config
-            .update_params()
-            .extended_params()
-            .fetch_key_specification();
+        let (in_table_key, sql_key, _) = config.update_params().fetch_key_specification();
         self.update_params.lock().unwrap().push((
             if let Either::Left(conn) = conn {
                 Some(conn.arbitrary_id_stamp())
@@ -877,14 +875,14 @@ impl InsertUpdateCore for InsertUpdateCoreMock {
         self.update_results.borrow_mut().remove(0)
     }
 
-    fn upsert(
+    fn upsert<'a>(
         &self,
         conn: &dyn ConnectionWrapper,
-        config: InsertUpdateConfig,
-    ) -> Result<(), InsertUpdateError> {
+        config: BlobInsertUpdateConfig,
+    ) -> Result<(), BlobInsertUpdateError> {
         let owned_params: Vec<(String, String)> = config
             .params
-            .extended_params()
+            .extended_params_ref()
             .iter()
             .map(|(str, to_sql)| (str.to_string(), (to_sql as &dyn Display).to_string()))
             .collect();
@@ -892,7 +890,7 @@ impl InsertUpdateCore for InsertUpdateCoreMock {
             conn.arbitrary_id_stamp(),
             config.update_sql.to_string(),
             config.insert_sql.to_string(),
-            config.table,
+            T::table_name(),
             owned_params,
         ));
         self.upsert_results.borrow_mut().remove(0)
@@ -918,7 +916,7 @@ impl InsertUpdateCoreMock {
         self
     }
 
-    pub fn update_result(self, result: Result<(), InsertUpdateError>) -> Self {
+    pub fn update_result(self, result: Result<(), BlobInsertUpdateError>) -> Self {
         self.update_results.borrow_mut().push(result);
         self
     }
@@ -931,7 +929,7 @@ impl InsertUpdateCoreMock {
                     ArbitraryIdStamp,
                     String,
                     String,
-                    Table,
+                    String,
                     Vec<(String, String)>,
                 )>,
             >,
@@ -941,7 +939,7 @@ impl InsertUpdateCoreMock {
         self
     }
 
-    pub fn upsert_results(self, result: Result<(), InsertUpdateError>) -> Self {
+    pub fn upsert_results(self, result: Result<(), BlobInsertUpdateError>) -> Self {
         self.upsert_results.borrow_mut().push(result);
         self
     }

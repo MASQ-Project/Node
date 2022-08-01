@@ -10,56 +10,43 @@ use masq_lib::utils::ExpectValue;
 use rusqlite::types::ToSqlOutput;
 use rusqlite::ErrorCode::ConstraintViolation;
 use rusqlite::{Error, Row, Statement, ToSql, Transaction};
-use std::any::Any;
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
+use std::marker::PhantomData;
 use std::ops::Neg;
 
-pub trait InsertUpdateCore: Send + Debug {
+pub trait BlobInsertUpdate<T: 'static>: Send + Debug {
     fn update<'a>(
         &self,
         conn: Either<&dyn ConnectionWrapper, &Transaction>,
-        config: &'a (dyn UpdateConfiguration<'a> + 'a),
-    ) -> Result<(), InsertUpdateError>;
+        config: &'a (dyn UpdateConfiguration<'a, T> + 'a),
+    ) -> Result<(), BlobInsertUpdateError>;
     fn upsert<'a>(
         &self,
         conn: &dyn ConnectionWrapper,
-        config: InsertUpdateConfig<'a>,
-    ) -> Result<(), InsertUpdateError>;
-}
-
-pub trait FetchValue<'a> {
-    fn fetch_balance_change(&'a self) -> i128;
-    fn fetch_key_specification(&'a self) -> (String, String, usize);
-}
-
-type ExtendedParamsVec<'a> = &'a Vec<(&'a str, &'a dyn ExtendedParamsMarker)>;
-
-pub trait ExtendedParamsMarker: ToSql + Display {
-    fn as_any(&self) -> &dyn Any {
-        intentionally_blank!()
-    }
-    fn key_name_opt(&self) -> Option<String> {
-        None
-    }
+        config: BlobInsertUpdateConfig<'a>,
+    ) -> Result<(), BlobInsertUpdateError>;
 }
 
 #[derive(Debug)]
-pub struct InsertUpdateCoreReal;
+pub struct BlobInsertUpdateReal<T: Debug + DAOTableIdentifier + Send + 'static> {
+    phantom: PhantomData<T>,
+}
 
-impl InsertUpdateCore for InsertUpdateCoreReal {
+impl<T: DAOTableIdentifier + Debug + Send + 'static> BlobInsertUpdate<T>
+    for BlobInsertUpdateReal<T>
+{
     fn update<'a>(
         &self,
         form_of_conn: Either<&dyn ConnectionWrapper, &Transaction>,
-        config: &'a (dyn UpdateConfiguration<'a> + 'a),
-    ) -> Result<(), InsertUpdateError> {
+        config: &'a (dyn UpdateConfiguration<'a, T> + 'a),
+    ) -> Result<(), BlobInsertUpdateError> {
         let params = config.update_params();
-        let update_params = params.extended_params();
-        let ((in_table_key_name, sql_key_name, key_idx), balance_change) =
-            Self::fetch_fundamentals(update_params);
-        let present_state_query = config.select_sql(&in_table_key_name, &sql_key_name);
-        let mut statement = Self::prepare_statement(form_of_conn, present_state_query.as_str());
-        match statement.query_row(&[(&*sql_key_name, params.params[key_idx].1)], |row| {
+        let ((correct_key_name_from_table, sql_key_name, key_idx), balance_change) =
+            Self::fetch_fundamentals(params);
+        let present_state_query = config.select_sql(&correct_key_name_from_table, &sql_key_name);
+        let mut select_stm = Self::prepare_statement(form_of_conn, present_state_query.as_str());
+        match select_stm.query_row(&[(&*sql_key_name, params.params[key_idx].1)], |row| {
             let balance_result: rusqlite::Result<i128> = row.get(0);
             match balance_result {
                 Ok(balance) => {
@@ -68,14 +55,14 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
                     let update_params =
                         config.finalize_update_params(&updated_balance, params_to_update);
                     let update_query = config.update_sql();
-                    let mut stm = Self::prepare_statement(form_of_conn, update_query);
-                    stm.execute(&*update_params)
+                    let mut update_stm = Self::prepare_statement(form_of_conn, update_query);
+                    update_stm.execute(&*update_params)
                 }
                 Err(e) => Err(e),
             }
         }) {
             Ok(_) => Ok(()),
-            Err(e) => Err(InsertUpdateError(format!(
+            Err(e) => Err(BlobInsertUpdateError(format!(
                 "Updating balance for {} of {} Wei to {} with error '{}'",
                 config.table(),
                 balance_change,
@@ -85,11 +72,11 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
         }
     }
 
-    fn upsert(
+    fn upsert<'a>(
         &self,
         conn: &dyn ConnectionWrapper,
-        config: InsertUpdateConfig,
-    ) -> Result<(), InsertUpdateError> {
+        config: BlobInsertUpdateConfig<'a>,
+    ) -> Result<(), BlobInsertUpdateError> {
         let params = config.params.pure_rusqlite_params();
         let mut stm = conn
             .prepare(config.insert_sql)
@@ -105,11 +92,11 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
                 self.update(Either::Left(conn), &config)
             }
             Err(e) => {
-                let params = config.params.extended_params();
-                let ((_, _, key_idx), amount) = Self::fetch_fundamentals(params);
-                Err(InsertUpdateError(format!(
+                let params = config.params;
+                let ((_, _, key_idx), amount) = Self::fetch_fundamentals(&params);
+                Err(BlobInsertUpdateError(format!(
                     "Updating balance after invalid insertion for {} of {} Wei to {} with error '{}'",
-                    config.table, amount, params[key_idx].1, e
+                    T::table_name(), amount, params.params[key_idx].1, e
                     )
                 ))
             }
@@ -117,8 +104,16 @@ impl InsertUpdateCore for InsertUpdateCoreReal {
     }
 }
 
-impl InsertUpdateCoreReal {
-    fn fetch_fundamentals(params: ExtendedParamsVec<'_>) -> ((String, String, usize), i128) {
+impl<T: Debug + DAOTableIdentifier + Send> BlobInsertUpdateReal<T> {
+    pub fn new() -> BlobInsertUpdateReal<T> {
+        Self {
+            phantom: Default::default(),
+        }
+    }
+}
+
+impl<T: Debug + DAOTableIdentifier + Send> BlobInsertUpdateReal<T> {
+    fn fetch_fundamentals(params: &SQLExtendedParams) -> ((String, String, usize), i128) {
         (
             params.fetch_key_specification(),
             params.fetch_balance_change(),
@@ -137,29 +132,42 @@ impl InsertUpdateCoreReal {
     }
 }
 
-pub struct InsertUpdateConfig<'a> {
+pub struct BlobInsertUpdateConfig<'a> {
     pub insert_sql: &'a str,
     pub update_sql: &'a str,
     pub params: SQLExtendedParams<'a>,
-    pub table: Table,
 }
 
 pub struct UpdateConfig<'a> {
     pub update_sql: &'a str,
     pub params: SQLExtendedParams<'a>,
-    pub table: Table,
+}
+
+pub trait ExtendedParamsMarker: ToSql + Display {
+    fn balance_change_opt(&self) -> Option<i128> {
+        None
+    }
+    fn key_name_opt(&self) -> Option<String> {
+        None
+    }
+}
+
+macro_rules! blank_impl_of_extended_params_marker{
+    ($($implementer: ty),+) => {
+        $(impl ExtendedParamsMarker for $implementer {})+
+    }
 }
 
 //please don't implement for i128, instead use BalanceChange as intentionally designed
 
-impl ExtendedParamsMarker for i64 {}
-impl ExtendedParamsMarker for &str {}
-impl ExtendedParamsMarker for Wallet {}
+blank_impl_of_extended_params_marker!(i64, &str, Wallet);
+
 impl ExtendedParamsMarker for BalanceChange {
-    fn as_any(&self) -> &dyn Any {
-        self
+    fn balance_change_opt(&self) -> Option<i128> {
+        Some(self.change)
     }
 }
+
 impl ExtendedParamsMarker for KeyParamHolder<'_> {
     fn key_name_opt(&self) -> Option<String> {
         Some(self.key_param.0.to_string())
@@ -174,9 +182,6 @@ impl<'a> SQLExtendedParams<'a> {
     pub fn new(params: Vec<(&'a str, &'a (dyn ExtendedParamsMarker + 'a))>) -> Self {
         Self { params }
     }
-    pub fn extended_params(&self) -> &Vec<(&'a str, &'a (dyn ExtendedParamsMarker + 'a))> {
-        &self.params
-    }
 
     pub fn pure_rusqlite_params(&'a self) -> Vec<(&'a str, &'a dyn ToSql)> {
         self.params
@@ -184,48 +189,60 @@ impl<'a> SQLExtendedParams<'a> {
             .map(|(first, second)| (*first, second as &dyn ToSql))
             .collect()
     }
-}
 
-impl<'a> FetchValue<'a> for ExtendedParamsVec<'a> {
-    fn fetch_balance_change(&'a self) -> i128 {
-        match self
+    pub fn fetch_balance_change(&self) -> i128 {
+        self.params
             .iter()
-            .find(|(param_name, _)| *param_name == ":balance")
-        {
-            Some((_, value)) => {
-                let balance_change: &BalanceChange =
-                    value.as_any().downcast_ref().expectv("BalanceChange");
-                balance_change.change
-            }
-            None => panic!("missing parameter of the balance change; broken"),
-        }
+            .fold(
+                None,
+                |acc: Option<i128>, (_, balance_change_candidate)| match acc {
+                    Some(x) => match balance_change_candidate.balance_change_opt() {
+                        None => Some(x),
+                        Some(_) => {
+                            panic!("only one parameter of changed balance is allowed a time")
+                        }
+                    },
+                    None => balance_change_candidate.balance_change_opt(),
+                },
+            )
+            .unwrap_or_else(|| panic!("missing parameter of the change in balance; broken"))
     }
 
-    fn fetch_key_specification(&'a self) -> (String, String, usize) {
-        match self.iter().enumerate().fold(
-            None,
-            |acc: Option<(String, String, usize)>, (idx, (param_name, key_candidate))| match acc {
-                Some(x) => {
-                    if key_candidate.key_name_opt().is_some() {
-                        panic!("only one key parameter is allowed")
-                    };
-                    Some(x)
-                }
-                None => key_candidate
-                    .key_name_opt()
-                    .map(|in_table_param_name| (in_table_param_name, param_name.to_string(), idx)),
-            },
-        ) {
-            Some(x) => x,
-            None => panic!("missing key parameter; broken"),
-        }
+    pub fn fetch_key_specification(&self) -> (String, String, usize) {
+        self.params
+            .iter()
+            .enumerate()
+            .fold(
+                None,
+                |acc: Option<(String, String, usize)>, (idx, (param_name, key_candidate))| match acc
+                {
+                    Some(x) => match key_candidate.key_name_opt() {
+                        None => Some(x),
+                        Some(_) => panic!("only one key parameter is allowed"),
+                    },
+                    None => key_candidate.key_name_opt().map(|in_table_param_name| {
+                        (in_table_param_name, param_name.to_string(), idx)
+                    }),
+                },
+            )
+            .unwrap_or_else(|| panic!("missing key parameter; broken"))
+    }
+
+    #[cfg(test)]
+    pub fn extended_params_ref(&'a self) -> &'a Vec<(&'a str, &'a dyn ExtendedParamsMarker)> {
+        &self.params
     }
 }
 
-pub trait UpdateConfiguration<'a> {
+pub trait UpdateConfiguration<'a, T: DAOTableIdentifier> {
     fn table(&self) -> String;
     fn select_sql(&self, in_table_param_name: &str, sql_param_name: &str) -> String {
-        select_statement(&self.table(), in_table_param_name, sql_param_name)
+        format!(
+            "select balance from {} where {} = {}",
+            &self.table(),
+            in_table_param_name,
+            sql_param_name
+        )
     }
     fn update_sql(&self) -> &'a str;
     fn update_params(&self) -> &SQLExtendedParams;
@@ -242,11 +259,15 @@ pub trait UpdateConfiguration<'a> {
     }
 }
 
-macro_rules! update_configuration_common_impl {
+pub trait DAOTableIdentifier {
+    fn table_name() -> String;
+}
+
+macro_rules! update_configuration_std_impl {
     ($implementor: ident) => {
-        impl<'a> UpdateConfiguration<'a> for $implementor<'a> {
+        impl<'a, T: DAOTableIdentifier> UpdateConfiguration<'a, T> for $implementor<'a> {
             fn table(&self) -> String {
-                self.table.to_string()
+                T::table_name()
             }
             fn update_sql(&self) -> &'a str {
                 self.update_sql
@@ -258,15 +279,8 @@ macro_rules! update_configuration_common_impl {
     };
 }
 
-update_configuration_common_impl!(InsertUpdateConfig);
-update_configuration_common_impl!(UpdateConfig);
-
-fn select_statement(table: &str, in_table_param_name: &str, sql_param_name: &str) -> String {
-    format!(
-        "select balance from {} where {} = {}",
-        table, in_table_param_name, sql_param_name
-    )
-}
+update_configuration_std_impl!(BlobInsertUpdateConfig);
+update_configuration_std_impl!(UpdateConfig);
 
 pub fn get_unsized_128(row: &Row, index: usize) -> Result<u128, rusqlite::Error> {
     row.get::<usize, i128>(index).map(|val| val as u128)
@@ -332,43 +346,25 @@ impl Display for KeyParamHolder<'_> {
     }
 }
 
-#[derive(PartialEq, Debug, Clone, Copy)]
-pub enum Table {
-    Payable,
-    Receivable,
-    #[cfg(test)]
-    TestTable,
-}
-
-impl Display for Table {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Table::Payable => write!(f, "payable"),
-            Table::Receivable => write!(f, "receivable"),
-            #[cfg(test)]
-            Table::TestTable => write!(f, "test_table"),
-        }
-    }
-}
-
 #[derive(Debug, PartialEq)]
-pub struct InsertUpdateError(pub String);
+pub struct BlobInsertUpdateError(pub String);
 
-impl From<InsertUpdateError> for PayableDaoError {
-    fn from(iu_err: InsertUpdateError) -> Self {
-        PayableDaoError::RusqliteError(iu_err.0)
-    }
+macro_rules! insert_update_error_from {
+    ($implementer: ident) => {
+        impl From<BlobInsertUpdateError> for $implementer {
+            fn from(iu_err: BlobInsertUpdateError) -> Self {
+                $implementer::RusqliteError(iu_err.0)
+            }
+        }
+    };
 }
 
-impl From<InsertUpdateError> for ReceivableDaoError {
-    fn from(iu_err: InsertUpdateError) -> Self {
-        ReceivableDaoError::RusqliteError(iu_err.0)
-    }
-}
+insert_update_error_from!(PayableDaoError);
+insert_update_error_from!(ReceivableDaoError);
 
 pub fn collect_and_sum_i128_values_from_table(
     conn: &dyn ConnectionWrapper,
-    table: Table,
+    table: &str,
     parameter_name: &str,
 ) -> i128 {
     let select_stm = format!("select {} from {}", parameter_name, table);
@@ -385,6 +381,7 @@ pub fn collect_and_sum_i128_values_from_table(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::payable_dao::PayableDaoReal;
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::database::db_migrations::MigratorConfig;
@@ -405,6 +402,15 @@ mod tests {
         vec
     }
 
+    #[derive(Debug)]
+    struct DummyDao {}
+
+    impl DAOTableIdentifier for DummyDao {
+        fn table_name() -> String {
+            String::from("test_table")
+        }
+    }
+
     #[test]
     fn finalize_update_params_for_update_config_works() {
         let balance_change = BalanceChange::new_addition(5555);
@@ -415,16 +421,15 @@ mod tests {
                 (":balance", &balance_change),
                 (":something_else", &"foooo"),
             ]),
-            table: Table::Payable,
         };
 
-        finalize_update_params_assertion(&subject)
+        finalize_update_params_assertion::<PayableDaoReal>(&subject)
     }
 
     #[test]
     fn finalize_update_params_for_insert_update_config_works() {
         let balance_change = BalanceChange::new_addition(5555);
-        let subject = InsertUpdateConfig {
+        let subject = BlobInsertUpdateConfig {
             insert_sql: "blah1",
             update_sql: "blah2",
             params: SQLExtendedParams::new(vec![
@@ -432,13 +437,14 @@ mod tests {
                 (":balance", &balance_change),
                 (":something_else", &"foooo"),
             ]),
-            table: Table::Payable,
         };
 
-        finalize_update_params_assertion(&subject)
+        finalize_update_params_assertion::<PayableDaoReal>(&subject)
     }
 
-    fn finalize_update_params_assertion<'a>(subject: &'a dyn UpdateConfiguration<'a>) {
+    fn finalize_update_params_assertion<'a, T: DAOTableIdentifier>(
+        subject: &'a dyn UpdateConfiguration<'a, T>,
+    ) {
         let updated_balance = 456789;
         let balance_change = BalanceChange::new_addition(updated_balance as u128);
 
@@ -460,11 +466,13 @@ mod tests {
     #[test]
     fn fetch_balance_change_works() {
         let balance_change = BalanceChange::new_addition(5021);
-        let params: ExtendedParamsVec = &vec![
-            (":something", &"yo-yo"),
-            (":balance", &balance_change),
-            (":something_else", &55_i64),
-        ];
+        let params = SQLExtendedParams {
+            params: vec![
+                (":something", &"yo-yo"),
+                (":balance", &balance_change),
+                (":something_else", &55_i64),
+            ],
+        };
 
         let result = params.fetch_balance_change();
 
@@ -475,11 +483,13 @@ mod tests {
     fn fetch_key_works() {
         let wallet = make_wallet("blah");
         let key_holder = KeyParamHolder::new(&wallet, "wallet");
-        let params: ExtendedParamsVec = &vec![
-            (":something", &"yo-yo"),
-            (":wonderful_wallet", &key_holder),
-            (":something_else", &55_i64),
-        ];
+        let params = SQLExtendedParams {
+            params: vec![
+                (":something", &"yo-yo"),
+                (":wonderful_wallet", &key_holder),
+                (":something_else", &55_i64),
+            ],
+        };
 
         let result = params.fetch_key_specification();
 
@@ -495,11 +505,13 @@ mod tests {
         let wallet = make_wallet("blah");
         let key_holder_1 = KeyParamHolder::new(&wallet, "param_name");
         let key_holder_2 = KeyParamHolder::new(&66_i64, "param_name_2");
-        let params: ExtendedParamsVec = &vec![
-            (":something", &"yo-yo"),
-            (":wonderful_wallet", &key_holder_1),
-            (":something_else", &key_holder_2),
-        ];
+        let params = SQLExtendedParams {
+            params: vec![
+                (":something", &"yo-yo"),
+                (":wonderful_wallet", &key_holder_1),
+                (":something_else", &key_holder_2),
+            ],
+        };
 
         let _ = params.fetch_key_specification();
     }
@@ -508,27 +520,46 @@ mod tests {
     #[should_panic(expected = "missing key parameter; broken")]
     fn no_key_is_an_issue() {
         let wallet = make_wallet("abc");
-        let subject: ExtendedParamsVec = &vec![
-            (":something", &"yo-yo"),
-            (":wonderful_wallet", &wallet),
-            (":something_else", &699_i64),
-        ];
+        let subject = SQLExtendedParams {
+            params: vec![
+                (":something", &"yo-yo"),
+                (":wonderful_wallet", &wallet),
+                (":something_else", &699_i64),
+            ],
+        };
 
         let _ = subject.fetch_key_specification();
     }
 
     #[test]
-    #[should_panic(expected = "missing parameter of the balance change; broken")]
+    #[should_panic(expected = "missing parameter of the change in balance; broken")]
     fn no_balance_change_is_an_issue() {
-        let subject: ExtendedParamsVec =
-            &vec![(":something", &"yo-yo"), (":something_else", &55_i64)];
+        let subject = SQLExtendedParams {
+            params: vec![(":something", &"yo-yo"), (":something_else", &55_i64)],
+        };
 
         let _ = subject.fetch_balance_change();
     }
 
     #[test]
+    #[should_panic(expected = "only one parameter of changed balance is allowed a time")]
+    fn we_support_only_one_change_balance_param() {
+        let balance_change_1 = BalanceChange { change: 458 };
+        let balance_change_2 = BalanceChange { change: -5000000 };
+        let params = SQLExtendedParams {
+            params: vec![
+                (":something", &"yo-yo"),
+                (":my_fortune", &balance_change_1),
+                (":my_poverty", &balance_change_2),
+            ],
+        };
+
+        let _ = params.fetch_balance_change();
+    }
+
+    #[test]
     fn conversion_from_insert_update_error_to_particular_payable_dao_error_works() {
-        let subject = InsertUpdateError(String::from("whatever"));
+        let subject = BlobInsertUpdateError(String::from("whatever"));
 
         let result: PayableDaoError = subject.into();
 
@@ -540,7 +571,7 @@ mod tests {
 
     #[test]
     fn conversion_from_insert_update_error_to_particular_receivable_dao_error_works() {
-        let subject = InsertUpdateError(String::from("whatever"));
+        let subject = BlobInsertUpdateError(String::from("whatever"));
 
         let result: ReceivableDaoError = subject.into();
 
@@ -656,19 +687,19 @@ mod tests {
         .unwrap();
         let wrapped_conn = ConnectionWrapperReal::new(conn);
         let balance_change = BalanceChange::new_addition(100);
-        let update_config = InsertUpdateConfig {
+        let update_config = BlobInsertUpdateConfig {
             insert_sql: "",
             update_sql: "",
             params: SQLExtendedParams::new(vec![
                 (":wallet", &wallet_as_key),
                 (":balance", &balance_change),
             ]),
-            table: Table::Payable,
         };
 
-        let result = InsertUpdateCoreReal.update(Either::Left(&wrapped_conn), &update_config);
+        let result = BlobInsertUpdateReal::<PayableDaoReal>::new()
+            .update(Either::Left(&wrapped_conn), &update_config);
 
-        assert_eq!(result, Err(InsertUpdateError("Updating balance for payable of 100 Wei to a11122 with error 'Query returned no rows'".to_string())));
+        assert_eq!(result, Err(BlobInsertUpdateError("Updating balance for payable of 100 Wei to a11122 with error 'Query returned no rows'".to_string())));
     }
 
     #[test]
@@ -696,12 +727,12 @@ mod tests {
         let update_config = UpdateConfig {
             update_sql: "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet",
             params: SQLExtendedParams::new(vec![(":wallet", &wallet_as_key), (":balance", &balance_change), (":last_received", &last_received_time_stamp_sec)]),
-            table:Table::Payable,
         };
 
-        let result = InsertUpdateCoreReal.update(Either::Left(conn_ref), &update_config);
+        let result = BlobInsertUpdateReal::<PayableDaoReal>::new()
+            .update(Either::Left(conn_ref), &update_config);
 
-        assert_eq!(result, Err(InsertUpdateError("Updating balance for payable of 100 Wei to a11122 with error 'Invalid column type Text at index: 0, name: balance'".to_string())));
+        assert_eq!(result, Err(BlobInsertUpdateError("Updating balance for payable of 100 Wei to a11122 with error 'Invalid column type Text at index: 0, name: balance'".to_string())));
     }
 
     #[test]
@@ -723,12 +754,12 @@ mod tests {
         let update_config = UpdateConfig {
             update_sql: "update receivable set balance = ?, last_received_timestamp = ? where wallet_address = ?",
             params: SQLExtendedParams::new( vec![(":woodstock", &wallet_address), (":hendrix", &last_received_time_stamp_sec), (":wallet", &wallet_as_key), (":balance", &balance_change)]),
-            table:Table::Payable,
         };
 
-        let result = InsertUpdateCoreReal.update(Either::Left(conn_ref), &update_config);
+        let result = BlobInsertUpdateReal::<PayableDaoReal>::new()
+            .update(Either::Left(conn_ref), &update_config);
 
-        assert_eq!(result, Err(InsertUpdateError("Updating balance for payable of 100 Wei to a11122 with error 'Invalid parameter name: :woodstock'".to_string())));
+        assert_eq!(result, Err(BlobInsertUpdateError("Updating balance for payable of 100 Wei to a11122 with error 'Invalid parameter name: :woodstock'".to_string())));
     }
 
     fn initiate_simple_connection_and_test_table(
@@ -761,14 +792,13 @@ mod tests {
             "upsert_early_return_for_successful_insert_works",
             false,
         );
-        let subject = InsertUpdateCoreReal {};
-        let config = InsertUpdateConfig {
+        let subject = BlobInsertUpdateReal::<DummyDao>::new();
+        let config = BlobInsertUpdateConfig {
             insert_sql: "insert into test_table (name,balance) values (:name,:balance)",
             update_sql: "",
             params: SQLExtendedParams {
                 params: vec![(":name", &"Joe"), (":balance", &255_i64)],
             },
-            table: Table::TestTable,
         };
 
         let result = subject.upsert(conn.as_ref(), config);
@@ -791,16 +821,15 @@ mod tests {
             .unwrap()
             .execute(&[&60_i128])
             .unwrap();
-        let subject = InsertUpdateCoreReal {};
+        let subject = BlobInsertUpdateReal::<DummyDao>::new();
         let key_holder = KeyParamHolder::new(&"Joe", "name");
         let balance_change = BalanceChange::new_addition(5555);
-        let config = InsertUpdateConfig {
+        let config = BlobInsertUpdateConfig {
             insert_sql: "insert into test_table (name,balance) values (:name,:balance)",
             update_sql: "update test_table set balance = :updated_balance where name = :name",
             params: SQLExtendedParams {
                 params: vec![(":name", &key_holder), (":balance", &balance_change)],
             },
-            table: Table::TestTable,
         };
 
         let result = subject.upsert(conn.as_ref(), config);
@@ -828,23 +857,22 @@ mod tests {
             //notice the type difference here and later
             .execute(&[&60_i64])
             .unwrap();
-        let subject = InsertUpdateCoreReal {};
+        let subject = BlobInsertUpdateReal::<DummyDao>::new();
         let key_holder = KeyParamHolder::new(&"Joe", "name");
         let balance_change = BalanceChange::new_addition(5555);
-        let config = InsertUpdateConfig {
+        let config = BlobInsertUpdateConfig {
             insert_sql: "insert into test_table (name,balance) values (:name,:balance)",
             update_sql: "update test_table set balance = :updated_balance where name = :name",
             params: SQLExtendedParams {
                 params: vec![(":name", &key_holder), (":balance", &balance_change)],
             },
-            table: Table::TestTable,
         };
 
         let result = subject.upsert(conn.as_ref(), config);
 
         assert_eq!(
             result,
-            Err(InsertUpdateError(
+            Err(BlobInsertUpdateError(
                 "Updating balance for test_table of 5555 Wei to Joe with \
         error 'Invalid column type Integer at index: 0, name: balance'"
                     .to_string()
@@ -859,23 +887,22 @@ mod tests {
             "upsert_insert_handles_unspecific_failures",
             false,
         );
-        let subject = InsertUpdateCoreReal {};
+        let subject = BlobInsertUpdateReal::<DummyDao>::new();
         let key_holder = KeyParamHolder::new(&"Joe", "name");
         let balance_change = BalanceChange::new_addition(5555);
-        let config = InsertUpdateConfig {
+        let config = BlobInsertUpdateConfig {
             insert_sql: "insert into test_table (name,balance) values (:name,:balance)",
             update_sql: "",
             params: SQLExtendedParams {
                 params: vec![(":diff_name", &key_holder), (":balance", &balance_change)],
             },
-            table: Table::TestTable,
         };
 
         let result = subject.upsert(conn.as_ref(), config);
 
         assert_eq!(
             result,
-            Err(InsertUpdateError(
+            Err(BlobInsertUpdateError(
                 "Updating balance after invalid insertion for test_table \
          of 5555 Wei to Joe with error 'Invalid parameter name: :diff_name'"
                     .to_string()
@@ -890,23 +917,22 @@ mod tests {
             "upsert_insert_handles_sqlite_failure_other_than_constrain_violation",
             true,
         );
-        let subject = InsertUpdateCoreReal {};
+        let subject = BlobInsertUpdateReal::<DummyDao>::new();
         let key_holder = KeyParamHolder::new(&"Joe", "name");
         let balance_change = BalanceChange::new_addition(5555);
-        let config = InsertUpdateConfig {
+        let config = BlobInsertUpdateConfig {
             insert_sql: "insert into test_table (name,balance) values (:name,:balance)",
             update_sql: "",
             params: SQLExtendedParams {
                 params: vec![(":name", &key_holder), (":balance", &balance_change)],
             },
-            table: Table::TestTable,
         };
 
         let result = subject.upsert(conn.as_ref(), config);
 
         assert_eq!(
             result,
-            Err(InsertUpdateError(
+            Err(BlobInsertUpdateError(
                 "Updating balance after invalid insertion for test_table \
          of 5555 Wei to Joe with error 'attempt to write a readonly database'"
                     .to_string()
