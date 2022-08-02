@@ -46,6 +46,7 @@ impl CommandFactory for CommandFactoryReal {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
+            "connection-status" => Box::new(ConnectionStatusCommand::new()),
             "crash" => match CrashCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
