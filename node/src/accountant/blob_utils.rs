@@ -64,7 +64,7 @@ impl<T: DAOTableIdentifier + Debug + Send + 'static> BlobInsertUpdate<T>
             Ok(_) => Ok(()),
             Err(e) => Err(BlobInsertUpdateError(format!(
                 "Updating balance for {} of {} Wei to {} with error '{}'",
-                config.table(),
+                T::table_name(),
                 balance_change,
                 params.params[key_idx].1,
                 e
@@ -191,41 +191,41 @@ impl<'a> SQLExtendedParams<'a> {
     }
 
     pub fn fetch_balance_change(&self) -> i128 {
-        self.params
+        let bcs = self
+            .params
             .iter()
-            .fold(
-                None,
-                |acc: Option<i128>, (_, balance_change_candidate)| match acc {
-                    Some(x) => match balance_change_candidate.balance_change_opt() {
-                        None => Some(x),
-                        Some(_) => {
-                            panic!("only one parameter of changed balance is allowed a time")
-                        }
-                    },
-                    None => balance_change_candidate.balance_change_opt(),
-                },
-            )
-            .unwrap_or_else(|| panic!("missing parameter of the change in balance; broken"))
+            .filter(|(_, bc_candidate)| bc_candidate.balance_change_opt().is_some())
+            .collect::<Vec<&(&'a str, &'a dyn ExtendedParamsMarker)>>();
+        match bcs.len() {
+            1 => {
+                let (_, bc_candidate) = bcs[0];
+                bc_candidate
+                    .balance_change_opt()
+                    .expectv("already filtered bc candidate")
+            }
+            0 => panic!("missing parameter of the change in balance; broken"),
+            _ => panic!("only one parameter of changed balance is allowed a time"),
+        }
     }
 
     pub fn fetch_key_specification(&self) -> (String, String, usize) {
-        self.params
+        let keys = self
+            .params
             .iter()
             .enumerate()
-            .fold(
-                None,
-                |acc: Option<(String, String, usize)>, (idx, (param_name, key_candidate))| match acc
-                {
-                    Some(x) => match key_candidate.key_name_opt() {
-                        None => Some(x),
-                        Some(_) => panic!("only one key parameter is allowed"),
-                    },
-                    None => key_candidate.key_name_opt().map(|in_table_param_name| {
-                        (in_table_param_name, param_name.to_string(), idx)
-                    }),
-                },
-            )
-            .unwrap_or_else(|| panic!("missing key parameter; broken"))
+            .filter(|(_, (_, key_candidate))| key_candidate.key_name_opt().is_some())
+            .collect::<Vec<(usize, &(&'a str, &'a dyn ExtendedParamsMarker))>>();
+        match keys.len() {
+            1 => {
+                let (idx, (param_name, key_candidate)) = keys[0];
+                key_candidate
+                    .key_name_opt()
+                    .map(|in_table_param_name| (in_table_param_name, param_name.to_string(), idx))
+                    .expectv("already filtered key candidate")
+            }
+            0 => panic!("missing key parameter; broken"),
+            _ => panic!("only one key parameter is allowed"),
+        }
     }
 
     #[cfg(test)]
@@ -235,11 +235,10 @@ impl<'a> SQLExtendedParams<'a> {
 }
 
 pub trait UpdateConfiguration<'a, T: DAOTableIdentifier> {
-    fn table(&self) -> String;
     fn select_sql(&self, in_table_param_name: &str, sql_param_name: &str) -> String {
         format!(
             "select balance from {} where {} = {}",
-            &self.table(),
+            T::table_name(),
             in_table_param_name,
             sql_param_name
         )
@@ -266,9 +265,6 @@ pub trait DAOTableIdentifier {
 macro_rules! update_configuration_std_impl {
     ($implementor: ident) => {
         impl<'a, T: DAOTableIdentifier> UpdateConfiguration<'a, T> for $implementor<'a> {
-            fn table(&self) -> String {
-                T::table_name()
-            }
             fn update_sql(&self) -> &'a str {
                 self.update_sql
             }
@@ -707,7 +703,7 @@ mod tests {
         let wallet_address = "a11122";
         let wallet_as_key = KeyParamHolder::new(&wallet_address, "wallet_address");
         let path = ensure_node_home_directory_exists(
-            "dao_shared_methods",
+            "blob_utils",
             "update_handles_error_on_a_row_due_to_unfitting_data_types",
         );
         let conn = DbInitializerReal::default()
@@ -740,7 +736,7 @@ mod tests {
         let wallet_address = "a11122";
         let wallet_as_key = KeyParamHolder::new(&wallet_address, "wallet_address");
         let path = ensure_node_home_directory_exists(
-            "dao_shared_methods",
+            "blob_utils",
             "update_handles_error_of_bad_sql_params",
         );
         let conn = DbInitializerReal::default()
@@ -760,6 +756,32 @@ mod tests {
             .update(Either::Left(conn_ref), &update_config);
 
         assert_eq!(result, Err(BlobInsertUpdateError("Updating balance for payable of 100 Wei to a11122 with error 'Invalid parameter name: :woodstock'".to_string())));
+    }
+
+    #[test]
+    fn update_changes_no_rows_err_detected() {
+        let wallet_address = "a11122";
+        let path =
+            ensure_node_home_directory_exists("blob_utils", "update_changes_no_rows_err_detected");
+        let conn = DbInitializerReal::default()
+            .initialize(&path, true, MigratorConfig::test_default())
+            .unwrap();
+        let conn_ref = conn.as_ref();
+        let key_holder = KeyParamHolder::new(&wallet_address, "wallet_address");
+        let balance_change = BalanceChange::new_addition(100);
+        let update_config = UpdateConfig {
+            update_sql:
+                "update payable set balance = :balance where wallet_address = :wallet_address",
+            params: SQLExtendedParams::new(vec![
+                (":wallet_address", &key_holder),
+                (":balance", &balance_change),
+            ]),
+        };
+
+        let result = BlobInsertUpdateReal::<PayableDaoReal>::new()
+            .update(Either::Left(conn_ref), &update_config);
+
+        assert_eq!(result, Err(BlobInsertUpdateError(String::from("Updating balance for payable of 100 Wei to a11122 with error 'Query returned no rows'"))))
     }
 
     fn initiate_simple_connection_and_test_table(

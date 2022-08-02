@@ -869,7 +869,7 @@ impl<T: DAOTableIdentifier + 'static> BlobInsertUpdate<T> for InsertUpdateCoreMo
             },
             config.select_sql(&in_table_key, &sql_key),
             config.update_sql().to_string(),
-            config.table(),
+            T::table_name(),
             owned_params,
         ));
         self.update_results.borrow_mut().remove(0)
