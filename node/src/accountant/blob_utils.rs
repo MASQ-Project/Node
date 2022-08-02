@@ -961,4 +961,133 @@ mod tests {
             ))
         );
     }
+
+    //DatabaseWeiHandler
+
+    //update(),
+
+    //upsert(),
+
+    fn deconstruct(num: i128) -> Result<(i64, i64), String> {
+        let low_bits = (num & 0x7FFFFFFFFFFFFFFFi128) as i64;
+        let high_bits = (num >> 63) as i64;
+        if num.is_positive() && (high_bits.abs() as u64 & 0xC000000000000000u64) > 0 {
+            panic!("Too big positive integer to be divided: {:#X}", num)
+        }
+        if num < -0x40000000000000000000000000000000 {
+            panic!("Too big negative integer to be divided: -{:#X}", num)
+        }
+        Ok((high_bits, low_bits))
+    }
+
+    fn reconstitute(high_bytes: i64, low_bytes: i64) -> i128 {
+        let low_bytes = low_bytes as i128;
+        let high_bytes = high_bytes as i128;
+        (high_bytes << 63) | low_bytes
+    }
+
+    #[test]
+    fn deconstruct_works_for_small_number() {
+        let result = deconstruct(45879);
+
+        assert_eq!(result, Ok((0, 45879)))
+    }
+
+    #[test]
+    fn deconstruct_works_for_big_number() {
+        let result = deconstruct(i64::MAX as i128 + 33333);
+
+        assert_eq!(result, Ok((1, 33332)))
+    }
+
+    #[test]
+    fn deconstruct_works_for_huge_number() {
+        let result = deconstruct(0x1FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
+        //this is the maximum: -42535295865117307932_921825928_971026431 Wei ... 42535295865117307932 MASQs
+        //there are fewer than 1 billion of units available on the market
+
+        assert_eq!(result, Ok((4611686018427387903, i64::MAX)))
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Too big positive integer to be divided: 0x20000000000000000000000000000000"
+    )]
+    fn deconstruct_has_its_limits_up() {
+        let _ = deconstruct(0x1FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF + 1);
+    }
+
+    #[test]
+    fn deconstruct_works_for_small_negative_number() {
+        let result = deconstruct(-454887);
+
+        assert_eq!(result, Ok((-1, 9223372036854320921)))
+    }
+
+    #[test]
+    fn deconstruct_works_for_big_negative_number() {
+        let result = deconstruct(i64::MIN as i128 - 4444);
+
+        assert_eq!(result, Ok((-2, 9223372036854771364)))
+    }
+
+    #[test]
+    fn deconstruct_works_for_huge_negative_number() {
+        let result = deconstruct(-0x40000000000000000000000000000000);
+        //this is the minimum: -85070591730234615865_843651857_942052864 Wei ... -85070591730234615865 MASQs
+        //there are fewer than 1 billion of units available on the market
+
+        assert_eq!(result, Ok((-9223372036854775808, 0)))
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Too big negative integer to be divided: -0xBFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
+    )]
+    fn deconstruct_has_its_limits_down() {
+        let _ = deconstruct(-0x40000000000000000000000000000000 - 1);
+        //at this number we lose the sign so it's the minimal possible value with which we can go down
+    }
+
+    #[test]
+    fn reconstitute_works_for_small_number() {
+        let result = reconstitute(0, 45879);
+
+        assert_eq!(result, 45879)
+    }
+
+    #[test]
+    fn reconstitute_works_for_big_number() {
+        let result = reconstitute(1, 33332);
+
+        assert_eq!(result, i64::MAX as i128 + 33333)
+    }
+
+    #[test]
+    fn reconstitute_works_for_huge_number() {
+        let result = reconstitute(2305843009213693951, i64::MAX);
+
+        assert_eq!(result, 0x0FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
+    }
+
+    #[test]
+    fn reconstitute_works_for_small_negative_number() {
+        let result = reconstitute(-1, 9223372036854320921);
+
+        assert_eq!(result, -454887)
+    }
+
+    #[test]
+    fn reconstitute_works_for_big_negative_number() {
+        let result = reconstitute(-2, 9223372036854771364);
+
+        assert_eq!(result, i64::MIN as i128 - 4444)
+    }
+
+    #[test]
+    fn reconstitute_works_for_huge_negative_number() {
+        let result = reconstitute(-9223372036854775808, 0);
+
+        assert_eq!(result, -0x40000000000000000000000000000000)
+    }
 }
