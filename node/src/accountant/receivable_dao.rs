@@ -62,11 +62,12 @@ pub struct ReceivableAccount {
 pub trait ReceivableDao: Send {
     fn more_money_receivable(
         &self,
+        now: SystemTime,
         wallet: &Wallet,
         amount: u128,
     ) -> Result<(), ReceivableDaoError>;
 
-    fn more_money_received(&mut self, transactions: Vec<BlockchainTransaction>);
+    fn more_money_received(&mut self, now: SystemTime, transactions: Vec<BlockchainTransaction>);
 
     fn new_delinquencies(
         &self,
@@ -104,22 +105,24 @@ pub struct ReceivableDaoReal {
 impl ReceivableDao for ReceivableDaoReal {
     fn more_money_receivable(
         &self,
+        timestamp: SystemTime,
         wallet: &Wallet,
         amount: u128,
     ) -> Result<(), ReceivableDaoError> {
         Ok(self.blob_insert_update.upsert(&*self.conn, BlobInsertUpdateConfig {
-            insert_sql: "insert into receivable (wallet_address, balance, last_received_timestamp) values (:wallet,:balance,strftime('%s','now'))",
+            insert_sql: "insert into receivable (wallet_address, balance, last_received_timestamp) values (:wallet, :balance, :last_received_timestamp)",
             update_sql: "update receivable set balance = :updated_balance where wallet_address = :wallet",
             params: SQLExtendedParams::new(
                 vec![
                     (":wallet", &KeyParamHolder::new(wallet, "wallet_address")),
-                    (":balance", &BalanceChange::new_addition(amount))
+                    (":balance", &BalanceChange::new_addition(amount)),
+                    (":last_received_timestamp",&to_time_t(timestamp))
                 ]),
         })?)
     }
 
-    fn more_money_received(&mut self, payments: Vec<BlockchainTransaction>) {
-        self.try_multi_insert_payment(&payments)
+    fn more_money_received(&mut self, timestamp: SystemTime, payments: Vec<BlockchainTransaction>) {
+        self.try_multi_insert_payment(timestamp, &payments)
             .unwrap_or_else(|e| self.more_money_received_pretty_error_log(&payments, e))
     }
 
@@ -332,6 +335,7 @@ impl ReceivableDaoReal {
 
     fn try_multi_insert_payment(
         &mut self,
+        timestamp: SystemTime,
         payments: &[BlockchainTransaction],
     ) -> Result<(), ReceivableDaoError> {
         let xactn = self.conn.transaction()?;
@@ -344,7 +348,7 @@ impl ReceivableDaoReal {
                             (":wallet", &KeyParamHolder::new(&transaction.from, "wallet_address")),
                             //:balance is later in the code transformed into :updated_balance
                             (":balance", &BalanceChange::polite_new_subtraction(transaction.wei_amount).map_err(|e|ReceivableDaoError::SignConversion(SignConversionError::Msg(e)))?),
-                            (":last_received", &now_time_t()),
+                            (":last_received", &to_time_t(timestamp)),
                         ]),
                 })?
             }
@@ -476,7 +480,7 @@ mod tests {
             wei_amount: u128::MAX,
         }];
 
-        let result = subject.try_multi_insert_payment(&payments.as_slice());
+        let result = subject.try_multi_insert_payment(SystemTime::now(), &payments.as_slice());
 
         assert_eq!(
             result,
@@ -508,7 +512,7 @@ mod tests {
             wei_amount: 18446744073709551615,
         }];
 
-        let _ = subject.try_multi_insert_payment(payments.as_slice());
+        let _ = subject.try_multi_insert_payment(SystemTime::now(), payments.as_slice());
     }
 
     #[test]
@@ -517,7 +521,7 @@ mod tests {
             "receivable_dao",
             "more_money_receivable_works_for_new_address",
         );
-        let before = dao_utils::to_time_t(SystemTime::now());
+        let now = SystemTime::now();
         let wallet = make_wallet("booga");
         let status = {
             let subject = ReceivableDaoReal::new(
@@ -526,26 +530,13 @@ mod tests {
                     .unwrap(),
             );
 
-            subject.more_money_receivable(&wallet, 1234).unwrap();
+            subject.more_money_receivable(now, &wallet, 1234).unwrap();
             subject.account_status(&wallet).unwrap()
         };
 
-        let after = dao_utils::to_time_t(SystemTime::now());
         assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance_wei, 1234);
-        let timestamp = dao_utils::to_time_t(status.last_received_timestamp);
-        assert!(
-            timestamp >= before,
-            "{:?} should be on or after {:?}",
-            timestamp,
-            before
-        );
-        assert!(
-            timestamp <= after,
-            "{:?} should be on or before {:?}",
-            timestamp,
-            after
-        );
+        assert_eq!(to_time_t(status.last_received_timestamp), to_time_t(now));
     }
 
     #[test]
@@ -555,34 +546,22 @@ mod tests {
             "more_money_receivable_works_for_existing_address",
         );
         let wallet = make_wallet("booga");
-        let subject = {
-            let subject = ReceivableDaoReal::new(
-                DbInitializerReal::default()
-                    .initialize(&home_dir, true, MigratorConfig::test_default())
-                    .unwrap(),
-            );
-            subject.more_money_receivable(&wallet, 1234).unwrap();
-            let mut flags = OpenFlags::empty();
-            flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
-            let conn =
-                Connection::open_with_flags(&home_dir.join(db_initializer::DATABASE_FILE), flags)
-                    .unwrap();
-            conn.execute(
-                "update receivable set last_received_timestamp = 0 where wallet_address = '0x000000000000000000000000000000626f6f6761'",
-                [],
-            )
+        let subject = ReceivableDaoReal::new(
+            DbInitializerReal::default()
+                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .unwrap(),
+        );
+        let now = SystemTime::now();
+        subject.more_money_receivable(now, &wallet, 1234).unwrap();
+
+        subject
+            .more_money_receivable(SystemTime::UNIX_EPOCH, &wallet, 2345)
             .unwrap();
-            subject
-        };
 
-        let status = {
-            subject.more_money_receivable(&wallet, 2345).unwrap();
-            subject.account_status(&wallet).unwrap()
-        };
-
+        let status = subject.account_status(&wallet).unwrap();
         assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance_wei, 3579);
-        assert_eq!(status.last_received_timestamp, SystemTime::UNIX_EPOCH);
+        assert_eq!(to_time_t(status.last_received_timestamp), to_time_t(now));
     }
 
     #[test]
@@ -600,7 +579,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let _ = subject.more_money_receivable(&make_wallet("booga"), u128::MAX);
+        let _ = subject.more_money_receivable(SystemTime::now(), &make_wallet("booga"), u128::MAX);
     }
 
     #[test]
@@ -612,16 +591,15 @@ mod tests {
         );
         let debtor1 = make_wallet("debtor1");
         let debtor2 = make_wallet("debtor2");
+        let now = SystemTime::now();
         let mut subject = {
             let subject = ReceivableDaoReal::new(
                 DbInitializerReal::default()
                     .initialize(&home_dir, true, MigratorConfig::test_default())
                     .unwrap(),
             );
-            subject.more_money_receivable(&debtor1, 1234).unwrap();
-            subject.more_money_receivable(&debtor2, 2345).unwrap();
-            let mut flags = OpenFlags::empty();
-            flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
+            subject.more_money_receivable(now, &debtor1, 1234).unwrap();
+            subject.more_money_receivable(now, &debtor2, 2345).unwrap();
             subject
         };
 
@@ -639,7 +617,7 @@ mod tests {
                 },
             ];
 
-            subject.more_money_received(transactions);
+            subject.more_money_received(now, transactions);
             (
                 subject.account_status(&debtor1).unwrap(),
                 subject.account_status(&debtor2).unwrap(),
@@ -648,15 +626,11 @@ mod tests {
 
         assert_eq!(status1.wallet, debtor1);
         assert_eq!(status1.balance_wei, 34);
-        let timestamp1 = dao_utils::to_time_t(status1.last_received_timestamp);
-        assert!(timestamp1 >= before);
-        assert!(timestamp1 <= dao_utils::to_time_t(SystemTime::now()));
+        assert_eq!(to_time_t(status1.last_received_timestamp), to_time_t(now));
 
         assert_eq!(status2.wallet, debtor2);
         assert_eq!(status2.balance_wei, 45);
-        let timestamp2 = dao_utils::to_time_t(status2.last_received_timestamp);
-        assert!(timestamp2 >= before);
-        assert!(timestamp2 <= dao_utils::to_time_t(SystemTime::now()));
+        assert_eq!(to_time_t(status2.last_received_timestamp), to_time_t(now));
     }
 
     #[test]
@@ -678,7 +652,7 @@ mod tests {
                 wei_amount: 2300_u128,
                 block_number: 33_u64,
             }];
-            subject.more_money_received(transactions);
+            subject.more_money_received(SystemTime::now(), transactions);
             subject.account_status(&debtor)
         };
 
@@ -730,7 +704,7 @@ mod tests {
             },
         ];
 
-        subject.more_money_received(payments);
+        subject.more_money_received(SystemTime::now(), payments);
 
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: ReceivableDaoReal: Payment reception failed, rolling back: \
@@ -1644,8 +1618,9 @@ mod tests {
         let conn_id_stamp = conn.set_arbitrary_id_stamp();
         let mut subject = ReceivableDaoReal::new(Box::new(conn));
         subject.blob_insert_update = Box::new(insert_update_core);
+        let now = SystemTime::now();
 
-        let result = subject.more_money_receivable(&wallet, amount);
+        let result = subject.more_money_receivable(now, &wallet, amount);
 
         assert_eq!(result, Err(RusqliteError("SomethingWrong".to_string())));
         let mut insert_or_update_params = insert_or_update_params_arc.lock().unwrap();
@@ -1657,13 +1632,14 @@ mod tests {
             update_sql,
             "update receivable set balance = :updated_balance where wallet_address = :wallet"
         );
-        assert_eq!(insert_sql,"insert into receivable (wallet_address, balance, last_received_timestamp) values (:wallet,:balance,strftime('%s','now'))");
+        assert_eq!(insert_sql,"insert into receivable (wallet_address, balance, last_received_timestamp) values (:wallet, :balance, :last_received_timestamp)");
         assert_eq!(table, "receivable".to_string());
         assert_eq!(
             sql_param_names,
             convert_to_all_string_values(vec![
                 (":wallet", &wallet.to_string()),
-                (":balance", &amount.to_string())
+                (":balance", &amount.to_string()),
+                (":last_received_timestamp", &to_time_t(now).to_string())
             ])
         )
     }
@@ -1695,8 +1671,9 @@ mod tests {
                 wei_amount: 444444555333337,
             },
         ];
+        let now = SystemTime::now();
 
-        let result = subject.try_multi_insert_payment(&payments);
+        let result = subject.try_multi_insert_payment(now, &payments);
 
         assert_eq!(
             result,
@@ -1714,15 +1691,12 @@ mod tests {
         );
         assert_eq!(update_sql, "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet");
         assert_eq!(table, "receivable".to_string());
-        let sql_param_names_assertable: Vec<(String, String)> = sql_param_names
-            .into_iter()
-            .filter(|(param, _)| param.as_str() != ":last_received")
-            .collect();
         assert_eq!(
-            sql_param_names_assertable,
+            sql_param_names,
             convert_to_all_string_values(vec![
                 (":wallet", &make_wallet("some_address").to_string()),
                 (":balance", &(-18446744073709551615_i128).to_string()),
+                (":last_received", &to_time_t(now).to_string())
             ])
         );
         assert_eq!(insert_or_update_params.pop(), None)

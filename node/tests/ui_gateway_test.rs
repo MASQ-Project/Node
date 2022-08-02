@@ -19,6 +19,7 @@ use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
 use node_lib::database::db_migrations::MigratorConfig;
 use node_lib::test_utils::make_wallet;
+use std::time::SystemTime;
 use utils::CommandConfig;
 
 #[test]
@@ -35,10 +36,10 @@ fn ui_requests_something_and_gets_corresponding_response() {
             .unwrap()
     };
     PayableDaoReal::new(make_conn())
-        .more_money_payable(&make_wallet("abc"), 45678357)
+        .more_money_payable(SystemTime::now(), &make_wallet("abc"), 45678357)
         .unwrap();
     ReceivableDaoReal::new(make_conn())
-        .more_money_receivable(&make_wallet("xyz"), 654327768)
+        .more_money_receivable(SystemTime::now(), &make_wallet("xyz"), 654327768)
         .unwrap();
     let mut node = utils::MASQNode::start_standard(
         "ui_requests_something_and_gets_corresponding_response",

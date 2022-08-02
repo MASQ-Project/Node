@@ -8,15 +8,18 @@ use std::thread::JoinHandle;
 use std::time::Duration;
 
 use crossbeam_channel::{unbounded, Receiver, Sender};
+use itertools::Either;
+use itertools::Either::{Left, Right};
 use lazy_static::lazy_static;
 use regex::Regex;
 use serde::Serialize;
 
-use masq_lib::utils::localhost;
+use crate::masq_node_cluster::DockerHostSocketAddr;
+use crate::utils::UrlHolder;
 
 lazy_static! {
     static ref CONTENT_LENGTH_DETECTOR: Regex =
-        Regex::new(r"[Cc]ontent-[Ll]ength: *(\d+)\n").expect("Bad regular expression");
+        Regex::new(r"[Cc]ontent-[Ll]ength: *(\d+)\r\n").expect("Bad regular expression");
     static ref HTTP_VERSION_DETECTOR: Regex =
         Regex::new(r"HTTP/(\d\.\d)").expect("Bad regular expression");
 }
@@ -88,7 +91,7 @@ impl MBCSBuilder {
     pub fn start(self) -> MockBlockchainClientServer {
         let requests = Arc::new(Mutex::new(vec![]));
         let mut server = MockBlockchainClientServer {
-            port: self.port,
+            port_or_local_addr: Left(self.port),
             thread_info_opt: None,
             requests_arc: requests,
             responses: self.responses,
@@ -113,11 +116,17 @@ struct MBCSThreadInfo {
 }
 
 pub struct MockBlockchainClientServer {
-    port: u16,
+    port_or_local_addr: Either<u16, SocketAddr>,
     thread_info_opt: Option<MBCSThreadInfo>,
     requests_arc: Arc<Mutex<Vec<String>>>,
     responses: Vec<String>,
     notifier: Sender<()>,
+}
+
+impl UrlHolder for MockBlockchainClientServer {
+    fn url(&self) -> String {
+        format!("http://{}", self.local_addr().unwrap())
+    }
 }
 
 impl Drop for MockBlockchainClientServer {
@@ -128,7 +137,7 @@ impl Drop for MockBlockchainClientServer {
                 let msg = match e.downcast_ref::<&'static str>() {
                     Some(m) => m.to_string(),
                     None => match e.downcast::<String>() {
-                        Ok(m) => *m,
+                        Ok(m) => m.to_string(),
                         Err(e) => format!("{:?}", e),
                     },
                 };
@@ -155,8 +164,16 @@ impl MockBlockchainClientServer {
     }
 
     pub fn start(&mut self) {
-        let listener = TcpListener::bind(SocketAddr::new(localhost(), self.port)).unwrap();
+        let addr = DockerHostSocketAddr::new(self.port_or_local_addr.unwrap_left());
+        let listener = match TcpListener::bind(addr) {
+            Ok(listener) => listener,
+            Err(e) => panic!(
+                "Error binding MBCS listener: did you remember to start the cluster first? ({:?})",
+                e
+            ),
+        };
         listener.set_nonblocking(true).unwrap();
+        self.port_or_local_addr = Right(listener.local_addr().unwrap());
         let requests_arc = self.requests_arc.clone();
         let mut responses: Vec<String> = self.responses.drain(..).collect();
         let (stopper_tx, stopper_rx) = unbounded();
@@ -195,6 +212,13 @@ impl MockBlockchainClientServer {
             stopper: stopper_tx,
             join_handle,
         })
+    }
+
+    pub fn local_addr(&self) -> Option<SocketAddr> {
+        match self.port_or_local_addr {
+            Left(_) => None,
+            Right(local_addr) => Some(local_addr),
+        }
     }
 
     fn thread_guts(
@@ -275,10 +299,10 @@ impl MockBlockchainClientServer {
     }
 
     fn handle_unparsed(conn_state: &mut ConnectionState) -> Option<String> {
-        match conn_state.request_accumulator.find("\n\n") {
+        match conn_state.request_accumulator.find("\r\n\r\n") {
             None => None,
-            Some(newline_offset) => {
-                let content_offset = newline_offset + 2;
+            Some(crlf_offset) => {
+                let content_offset = crlf_offset + 4;
                 match HTTP_VERSION_DETECTOR.captures(&conn_state.request_accumulator) {
                     Some(captures) => {
                         let http_version = captures.get(1).unwrap().as_str();
@@ -330,7 +354,7 @@ impl MockBlockchainClientServer {
 
     fn send_body(conn_state: &mut ConnectionState, response: String) {
         let http = format!(
-            "HTTP/1.1 200 OK\nContent-Type: application/json\nContent-Length: {}\n\n{}",
+            "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
             response.len(),
             response
         );
@@ -359,11 +383,12 @@ struct ConnectionState {
 mod tests {
     use serde_derive::Deserialize;
     use std::io::{Read, Write};
-    use std::net::{SocketAddr, TcpStream};
+    use std::net::TcpStream;
     use std::ops::Add;
     use std::time::{Duration, Instant};
 
-    use masq_lib::utils::{find_free_port, localhost};
+    use crate::masq_node_cluster::MASQNodeCluster;
+    use masq_lib::utils::find_free_port;
 
     use super::*;
 
@@ -375,16 +400,17 @@ mod tests {
 
     #[test]
     fn receives_request_in_multiple_chunks() {
+        let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
             .response("Thank you and good night", 40)
             .start();
         let mut client = connect(port);
         let chunks = vec![
-            "POST /biddle HTTP/1.1\nCont".to_string(),
+            "POST /biddle HTTP/1.1\r\nCont".to_string(),
             "ent-Length: 4".to_string(),
-            "8\nContent-Type: application/json\n".to_string(),
-            "\n{\"jsonrpc\": \"2.0\", \"method\": ".to_string(),
+            "8\r\nContent-Type: application/json\r\n".to_string(),
+            "\r\n{\"jsonrpc\": \"2.0\", \"method\": ".to_string(),
             "\"method\", \"id\": 40".to_string(),
         ];
         chunks.into_iter().for_each(|chunk| {
@@ -404,13 +430,14 @@ mod tests {
 
     #[test]
     fn parses_out_multiple_requests_from_single_chunk() {
+        let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
             .response("Welcome, and thanks for coming!", 39)
             .response("Thank you and good night", 40)
             .start();
         let mut client = connect(port);
-        client.write (b"POST /biddle HTTP/1.1\nContent-Length: 5\n\nfirstPOST /biddle HTTP/1.1\nContent-Length: 6\n\nsecond").unwrap();
+        client.write (b"POST /biddle HTTP/1.1\r\nContent-Length: 5\r\n\r\nfirstPOST /biddle HTTP/1.1\r\nContent-Length: 6\r\n\r\nsecond").unwrap();
 
         let (_, body) = receive_response(&mut client);
         assert_eq!(
@@ -427,12 +454,13 @@ mod tests {
     #[test]
     #[should_panic(expected = "Request has no Content-Length header")]
     fn panics_if_given_a_request_without_a_content_length() {
+        let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
             .response("irrelevant".to_string(), 42)
             .start();
         let mut client = connect(port);
-        let request = b"POST /biddle HTTP/1.1\n\nbody";
+        let request = b"POST /biddle HTTP/1.1\r\n\r\nbody";
 
         client.write(request).unwrap();
 
@@ -442,12 +470,13 @@ mod tests {
     #[test]
     #[should_panic(expected = "Request has no HTTP version")]
     fn panics_if_http_version_is_missing() {
+        let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
             .response("irrelevant".to_string(), 42)
             .start();
         let mut client = connect(port);
-        let request = b"GET /booga\nContent-Length: 4\n\nbody";
+        let request = b"GET /booga\r\nContent-Length: 4\r\n\r\nbody";
 
         client.write(request).unwrap();
 
@@ -457,12 +486,13 @@ mod tests {
     #[test]
     #[should_panic(expected = "MBCS handles only HTTP version 1.1, not 2.0")]
     fn panics_if_http_version_is_not_1_1() {
+        let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let _subject = MockBlockchainClientServer::builder(port)
             .response("irrelevant".to_string(), 42)
             .start();
         let mut client = connect(port);
-        let request = b"GET /booga HTTP/2.0\nContent-Length: 4\n\nbody";
+        let request = b"GET /booga HTTP/2.0\r\nContent-Length: 4\r\n\r\nbody";
 
         client.write(request).unwrap();
 
@@ -471,6 +501,7 @@ mod tests {
 
     #[test]
     fn mbcs_works_for_responses_and_errors_both_inside_a_batch_and_outside() {
+        let _cluster = MASQNodeCluster::start();
         let port = find_free_port();
         let (notifier, notified) = unbounded();
         let subject = MockBlockchainClientServer::builder(port)
@@ -537,15 +568,46 @@ mod tests {
 
         let requests = subject.requests();
         assert_eq! (requests, vec! [
-            "POST /biddle HTTP/1.1\nContent-Type: application-json\nContent-Length: 82\n\n{\"jsonrpc\": \"2.0\", \"method\": \"first\", \"params\": [\"biddle\", \"de\", \"bee\"], \"id\": 40}".to_string(),
-            "POST /biddle HTTP/1.1\nContent-Type: application-json\nContent-Length: 48\n\n{\"jsonrpc\": \"2.0\", \"method\": \"second\", \"id\": 42}".to_string(),
-            "POST /biddle HTTP/1.1\nContent-Type: application-json\nContent-Length: 47\n\n{\"jsonrpc\": \"2.0\", \"method\": \"third\", \"id\": 42}".to_string(),
+            "POST /biddle HTTP/1.1\r\nContent-Type: application-json\r\nContent-Length: 82\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"first\", \"params\": [\"biddle\", \"de\", \"bee\"], \"id\": 40}".to_string(),
+            "POST /biddle HTTP/1.1\r\nContent-Type: application-json\r\nContent-Length: 48\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"second\", \"id\": 42}".to_string(),
+            "POST /biddle HTTP/1.1\r\nContent-Type: application-json\r\nContent-Length: 47\r\n\r\n{\"jsonrpc\": \"2.0\", \"method\": \"third\", \"id\": 42}".to_string(),
+        ])
+    }
+
+    #[test]
+    fn mbcs_understands_real_world_request() {
+        let _cluster = MASQNodeCluster::start();
+        let port = find_free_port();
+        let subject = MockBlockchainClientServer::builder(port)
+            .response(
+                Person {
+                    name: "Billy".to_string(),
+                    age: 15,
+                },
+                42,
+            )
+            .start();
+        let mut client = connect(port);
+        let request =
+            b"POST / HTTP/1.1\r\ncontent-type: application/json\r\nuser-agent: web3.rs\r\nhost: 172.18.0.1:32768\r\ncontent-length: 308\r\n\r\n{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{\"address\":\"0x59882e4a8f5d24643d4dda422922a870f1b3e664\",\"fromBlock\":\"0x3e8\",\"toBlock\":\"latest\",\"topics\":[\"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef\",null,\"0x00000000000000000000000027d9a2ac83b493f88ce9b4532edcf74e95b9788d\"]}],\"id\":0}";
+
+        client.write(request).unwrap();
+
+        let (response_header, response_body) = receive_response(&mut client);
+        verify_response_header(&response_header, &response_body);
+        assert_eq!(
+            &response_body,
+            r#"{"jsonrpc": "2.0", "result": {"name":"Billy","age":15}, "id": 42}"#
+        );
+        let requests = subject.requests();
+        assert_eq! (requests, vec! [
+            "POST / HTTP/1.1\r\ncontent-type: application/json\r\nuser-agent: web3.rs\r\nhost: 172.18.0.1:32768\r\ncontent-length: 308\r\n\r\n{\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{\"address\":\"0x59882e4a8f5d24643d4dda422922a870f1b3e664\",\"fromBlock\":\"0x3e8\",\"toBlock\":\"latest\",\"topics\":[\"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef\",null,\"0x00000000000000000000000027d9a2ac83b493f88ce9b4532edcf74e95b9788d\"]}],\"id\":0}".to_string()
         ])
     }
 
     fn connect(port: u16) -> TcpStream {
         let deadline = Instant::now().add(Duration::from_secs(1));
-        let addr = SocketAddr::new(localhost(), port);
+        let addr = DockerHostSocketAddr::new(port);
         loop {
             thread::sleep(Duration::from_millis(100));
             match TcpStream::connect(&addr) {
@@ -581,7 +643,7 @@ mod tests {
                 Ok(len) => {
                     let string: String = String::from_utf8(buffer[0..len].to_vec()).unwrap();
                     response_str.extend(string.chars());
-                    match response_str.find("\n\n") {
+                    match response_str.find("\r\n\r\n") {
                         Some(index) => {
                             let body_length_str = CONTENT_LENGTH_DETECTOR
                                 .captures(&response_str)
@@ -611,13 +673,13 @@ mod tests {
             }
             thread::sleep(Duration::from_millis(10));
         }
-        let parts = response_str.splitn(2, "\n\n").collect::<Vec<&str>>();
+        let parts = response_str.splitn(2, "\r\n\r\n").collect::<Vec<&str>>();
         Some((parts[0].to_string(), parts[1].to_string()))
     }
 
     fn verify_response_header(response_header: &str, response_body: &str) {
         assert_eq!(
-            response_header.contains("HTTP/1.1 200 OK\n"),
+            response_header.contains("HTTP/1.1 200 OK\r\n"),
             true,
             "{}",
             response_header
@@ -638,7 +700,7 @@ mod tests {
 
     fn make_post(body: &str) -> Vec<u8> {
         format!(
-            "POST /biddle HTTP/1.1\nContent-Type: application-json\nContent-Length: {}\n\n{}",
+            "POST /biddle HTTP/1.1\r\nContent-Type: application-json\r\nContent-Length: {}\r\n\r\n{}",
             body.len(),
             body
         )

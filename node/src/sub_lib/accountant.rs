@@ -11,7 +11,7 @@ use lazy_static::lazy_static;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 pub const WEIS_OF_GWEI: i128 = 1_000_000_000;
 
@@ -105,8 +105,10 @@ impl Debug for AccountantSubs {
     }
 }
 
+// TODO: These four structures all consist of exactly the same five fields. They could be factored out.
 #[derive(Clone, PartialEq, Debug, Message)]
 pub struct ReportRoutingServiceProvidedMessage {
+    pub timestamp: SystemTime,
     pub paying_wallet: Wallet,
     pub payload_size: usize,
     pub service_rate: u64,
@@ -115,6 +117,7 @@ pub struct ReportRoutingServiceProvidedMessage {
 
 #[derive(Clone, PartialEq, Debug, Message)]
 pub struct ReportExitServiceProvidedMessage {
+    pub timestamp: SystemTime,
     pub paying_wallet: Wallet,
     pub payload_size: usize,
     pub service_rate: u64,
@@ -123,6 +126,7 @@ pub struct ReportExitServiceProvidedMessage {
 
 #[derive(Clone, PartialEq, Debug, Message)]
 pub struct ReportRoutingServiceConsumedMessage {
+    pub timestamp: SystemTime,
     pub earning_wallet: Wallet,
     pub payload_size: usize,
     pub service_rate: u64,
@@ -131,6 +135,7 @@ pub struct ReportRoutingServiceConsumedMessage {
 
 #[derive(Clone, PartialEq, Debug, Message)]
 pub struct ReportExitServiceConsumedMessage {
+    pub timestamp: SystemTime,
     pub earning_wallet: Wallet,
     pub payload_size: usize,
     pub service_rate: u64,

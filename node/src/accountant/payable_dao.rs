@@ -63,7 +63,12 @@ impl Payable {
 }
 
 pub trait PayableDao: Debug + Send {
-    fn more_money_payable(&self, wallet: &Wallet, amount: u128) -> Result<(), PayableDaoError>;
+    fn more_money_payable(
+        &self,
+        now: SystemTime,
+        wallet: &Wallet,
+        amount: u128,
+    ) -> Result<(), PayableDaoError>;
 
     fn mark_pending_payable_rowid(
         &self,
@@ -103,14 +108,20 @@ pub struct PayableDaoReal {
 }
 
 impl PayableDao for PayableDaoReal {
-    fn more_money_payable(&self, wallet: &Wallet, amount: u128) -> Result<(), PayableDaoError> {
+    fn more_money_payable(
+        &self,
+        timestamp: SystemTime,
+        wallet: &Wallet,
+        amount: u128,
+    ) -> Result<(), PayableDaoError> {
         Ok(self.blob_insert_update.upsert(self.conn.as_ref(), BlobInsertUpdateConfig {
-            insert_sql: "insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet,:balance,strftime('%s','now'),null)",
+            insert_sql: "insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet, :balance, :last_paid_timestamp, null)",
             update_sql: "update payable set balance = :updated_balance where wallet_address = :wallet",
             params: SQLExtendedParams::new(
                 vec![
                     (":wallet", &KeyParamHolder::new(wallet, "wallet_address")),
-                    (":balance", &BalanceChange::new_addition(amount))
+                    (":balance", &BalanceChange::new_addition(amount)),
+                    (":last_paid_timestamp",&to_time_t(timestamp))
                 ]),
         })?)
     }
@@ -162,7 +173,7 @@ impl PayableDao for PayableDaoReal {
             .expect("Internal error");
 
         stmt.query_map([], |row| {
-            let wallet_result: Result<Wallet, rusqlite::Error> = row.get(0);
+            let wallet_result: Result<Wallet, Error> = row.get(0);
             let balance_result = get_unsized_128(row, 1);
             let last_paid_timestamp_result = row.get(2);
             match (wallet_result, balance_result, last_paid_timestamp_result) {
@@ -338,7 +349,7 @@ mod tests {
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer;
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
-    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+    use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
     use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::make_wallet;
     use ethereum_types::BigEndianHash;
@@ -357,7 +368,7 @@ mod tests {
             "payable_dao",
             "more_money_payable_works_for_new_address",
         );
-        let before = dao_utils::to_time_t(SystemTime::now());
+        let now = SystemTime::now();
         let wallet = make_wallet("booga");
         let status = {
             let boxed_conn = DbInitializerReal::default()
@@ -365,26 +376,14 @@ mod tests {
                 .unwrap();
             let subject = PayableDaoReal::new(boxed_conn);
 
-            subject.more_money_payable(&wallet, 1234).unwrap();
+            subject.more_money_payable(now, &wallet, 1234).unwrap();
 
             subject.account_status(&wallet).unwrap()
         };
-        let after = dao_utils::to_time_t(SystemTime::now());
+
         assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance_wei, 1234);
-        let timestamp = dao_utils::to_time_t(status.last_paid_timestamp);
-        assert!(
-            timestamp >= before,
-            "{:?} should be on or after {:?}",
-            timestamp,
-            before
-        );
-        assert!(
-            timestamp <= after,
-            "{:?} should be on or before {:?}",
-            timestamp,
-            after
-        );
+        assert_eq!(to_time_t(status.last_paid_timestamp), to_time_t(now));
     }
 
     #[test]
@@ -394,12 +393,13 @@ mod tests {
             "more_money_payable_works_for_existing_address",
         );
         let wallet = make_wallet("booga");
+        let now = SystemTime::now();
         let boxed_conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         let subject = {
             let subject = PayableDaoReal::new(boxed_conn);
-            subject.more_money_payable(&wallet, 1234).unwrap();
+            subject.more_money_payable(now, &wallet, 1234).unwrap();
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
             let conn =
@@ -413,12 +413,14 @@ mod tests {
             subject
         };
 
-        subject.more_money_payable(&wallet, 2345).unwrap();
+        subject
+            .more_money_payable(SystemTime::UNIX_EPOCH, &wallet, 2345)
+            .unwrap();
 
         let status = subject.account_status(&wallet).unwrap();
         assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance_wei, 3579);
-        assert_eq!(status.last_paid_timestamp, SystemTime::UNIX_EPOCH);
+        assert_eq!(to_time_t(status.last_paid_timestamp), to_time_t(now));
     }
 
     #[test]
@@ -437,7 +439,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let _ = subject.more_money_payable(&wallet, u128::MAX);
+        let _ = subject.more_money_payable(SystemTime::now(), &wallet, u128::MAX);
     }
 
     #[test]
@@ -691,9 +693,7 @@ mod tests {
         );
         let mut flags = OpenFlags::empty();
         flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
-        let conn =
-            Connection::open_with_flags(&home_dir.join(db_initializer::DATABASE_FILE), flags)
-                .unwrap();
+        let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
         let insert = |wallet: &str, balance: i128, pending_payable_rowid: Option<i64>| {
             let params: &[&dyn ToSql] = &[&wallet, &balance, &0i64, &pending_payable_rowid];
 
@@ -744,7 +744,7 @@ mod tests {
                 .unwrap(),
         );
 
-        let _ = subject.more_money_payable(&make_wallet("foobar"), u128::MAX);
+        let _ = subject.more_money_payable(SystemTime::now(), &make_wallet("foobar"), u128::MAX);
     }
 
     #[test]
@@ -1174,8 +1174,9 @@ mod tests {
         let conn_id_stamp = conn.set_arbitrary_id_stamp();
         let mut subject = PayableDaoReal::new(Box::new(conn));
         subject.blob_insert_update = Box::new(insert_update_core);
+        let now = SystemTime::now();
 
-        let result = subject.more_money_payable(&wallet, amount);
+        let result = subject.more_money_payable(now, &wallet, amount);
 
         assert_eq!(
             result,
@@ -1191,14 +1192,15 @@ mod tests {
             "update payable set balance = :updated_balance where wallet_address = :wallet"
         );
         assert_eq!(insert_sql,"insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) \
-         values (:wallet,:balance,strftime('%s','now'),null)"
+         values (:wallet, :balance, :last_paid_timestamp,null)"
         );
         assert_eq!(table, "payable".to_string());
         assert_eq!(
             sql_param_names,
             convert_to_all_string_values(vec![
                 (":wallet", &wallet.to_string()),
-                (":balance", &amount.to_string())
+                (":balance", &amount.to_string()),
+                (":last_paid_timestamp", &to_time_t(now).to_string())
             ])
         )
     }

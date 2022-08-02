@@ -241,6 +241,7 @@ impl BlockchainBridge {
                 .as_ref()
                 .expect("Accountant is unbound")
                 .try_send(SentPayables {
+                    timestamp: SystemTime::now(),
                     payable: payments,
                     response_skeleton_opt: skeleton,
                 })
@@ -288,6 +289,7 @@ impl BlockchainBridge {
                     .as_ref()
                     .expect("Accountant is unbound")
                     .try_send(ReceivedPayments {
+                        timestamp: SystemTime::now(),
                         payments: transactions.transactions,
                         response_skeleton_opt: msg.response_skeleton_opt,
                     })
@@ -358,7 +360,7 @@ impl BlockchainBridge {
             Err(e) => {
                 warning!(self.logger, "{}", e);
                 if let Some(skeleton) = skeleton_opt {
-                    error!(self.logger, "Skeleton is populated; sending ScanError");
+                    debug!(self.logger, "Skeleton is populated; sending ScanError");
                     self.scan_error_subs_opt
                         .as_ref()
                         .expect("Accountant not bound")
@@ -369,7 +371,7 @@ impl BlockchainBridge {
                         })
                         .expect("Accountant is dead");
                 } else {
-                    error!(
+                    debug!(
                         self.logger,
                         "Skeleton is unpopulated; not sending ScanError"
                     );
@@ -437,6 +439,7 @@ mod tests {
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
     use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
+    use crate::node_test_utils::check_timestamp;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::unshared_test_utils::{
@@ -611,8 +614,8 @@ mod tests {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_params(&get_transaction_count_params_arc)
-            .get_transaction_count_result(Ok(U256::from(1)))
-            .get_transaction_count_result(Ok(U256::from(2)))
+            .get_transaction_count_result(Ok(U256::from(1u64)))
+            .get_transaction_count_result(Ok(U256::from(2u64)))
             .send_transaction_tools_result(Box::new(SendTransactionToolsWrapperNull))
             .send_transaction_tools_result(Box::new(SendTransactionToolsWrapperNull))
             .send_transaction_params(&send_transaction_params_arc)
@@ -638,6 +641,7 @@ mod tests {
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         send_bind_message!(subject_subs, peer_actors);
+        let before = SystemTime::now();
 
         let _ = addr
             .try_send(ReportAccountsPayable {
@@ -664,6 +668,7 @@ mod tests {
 
         System::current().stop();
         system.run();
+        let after = SystemTime::now();
         let send_transaction_params = send_transaction_params_arc.lock().unwrap();
         assert_eq!(
             *send_transaction_params,
@@ -672,14 +677,14 @@ mod tests {
                     consuming_wallet.clone(),
                     make_wallet("blah"),
                     420,
-                    U256::from(1),
+                    U256::from(1u64),
                     expected_gas_price
                 ),
                 (
                     consuming_wallet.clone(),
                     make_wallet("foo"),
                     210,
-                    U256::from(2),
+                    U256::from(2u64),
                     expected_gas_price
                 )
             ]
@@ -692,9 +697,11 @@ mod tests {
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_received_payment.len(), 1);
         let sent_payments_msg = accountant_received_payment.get_record::<SentPayables>(0);
+        check_timestamp(before, sent_payments_msg.timestamp, after);
         assert_eq!(
             *sent_payments_msg,
             SentPayables {
+                timestamp: sent_payments_msg.timestamp,
                 payable: vec![
                     Ok(Payable {
                         to: make_wallet("blah"),
@@ -1065,11 +1072,13 @@ mod tests {
                 context_id: 4321,
             }),
         };
+        let before = SystemTime::now();
 
         let _ = addr.try_send(retrieve_transactions).unwrap();
 
         System::current().stop();
         system.run();
+        let after = SystemTime::now();
         let set_start_block_params = set_start_block_params_arc.lock().unwrap();
         assert_eq!(*set_start_block_params, vec![1234]);
         let retrieve_transactions_params = retrieve_transactions_params_arc.lock().unwrap();
@@ -1077,9 +1086,11 @@ mod tests {
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_received_payment.len(), 1);
         let received_payments = accountant_received_payment.get_record::<ReceivedPayments>(0);
+        check_timestamp(before, received_payments.timestamp, after);
         assert_eq!(
             received_payments,
             &ReceivedPayments {
+                timestamp: received_payments.timestamp,
                 payments: expected_transactions.transactions,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1123,18 +1134,22 @@ mod tests {
                 context_id: 4321,
             }),
         };
+        let before = SystemTime::now();
 
         let _ = addr.try_send(retrieve_transactions).unwrap();
 
         System::current().stop();
         system.run();
+        let after = SystemTime::now();
         let set_start_block_params = set_start_block_params_arc.lock().unwrap();
         assert_eq!(*set_start_block_params, vec![7]);
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         let received_payments = accountant_received_payment.get_record::<ReceivedPayments>(0);
+        check_timestamp(before, received_payments.timestamp, after);
         assert_eq!(
             received_payments,
             &ReceivedPayments {
+                timestamp: received_payments.timestamp,
                 payments: vec![],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
