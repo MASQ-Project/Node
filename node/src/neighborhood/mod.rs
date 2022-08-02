@@ -20,9 +20,11 @@ use actix::MessageResult;
 use actix::Recipient;
 use actix::{Actor, System};
 use itertools::Itertools;
-use masq_lib::messages::FromMessageBody;
-use masq_lib::messages::UiShutdownRequest;
-use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
+use masq_lib::messages::{
+    FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest,
+};
+use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
+use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, ExpectValue};
 
 use crate::bootstrapper::BootstrapperConfig;
@@ -353,12 +355,11 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
-        // TODO: Introduce another if clause for the Connection Status Message, call to a different function
-        // Write tests to test all the stages.
-        // Later, add a multinode test.
-        // UI Messages in Accountant can be used for inspiration.
         if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body.clone()) {
             self.handle_shutdown_order(client_id, body);
+        } else if let Ok((_, context_id)) = UiConnectionStatusRequest::fmb(msg.body.clone()) {
+            // TODO: Write multinode test for this message
+            self.handle_connection_status_message(context_id)
         } else {
             handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
         }
@@ -1307,6 +1308,20 @@ impl Neighborhood {
         self.remove_neighbor(&neighbor_key, &msg.peer_addr);
     }
 
+    fn handle_connection_status_message(&self, context_id: u64) {
+        let stage: UiConnectionStage = self.overall_connection_status.stage.into();
+        let message = NodeToUiMessage {
+            target: MessageTarget::AllClients,
+            body: UiConnectionStatusResponse { stage }.tmb(context_id),
+        };
+
+        self.node_to_ui_recipient_opt
+            .as_ref()
+            .expect("UI Gateway is unbound")
+            .try_send(message)
+            .expect("UiGateway is dead");
+    }
+
     fn remove_neighbor(&mut self, neighbor_key: &PublicKey, peer_addr: &SocketAddr) {
         match self.neighborhood_database.remove_neighbor(neighbor_key) {
             Err(e) => panic!("Node suddenly disappeared: {:?}", e),
@@ -1379,7 +1394,7 @@ mod tests {
     use tokio::prelude::Future;
 
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
-    use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionChangeStage};
+    use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use masq_lib::ui_gateway::{MessageBody, MessageTarget};
@@ -2016,7 +2031,7 @@ mod tests {
             Some(&NodeToUiMessage {
                 target: MessageTarget::AllClients,
                 body: UiConnectionChangeBroadcast {
-                    stage: UiConnectionChangeStage::ConnectedToNeighbor
+                    stage: UiConnectionStage::ConnectedToNeighbor
                 }
                 .tmb(0)
             })
@@ -2075,7 +2090,7 @@ mod tests {
             Some(&NodeToUiMessage {
                 target: MessageTarget::AllClients,
                 body: UiConnectionChangeBroadcast {
-                    stage: UiConnectionChangeStage::ConnectedToNeighbor
+                    stage: UiConnectionStage::ConnectedToNeighbor
                 }
                 .tmb(0)
             })
@@ -4875,6 +4890,75 @@ mod tests {
     }
 
     #[test]
+    fn connection_status_message_is_handled_properly_for_not_connected() {
+        let stage = OverallConnectionStage::NotConnected;
+        let context_id = 4321;
+
+        let message_opt = connection_status_message_received_by_ui(
+            stage,
+            context_id,
+            "connection_status_message_is_handled_properly_for_not_connected",
+        );
+
+        assert_eq!(
+            message_opt,
+            Some(NodeToUiMessage {
+                target: MessageTarget::AllClients,
+                body: UiConnectionStatusResponse {
+                    stage: stage.into()
+                }
+                .tmb(context_id),
+            })
+        )
+    }
+
+    #[test]
+    fn connection_status_message_is_handled_properly_for_connected_to_neighbor() {
+        let stage = OverallConnectionStage::ConnectedToNeighbor;
+        let context_id = 4322;
+
+        let message_opt = connection_status_message_received_by_ui(
+            stage,
+            context_id,
+            "connection_status_message_is_handled_properly_for_connected_to_neighbor",
+        );
+
+        assert_eq!(
+            message_opt,
+            Some(NodeToUiMessage {
+                target: MessageTarget::AllClients,
+                body: UiConnectionStatusResponse {
+                    stage: stage.into()
+                }
+                .tmb(context_id),
+            })
+        )
+    }
+
+    #[test]
+    fn connection_status_message_is_handled_properly_for_three_hops_route_found() {
+        let stage = OverallConnectionStage::ThreeHopsRouteFound;
+        let context_id = 4323;
+
+        let message_opt = connection_status_message_received_by_ui(
+            stage,
+            context_id,
+            "connection_status_message_is_handled_properly_for_three_hops_route_found",
+        );
+
+        assert_eq!(
+            message_opt,
+            Some(NodeToUiMessage {
+                target: MessageTarget::AllClients,
+                body: UiConnectionStatusResponse {
+                    stage: stage.into()
+                }
+                .tmb(context_id),
+            })
+        )
+    }
+
+    #[test]
     fn new_password_message_works() {
         let system = System::new("test");
         let mut subject = make_standard_subject();
@@ -5104,6 +5188,50 @@ mod tests {
         let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
         neighborhood.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         neighborhood
+    }
+
+    fn connection_status_message_received_by_ui(
+        stage: OverallConnectionStage,
+        context_id: u64,
+        test_name: &str,
+    ) -> Option<NodeToUiMessage> {
+        let system = System::new("test");
+        let mut subject = Neighborhood::new(
+            main_cryptde(),
+            &bc_from_nc_plus(
+                NeighborhoodConfig {
+                    mode: NeighborhoodMode::ConsumeOnly(vec![make_node_descriptor(make_ip(1))]),
+                },
+                make_wallet("earning"),
+                None,
+                test_name,
+            ),
+        );
+        subject.overall_connection_status.stage = stage;
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let subject_addr = subject.start();
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr
+            .try_send(NodeFromUiMessage {
+                client_id: 1234,
+                body: MessageBody {
+                    opcode: "connectionStatus".to_string(),
+                    path: Conversation(context_id),
+                    payload: Ok("{}".to_string()),
+                },
+            })
+            .unwrap();
+
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        let message_opt = ui_gateway_recording
+            .get_record_opt::<NodeToUiMessage>(0)
+            .cloned();
+
+        message_opt
     }
 
     pub struct NeighborhoodDatabaseMessage {}

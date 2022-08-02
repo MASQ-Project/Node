@@ -5,7 +5,7 @@ use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
 };
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, NodeDescriptor};
 use actix::Recipient;
-use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionChangeStage};
+use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
 use std::net::IpAddr;
 use std::string::String;
@@ -102,16 +102,12 @@ pub enum OverallConnectionStage {
     ThreeHopsRouteFound = 2, // Data can be relayed once this stage is reached
 }
 
-impl From<OverallConnectionStage> for UiConnectionChangeStage {
-    fn from(stage: OverallConnectionStage) -> UiConnectionChangeStage {
+impl From<OverallConnectionStage> for UiConnectionStage {
+    fn from(stage: OverallConnectionStage) -> UiConnectionStage {
         match stage {
-            OverallConnectionStage::NotConnected => UiConnectionChangeStage::NotConnected,
-            OverallConnectionStage::ConnectedToNeighbor => {
-                UiConnectionChangeStage::ConnectedToNeighbor
-            }
-            OverallConnectionStage::ThreeHopsRouteFound => {
-                UiConnectionChangeStage::ThreeHopsRouteFound
-            }
+            OverallConnectionStage::NotConnected => UiConnectionStage::NotConnected,
+            OverallConnectionStage::ConnectedToNeighbor => UiConnectionStage::ConnectedToNeighbor,
+            OverallConnectionStage::ThreeHopsRouteFound => UiConnectionStage::ThreeHopsRouteFound,
         }
     }
 }
@@ -233,7 +229,7 @@ impl OverallConnectionStatus {
     }
 
     fn send_message_to_ui(
-        stage: UiConnectionChangeStage,
+        stage: UiConnectionStage,
         node_to_ui_recipient: &Recipient<NodeToUiMessage>,
     ) {
         let message = NodeToUiMessage {
@@ -279,7 +275,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::make_node_to_ui_recipient;
     use actix::System;
     use masq_lib::blockchains::chains::Chain;
-    use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionChangeStage};
+    use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
     use masq_lib::ui_gateway::MessageTarget;
 
     #[test]
@@ -700,11 +696,11 @@ mod tests {
     fn converts_connected_to_neighbor_stage_into_ui_connection_change_stage() {
         let connected_to_neighbor = OverallConnectionStage::ConnectedToNeighbor;
 
-        let connected_to_neighbor_converted: UiConnectionChangeStage = connected_to_neighbor.into();
+        let connected_to_neighbor_converted: UiConnectionStage = connected_to_neighbor.into();
 
         assert_eq!(
             connected_to_neighbor_converted,
-            UiConnectionChangeStage::ConnectedToNeighbor
+            UiConnectionStage::ConnectedToNeighbor
         );
     }
 
@@ -712,12 +708,11 @@ mod tests {
     fn converts_three_hops_route_found_stage_into_ui_connection_change_stage() {
         let three_hops_route_found = OverallConnectionStage::ThreeHopsRouteFound;
 
-        let three_hops_route_found_converted: UiConnectionChangeStage =
-            three_hops_route_found.into();
+        let three_hops_route_found_converted: UiConnectionStage = three_hops_route_found.into();
 
         assert_eq!(
             three_hops_route_found_converted,
-            UiConnectionChangeStage::ThreeHopsRouteFound
+            UiConnectionStage::ThreeHopsRouteFound
         );
     }
 
@@ -725,12 +720,9 @@ mod tests {
     fn converts_not_connected_into_ui_connection_change_stage() {
         let not_connected = OverallConnectionStage::NotConnected;
 
-        let not_connected_converted: UiConnectionChangeStage = not_connected.into();
+        let not_connected_converted: UiConnectionStage = not_connected.into();
 
-        assert_eq!(
-            not_connected_converted,
-            UiConnectionChangeStage::NotConnected
-        );
+        assert_eq!(not_connected_converted, UiConnectionStage::NotConnected);
     }
 
     #[test]
@@ -775,7 +767,7 @@ mod tests {
             Some(NodeToUiMessage {
                 target: MessageTarget::AllClients,
                 body: UiConnectionChangeBroadcast {
-                    stage: UiConnectionChangeStage::ThreeHopsRouteFound
+                    stage: UiConnectionStage::ThreeHopsRouteFound
                 }
                 .tmb(0)
             })
@@ -801,7 +793,7 @@ mod tests {
             Some(NodeToUiMessage {
                 target: MessageTarget::AllClients,
                 body: UiConnectionChangeBroadcast {
-                    stage: UiConnectionChangeStage::ConnectedToNeighbor
+                    stage: UiConnectionStage::ConnectedToNeighbor
                 }
                 .tmb(0)
             })
