@@ -105,9 +105,7 @@ pub enum OverallConnectionStage {
 impl From<OverallConnectionStage> for UiConnectionChangeStage {
     fn from(stage: OverallConnectionStage) -> UiConnectionChangeStage {
         match stage {
-            OverallConnectionStage::NotConnected => {
-                panic!("UiConnectionChangeStage doesn't have a stage named NotConnected")
-            }
+            OverallConnectionStage::NotConnected => UiConnectionChangeStage::NotConnected,
             OverallConnectionStage::ConnectedToNeighbor => {
                 UiConnectionChangeStage::ConnectedToNeighbor
             }
@@ -724,11 +722,15 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "UiConnectionChangeStage doesn't have a stage named NotConnected")]
-    fn no_stage_named_not_connected_in_ui_connection_change_stage() {
+    fn converts_not_connected_into_ui_connection_change_stage() {
         let not_connected = OverallConnectionStage::NotConnected;
 
-        let _not_connected_converted: UiConnectionChangeStage = not_connected.into();
+        let not_connected_converted: UiConnectionChangeStage = not_connected.into();
+
+        assert_eq!(
+            not_connected_converted,
+            UiConnectionChangeStage::NotConnected
+        );
     }
 
     #[test]

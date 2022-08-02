@@ -353,6 +353,10 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
+        // TODO: Introduce another if clause for the Connection Status Message, call to a different function
+        // Write tests to test all the stages.
+        // Later, add a multinode test.
+        // UI Messages in Accountant can be used for inspiration.
         if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body.clone()) {
             self.handle_shutdown_order(client_id, body);
         } else {

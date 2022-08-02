@@ -5,6 +5,7 @@ use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::check_password_command::CheckPasswordCommand;
 use crate::commands::commands_common::Command;
 use crate::commands::configuration_command::ConfigurationCommand;
+use crate::commands::connection_status_command::ConnectionStatusCommand;
 use crate::commands::crash_command::CrashCommand;
 use crate::commands::descriptor_command::DescriptorCommand;
 use crate::commands::financials_command::FinancialsCommand;
@@ -307,6 +308,21 @@ mod tests {
             true,
             "{}",
             msg
+        );
+    }
+
+    #[test]
+    fn factory_produces_connection_status() {
+        let subject = CommandFactoryReal::new();
+
+        let command = subject.make(&["connection-status".to_string()]).unwrap();
+
+        assert_eq!(
+            command
+                .as_any()
+                .downcast_ref::<ConnectionStatusCommand>()
+                .unwrap(),
+            &ConnectionStatusCommand {}
         );
     }
 
