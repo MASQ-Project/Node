@@ -285,7 +285,8 @@ impl DbInitializerReal {
         conn.execute(
             "create table if not exists pending_payable (
                     transaction_hash text not null,
-                    amount blob not null,
+                    amount_low_b integer not null,
+                    amount_high_b integer not null,
                     payable_timestamp integer not null,
                     attempt integer not null,
                     process_error text null
@@ -304,7 +305,8 @@ impl DbInitializerReal {
         conn.execute(
             "create table if not exists payable (
                     wallet_address text primary key,
-                    balance blob not null,
+                    balance_high_b integer not null,
+                    balance_low_b integer not null,
                     last_paid_timestamp integer not null,
                     pending_payable_rowid integer null
             )",
@@ -317,7 +319,8 @@ impl DbInitializerReal {
         conn.execute(
             "create table if not exists receivable (
                     wallet_address text primary key,
-                    balance blob not null,
+                    balance_high_b integer not null,
+                    balance_low_b integer not null,
                     last_received_timestamp integer not null
             )",
             [],
@@ -725,18 +728,14 @@ mod tests {
         let mut payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
         assert!(payable_contents.next().is_none());
         let expected_key_words: &[&[&str]] = &[
-            &["rowid", "integer", "primary", "key"],
             &["transaction_hash", "text", "not", "null"],
-            &["amount", "blob", "not", "null"],
+            &["amount_high_b", "integer", "not", "null"],
+            &["amount_low_b", "integer", "not", "null"],
             &["payable_timestamp", "integer", "not", "null"],
             &["attempt", "integer", "not", "null"],
             &["process_error", "text", "null"],
         ];
-        assert_create_table_stm_contains_all_parts(
-            conn.as_ref(),
-            "pending_payable",
-            expected_key_words,
-        );
+        assert_create_table_stm_contains_all_parts(&*conn, "pending_payable", expected_key_words);
         let expected_key_words: &[&[&str]] = &[&["transaction_hash"]];
         assert_index_stm_is_coupled_with_right_parameter(
             conn.as_ref(),
@@ -762,11 +761,12 @@ mod tests {
         assert!(payable_contents.next().is_none());
         let expected_key_words: &[&[&str]] = &[
             &["wallet_address", "text", "primary", "key"],
-            &["balance", "blob", "not", "null"],
+            &["balance_high_b", "integer", "not", "null"],
+            &["balance_low_b", "integer", "not", "null"],
             &["last_paid_timestamp", "integer", "not", "null"],
             &["pending_payable_rowid", "integer", "null"],
         ];
-        assert_create_table_stm_contains_all_parts(conn.as_ref(), "payable", expected_key_words);
+        assert_create_table_stm_contains_all_parts(&*conn, "payable", expected_key_words);
         assert_no_index_exists_for_table(conn.as_ref(), "payable")
     }
 
@@ -789,7 +789,8 @@ mod tests {
         assert!(receivable_contents.next().is_none());
         let expected_key_words: &[&[&str]] = &[
             &["wallet_address", "text", "primary", "key"],
-            &["balance", "blob", "not", "null"],
+            &["balance_high_b", "integer", "not", "null"],
+            &["balance_low_b", "integer", "not", "null"],
             &["last_received_timestamp", "integer", "not", "null"],
         ];
         assert_create_table_stm_contains_all_parts(conn.as_ref(), "receivable", expected_key_words);

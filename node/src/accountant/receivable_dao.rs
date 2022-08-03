@@ -6,8 +6,7 @@ use crate::accountant::blob_utils::{
 };
 use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
-    now_time_t, to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal, RangeStmConfig,
-    TopStmConfig,
+    to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal, RangeStmConfig, TopStmConfig,
 };
 use crate::accountant::receivable_dao::ReceivableDaoError::RusqliteError;
 use crate::accountant::{checked_conversion, ThresholdUtils};
@@ -437,7 +436,6 @@ mod tests {
         assert_on_sloped_segment_of_payment_thresholds_and_its_proper_alignment,
         convert_to_all_string_values, make_receivable_account, InsertUpdateCoreMock,
     };
-    use crate::database::db_initializer;
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::DbInitializer;
     use crate::database::db_initializer::DbInitializerReal;
@@ -448,7 +446,6 @@ mod tests {
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::{Connection, OpenFlags};
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -584,7 +581,6 @@ mod tests {
 
     #[test]
     fn more_money_received_works_for_existing_addresses() {
-        let before = to_time_t(SystemTime::now());
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
             "more_money_received_works_for_existing_address",
