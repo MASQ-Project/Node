@@ -102,10 +102,6 @@ impl ConfigDaoWrite for ConfigDaoWriteableMock {
         self.commit_params.lock().unwrap().push(());
         self.commit_results.borrow_mut().remove(0)
     }
-
-    fn extract(&mut self) -> Result<Transaction, ConfigDaoError> {
-        unimplemented!()
-    }
 }
 
 impl ConfigDaoReadWrite for ConfigDaoWriteableMock {}

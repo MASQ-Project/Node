@@ -86,10 +86,6 @@ impl ConfigDaoWrite for ConfigDaoNull {
     fn commit(&mut self) -> Result<(), ConfigDaoError> {
         Ok(())
     }
-
-    fn extract(&mut self) -> Result<Transaction, ConfigDaoError> {
-        intentionally_blank!()
-    }
 }
 
 impl ConfigDaoReadWrite for ConfigDaoNull {}

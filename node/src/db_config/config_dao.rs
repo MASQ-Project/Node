@@ -46,7 +46,6 @@ pub trait ConfigDaoRead {
 pub trait ConfigDaoWrite {
     fn set(&self, name: &str, value: Option<String>) -> Result<(), ConfigDaoError>;
     fn commit(&mut self) -> Result<(), ConfigDaoError>;
-    fn extract(&mut self) -> Result<Transaction, ConfigDaoError>;
 }
 
 pub trait ConfigDaoReadWrite: ConfigDaoRead + ConfigDaoWrite {}
@@ -153,13 +152,6 @@ impl<'a> ConfigDaoWrite for ConfigDaoWriteableReal<'a> {
                 // The following line is untested, because we don't know how to trigger it.
                 Err(e) => Err(ConfigDaoError::DatabaseError(format!("{:?}", e))),
             },
-            None => Err(ConfigDaoError::TransactionError),
-        }
-    }
-
-    fn extract(&mut self) -> Result<Transaction, ConfigDaoError> {
-        match self.transaction_opt.take() {
-            Some(transaction) => Ok(transaction),
             None => Err(ConfigDaoError::TransactionError),
         }
     }
@@ -363,46 +355,6 @@ mod tests {
         let confirmer_get = confirmer.get("consuming_wallet_private_key").unwrap();
         assert_contains(&confirmer_get_all, &modified_value);
         assert_eq!(confirmer_get, modified_value);
-    }
-
-    #[test]
-    fn extract_works() {
-        let home_dir = ensure_node_home_directory_exists("config_dao", "extract_works");
-        let mut dao = ConfigDaoReal::new(
-            DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
-                .unwrap(),
-        );
-        {
-            let mut first_writer = dao.start_transaction().unwrap();
-            let transaction = first_writer.extract().unwrap();
-            let mut subject = ConfigDaoWriteableReal::new(transaction);
-
-            subject
-                .set(
-                    "consuming_wallet_private_key",
-                    Some(
-                        "Two wrongs don't make a right, but two Wrights make an airplane"
-                            .to_string(),
-                    ),
-                )
-                .unwrap();
-
-            subject.commit().unwrap();
-            assert_eq!(
-                subject.extract().err().unwrap(),
-                ConfigDaoError::TransactionError
-            );
-        }
-        let final_value = dao.get("consuming_wallet_private_key").unwrap();
-        assert_eq!(
-            final_value,
-            ConfigDaoRecord::new(
-                "consuming_wallet_private_key",
-                Some("Two wrongs don't make a right, but two Wrights make an airplane"),
-                true
-            )
-        );
     }
 
     #[test]
