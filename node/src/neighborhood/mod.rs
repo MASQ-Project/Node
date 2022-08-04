@@ -358,7 +358,6 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
         if let Ok((_, context_id)) = UiConnectionStatusRequest::fmb(msg.body.clone()) {
-            // TODO: Write multinode test for this message
             self.handle_connection_status_message(client_id, context_id);
         } else if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body.clone()) {
             self.handle_shutdown_order(client_id, body);
