@@ -268,6 +268,7 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
             OverallConnectionStatus::update_connection_stage(
                 connection_progress,
                 msg.event.clone(),
+                &self.logger,
             );
             match msg.event {
                 ConnectionProgressEvent::TcpConnectionSuccessful => {
@@ -312,6 +313,7 @@ impl Handler<AskAboutDebutGossipMessage> for Neighborhood {
                 OverallConnectionStatus::update_connection_stage(
                     current_connection_progress,
                     ConnectionProgressEvent::NoGossipResponseReceived,
+                    &self.logger,
                 );
             }
         } else {
@@ -583,9 +585,9 @@ impl Neighborhood {
             &node_descriptor.encryption_public_key,
             node_addr,
         );
-        trace!(
+        debug!(
             self.logger,
-            "Sent Gossip: {}",
+            "Sent Debut Gossip: {}",
             debut_gossip.to_dot_graph(
                 self.neighborhood_database.root(),
                 (
@@ -1786,6 +1788,7 @@ mod tests {
         OverallConnectionStatus::update_connection_stage(
             connection_progress_to_modify,
             ConnectionProgressEvent::TcpConnectionSuccessful,
+            &subject.logger,
         );
         let beginning_connection_progress = ConnectionProgress {
             initial_node_descriptor: node_descriptor.clone(),
@@ -1904,6 +1907,7 @@ mod tests {
         OverallConnectionStatus::update_connection_stage(
             connection_progress_to_modify,
             ConnectionProgressEvent::TcpConnectionSuccessful,
+            &subject.logger,
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -1949,6 +1953,7 @@ mod tests {
         OverallConnectionStatus::update_connection_stage(
             connection_progress_to_modify,
             ConnectionProgressEvent::TcpConnectionSuccessful,
+            &subject.logger,
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -1996,6 +2001,7 @@ mod tests {
         OverallConnectionStatus::update_connection_stage(
             connection_progress_to_modify,
             ConnectionProgressEvent::TcpConnectionSuccessful,
+            &subject.logger,
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -2055,6 +2061,7 @@ mod tests {
         OverallConnectionStatus::update_connection_stage(
             connection_progress_to_modify,
             ConnectionProgressEvent::TcpConnectionSuccessful,
+            &subject.logger,
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -2111,6 +2118,7 @@ mod tests {
         OverallConnectionStatus::update_connection_stage(
             connection_progress_to_modify,
             ConnectionProgressEvent::TcpConnectionSuccessful,
+            &subject.logger,
         );
         let addr = subject.start();
         let cpm_recipient = addr.clone().recipient();
@@ -4129,6 +4137,7 @@ mod tests {
 
     #[test]
     fn node_gossips_to_neighbors_on_startup() {
+        init_test_logging();
         let data_dir = ensure_node_home_directory_exists(
             "neighborhood/mod",
             "node_gossips_to_neighbors_on_startup",
@@ -4161,6 +4170,8 @@ mod tests {
             ),
         );
         subject.data_directory = data_dir;
+        subject.logger = Logger::new("node_gossips_to_neighbors_on_startup");
+        let neighborhood_database = subject.neighborhood_database.clone();
         let this_node = subject.neighborhood_database.root().clone();
         let system = System::new("node_gossips_to_neighbors_on_startup");
         let addr: Addr<Neighborhood> = subject.start();
@@ -4185,6 +4196,16 @@ mod tests {
         let expected_gnr = GossipNodeRecord::from((&temp_db, this_node.public_key(), true));
         assert_contains(&gossip.node_records, &expected_gnr);
         assert_eq!(1, gossip.node_records.len());
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: node_gossips_to_neighbors_on_startup: Sent Debut Gossip: {}",
+            gossip.to_dot_graph(
+                neighborhood_database.root(),
+                (
+                    &debut_target.encryption_public_key,
+                    &debut_target.node_addr_opt
+                )
+            )
+        ));
     }
 
     /*
