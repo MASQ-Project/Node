@@ -1,15 +1,12 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::database::db_initializer::{DbInitializerReal, CURRENT_SCHEMA_VERSION};
-use crate::db_config::config_dao::{
-    ConfigDao, ConfigDaoError, ConfigDaoRead, ConfigDaoReadWrite, ConfigDaoRecord, ConfigDaoWrite,
-};
+use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoRecord};
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_GAS_PRICE;
-use rusqlite::Transaction;
 use std::collections::HashMap;
 
 /*
@@ -48,14 +45,6 @@ pub struct ConfigDaoNull {
 }
 
 impl ConfigDao for ConfigDaoNull {
-    fn start_transaction<'b, 'c: 'b>(
-        &'c mut self,
-    ) -> Result<Box<dyn ConfigDaoReadWrite + 'b>, ConfigDaoError> {
-        Ok(Box::new(ConfigDaoNull::default()))
-    }
-}
-
-impl ConfigDaoRead for ConfigDaoNull {
     fn get_all(&self) -> Result<Vec<ConfigDaoRecord>, ConfigDaoError> {
         let keys = self.data.keys().sorted();
         Ok(keys
@@ -76,19 +65,11 @@ impl ConfigDaoRead for ConfigDaoNull {
             )),
         }
     }
-}
 
-impl ConfigDaoWrite for ConfigDaoNull {
     fn set(&self, _name: &str, _value: Option<String>) -> Result<(), ConfigDaoError> {
         Ok(())
     }
-
-    fn commit(&mut self) -> Result<(), ConfigDaoError> {
-        Ok(())
-    }
 }
-
-impl ConfigDaoReadWrite for ConfigDaoNull {}
 
 impl Default for ConfigDaoNull {
     fn default() -> Self {

@@ -165,10 +165,10 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn set_blockchain_service_url(&mut self, url: &str) -> Result<(), PersistentConfigError> {
-        let mut writer = self.dao.start_transaction()?;
         Url::parse(url).map_err(|e| PersistentConfigError::InvalidUrl(e.to_string()))?;
-        writer.set("blockchain_service_url", Some(url.to_string()))?;
-        Ok(writer.commit()?)
+        Ok(self
+            .dao
+            .set("blockchain_service_url", Some(url.to_string()))?)
     }
 
     fn current_schema_version(&self) -> String {
@@ -206,10 +206,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         old_password_opt: Option<String>,
         new_password: &str,
     ) -> Result<(), PersistentConfigError> {
-        let mut writer = self.dao.start_transaction()?;
-        self.scl
-            .change_password(old_password_opt, new_password, &mut writer)?;
-        Ok(writer.commit()?)
+        Ok(self
+            .scl
+            .change_password(old_password_opt, new_password, &mut self.dao)?)
     }
 
     fn consuming_wallet(&self, db_password: &str) -> Result<Option<Wallet>, PersistentConfigError> {
@@ -281,9 +280,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 port
             )));
         }
-        let mut writer = self.dao.start_transaction()?;
-        writer.set("clandestine_port", encode_u64(Some(u64::from(port)))?)?;
-        Ok(writer.commit()?)
+        Ok(self
+            .dao
+            .set("clandestine_port", encode_u64(Some(u64::from(port)))?)?)
     }
 
     fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError> {
@@ -331,9 +330,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         &mut self,
         value: Option<AutomapProtocol>,
     ) -> Result<(), PersistentConfigError> {
-        let mut writer = self.dao.start_transaction()?;
-        writer.set("mapping_protocol", value.map(|v| v.to_string()))?;
-        Ok(writer.commit()?)
+        Ok(self
+            .dao
+            .set("mapping_protocol", value.map(|v| v.to_string()))?)
     }
 
     fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
@@ -378,17 +377,15 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 &serde_cbor::ser::to_vec(&node_descriptors).expect("Serialization failed"),
             )
         });
-        let mut writer = self.dao.start_transaction()?;
-        writer.set(
+        Ok(self.dao.set(
             "past_neighbors",
             self.scl.encrypt(
                 "past_neighbors",
                 encode_bytes(plain_data_opt)?,
                 Some(db_password.to_string()),
-                &writer,
+                &self.dao,
             )?,
-        )?;
-        Ok(writer.commit()?)
+        )?)
     }
 
     fn start_block(&self) -> Result<u64, PersistentConfigError> {
@@ -437,16 +434,14 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 earning_wallet_address.to_string(),
             ));
         }
-        let mut writer = self.dao.start_transaction()?;
-        writer.set(
+        self.dao.set(
             "consuming_wallet_private_key",
             Some(encrypted_consuming_wallet_private_key),
         )?;
-        writer.set(
+        Ok(self.dao.set(
             "earning_wallet_address",
             Some(earning_wallet_address.to_string()),
-        )?;
-        Ok(writer.commit()?)
+        )?)
     }
 
     fn payment_thresholds(&self) -> Result<PaymentThresholds, PersistentConfigError> {
@@ -533,9 +528,7 @@ impl PersistentConfigurationReal {
         parameter_name: &str,
         value: T,
     ) -> Result<(), PersistentConfigError> {
-        let mut writer = self.dao.start_transaction()?;
-        writer.set(parameter_name, Some(value.to_string()))?;
-        Ok(writer.commit()?)
+        Ok(self.dao.set(parameter_name, Some(value.to_string()))?)
     }
 
     fn simple_get_method<T>(
@@ -578,7 +571,7 @@ mod tests {
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::database::db_migrations::MigratorConfig;
     use crate::db_config::config_dao::ConfigDaoRecord;
-    use crate::db_config::mocks::{ConfigDaoMock, ConfigDaoWriteableMock};
+    use crate::db_config::mocks::ConfigDaoMock;
     use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
     use crate::test_utils::main_cryptde;
     use bip39::{Language, MnemonicType};
@@ -742,13 +735,12 @@ mod tests {
     #[test]
     fn set_password_is_passed_through_to_secure_config_layer<'a>() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
-        let writer = Box::new(
-            ConfigDaoWriteableMock::new()
+        let config_dao = Box::new(
+            ConfigDaoMock::new()
                 .get_params(&get_params_arc)
                 .get_result(Err(ConfigDaoError::NotPresent)),
         );
-        let dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
-        let mut subject = PersistentConfigurationReal::new(dao);
+        let mut subject = PersistentConfigurationReal::new(config_dao);
 
         let result = subject.change_password(None, "password");
 
@@ -848,13 +840,11 @@ mod tests {
     #[test]
     fn set_blockchain_service_works() {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
-        let writer = Box::new(
-            ConfigDaoWriteableMock::new()
+        let config_dao = Box::new(
+            ConfigDaoMock::new()
                 .set_params(&set_params_arc)
-                .set_result(Ok(()))
-                .commit_result(Ok(())),
+                .set_result(Ok(())),
         );
-        let config_dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
         let mut subject = PersistentConfigurationReal::new(config_dao);
 
         let result = subject.set_blockchain_service_url("https://ifura.io/ID");
@@ -872,12 +862,7 @@ mod tests {
 
     #[test]
     fn set_blockchain_service_complains_if_invalid_url() {
-        let writer = Box::new(
-            ConfigDaoWriteableMock::new()
-                .set_result(Ok(()))
-                .commit_result(Ok(())),
-        );
-        let config_dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
+        let config_dao = Box::new(ConfigDaoMock::new().set_result(Ok(())));
         let mut subject = PersistentConfigurationReal::new(config_dao);
 
         let result = subject.set_blockchain_service_url("https.ifura.io");
@@ -947,13 +932,11 @@ mod tests {
     #[test]
     fn set_clandestine_port_success() {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
-        let writer = Box::new(
-            ConfigDaoWriteableMock::new()
+        let config_dao = Box::new(
+            ConfigDaoMock::new()
                 .set_params(&set_params_arc)
-                .set_result(Ok(()))
-                .commit_result(Ok(())),
+                .set_result(Ok(())),
         );
-        let config_dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
         let mut subject = PersistentConfigurationReal::new(config_dao);
 
         let result = subject.set_clandestine_port(4747);
@@ -1222,16 +1205,6 @@ mod tests {
         let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let set_params_arc = Arc::new(Mutex::new(vec![]));
-        let commit_params_arc = Arc::new(Mutex::new(vec![]));
-        let writer = Box::new(
-            ConfigDaoWriteableMock::new()
-                .set_params(&set_params_arc)
-                .set_result(Ok(()))
-                .set_result(Ok(()))
-                .set_result(Ok(()))
-                .commit_params(&commit_params_arc)
-                .commit_result(Ok(())),
-        );
         let config_dao = Box::new(
             ConfigDaoMock::new()
                 .get_params(&get_params_arc)
@@ -1250,7 +1223,10 @@ mod tests {
                     Some(&example_encrypted),
                     true,
                 )))
-                .start_transaction_result(Ok(writer)),
+                .set_params(&set_params_arc)
+                .set_result(Ok(()))
+                .set_result(Ok(()))
+                .set_result(Ok(())),
         );
         let mut subject = PersistentConfigurationReal::new(config_dao);
         let (consuming_wallet_private_key, _, earning_wallet_address) =
@@ -1286,8 +1262,6 @@ mod tests {
                 Some(earning_wallet_address)
             )
         );
-        let commit_params = commit_params_arc.lock().unwrap();
-        assert_eq!(*commit_params, vec![()]);
     }
 
     #[test]
@@ -1367,13 +1341,6 @@ mod tests {
     fn set_wallet_info_works_okay_if_incoming_values_are_same_as_existing_values() {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
-        let writer = Box::new(
-            ConfigDaoWriteableMock::new()
-                .set_result(Ok(()))
-                .set_result(Ok(()))
-                .set_result(Ok(()))
-                .commit_result(Ok(())),
-        );
         let (
             consuming_wallet_private_key,
             consuming_wallet_private_key_encrypted,
@@ -1396,7 +1363,9 @@ mod tests {
                     Some(&example_encrypted),
                     true,
                 )))
-                .start_transaction_result(Ok(writer)),
+                .set_result(Ok(()))
+                .set_result(Ok(()))
+                .set_result(Ok(())),
         );
         let mut subject = PersistentConfigurationReal::new(config_dao);
 
@@ -1441,13 +1410,6 @@ mod tests {
     fn set_wallet_info_rolls_back_on_failure() {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let example_encrypted = Bip39::encrypt_bytes(&example, "password").unwrap();
-        let commit_params_arc = Arc::new(Mutex::new(vec![]));
-        let writer = Box::new(
-            ConfigDaoWriteableMock::new()
-                .set_result(Ok(()))
-                .set_result(Err(ConfigDaoError::NotPresent))
-                .commit_params(&commit_params_arc),
-        );
         let config_dao = Box::new(
             ConfigDaoMock::new()
                 .get_result(Ok(ConfigDaoRecord::new(
@@ -1466,7 +1428,8 @@ mod tests {
                     true,
                 )))
                 .get_result(Ok(ConfigDaoRecord::new("seed", None, true)))
-                .start_transaction_result(Ok(writer)),
+                .set_result(Ok(()))
+                .set_result(Err(ConfigDaoError::NotPresent)),
         );
         let mut subject = PersistentConfigurationReal::new(config_dao);
         let (consuming_wallet_private_key, _, earning_wallet_address) =
@@ -1479,8 +1442,6 @@ mod tests {
         );
 
         assert_eq!(result, Err(PersistentConfigError::NotPresent));
-        let commit_params = commit_params_arc.lock().unwrap();
-        assert_eq!(*commit_params, vec![]);
     }
 
     #[test]
@@ -1513,14 +1474,12 @@ mod tests {
     #[test]
     fn set_start_block_success() {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
-        let writer = Box::new(
-            ConfigDaoWriteableMock::new()
+        let config_dao = Box::new(
+            ConfigDaoMock::new()
                 .get_result(Ok(ConfigDaoRecord::new("start_block", Some("1234"), false)))
                 .set_params(&set_params_arc)
-                .set_result(Ok(()))
-                .commit_result(Ok(())),
+                .set_result(Ok(())),
         );
-        let config_dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
         let mut subject = PersistentConfigurationReal::new(config_dao);
 
         let result = subject.set_start_block(1234);
@@ -1563,14 +1522,12 @@ mod tests {
     #[test]
     fn set_gas_price_succeeds() {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
-        let writer = Box::new(
-            ConfigDaoWriteableMock::new()
+        let config_dao = Box::new(
+            ConfigDaoMock::new()
                 .get_result(Ok(ConfigDaoRecord::new("gas_price", Some("1234"), false)))
                 .set_params(&set_params_arc)
-                .set_result(Ok(()))
-                .commit_result(Ok(())),
+                .set_result(Ok(())),
         );
-        let config_dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
         let mut subject = PersistentConfigurationReal::new(config_dao);
 
         let result = subject.set_gas_price(1234);
@@ -1636,8 +1593,8 @@ mod tests {
                 .unwrap(),
         ];
         let set_params_arc = Arc::new(Mutex::new(vec![]));
-        let writer = Box::new(
-            ConfigDaoWriteableMock::new()
+        let config_dao = Box::new(
+            ConfigDaoMock::new()
                 .get_result(Ok(ConfigDaoRecord::new(
                     EXAMPLE_ENCRYPTED,
                     Some(&example_encrypted),
@@ -1649,10 +1606,8 @@ mod tests {
                     true,
                 )))
                 .set_params(&set_params_arc)
-                .set_result(Ok(()))
-                .commit_result(Ok(())),
+                .set_result(Ok(())),
         );
-        let config_dao = Box::new(ConfigDaoMock::new().start_transaction_result(Ok(writer)));
         let mut subject = PersistentConfigurationReal::new(config_dao);
 
         subject
@@ -1699,13 +1654,10 @@ mod tests {
     #[test]
     fn set_mapping_protocol_to_some() {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
-        let config_dao = ConfigDaoWriteableMock::new()
+        let config_dao = ConfigDaoMock::new()
             .set_params(&set_params_arc)
-            .set_result(Ok(()))
-            .commit_result(Ok(()));
-        let mut subject = PersistentConfigurationReal::new(Box::new(
-            ConfigDaoMock::new().start_transaction_result(Ok(Box::new(config_dao))),
-        ));
+            .set_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
         let result = subject.set_mapping_protocol(Some(AutomapProtocol::Pmp));
 
@@ -1720,13 +1672,10 @@ mod tests {
     #[test]
     fn set_mapping_protocol_to_none() {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
-        let config_dao = ConfigDaoWriteableMock::new()
+        let config_dao = ConfigDaoMock::new()
             .set_params(&set_params_arc)
-            .set_result(Ok(()))
-            .commit_result(Ok(()));
-        let mut subject = PersistentConfigurationReal::new(Box::new(
-            ConfigDaoMock::new().start_transaction_result(Ok(Box::new(config_dao))),
-        ));
+            .set_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
         let result = subject.set_mapping_protocol(None);
 
@@ -1757,13 +1706,10 @@ mod tests {
     #[test]
     fn set_neighborhood_mode_works() {
         let set_params_arc = Arc::new(Mutex::new(vec![]));
-        let config_dao = ConfigDaoWriteableMock::new()
+        let config_dao = ConfigDaoMock::new()
             .set_params(&set_params_arc)
-            .set_result(Ok(()))
-            .commit_result(Ok(()));
-        let mut subject = PersistentConfigurationReal::new(Box::new(
-            ConfigDaoMock::new().start_transaction_result(Ok(Box::new(config_dao))),
-        ));
+            .set_result(Ok(()));
+        let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
         let result = subject.set_neighborhood_mode(NeighborhoodModeLight::ConsumeOnly);
 
@@ -1813,13 +1759,10 @@ mod tests {
         ($parameter_name: literal,$set_value: expr) => {
             paste! {
                 let set_params_arc = Arc::new(Mutex::new(vec![]));
-                let config_dao = ConfigDaoWriteableMock::new()
+                let config_dao = ConfigDaoMock::new()
                     .set_params(&set_params_arc)
-                    .set_result(Ok(()))
-                    .commit_result(Ok(()));
-                let mut subject = PersistentConfigurationReal::new(Box::new(
-                    ConfigDaoMock::new().start_transaction_result(Ok(Box::new(config_dao))),
-                ));
+                    .set_result(Ok(()));
+                let mut subject = PersistentConfigurationReal::new(Box::new(config_dao));
 
                 let result = subject.[<set_ $parameter_name>]($set_value);
 

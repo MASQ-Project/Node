@@ -609,7 +609,7 @@ pub mod test_utils {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
+    use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::test_utils::database_utils::{
         assert_create_table_statement_contains_all_important_parts,
         assert_index_statement_is_coupled_with_right_parameter, assert_no_index_exists_for_table,

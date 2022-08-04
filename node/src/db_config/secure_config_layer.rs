@@ -1,9 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchain::bip39::Bip39;
-use crate::db_config::config_dao::{
-    ConfigDaoError, ConfigDaoRead, ConfigDaoReadWrite, ConfigDaoRecord,
-};
+use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoRecord};
 use crate::db_config::db_encryption_layer::DbEncryptionLayer;
 use rand::Rng;
 
@@ -41,7 +39,7 @@ impl SecureConfigLayer {
     }
 
     #[allow(clippy::borrowed_box)]
-    pub fn check_password<T: ConfigDaoRead + ?Sized>(
+    pub fn check_password<T: ConfigDao + ?Sized>(
         &self,
         db_password_opt: Option<String>,
         dao: &Box<T>,
@@ -52,7 +50,7 @@ impl SecureConfigLayer {
         }
     }
 
-    pub fn change_password<'b, T: ConfigDaoReadWrite + ?Sized>(
+    pub fn change_password<'b, T: ConfigDao + ?Sized>(
         &self,
         old_password_opt: Option<String>,
         new_password: &str,
@@ -67,7 +65,7 @@ impl SecureConfigLayer {
     }
 
     #[allow(clippy::borrowed_box)]
-    pub fn encrypt<T: ConfigDaoRead + ?Sized>(
+    pub fn encrypt<T: ConfigDao + ?Sized>(
         &self,
         name: &str,
         plain_value_opt: Option<String>,
@@ -86,7 +84,7 @@ impl SecureConfigLayer {
     }
 
     #[allow(clippy::borrowed_box)]
-    pub fn decrypt<T: ConfigDaoRead + ?Sized>(
+    pub fn decrypt<T: ConfigDao + ?Sized>(
         &self,
         record: ConfigDaoRecord,
         password_opt: Option<String>,
@@ -117,7 +115,7 @@ impl SecureConfigLayer {
     }
 
     #[allow(clippy::borrowed_box)]
-    fn reencrypt_records<T: ConfigDaoReadWrite + ?Sized>(
+    fn reencrypt_records<T: ConfigDao + ?Sized>(
         &self,
         old_password_opt: Option<String>,
         new_password: &str,
@@ -143,7 +141,7 @@ impl SecureConfigLayer {
     }
 
     #[allow(clippy::borrowed_box)]
-    fn update_records<T: ConfigDaoReadWrite + ?Sized>(
+    fn update_records<T: ConfigDao + ?Sized>(
         &self,
         reencrypted_records: Vec<ConfigDaoRecord>,
         dao: &Box<T>,
@@ -182,7 +180,7 @@ impl SecureConfigLayer {
     }
 
     #[allow(clippy::borrowed_box)]
-    fn install_example_for_password<T: ConfigDaoReadWrite + ?Sized>(
+    fn install_example_for_password<T: ConfigDao + ?Sized>(
         &self,
         new_password: &str,
         dao: &Box<T>,
@@ -207,7 +205,7 @@ mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
     use crate::db_config::config_dao::{ConfigDaoError, ConfigDaoRecord};
-    use crate::db_config::mocks::{ConfigDaoMock, ConfigDaoWriteableMock};
+    use crate::db_config::mocks::ConfigDaoMock;
     use crate::db_config::secure_config_layer::SecureConfigLayerError::DatabaseError;
     use crate::sub_lib::cryptde::PlainData;
     use std::sync::{Arc, Mutex};
@@ -374,9 +372,8 @@ mod tests {
     fn change_password_works_when_no_password_exists() {
         let get_params_arc = Arc::new(Mutex::new(vec![]));
         let set_params_arc = Arc::new(Mutex::new(vec![]));
-        let commit_params_arc = Arc::new(Mutex::new(vec![]));
         let mut writeable = Box::new(
-            ConfigDaoWriteableMock::new()
+            ConfigDaoMock::new()
                 .get_result(Ok(ConfigDaoRecord::new(EXAMPLE_ENCRYPTED, None, true)))
                 .get_params(&get_params_arc)
                 .get_all_result(Ok(vec![
@@ -394,8 +391,7 @@ mod tests {
                 .set_result(Ok(()))
                 .set_result(Ok(()))
                 .set_result(Ok(()))
-                .set_result(Ok(()))
-                .commit_params(&commit_params_arc),
+                .set_result(Ok(())),
         );
         let subject = SecureConfigLayer::new();
 
@@ -421,8 +417,6 @@ mod tests {
             Ok(_) => (),
             x => panic!("Expected Ok(_), got {:?}", x),
         };
-        let commit_params = commit_params_arc.lock().unwrap();
-        assert_eq!(*commit_params, vec![]);
     }
 
     #[test]
@@ -433,9 +427,8 @@ mod tests {
         let encrypted_example = Bip39::encrypt_bytes(&example, "old_password").unwrap();
         let unencrypted_value = "These are the times that try men's souls.".as_bytes();
         let old_encrypted_value = Bip39::encrypt_bytes(&unencrypted_value, "old_password").unwrap();
-        let commit_params_arc = Arc::new(Mutex::new(vec![]));
         let mut writeable = Box::new(
-            ConfigDaoWriteableMock::new()
+            ConfigDaoMock::new()
                 .get_params(&get_params_arc)
                 .get_result(Ok(ConfigDaoRecord::new(
                     EXAMPLE_ENCRYPTED,
@@ -459,8 +452,7 @@ mod tests {
                 .set_result(Ok(()))
                 .set_result(Ok(()))
                 .set_result(Ok(()))
-                .set_result(Ok(()))
-                .commit_params(&commit_params_arc),
+                .set_result(Ok(())),
         );
         let subject = SecureConfigLayer::new();
 
@@ -491,15 +483,13 @@ mod tests {
         assert_eq!(set_params[3], ("missing_unencrypted_key".to_string(), None));
         assert_eq!(set_params[4].0, EXAMPLE_ENCRYPTED.to_string());
         let _ = Bip39::decrypt_bytes(&set_params[4].1.as_ref().unwrap(), "new_password").unwrap();
-        let commit_params = commit_params_arc.lock().unwrap();
-        assert_eq!(*commit_params, vec![])
     }
 
     #[test]
     fn change_password_works_when_password_exists_and_old_password_doesnt_match() {
         let example = "Aside from that, Mrs. Lincoln, how was the play?".as_bytes();
         let encrypted_example = Bip39::encrypt_bytes(&example, "old_password").unwrap();
-        let dao = ConfigDaoWriteableMock::new().get_result(Ok(ConfigDaoRecord::new(
+        let dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             EXAMPLE_ENCRYPTED,
             Some(&encrypted_example),
             true,
@@ -522,7 +512,7 @@ mod tests {
     fn reencrypt_records_balks_when_a_value_is_incorrectly_encrypted() {
         let unencrypted_value = "These are the times that try men's souls.".as_bytes();
         let encrypted_value = Bip39::encrypt_bytes(&unencrypted_value, "bad_password").unwrap();
-        let dao = ConfigDaoWriteableMock::new().get_all_result(Ok(vec![ConfigDaoRecord::new(
+        let dao = ConfigDaoMock::new().get_all_result(Ok(vec![ConfigDaoRecord::new(
             "badly_encrypted",
             Some(&encrypted_value),
             true,
@@ -542,7 +532,7 @@ mod tests {
         let encrypted_example = Bip39::encrypt_bytes(&example, "old_password").unwrap();
         let unencrypted_value = "These are the times that try men's souls.";
         let encrypted_value = Bip39::encrypt_bytes(&unencrypted_value, "old_password").unwrap();
-        let dao = ConfigDaoWriteableMock::new()
+        let dao = ConfigDaoMock::new()
             .get_result(Ok(ConfigDaoRecord::new(
                 EXAMPLE_ENCRYPTED,
                 Some(&encrypted_example),
