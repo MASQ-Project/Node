@@ -43,7 +43,7 @@ rand = {version = "0.8.4", features = ["getrandom", "small_rng"]}
 regex = "1.5.4"
 rlp = "0.4.6"
 rpassword = "5.0.1"
-rusqlite = {version = "0.26.1", features = ["bundled","i128_blob"]}
+rusqlite = {version = "0.26.1", features = ["bundled"]}
 rustc-hex = "2.1.0"
 serde = "1.0.136"
 serde_derive = "1.0.136"

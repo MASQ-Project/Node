@@ -724,7 +724,7 @@ mod tests {
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
-        let mut stmt = conn.prepare("select rowid, transaction_hash, amount, payable_timestamp, attempt, process_error from pending_payable").unwrap();
+        let mut stmt = conn.prepare("select rowid, transaction_hash, amount_high_b, amount_low_b, payable_timestamp, attempt, process_error from pending_payable").unwrap();
         let mut payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
         assert!(payable_contents.next().is_none());
         let expected_key_words: &[&[&str]] = &[
@@ -756,7 +756,7 @@ mod tests {
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
 
-        let mut stmt = conn.prepare ("select wallet_address, balance, last_paid_timestamp, pending_payable_rowid from payable").unwrap ();
+        let mut stmt = conn.prepare ("select wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid from payable").unwrap ();
         let mut payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
         assert!(payable_contents.next().is_none());
         let expected_key_words: &[&[&str]] = &[
@@ -783,7 +783,7 @@ mod tests {
             .unwrap();
 
         let mut stmt = conn
-            .prepare("select wallet_address, balance, last_received_timestamp from receivable")
+            .prepare("select wallet_address, balance_high_b, balance_low_b, last_received_timestamp from receivable")
             .unwrap();
         let mut receivable_contents = stmt.query_map([], |_| Ok(())).unwrap();
         assert!(receivable_contents.next().is_none());

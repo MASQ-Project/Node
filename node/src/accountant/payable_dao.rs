@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::blob_utils::{
-    collect_and_sum_i128_values_from_table, get_unsized_128, BalanceChange, BlobInsertUpdate,
-    BlobInsertUpdateConfig, BlobInsertUpdateReal, DAOTableIdentifier, KeyParamHolder,
-    SQLExtendedParams, UpdateConfig,
+use crate::accountant::big_int_db_processor::{
+    collect_and_sum_i128_values_from_table, BigIntDbProcessor, BigIntDbProcessorReal,
+    BigIntDivider, BigIntProcessorConfig, DAOTableIdentifier, KeyHolder, SQLParams,
+    SQLParamsBuilder, WeiChange,
 };
 use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
@@ -104,7 +104,7 @@ impl PayableDaoFactory for DaoFactoryReal {
 #[derive(Debug)]
 pub struct PayableDaoReal {
     conn: Box<dyn ConnectionWrapper>,
-    blob_insert_update: Box<dyn BlobInsertUpdate<Self>>,
+    big_int_db_processor: Box<dyn BigIntDbProcessor<Self>>,
 }
 
 impl PayableDao for PayableDaoReal {
@@ -114,16 +114,13 @@ impl PayableDao for PayableDaoReal {
         wallet: &Wallet,
         amount: u128,
     ) -> Result<(), PayableDaoError> {
-        Ok(self.blob_insert_update.upsert(self.conn.as_ref(), BlobInsertUpdateConfig {
-            insert_sql: "insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet, :balance, :last_paid_timestamp, null)",
-            update_sql: "update payable set balance = :updated_balance where wallet_address = :wallet",
-            params: SQLExtendedParams::new(
-                vec![
-                    (":wallet", &KeyParamHolder::new(wallet, "wallet_address")),
-                    (":balance", &BalanceChange::new_addition(amount)),
-                    (":last_paid_timestamp",&to_time_t(timestamp))
-                ]),
-        })?)
+        Ok(self.big_int_db_processor.upsert(
+            self.conn.as_ref(),
+            BigIntProcessorConfig::default()
+                      .main_sql("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet, :balance, :last_paid_timestamp, null)") //"update payable set balance = :updated_balance where wallet_address = :wallet",
+                      .params(SQLParamsBuilder::default()
+                                  .key_holder(KeyHolder::new(wallet, "wallet_address", ":wallet")).wei_change(  WeiChange::new_addition(amount,"balance")).other(
+                              vec![(":last_paid_timestamp",&to_time_t(timestamp))]).build()))?)
     }
 
     fn mark_pending_payable_rowid(
@@ -156,15 +153,13 @@ impl PayableDao for PayableDaoReal {
     ) -> Result<(), PayableDaoError> {
         let key =
             checked_conversion::<u64, i64>(fingerprint.rowid_opt.expectv("initialized rowid"));
-        Ok(self.blob_insert_update.update(Either::Left(self.conn.as_ref()), &UpdateConfig{
-            update_sql: "update payable set balance = :updated_balance, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid",
-            params: SQLExtendedParams::new(
-                vec![
-                    (":balance", &BalanceChange::new_subtraction(fingerprint.amount)),
-                    (":last_paid", &to_time_t(fingerprint.timestamp)),
-                    (":rowid", &KeyParamHolder::new(&key, "pending_payable_rowid")),
-                ]),
-        })?)
+        Ok(self.big_int_db_processor.update(Either::Left(self.conn.as_ref()),
+                                            BigIntProcessorConfig::default()
+                                              .main_sql("update payable set balance = :updated_balance, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid")
+                                              .params(SQLParamsBuilder::default()
+                                                          .key_holder(KeyHolder::new(&key, "pending_payable_rowid", ":rowid"))
+                                                          .wei_change(WeiChange::new_subtraction(fingerprint.amount, "amount"))
+                                                          .other(vec![(":last_paid", &to_time_t(fingerprint.timestamp))]).build()))?)
     }
 
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
@@ -174,15 +169,23 @@ impl PayableDao for PayableDaoReal {
 
         stmt.query_map([], |row| {
             let wallet_result: Result<Wallet, Error> = row.get(0);
-            let balance_result = get_unsized_128(row, 1);
-            let last_paid_timestamp_result = row.get(2);
-            match (wallet_result, balance_result, last_paid_timestamp_result) {
-                (Ok(wallet), Ok(balance), Ok(last_paid_timestamp)) => Ok(PayableAccount {
-                    wallet,
-                    balance_wei: balance,
-                    last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                    pending_payable_opt: None,
-                }),
+            let high_b_result: Result<i64, Error> = row.get(1);
+            let low_b_result: Result<i64, Error> = row.get(2);
+            let last_paid_timestamp_result = row.get(3);
+            match (
+                wallet_result,
+                high_b_result,
+                low_b_result,
+                last_paid_timestamp_result,
+            ) {
+                (Ok(wallet), Ok(high_b), Ok(low_b), Ok(last_paid_timestamp)) => {
+                    Ok(PayableAccount {
+                        wallet,
+                        balance_wei: BigIntDivider::reconstitute_unsigned(high_b, low_b),
+                        last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                        pending_payable_opt: None,
+                    })
+                }
                 _ => panic!("Database is corrupt: PAYABLE table columns and/or types"),
             }
         })
@@ -197,11 +200,11 @@ impl PayableDao for PayableDaoReal {
         let variant_range = RangeStmConfig {
             where_clause: "where last_paid_timestamp <= ? and last_paid_timestamp >= ? and balance >= ? and balance <= ?",
             gwei_min_resolution_clause: "and balance >= ?",
-            gwei_min_resolution_params: vec![Box::new(WEIS_OF_GWEI)],
+            gwei_min_resolution_params: vec![WEIS_OF_GWEI],
             secondary_order_param: "last_paid_timestamp asc"
         };
 
-        custom_query.query::<_, i128, _, _>(
+        custom_query.query::<_, i64, _, _>(
             self.conn.as_ref(),
             Self::stm_assembler_of_payable_custom_query,
             variant_top,
@@ -227,29 +230,33 @@ impl PayableDao for PayableDaoReal {
     #[cfg(test)]
     fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount> {
         let mut stmt = self.conn
-            .prepare("select balance, last_paid_timestamp, pending_payable_rowid from payable where wallet_address = ?")
+            .prepare("select balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid from payable where wallet_address = ?")
             .unwrap();
         stmt.query_row(&[&wallet], |row| {
-            let balance_result = get_unsized_128(row, 0);
-            let last_paid_timestamp_result = row.get(1);
-            let pending_payable_rowid_result: Result<Option<i64>, Error> = row.get(2);
+            let high_bytes_result = row.get(0);
+            let low_bytes_result = row.get(1);
+            let last_paid_timestamp_result = row.get(2);
+            let pending_payable_rowid_result: Result<Option<i64>, Error> = row.get(3);
             match (
-                balance_result,
+                high_bytes_result,
+                low_bytes_result,
                 last_paid_timestamp_result,
                 pending_payable_rowid_result,
             ) {
-                (Ok(balance), Ok(last_paid_timestamp), Ok(rowid)) => Ok(PayableAccount {
-                    wallet: wallet.clone(),
-                    balance_wei: balance,
-                    last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                    pending_payable_opt: match rowid {
-                        Some(rowid) => Some(PendingPayableId {
-                            rowid: u64::try_from(rowid).unwrap(),
-                            hash: H256::from_uint(&U256::from(0)), //garbage
-                        }),
-                        None => None,
-                    },
-                }),
+                (Ok(high_bytes), Ok(low_bytes), Ok(last_paid_timestamp), Ok(rowid)) => {
+                    Ok(PayableAccount {
+                        wallet: wallet.clone(),
+                        balance_wei: BigIntDivider::reconstitute_unsigned(high_bytes, low_bytes),
+                        last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                        pending_payable_opt: match rowid {
+                            Some(rowid) => Some(PendingPayableId {
+                                rowid: u64::try_from(rowid).unwrap(),
+                                hash: H256::from_uint(&U256::from(0)), //garbage
+                            }),
+                            None => None,
+                        },
+                    })
+                }
                 e => panic!(
                     "Database is corrupt: PAYABLE table columns and/or types: {:?}",
                     e
@@ -265,39 +272,46 @@ impl PayableDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> PayableDaoReal {
         PayableDaoReal {
             conn,
-            blob_insert_update: Box::new(BlobInsertUpdateReal::new()),
+            big_int_db_processor: Box::new(BigIntDbProcessorReal::new()),
         }
     }
 
     fn form_payable_account(row: &Row) -> rusqlite::Result<PayableAccount> {
         let wallet_result: Result<Wallet, Error> = row.get(0);
-        let balance_result = get_unsized_128(row, 1);
-        let last_paid_timestamp_result = row.get(2);
-        let pending_payable_rowid_result: Result<Option<i64>, Error> = row.get(3);
-        let pending_payable_hash_result: Result<Option<String>, Error> = row.get(4);
+        let balance_high_bytes_result = row.get(1);
+        let balance_low_bytes_result = row.get(2);
+        let last_paid_timestamp_result = row.get(3);
+        let pending_payable_rowid_result: Result<Option<i64>, Error> = row.get(4);
+        let pending_payable_hash_result: Result<Option<String>, Error> = row.get(5);
         match (
             wallet_result,
-            balance_result,
+            balance_high_bytes_result,
+            balance_low_bytes_result,
             last_paid_timestamp_result,
             pending_payable_rowid_result,
             pending_payable_hash_result,
         ) {
-            (Ok(wallet), Ok(balance), Ok(last_paid_timestamp), Ok(rowid_opt), Ok(hash_opt)) => {
-                Ok(PayableAccount {
-                    wallet,
-                    balance_wei: balance,
-                    last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                    pending_payable_opt: rowid_opt.map(|rowid| {
-                        let hash_str =
-                            hash_opt.expect("database corrupt; missing hash but existing rowid");
-                        PendingPayableId {
-                            rowid: u64::try_from(rowid).unwrap(),
-                            hash: H256::from_str(&hash_str[2..])
-                                .unwrap_or_else(|_| panic!("wrong form of tx hash {}", hash_str)),
-                        }
-                    }),
-                })
-            }
+            (
+                Ok(wallet),
+                Ok(high_bytes),
+                Ok(low_bytes),
+                Ok(last_paid_timestamp),
+                Ok(rowid_opt),
+                Ok(hash_opt),
+            ) => Ok(PayableAccount {
+                wallet,
+                balance_wei: BigIntDivider::reconstitute_unsigned(high_bytes, low_bytes),
+                last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                pending_payable_opt: rowid_opt.map(|rowid| {
+                    let hash_str =
+                        hash_opt.expect("database corrupt; missing hash but existing rowid");
+                    PendingPayableId {
+                        rowid: u64::try_from(rowid).unwrap(),
+                        hash: H256::from_str(&hash_str[2..])
+                            .unwrap_or_else(|_| panic!("wrong form of tx hash {}", hash_str)),
+                    }
+                }),
+            }),
             e => panic!(
                 "Database is corrupt: PAYABLE table columns and/or types: {:?}",
                 e
@@ -340,7 +354,7 @@ impl DAOTableIdentifier for PayableDaoReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::blob_utils::BlobInsertUpdateError;
+    use crate::accountant::big_int_db_processor::BigIntDbError;
     use crate::accountant::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::accountant::test_utils::{
         assert_database_blows_up_on_an_unexpected_error, convert_to_all_string_values,
@@ -454,24 +468,24 @@ mod tests {
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         {
-            let mut stm = boxed_conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp) values (?,?,?)").unwrap();
-            let params: &[&dyn ToSql] = &[&wallet, &5000_i128, &150_000_000];
+            let mut stm = boxed_conn.prepare("insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp) values (?,?,?)").unwrap();
+            let params: &[&dyn ToSql] = &[&wallet, &128779747, &5000, &150_000_000];
             stm.execute(params).unwrap();
         }
         let subject = PayableDaoReal::new(boxed_conn);
         let before_account_status = subject.account_status(&wallet).unwrap();
+
+        subject
+            .mark_pending_payable_rowid(&wallet, pending_payable_rowid)
+            .unwrap();
+
         let before_expected_status = PayableAccount {
             wallet: wallet.clone(),
             balance_wei: 5000,
             last_paid_timestamp: from_time_t(150_000_000),
             pending_payable_opt: None,
         };
-        assert_eq!(before_account_status, before_expected_status.clone());
-
-        subject
-            .mark_pending_payable_rowid(&wallet, pending_payable_rowid)
-            .unwrap();
-
+        assert_eq!(before_account_status, before_expected_status);
         let after_account_status = subject.account_status(&wallet).unwrap();
         let mut after_expected_status = before_expected_status;
         after_expected_status.pending_payable_opt = Some(PendingPayableId {
@@ -535,18 +549,20 @@ mod tests {
         let payable_timestamp = from_time_t(199_000_000);
         let attempt = 5;
         let starting_amount = 10000;
+        let (high_bytes, low_bytes) = BigIntDivider::deconstruct(starting_amount);
         let payment = 6666;
         let wallet = make_wallet("bobble");
         {
             let params: &[&dyn ToSql] = &[
                 &wallet,
-                &(starting_amount as i128),
+                &high_bytes,
+                &low_bytes,
                 &to_time_t(previous_timestamp),
                 &sign_conversion::<u64, i64>(rowid).unwrap(),
             ];
             boxed_conn.prepare(
-                "insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) \
-                 values (?,?,?,?)",
+                "insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid) \
+                 values (?,?,?,?,?)",
             )
             .unwrap()
             .execute(params)
@@ -570,7 +586,7 @@ mod tests {
             status_before,
             Some(PayableAccount {
                 wallet: wallet.clone(),
-                balance_wei: starting_amount,
+                balance_wei: starting_amount as u128,
                 last_paid_timestamp: previous_timestamp,
                 pending_payable_opt: Some(PendingPayableId {
                     rowid,
@@ -583,7 +599,7 @@ mod tests {
             status_after,
             Some(PayableAccount {
                 wallet,
-                balance_wei: starting_amount - payment,
+                balance_wei: starting_amount as u128 - payment,
                 last_paid_timestamp: payable_timestamp,
                 pending_payable_opt: None
             })
@@ -694,8 +710,17 @@ mod tests {
         let mut flags = OpenFlags::empty();
         flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
         let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
-        let insert = |wallet: &str, balance: i128, pending_payable_rowid: Option<i64>| {
-            let params: &[&dyn ToSql] = &[&wallet, &balance, &0i64, &pending_payable_rowid];
+        let insert = |wallet: &str,
+                      balance_high_b: i64,
+                      balance_low_b: i64,
+                      pending_payable_rowid: Option<i64>| {
+            let params: &[&dyn ToSql] = &[
+                &wallet,
+                &balance_high_b,
+                &balance_low_b,
+                &0i64,
+                &pending_payable_rowid,
+            ];
 
             conn
                 .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (?, ?, ?, ?)")
@@ -703,10 +728,20 @@ mod tests {
                 .execute(params)
                 .unwrap();
         };
-        insert("0x0000000000000000000000000000000000666f6f", 42, Some(15));
-        insert("0x0000000000000000000000000000000000626172", 24, Some(16));
-        insert(&make_wallet("foobar").to_string(), 44, None);
-        insert(&make_wallet("barfoo").to_string(), 22, None);
+        insert(
+            "0x0000000000000000000000000000000000666f6f",
+            42,
+            454,
+            Some(15),
+        );
+        insert(
+            "0x0000000000000000000000000000000000626172",
+            24,
+            11111,
+            Some(16),
+        );
+        insert(&make_wallet("foobar").to_string(), 44, 10000, None);
+        insert(&make_wallet("barfoo").to_string(), 458422, 45, None);
 
         let result = subject.non_pending_payables();
 
@@ -1069,9 +1104,16 @@ mod tests {
         timestamp: i64,
         pending_payable_rowid: Option<i64>,
     ) {
-        let params: &[&dyn ToSql] = &[&wallet, &balance, &timestamp, &pending_payable_rowid];
+        let (high_bytes, low_bytes) = BigIntDivider::deconstruct(balance);
+        let params: &[&dyn ToSql] = &[
+            &wallet,
+            &high_bytes,
+            &low_bytes,
+            &timestamp,
+            &pending_payable_rowid,
+        ];
         conn
-        .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (?, ?, ?, ?)")
+        .prepare("insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid) values (?, ?, ?, ?)")
         .unwrap()
         .execute(params)
         .unwrap();
@@ -1169,11 +1211,11 @@ mod tests {
         let amount = 100;
         let insert_update_core = InsertUpdateCoreMock::default()
             .upsert_params(&insert_or_update_params_arc)
-            .upsert_results(Err(BlobInsertUpdateError("SomethingWrong".to_string())));
+            .upsert_results(Err(BigIntDbError("SomethingWrong".to_string())));
         let conn = ConnectionWrapperMock::new();
         let conn_id_stamp = conn.set_arbitrary_id_stamp();
         let mut subject = PayableDaoReal::new(Box::new(conn));
-        subject.blob_insert_update = Box::new(insert_update_core);
+        subject.big_int_db_processor = Box::new(insert_update_core);
         let now = SystemTime::now();
 
         let result = subject.more_money_payable(now, &wallet, amount);
@@ -1183,17 +1225,14 @@ mod tests {
             Err(PayableDaoError::RusqliteError("SomethingWrong".to_string()))
         );
         let mut insert_or_update_params = insert_or_update_params_arc.lock().unwrap();
-        let (captured_conn_id_stamp, update_sql, insert_sql, table, sql_param_names) =
+        let (captured_conn_id_stamp, insert_update_sql, select_sql, table, sql_param_names) =
             insert_or_update_params.remove(0);
         assert_eq!(captured_conn_id_stamp, conn_id_stamp);
         assert!(insert_or_update_params.is_empty());
-        assert_eq!(
-            update_sql,
-            "update payable set balance = :updated_balance where wallet_address = :wallet"
+        assert_eq!(insert_update_sql, "insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) \
+         values (:wallet, :balance, :last_paid_timestamp,null)" //"update payable set balance = :updated_balance where wallet_address = :wallet"
         );
-        assert_eq!(insert_sql,"insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) \
-         values (:wallet, :balance, :last_paid_timestamp,null)"
-        );
+        assert_eq!(select_sql, "blaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaah"); //TODO finish this
         assert_eq!(table, "payable".to_string());
         assert_eq!(
             sql_param_names,
@@ -1215,7 +1254,7 @@ mod tests {
             .update_params(&update_params_arc)
             .update_result(Ok(()));
         let mut subject = PayableDaoReal::new(Box::new(wrapped_conn));
-        subject.blob_insert_update = Box::new(insert_update_core);
+        subject.big_int_db_processor = Box::new(insert_update_core);
 
         let result = subject.transaction_confirmed(&fingerprint);
 
@@ -1265,9 +1304,16 @@ mod tests {
                       balance: i128,
                       timestamp: i64,
                       pending_payable_rowid: Option<i64>| {
-            let params: &[&dyn ToSql] = &[&wallet, &balance, &timestamp, &pending_payable_rowid];
+            let (high_bytes, low_bytes) = BigIntDivider::deconstruct(balance);
+            let params: &[&dyn ToSql] = &[
+                &wallet,
+                &high_bytes,
+                &low_bytes,
+                &timestamp,
+                &pending_payable_rowid,
+            ];
             conn
-                .prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (?, ?, ?, ?)")
+                .prepare("insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid) values (?, ?, ?, ?)")
                 .unwrap()
                 .execute(params)
                 .unwrap();

@@ -1,4 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::accountant::big_int_db_processor::BigIntDivider;
 use crate::accountant::payable_dao::PayableAccount;
 use crate::accountant::receivable_dao::ReceivableAccount;
 use crate::accountant::{checked_conversion, sign_conversion};
@@ -107,7 +108,7 @@ pub struct RangeStmConfig {
     pub gwei_min_resolution_clause: &'static str,
     //note that this constrain, even though unchangeable, must be also supplied among other arguments
     //because otherwise the value won't adopt the rusqlite's specific 128_blob binary format
-    pub gwei_min_resolution_params: Vec<Box<dyn ToSql>>,
+    pub gwei_min_resolution_params: Vec<i128>,
     pub secondary_order_param: &'static str,
 }
 
@@ -131,12 +132,14 @@ impl<N: Copy + Display> CustomQuery<N> {
     where
         F1: Fn(AssemblerFeeder) -> String,
         F2: Fn(&Row) -> rusqlite::Result<R>,
-        S: TryFrom<N> + ToSql,
+        S: TryFrom<N>,
+        i128: TryFrom<N>,
     {
-        let (finalized_stm, params) = match self {
+        let (finalized_stm, params): (String, _) = match self {
             Self::TopRecords { count, ordered_by } => {
                 let (order_by_first_param, order_by_second_param) =
                     Self::ordering(ordered_by, variant_top.age_param);
+                let (limit_high_b, limit_low_b) = BigIntDivider::deconstruct(WEIS_OF_GWEI);
                 (
                     stm_assembler(AssemblerFeeder {
                         main_where_clause: variant_top.gwei_min_resolution_clause,
@@ -146,7 +149,8 @@ impl<N: Copy + Display> CustomQuery<N> {
                         limit_clause: variant_top.limit_clause,
                     }),
                     vec![
-                        Box::new(WEIS_OF_GWEI) as Box<dyn ToSql>,
+                        Box::new(limit_high_b) as Box<dyn ToSql>,
+                        Box::new(limit_low_b),
                         Box::new(count as i64),
                     ],
                 )
@@ -161,11 +165,12 @@ impl<N: Copy + Display> CustomQuery<N> {
                 let params: Vec<Box<dyn ToSql>> = vec![
                     Box::new(now - min_age as i64) as Box<dyn ToSql>,
                     Box::new(now - max_age as i64),
-                    Box::new(checked_conversion::<N, S>(min_amount)),
-                    Box::new(checked_conversion::<N, S>(max_amount)),
                 ]
                 .into_iter()
-                .chain(variant_range.gwei_min_resolution_params.into_iter())
+                .chain(Self::break_big_int_and_flat_nesting(
+                    vec![min_amount, max_amount],
+                    variant_range.gwei_min_resolution_params,
+                ))
                 .collect();
                 (
                     stm_assembler(AssemblerFeeder {
@@ -192,6 +197,27 @@ impl<N: Copy + Display> CustomQuery<N> {
             }
             Err(e) => panic!("database corrupt: {}", e),
         }
+    }
+
+    fn break_big_int_and_flat_nesting(
+        two_limits: Vec<N>,
+        one_or_two_limits: Vec<i128>,
+    ) -> Vec<Box<dyn ToSql>>
+    where
+        i128: TryFrom<N>,
+    {
+        // .chain(
+        //     variant_range
+        //         .gwei_min_resolution_params
+        //         .into_iter()
+        //         .flat_map(|i128_limit| {
+        //             let (high_bytes, low_bytes) = BigIntDivider::deconstruct(i128_limit);
+        //             vec![Box::new(high_bytes), Box::new(low_bytes)]
+        //         }),
+        // )
+        todo!()
+        // Box::new(checked_conversion::<N, S>(min_amount)),
+        // Box::new(checked_conversion::<N, S>(max_amount)),
     }
 
     fn ordering(
@@ -285,7 +311,7 @@ mod tests {
             ordered_by: Balance,
         };
 
-        let _ = subject.query::<_, i128, _, _>(
+        let _ = subject.query::<_, i64, _, _>(
             &conn_wrapped,
             |_feeder: AssemblerFeeder| "select kind, price from fruits".to_string(),
             TopStmConfig {

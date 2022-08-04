@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-pub mod blob_utils;
+pub mod big_int_db_processor;
 pub mod dao_utils;
 pub mod payable_dao;
 pub mod pending_payable_dao;

@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::blob_utils::BigIntDivider;
+use crate::accountant::big_int_db_processor::BigIntDivider;
 use crate::blockchain::bip39::Bip39;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;

@@ -2,9 +2,8 @@
 
 #![cfg(test)]
 
-use crate::accountant::blob_utils::{
-    BlobInsertUpdate, BlobInsertUpdateConfig, BlobInsertUpdateError, DAOTableIdentifier,
-    UpdateConfiguration,
+use crate::accountant::big_int_db_processor::{
+    BigIntDbError, BigIntDbProcessor, BigIntProcessorConfig, Configuration, DAOTableIdentifier,
 };
 use crate::accountant::dao_utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payable_dao::{
@@ -35,7 +34,7 @@ use ethereum_types::{BigEndianHash, H256, U256};
 use itertools::Either;
 use rusqlite::{Connection, Row, Transaction as RusqliteTransaction};
 use std::cell::RefCell;
-use std::fmt::Display;
+use std::fmt::{Debug, Display};
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -839,7 +838,7 @@ pub struct InsertUpdateCoreMock {
             )>,
         >,
     >, //trait-object-like params tested specially
-    update_results: RefCell<Vec<Result<(), BlobInsertUpdateError>>>,
+    update_results: RefCell<Vec<Result<(), BigIntDbError>>>,
     upsert_params: Arc<
         Mutex<
             Vec<(
@@ -851,30 +850,30 @@ pub struct InsertUpdateCoreMock {
             )>,
         >,
     >,
-    upsert_results: RefCell<Vec<Result<(), BlobInsertUpdateError>>>,
+    upsert_results: RefCell<Vec<Result<(), BigIntDbError>>>,
 }
 
-impl<T: DAOTableIdentifier + 'static> BlobInsertUpdate<T> for InsertUpdateCoreMock {
+impl<T: DAOTableIdentifier + 'static + Debug + Send> BigIntDbProcessor<T> for InsertUpdateCoreMock {
     fn update<'a>(
         &self,
         conn: Either<&dyn ConnectionWrapper, &RusqliteTransaction>,
-        config: &'a (dyn UpdateConfiguration<'a, T> + 'a),
-    ) -> Result<(), BlobInsertUpdateError> {
+        config: BigIntProcessorConfig<'a, T>,
+    ) -> Result<(), BigIntDbError> {
         let owned_params: Vec<(String, String)> = config
-            .update_params()
-            .extended_params_ref()
+            .params
+            .all_params_ref()
             .iter()
             .map(|(str, to_sql)| (str.to_string(), (to_sql as &dyn Display).to_string()))
             .collect();
-        let (in_table_key, sql_key, _) = config.update_params().fetch_key_specification();
+        let (main, select) = config.capture_sqls();
         self.update_params.lock().unwrap().push((
             if let Either::Left(conn) = conn {
                 Some(conn.arbitrary_id_stamp())
             } else {
                 None
             },
-            config.select_sql(&in_table_key, &sql_key),
-            config.update_sql().to_string(),
+            main,
+            select,
             T::table_name(),
             owned_params,
         ));
@@ -884,24 +883,27 @@ impl<T: DAOTableIdentifier + 'static> BlobInsertUpdate<T> for InsertUpdateCoreMo
     fn upsert<'a>(
         &self,
         conn: &dyn ConnectionWrapper,
-        config: BlobInsertUpdateConfig,
-    ) -> Result<(), BlobInsertUpdateError> {
+        config: BigIntProcessorConfig<'a, T>,
+    ) -> Result<(), BigIntDbError> {
         let owned_params: Vec<(String, String)> = config
             .params
-            .extended_params_ref()
+            .all_params_ref()
             .iter()
             .map(|(str, to_sql)| (str.to_string(), (to_sql as &dyn Display).to_string()))
             .collect();
+        let (main, select) = config.capture_sqls();
         self.upsert_params.lock().unwrap().push((
             conn.arbitrary_id_stamp(),
-            config.update_sql.to_string(),
-            config.insert_sql.to_string(),
+            main,
+            select,
             T::table_name(),
             owned_params,
         ));
         self.upsert_results.borrow_mut().remove(0)
     }
 }
+
+impl<T: DAOTableIdentifier + Debug + Send> Configuration<T> for InsertUpdateCoreMock {}
 
 impl InsertUpdateCoreMock {
     pub fn update_params(
@@ -922,7 +924,7 @@ impl InsertUpdateCoreMock {
         self
     }
 
-    pub fn update_result(self, result: Result<(), BlobInsertUpdateError>) -> Self {
+    pub fn update_result(self, result: Result<(), BigIntDbError>) -> Self {
         self.update_results.borrow_mut().push(result);
         self
     }
@@ -945,7 +947,7 @@ impl InsertUpdateCoreMock {
         self
     }
 
-    pub fn upsert_results(self, result: Result<(), BlobInsertUpdateError>) -> Self {
+    pub fn upsert_results(self, result: Result<(), BigIntDbError>) -> Self {
         self.upsert_results.borrow_mut().push(result);
         self
     }

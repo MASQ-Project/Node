@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::blob_utils::get_unsized_128;
+use crate::accountant::big_int_db_processor::BigIntDivider;
 use crate::accountant::dao_utils::{from_time_t, to_time_t, DaoFactoryReal};
 use crate::accountant::{checked_conversion, sign_conversion};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
@@ -57,15 +57,16 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         stm.query_map([], |row| {
             let rowid: u64 = Self::get_with_expect(row, 0);
             let transaction_hash: String = Self::get_with_expect(row, 1);
-            let amount = get_unsized_128(row, 2).expect("should by only positive");
-            let timestamp: i64 = Self::get_with_expect(row, 3);
-            let attempt: u16 = Self::get_with_expect(row, 4);
+            let amount_high_bytes: i64 = Self::get_with_expect(row, 2);
+            let amount_low_bytes: i64 = Self::get_with_expect(row, 3);
+            let timestamp: i64 = Self::get_with_expect(row, 4);
+            let attempt: u16 = Self::get_with_expect(row, 5);
             Ok(PendingPayableFingerprint {
                 rowid_opt: Some(rowid),
                 timestamp: from_time_t(timestamp),
                 hash: H256::from_str(&transaction_hash[2..]).expectv("string hash"),
                 attempt_opt: Some(attempt),
-                amount,
+                amount: BigIntDivider::reconstitute_unsigned(amount_high_bytes, amount_low_bytes),
                 process_error: None,
             })
         })
@@ -83,11 +84,13 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         amount: u128,
         timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError> {
-        let signed_amount = checked_conversion::<u128, i128>(amount);
-        let mut stm = self.conn.prepare("insert into pending_payable (transaction_hash, amount, payable_timestamp, attempt, process_error) values (?,?,?,?,?)").expect("Internal error");
+        let (high_bytes, low_bytes) =
+            BigIntDivider::deconstruct(checked_conversion::<u128, i128>(amount));
+        let mut stm = self.conn.prepare("insert into pending_payable (transaction_hash, amount_high_b, amount_low_b, payable_timestamp, attempt, process_error) values (?,?,?,?,?)").expect("Internal error");
         let params: &[&dyn ToSql] = &[
             &format!("{:?}", transaction_hash),
-            &signed_amount,
+            &high_bytes,
+            &low_bytes,
             &to_time_t(timestamp),
             &1,
             &Null,
@@ -178,6 +181,7 @@ impl<'a> PendingPayableDaoReal<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::big_int_db_processor::BigIntDivider;
     use crate::accountant::dao_utils::from_time_t;
     use crate::accountant::pending_payable_dao::{
         PendingPayableDao, PendingPayableDaoError, PendingPayableDaoReal,
@@ -545,44 +549,39 @@ mod tests {
         }
         let assert_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
         let mut assert_stm = assert_conn
-            .prepare("select rowid, transaction_hash, amount, payable_timestamp, attempt, process_error from pending_payable")
+            .prepare("select rowid, transaction_hash, amount_high_b, amount_low_b, payable_timestamp, attempt, process_error from pending_payable")
             .unwrap();
-        let mut assert_closure = || {
-            assert_stm
-                .query_row([], |row| {
-                    let rowid: u64 = row.get(0).unwrap();
-                    let transaction_hash: String = row.get(1).unwrap();
-                    let amount: i128 = row.get(2).unwrap();
-                    let timestamp: i64 = row.get(3).unwrap();
-                    let attempt: u16 = row.get(4).unwrap();
-                    let process_error: Option<String> = row.get(5).unwrap();
-                    Ok(PendingPayableFingerprint {
-                        rowid_opt: Some(rowid),
-                        timestamp: from_time_t(timestamp),
-                        hash: H256::from_str(&transaction_hash[2..]).unwrap(),
-                        attempt_opt: Some(attempt),
-                        amount: amount as u128,
-                        process_error,
-                    })
-                })
-                .unwrap()
-        };
-        let assertion_before = assert_closure();
-        assert_eq!(assertion_before.hash, hash);
-        assert_eq!(assertion_before.rowid_opt.unwrap(), 1);
-        assert_eq!(assertion_before.attempt_opt.unwrap(), 1);
-        assert_eq!(assertion_before.process_error, None);
-        assert_eq!(assertion_before.timestamp, timestamp);
 
         let result = subject.mark_failure(1);
 
         assert_eq!(result, Ok(()));
-        let assertion_after = assert_closure();
-        assert_eq!(assertion_after.hash, hash);
-        assert_eq!(assertion_after.rowid_opt.unwrap(), 1);
-        assert_eq!(assertion_after.attempt_opt.unwrap(), 1);
-        assert_eq!(assertion_after.process_error, Some("ERROR".to_string()));
-        assert_eq!(assertion_after.timestamp, timestamp);
+        let resulting_fingerprint = assert_stm
+            .query_row([], |row| {
+                let rowid: u64 = row.get(0).unwrap();
+                let transaction_hash: String = row.get(1).unwrap();
+                let amount_high_b: i64 = row.get(2).unwrap();
+                let amount_low_b: i64 = row.get(3).unwrap();
+                let timestamp: i64 = row.get(4).unwrap();
+                let attempt: u16 = row.get(5).unwrap();
+                let process_error: Option<String> = row.get(6).unwrap();
+                Ok(PendingPayableFingerprint {
+                    rowid_opt: Some(rowid),
+                    timestamp: from_time_t(timestamp),
+                    hash: H256::from_str(&transaction_hash[2..]).unwrap(),
+                    attempt_opt: Some(attempt),
+                    amount: BigIntDivider::reconstitute_unsigned(amount_high_b, amount_low_b),
+                    process_error,
+                })
+            })
+            .unwrap();
+        assert_eq!(resulting_fingerprint.hash, hash);
+        assert_eq!(resulting_fingerprint.rowid_opt.unwrap(), 1);
+        assert_eq!(resulting_fingerprint.attempt_opt.unwrap(), 1);
+        assert_eq!(
+            resulting_fingerprint.process_error,
+            Some("ERROR".to_string())
+        );
+        assert_eq!(resulting_fingerprint.timestamp, timestamp);
     }
 
     #[test]
