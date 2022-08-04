@@ -357,11 +357,11 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         let client_id = msg.client_id;
-        if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body.clone()) {
-            self.handle_shutdown_order(client_id, body);
-        } else if let Ok((_, context_id)) = UiConnectionStatusRequest::fmb(msg.body.clone()) {
+        if let Ok((_, context_id)) = UiConnectionStatusRequest::fmb(msg.body.clone()) {
             // TODO: Write multinode test for this message
-            self.handle_connection_status_message(context_id)
+            self.handle_connection_status_message(client_id, context_id);
+        } else if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body.clone()) {
+            self.handle_shutdown_order(client_id, body);
         } else {
             handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
         }
@@ -1310,10 +1310,10 @@ impl Neighborhood {
         self.remove_neighbor(&neighbor_key, &msg.peer_addr);
     }
 
-    fn handle_connection_status_message(&self, context_id: u64) {
+    fn handle_connection_status_message(&self, client_id: u64, context_id: u64) {
         let stage: UiConnectionStage = self.overall_connection_status.stage.into();
         let message = NodeToUiMessage {
-            target: MessageTarget::AllClients,
+            target: MessageTarget::ClientId(client_id),
             body: UiConnectionStatusResponse { stage }.tmb(context_id),
         };
 
@@ -4913,10 +4913,12 @@ mod tests {
     #[test]
     fn connection_status_message_is_handled_properly_for_not_connected() {
         let stage = OverallConnectionStage::NotConnected;
+        let client_id = 1234;
         let context_id = 4321;
 
         let message_opt = connection_status_message_received_by_ui(
             stage,
+            client_id,
             context_id,
             "connection_status_message_is_handled_properly_for_not_connected",
         );
@@ -4924,7 +4926,7 @@ mod tests {
         assert_eq!(
             message_opt,
             Some(NodeToUiMessage {
-                target: MessageTarget::AllClients,
+                target: MessageTarget::ClientId(client_id),
                 body: UiConnectionStatusResponse {
                     stage: stage.into()
                 }
@@ -4936,10 +4938,12 @@ mod tests {
     #[test]
     fn connection_status_message_is_handled_properly_for_connected_to_neighbor() {
         let stage = OverallConnectionStage::ConnectedToNeighbor;
+        let client_id = 1235;
         let context_id = 4322;
 
         let message_opt = connection_status_message_received_by_ui(
             stage,
+            client_id,
             context_id,
             "connection_status_message_is_handled_properly_for_connected_to_neighbor",
         );
@@ -4947,7 +4951,7 @@ mod tests {
         assert_eq!(
             message_opt,
             Some(NodeToUiMessage {
-                target: MessageTarget::AllClients,
+                target: MessageTarget::ClientId(client_id),
                 body: UiConnectionStatusResponse {
                     stage: stage.into()
                 }
@@ -4959,10 +4963,12 @@ mod tests {
     #[test]
     fn connection_status_message_is_handled_properly_for_three_hops_route_found() {
         let stage = OverallConnectionStage::ThreeHopsRouteFound;
+        let client_id = 1236;
         let context_id = 4323;
 
         let message_opt = connection_status_message_received_by_ui(
             stage,
+            client_id,
             context_id,
             "connection_status_message_is_handled_properly_for_three_hops_route_found",
         );
@@ -4970,7 +4976,7 @@ mod tests {
         assert_eq!(
             message_opt,
             Some(NodeToUiMessage {
-                target: MessageTarget::AllClients,
+                target: MessageTarget::ClientId(client_id),
                 body: UiConnectionStatusResponse {
                     stage: stage.into()
                 }
@@ -5213,6 +5219,7 @@ mod tests {
 
     fn connection_status_message_received_by_ui(
         stage: OverallConnectionStage,
+        client_id: u64,
         context_id: u64,
         test_name: &str,
     ) -> Option<NodeToUiMessage> {
@@ -5236,7 +5243,7 @@ mod tests {
 
         subject_addr
             .try_send(NodeFromUiMessage {
-                client_id: 1234,
+                client_id,
                 body: MessageBody {
                     opcode: "connectionStatus".to_string(),
                     path: Conversation(context_id),
