@@ -69,8 +69,9 @@ fn connection_progress_can_be_requested() {
     let ui_client = subject.make_ui(ui_port);
 
     ui_client.send_request(UiConnectionStatusRequest {}.tmb(1));
-
     let message_body = ui_client.wait_for_response(1, Duration::from_secs(1));
-    let (message, _) = UiConnectionStatusResponse::fmb(message_body).unwrap();
+
+    let (message, context_id) = UiConnectionStatusResponse::fmb(message_body).unwrap();
     assert_eq!(message.stage, UiConnectionStage::NotConnected);
+    assert_eq!(context_id, 1);
 }
