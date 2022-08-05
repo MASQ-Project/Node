@@ -1,8 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::big_int_db_processor::{
-    collect_and_sum_i128_values_from_table, BigIntDbProcessor, BigIntDbProcessorReal,
-    BigIntDivider, BigIntProcessorConfig, DAOTableIdentifier, KeyHolder, SQLParams,
+    collect_and_sum_i128_values_from_table, BigIntDbProcessorReal, BigIntDivider,
+    BigIntSQLProcessor, BigIntSqlConfig, DAOTableIdentifier, KeyHolder, SQLParams,
     SQLParamsBuilder, WeiChange,
 };
 use crate::accountant::dao_utils;
@@ -104,7 +105,7 @@ impl PayableDaoFactory for DaoFactoryReal {
 #[derive(Debug)]
 pub struct PayableDaoReal {
     conn: Box<dyn ConnectionWrapper>,
-    big_int_db_processor: Box<dyn BigIntDbProcessor<Self>>,
+    big_int_sql_processor: Box<dyn BigIntSQLProcessor<Self>>,
 }
 
 impl PayableDao for PayableDaoReal {
@@ -114,13 +115,17 @@ impl PayableDao for PayableDaoReal {
         wallet: &Wallet,
         amount: u128,
     ) -> Result<(), PayableDaoError> {
-        Ok(self.big_int_db_processor.upsert(
+        Ok(self.big_int_sql_processor.upsert(
             self.conn.as_ref(),
-            BigIntProcessorConfig::default()
+            BigIntSqlConfig::default()
                       .main_sql("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet, :balance, :last_paid_timestamp, null)") //"update payable set balance = :updated_balance where wallet_address = :wallet",
                       .params(SQLParamsBuilder::default()
-                                  .key_holder(KeyHolder::new(wallet, "wallet_address", ":wallet")).wei_change(  WeiChange::new_addition(amount,"balance")).other(
-                              vec![(":last_paid_timestamp",&to_time_t(timestamp))]).build()))?)
+                          .key("wallet_address", ":wallet",wallet)
+                          .wei_change( Addition("balance",amount))
+                          .other(vec![(":last_paid_timestamp",&to_time_t(timestamp))])
+                          .build()
+                      ))?
+        )
     }
 
     fn mark_pending_payable_rowid(
@@ -153,13 +158,15 @@ impl PayableDao for PayableDaoReal {
     ) -> Result<(), PayableDaoError> {
         let key =
             checked_conversion::<u64, i64>(fingerprint.rowid_opt.expectv("initialized rowid"));
-        Ok(self.big_int_db_processor.update(Either::Left(self.conn.as_ref()),
-                                            BigIntProcessorConfig::default()
-                                              .main_sql("update payable set balance = :updated_balance, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid")
-                                              .params(SQLParamsBuilder::default()
-                                                          .key_holder(KeyHolder::new(&key, "pending_payable_rowid", ":rowid"))
-                                                          .wei_change(WeiChange::new_subtraction(fingerprint.amount, "amount"))
-                                                          .other(vec![(":last_paid", &to_time_t(fingerprint.timestamp))]).build()))?)
+        Ok(self
+            .big_int_sql_processor
+            .update(Either::Left(self.conn.as_ref()), BigIntSqlConfig::default()
+                .main_sql("update payable set balance = :updated_balance, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid")
+                .params(SQLParamsBuilder::default()
+                    .key( "pending_payable_rowid", ":rowid",&key)
+                    .wei_change(Subtraction("amount",fingerprint.amount))
+                    .other(vec![(":last_paid", &to_time_t(fingerprint.timestamp))])
+                    .build()))?)
     }
 
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
@@ -272,7 +279,7 @@ impl PayableDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> PayableDaoReal {
         PayableDaoReal {
             conn,
-            big_int_db_processor: Box::new(BigIntDbProcessorReal::new()),
+            big_int_sql_processor: Box::new(BigIntDbProcessorReal::new()),
         }
     }
 
@@ -1215,7 +1222,7 @@ mod tests {
         let conn = ConnectionWrapperMock::new();
         let conn_id_stamp = conn.set_arbitrary_id_stamp();
         let mut subject = PayableDaoReal::new(Box::new(conn));
-        subject.big_int_db_processor = Box::new(insert_update_core);
+        subject.big_int_sql_processor = Box::new(insert_update_core);
         let now = SystemTime::now();
 
         let result = subject.more_money_payable(now, &wallet, amount);
@@ -1254,7 +1261,7 @@ mod tests {
             .update_params(&update_params_arc)
             .update_result(Ok(()));
         let mut subject = PayableDaoReal::new(Box::new(wrapped_conn));
-        subject.big_int_db_processor = Box::new(insert_update_core);
+        subject.big_int_sql_processor = Box::new(insert_update_core);
 
         let result = subject.transaction_confirmed(&fingerprint);
 

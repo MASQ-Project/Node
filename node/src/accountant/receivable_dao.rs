@@ -1,7 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::big_int_db_processor::{
-    collect_and_sum_i128_values_from_table, BigIntDbProcessor, BigIntDbProcessorReal,
-    BigIntDivider, BigIntProcessorConfig, DAOTableIdentifier, KeyHolder, SQLParams,
+    collect_and_sum_i128_values_from_table, BigIntDbProcessorReal, BigIntDivider,
+    BigIntSQLProcessor, BigIntSqlConfig, DAOTableIdentifier, KeyHolder, SQLParams,
     SQLParamsBuilder, WeiChange,
 };
 use crate::accountant::dao_utils;
@@ -97,7 +98,7 @@ impl ReceivableDaoFactory for DaoFactoryReal {
 #[derive(Debug)]
 pub struct ReceivableDaoReal {
     conn: Box<dyn ConnectionWrapper>,
-    big_int_db_processor: Box<dyn BigIntDbProcessor<Self>>,
+    big_int_sql_processor: Box<dyn BigIntSQLProcessor<Self>>,
     logger: Logger,
 }
 
@@ -108,12 +109,12 @@ impl ReceivableDao for ReceivableDaoReal {
         wallet: &Wallet,
         amount: u128,
     ) -> Result<(), ReceivableDaoError> {
-        Ok(self.big_int_db_processor.upsert(&*self.conn, BigIntProcessorConfig::default()
+        Ok(self.big_int_sql_processor.upsert(&*self.conn, BigIntSqlConfig::default()
             .main_sql("insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (:wallet, :balance, :last_received_timestamp)") //"update receivable set balance = :updated_balance where wallet_address = :wallet"
             .params(SQLParamsBuilder::default()
                         .other(vec![(":last_received_timestamp",&to_time_t(timestamp))])
-                        .key_holder(KeyHolder::new(wallet, ":wallet","wallet_address"))
-                        .wei_change(WeiChange::new_addition(amount, "balance")).build(),
+                        .key( ":wallet", "wallet_address",wallet)
+                        .wei_change(Addition("balance",amount)).build(),
         ))?)
     }
 
@@ -230,7 +231,7 @@ impl ReceivableDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> ReceivableDaoReal {
         ReceivableDaoReal {
             conn,
-            big_int_db_processor: Box::new(BigIntDbProcessorReal::new()),
+            big_int_sql_processor: Box::new(BigIntDbProcessorReal::new()),
             logger: Logger::new("ReceivableDaoReal"),
         }
     }
@@ -343,12 +344,14 @@ impl ReceivableDaoReal {
         let xactn = self.conn.transaction()?;
         {
             for transaction in payments {
-                self.big_int_db_processor.update(Either::Right(&xactn), BigIntProcessorConfig::default()
+                self.big_int_sql_processor.update(Either::Right(&xactn), BigIntSqlConfig::default()
                     .main_sql("update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet")
                     .params(SQLParamsBuilder::default()
-                                .key_holder(KeyHolder::new(&transaction.from, "wallet_address", ":wallet"))
-                                .wei_change(WeiChange::polite_new_subtraction(transaction.wei_amount, "balance").map_err(|e|ReceivableDaoError::SignConversion(SignConversionError::Msg(e)))?)
-                                .other(vec![(":last_received", &to_time_t(timestamp))]).build()))?
+                                .key( "wallet_address", ":wallet",&transaction.from)
+                                .wei_change(Subtraction("balance",transaction.wei_amount))
+                                .other(vec![(":last_received", &to_time_t(timestamp))])
+                                .build()
+                    ))?
             }
         }
         match xactn.commit() {
@@ -1624,7 +1627,7 @@ mod tests {
         let conn = ConnectionWrapperMock::new();
         let conn_id_stamp = conn.set_arbitrary_id_stamp();
         let mut subject = ReceivableDaoReal::new(Box::new(conn));
-        subject.big_int_db_processor = Box::new(insert_update_core);
+        subject.big_int_sql_processor = Box::new(insert_update_core);
         let now = SystemTime::now();
 
         let result = subject.more_money_receivable(now, &wallet, amount);
@@ -1662,7 +1665,7 @@ mod tests {
             .update_params(&insert_or_update_params_arc)
             .update_result(Err(BigIntDbError("SomethingWrong".to_string())));
         let mut subject = ReceivableDaoReal::new(conn);
-        subject.big_int_db_processor = Box::new(insert_update_core);
+        subject.big_int_sql_processor = Box::new(insert_update_core);
         let payments = vec![
             BlockchainTransaction {
                 block_number: 42u64,

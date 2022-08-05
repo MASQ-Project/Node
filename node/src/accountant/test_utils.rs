@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::accountant::big_int_db_processor::{
-    BigIntDbError, BigIntDbProcessor, BigIntProcessorConfig, Configuration, DAOTableIdentifier,
+    BigIntDbError, BigIntSQLProcessor, BigIntSqlConfig, Configuration, DAOTableIdentifier,
 };
 use crate::accountant::dao_utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payable_dao::{
@@ -853,11 +853,13 @@ pub struct InsertUpdateCoreMock {
     upsert_results: RefCell<Vec<Result<(), BigIntDbError>>>,
 }
 
-impl<T: DAOTableIdentifier + 'static + Debug + Send> BigIntDbProcessor<T> for InsertUpdateCoreMock {
+impl<T: DAOTableIdentifier + 'static + Debug + Send> BigIntSQLProcessor<T>
+    for InsertUpdateCoreMock
+{
     fn update<'a>(
         &self,
         conn: Either<&dyn ConnectionWrapper, &RusqliteTransaction>,
-        config: BigIntProcessorConfig<'a, T>,
+        config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
         let owned_params: Vec<(String, String)> = config
             .params
@@ -883,7 +885,7 @@ impl<T: DAOTableIdentifier + 'static + Debug + Send> BigIntDbProcessor<T> for In
     fn upsert<'a>(
         &self,
         conn: &dyn ConnectionWrapper,
-        config: BigIntProcessorConfig<'a, T>,
+        config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
         let owned_params: Vec<(String, String)> = config
             .params

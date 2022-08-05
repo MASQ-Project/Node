@@ -9,25 +9,27 @@ use itertools::{chain, Either};
 use masq_lib::utils::ExpectValue;
 use rusqlite::types::ToSqlOutput;
 use rusqlite::ErrorCode::ConstraintViolation;
-use rusqlite::{Error, Row, Statement, ToSql, Transaction};
+use rusqlite::{Error, Statement, ToSql, Transaction};
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
 use std::marker::PhantomData;
 use std::ops::Neg;
+use crate::accountant::big_int_db_processor::ByteOrder::{High, Low};
+use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 
 //TODO it doesn't have to be connected anymore...update and insert_update configs can stand separately
-pub trait BigIntDbProcessor<T: 'static + DAOTableIdentifier>:
+pub trait BigIntSQLProcessor<T: 'static + DAOTableIdentifier>:
     Configuration<T> + Send + Debug
 {
     fn update<'a>(
         &self,
         conn: Either<&dyn ConnectionWrapper, &Transaction>,
-        config: BigIntProcessorConfig<'a, T>,
+        config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError>;
     fn upsert<'a>(
         &self,
         conn: &dyn ConnectionWrapper,
-        config: BigIntProcessorConfig<'a, T>,
+        config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError>;
 }
 
@@ -36,13 +38,13 @@ pub struct BigIntDbProcessorReal<T: Debug + DAOTableIdentifier + Send + 'static>
     phantom: PhantomData<T>,
 }
 
-impl<T: DAOTableIdentifier + Debug + Send + 'static> BigIntDbProcessor<T>
+impl<T: DAOTableIdentifier + Debug + Send + 'static> BigIntSQLProcessor<T>
     for BigIntDbProcessorReal<T>
 {
     fn update<'a>(
         &self,
         form_of_conn: Either<&dyn ConnectionWrapper, &Transaction>,
-        config: BigIntProcessorConfig<'a, T>,
+        config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
         todo!()
         // let params = config.update_params();
@@ -79,7 +81,7 @@ impl<T: DAOTableIdentifier + Debug + Send + 'static> BigIntDbProcessor<T>
     fn upsert<'a>(
         &self,
         conn: &dyn ConnectionWrapper,
-        config: BigIntProcessorConfig<'a, T>,
+        config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
         let mut stm = conn
             .prepare(config.main_sql)
@@ -159,30 +161,27 @@ impl<T: Debug + DAOTableIdentifier + Send> BigIntDbProcessorReal<T> {
     }
 }
 
-pub struct BigIntProcessorConfig<'a, T> {
+pub struct BigIntSqlConfig<'a, T> {
     main_sql: &'a str,
     pub params: SQLParams<'a>,
     phantom: PhantomData<T>,
 }
 
 //there was an inherit issue with the derive style
-impl<'a, T> Default for BigIntProcessorConfig<'a, T> {
+impl<'a, T> Default for BigIntSqlConfig<'a, T> {
     fn default() -> Self {
         Self {
-            main_sql: "",
-            params: Default::default(),
-            phantom: Default::default(),
-        }
+            ..Default::default()}
     }
 }
 
-impl<'a, T: DAOTableIdentifier> BigIntProcessorConfig<'a, T> {
-    pub fn main_sql(mut self, sql: &'a str) -> BigIntProcessorConfig<'a, T> {
+impl<'a, T: DAOTableIdentifier> BigIntSqlConfig<'a, T> {
+    pub fn main_sql(mut self, sql: &'a str) -> BigIntSqlConfig<'a, T> {
         self.main_sql = sql;
         self
     }
 
-    pub fn params(mut self, params: SQLParams<'a>) -> BigIntProcessorConfig<'a, T> {
+    pub fn params(mut self, params: SQLParams<'a>) -> BigIntSqlConfig<'a, T> {
         self.params = params;
         self
     }
@@ -202,7 +201,7 @@ impl<'a, T: DAOTableIdentifier> BigIntProcessorConfig<'a, T> {
             self.main_sql.to_string(),
             self.select_sql(
                 &self.params.table_key_name,
-                &self.params.substitution_key_name,
+                &self.params.params[0].0,
             ),
         )
     }
@@ -217,6 +216,7 @@ pub trait ExtendedParamsMarker: ToSql + Display {
     }
 }
 
+//TODO delete this
 macro_rules! blank_impl_of_extended_params_marker{
     ($($implementer: ty),+) => {
         $(impl ExtendedParamsMarker for $implementer {})+
@@ -233,37 +233,81 @@ impl ExtendedParamsMarker for KeyHolder<'_> {
 
 #[derive(Default)]
 pub struct SQLParamsBuilder<'a> {
-    key_spec: Option<KeyHolder<'a>>,
-    wei_change_spec: Option<WeiChange>,
+    key_spec_opt: Option<(&'a str, &'a str, &'a dyn ExtendedParamsMarker)>,
+    wei_change_spec_opt: Option<WeiChange>,
     other_params: Vec<(&'a str, &'a dyn ExtendedParamsMarker)>,
 }
 
 impl<'a> SQLParamsBuilder<'a> {
-    pub fn key_holder(mut self, holder: KeyHolder) -> Self {
-        todo!()
+    pub fn key(
+        mut self,
+        table_param_name: &'a str,
+        substitution_name: &'a str,
+        value: &'a dyn ExtendedParamsMarker,
+    ) -> Self {
+        self.key_spec_opt = Some((table_param_name, substitution_name, value));
+        self
     }
 
     pub fn wei_change(mut self, wei_change: WeiChange) -> Self {
-        todo!()
-        //Self(Self::expand_wei_representation(params))
+        self.wei_change_spec_opt = Some(wei_change);
+        self
     }
 
     pub fn other(
         mut self,
         mut params: Vec<(&'a str, &'a (dyn ExtendedParamsMarker + 'a))>,
     ) -> Self {
-        todo!()
+        self.other_params = params;
+        self
     }
 
     pub fn build(mut self) -> SQLParams<'a> {
+        let key_spec = self.key_spec_opt.unwrap_or_else(|| todo!());
+        let wei_change_spec = self.wei_change_spec_opt.unwrap_or_else(|| todo!());
+        let (wei_change_names, split_bytes) = Self::expand_wei_params(wei_change_spec);
+        let wei_params = Self::generate_final_wei_params((&wei_change_names.0,&wei_change_names.1),split_bytes);
+        let params = once((key_spec.1, key_spec.2))
+            .chain(wei_params.into_iter())
+            .chain(self.other_params.into_iter())
+            .collect();
+        SQLParams {
+            table_key_name: key_spec.0,
+            wei_change_names,
+            params,
+        }
+    }
+
+    fn generate_final_wei_params(param_names: (&str,&str), bytes: (i64,i64))->Vec<(&'a str, &'a (dyn ExtendedParamsMarker + 'a))>{
+        todo!()
+    }
+
+    fn expand_wei_params(
+        wei_change_spec: WeiChange,
+    ) -> ((String,String),(i64,i64)) {
+        let (name, num) : (&'static str, i128)= match wei_change_spec{
+            Addition(name, num) => (name,checked_conversion::<u128,i128>(num)),
+            Subtraction(name,num) => todo!()
+        };
+        let (high_bytes, low_bytes) = BigIntDivider::deconstruct(num);
+        let param_sub_name_for_high_bytes = Self::proper_wei_change_param_name(name,High,true);
+        let param_sub_name_for_low_bytes = Self::proper_wei_change_param_name(name,Low,true);
+        ((param_sub_name_for_high_bytes,param_sub_name_for_low_bytes),(high_bytes, low_bytes))
+    }
+
+    fn proper_wei_change_param_name(base_word: &str, byte_order: ByteOrder, as_substitution: bool) -> String {
         todo!()
     }
 }
 
+enum ByteOrder {
+    High,
+    Low,
+}
+
 pub struct SQLParams<'a> {
     table_key_name: &'a str,
-    substitution_key_name: &'a str,
-    wei_change_name: &'a str,
+    wei_change_names:(String,String),
     params: Vec<(&'a str, &'a dyn ExtendedParamsMarker)>,
 }
 
@@ -328,12 +372,6 @@ impl<'a> SQLParams<'a> {
     //         _ => panic!("only one key parameter is allowed"),
     //     }
     // }
-
-    fn expand_wei_representation(
-        init_params: Vec<(&'a str, &'a dyn ExtendedParamsMarker)>,
-    ) -> Vec<(&'a str, &'a dyn ExtendedParamsMarker)> {
-        todo!()
-    }
 }
 
 pub trait Configuration<T: DAOTableIdentifier> {}
@@ -342,42 +380,44 @@ pub trait DAOTableIdentifier {
     fn table_name() -> String;
 }
 
-#[derive(PartialEq, Debug)]
-pub struct WeiChange {
-    change: i128,
-    param_name: &'static str,
+//TODO finalize this idea
+#[derive(Debug, PartialEq)]
+pub enum WeiChange {
+    Addition(&'static str, u128),
+    Subtraction(&'static str, u128),
 }
 
-impl WeiChange {
-    pub fn new_addition(abs_change: u128, param_name: &'static str) -> Self {
-        Self {
-            change: checked_conversion::<u128, i128>(abs_change),
-            param_name,
-        }
-    }
-    pub fn new_subtraction(abs_change: u128, param_name: &'static str) -> Self {
-        Self {
-            change: checked_conversion::<u128, i128>(abs_change).neg(),
-            param_name,
-        }
-    }
-
-    pub fn polite_new_subtraction(
-        abs_change: u128,
-        param_name: &'static str,
-    ) -> Result<Self, String> {
-        Ok(Self {
-            change: politely_checked_conversion::<u128, i128>(abs_change).map(|num| num.neg())?,
-            param_name,
-        })
-    }
-}
-
-impl Display for WeiChange {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.change)
-    }
-}
+//
+// #[derive(PartialEq, Debug)]
+// pub struct WeiChange {
+//     change: i128,
+//     param_name: &'static str,
+// }
+//
+// impl WeiChange {
+//     pub fn new_addition(abs_change: u128, param_name: &'static str) -> Self {
+//         Self {
+//             change: checked_conversion::<u128, i128>(abs_change),
+//             param_name,
+//         }
+//     }
+//     pub fn new_subtraction(abs_change: u128, param_name: &'static str) -> Self {
+//         Self {
+//             change: checked_conversion::<u128, i128>(abs_change).neg(),
+//             param_name,
+//         }
+//     }
+//
+//     pub fn polite_new_subtraction(
+//         abs_change: u128,
+//         param_name: &'static str,
+//     ) -> Result<Self, String> {
+//         Ok(Self {
+//             change: politely_checked_conversion::<u128, i128>(abs_change).map(|num| num.neg())?,
+//             param_name,
+//         })
+//     }
+// }
 
 pub struct KeyHolder<'a> {
     key_param: (&'a str, &'a dyn ExtendedParamsMarker),
@@ -498,6 +538,7 @@ impl BigIntDivider {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::big_int_db_processor::WeiChange::Addition;
     use crate::accountant::payable_dao::PayableDaoReal;
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
@@ -693,96 +734,122 @@ mod tests {
         )
     }
 
-    #[test]
-    fn constructor_for_balance_change_works_for_addition() {
-        let addition = WeiChange::new_addition(50, "balance");
+    // #[test]
+    // fn display_for_balance_change_works() {
+    //     let subtraction = WeiChange::new_subtraction(100, "balance");
+    //     let addition = WeiChange::new_addition(50, "balance");
+    //
+    //     assert_eq!(subtraction.to_string(), "-100".to_string());
+    //     assert_eq!(addition.to_string(), "50".to_string())
+    // }
+    //
+    // #[test]
+    // fn display_for_key_param_holder_works() {
+    //     let wallet = make_wallet("booga");
+    //     let key_holder_with_wallet = KeyHolder::new(&wallet, "wallet_address", ":wallet");
+    //     let rowid = 56_i64;
+    //     let key_holder_with_rowid = KeyHolder::new(&rowid, "pending_payable_rowid", ":rowid");
+    //
+    //     assert_eq!(key_holder_with_wallet.to_string(), wallet.to_string());
+    //     assert_eq!(key_holder_with_rowid.to_string(), rowid.to_string())
+    // }
+    //
+    // #[test]
+    // fn to_sql_for_param_key_holder_works() {
+    //     let value_1 = make_wallet("boooga");
+    //     let value_2 = 235_i64;
+    //     let key_holder_1 = KeyHolder::new(&value_1, "random_wallet", ":wallet");
+    //     let key_holder_2 = KeyHolder::new(&value_2, "random_parameter", ":parameter");
+    //
+    //     let result_1 = key_holder_1.to_sql();
+    //     let result_2 = key_holder_2.to_sql();
+    //
+    //     assert_eq!(result_1, value_1.to_sql());
+    //     assert_eq!(result_2, value_2.to_sql())
+    // }
+    //
+    // #[test]
+    // fn get_key_for_non_key_params_is_always_none() {
+    //     assert_eq!("blah".key_name_opt().is_none(), true);
+    //     assert_eq!(make_wallet("some wallet").key_name_opt().is_none(), true);
+    //     assert_eq!(56_i64.key_name_opt().is_none(), true)
+    // }
+    //
+    // #[test]
+    // fn getter_for_key_param_holder_returns_something_reasonable() {
+    //     //notice that i64 alone returns None but inside this holder it is Some()...
+    //     let key_object = KeyHolder::new(&8989_i64, "balance", ":balance").key_name_opt();
+    //
+    //     let in_table_param_name = key_object.unwrap();
+    //     assert_eq!(in_table_param_name, "balance".to_string());
+    // }
 
-        assert_eq!(
-            addition,
-            WeiChange {
-                change: 50_i128,
-                param_name: "balance"
-            }
-        );
+    #[test]
+    fn sql_params_builder_is_nicely_populated_inside_before_calling_build() {
+        let subject = SQLParamsBuilder::default();
+
+        let result = subject
+            .wei_change(Addition("balance", 4546))
+            .key("some_key", ":some_key", &"blah")
+            .other(vec![("other_thing", &46565)]);
+
+        assert_eq!(result.wei_change_spec_opt, Some(Addition("balance", 4546)));
+        assert!(matches!(
+            result.key_spec_opt,
+            Some(("some_key", ":some_key", _))
+        ));
+        assert!(matches!(result.other_params[0], ("other_thing", _)));
+        assert_eq!(result.other_params.len(), 1)
     }
 
     #[test]
-    fn constructor_for_balance_change_works_for_subtraction() {
-        let subtraction = WeiChange::new_subtraction(i128::MIN as u128 - 1, "amount");
+    fn sql_params_builder_builds_correct_params() {
+        let subject = SQLParamsBuilder::default();
 
-        assert_eq!(
-            subtraction,
-            WeiChange {
-                change: i128::MIN + 1,
-                param_name: "amount"
-            }
-        )
+        let result = subject
+            .wei_change(Addition("balance", 4546))
+            .key("some_key", ":some_key", &"blah")
+            .other(vec![("other_thing", &46565)])
+            .build();
+
+        assert_eq!(result.table_key_name, "some_key");
+        assert_eq!(result.wei_change_names, (":balance_high_bytes".to_string(),":balance_low_bytes".to_string()));
+        assert_eq!(result.params[0].0, "wallet");
+        assert_eq!(result.params[1].0, "balance_high_b");
+        assert_eq!(result.params[2].0, "balance_low_b");
+        assert_eq!(result.params.len(), 4)
     }
 
     #[test]
-    #[should_panic(
-        expected = "Overflow detected with 170141183460469231731687303715884105728: cannot be converted from u128 to i128"
-    )]
-    fn balance_change_constructor_blows_up_on_overflow_in_addition() {
-        let _ = WeiChange::new_addition(i128::MAX as u128 + 1, "balance");
+    #[should_panic(expected = "blaaah")]
+    fn sql_params_builder_cannot_be_built_without_key_spec() {
+        let subject = SQLParamsBuilder::default();
+
+        let _ = subject
+            .wei_change(Addition("balance", 4546))
+            .other(vec![("laughter", &"hahaha")])
+            .build();
     }
 
     #[test]
-    #[should_panic(
-        expected = "Overflow detected with 170141183460469231731687303715884105728: cannot be converted from u128 to i128"
-    )]
-    fn balance_change_constructor_blows_up_on_overflow_in_subtraction() {
-        let _ = WeiChange::new_subtraction(i128::MIN as u128, "balance");
+    #[should_panic(expected = "blaaah")]
+    fn sql_params_builder_cannot_be_built_without_wei_change_spec() {
+        let subject = SQLParamsBuilder::default();
+
+        let _ = subject
+            .key("wallet", ":wallet", &make_wallet("wallet"))
+            .other(vec![("other_thing", &46565)])
+            .build();
     }
 
     #[test]
-    fn display_for_balance_change_works() {
-        let subtraction = WeiChange::new_subtraction(100, "balance");
-        let addition = WeiChange::new_addition(50, "balance");
+    fn sql_params_builder_can_be_built_without_wei_change_spec() {
+        let subject = SQLParamsBuilder::default();
 
-        assert_eq!(subtraction.to_string(), "-100".to_string());
-        assert_eq!(addition.to_string(), "50".to_string())
-    }
-
-    #[test]
-    fn display_for_key_param_holder_works() {
-        let wallet = make_wallet("booga");
-        let key_holder_with_wallet = KeyHolder::new(&wallet, "wallet_address", ":wallet");
-        let rowid = 56_i64;
-        let key_holder_with_rowid = KeyHolder::new(&rowid, "pending_payable_rowid", ":rowid");
-
-        assert_eq!(key_holder_with_wallet.to_string(), wallet.to_string());
-        assert_eq!(key_holder_with_rowid.to_string(), rowid.to_string())
-    }
-
-    #[test]
-    fn to_sql_for_param_key_holder_works() {
-        let value_1 = make_wallet("boooga");
-        let value_2 = 235_i64;
-        let key_holder_1 = KeyHolder::new(&value_1, "random_wallet", ":wallet");
-        let key_holder_2 = KeyHolder::new(&value_2, "random_parameter", ":parameter");
-
-        let result_1 = key_holder_1.to_sql();
-        let result_2 = key_holder_2.to_sql();
-
-        assert_eq!(result_1, value_1.to_sql());
-        assert_eq!(result_2, value_2.to_sql())
-    }
-
-    #[test]
-    fn get_key_for_non_key_params_is_always_none() {
-        assert_eq!("blah".key_name_opt().is_none(), true);
-        assert_eq!(make_wallet("some wallet").key_name_opt().is_none(), true);
-        assert_eq!(56_i64.key_name_opt().is_none(), true)
-    }
-
-    #[test]
-    fn getter_for_key_param_holder_returns_something_reasonable() {
-        //notice that i64 alone returns None but inside this holder it is Some()...
-        let key_object = KeyHolder::new(&8989_i64, "balance", ":balance").key_name_opt();
-
-        let in_table_param_name = key_object.unwrap();
-        assert_eq!(in_table_param_name, "balance".to_string());
+        let _ = subject
+            .wei_change(Addition("balance", 4546))
+            .key("id", ":id", &45)
+            .build();
     }
 
     #[test]
@@ -820,7 +887,6 @@ mod tests {
     #[test]
     fn update_handles_error_on_a_row_due_to_unfitting_data_types() {
         let wallet_address = "a11122";
-        let wallet_as_key = KeyHolder::new(&wallet_address, "wallet_address", ":wallet");
         let path = ensure_node_home_directory_exists(
             "blob_utils",
             "update_handles_error_on_a_row_due_to_unfitting_data_types",
@@ -837,11 +903,11 @@ mod tests {
         };
         let mut stm = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet,:balance,:last_time_stamp,:pending_payable_rowid)").unwrap();
         stm.execute(params).unwrap();
-        let balance_change = WeiChange::new_addition(100, "balance");
+        let balance_change = Addition("balance", 100);
         let last_received_time_stamp_sec = 123_i64;
-        let update_config = BigIntProcessorConfig::default().main_sql("update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet")
+        let update_config = BigIntSqlConfig::default().main_sql("update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet")
             .params(SQLParamsBuilder::default().other(vec![(":last_received", &last_received_time_stamp_sec)])
-                .key_holder(wallet_as_key).wei_change(balance_change).build());
+                .key( "wallet_address", ":wallet",&wallet_address).wei_change(balance_change).build());
 
         let result = BigIntDbProcessorReal::<PayableDaoReal>::new()
             .update(Either::Left(conn_ref), update_config);
@@ -852,7 +918,6 @@ mod tests {
     #[test]
     fn update_handles_error_of_bad_sql_params() {
         let wallet_address = "a11122";
-        let wallet_as_key = KeyHolder::new(&wallet_address, "wallet_address", ":wallet");
         let path = ensure_node_home_directory_exists(
             "blob_utils",
             "update_handles_error_of_bad_sql_params",
@@ -863,13 +928,13 @@ mod tests {
         let conn_ref = conn.as_ref();
         let mut stm = conn_ref.prepare("insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid) values (?,?,?,strftime('%s','now'),null)").unwrap();
         stm.execute(params![wallet_address, 12, 45245]).unwrap();
-        let balance_change = WeiChange::new_addition(100, "balance");
+        let balance_change = Addition("balance", 100);
         let last_received_time_stamp_sec = 123_i64;
-        let update_config = BigIntProcessorConfig::default().main_sql("update receivable set balance = ?, last_received_timestamp = ? where wallet_address = ?")
+        let update_config = BigIntSqlConfig::default().main_sql("update receivable set balance = ?, last_received_timestamp = ? where wallet_address = ?")
             .params(SQLParamsBuilder::default()
                         .other(vec![(":woodstock", &wallet_address), (":hendrix", &last_received_time_stamp_sec)])
                         .wei_change(balance_change) //:balance
-                .key_holder(wallet_as_key).build());
+                .key( "wallet_address", ":wallet",&wallet_address).build());
 
         let result = BigIntDbProcessorReal::<PayableDaoReal>::new()
             .update(Either::Left(conn_ref), update_config);
@@ -886,15 +951,14 @@ mod tests {
             .initialize(&path, true, MigratorConfig::test_default())
             .unwrap();
         let conn_ref = conn.as_ref();
-        let key_holder = KeyHolder::new(&wallet_address, "wallet_address", ":wallet_address");
-        let balance_change = WeiChange::new_addition(100, "balance");
-        let update_config = BigIntProcessorConfig::default()
+        let balance_change = Addition("balance", 100);
+        let update_config = BigIntSqlConfig::default()
             .main_sql(
                 "update payable set balance = :balance where wallet_address = :wallet_address",
             )
             .params(
                 SQLParamsBuilder::default()
-                    .key_holder(key_holder)
+                    .key("wallet_address", ":wallet_address", &wallet_address)
                     .wei_change(balance_change)
                     .build(),
             );
@@ -936,12 +1000,12 @@ mod tests {
             false,
         );
         let subject = BigIntDbProcessorReal::<DummyDao>::new();
-        let config = BigIntProcessorConfig::default()
+        let config = BigIntSqlConfig::default()
             .main_sql("insert into test_table (name,balance) values (:name,:balance)")
             .params(
                 SQLParamsBuilder::default()
-                    .key_holder(KeyHolder::new(&"Joe", "name", ":name"))
-                    .wei_change(WeiChange::new_addition(255, "balance"))
+                    .key("name", ":name", &"Joe")
+                    .wei_change(Addition("balance", 255))
                     .build(),
             );
 
@@ -968,11 +1032,10 @@ mod tests {
         .execute(&[&60, &5555])
         .unwrap();
         let subject = BigIntDbProcessorReal::<DummyDao>::new();
-        let key_holder = KeyHolder::new(&"Joe", "name", ":name");
-        let balance_change = WeiChange::new_addition(5555, "amount");
-        let config = BigIntProcessorConfig::default()
+        let balance_change = Addition("amount", 5555);
+        let config = BigIntSqlConfig::default()
             .main_sql("insert into test_table (name,balance) values (:name,:balance) on conflict (name) do update set balance = balance + :balance where name = :name")
-            .params(SQLParamsBuilder::default().key_holder(key_holder).wei_change(balance_change).build());
+            .params(SQLParamsBuilder::default().key("name", ":name",&"Joe").wei_change(balance_change).build());
 
         let result = subject.upsert(conn.as_ref(), config);
 
@@ -1001,13 +1064,12 @@ mod tests {
             .execute(&[&60_i64])
             .unwrap();
         let subject = BigIntDbProcessorReal::<DummyDao>::new();
-        let key_holder = KeyHolder::new(&"Joe", "name", ":name");
-        let balance_change = WeiChange::new_addition(5555, "balance");
-        let config = BigIntProcessorConfig::default()
+        let balance_change = Addition("balance", 5555);
+        let config = BigIntSqlConfig::default()
             .main_sql("insert into test_table (name,balance) values (:name,:balance)") //"update test_table set balance = :updated_balance where name = :name"
             .params(
                 SQLParamsBuilder::default()
-                    .key_holder(key_holder)
+                    .key("name", ":name", &"Joe")
                     .wei_change(balance_change)
                     .build(),
             );
@@ -1032,13 +1094,12 @@ mod tests {
             false,
         );
         let subject = BigIntDbProcessorReal::<DummyDao>::new();
-        let key_holder = KeyHolder::new(&"Joe", "name", ":name");
-        let balance_change = WeiChange::new_addition(5555, "balance");
-        let config = BigIntProcessorConfig::default()
+        let balance_change = Addition("balance", 5555);
+        let config = BigIntSqlConfig::default()
             .main_sql("insert into test_table (name,balance) values (:name,:balance)")
             .params(
                 SQLParamsBuilder::default()
-                    .key_holder(key_holder)
+                    .key("name", ":name", &"Joe")
                     .wei_change(balance_change)
                     .build(),
             );
@@ -1063,13 +1124,12 @@ mod tests {
             true,
         );
         let subject = BigIntDbProcessorReal::<DummyDao>::new();
-        let key_holder = KeyHolder::new(&"Joe", "name", ":name");
-        let balance_change = WeiChange::new_addition(5555, "balance");
-        let config = BigIntProcessorConfig::default()
+        let balance_change = Addition("balance", 5555);
+        let config = BigIntSqlConfig::default()
             .main_sql("insert into test_table (name,balance) values (:name,:balance)")
             .params(
                 SQLParamsBuilder::default()
-                    .key_holder(key_holder)
+                    .key("name", ":name", &"Joe")
                     .wei_change(balance_change)
                     .build(),
             );
