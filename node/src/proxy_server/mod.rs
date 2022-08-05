@@ -511,6 +511,7 @@ impl ProxyServer {
                     route_source
                         .send(RouteQueryMessage::data_indefinite_route_request(
                             minimum_hop_count,
+                            payload.sequenced_packet.data.len(),
                         ))
                         .then(move |route_result| {
                             match route_result {
@@ -1246,7 +1247,10 @@ mod tests {
         );
         let recording = neighborhood_recording_arc.lock().unwrap();
         let record = recording.get_record::<RouteQueryMessage>(0);
-        assert_eq!(record, &RouteQueryMessage::data_indefinite_route_request(0));
+        assert_eq!(
+            record,
+            &RouteQueryMessage::data_indefinite_route_request(0, 47)
+        );
         let recording = proxy_server_recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
     }
@@ -1362,7 +1366,7 @@ mod tests {
         let neighborhood_record = neighborhood_recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             neighborhood_record,
-            &RouteQueryMessage::data_indefinite_route_request(0)
+            &RouteQueryMessage::data_indefinite_route_request(0, 12)
         );
     }
 
@@ -1758,7 +1762,8 @@ mod tests {
                 target_key_opt: None,
                 target_component: Component::ProxyClient,
                 minimum_hop_count: 0,
-                return_component_opt: Some(Component::ProxyServer)
+                return_component_opt: Some(Component::ProxyServer),
+                payload_size: 47,
             }
         );
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
@@ -1837,7 +1842,8 @@ mod tests {
                 target_key_opt: None,
                 target_component: Component::ProxyClient,
                 minimum_hop_count: 0,
-                return_component_opt: Some(Component::ProxyServer)
+                return_component_opt: Some(Component::ProxyServer),
+                payload_size: 16
             }
         );
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
@@ -2133,7 +2139,10 @@ mod tests {
         assert_eq!(record, &expected_pkg);
         let recording = neighborhood_recording_arc.lock().unwrap();
         let record = recording.get_record::<RouteQueryMessage>(0);
-        assert_eq!(record, &RouteQueryMessage::data_indefinite_route_request(3));
+        assert_eq!(
+            record,
+            &RouteQueryMessage::data_indefinite_route_request(3, 47)
+        );
     }
 
     #[test]
@@ -2711,7 +2720,10 @@ mod tests {
         assert_eq!(record, &expected_msg);
         let recording = neighborhood_recording_arc.lock().unwrap();
         let record = recording.get_record::<RouteQueryMessage>(0);
-        assert_eq!(record, &RouteQueryMessage::data_indefinite_route_request(3));
+        assert_eq!(
+            record,
+            &RouteQueryMessage::data_indefinite_route_request(3, 47)
+        );
         TestLogHandler::new()
             .exists_log_containing("ERROR: ProxyServer: Failed to find route to nowhere.com");
     }
@@ -2844,7 +2856,10 @@ mod tests {
         assert_eq!(record, &expected_msg);
         let recording = neighborhood_recording_arc.lock().unwrap();
         let record = recording.get_record::<RouteQueryMessage>(0);
-        assert_eq!(record, &RouteQueryMessage::data_indefinite_route_request(3));
+        assert_eq!(
+            record,
+            &RouteQueryMessage::data_indefinite_route_request(3, 47)
+        );
         TestLogHandler::new()
             .exists_log_containing("ERROR: ProxyServer: Failed to find route to nowhere.com");
     }
