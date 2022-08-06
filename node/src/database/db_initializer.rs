@@ -1143,8 +1143,7 @@ mod tests {
             )
         );
         let mut migrate_database_params = migrate_database_params_arc.lock().unwrap();
-        let (mismatched_schema, target_version, _) =
-            migrate_database_params.remove(0);
+        let (mismatched_schema, target_version, _) = migrate_database_params.remove(0);
         assert_eq!(mismatched_schema, 0);
         assert_eq!(target_version, 5);
         TestLogHandler::new().exists_log_containing(
