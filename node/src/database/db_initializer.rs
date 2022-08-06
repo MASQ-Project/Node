@@ -1143,14 +1143,10 @@ mod tests {
             )
         );
         let mut migrate_database_params = migrate_database_params_arc.lock().unwrap();
-        let (mismatched_schema, target_version, connection_wrapper) =
+        let (mismatched_schema, target_version, _) =
             migrate_database_params.remove(0);
         assert_eq!(mismatched_schema, 0);
         assert_eq!(target_version, 5);
-        assert!(connection_wrapper
-            .as_any()
-            .downcast_ref::<ConnectionWrapperReal>()
-            .is_some());
         TestLogHandler::new().exists_log_containing(
             "WARN: DbInitializer: Database is incompatible and its updating is necessary",
         );
