@@ -861,12 +861,7 @@ impl<T: DAOTableIdentifier + 'static + Debug + Send> BigIntSQLProcessor<T>
         conn: Either<&dyn ConnectionWrapper, &RusqliteTransaction>,
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
-        let owned_params: Vec<(String, String)> = config
-            .params
-            .all_params_ref()
-            .iter()
-            .map(|(str, to_sql)| (str.to_string(), (to_sql as &dyn Display).to_string()))
-            .collect();
+        let owned_params = owned_params(&config);
         let (main, select) = config.capture_sqls();
         self.update_params.lock().unwrap().push((
             if let Either::Left(conn) = conn {
@@ -887,12 +882,7 @@ impl<T: DAOTableIdentifier + 'static + Debug + Send> BigIntSQLProcessor<T>
         conn: &dyn ConnectionWrapper,
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
-        let owned_params: Vec<(String, String)> = config
-            .params
-            .all_params_ref()
-            .iter()
-            .map(|(str, to_sql)| (str.to_string(), (to_sql as &dyn Display).to_string()))
-            .collect();
+        let owned_params = owned_params(&config);
         let (main, select) = config.capture_sqls();
         self.upsert_params.lock().unwrap().push((
             conn.arbitrary_id_stamp(),
@@ -903,6 +893,19 @@ impl<T: DAOTableIdentifier + 'static + Debug + Send> BigIntSQLProcessor<T>
         ));
         self.upsert_results.borrow_mut().remove(0)
     }
+}
+
+fn owned_params<T: DAOTableIdentifier + 'static + Debug + Send>(
+    config: &BigIntSqlConfig<T>,
+) -> Vec<(String, String)> {
+    config
+        .params_opt
+        .as_ref()
+        .unwrap()
+        .all_params_ref()
+        .iter()
+        .map(|(str, to_sql)| (str.to_string(), (to_sql as &dyn Display).to_string()))
+        .collect()
 }
 
 impl<T: DAOTableIdentifier + Debug + Send> Configuration<T> for InsertUpdateCoreMock {}
