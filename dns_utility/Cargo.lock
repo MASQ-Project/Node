@@ -420,7 +420,7 @@ dependencies = [
 
 [[package]]
 name = "dns_utility"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "core-foundation",
  "ipconfig 0.2.2",
@@ -824,7 +824,7 @@ dependencies = [
 
 [[package]]
 name = "masq_lib"
-version = "0.6.0"
+version = "0.6.1"
 dependencies = [
  "actix",
  "chrono",
