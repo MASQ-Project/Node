@@ -2,8 +2,8 @@
 use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::big_int_db_processor::{
     collect_and_sum_i128_values_from_table, BigIntDbProcessorReal, BigIntDivider,
-    BigIntSQLProcessor, BigIntSqlConfig, DAOTableIdentifier, KeyHolder, SQLParams,
-    SQLParamsBuilder, WeiChange,
+    BigIntSQLProcessor, BigIntSqlConfig, DAOTableIdentifier, SQLParams, SQLParamsBuilder,
+    WeiChange,
 };
 use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
@@ -109,9 +109,10 @@ impl ReceivableDao for ReceivableDaoReal {
         wallet: &Wallet,
         amount: u128,
     ) -> Result<(), ReceivableDaoError> {
-        Ok(self.big_int_sql_processor.upsert(&*self.conn, BigIntSqlConfig::default()
-            .main_sql("insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (:wallet, :balance, :last_received_timestamp)") //"update receivable set balance = :updated_balance where wallet_address = :wallet"
-            .params(SQLParamsBuilder::default()
+        Ok(self.big_int_sql_processor.execute(&*self.conn, BigIntSqlConfig::new(
+            "insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (:wallet, :balance, :last_received_timestamp)", //"update receivable set balance = :updated_balance where wallet_address = :wallet"
+            None,
+            SQLParamsBuilder::default()
                         .other(vec![(":last_received_timestamp",&to_time_t(timestamp))])
                         .key( ":wallet", "wallet_address",wallet)
                         .wei_change(Addition("balance",amount)).build(),
@@ -344,9 +345,10 @@ impl ReceivableDaoReal {
         let xactn = self.conn.transaction()?;
         {
             for transaction in payments {
-                self.big_int_sql_processor.update(Either::Right(&xactn), BigIntSqlConfig::default()
-                    .main_sql("update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet")
-                    .params(SQLParamsBuilder::default()
+                self.big_int_sql_processor.update_threatened_by_overflow(Either::Right(&xactn), BigIntSqlConfig::new(
+                    "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet",
+                    None,
+                    SQLParamsBuilder::default()
                                 .key( "wallet_address", ":wallet",&transaction.from)
                                 .wei_change(Subtraction("balance",transaction.wei_amount))
                                 .other(vec![(":last_received", &to_time_t(timestamp))])

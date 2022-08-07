@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::accountant::big_int_db_processor::{
-    BigIntDbError, BigIntSQLProcessor, BigIntSqlConfig, Configuration, DAOTableIdentifier,
+    BigIntDbError, BigIntSQLProcessor, BigIntSqlConfig, DAOTableIdentifier,
 };
 use crate::accountant::dao_utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payable_dao::{
@@ -856,7 +856,24 @@ pub struct InsertUpdateCoreMock {
 impl<T: DAOTableIdentifier + 'static + Debug + Send> BigIntSQLProcessor<T>
     for InsertUpdateCoreMock
 {
-    fn update<'a>(
+    fn execute<'a>(
+        &self,
+        conn: &dyn ConnectionWrapper,
+        config: BigIntSqlConfig<'a, T>,
+    ) -> Result<(), BigIntDbError> {
+        let owned_params = owned_params(&config);
+        let (main, select) = config.capture_sqls();
+        self.upsert_params.lock().unwrap().push((
+            conn.arbitrary_id_stamp(),
+            main,
+            select,
+            T::table_name(),
+            owned_params,
+        ));
+        self.upsert_results.borrow_mut().remove(0)
+    }
+
+    fn update_threatened_by_overflow<'a>(
         &self,
         conn: Either<&dyn ConnectionWrapper, &RusqliteTransaction>,
         config: BigIntSqlConfig<'a, T>,
@@ -876,39 +893,21 @@ impl<T: DAOTableIdentifier + 'static + Debug + Send> BigIntSQLProcessor<T>
         ));
         self.update_results.borrow_mut().remove(0)
     }
-
-    fn upsert<'a>(
-        &self,
-        conn: &dyn ConnectionWrapper,
-        config: BigIntSqlConfig<'a, T>,
-    ) -> Result<(), BigIntDbError> {
-        let owned_params = owned_params(&config);
-        let (main, select) = config.capture_sqls();
-        self.upsert_params.lock().unwrap().push((
-            conn.arbitrary_id_stamp(),
-            main,
-            select,
-            T::table_name(),
-            owned_params,
-        ));
-        self.upsert_results.borrow_mut().remove(0)
-    }
 }
 
 fn owned_params<T: DAOTableIdentifier + 'static + Debug + Send>(
     config: &BigIntSqlConfig<T>,
 ) -> Vec<(String, String)> {
-    config
-        .params_opt
-        .as_ref()
-        .unwrap()
-        .all_params_ref()
-        .iter()
-        .map(|(str, to_sql)| (str.to_string(), (to_sql as &dyn Display).to_string()))
-        .collect()
+    todo!("repair me")
+    // config
+    //     .params_opt
+    //     .as_ref()
+    //     .unwrap()
+    //     .
+    //     .iter()
+    //     .map(|(str, to_sql)| (str.to_string(), (to_sql as &dyn Display).to_string()))
+    //     .collect()
 }
-
-impl<T: DAOTableIdentifier + Debug + Send> Configuration<T> for InsertUpdateCoreMock {}
 
 impl InsertUpdateCoreMock {
     pub fn update_params(

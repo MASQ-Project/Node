@@ -3,8 +3,8 @@
 use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::big_int_db_processor::{
     collect_and_sum_i128_values_from_table, BigIntDbProcessorReal, BigIntDivider,
-    BigIntSQLProcessor, BigIntSqlConfig, DAOTableIdentifier, KeyHolder, SQLParams,
-    SQLParamsBuilder, WeiChange,
+    BigIntSQLProcessor, BigIntSqlConfig, DAOTableIdentifier, SQLParams, SQLParamsBuilder,
+    WeiChange,
 };
 use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
@@ -115,11 +115,12 @@ impl PayableDao for PayableDaoReal {
         wallet: &Wallet,
         amount: u128,
     ) -> Result<(), PayableDaoError> {
-        Ok(self.big_int_sql_processor.upsert(
+        Ok(self.big_int_sql_processor.execute(
             self.conn.as_ref(),
-            BigIntSqlConfig::default()
-                      .main_sql("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet, :balance, :last_paid_timestamp, null)") //"update payable set balance = :updated_balance where wallet_address = :wallet",
-                      .params(SQLParamsBuilder::default()
+            BigIntSqlConfig::new(
+                "insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet, :balance, :last_paid_timestamp, null)",
+                None, //"update payable set balance = :updated_balance where wallet_address = :wallet",
+                         SQLParamsBuilder::default()
                           .key("wallet_address", ":wallet",wallet)
                           .wei_change( Addition("balance",amount))
                           .other(vec![(":last_paid_timestamp",&to_time_t(timestamp))])
@@ -160,9 +161,10 @@ impl PayableDao for PayableDaoReal {
             checked_conversion::<u64, i64>(fingerprint.rowid_opt.expectv("initialized rowid"));
         Ok(self
             .big_int_sql_processor
-            .update(Either::Left(self.conn.as_ref()), BigIntSqlConfig::default()
-                .main_sql("update payable set balance = :updated_balance, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid")
-                .params(SQLParamsBuilder::default()
+            .update_threatened_by_overflow(Either::Left(self.conn.as_ref()), BigIntSqlConfig::new(
+                "update payable set balance = :updated_balance, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid",
+                None,
+                   SQLParamsBuilder::default()
                     .key( "pending_payable_rowid", ":rowid",&key)
                     .wei_change(Subtraction("amount",fingerprint.amount))
                     .other(vec![(":last_paid", &to_time_t(fingerprint.timestamp))])

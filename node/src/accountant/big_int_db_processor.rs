@@ -12,25 +12,25 @@ use masq_lib::utils::ExpectValue;
 use nix::libc::iovec;
 use rusqlite::types::ToSqlOutput;
 use rusqlite::ErrorCode::ConstraintViolation;
-use rusqlite::{Error, Statement, ToSql, Transaction};
+use rusqlite::{params_from_iter, Error, Statement, ToSql, Transaction};
 use std::fmt::{write, Debug, Display, Formatter};
 use std::iter::{once, Chain, Map};
 use std::marker::PhantomData;
 use std::ops::Neg;
+use std::os::raw::c_int;
 use std::slice::Iter;
 
 //TODO it doesn't have to be connected anymore...update and insert_update configs can stand separately
-pub trait BigIntSQLProcessor<T: 'static + DAOTableIdentifier>:
-    Configuration<T> + Send + Debug
-{
-    fn update<'a>(
-        &self,
-        conn: Either<&dyn ConnectionWrapper, &Transaction>,
-        config: BigIntSqlConfig<'a, T>,
-    ) -> Result<(), BigIntDbError>;
-    fn upsert<'a>(
+pub trait BigIntSQLProcessor<T: 'static + DAOTableIdentifier>: Send + Debug {
+    fn execute<'a>(
         &self,
         conn: &dyn ConnectionWrapper,
+        config: BigIntSqlConfig<'a, T>,
+    ) -> Result<(), BigIntDbError>;
+
+    fn update_threatened_by_overflow<'a>(
+        &self,
+        conn: Either<&dyn ConnectionWrapper, &Transaction>,
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError>;
 }
@@ -43,81 +43,85 @@ pub struct BigIntDbProcessorReal<T: Debug + DAOTableIdentifier + Send + 'static>
 impl<T: DAOTableIdentifier + Debug + Send + 'static> BigIntSQLProcessor<T>
     for BigIntDbProcessorReal<T>
 {
-    fn update<'a>(
-        &self,
-        form_of_conn: Either<&dyn ConnectionWrapper, &Transaction>,
-        config: BigIntSqlConfig<'a, T>,
-    ) -> Result<(), BigIntDbError> {
-        todo!()
-        // let params = config.update_params();
-        // let ((correct_key_name_from_table, sql_key_name, key_idx), balance_change) =
-        //     Self::fetch_fundamentals(params);
-        // let present_state_query = config.select_sql(&correct_key_name_from_table, &sql_key_name);
-        // let mut select_stm = Self::prepare_statement(form_of_conn, present_state_query.as_str());
-        // match select_stm.query_row(&[(&*sql_key_name, params.params[key_idx].1)], |row| {
-        //     let balance_result: rusqlite::Result<i128> = row.get(0);
-        //     match balance_result {
-        //         Ok(balance) => {
-        //             let updated_balance = balance + balance_change;
-        //             let params_to_update = params.pure_rusqlite_params();
-        //             let update_params =
-        //                 config.finalize_update_params(&updated_balance, params_to_update);
-        //             let update_query = config.update_sql();
-        //             let mut update_stm = Self::prepare_statement(form_of_conn, update_query);
-        //             update_stm.execute(&*update_params)
-        //         }
-        //         Err(e) => Err(e),
-        //     }
-        // }) {
-        //     Ok(_) => Ok(()),
-        //     Err(e) => Err(BlobInsertUpdateError(format!(
-        //         "Updating balance for {} of {} Wei to {} with error '{}'",
-        //         T::table_name(),
-        //         balance_change,
-        //         params.params[key_idx].1,
-        //         e
-        //     ))),
-        // }
-    }
-
-    fn upsert<'a>(
+    fn execute<'a>(
         &self,
         conn: &dyn ConnectionWrapper,
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
-        let mut stm = conn
-            .prepare(config.main_sql)
-            .expect("internal rusqlite error");
+        let main_sql = config.construct_main_sql();
+        let mut stm = conn.prepare(&main_sql).expect("internal rusqlite error");
         let params = config
-            .params_opt
-            .as_ref()
-            .expectv("SQLParams")
-            .pure_rusqlite_params()
+            .params
+            .pure_rusqlite_params_uncorrected()
             .collect::<Vec<(&str, &dyn ToSql)>>();
         match stm.execute(params.as_slice()) {
             Ok(_) => Ok(()),
             Err(e)
                 if match e {
-                    Error::SqliteFailure(e, _) => matches!(e.code, ConstraintViolation), //TODO this shouldn't be hittable thanks to the on conflict clause
+                    Error::SqliteFailure(e, _) => {
+                        //SQLITE_CONSTRAINT_DATATYPE,
+                        //the moment of Sqlite trying to store the number as REAL in a strict INT column
+                        e.extended_code == c_int::from(3091)
+                    }
                     _ => false,
                 } =>
             {
-                self.update(Either::Left(conn), config)
+                self.update_threatened_by_overflow(Either::Left(conn), config)
             }
-            Err(e) => {
-                let key = config.key();
-                let amount = config.balance_change();
-                Err(BigIntDbError(format!(
-                    "Wei change: error after invalid insertion for {} of {} Wei to {} with error '{}'",
-                    T::table_name(), amount, key, e
-                    )
-                ))
+            Err(e) => Err(BigIntDbError(format!(
+                "Wei change: error after invalid {} command for {} of {} Wei to {} with error '{}'",
+                config.determine_command(),
+                T::table_name(),
+                config.balance_change(), //TODO this is unnecessary? Can we have such a big number ..?
+                config.key_info().1,
+                e
+            ))),
+        }
+    }
+
+    fn update_threatened_by_overflow<'a>(
+        &self,
+        form_of_conn: Either<&dyn ConnectionWrapper, &Transaction>,
+        config: BigIntSqlConfig<'a, T>,
+    ) -> Result<(), BigIntDbError> {
+        let select_sql = config.select_sql();
+        let mut select_stm = Self::prepare_statement(form_of_conn, &select_sql);
+        match select_stm.query_row([], |row| {
+            let high_bytes_result = row.get::<usize,i64>(0);
+            let low_bytes_result = row.get::<usize,i64>(1);
+            match (high_bytes_result,low_bytes_result) {
+                (Ok(high_bytes), Ok(low_bytes)) => {
+                    let wei_change_params = &config.params.wei_change_params;
+                    let high_bytes_correction = wei_change_params[0].1 + 1;
+                    let low_bytes_correction = ((low_bytes as i128 + wei_change_params[1].1 as i128) & 0x7FFFFFFFFFFFFFFF) as i64 - low_bytes; //TODO test this thoroughly for negativeness
+                    eprintln!("low bytes corrected {}", low_bytes_correction);
+                    let update_sql = config.prepare_update_sql(form_of_conn);
+                    let mut update_stm = Self::prepare_statement(form_of_conn,&update_sql);
+                    let wei_update_array = [(wei_change_params[0].0.as_str(), high_bytes_correction),(wei_change_params[1].0.as_str(), low_bytes_correction)];
+                    eprintln!("byte params corrected {:?}", wei_update_array);
+                    let params = config.params.pure_rusqlite_params_corrected(&wei_update_array).collect::<Vec<_>>();
+                    if update_stm.execute(&*params)
+                        .expect("correction-for update sql has wrong logic") == 1 {
+                        Ok(())
+                    } else{
+                        todo!()
+                    }
+                }
+                (e1,e2) => todo!(), //Err(e),
             }
+        }) {
+            Ok(()) => Ok(()),
+            Err(e) => todo!()
+            //     Err(BlobInsertUpdateError(format!(
+            //     "Updating balance for {} of {} Wei to {} with error '{}'",
+            //     T::table_name(),
+            //     balance_change,
+            //     params.params[key_idx].1,
+            //     e
+            // ))),
         }
     }
 }
-
-impl<T: DAOTableIdentifier + Debug + Send> Configuration<T> for BigIntDbProcessorReal<T> {}
 
 impl<T: Debug + DAOTableIdentifier + Send> BigIntDbProcessorReal<T> {
     pub fn new() -> BigIntDbProcessorReal<T> {
@@ -128,109 +132,99 @@ impl<T: Debug + DAOTableIdentifier + Send> BigIntDbProcessorReal<T> {
 }
 
 impl<T: Debug + DAOTableIdentifier + Send> BigIntDbProcessorReal<T> {
-    // fn fetch_fundamentals(params: &SQLParams) -> ((String, String, usize), i128) {
-    //     (
-    //         params.fetch_key_specification(),
-    //         params.fetch_balance_change(),
-    //     )
-    // }
-
     fn prepare_statement<'a>(
         form_of_conn: Either<&'a dyn ConnectionWrapper, &'a Transaction>,
-        query: &'a str,
+        sql: &'a str,
     ) -> Statement<'a> {
         match form_of_conn {
-            Either::Left(conn) => conn.prepare(query),
-            Either::Right(tx) => tx.prepare(query),
+            Either::Left(conn) => conn.prepare(sql),
+            Either::Right(tx) => tx.prepare(sql),
         }
         .expect("internal rusqlite error")
     }
-
-    fn see_about_update_with_overflow() {
-        todo!()
-    }
 }
 
-pub struct BigIntSqlConfig<'a, T: ?Default> {
+pub struct BigIntSqlConfig<'a, T> {
     main_sql: &'a str,
-    pub params_opt: Option<SQLParams<'a>>,
+    update_clause_opt: Option<for<'b> fn(&'b str) -> String>,
+    pub params: SQLParams<'a>,
     phantom: PhantomData<T>,
 }
 
-//unfortunately, derive impl would apply also to the type T, which I cannot accept
-impl<'a, T: ?Default> Default for BigIntSqlConfig<'a, T> {
-    fn default() -> Self {
+impl<'a, T: DAOTableIdentifier + Debug + Send + 'static> BigIntSqlConfig<'a, T> {
+    pub fn new(
+        main_sql: &'a str,
+        update_clause_opt: Option<for<'b> fn(&'b str) -> String>,
+        params: SQLParams<'a>,
+    ) -> BigIntSqlConfig<'a, T> {
         Self {
-            main_sql: Default::default(),
-            params_opt: Default::default(),
+            main_sql,
+            update_clause_opt,
+            params,
             phantom: Default::default(),
         }
     }
-}
 
-impl<'a, T: DAOTableIdentifier> BigIntSqlConfig<'a, T> {
-    pub fn main_sql(mut self, sql: &'a str) -> BigIntSqlConfig<'a, T> {
-        self.main_sql = sql;
-        self
-    }
-
-    pub fn params(mut self, params: SQLParams<'a>) -> BigIntSqlConfig<'a, T> {
-        self.params_opt = Some(params);
-        self
-    }
-
-    fn select_sql(&self, in_table_param_name: &str, sql_param_name: &str) -> String {
+    fn construct_main_sql(&self) -> String {
         format!(
-            "select balance from {} where {} = {}",
-            T::table_name(),
-            in_table_param_name,
-            sql_param_name
+            "{} {}",
+            self.main_sql,
+            if let Some(assembler) = self.update_clause_opt {
+                assembler("")
+            } else {
+                todo!()
+            }
         )
     }
 
-    fn key(&self) -> String {
-        self.params_opt
-            .as_ref()
-            .expectv("SQLParams")
-            .params_except_wei_change[0]
-            .1
-            .to_string()
+    fn prepare_update_sql(
+        &self,
+        form_of_conn: Either<&'a dyn ConnectionWrapper, &'a Transaction>,
+    ) -> String {
+        if let Some(assembler) = self.update_clause_opt {
+            assembler(&T::table_name())
+        } else {
+            todo!()
+        }
+    }
+
+    fn select_sql(&self) -> String {
+        let key_info = self.key_info();
+        format!(
+            "select {}, {} from {} where {} = '{}'",
+            &self.params.wei_change_params[0].0[1..],
+            &self.params.wei_change_params[1].0[1..],
+            T::table_name(),
+            &key_info.0[1..],
+            key_info.1
+        )
+    }
+
+    fn key_info(&self) -> (&str, String) {
+        let key_definition = self.params.params_except_wei_change[0];
+        (key_definition.0, key_definition.1.to_string())
     }
 
     fn balance_change(&self) -> i128 {
-        let wei_params = &self
-            .params_opt
-            .as_ref()
-            .expectv("SQLParams")
-            .wei_change_params;
+        let wei_params = &self.params.wei_change_params;
         BigIntDivider::reconstitute(wei_params[0].1, wei_params[1].1)
+    }
+
+    fn determine_command(&self) -> String {
+        self.main_sql
+            .chars()
+            .skip_while(|char| char.is_whitespace())
+            .take_while(|char| !char.is_whitespace())
+            .collect()
     }
 
     #[cfg(test)]
     pub fn capture_sqls(&self) -> (String, String) {
-        (
-            self.main_sql.to_string(),
-            self.select_sql(
-                &self.params_opt.as_ref().expectv("SQLParams").table_key_name,
-                &self
-                    .params_opt
-                    .as_ref()
-                    .expectv("SQLParams")
-                    .params_except_wei_change[0]
-                    .0,
-            ),
-        )
+        (self.construct_main_sql(), self.select_sql())
     }
 }
 
-pub trait ExtendedParamsMarker: ToSql + Display {
-    fn balance_change_opt(&self) -> Option<i128> {
-        None
-    }
-    fn key_name_opt(&self) -> Option<String> {
-        None
-    }
-}
+pub trait ExtendedParamsMarker: ToSql + Display {}
 
 //TODO delete this
 macro_rules! blank_impl_of_extended_params_marker{
@@ -240,18 +234,6 @@ macro_rules! blank_impl_of_extended_params_marker{
 }
 
 blank_impl_of_extended_params_marker!(i64, &str, Wallet);
-
-impl ExtendedParamsMarker for KeyHolder<'_> {
-    fn key_name_opt(&self) -> Option<String> {
-        Some(self.key_param.0.to_string())
-    }
-}
-
-struct DataKeeper<'a> {
-    key_spec_opt: Option<(&'a str, &'a str, &'a dyn ExtendedParamsMarker)>,
-    wei_change_spec_opt: Option<WeiChange>, //TODO wei change can probably go away...now distracting .... we can see negative and positive numbers
-    other_params: Vec<(&'a str, &'a dyn ExtendedParamsMarker)>,
-}
 
 #[derive(Default)]
 pub struct SQLParamsBuilder<'a> {
@@ -345,72 +327,40 @@ pub struct SQLParams<'a> {
 }
 
 impl<'a> SQLParams<'a> {
-    pub fn all_params_ref(&'a self) -> &'a Vec<&(&'a str, &'a dyn ExtendedParamsMarker)> {
-        todo!()
-        // let composed: Vec<&(&str, &dyn ExtendedParamsMarker)> = vec![
-        //     &(&*self.key.1, self.key.2),
-        //     &(&self.wei_change.2, &self.wei_change.0),
-        //     &(&self.wei_change.2, &self.wei_change.1),
-        // ];
-        // &self.params_except_wei_change.iter().chain(self.p).collect()
+    fn pure_rusqlite_params_uncorrected(&self) -> impl Iterator<Item = (&str, &dyn ToSql)> {
+        self.pure_rusqlite_params(Self::transform_wei_change_params(&self.wei_change_params))
     }
 
-    fn pure_rusqlite_params(&self) -> impl Iterator<Item = (&str, &dyn ToSql)> {
+    fn pure_rusqlite_params_corrected(
+        &'a self,
+        wei_change_params: &'a [(&'a str, i64); 2],
+    ) -> impl Iterator<Item = (&str, &dyn ToSql)> {
+        self.pure_rusqlite_params(
+            wei_change_params
+                .into_iter()
+                .map(|(name, num)| (*name, num as &dyn ToSql)),
+        )
+    }
+
+    fn pure_rusqlite_params(
+        &'a self,
+        wei_change_params: impl Iterator<Item = (&'a str, &'a dyn ToSql)>,
+    ) -> impl Iterator<Item = (&'a str, &'a dyn ToSql)> {
         self.params_except_wei_change
             .iter()
             .map(|(name, value)| (*name, value as &dyn ToSql))
-            .chain(self.transform_wei_change_params())
+            .chain(wei_change_params)
     }
 
     //TODO maybe inline these
     fn transform_wei_change_params(
-        &'a self,
-    ) -> Map<Iter<'_, (String, i64)>, fn(&'a (String, i64)) -> (&str, &dyn ToSql)> {
-        self.wei_change_params
+        wei_change: &[(String, i64); 2],
+    ) -> impl Iterator<Item = (&str, &dyn ToSql)> {
+        wei_change
             .iter()
             .map(|(name, value)| (name.as_str(), value as &dyn ToSql))
     }
-
-    // fn fetch_balance_change(&self) -> i128 {
-    //     let bcs = self
-    //         .0
-    //         .iter()
-    //         .filter(|(_, bc_candidate)| bc_candidate.balance_change_opt().is_some())
-    //         .collect::<Vec<&(&'a str, &'a dyn ExtendedParamsMarker)>>();
-    //     match bcs.len() {
-    //         1 => {
-    //             let (_, bc_candidate) = bcs[0];
-    //             bc_candidate
-    //                 .balance_change_opt()
-    //                 .expectv("already filtered bc candidate")
-    //         }
-    //         0 => panic!("missing parameter of the change in balance; broken"),
-    //         _ => panic!("only one parameter of changed balance is allowed a time"),
-    //     }
-    // }
-
-    // fn fetch_key_specification(&self) -> (String, String, usize) {
-    //     let keys = self
-    //         .0
-    //         .iter()
-    //         .enumerate()
-    //         .filter(|(_, (_, key_candidate))| key_candidate.key_name_opt().is_some())
-    //         .collect::<Vec<(usize, &(&'a str, &'a dyn ExtendedParamsMarker))>>();
-    //     match keys.len() {
-    //         1 => {
-    //             let (idx, (param_name, key_candidate)) = keys[0];
-    //             key_candidate
-    //                 .key_name_opt()
-    //                 .map(|in_table_param_name| (in_table_param_name, param_name.to_string(), idx))
-    //                 .expectv("already filtered key candidate")
-    //         }
-    //         0 => panic!("missing key parameter; broken"),
-    //         _ => panic!("only one key parameter is allowed"),
-    //     }
-    // }
 }
-
-pub trait Configuration<T: DAOTableIdentifier> {}
 
 pub trait DAOTableIdentifier {
     fn table_name() -> String;
@@ -421,66 +371,6 @@ pub trait DAOTableIdentifier {
 pub enum WeiChange {
     Addition(&'static str, u128),
     Subtraction(&'static str, u128),
-}
-
-//
-// #[derive(PartialEq, Debug)]
-// pub struct WeiChange {
-//     change: i128,
-//     param_name: &'static str,
-// }
-//
-// impl WeiChange {
-//     pub fn new_addition(abs_change: u128, param_name: &'static str) -> Self {
-//         Self {
-//             change: checked_conversion::<u128, i128>(abs_change),
-//             param_name,
-//         }
-//     }
-//     pub fn new_subtraction(abs_change: u128, param_name: &'static str) -> Self {
-//         Self {
-//             change: checked_conversion::<u128, i128>(abs_change).neg(),
-//             param_name,
-//         }
-//     }
-//
-//     pub fn polite_new_subtraction(
-//         abs_change: u128,
-//         param_name: &'static str,
-//     ) -> Result<Self, String> {
-//         Ok(Self {
-//             change: politely_checked_conversion::<u128, i128>(abs_change).map(|num| num.neg())?,
-//             param_name,
-//         })
-//     }
-// }
-
-pub struct KeyHolder<'a> {
-    key_param: (&'a str, &'a dyn ExtendedParamsMarker),
-}
-
-impl<'a> KeyHolder<'a> {
-    pub fn new(
-        inner_value: &'a dyn ExtendedParamsMarker,
-        key_parameter_name: &'a str,
-        param_name_substitution: &'a str,
-    ) -> Self {
-        Self {
-            key_param: (key_parameter_name, inner_value),
-        }
-    }
-}
-
-impl ToSql for KeyHolder<'_> {
-    fn to_sql(&self) -> rusqlite::Result<ToSqlOutput<'_>> {
-        self.key_param.1.to_sql()
-    }
-}
-
-impl Display for KeyHolder<'_> {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.key_param.1)
-    }
 }
 
 #[derive(Debug, PartialEq)]
@@ -938,6 +828,70 @@ mod tests {
             .build();
     }
 
+    fn make_empty_sql_params<'a>() -> SQLParams<'a> {
+        SQLParams {
+            table_key_name: "",
+            wei_change_params: [("".to_string(), 0), ("".to_string(), 0)],
+            params_except_wei_change: vec![],
+        }
+    }
+
+    #[test]
+    fn determine_command_works_for_insert() {
+        let subject: BigIntSqlConfig<'_, DummyDao> = BigIntSqlConfig {
+            main_sql: "insert into table (a,b) values ('a','b')",
+            update_clause_opt: None,
+            params: make_empty_sql_params(),
+            phantom: Default::default(),
+        };
+
+        let result = subject.determine_command();
+
+        assert_eq!(result, "insert".to_string())
+    }
+
+    #[test]
+    fn determine_command_works_for_update() {
+        let subject: BigIntSqlConfig<'_, DummyDao> = BigIntSqlConfig {
+            main_sql: "update table set a='a',b='b' where a = 'e'",
+            update_clause_opt: None,
+            params: make_empty_sql_params(),
+            phantom: Default::default(),
+        };
+
+        let result = subject.determine_command();
+
+        assert_eq!(result, "update".to_string())
+    }
+
+    #[test]
+    fn determine_command_works_for_any_other_case() {
+        let subject: BigIntSqlConfig<'_, DummyDao> = BigIntSqlConfig {
+            main_sql: "other sql command",
+            update_clause_opt: None,
+            params: make_empty_sql_params(),
+            phantom: Default::default(),
+        };
+
+        let result = subject.determine_command();
+
+        assert_eq!(result, "other".to_string())
+    }
+
+    #[test]
+    fn determine_command_allows_preceding_spaces() {
+        let subject: BigIntSqlConfig<'_, DummyDao> = BigIntSqlConfig {
+            main_sql: "  insert into table (a,b) values ('a','b')",
+            update_clause_opt: None,
+            params: make_empty_sql_params(),
+            phantom: Default::default(),
+        };
+
+        let result = subject.determine_command();
+
+        assert_eq!(result, "insert".to_string())
+    }
+
     //TODO: update successful is missing
 
     #[test]
@@ -993,12 +947,13 @@ mod tests {
         stm.execute(params).unwrap();
         let balance_change = Addition("balance", 100);
         let last_received_time_stamp_sec = 123_i64;
-        let update_config = BigIntSqlConfig::default().main_sql("update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet")
-            .params(SQLParamsBuilder::default().other(vec![(":last_received", &last_received_time_stamp_sec)])
+        let update_config = BigIntSqlConfig::new("update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet",
+            None,
+                                                 SQLParamsBuilder::default().other(vec![(":last_received", &last_received_time_stamp_sec)])
                 .key( "wallet_address", ":wallet",&wallet_address).wei_change(balance_change).build());
 
         let result = BigIntDbProcessorReal::<PayableDaoReal>::new()
-            .update(Either::Left(conn_ref), update_config);
+            .update_threatened_by_overflow(Either::Left(conn_ref), update_config);
 
         assert_eq!(result, Err(BigIntDbError("Updating balance for payable of 100 Wei to a11122 with error 'Invalid column type Text at index: 0, name: balance'".to_string())));
     }
@@ -1018,14 +973,15 @@ mod tests {
         stm.execute(params![wallet_address, 12, 45245]).unwrap();
         let balance_change = Addition("balance", 100);
         let last_received_time_stamp_sec = 123_i64;
-        let update_config = BigIntSqlConfig::default().main_sql("update receivable set balance = ?, last_received_timestamp = ? where wallet_address = ?")
-            .params(SQLParamsBuilder::default()
+        let update_config = BigIntSqlConfig::new("update receivable set balance = ?, last_received_timestamp = ? where wallet_address = ?",
+            None,
+            SQLParamsBuilder::default()
                         .other(vec![(":woodstock", &wallet_address), (":hendrix", &last_received_time_stamp_sec)])
                         .wei_change(balance_change) //:balance
                 .key( "wallet_address", ":wallet",&wallet_address).build());
 
         let result = BigIntDbProcessorReal::<PayableDaoReal>::new()
-            .update(Either::Left(conn_ref), update_config);
+            .update_threatened_by_overflow(Either::Left(conn_ref), update_config);
 
         assert_eq!(result, Err(BigIntDbError("Updating balance for payable of 100 Wei to a11122 with error 'Invalid parameter name: :woodstock'".to_string())));
     }
@@ -1040,19 +996,17 @@ mod tests {
             .unwrap();
         let conn_ref = conn.as_ref();
         let balance_change = Addition("balance", 100);
-        let update_config = BigIntSqlConfig::default()
-            .main_sql(
-                "update payable set balance = :balance where wallet_address = :wallet_address",
-            )
-            .params(
-                SQLParamsBuilder::default()
-                    .key("wallet_address", ":wallet_address", &wallet_address)
-                    .wei_change(balance_change)
-                    .build(),
-            );
+        let update_config = BigIntSqlConfig::new(
+            "update payable set balance = :balance where wallet_address = :wallet_address",
+            None,
+            SQLParamsBuilder::default()
+                .key("wallet_address", ":wallet_address", &wallet_address)
+                .wei_change(balance_change)
+                .build(),
+        );
 
         let result = BigIntDbProcessorReal::<PayableDaoReal>::new()
-            .update(Either::Left(conn_ref), update_config);
+            .update_threatened_by_overflow(Either::Left(conn_ref), update_config);
 
         assert_eq!(result, Err(BigIntDbError(String::from("Updating balance for payable of 100 Wei to a11122 with error 'Query returned no rows'"))))
     }
@@ -1066,7 +1020,7 @@ mod tests {
         let db_path = home_dir.join("test_table.db");
         let conn = Connection::open(db_path.as_path()).unwrap();
         conn.execute(
-            "create table test_table (name text primary key, balance_high_b integer not null, balance_low_b integer not null)",
+            "create table test_table (name text primary key, balance_high_b integer not null, balance_low_b integer not null) strict",
             [],
         )
         .unwrap();
@@ -1088,16 +1042,15 @@ mod tests {
             false,
         );
         let subject = BigIntDbProcessorReal::<DummyDao>::new();
-        let config = BigIntSqlConfig::default()
-            .main_sql("insert into test_table (name,balance_high_b,balance_low_b) values (:name,:balance_high_b,:balance_low_b)")
-            .params(
-                SQLParamsBuilder::default()
-                    .key("name", ":name", &"Joe")
-                    .wei_change(Addition("balance", 255))
-                    .build(),
-            );
 
-        let result = subject.upsert(conn.as_ref(), config);
+        let result = subject.execute(conn.as_ref(), BigIntSqlConfig::new(
+            "insert into test_table (name,balance_high_b,balance_low_b) values (:name,:balance_high_b,:balance_low_b)",
+            None,
+            SQLParamsBuilder::default()
+                .key("name", ":name", &"Joe")
+                .wei_change(Addition("balance", 255))
+                .build(),
+        ));
 
         assert_eq!(result, Ok(()));
         conn.prepare("select * from test_table")
@@ -1121,12 +1074,15 @@ mod tests {
         .unwrap();
         let subject = BigIntDbProcessorReal::<DummyDao>::new();
         let balance_change = Addition("balance", 5555);
-        let config = BigIntSqlConfig::default()
-            .main_sql("insert into test_table (name, balance_high_b, balance_low_b) values (:name, :balance_high_b, :balance_low_b) \
-            on conflict (name) do update set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where name = :name")
-            .params(SQLParamsBuilder::default().key("name", ":name",&"Joe").wei_change(balance_change).build());
+        let config = BigIntSqlConfig::new(
+            "insert into test_table (name, balance_high_b, balance_low_b) values (:name, :balance_high_b, :balance_low_b) on conflict (name) do",
+            Some(|table_name |format!("update {} set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where name = :name",table_name)),
+            SQLParamsBuilder::default()
+                .key("name", ":name",&"Joe")
+                .wei_change(balance_change)
+                .build());
 
-        let result = subject.upsert(conn.as_ref(), config);
+        let result = subject.execute(conn.as_ref(), config);
 
         assert_eq!(result, Ok(()));
         conn.prepare("select * from test_table")
@@ -1157,17 +1113,16 @@ mod tests {
         .unwrap();
         let subject = BigIntDbProcessorReal::<DummyDao>::new();
         let balance_change = Addition("balance", 5555);
-        let config = BigIntSqlConfig::default()
-            .main_sql("insert into test_table (name, balance_high_b, balance_low_b) values (:name,:balance_high_b,:balance_low_b) \
-            on conflict (name) do update set balance_high_b = balance_high_b + :balance_high_b + where name = :name")
-            .params(
+        let config = BigIntSqlConfig::new(
+            "insert into test_table (name, balance_high_b, balance_low_b) values (:name,:balance_high_b,:balance_low_b) on conflict (name) do",
+            Some(|table_name|format!("update {} set balance_high_b = balance_high_b + :balance_high_b + where name = :name",table_name)),
                 SQLParamsBuilder::default()
                     .key("name", ":name", &"Joe")
                     .wei_change(balance_change)
                     .build(),
             );
 
-        let result = subject.upsert(conn.as_ref(), config);
+        let result = subject.execute(conn.as_ref(), config);
 
         assert_eq!(
             result,
@@ -1187,22 +1142,22 @@ mod tests {
             false,
         );
         let subject = BigIntDbProcessorReal::<DummyDao>::new();
-        let balance_change = Addition("balance", 487989814512577841339);
-        let config = BigIntSqlConfig::default()
-            .main_sql("insert into test_table (name,balance_high_b,balance_low_b) values (:name,:balance_a,:balance_b)")
-            .params(
-                SQLParamsBuilder::default()
+        let balance_change = Addition("balance", 4879898145125);
+        let config = BigIntSqlConfig::new(
+            "insert into test_table (name,balance_high_b,balance_low_b) values (:name,:balance_a,:balance_b) on conflict (name) do",
+            Some(|table_name |format!("update {} set balance_high_b = balance_high_b + 5, balance_low_b = balance_low_b + 10 where name = :name",table_name)),
+            SQLParamsBuilder::default()
                     .key("name", ":name", &"Joe")
                     .wei_change(balance_change)
                     .build(),
             );
 
-        let result = subject.upsert(conn.as_ref(), config);
+        let result = subject.execute(conn.as_ref(), config);
 
         assert_eq!(
             result,
             Err(BigIntDbError(
-                "Wei change: error after invalid insertion for test_table of 487989814512577841339 \
+                "Wei change: error after invalid insert command for test_table of 4879898145125 \
                 Wei to Joe with error 'Invalid parameter name: :balance_high_b'"
                     .to_string()
             ))
@@ -1210,34 +1165,45 @@ mod tests {
     }
 
     #[test]
-    fn upsert_insert_handles_sqlite_failure_other_than_constrain_violation() {
-        todo!("rewarite to a test for overflow")
-        // let conn = initiate_simple_connection_and_test_table(
-        //     "blob_utils",
-        //     "upsert_insert_handles_sqlite_failure_other_than_constrain_violation",
-        //     true,
-        // );
-        // let subject = BigIntDbProcessorReal::<DummyDao>::new();
-        // let balance_change = Addition("balance", 5555);
-        // let config = BigIntSqlConfig::default()
-        //     .main_sql("insert into test_table (name,balance_high_b,balance_low_b) values (:name,:balance_a,:balance_b)")
-        //     .params(
-        //         SQLParamsBuilder::default()
-        //             .key("name", ":name", &"Joe")
-        //             .wei_change(balance_change)
-        //             .build(),
-        //     );
-        //
-        // let result = subject.upsert(conn.as_ref(), config);
-        //
-        // assert_eq!(
-        //     result,
-        //     Err(BigIntDbError(
-        //         "Updating balance after invalid insertion for test_table \
-        //  of 5555 Wei to Joe with error 'attempt to write a readonly database'"
-        //             .to_string()
-        //     ))
-        // );
+    fn upsert_insert_fails_and_update_overflows_in_low_bytes_but_is_handled() {
+        let conn = initiate_simple_connection_and_test_table(
+            "blob_utils",
+            "upsert_insert_fails_and_update_overflows_but_is_handled",
+            false,
+        );
+        conn.prepare(
+            "insert into test_table (name,balance_high_b,balance_low_b) values ('Joe', ?, ?)",
+        )
+        .unwrap()
+        .execute(&[&0, &(i64::MAX - 56)])
+        .unwrap();
+        let subject = BigIntDbProcessorReal::<DummyDao>::new();
+        let balance_change = Addition("balance", 57 as u128);
+        let config = BigIntSqlConfig::new(
+            "insert into test_table (name,balance_high_b,balance_low_b) values (:name,:balance_high_b,:balance_low_b) on conflict (name) do",
+            Some(|table_name|format!("update {} set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b  where name = :name",table_name)),
+                SQLParamsBuilder::default()
+                    .key("name", ":name", &"Joe")
+                    .wei_change(balance_change)
+                    .build(),
+            );
+
+        let result = subject.execute(conn.as_ref(), config);
+
+        assert_eq!(result, Ok(()));
+        conn.prepare("select * from test_table")
+            .unwrap()
+            .query_row([], |row| {
+                assert_eq!(row.get::<usize, String>(0).unwrap(), "Joe".to_string());
+                let high_bytes = row.get::<usize, i64>(1).unwrap();
+                let low_bytes = row.get::<usize, i64>(2).unwrap();
+                assert_eq!(high_bytes, 1);
+                assert_eq!(low_bytes, 0);
+                let math_op_result = BigIntDivider::reconstitute(high_bytes, low_bytes);
+                assert_eq!(math_op_result, i64::MAX as i128 + 1);
+                Ok(())
+            })
+            .unwrap();
     }
 
     #[test]
