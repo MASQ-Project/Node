@@ -7,6 +7,7 @@ pub mod gossip_producer;
 pub mod neighborhood_database;
 pub mod node_record;
 
+use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -616,10 +617,10 @@ impl Neighborhood {
         let neighbor_keys_before = self.neighbor_keys();
         self.handle_agrs(agrs, gossip_source);
         let neighbor_keys_after = self.neighbor_keys();
-        self.handle_database_changes(&neighbor_keys_before, &neighbor_keys_after);
+        self.handle_database_changes(neighbor_keys_before, neighbor_keys_after);
     }
 
-    fn neighbor_keys(&self) -> Vec<PublicKey> {
+    fn neighbor_keys(&self) -> HashSet<PublicKey> {
         self.neighborhood_database
             .root()
             .full_neighbor_keys(&self.neighborhood_database)
@@ -656,8 +657,8 @@ impl Neighborhood {
 
     fn handle_database_changes(
         &mut self,
-        neighbor_keys_before: &[PublicKey],
-        neighbor_keys_after: &[PublicKey],
+        neighbor_keys_before: HashSet<PublicKey>,
+        neighbor_keys_after: HashSet<PublicKey>,
     ) {
         self.curate_past_neighbors(neighbor_keys_before, neighbor_keys_after);
         self.check_connectedness();
@@ -665,17 +666,14 @@ impl Neighborhood {
 
     fn curate_past_neighbors(
         &mut self,
-        neighbor_keys_before: &[PublicKey],
-        neighbor_keys_after: &[PublicKey],
+        neighbor_keys_before: HashSet<PublicKey>,
+        neighbor_keys_after: HashSet<PublicKey>,
     ) {
         if neighbor_keys_after != neighbor_keys_before {
             if let Some(db_password) = &self.db_password_opt {
-                let nds = self.to_node_descriptors(neighbor_keys_after);
-                let node_descriptors_opt = if nds.is_empty() {
-                    None
-                } else {
-                    Some(nds.into_iter().collect_vec())
-                };
+                let nds = self
+                    .to_node_descriptors(neighbor_keys_after.into_iter().collect_vec().as_slice());
+                let node_descriptors_opt = if nds.is_empty() { None } else { Some(nds) };
                 debug!(
                     self.logger,
                     "Saving neighbor list: {:?}", node_descriptors_opt
@@ -4527,6 +4525,25 @@ mod tests {
         neighborhood.crashable = true;
 
         prove_that_crash_request_handler_is_hooked_up(neighborhood, CRASH_KEY);
+    }
+
+    #[test]
+    fn curate_past_neighbors_does_not_write_to_database_if_neighbors_are_same_but_order_has_changed(
+    ) {
+        let mut subject = make_standard_subject();
+        // This mock is completely unprepared: any call to it should cause a panic
+        let persistent_config = PersistentConfigurationMock::new();
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
+        let neighbor_keys_before = vec![PublicKey::new(b"ABCDE"), PublicKey::new(b"FGHIJ")]
+            .into_iter()
+            .collect();
+        let neighbor_keys_after = vec![PublicKey::new(b"FGHIJ"), PublicKey::new(b"ABCDE")]
+            .into_iter()
+            .collect();
+
+        subject.curate_past_neighbors(neighbor_keys_before, neighbor_keys_after);
+
+        // No panic; therefore no attempt was made to persist: test passes!
     }
 
     fn make_standard_subject() -> Neighborhood {
