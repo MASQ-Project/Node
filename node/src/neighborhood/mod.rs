@@ -585,9 +585,10 @@ impl Neighborhood {
             &node_descriptor.encryption_public_key,
             node_addr,
         );
-        debug!(
+        debug!(self.logger, "Debut Gossip sent to {:?}.", node_descriptor);
+        trace!(
             self.logger,
-            "Sent Debut Gossip: {}",
+            "Sent Gossip: {}",
             debut_gossip.to_dot_graph(
                 self.neighborhood_database.root(),
                 (
@@ -4171,7 +4172,6 @@ mod tests {
         );
         subject.data_directory = data_dir;
         subject.logger = Logger::new("node_gossips_to_neighbors_on_startup");
-        let neighborhood_database = subject.neighborhood_database.clone();
         let this_node = subject.neighborhood_database.root().clone();
         let system = System::new("node_gossips_to_neighbors_on_startup");
         let addr: Addr<Neighborhood> = subject.start();
@@ -4197,14 +4197,8 @@ mod tests {
         assert_contains(&gossip.node_records, &expected_gnr);
         assert_eq!(1, gossip.node_records.len());
         TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: node_gossips_to_neighbors_on_startup: Sent Debut Gossip: {}",
-            gossip.to_dot_graph(
-                neighborhood_database.root(),
-                (
-                    &debut_target.encryption_public_key,
-                    &debut_target.node_addr_opt
-                )
-            )
+            "DEBUG: node_gossips_to_neighbors_on_startup: Debut Gossip sent to {:?}",
+            debut_target
         ));
     }
 
