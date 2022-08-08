@@ -21,12 +21,11 @@ pub struct ConnectionStatusCommand {}
 const CONNECTION_STATUS_ABOUT: &str =
     "Returns the current stage of the connection status. (NotConnected, ConnectedToNeighbor \
             or ThreeHopsRouteFound)";
-// TODO: Migrate the three below constants to a common file, so that it can be shared in this file as well as in notification/connection_change_notification.rs
 const NOT_CONNECTED_MSG: &str = "NotConnected: No external neighbor is connected to us.";
 const CONNECTED_TO_NEIGHBOR_MSG: &str =
-    "ConnectedToNeighbor: Established neighborship with an external node.";
+    "ConnectedToNeighbor: External node(s) are connected to us.";
 const THREE_HOPS_ROUTE_FOUND_MSG: &str =
-    "ThreeHopsRouteFound: You can now relay data over the network.";
+    "ThreeHopsRouteFound: You can relay data over the network.";
 
 impl Command for ConnectionStatusCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
@@ -97,11 +96,11 @@ mod tests {
         );
         assert_eq!(
             CONNECTED_TO_NEIGHBOR_MSG,
-            "ConnectedToNeighbor: Established neighborship with an external node."
+            "ConnectedToNeighbor: External node(s) are connected to us."
         );
         assert_eq!(
             THREE_HOPS_ROUTE_FOUND_MSG,
-            "ThreeHopsRouteFound: You can now relay data over the network."
+            "ThreeHopsRouteFound: You can relay data over the network."
         )
     }
 
@@ -200,7 +199,7 @@ mod tests {
         );
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
-            "\nConnectedToNeighbor: Established neighborship with an external node.\n\n"
+            "\nConnectedToNeighbor: External node(s) are connected to us.\n\n"
         );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), "");
     }
@@ -231,7 +230,7 @@ mod tests {
         );
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
-            "\nThreeHopsRouteFound: You can now relay data over the network.\n\n"
+            "\nThreeHopsRouteFound: You can relay data over the network.\n\n"
         );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), "");
     }
