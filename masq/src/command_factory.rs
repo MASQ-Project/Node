@@ -199,6 +199,19 @@ mod tests {
     }
 
     #[test]
+    fn connection_status_command_works() {
+        let subject = CommandFactoryReal::new();
+
+        let command = subject.make(&["connection-status".to_string()]).unwrap();
+
+        let connnection_status_command = command
+            .as_any()
+            .downcast_ref::<ConnectionStatusCommand>()
+            .unwrap();
+        assert_eq!(connnection_status_command, &ConnectionStatusCommand {});
+    }
+
+    #[test]
     fn factory_produces_set_password() {
         let subject = CommandFactoryReal::new();
 

@@ -74,7 +74,6 @@ mod tests {
     use super::*;
     use crate::command_context::ContextError;
     use crate::command_context::ContextError::ConnectionDropped;
-    use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
@@ -102,19 +101,6 @@ mod tests {
             THREE_HOPS_ROUTE_FOUND_MSG,
             "ThreeHopsRouteFound: You can relay data over the network."
         )
-    }
-
-    #[test]
-    fn connection_status_works() {
-        let subject = CommandFactoryReal::new();
-
-        let command = subject.make(&["connection-status".to_string()]).unwrap();
-
-        let connnection_status_command = command
-            .as_any()
-            .downcast_ref::<ConnectionStatusCommand>()
-            .unwrap();
-        assert_eq!(connnection_status_command, &ConnectionStatusCommand {});
     }
 
     #[test]
