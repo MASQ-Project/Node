@@ -23,13 +23,14 @@ use std::io;
 use std::net::{AddrParseError, IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
 use tokio::prelude::future::FutureResult;
 use tokio::prelude::future::{err, ok};
 use trust_dns_resolver::error::ResolveError;
 use trust_dns_resolver::lookup_ip::LookupIp;
 
 pub trait StreamHandlerPool {
-    fn process_package(&self, payload: ClientRequestPayload_0v1, paying_wallet: Option<Wallet>);
+    fn process_package(&self, payload: ClientRequestPayload_0v1, paying_wallet_opt: Option<Wallet>);
 }
 
 pub struct StreamHandlerPoolReal {
@@ -50,9 +51,13 @@ struct StreamHandlerPoolRealInner {
 }
 
 impl StreamHandlerPool for StreamHandlerPoolReal {
-    fn process_package(&self, payload: ClientRequestPayload_0v1, paying_wallet: Option<Wallet>) {
+    fn process_package(
+        &self,
+        payload: ClientRequestPayload_0v1,
+        paying_wallet_opt: Option<Wallet>,
+    ) {
         self.do_housekeeping();
-        Self::process_package(payload, paying_wallet, self.inner.clone())
+        Self::process_package(payload, paying_wallet_opt, self.inner.clone())
     }
 }
 
@@ -94,7 +99,7 @@ impl StreamHandlerPoolReal {
 
     fn process_package(
         payload: ClientRequestPayload_0v1,
-        paying_wallet: Option<Wallet>,
+        paying_wallet_opt: Option<Wallet>,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
     ) {
         let stream_key = payload.stream_key;
@@ -103,7 +108,7 @@ impl StreamHandlerPoolReal {
             Some(sender_wrapper) => {
                 let source = sender_wrapper.peer_addr();
                 let future =
-                    Self::write_and_tend(sender_wrapper, payload, paying_wallet, inner_arc)
+                    Self::write_and_tend(sender_wrapper, payload, paying_wallet_opt, inner_arc)
                         .map_err(move |error| {
                             Self::clean_up_bad_stream(inner_arc_1, &stream_key, source, error)
                         });
@@ -119,7 +124,12 @@ impl StreamHandlerPoolReal {
                 } else {
                     let future = Self::make_stream_with_key(&payload, inner_arc_1.clone())
                         .and_then(move |sender_wrapper| {
-                            Self::write_and_tend(sender_wrapper, payload, paying_wallet, inner_arc)
+                            Self::write_and_tend(
+                                sender_wrapper,
+                                payload,
+                                paying_wallet_opt,
+                                inner_arc,
+                            )
                         })
                         .map_err(move |error| {
                             // TODO: This ends up sending an empty response back to the browser and terminating
@@ -166,7 +176,7 @@ impl StreamHandlerPoolReal {
     fn write_and_tend(
         sender_wrapper: Box<dyn SenderWrapper<SequencedPacket>>,
         payload: ClientRequestPayload_0v1,
-        paying_wallet: Option<Wallet>,
+        paying_wallet_opt: Option<Wallet>,
         inner_arc: Arc<Mutex<StreamHandlerPoolRealInner>>,
     ) -> impl Future<Item = (), Error = String> {
         let stream_key = payload.stream_key;
@@ -190,10 +200,11 @@ impl StreamHandlerPoolReal {
                 }
             }
             if payload_size > 0 {
-                match paying_wallet {
+                match paying_wallet_opt {
                     Some(wallet) => inner
                         .accountant_sub
                         .try_send(ReportExitServiceProvidedMessage {
+                            timestamp: SystemTime::now(),
                             paying_wallet: wallet,
                             payload_size,
                             service_rate: inner.exit_service_rate,
@@ -240,7 +251,7 @@ impl StreamHandlerPoolReal {
                     "Cannot open new stream with key {:?}: no hostname supplied",
                     payload.stream_key
                 );
-                Box::new(future::err::<
+                Box::new(err::<
                     Box<dyn SenderWrapper<SequencedPacket> + 'static>,
                     String,
                 >("No hostname provided".to_string()))
@@ -483,6 +494,7 @@ impl StreamHandlerPoolFactory for StreamHandlerPoolFactoryReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::node_test_utils::check_timestamp;
     use crate::proxy_client::local_test_utils::make_send_error;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
     use crate::proxy_client::stream_establisher::StreamEstablisher;
@@ -1022,8 +1034,13 @@ mod tests {
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let expected_write_parameters = write_parameters.clone();
         let (proxy_client, proxy_client_awaiter, proxy_client_recording_arc) = make_recorder();
+        let (accountant, accountant_awaiter, accountant_recording_arc) = make_recorder();
+        let before = SystemTime::now();
         thread::spawn(move || {
-            let peer_actors = peer_actors_builder().proxy_client(proxy_client).build();
+            let peer_actors = peer_actors_builder()
+                .proxy_client(proxy_client)
+                .accountant(accountant)
+                .build();
             let client_request_payload = ClientRequestPayload_0v1 {
                 stream_key: make_meaningless_stream_key(),
                 sequenced_packet: SequencedPacket {
@@ -1102,6 +1119,8 @@ mod tests {
         });
 
         proxy_client_awaiter.await_message_count(1);
+        accountant_awaiter.await_message_count(1);
+        let after = SystemTime::now();
         assert_eq!(
             expected_lookup_ip_parameters.lock().unwrap().deref(),
             &["that.try.".to_string()]
@@ -1121,6 +1140,9 @@ mod tests {
                 data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
             }
         );
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let resp_msg = accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0);
+        check_timestamp(before, resp_msg.timestamp, after);
     }
 
     #[test]
@@ -1367,12 +1389,10 @@ mod tests {
                 100,
                 200,
             );
+            subject.inner.lock().unwrap().logger =
+                Logger::new("bad_dns_lookup_produces_log_and_sends_error_response");
             run_process_package_in_actix(subject, package);
         });
-        TestLogHandler::new().await_log_containing(
-            "ERROR: ProxyClient: Could not find IP address for host that.try: io error",
-            1000,
-        );
         proxy_client_awaiter.await_message_count(2);
         let recording = proxy_client_recording_arc.lock().unwrap();
         assert_eq!(
@@ -1384,6 +1404,9 @@ mod tests {
                 source: error_socket_addr(),
                 data: vec![],
             }
+        );
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: bad_dns_lookup_produces_log_and_sends_error_response: Could not find IP address for host that.try: io error",
         );
     }
 

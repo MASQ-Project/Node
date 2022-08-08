@@ -213,7 +213,7 @@ fn modify_node(
         None => model_node.node_addr_opt(),
     };
     gossip_node.metadata.node_addr_opt = node_addr_opt;
-    gossip_node.inner.rate_pack = DEFAULT_RATE_PACK.clone();
+    gossip_node.inner.rate_pack = DEFAULT_RATE_PACK;
     gossip_node.inner.version = 2;
     gossip_node.inner.neighbors = model_node
         .half_neighbor_keys()
@@ -247,7 +247,7 @@ fn from_masq_node_to_node_record(masq_node: &dyn MASQNode) -> NodeRecord {
     NodeRecord {
         inner: agr.inner.clone(),
         metadata: NodeRecordMetadata {
-            desirable: true,
+            desirable_for_exit: true,
             last_update: time_t_timestamp(),
             node_addr_opt: agr.node_addr_opt.clone(),
         },
