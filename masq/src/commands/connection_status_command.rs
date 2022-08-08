@@ -80,6 +80,7 @@ mod tests {
     use masq_lib::messages::{
         ToMessageBody, UiConnectionStage, UiConnectionStatusRequest, UiConnectionStatusResponse,
     };
+    use masq_lib::ui_gateway::MessageBody;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -130,95 +131,65 @@ mod tests {
 
     #[test]
     fn connection_status_command_happy_path_for_not_connected() {
-        let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let expected_response = UiConnectionStatusResponse {
-            stage: UiConnectionStage::NotConnected,
-        };
-        let mut context = CommandContextMock::new()
-            .transact_params(&transact_params_arc)
-            .transact_result(Ok(expected_response.tmb(42)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
-        let subject = ConnectionStatusCommand::new();
+        let stage = UiConnectionStage::NotConnected;
 
-        let result = subject.execute(&mut context);
+        let (transact_params, stdout, stderr) =
+            get_transact_params_and_std_output_for_connection_status(stage);
 
-        assert_eq!(result, Ok(()));
-        let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
-            *transact_params,
+            transact_params,
             vec![(
                 UiConnectionStatusRequest {}.tmb(0),
                 STANDARD_COMMAND_TIMEOUT_MILLIS
             )]
         );
         assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
+            stdout,
             "\nNotConnected: No external neighbor is connected to us.\n\n"
         );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), "");
+        assert_eq!(stderr, "");
     }
 
     #[test]
     fn connection_status_command_happy_path_for_connected_to_neighbor() {
-        let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let expected_response = UiConnectionStatusResponse {
-            stage: UiConnectionStage::ConnectedToNeighbor,
-        };
-        let mut context = CommandContextMock::new()
-            .transact_params(&transact_params_arc)
-            .transact_result(Ok(expected_response.tmb(42)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
-        let subject = ConnectionStatusCommand::new();
+        let stage = UiConnectionStage::ConnectedToNeighbor;
 
-        let result = subject.execute(&mut context);
+        let (transact_params, stdout, stderr) =
+            get_transact_params_and_std_output_for_connection_status(stage);
 
-        assert_eq!(result, Ok(()));
-        let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
-            *transact_params,
+            transact_params,
             vec![(
                 UiConnectionStatusRequest {}.tmb(0),
                 STANDARD_COMMAND_TIMEOUT_MILLIS
             )]
         );
         assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
+            stdout,
             "\nConnectedToNeighbor: External node(s) are connected to us.\n\n"
         );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), "");
+        assert_eq!(stderr, "");
     }
 
     #[test]
     fn connection_status_command_happy_path_for_three_hops_route_found() {
-        let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let expected_response = UiConnectionStatusResponse {
-            stage: UiConnectionStage::ThreeHopsRouteFound,
-        };
-        let mut context = CommandContextMock::new()
-            .transact_params(&transact_params_arc)
-            .transact_result(Ok(expected_response.tmb(42)));
-        let stdout_arc = context.stdout_arc();
-        let stderr_arc = context.stderr_arc();
-        let subject = ConnectionStatusCommand::new();
+        let stage = UiConnectionStage::ThreeHopsRouteFound;
 
-        let result = subject.execute(&mut context);
+        let (transact_params, stdout, stderr) =
+            get_transact_params_and_std_output_for_connection_status(stage);
 
-        assert_eq!(result, Ok(()));
-        let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
-            *transact_params,
+            transact_params,
             vec![(
                 UiConnectionStatusRequest {}.tmb(0),
                 STANDARD_COMMAND_TIMEOUT_MILLIS
             )]
         );
         assert_eq!(
-            stdout_arc.lock().unwrap().get_string(),
+            stdout,
             "\nThreeHopsRouteFound: You can relay data over the network.\n\n"
         );
-        assert_eq!(stderr_arc.lock().unwrap().get_string(), "");
+        assert_eq!(stderr, "");
     }
 
     #[test]
@@ -247,5 +218,26 @@ mod tests {
             stderr_arc.lock().unwrap().get_string(),
             "Connection status retrieval failed: ConnectionProblem(\"Booga\")\n"
         );
+    }
+
+    fn get_transact_params_and_std_output_for_connection_status(
+        stage: UiConnectionStage,
+    ) -> (Vec<(MessageBody, u64)>, String, String) {
+        let transact_params_arc = Arc::new(Mutex::new(vec![]));
+        let expected_response = UiConnectionStatusResponse { stage };
+        let mut context = CommandContextMock::new()
+            .transact_params(&transact_params_arc)
+            .transact_result(Ok(expected_response.tmb(42)));
+        let stdout_arc = context.stdout_arc();
+        let stderr_arc = context.stderr_arc();
+        let subject = ConnectionStatusCommand::new();
+
+        let result = subject.execute(&mut context);
+
+        assert_eq!(result, Ok(()));
+        let transact_params = transact_params_arc.lock().unwrap().clone();
+        let stdout = stdout_arc.lock().unwrap().get_string();
+        let stderr = stderr_arc.lock().unwrap().get_string();
+        (transact_params, stdout, stderr)
     }
 }
