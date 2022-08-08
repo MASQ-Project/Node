@@ -20,8 +20,7 @@ use std::ops::Neg;
 use std::os::raw::c_int;
 use std::slice::Iter;
 
-//TODO it doesn't have to be connected anymore...update and insert_update configs can stand separately
-pub trait BigIntSQLProcessor<T: 'static + DAOTableIdentifier>: Send + Debug {
+pub trait BigIntSQLProcessor<T: DAOTableIdentifier>: Send + Debug {
     fn execute<'a>(
         &self,
         conn: &dyn ConnectionWrapper,
@@ -36,13 +35,11 @@ pub trait BigIntSQLProcessor<T: 'static + DAOTableIdentifier>: Send + Debug {
 }
 
 #[derive(Debug)]
-pub struct BigIntDbProcessorReal<T: Debug + DAOTableIdentifier + Send + 'static> {
+pub struct BigIntDbProcessorReal<T: DAOTableIdentifier> {
     phantom: PhantomData<T>,
 }
 
-impl<T: DAOTableIdentifier + Debug + Send + 'static> BigIntSQLProcessor<T>
-    for BigIntDbProcessorReal<T>
-{
+impl<T: DAOTableIdentifier> BigIntSQLProcessor<T> for BigIntDbProcessorReal<T> {
     fn execute<'a>(
         &self,
         conn: &dyn ConnectionWrapper,
@@ -72,7 +69,7 @@ impl<T: DAOTableIdentifier + Debug + Send + 'static> BigIntSQLProcessor<T>
                 "Wei change: error after invalid {} command for {} of {} Wei to {} with error '{}'",
                 config.determine_command(),
                 T::table_name(),
-                config.balance_change(), //TODO this is unnecessary? Can we have such a big number ..?
+                config.balance_change(),
                 config.key_info().1,
                 e
             ))),
@@ -87,43 +84,52 @@ impl<T: DAOTableIdentifier + Debug + Send + 'static> BigIntSQLProcessor<T>
         let select_sql = config.select_sql();
         let mut select_stm = Self::prepare_statement(form_of_conn, &select_sql);
         match select_stm.query_row([], |row| {
-            let high_bytes_result = row.get::<usize,i64>(0);
-            let low_bytes_result = row.get::<usize,i64>(1);
-            match (high_bytes_result,low_bytes_result) {
-                (Ok(high_bytes), Ok(low_bytes)) => {
+            let low_bytes_result = row.get::<usize, i64>(0);
+            match low_bytes_result {
+                Ok(low_bytes) => {
                     let wei_change_params = &config.params.wei_change_params;
                     let high_bytes_correction = wei_change_params[0].1 + 1;
-                    let low_bytes_correction = ((low_bytes as i128 + wei_change_params[1].1 as i128) & 0x7FFFFFFFFFFFFFFF) as i64 - low_bytes; //TODO test this thoroughly for negativeness
-                    eprintln!("low bytes corrected {}", low_bytes_correction);
+                    let low_bytes_correction = ((low_bytes as i128
+                        + wei_change_params[1].1 as i128)
+                        & 0x7FFFFFFFFFFFFFFF) as i64
+                        - low_bytes;
                     let update_sql = config.prepare_update_sql();
-                    let mut update_stm = Self::prepare_statement(form_of_conn,&update_sql);
-                    let wei_update_array = [(wei_change_params[0].0.as_str(), high_bytes_correction),(wei_change_params[1].0.as_str(), low_bytes_correction)];
-                    eprintln!("byte params corrected {:?}", wei_update_array);
-                    let params = config.params.pure_rusqlite_params_corrected(&wei_update_array).collect::<Vec<_>>();
-                    if update_stm.execute(&*params)
-                        .expect("correction-for update sql has wrong logic") == 1 {
-                        Ok(())
-                    } else{
-                        todo!()
+                    let mut update_stm = Self::prepare_statement(form_of_conn, &update_sql);
+                    let wei_update_array = [
+                        (wei_change_params[0].0.as_str(), high_bytes_correction),
+                        (wei_change_params[1].0.as_str(), low_bytes_correction),
+                    ];
+                    let params = config
+                        .params
+                        .pure_rusqlite_params_corrected(&wei_update_array)
+                        .collect::<Vec<_>>();
+                    match update_stm
+                        .execute(&*params)
+                        .expect("correction-for update sql has wrong logic")
+                    {
+                        1 => Ok(()),
+                        x => unreachable!(
+                            "This code was written to handle one changed row a time, not {}",
+                            x
+                        ),
                     }
                 }
-                (e1,e2) => todo!(), //Err(e),
+                Err(e) => Err(e),
             }
         }) {
             Ok(()) => Ok(()),
-            Err(e) => todo!()
-            //     Err(BlobInsertUpdateError(format!(
-            //     "Updating balance for {} of {} Wei to {} with error '{}'",
-            //     T::table_name(),
-            //     balance_change,
-            //     params.params[key_idx].1,
-            //     e
-            // ))),
+            Err(e) => Err(BigIntDbError(format!(
+                "Updating balance for {} of {} Wei to {} with error '{}'",
+                T::table_name(),
+                config.balance_change(),
+                config.key_info().1,
+                e
+            ))),
         }
     }
 }
 
-impl<T: Debug + DAOTableIdentifier + Send> BigIntDbProcessorReal<T> {
+impl<T: DAOTableIdentifier> BigIntDbProcessorReal<T> {
     pub fn new() -> BigIntDbProcessorReal<T> {
         Self {
             phantom: Default::default(),
@@ -131,7 +137,7 @@ impl<T: Debug + DAOTableIdentifier + Send> BigIntDbProcessorReal<T> {
     }
 }
 
-impl<T: Debug + DAOTableIdentifier + Send> BigIntDbProcessorReal<T> {
+impl<T: DAOTableIdentifier> BigIntDbProcessorReal<T> {
     fn prepare_statement<'a>(
         form_of_conn: Either<&'a dyn ConnectionWrapper, &'a Transaction>,
         sql: &'a str,
@@ -151,7 +157,7 @@ pub struct BigIntSqlConfig<'a, T> {
     phantom: PhantomData<T>,
 }
 
-impl<'a, T: DAOTableIdentifier + Debug + Send + 'static> BigIntSqlConfig<'a, T> {
+impl<'a, T: DAOTableIdentifier> BigIntSqlConfig<'a, T> {
     pub fn new(
         main_sql: &'a str,
         update_clause_opt: Option<for<'b> fn(&'b str) -> String>,
@@ -177,9 +183,7 @@ impl<'a, T: DAOTableIdentifier + Debug + Send + 'static> BigIntSqlConfig<'a, T> 
         )
     }
 
-    fn prepare_update_sql(
-        &self,
-    ) -> String {
+    fn prepare_update_sql(&self) -> String {
         if let Some(assembler) = self.update_clause_opt {
             assembler(&T::table_name())
         } else {
@@ -190,8 +194,7 @@ impl<'a, T: DAOTableIdentifier + Debug + Send + 'static> BigIntSqlConfig<'a, T> 
     fn select_sql(&self) -> String {
         let key_info = self.key_info();
         format!(
-            "select {}, {} from {} where {} = '{}'",
-            &self.params.wei_change_params[0].0[1..],
+            "select {} from {} where {} = '{}'",
             &self.params.wei_change_params[1].0[1..],
             T::table_name(),
             &key_info.0[1..],
@@ -223,16 +226,16 @@ impl<'a, T: DAOTableIdentifier + Debug + Send + 'static> BigIntSqlConfig<'a, T> 
     }
 }
 
+//to be able to display things that implement ToSql
 pub trait ExtendedParamsMarker: ToSql + Display {}
 
-//TODO delete this
-macro_rules! blank_impl_of_extended_params_marker{
+macro_rules! impl_of_extended_params_marker{
     ($($implementer: ty),+) => {
         $(impl ExtendedParamsMarker for $implementer {})+
     }
 }
 
-blank_impl_of_extended_params_marker!(i64, &str, Wallet);
+impl_of_extended_params_marker!(i64, &str, Wallet);
 
 #[derive(Default)]
 pub struct SQLParamsBuilder<'a> {
@@ -327,7 +330,11 @@ pub struct SQLParams<'a> {
 
 impl<'a> SQLParams<'a> {
     fn pure_rusqlite_params_uncorrected(&self) -> impl Iterator<Item = (&str, &dyn ToSql)> {
-        self.pure_rusqlite_params(Self::transform_wei_change_params(&self.wei_change_params))
+        self.pure_rusqlite_params(
+            self.wei_change_params
+                .iter()
+                .map(|(name, value)| (name.as_str(), value as &dyn ToSql)),
+        )
     }
 
     fn pure_rusqlite_params_corrected(
@@ -350,18 +357,9 @@ impl<'a> SQLParams<'a> {
             .map(|(name, value)| (*name, value as &dyn ToSql))
             .chain(wei_change_params)
     }
-
-    //TODO maybe inline these
-    fn transform_wei_change_params(
-        wei_change: &[(String, i64); 2],
-    ) -> impl Iterator<Item = (&str, &dyn ToSql)> {
-        wei_change
-            .iter()
-            .map(|(name, value)| (name.as_str(), value as &dyn ToSql))
-    }
 }
 
-pub trait DAOTableIdentifier {
+pub trait DAOTableIdentifier: Debug + Send {
     fn table_name() -> String;
 }
 
@@ -409,32 +407,9 @@ pub fn collect_and_sum_i128_values_from_table(
         .sum()
 }
 
-/////////////////////////////////////////////////////////////////////////////////////////////////
-
-pub struct DatabaseBigIntegerHandler {}
-
-impl DatabaseBigIntegerHandler {
-    pub fn new() -> Self {
-        todo!()
-    }
-
-    fn update(&self) -> Result<(), String> {
-        todo!()
-    }
-
-    fn upsert(&self) -> Result<(), String> {
-        todo!()
-    }
-}
-
 pub struct BigIntDivider {}
 
 impl BigIntDivider {
-    pub fn new() -> Self {
-        todo!()
-    }
-
-    //TODO maybe write this also for u128
     pub fn deconstruct(num: i128) -> (i64, i64) {
         let low_bits = (num & 0x7FFFFFFFFFFFFFFFi128) as i64;
         let high_bits = (num >> 63) as i64;
@@ -447,7 +422,6 @@ impl BigIntDivider {
         (high_bits, low_bits)
     }
 
-    //TODO maybe write this also for u128
     pub fn reconstitute(high_bytes: i64, low_bytes: i64) -> i128 {
         let low_bytes = low_bytes as i128;
         let high_bytes = high_bytes as i128;
@@ -699,91 +673,6 @@ mod tests {
         assert_eq!(result, "insert".to_string())
     }
 
-    #[test]
-    fn update_handles_error_on_a_row_due_to_unfitting_data_types() {
-        let wallet_address = "a11122";
-        let path = ensure_node_home_directory_exists(
-            "big_int_db_processor",
-            "update_handles_error_on_a_row_due_to_unfitting_data_types",
-        );
-        let conn = DbInitializerReal::default()
-            .initialize(&path, true, MigratorConfig::test_default())
-            .unwrap();
-        let conn_ref = conn.as_ref();
-        let params = named_params! {
-            ":wallet":wallet_address,
-            ":balance":"bubblebooo",
-            ":last_time_stamp":"genesis",
-            ":pending_payable_rowid":45_i64
-        };
-        let mut stm = conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet,:balance,:last_time_stamp,:pending_payable_rowid)").unwrap();
-        stm.execute(params).unwrap();
-        let balance_change = Addition("balance", 100);
-        let last_received_time_stamp_sec = 123_i64;
-        let update_config = BigIntSqlConfig::new("update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet",
-            None,
-                                                 SQLParamsBuilder::default().other(vec![(":last_received", &last_received_time_stamp_sec)])
-                .key( "wallet_address", ":wallet",&wallet_address).wei_change(balance_change).build());
-
-        let result = BigIntDbProcessorReal::<PayableDaoReal>::new()
-            .update_threatened_by_overflow(Either::Left(conn_ref), update_config);
-
-        assert_eq!(result, Err(BigIntDbError("Updating balance for payable of 100 Wei to a11122 with error 'Invalid column type Text at index: 0, name: balance'".to_string())));
-    }
-
-    #[test]
-    fn update_handles_error_of_bad_sql_params() {
-        let wallet_address = "a11122";
-        let path = ensure_node_home_directory_exists(
-            "big_int_db_processor",
-            "update_handles_error_of_bad_sql_params",
-        );
-        let conn = DbInitializerReal::default()
-            .initialize(&path, true, MigratorConfig::test_default())
-            .unwrap();
-        let conn_ref = conn.as_ref();
-        let mut stm = conn_ref.prepare("insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid) values (?,?,?,strftime('%s','now'),null)").unwrap();
-        stm.execute(params![wallet_address, 12, 45245]).unwrap();
-        let balance_change = Addition("balance", 100);
-        let last_received_time_stamp_sec = 123_i64;
-        let update_config = BigIntSqlConfig::new("update receivable set balance = ?, last_received_timestamp = ? where wallet_address = ?",
-            None,
-            SQLParamsBuilder::default()
-                        .other(vec![(":woodstock", &wallet_address), (":hendrix", &last_received_time_stamp_sec)])
-                        .wei_change(balance_change) //:balance
-                .key( "wallet_address", ":wallet",&wallet_address).build());
-
-        let result = BigIntDbProcessorReal::<PayableDaoReal>::new()
-            .update_threatened_by_overflow(Either::Left(conn_ref), update_config);
-
-        assert_eq!(result, Err(BigIntDbError("Updating balance for payable of 100 Wei to a11122 with error 'Invalid parameter name: :woodstock'".to_string())));
-    }
-
-    #[test]
-    fn update_changes_no_rows_err_detected() {
-        let wallet_address = "a11122";
-        let path =
-            ensure_node_home_directory_exists("blob_utils", "update_changes_no_rows_err_detected");
-        let conn = DbInitializerReal::default()
-            .initialize(&path, true, MigratorConfig::test_default())
-            .unwrap();
-        let conn_ref = conn.as_ref();
-        let balance_change = Addition("balance", 100);
-        let update_config = BigIntSqlConfig::new(
-            "update payable set balance = :balance where wallet_address = :wallet_address",
-            None,
-            SQLParamsBuilder::default()
-                .key("wallet_address", ":wallet_address", &wallet_address)
-                .wei_change(balance_change)
-                .build(),
-        );
-
-        let result = BigIntDbProcessorReal::<PayableDaoReal>::new()
-            .update_threatened_by_overflow(Either::Left(conn_ref), update_config);
-
-        assert_eq!(result, Err(BigIntDbError(String::from("Updating balance for payable of 100 Wei to a11122 with error 'Query returned no rows'"))))
-    }
-
     fn insert_single_record(conn: &dyn ConnectionWrapper, params: [&dyn ToSql; 3]) {
         conn.prepare(
             "insert into test_table (name,balance_high_b, balance_low_b) values (?, ?, ?)",
@@ -821,8 +710,8 @@ mod tests {
                             values.1
                         } else {
                             0
-                        } + if wei_change.is_positive() { 1 } else { -1 }
-                            + wei_change_high_b_component
+                        } + wei_change_high_b_component
+                            + 1
                     )
                 }
                 let single_numbered_balance = BigIntDivider::reconstitute(high_bytes, low_bytes);
@@ -836,13 +725,13 @@ mod tests {
         test_name: &str,
         main_sql: &str,
         update_clause_opt: Option<for<'a> fn(&'a str) -> String>,
-        init_record: Option<(&str, i64, i64)>,
+        init_record_opt: Option<(&str, i64, i64)>,
         requested_wei_change: WeiChange,
         do_we_expect_overflow: bool,
     ) {
         let conn =
             initiate_simple_connection_and_test_table("big_int_db_processor", test_name, false);
-        if let Some(values) = init_record {
+        if let Some(values) = init_record_opt {
             insert_single_record(conn.as_ref(), [&values.0, &values.1, &values.2])
         };
         let subject = BigIntDbProcessorReal::<DummyDao>::new();
@@ -866,7 +755,7 @@ mod tests {
         };
         let wei_change_deconstructed = BigIntDivider::deconstruct(wei_change);
         let (_, low_bytes) = wei_change_deconstructed;
-        let did_overflow_occurred = if let Some(values) = init_record {
+        let did_overflow_occurred = if let Some(values) = init_record_opt {
             values.2
         } else {
             0
@@ -880,7 +769,7 @@ mod tests {
         assert_on_whole_row(
             &*conn,
             "Joe",
-            init_record,
+            init_record_opt,
             do_we_expect_overflow,
             wei_change,
         )
@@ -889,7 +778,7 @@ mod tests {
     fn initiate_simple_connection_and_test_table(
         module: &str,
         test_name: &str,
-        read_only_conn: bool,
+        read_only_conn: bool, //TODO is this flag really used anywhere?
     ) -> Box<ConnectionWrapperReal> {
         let home_dir = ensure_node_home_directory_exists(module, test_name);
         let db_path = home_dir.join("test_table.db");
@@ -948,7 +837,6 @@ mod tests {
     #[test]
     //notice of that small amount subtracted and still causing overflow
     fn update_alone_works_for_subtraction_with_overflow() {
-        todo!("fix the assertion to check te high bytes correctly");
         precise_upsert_or_update_assertion(
             "update_alone_works_for_subtraction_with_overflow",
             "update test_table set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where name = :name",
@@ -969,35 +857,55 @@ mod tests {
     }
 
     #[test]
-    fn insert_failed_update_succeeded() {
-        let conn = initiate_simple_connection_and_test_table(
-            "big_int_db_processor",
-            "insert_failed_update_succeeded",
-            false,
-        );
-        insert_single_record(conn.as_ref(), [&"Joe", &60, &5555]);
-        let subject = BigIntDbProcessorReal::<DummyDao>::new();
-        let balance_change = Addition("balance", 5555);
-        let config = BigIntSqlConfig::new(
+    fn early_return_for_successful_insert_works_for_subtraction() {
+        precise_upsert_or_update_assertion(
+            "early_return_for_successful_insert_works_for_subtraction",
+            "insert into test_table (name,balance_high_b,balance_low_b) values (:name,:balance_high_b,:balance_low_b)",
+            None,
+            None,
+            Subtraction("balance", 58989787), false);
+    }
+
+    #[test]
+    fn insert_fails_simple_update_succeeds_for_addition() {
+        precise_upsert_or_update_assertion(
+            "insert_fails_simple_update_succeeds_for_addition",
             "insert into test_table (name, balance_high_b, balance_low_b) values (:name, :balance_high_b, :balance_low_b) on conflict (name) do",
             Some(|table_name |format!("update {} set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where name = :name",table_name)),
-            SQLParamsBuilder::default()
-                .key("name", ":name",&"Joe")
-                .wei_change(balance_change)
-                .build());
+            Some((&"Joe", 60, 5555)),
+            Addition("balance", 78985269), false);
+    }
 
-        let result = subject.execute(conn.as_ref(), config);
+    #[test]
+    fn insert_fails_simple_update_succeeds_for_subtraction() {
+        precise_upsert_or_update_assertion(
+            "insert_fails_simple_update_succeeds_for_subtraction",
+            "insert into test_table (name, balance_high_b, balance_low_b) values (:name, :balance_high_b, :balance_low_b) on conflict (name) do",
+            Some(|table_name |format!("update {} set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where name = :name",table_name)),
+            Some((&"Joe", 89489612, 7841212)),
+            Subtraction("balance", 789858784879), false);
+    }
 
-        assert_eq!(result, Ok(()));
-        conn.prepare("select * from test_table")
-            .unwrap()
-            .query_row([], |row| {
-                assert_eq!(row.get::<usize, String>(0).unwrap(), "Joe".to_string());
-                assert_eq!(row.get::<usize, i64>(1).unwrap(), 60);
-                assert_eq!(row.get::<usize, i64>(2).unwrap(), 11110);
-                Ok(())
-            })
-            .unwrap();
+    #[test]
+    fn insert_fails_update_succeeds_with_overflow_for_addition() {
+        let enough_big_number = BigIntDivider::reconstitute(48795846111, i64::MAX - 48484);
+        precise_upsert_or_update_assertion(
+            "insert_fails_update_succeeds_with_overflow_for_addition",
+            "insert into test_table (name, balance_high_b, balance_low_b) values (:name, :balance_high_b, :balance_low_b) on conflict (name) do",
+            Some(|table_name |format!("update {} set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where name = :name",table_name)),
+            Some((&"Joe", 60, 55554598)),
+            Addition("balance", enough_big_number as u128), true);
+    }
+
+    #[test]
+    fn insert_fails_update_succeeds_with_overflow_for_subtraction() {
+        let enough_big_number = BigIntDivider::reconstitute(-48795846112, 9223372036854775797);
+        precise_upsert_or_update_assertion(
+            "insert_fails_update_succeeds_with_overflow_for_subtraction",
+            "insert into test_table (name, balance_high_b, balance_low_b) values (:name, :balance_high_b, :balance_low_b) on conflict (name) do",
+            Some(|table_name |format!("update {} set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where name = :name",table_name)),
+            Some((&"Joe", -5, 2233333)),
+            Subtraction("balance", enough_big_number.abs() as u128), true);
     }
 
     #[test]
@@ -1032,43 +940,6 @@ mod tests {
     }
 
     #[test]
-    fn insert_fails_and_update_overflows_but_is_handled() {
-        let conn = initiate_simple_connection_and_test_table(
-            "big_int_db_processor",
-            "insert_fails_and_update_overflows_but_is_handled",
-            false,
-        );
-        insert_single_record(conn.as_ref(), [&"Joe", &0, &(i64::MAX - 56)]);
-        let subject = BigIntDbProcessorReal::<DummyDao>::new();
-        let balance_change = Addition("balance", 57 as u128);
-        let config = BigIntSqlConfig::new(
-            "insert into test_table (name,balance_high_b,balance_low_b) values (:name,:balance_high_b,:balance_low_b) on conflict (name) do",
-            Some(|table_name|format!("update {} set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b  where name = :name",table_name)),
-                SQLParamsBuilder::default()
-                    .key("name", ":name", &"Joe")
-                    .wei_change(balance_change)
-                    .build(),
-            );
-
-        let result = subject.execute(conn.as_ref(), config);
-
-        assert_eq!(result, Ok(()));
-        conn.prepare("select * from test_table")
-            .unwrap()
-            .query_row([], |row| {
-                assert_eq!(row.get::<usize, String>(0).unwrap(), "Joe".to_string());
-                let high_bytes = row.get::<usize, i64>(1).unwrap();
-                let low_bytes = row.get::<usize, i64>(2).unwrap();
-                assert_eq!(high_bytes, 1);
-                assert_eq!(low_bytes, 0);
-                let math_op_result = BigIntDivider::reconstitute(high_bytes, low_bytes);
-                assert_eq!(math_op_result, i64::MAX as i128 + 1);
-                Ok(())
-            })
-            .unwrap();
-    }
-
-    #[test]
     fn insert_handles_unspecific_failures() {
         let conn = initiate_simple_connection_and_test_table(
             "big_int_db_processor",
@@ -1093,6 +964,95 @@ mod tests {
             Err(BigIntDbError(
                 "Wei change: error after invalid insert command for test_table of 4879898145125 \
                 Wei to Joe with error 'Invalid parameter name: :balance_high_b'"
+                    .to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn update_with_overflow_handles_unspecific_error() {
+        let conn = initiate_simple_connection_and_test_table(
+            "big_int_db_processor",
+            "update_with_overflow_handles_unspecific_error",
+            false,
+        );
+        let balance_change = Addition("balance", 100);
+        let update_config = BigIntSqlConfig::new(
+            "this can be whatever because the test fails already on the select stm",
+            None,
+            SQLParamsBuilder::default()
+                .wei_change(balance_change)
+                .key("name", ":name", &"Joe")
+                .build(),
+        );
+
+        let result = BigIntDbProcessorReal::<DummyDao>::new()
+            .update_threatened_by_overflow(Either::Left(conn.as_ref()), update_config);
+
+        //this kind of error is impossible in the real use case but is easiest regarding an arrangement of the test
+        assert_eq!(result, Err(BigIntDbError("Updating balance for test_table of 100 Wei to Joe with error 'Query returned no rows'".to_string())));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "unreachable code: This code was written to handle one changed row a time, not 2"
+    )]
+    fn update_with_overflow_is_designed_to_handle_one_record_a_time() {
+        let conn = initiate_simple_connection_and_test_table(
+            "big_int_db_processor",
+            "update_with_overflow_is_designed_to_handle_one_record_a_time",
+            false,
+        );
+        insert_single_record(&*conn, [&"Joe", &60, &5555]);
+        insert_single_record(&*conn, [&"Jodie", &77, &0]);
+        let balance_change = Addition("balance", 100);
+        let update_config = BigIntSqlConfig::new(
+            "update test_table set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where name in(:name,'Jodie')",
+            None,
+            SQLParamsBuilder::default()
+                .wei_change(balance_change)
+                .key( "name", ":name",&"Joe")
+                .build()
+        );
+
+        let _ = BigIntDbProcessorReal::<DummyDao>::new()
+            .update_threatened_by_overflow(Either::Left(conn.as_ref()), update_config);
+    }
+
+    #[test]
+    fn update_with_overflow_handles_error_from_executing_the_initial_select_stm() {
+        let conn = initiate_simple_connection_and_test_table(
+            "big_int_db_processor",
+            "update_with_overflow_handles_error_from_executing_the_initial_select_stm",
+            false,
+        );
+        conn.prepare("alter table test_table drop column balance_low_b")
+            .unwrap()
+            .execute([])
+            .unwrap();
+        conn.prepare("alter table test_table add column balance_low_b text")
+            .unwrap()
+            .execute([])
+            .unwrap();
+        insert_single_record(&*conn, [&"Joe", &60, &"bad type"]);
+        let balance_change = Addition("balance", 100);
+        let update_config = BigIntSqlConfig::new(
+            "this can be whatever because the test fails already on the select stm",
+            None,
+            SQLParamsBuilder::default()
+                .wei_change(balance_change)
+                .key("name", ":name", &"Joe")
+                .build(),
+        );
+
+        let result = BigIntDbProcessorReal::<DummyDao>::new()
+            .update_threatened_by_overflow(Either::Left(conn.as_ref()), update_config);
+
+        assert_eq!(
+            result,
+            Err(BigIntDbError(
+                "Updating balance for test_table of 100 Wei to Joe with error \
+        'Invalid column type Text at index: 0, name: balance_low_b'"
                     .to_string()
             ))
         );
@@ -1201,16 +1161,5 @@ mod tests {
         let result = BigIntDivider::reconstitute(-9223372036854775808, 0);
 
         assert_eq!(result, -0x40000000000000000000000000000000)
-    }
-
-    #[test]
-    //TODO kill this test later
-    fn preparing_values_for_other_tests() {
-        eprintln!(
-            "{:?}",
-            BigIntDivider::deconstruct(56784545484899 * 1000000000)
-        );
-        eprintln!("{:?}", BigIntDivider::deconstruct(-56784 * 1000000000));
-        eprintln!("{:?}", BigIntDivider::deconstruct(9123 * 1000000000));
     }
 }

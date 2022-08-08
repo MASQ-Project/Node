@@ -853,9 +853,7 @@ pub struct InsertUpdateCoreMock {
     upsert_results: RefCell<Vec<Result<(), BigIntDbError>>>,
 }
 
-impl<T: DAOTableIdentifier + 'static + Debug + Send> BigIntSQLProcessor<T>
-    for InsertUpdateCoreMock
-{
+impl<T: DAOTableIdentifier> BigIntSQLProcessor<T> for InsertUpdateCoreMock {
     fn execute<'a>(
         &self,
         conn: &dyn ConnectionWrapper,
@@ -895,9 +893,7 @@ impl<T: DAOTableIdentifier + 'static + Debug + Send> BigIntSQLProcessor<T>
     }
 }
 
-fn owned_params<T: DAOTableIdentifier + 'static + Debug + Send>(
-    config: &BigIntSqlConfig<T>,
-) -> Vec<(String, String)> {
+fn owned_params<T: DAOTableIdentifier>(config: &BigIntSqlConfig<T>) -> Vec<(String, String)> {
     todo!("repair me")
     // config
     //     .params_opt
