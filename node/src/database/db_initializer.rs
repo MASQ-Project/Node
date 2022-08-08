@@ -309,7 +309,7 @@ impl DbInitializerReal {
                     balance_low_b integer not null,
                     last_paid_timestamp integer not null,
                     pending_payable_rowid integer null
-            )",
+            ) strict",
             [],
         )
         .expect("Can't create payable table");
@@ -322,7 +322,7 @@ impl DbInitializerReal {
                     balance_high_b integer not null,
                     balance_low_b integer not null,
                     last_received_timestamp integer not null
-            )",
+            ) strict",
             [],
         )
         .expect("Can't create receivable table");
@@ -624,7 +624,8 @@ mod tests {
     use crate::test_utils::database_utils::{
         assert_create_table_stm_contains_all_parts,
         assert_index_stm_is_coupled_with_right_parameter, assert_no_index_exists_for_table,
-        bring_db_0_back_to_life_and_return_connection, retrieve_config_row, DbMigratorMock,
+        assert_table_created_as_strict, bring_db_0_back_to_life_and_return_connection,
+        retrieve_config_row, DbMigratorMock,
     };
     use itertools::Itertools;
     use masq_lib::blockchains::chains::Chain;
@@ -759,6 +760,7 @@ mod tests {
         let mut stmt = conn.prepare ("select wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid from payable").unwrap ();
         let mut payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
         assert!(payable_contents.next().is_none());
+        assert_table_created_as_strict(&*conn, "payable");
         let expected_key_words: &[&[&str]] = &[
             &["wallet_address", "text", "primary", "key"],
             &["balance_high_b", "integer", "not", "null"],
@@ -787,6 +789,7 @@ mod tests {
             .unwrap();
         let mut receivable_contents = stmt.query_map([], |_| Ok(())).unwrap();
         assert!(receivable_contents.next().is_none());
+        assert_table_created_as_strict(&*conn, "receivable");
         let expected_key_words: &[&[&str]] = &[
             &["wallet_address", "text", "primary", "key"],
             &["balance_high_b", "integer", "not", "null"],

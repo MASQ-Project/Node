@@ -345,6 +345,7 @@ impl ReceivableDaoReal {
         let xactn = self.conn.transaction()?;
         {
             for transaction in payments {
+                //TODO this is highly wrong!! use 'execute' instead
                 self.big_int_sql_processor.update_threatened_by_overflow(Either::Right(&xactn), BigIntSqlConfig::new(
                     "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet",
                     None,

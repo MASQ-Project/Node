@@ -118,9 +118,9 @@ impl PayableDao for PayableDaoReal {
         Ok(self.big_int_sql_processor.execute(
             self.conn.as_ref(),
             BigIntSqlConfig::new(
-                "insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values (:wallet, :balance, :last_paid_timestamp, null)",
-                None, //"update payable set balance = :updated_balance where wallet_address = :wallet",
-                         SQLParamsBuilder::default()
+                "insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid) values (:wallet, :balance_high_b, :balance_low_b, :last_paid_timestamp, null) on conflict (wallet_address) do",
+                Some(|table|format!("update {} set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where wallet_address = :wallet", table)),
+                SQLParamsBuilder::default()
                           .key("wallet_address", ":wallet",wallet)
                           .wei_change( Addition("balance",amount))
                           .other(vec![(":last_paid_timestamp",&to_time_t(timestamp))])
@@ -161,12 +161,12 @@ impl PayableDao for PayableDaoReal {
             checked_conversion::<u64, i64>(fingerprint.rowid_opt.expectv("initialized rowid"));
         Ok(self
             .big_int_sql_processor
-            .update_threatened_by_overflow(Either::Left(self.conn.as_ref()), BigIntSqlConfig::new(
-                "update payable set balance = :updated_balance, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid",
+            .execute(self.conn.as_ref(), BigIntSqlConfig::new(
+                "update payable set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid",
                 None,
                    SQLParamsBuilder::default()
                     .key( "pending_payable_rowid", ":rowid",&key)
-                    .wei_change(Subtraction("amount",fingerprint.amount))
+                    .wei_change(Subtraction("balance",fingerprint.amount))
                     .other(vec![(":last_paid", &to_time_t(fingerprint.timestamp))])
                     .build()))?)
     }
@@ -428,11 +428,6 @@ mod tests {
             let conn =
                 Connection::open_with_flags(&home_dir.join(db_initializer::DATABASE_FILE), flags)
                     .unwrap();
-            conn.execute(
-                "update payable set last_paid_timestamp = 0 where wallet_address = '0x000000000000000000000000000000626f6f6761'",
-                [],
-            )
-            .unwrap();
             subject
         };
 
@@ -477,8 +472,8 @@ mod tests {
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         {
-            let mut stm = boxed_conn.prepare("insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp) values (?,?,?)").unwrap();
-            let params: &[&dyn ToSql] = &[&wallet, &128779747, &5000, &150_000_000];
+            let mut stm = boxed_conn.prepare("insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp) values (?,?,?,?)").unwrap();
+            let params: &[&dyn ToSql] = &[&wallet, &0, &5000, &150_000_000];
             stm.execute(params).unwrap();
         }
         let subject = PayableDaoReal::new(boxed_conn);

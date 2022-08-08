@@ -583,7 +583,7 @@ impl<'a> Migrate_6_to_7_carrier<'a> {
                 "create table compensatory_{} (high_bytes integer null, low_bytes integer null)",
                 table
             ),
-            &format!("create table {} ({})", table, table_creation_lines),
+            &format!("create table {} ({}) strict", table, table_creation_lines),
         ])?;
         let param_names = Self::extract_param_names(table_creation_lines);
         self.compose_insert_statements(table, nontrivial_param_old_name, param_names);
@@ -944,12 +944,12 @@ mod tests {
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::database_utils::retrieve_config_row;
     use crate::test_utils::database_utils::{
         assert_create_table_stm_contains_all_parts,
         assert_index_stm_is_coupled_with_right_parameter, assert_no_index_exists_for_table,
         assert_table_does_not_exist, bring_db_0_back_to_life_and_return_connection,
     };
+    use crate::test_utils::database_utils::{assert_table_created_as_strict, retrieve_config_row};
     use crate::test_utils::make_wallet;
     use bip39::{Language, Mnemonic, MnemonicType, Seed};
     use ethereum_types::BigEndianHash;
@@ -2359,6 +2359,7 @@ mod tests {
             )
             .unwrap();
 
+        assert_table_created_as_strict(&*conn, "payable");
         let expected_key_words: &[&[&str]] = &[
             &["wallet_address", "text", "primary", "key"],
             &["balance_high_b", "integer", "not", "null"],
@@ -2367,6 +2368,7 @@ mod tests {
             &["pending_payable_rowid", "integer", "null"],
         ];
         assert_create_table_stm_contains_all_parts(&*conn, "payable", expected_key_words);
+        //we don't need the strict constrain necessarily here
         let expected_key_words: &[&[&str]] = &[
             &["transaction_hash", "text", "not", "null"],
             &["amount_high_b", "integer", "not", "null"],
@@ -2376,6 +2378,7 @@ mod tests {
             &["process_error", "text", "null"],
         ];
         assert_create_table_stm_contains_all_parts(&*conn, "pending_payable", expected_key_words);
+        assert_table_created_as_strict(&*conn, "receivable");
         let expected_key_words: &[&[&str]] = &[
             &["wallet_address", "text", "primary", "key"],
             &["balance_high_b", "integer", "not", "null"],

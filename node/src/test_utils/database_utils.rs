@@ -157,6 +157,22 @@ pub fn assert_no_index_exists_for_table(conn: &dyn ConnectionWrapper, table_name
         })
 }
 
+pub fn assert_table_created_as_strict(conn: &dyn ConnectionWrapper, table_name: &str) {
+    let payable_creation_sql = fetch_table_sql(conn, table_name);
+    let last_word_reversed = payable_creation_sql
+        .chars()
+        .rev()
+        .skip_while(|char| char.is_whitespace())
+        .take_while(|char| !char.is_whitespace())
+        .collect::<String>();
+    let last_word = last_word_reversed.chars().rev().collect::<String>();
+    assert_eq!(
+        last_word, "strict",
+        "we expected the 'strict' key word but got: {}",
+        last_word
+    )
+}
+
 fn zippered<'a>(
     actual: &'a Vec<HashSet<String>>,
     expected: &[&[&str]],

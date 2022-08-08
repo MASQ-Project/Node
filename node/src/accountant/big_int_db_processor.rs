@@ -53,16 +53,9 @@ impl<T: DAOTableIdentifier> BigIntSQLProcessor<T> for BigIntDbProcessorReal<T> {
             .collect::<Vec<(&str, &dyn ToSql)>>();
         match stm.execute(params.as_slice()) {
             Ok(_) => Ok(()),
-            Err(e)
-                if match e {
-                    Error::SqliteFailure(e, _) => {
-                        //SQLITE_CONSTRAINT_DATATYPE,
-                        //the moment of Sqlite trying to store the number as REAL in a strict INT column
-                        e.extended_code == c_int::from(3091)
-                    }
-                    _ => false,
-                } =>
-            {
+            //SQLITE_CONSTRAINT_DATATYPE (3091),
+            //the moment of Sqlite trying to store the number as REAL in a strict INT column
+            Err(Error::SqliteFailure(e, _)) if e.extended_code == c_int::from(3091) => {
                 self.update_threatened_by_overflow(Either::Left(conn), config)
             }
             Err(e) => Err(BigIntDbError(format!(
