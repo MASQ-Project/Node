@@ -26,7 +26,7 @@ use std::process::Command;
 use std::time::Duration;
 
 pub const ROUTER_MULTICAST_PORT: u16 = 5350; // from the PCP and PMP RFCs
-pub const    ROUTER_SERVER_PORT: u16 = 5351; // from the PCP and PMP RFCs
+pub const ROUTER_SERVER_PORT: u16 = 5351; // from the PCP and PMP RFCs
 pub const HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS: u64 = 1000;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -86,15 +86,15 @@ pub struct NullUdpSocketWrapper {}
 
 impl UdpSocketWrapper for NullUdpSocketWrapper {
     fn recv(&self, _buf: &mut [u8]) -> io::Result<usize> {
-        Err (io::Error::from (ErrorKind::TimedOut))
+        Err(io::Error::from(ErrorKind::TimedOut))
     }
 
     fn recv_from(&self, _buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
-        Err (io::Error::from (ErrorKind::TimedOut))
+        Err(io::Error::from(ErrorKind::TimedOut))
     }
 
     fn send_to(&self, buf: &[u8], _addr: SocketAddr) -> io::Result<usize> {
-        Ok (buf.len())
+        Ok(buf.len())
     }
 
     fn set_read_timeout(&self, _dur: Option<Duration>) -> io::Result<()> {
@@ -144,16 +144,22 @@ pub struct PoliteUdpSocketWrapperFactoryReal {}
 
 impl PoliteUdpSocketWrapperFactory for PoliteUdpSocketWrapperFactoryReal {
     fn make(&self, multicast_info: &MulticastInfo) -> io::Result<Box<dyn UdpSocketWrapper>> {
-        Ok(Box::new (UdpSocketWrapperReal::new (multicast_info.create_polite_socket()?)))
+        Ok(Box::new(UdpSocketWrapperReal::new(
+            multicast_info.create_polite_socket()?,
+        )))
     }
 }
 
 impl PoliteUdpSocketWrapperFactoryReal {
-    pub fn new() -> Self {Self {}}
+    pub fn new() -> Self {
+        Self {}
+    }
 }
 
 impl Default for PoliteUdpSocketWrapperFactoryReal {
-    fn default() -> Self {Self::new()}
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 pub trait FreePortFactory: Send {

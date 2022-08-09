@@ -2,21 +2,28 @@
 
 #![cfg(any(test, not(feature = "no_test_share")))]
 
-use crate::comm_layer::pcp_pmp_common::{FindRoutersCommand, FreePortFactory, PoliteUdpSocketWrapperFactory, UdpSocketWrapper, UdpSocketWrapperFactory};
-use crate::comm_layer::{AutomapError, HousekeepingThreadCommand, LocalIpFinder, MulticastInfo, Transactor};
-use crate::control_layer::automap_control::{replace_transactor, AutomapControlReal, ChangeHandler, AutomapChange};
+use crate::comm_layer::pcp_pmp_common::{
+    FindRoutersCommand, FreePortFactory, PoliteUdpSocketWrapperFactory, UdpSocketWrapper,
+    UdpSocketWrapperFactory,
+};
+use crate::comm_layer::{
+    AutomapError, HousekeepingThreadCommand, LocalIpFinder, MulticastInfo, Transactor,
+};
+use crate::control_layer::automap_control::{
+    replace_transactor, AutomapChange, AutomapControlReal, ChangeHandler,
+};
 use crossbeam_channel::Sender;
 use lazy_static::lazy_static;
 use masq_lib::utils::AutomapProtocol;
 use std::any::Any;
 use std::cell::RefCell;
+use std::fmt::Debug;
 use std::io::ErrorKind;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use std::{io, thread};
-use std::fmt::Debug;
 
 lazy_static! {
     pub static ref ROUTER_IP: IpAddr = IpAddr::from_str("1.2.3.4").unwrap();
@@ -116,7 +123,10 @@ impl UdpSocketWrapper for UdpSocketWrapperMock {
     }
 
     fn set_nonblocking(&self, nonblocking: bool) -> io::Result<()> {
-        self.set_nonblocking_params.lock().unwrap().push(nonblocking);
+        self.set_nonblocking_params
+            .lock()
+            .unwrap()
+            .push(nonblocking);
         self.set_nonblocking_results.borrow_mut().remove(0)
     }
 }
@@ -232,7 +242,10 @@ pub struct PoliteUdpSocketWrapperFactoryMock {
 
 impl PoliteUdpSocketWrapperFactory for PoliteUdpSocketWrapperFactoryMock {
     fn make(&self, multicast_info: &MulticastInfo) -> io::Result<Box<dyn UdpSocketWrapper>> {
-        self.make_params.lock().unwrap().push(multicast_info.clone());
+        self.make_params
+            .lock()
+            .unwrap()
+            .push(multicast_info.clone());
         self.make_results.borrow_mut().remove(0)
     }
 }
@@ -419,7 +432,11 @@ impl TransactorMock {
             housekeeping_thread_started: false,
             protocol,
             find_routers_results: RefCell::new(vec![]),
-            get_multicast_info_result: RefCell::new (MulticastInfo::new(IpAddr::from_str("0.0.0.0").unwrap(), 0, 0)),
+            get_multicast_info_result: RefCell::new(MulticastInfo::new(
+                IpAddr::from_str("0.0.0.0").unwrap(),
+                0,
+                0,
+            )),
             get_public_ip_params: Arc::new(Mutex::new(vec![])),
             get_public_ip_results: RefCell::new(vec![]),
             add_mapping_params: Arc::new(Mutex::new(vec![])),
@@ -538,9 +555,9 @@ pub fn await_value<F, T, E>(
     interval_and_limit_ms: Option<(u64, u64)>,
     mut f: F,
 ) -> Result<T, String>
-    where
-        E: Debug,
-        F: FnMut() -> Result<T, E>,
+where
+    E: Debug,
+    F: FnMut() -> Result<T, E>,
 {
     let (interval_ms, limit_ms) = interval_and_limit_ms.unwrap_or((250, 1000));
     let interval_dur = Duration::from_millis(interval_ms);
@@ -566,11 +583,11 @@ pub fn await_value<F, T, E>(
 }
 
 pub fn make_change_handler_expecting_new_ip() -> (ChangeHandler, Arc<Mutex<Option<IpAddr>>>) {
-    let received_ip_arc: Arc<Mutex<Option<IpAddr>>> = Arc::new (Mutex::new (None));
+    let received_ip_arc: Arc<Mutex<Option<IpAddr>>> = Arc::new(Mutex::new(None));
     let inner_received_ip = received_ip_arc.clone();
-    let change_handler: ChangeHandler = Box::new (move |msg| {
+    let change_handler: ChangeHandler = Box::new(move |msg| {
         match msg {
-            AutomapChange::NewIp(ip_addr) => inner_received_ip.lock().unwrap().replace (ip_addr),
+            AutomapChange::NewIp(ip_addr) => inner_received_ip.lock().unwrap().replace(ip_addr),
             _ => None,
         };
     });
@@ -578,11 +595,11 @@ pub fn make_change_handler_expecting_new_ip() -> (ChangeHandler, Arc<Mutex<Optio
 }
 
 pub fn make_change_handler_expecting_error() -> (ChangeHandler, Arc<Mutex<Option<AutomapError>>>) {
-    let received_error_arc: Arc<Mutex<Option<AutomapError>>> = Arc::new (Mutex::new (None));
+    let received_error_arc: Arc<Mutex<Option<AutomapError>>> = Arc::new(Mutex::new(None));
     let inner_received_error = received_error_arc.clone();
-    let change_handler: ChangeHandler = Box::new (move |msg| {
+    let change_handler: ChangeHandler = Box::new(move |msg| {
         match msg {
-            AutomapChange::Error(error) => inner_received_error.lock().unwrap().replace (error),
+            AutomapChange::Error(error) => inner_received_error.lock().unwrap().replace(error),
             _ => None,
         };
     });

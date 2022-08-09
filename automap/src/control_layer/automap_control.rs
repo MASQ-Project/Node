@@ -3,7 +3,9 @@
 use crate::comm_layer::igdp::IgdpTransactor;
 use crate::comm_layer::pcp::PcpTransactor;
 use crate::comm_layer::pmp::PmpTransactor;
-use crate::comm_layer::{AutomapError, HousekeepingThreadCommand, Transactor, DEFAULT_MAPPING_LIFETIME_SECONDS};
+use crate::comm_layer::{
+    AutomapError, HousekeepingThreadCommand, Transactor, DEFAULT_MAPPING_LIFETIME_SECONDS,
+};
 use crossbeam_channel::Sender;
 use masq_lib::debug;
 use masq_lib::logger::Logger;
@@ -212,14 +214,8 @@ impl AutomapControlReal {
     ) -> Result<ProtocolInfo<T>, AutomapError> {
         let mut transactors = self.transactors.borrow_mut();
         let transactor = transactors[inner.transactor_idx].as_mut();
-        self.maybe_start_housekeeper(
-            transactor,
-            inner.router_ip,
-        )?;
-        let result = experiment(
-            transactor,
-            inner.router_ip,
-        );
+        self.maybe_start_housekeeper(transactor, inner.router_ip)?;
+        let result = experiment(transactor, inner.router_ip);
         result.map(|payload| ProtocolInfo {
             payload,
             router_ip: inner.router_ip,
@@ -370,7 +366,7 @@ mod tests {
                 *ROUTER_IP,
                 IpAddr::from_str("5.4.3.2").unwrap(),
             ],
-            multicast_group
+            multicast_group,
         );
         let experiment: TransactorExperiment<String> =
             Box::new(|t, router_ip| match t.get_public_ip(router_ip) {
@@ -1278,7 +1274,7 @@ mod tests {
             transactor = transactor
                 .start_housekeeping_thread_result(Ok(unbounded().0))
                 .stop_housekeeping_thread_result(Ok(Box::new(|_| ())))
-                .get_multicast_info_result (MulticastInfo::for_test(multicast_group))
+                .get_multicast_info_result(MulticastInfo::for_test(multicast_group))
                 .get_public_ip_result(Ok(*PUBLIC_IP))
                 .add_mapping_result(Ok(1000));
         }
@@ -1340,7 +1336,7 @@ mod tests {
         Box::new(
             TransactorMock::new(protocol)
                 .find_routers_result(Ok(vec![*ROUTER_IP]))
-                .get_multicast_info_result(MulticastInfo::for_test (multicast_group))
+                .get_multicast_info_result(MulticastInfo::for_test(multicast_group))
                 .get_public_ip_params(get_public_ip_params_arc)
                 .get_public_ip_result(Ok(*PUBLIC_IP))
                 .add_mapping_params(add_mapping_params_arc)

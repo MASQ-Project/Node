@@ -6,8 +6,8 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 use std::str::FromStr;
 
 use crossbeam_channel::Sender;
+use masq_lib::utils::AutomapProtocol;
 use socket2::{Domain, SockAddr, Type};
-use masq_lib::utils::{AutomapProtocol};
 
 use crate::comm_layer::pcp_pmp_common::MappingConfig;
 use crate::control_layer::automap_control::ChangeHandler;
@@ -76,7 +76,7 @@ impl AutomapError {
             AutomapError::SocketBindingError(_, _) => AutomapErrorCause::UserError,
             AutomapError::SocketSendError(aec) => aec.clone(),
             AutomapError::SocketReceiveError(aec) => aec.clone(),
-            AutomapError::MulticastBindingError(_, _) => todo! (),
+            AutomapError::MulticastBindingError(_, _) => todo!(),
             AutomapError::PacketParseError(_) => AutomapErrorCause::ProtocolNotImplemented,
             AutomapError::ProtocolError(_) => AutomapErrorCause::ProtocolNotImplemented,
             AutomapError::PermanentLeasesOnly => {
@@ -169,7 +169,7 @@ impl LocalIpFinderReal {
 #[allow(dead_code)]
 const ROUTER_MULTICAST_GROUP: u8 = 1;
 
-#[derive (Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct MulticastInfo {
     pub interface: IpAddr,
     pub multicast_group: u8,
@@ -178,24 +178,28 @@ pub struct MulticastInfo {
 
 impl Default for MulticastInfo {
     fn default() -> Self {
-        MulticastInfo::new (IpAddr::V4(Ipv4Addr::UNSPECIFIED), 1, 5350)
+        MulticastInfo::new(IpAddr::V4(Ipv4Addr::UNSPECIFIED), 1, 5350)
     }
 }
 
 impl MulticastInfo {
-    pub fn new (interface: IpAddr, multicast_group: u8, port: u16) -> Self {
-        Self {interface, multicast_group, port}
+    pub fn new(interface: IpAddr, multicast_group: u8, port: u16) -> Self {
+        Self {
+            interface,
+            multicast_group,
+            port,
+        }
     }
 
-    pub fn multicast_group_address (&self) -> IpAddr {
-        IpAddr::V4(Ipv4Addr::new (224, 0, 0, self.multicast_group))
+    pub fn multicast_group_address(&self) -> IpAddr {
+        IpAddr::V4(Ipv4Addr::new(224, 0, 0, self.multicast_group))
     }
 
-    pub fn multicast_addr (&self) -> SocketAddr {
-        SocketAddr::new (self.multicast_group_address(), self.port)
+    pub fn multicast_addr(&self) -> SocketAddr {
+        SocketAddr::new(self.multicast_group_address(), self.port)
     }
 
-    pub fn create_polite_socket (&self) -> Result<UdpSocket, std::io::Error> {
+    pub fn create_polite_socket(&self) -> Result<UdpSocket, std::io::Error> {
         //creates new UDP socket on ipv4 address
         let socket = socket2::Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP))?;
         //linux/macos have reuse_port exposed so we can call it for non-windows systems
@@ -205,31 +209,31 @@ impl MulticastInfo {
         socket.set_reuse_address(true)?;
         let interface_v4 = match self.interface {
             IpAddr::V4(ipv4addr) => ipv4addr,
-            IpAddr::V6(_) => unimplemented! ("IPv6 is not yet supported for router announcements"),
+            IpAddr::V6(_) => unimplemented!("IPv6 is not yet supported for router announcements"),
         };
         let multicast_group_address_v4 = match self.multicast_group_address() {
             IpAddr::V4(ipv4addr) => ipv4addr,
-            IpAddr::V6(_) => unimplemented! ("IPv6 is not yet supported for router announcements"),
+            IpAddr::V6(_) => unimplemented!("IPv6 is not yet supported for router announcements"),
         };
         //subscribes to multicast group on the interface
         socket.join_multicast_v4(&multicast_group_address_v4, &interface_v4)?;
         //binds to the multicast interface and port
-        socket
-            .bind(&SockAddr::from(SocketAddr::new(
-                self.interface,
-                self.port,
-            )))?;
+        socket.bind(&SockAddr::from(SocketAddr::new(self.interface, self.port)))?;
         //converts socket2 socket into a std::net socket, required for correct recv_from method
-        Ok (socket.into())
+        Ok(socket.into())
     }
 }
 
 #[cfg(test)]
-use masq_lib::utils::{find_free_port};
+use masq_lib::utils::find_free_port;
 #[cfg(test)]
 impl MulticastInfo {
     pub fn for_test(multicast_group: u8) -> Self {
-        Self::new (IpAddr::V4(Ipv4Addr::UNSPECIFIED), multicast_group, find_free_port())
+        Self::new(
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+            multicast_group,
+            find_free_port(),
+        )
     }
 }
 
@@ -239,11 +243,14 @@ mod tests {
 
     #[test]
     fn multicast_info_creates_socket_addr() {
-        let subject = MulticastInfo::new (IpAddr::from_str ("1.2.3.4").unwrap(), 5, 6);
+        let subject = MulticastInfo::new(IpAddr::from_str("1.2.3.4").unwrap(), 5, 6);
 
         let result = subject.multicast_addr();
 
-        assert_eq! (result, SocketAddr::new (IpAddr::from_str ("224.0.0.5").unwrap(), 6));
+        assert_eq!(
+            result,
+            SocketAddr::new(IpAddr::from_str("224.0.0.5").unwrap(), 6)
+        );
     }
 
     #[test]

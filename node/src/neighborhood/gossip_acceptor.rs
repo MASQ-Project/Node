@@ -457,29 +457,32 @@ impl GossipHandler for IpChangeHandler {
     // it must already be in our database; and the provided IP address must be different
     // from that associated with the Node in our database. Of course the AGR must be
     // signed by the sourcing Node and the signature must be valid.
-    fn qualifies(&self, database: &NeighborhoodDatabase, agrs: &[AccessibleGossipRecord], gossip_source: SocketAddr) -> Qualification {
+    fn qualifies(
+        &self,
+        database: &NeighborhoodDatabase,
+        agrs: &[AccessibleGossipRecord],
+        gossip_source: SocketAddr,
+    ) -> Qualification {
         if agrs.len() != 1 {
             return Qualification::Unmatched;
         }
         match database.node_by_key(&agrs[0].inner.public_key) {
             None => return Qualification::Unmatched,
-            Some (existing_node) => {
-                match (existing_node.node_addr_opt(), &agrs[0].node_addr_opt) {
-                    (Some (existing), Some (incoming)) => if existing.ip_addr() == incoming.ip_addr() {
-                        return Qualification::Unmatched
+            Some(existing_node) => match (existing_node.node_addr_opt(), &agrs[0].node_addr_opt) {
+                (Some(existing), Some(incoming)) => {
+                    if existing.ip_addr() == incoming.ip_addr() {
+                        return Qualification::Unmatched;
                     }
-                    (_, None) => return Qualification::Unmatched,
-                    _ => todo! (),
                 }
-            }
+                (_, None) => return Qualification::Unmatched,
+                _ => todo!(),
+            },
         }
         match &agrs[0].node_addr_opt {
-            None => {
-                return Qualification::Unmatched
-            }
+            None => return Qualification::Unmatched,
             Some(node_addr) => {
                 if node_addr.ip_addr() != gossip_source.ip() {
-                    return Qualification::Unmatched
+                    return Qualification::Unmatched;
                 }
                 // Shouldn't need to check for missing ports: the Debut qualifier takes care of that.
             }
@@ -487,13 +490,39 @@ impl GossipHandler for IpChangeHandler {
         Qualification::Matched
     }
 
-    fn handle(&self, cryptde: &dyn CryptDE, database: &mut NeighborhoodDatabase, agrs: Vec<AccessibleGossipRecord>, gossip_source: SocketAddr) -> GossipAcceptanceResult {
-        todo!()
+    fn handle(
+        &self,
+        _: &dyn CryptDE,
+        database: &mut NeighborhoodDatabase,
+        agrs: Vec<AccessibleGossipRecord>,
+        _: SocketAddr,
+    ) -> GossipAcceptanceResult {
+        let ip_change_agr = &agrs[0];
+        let mut database_record = database
+            .node_by_key_mut(&ip_change_agr.inner.public_key)
+            .expect("IPChange Node suddenly disappeared from database");
+        let node_addr_ref = database_record
+            .metadata
+            .node_addr_opt
+            .as_mut()
+            .expect("IPChange Node's NodeAddr suddenly disappeared");
+        let new_node_addr = NodeAddr::new(
+            &ip_change_agr
+                .node_addr_opt
+                .as_ref()
+                .expect("IPChange AGR's NodeAddr suddenly disappeared")
+                .ip_addr(),
+            &node_addr_ref.ports(),
+        );
+        database_record.metadata.node_addr_opt = Some(new_node_addr);
+        database_record.signature = ip_change_agr.signature.clone();
+        database_record.signed_gossip = ip_change_agr.signed_gossip.clone();
+        GossipAcceptanceResult::Accepted
     }
 }
 
 impl IpChangeHandler {
-    fn new (logger: Logger) -> Self {
+    fn new(_: Logger) -> Self {
         Self {}
     }
 }
@@ -1441,8 +1470,8 @@ mod tests {
 
     #[test]
     fn ip_change_has_only_one_agr() {
-        let (subject, mut src_db, dest_db, dest_crypt_de) = make_ip_change();
-        let extra_node = make_node_record (2345, false);
+        let (subject, mut src_db, dest_db, _) = make_ip_change();
+        let extra_node = make_node_record(2345, false);
         src_db.add_node(extra_node.clone()).unwrap();
         let agrs_vec: Vec<AccessibleGossipRecord> = GossipBuilder::new(&src_db)
             .node(src_db.root().public_key(), true)
@@ -1452,18 +1481,14 @@ mod tests {
             .unwrap();
         let gossip_source: SocketAddr = src_db.root().node_addr_opt().clone().unwrap().into();
 
-        let result = subject.qualifies(
-            &dest_db,
-            &agrs_vec,
-            gossip_source,
-        );
+        let result = subject.qualifies(&dest_db, &agrs_vec, gossip_source);
 
-        assert_eq! (result, Qualification::Unmatched);
+        assert_eq!(result, Qualification::Unmatched);
     }
 
     #[test]
     fn ip_change_must_provide_ip_address() {
-        let (subject, mut src_db, dest_db, dest_crypt_de) = make_ip_change();
+        let (subject, src_db, dest_db, _) = make_ip_change();
         let mut agrs_vec: Vec<AccessibleGossipRecord> = GossipBuilder::new(&src_db)
             .node(src_db.root().public_key(), true)
             .build()
@@ -1472,18 +1497,14 @@ mod tests {
         agrs_vec[0].node_addr_opt = None; // No IP address
         let gossip_source: SocketAddr = src_db.root().node_addr_opt().clone().unwrap().into();
 
-        let result = subject.qualifies(
-            &dest_db,
-            &agrs_vec,
-            gossip_source,
-        );
+        let result = subject.qualifies(&dest_db, &agrs_vec, gossip_source);
 
-        assert_eq! (result, Qualification::Unmatched);
+        assert_eq!(result, Qualification::Unmatched);
     }
 
     #[test]
     fn ip_change_agr_ip_address_must_match_source() {
-        let (subject, mut src_db, dest_db, dest_crypt_de) = make_ip_change();
+        let (subject, src_db, dest_db, _) = make_ip_change();
         let mut agrs_vec: Vec<AccessibleGossipRecord> = GossipBuilder::new(&src_db)
             .node(src_db.root().public_key(), true)
             .build()
@@ -1491,44 +1512,43 @@ mod tests {
             .unwrap();
         let agr_node_addr = agrs_vec[0].node_addr_opt.as_ref().unwrap();
         // Mismatch IP address
-        agrs_vec[0].node_addr_opt = Some (NodeAddr::new (&IpAddr::from_str("4.3.2.1").unwrap(), &agr_node_addr.ports()));
+        agrs_vec[0].node_addr_opt = Some(NodeAddr::new(
+            &IpAddr::from_str("4.3.2.1").unwrap(),
+            &agr_node_addr.ports(),
+        ));
         let gossip_source: SocketAddr = src_db.root().node_addr_opt().clone().unwrap().into();
 
-        let result = subject.qualifies(
-            &dest_db,
-            &agrs_vec,
-            gossip_source,
-        );
+        let result = subject.qualifies(&dest_db, &agrs_vec, gossip_source);
 
-        assert_eq! (result, Qualification::Unmatched);
+        assert_eq!(result, Qualification::Unmatched);
     }
 
     #[test]
     fn ip_change_public_key_must_be_in_our_database() {
-        let (subject, src_db, mut dest_db, dest_crypt_de) = make_ip_change();
+        let (subject, src_db, mut dest_db, _) = make_ip_change();
         let agrs_vec: Vec<AccessibleGossipRecord> = GossipBuilder::new(&src_db)
             .node(src_db.root().public_key(), true)
             .build()
             .try_into()
             .unwrap();
-        dest_db.remove_node (&agrs_vec[0].inner.public_key); // Not in our database
+        dest_db.remove_node(&agrs_vec[0].inner.public_key); // Not in our database
         let gossip_source: SocketAddr = src_db.root().node_addr_opt().clone().unwrap().into();
 
-        let result = subject.qualifies(
-            &dest_db,
-            &agrs_vec,
-            gossip_source,
-        );
+        let result = subject.qualifies(&dest_db, &agrs_vec, gossip_source);
 
-        assert_eq! (result, Qualification::Unmatched);
+        assert_eq!(result, Qualification::Unmatched);
     }
 
     #[test]
     fn ip_change_ip_address_must_be_different_from_database_record() {
-        let (subject, mut src_db, dest_db, dest_crypt_de) = make_ip_change();
+        let (subject, mut src_db, dest_db, _) = make_ip_change();
         // Make present IP address equal to past IP address
         let ip_change_node_public_key = src_db.root().public_key();
-        let previous_ip_change_node_addr_opt = &dest_db.node_by_key(ip_change_node_public_key).unwrap().metadata.node_addr_opt;
+        let previous_ip_change_node_addr_opt = &dest_db
+            .node_by_key(ip_change_node_public_key)
+            .unwrap()
+            .metadata
+            .node_addr_opt;
         src_db.root_mut().metadata.node_addr_opt = previous_ip_change_node_addr_opt.clone();
         let agrs_vec: Vec<AccessibleGossipRecord> = GossipBuilder::new(&src_db)
             .node(src_db.root().public_key(), true)
@@ -1537,18 +1557,14 @@ mod tests {
             .unwrap();
         let gossip_source: SocketAddr = src_db.root().node_addr_opt().clone().unwrap().into();
 
-        let result = subject.qualifies(
-            &dest_db,
-            &agrs_vec,
-            gossip_source,
-        );
+        let result = subject.qualifies(&dest_db, &agrs_vec, gossip_source);
 
-        assert_eq! (result, Qualification::Unmatched);
+        assert_eq!(result, Qualification::Unmatched);
     }
 
     #[test]
     fn ip_change_qualifies_if_correct() {
-        let (subject, src_db, dest_db, dest_crypt_de) = make_ip_change();
+        let (subject, src_db, dest_db, _) = make_ip_change();
         let agrs_vec: Vec<AccessibleGossipRecord> = GossipBuilder::new(&src_db)
             .node(src_db.root().public_key(), true)
             .build()
@@ -1556,18 +1572,49 @@ mod tests {
             .unwrap();
         let gossip_source: SocketAddr = src_db.root().node_addr_opt().clone().unwrap().into();
 
-        let result = subject.qualifies(
-            &dest_db,
-            &agrs_vec,
-            gossip_source,
-        );
+        let result = subject.qualifies(&dest_db, &agrs_vec, gossip_source);
 
-        assert_eq! (result, Qualification::Matched);
+        assert_eq!(result, Qualification::Matched);
     }
 
     #[test]
-    fn all_the_handle_tests_go_here() {
-        todo!();
+    fn ip_change_handler_changes_database_ip_address() {
+        let (subject, src_db, mut dest_db, dest_crypt_de) = make_ip_change();
+        let agrs_vec: Vec<AccessibleGossipRecord> = GossipBuilder::new(&src_db)
+            .node(src_db.root().public_key(), true)
+            .build()
+            .try_into()
+            .unwrap();
+        let gossip_source: SocketAddr = src_db.root().node_addr_opt().clone().unwrap().into();
+
+        let result = subject.handle(
+            dest_crypt_de.as_ref(),
+            &mut dest_db,
+            agrs_vec.clone(),
+            gossip_source,
+        );
+
+        assert_eq!(result, GossipAcceptanceResult::Accepted);
+        let public_key = src_db.root().public_key();
+        let new_ip_address = src_db
+            .root()
+            .metadata
+            .node_addr_opt
+            .as_ref()
+            .unwrap()
+            .ip_addr();
+        let node_from_dest_db = dest_db.node_by_key(public_key).unwrap();
+        assert_eq!(
+            node_from_dest_db
+                .metadata
+                .node_addr_opt
+                .as_ref()
+                .unwrap()
+                .ip_addr(),
+            new_ip_address
+        );
+        assert_eq!(node_from_dest_db.signature, agrs_vec[0].signature);
+        assert_eq!(node_from_dest_db.signed_gossip, agrs_vec[0].signed_gossip);
     }
 
     #[test]
@@ -3249,7 +3296,12 @@ mod tests {
         (gossip, debut_node, gossip_source)
     }
 
-    fn make_ip_change() -> (IpChangeHandler, NeighborhoodDatabase, NeighborhoodDatabase, Box<dyn CryptDE>) {
+    fn make_ip_change() -> (
+        IpChangeHandler,
+        NeighborhoodDatabase,
+        NeighborhoodDatabase,
+        Box<dyn CryptDE>,
+    ) {
         let dest_root = make_node_record(6789, true);
         let mut dest_db = db_from_node(&dest_root);
         let dest_cryptde = CryptDENull::from(dest_root.public_key(), TEST_DEFAULT_CHAIN);
@@ -3257,11 +3309,20 @@ mod tests {
         dest_db.add_node(ip_change_target.clone()).unwrap();
         dest_db.add_arbitrary_full_neighbor(dest_root.public_key(), ip_change_target.public_key());
         let mut src_root = make_node_record(1234, true);
-        let src_root_ports = src_root.metadata.node_addr_opt.as_ref().unwrap().ports().clone();
-        src_root.metadata.node_addr_opt = Some (NodeAddr::new (&IpAddr::from_str ("222.222.222.222").unwrap(), &src_root_ports));
-        let mut src_db = db_from_node(&src_root);
+        let src_root_ports = src_root
+            .metadata
+            .node_addr_opt
+            .as_ref()
+            .unwrap()
+            .ports()
+            .clone();
+        src_root.metadata.node_addr_opt = Some(NodeAddr::new(
+            &IpAddr::from_str("222.222.222.222").unwrap(),
+            &src_root_ports,
+        ));
+        let src_db = db_from_node(&src_root);
         let subject = IpChangeHandler::new(Logger::new("test"));
-        (subject, src_db, dest_db, Box::new (dest_cryptde))
+        (subject, src_db, dest_db, Box::new(dest_cryptde))
     }
 
     fn make_pass(n: u16) -> (Gossip_0v1, NodeRecord, SocketAddr) {

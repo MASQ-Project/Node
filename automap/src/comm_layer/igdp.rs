@@ -1,7 +1,9 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::comm_layer::pcp_pmp_common::MappingConfig;
-use crate::comm_layer::{AutomapError, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal, Transactor};
+use crate::comm_layer::{
+    AutomapError, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal, Transactor,
+};
 use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use igd::{
@@ -278,7 +280,7 @@ impl Transactor for IgdpTransactor {
                 change_handler,
                 inner_inner_arc,
                 rx,
-                &inner_logger
+                &inner_logger,
             )
         }));
         Ok(tx)
@@ -393,7 +395,10 @@ impl IgdpTransactor {
         loop {
             thread::sleep(housekeeping_thread_loop_delay);
             let now = Instant::now();
-            if last_external_ip_check.add(external_ip_check_interval).le(&now) {
+            if last_external_ip_check
+                .add(external_ip_check_interval)
+                .le(&now)
+            {
                 last_external_ip_check = now;
                 let mut inner = inner_arc.lock().expect("IgdpTransactor died");
                 Self::check_for_external_ip_change(
@@ -403,11 +408,14 @@ impl IgdpTransactor {
                     logger,
                 )
             }
-            if let Some (mapping_config) = &mapping_config_opt {
-                if last_remap_attempt.add (mapping_config.remap_interval).le (&now) {
+            if let Some(mapping_config) = &mapping_config_opt {
+                if last_remap_attempt
+                    .add(mapping_config.remap_interval)
+                    .le(&now)
+                {
                     last_remap_attempt = now;
                     let inner = inner_arc.lock().expect("IgdpTransactor died");
-                    Self::try_remap (&change_handler, &*inner, &mapping_config);
+                    Self::try_remap(&change_handler, &*inner, &mapping_config);
                 }
             }
             match rx.try_recv() {
@@ -424,32 +432,30 @@ impl IgdpTransactor {
                         }
                     }
                 }
-                Ok(HousekeepingThreadCommand::Stop) => {
-                    break
-                },
-                Err(_) => {
-                    continue
-                },
+                Ok(HousekeepingThreadCommand::Stop) => break,
+                Err(_) => continue,
             }
         }
         change_handler
     }
 
-    fn check_for_external_ip_change (
+    fn check_for_external_ip_change(
         change_handler: &ChangeHandler,
         inner: &mut IgdpTransactorInner,
         mapping_config_opt: &mut Option<MappingConfig>,
         logger: &Logger,
     ) {
-        if let Some (gateway) = &inner.gateway_opt {
+        if let Some(gateway) = &inner.gateway_opt {
             match gateway.get_external_ip() {
                 Ok(ipv4_addr) => {
                     let ip_addr = IpAddr::V4(ipv4_addr);
-                    if inner.external_ip_address_opt == Some (ip_addr) {
-                        info! (logger, "Checked external IP address: no change from {:?}", ip_addr);
-                    }
-                    else {
-                        if let Some (mut mapping_config) = mapping_config_opt.as_mut() {
+                    if inner.external_ip_address_opt == Some(ip_addr) {
+                        info!(
+                            logger,
+                            "Checked external IP address: no change from {:?}", ip_addr
+                        );
+                    } else {
+                        if let Some(mut mapping_config) = mapping_config_opt.as_mut() {
                             match Self::remap_port(
                                 inner.mapping_adder.as_ref(),
                                 gateway.as_ref(),
@@ -458,23 +464,34 @@ impl IgdpTransactor {
                                 logger,
                             ) {
                                 Ok(lifetime_granted) => {
-                                    mapping_config.next_lifetime = Duration::from_secs(lifetime_granted as u64);
-                                    mapping_config.remap_interval = Duration::from_secs(lifetime_granted as u64 / 2);
-                                },
+                                    mapping_config.next_lifetime =
+                                        Duration::from_secs(lifetime_granted as u64);
+                                    mapping_config.remap_interval =
+                                        Duration::from_secs(lifetime_granted as u64 / 2);
+                                }
                                 Err(e) => {
-                                    change_handler(AutomapChange::Error (e.clone()));
+                                    change_handler(AutomapChange::Error(e.clone()));
                                     error! (logger, "Could not remap router to new IP, manual portmapping may be required: {:?}", e);
-                                },
+                                }
                             }
                         }
-                        inner.external_ip_address_opt = Some (ip_addr);
+                        inner.external_ip_address_opt = Some(ip_addr);
                         change_handler(AutomapChange::NewIp(ip_addr));
-                        info! (logger, "External IP address change to {:?} detected", ip_addr);
+                        info!(
+                            logger,
+                            "External IP address change to {:?} detected", ip_addr
+                        );
                     }
-                },
+                }
                 Err(e) => {
-                    change_handler(AutomapChange::Error (AutomapError::GetPublicIpError(format! ("{:?}", e))));
-                    error! (logger, "Could not check for external IP, manual portmapping may be required: {:?}", e);
+                    change_handler(AutomapChange::Error(AutomapError::GetPublicIpError(
+                        format!("{:?}", e),
+                    )));
+                    error!(
+                        logger,
+                        "Could not check for external IP, manual portmapping may be required: {:?}",
+                        e
+                    );
                 }
             }
         }
@@ -496,9 +513,8 @@ impl IgdpTransactor {
             ) {
                 error!(inner.logger, "Remapping failure: {:?}", e);
                 change_handler(AutomapChange::Error(e));
-            }
-            else {
-                return true
+            } else {
+                return true;
             }
         }
         false
@@ -611,7 +627,10 @@ impl MappingAdderReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mocks::{LocalIpFinderMock, make_change_handler_expecting_error, make_change_handler_expecting_new_ip};
+    use crate::mocks::{
+        make_change_handler_expecting_error, make_change_handler_expecting_new_ip,
+        LocalIpFinderMock,
+    };
     use core::ptr::addr_of;
     use igd::RequestError;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -909,7 +928,10 @@ mod tests {
                 "ActionNotAuthorized".to_string()
             ))
         );
-        assert_eq!(subject.inner_arc.lock().unwrap().external_ip_address_opt, None);
+        assert_eq!(
+            subject.inner_arc.lock().unwrap().external_ip_address_opt,
+            None
+        );
         TestLogHandler::new()
             .exists_log_containing("WARN: IgdpTransactor: Error getting public IP from router at 192.168.0.255: \"ActionNotAuthorized\"");
     }
@@ -1298,11 +1320,7 @@ mod tests {
             remap_interval: Duration::from_millis(80),
         };
 
-        IgdpTransactor::try_remap(
-            &change_handler,
-            &inner,
-            &mapping_config,
-        );
+        IgdpTransactor::try_remap(&change_handler, &inner, &mapping_config);
 
         let (_, hole_port, lifetime) = add_mapping_params_arc.lock().unwrap().remove(0);
         assert_eq!(hole_port, 6689);
@@ -1345,7 +1363,9 @@ mod tests {
         let mapping_adder = Box::new(MappingAdderMock::new());
         let (change_handler, received_ip_arc) = make_change_handler_expecting_new_ip();
         let gateway = GatewayWrapperMock::new()
-            .get_external_ip_result(Ok(Ipv4Addr::from_str(&external_ip_addr.to_string()).unwrap()));
+            .get_external_ip_result(Ok(
+                Ipv4Addr::from_str(&external_ip_addr.to_string()).unwrap()
+            ));
         let inner_arc = Arc::new(Mutex::new(IgdpTransactorInner {
             gateway_opt: Some(Box::new(gateway)),
             housekeeping_commander_opt: None,
@@ -1366,7 +1386,7 @@ mod tests {
         );
 
         let received_ip = received_ip_arc.lock().unwrap();
-        assert_eq! (*received_ip, None);
+        assert_eq!(*received_ip, None);
         TestLogHandler::new()
             .exists_log_containing("INFO: thread_guts_checks_public_ip_and_keeps_quiet_if_it_hasnt_changed: Checked external IP address: no change from 1.2.3.4");
     }
@@ -1376,28 +1396,33 @@ mod tests {
         init_test_logging();
         let original_ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let new_ip_addr = IpAddr::from_str("4.3.2.1").unwrap();
-        let add_mapping_params_arc = Arc::new (Mutex::new (vec![]));
+        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mapping_adder = MappingAdderMock::new()
             .add_mapping_params(&add_mapping_params_arc)
-            .add_mapping_result (Ok(600));
+            .add_mapping_result(Ok(600));
         let (change_handler, received_ip_arc) = make_change_handler_expecting_new_ip();
         let gateway = GatewayWrapperMock::new()
-            .get_external_ip_result(Ok(Ipv4Addr::from_str(&original_ip_addr.to_string()).unwrap())) // no change
+            .get_external_ip_result(Ok(
+                Ipv4Addr::from_str(&original_ip_addr.to_string()).unwrap()
+            )) // no change
             .get_external_ip_result(Ok(Ipv4Addr::from_str(&new_ip_addr.to_string()).unwrap())); // change
         let inner_arc = Arc::new(Mutex::new(IgdpTransactorInner {
             gateway_opt: Some(Box::new(gateway)),
             housekeeping_commander_opt: None,
-            mapping_adder: Box::new (mapping_adder),
+            mapping_adder: Box::new(mapping_adder),
             external_ip_address_opt: Some(original_ip_addr),
             logger: Logger::new("thread_guts_checks_public_ip_and_notifies_if_it_has_changed"),
         }));
         let assertable_inner_arc = inner_arc.clone();
         let (tx, rx) = unbounded();
-        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(MappingConfig {
-            hole_port: 5678,
-            next_lifetime: Duration::from_secs(3600),
-            remap_interval: Duration::from_secs(3000),
-        })).unwrap();
+        tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
+            MappingConfig {
+                hole_port: 5678,
+                next_lifetime: Duration::from_secs(3600),
+                remap_interval: Duration::from_secs(3000),
+            },
+        ))
+        .unwrap();
         tx.send(HousekeepingThreadCommand::Stop).unwrap();
 
         let _ = IgdpTransactor::thread_guts(
@@ -1410,11 +1435,11 @@ mod tests {
         );
 
         let add_mapping_params = (*add_mapping_params_arc).lock().unwrap()[0];
-        assert_eq! ((add_mapping_params.1, add_mapping_params.2), (5678, 3600));
+        assert_eq!((add_mapping_params.1, add_mapping_params.2), (5678, 3600));
         let received_ip = received_ip_arc.lock().unwrap();
-        assert_eq! (*received_ip, Some(new_ip_addr));
+        assert_eq!(*received_ip, Some(new_ip_addr));
         let assertable_inner = assertable_inner_arc.lock().unwrap();
-        assert_eq! (assertable_inner.external_ip_address_opt, Some (new_ip_addr));
+        assert_eq!(assertable_inner.external_ip_address_opt, Some(new_ip_addr));
         TestLogHandler::new()
             .exists_log_containing("INFO: thread_guts_checks_public_ip_and_notifies_if_it_has_changed: External IP address change to 4.3.2.1 detected");
     }
@@ -1425,9 +1450,9 @@ mod tests {
         let gateway = GatewayWrapperMock::new()
             .get_external_ip_result(Err(GetExternalIpError::ActionNotAuthorized));
         let (change_handler, received_error_arc) = make_change_handler_expecting_error();
-        let logger = Logger::new ("check_for_external_ip_change_handles_error_getting_external_ip");
+        let logger = Logger::new("check_for_external_ip_change_handles_error_getting_external_ip");
         let mut inner = IgdpTransactorInner {
-            gateway_opt: Some(Box::new (gateway)),
+            gateway_opt: Some(Box::new(gateway)),
             housekeeping_commander_opt: None,
             mapping_adder: Box::new(MappingAdderMock::new()),
             external_ip_address_opt: None,
@@ -1441,25 +1466,30 @@ mod tests {
             &logger,
         );
 
-        assert_eq! (inner.external_ip_address_opt, None);
+        assert_eq!(inner.external_ip_address_opt, None);
         let received_error = received_error_arc.lock().unwrap();
-        assert_eq! (*received_error, Some(AutomapError::GetPublicIpError("ActionNotAuthorized".to_string())));
+        assert_eq!(
+            *received_error,
+            Some(AutomapError::GetPublicIpError(
+                "ActionNotAuthorized".to_string()
+            ))
+        );
         TestLogHandler::new().exists_log_containing("ERROR: check_for_external_ip_change_handles_error_getting_external_ip: Could not check for external IP, manual portmapping may be required: ActionNotAuthorized");
     }
 
     #[test]
     fn check_for_external_ip_change_handles_error_remapping_port() {
         init_test_logging();
-        let old_address = IpAddr::from_str ("1.2.3.4").unwrap();
-        let new_address = IpAddr::from_str ("4.3.2.1").unwrap();
+        let old_address = IpAddr::from_str("1.2.3.4").unwrap();
+        let new_address = IpAddr::from_str("4.3.2.1").unwrap();
         let gateway = GatewayWrapperMock::new()
-            .get_external_ip_result (Ok (Ipv4Addr::from_str(&new_address.to_string()).unwrap()));
-        let mapping_adder = MappingAdderMock::new()
-            .add_mapping_result (Err (AutomapError::PermanentLeasesOnly));
+            .get_external_ip_result(Ok(Ipv4Addr::from_str(&new_address.to_string()).unwrap()));
+        let mapping_adder =
+            MappingAdderMock::new().add_mapping_result(Err(AutomapError::PermanentLeasesOnly));
         let (change_handler, received_error_arc) = make_change_handler_expecting_error();
-        let logger = Logger::new ("check_for_external_ip_change_handles_error_remapping_port");
+        let logger = Logger::new("check_for_external_ip_change_handles_error_remapping_port");
         let mut inner = IgdpTransactorInner {
-            gateway_opt: Some(Box::new (gateway)),
+            gateway_opt: Some(Box::new(gateway)),
             housekeeping_commander_opt: None,
             mapping_adder: Box::new(mapping_adder),
             external_ip_address_opt: Some(old_address),
@@ -1467,8 +1497,8 @@ mod tests {
         };
         let mut mapping_config_opt = Some(MappingConfig {
             hole_port: 2345,
-            next_lifetime: Duration::from_secs (600),
-            remap_interval: Duration::from_secs (300),
+            next_lifetime: Duration::from_secs(600),
+            remap_interval: Duration::from_secs(300),
         });
 
         IgdpTransactor::check_for_external_ip_change(
@@ -1478,9 +1508,9 @@ mod tests {
             &logger,
         );
 
-        assert_eq! (inner.external_ip_address_opt, Some(new_address));
+        assert_eq!(inner.external_ip_address_opt, Some(new_address));
         let received_error = received_error_arc.lock().unwrap();
-        assert_eq! (*received_error, Some(AutomapError::PermanentLeasesOnly));
+        assert_eq!(*received_error, Some(AutomapError::PermanentLeasesOnly));
         TestLogHandler::new().exists_log_containing("ERROR: check_for_external_ip_change_handles_error_remapping_port: Could not remap router to new IP, manual portmapping may be required: PermanentLeasesOnly");
     }
 
@@ -1507,7 +1537,7 @@ mod tests {
             mapping_adder: Box::new(MappingAdderMock::new().add_mapping_result(Err(
                 AutomapError::PermanentMappingError("Booga".to_string()),
             ))),
-            external_ip_address_opt: Some (IpAddr::V4(new_public_ip)),
+            external_ip_address_opt: Some(IpAddr::V4(new_public_ip)),
             logger: Logger::new("test"),
         };
         let change_log_arc = Arc::new(Mutex::new(vec![]));
@@ -1608,11 +1638,7 @@ mod tests {
             remap_interval: Duration::from_secs(10),
         };
 
-        IgdpTransactor::try_remap(
-            &change_handler,
-            &inner,
-            &mapping_config,
-        );
+        IgdpTransactor::try_remap(&change_handler, &inner, &mapping_config);
 
         // No exception; test passes
     }
