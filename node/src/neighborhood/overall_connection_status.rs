@@ -101,7 +101,8 @@ impl ConnectionProgress {
 
         debug!(
             logger,
-            "The node with IP address {:?} has passed to a new node with IP address {:?}.",
+            "Pass gossip received from node with IP Address {:?} to a node with IP Address {:?}. Hence, updating the connection \
+            stage of the new node node to StageZero.",
             self.current_peer_addr,
             new_pass_target
         );
@@ -341,9 +342,9 @@ mod tests {
                 ConnectionStage::TcpConnectionEstablished
             ),
             &format!(
-                "DEBUG: connection_progress_handles_pass_gossip_correctly_and\
-                _performs_logging_in_order: The node with IP address \
-                {:?} has passed to a new node with IP address {:?}.",
+                "DEBUG: connection_progress_handles_pass_gossip_correctly_and_performs_logging\
+                _in_order: Pass gossip received from node with IP Address {:?} to a node with \
+                IP Address {:?}. Hence, updating the connection stage of the new node node to StageZero.",
                 ip_addr, pass_target
             ),
         ]);
