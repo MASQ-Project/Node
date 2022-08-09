@@ -19,6 +19,7 @@ pub(in crate::accountant) mod scanners {
     use masq_lib::messages::ScanType::PendingPayables;
     use std::any::Any;
     use std::cell::RefCell;
+    use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
 
     type Error = String;
@@ -223,13 +224,41 @@ pub(in crate::accountant) mod scanners {
         }
     }
 
-    pub struct NullScanner {}
+    // pub struct NullScanner {}
+    //
+    // impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for NullScanner
+    // where
+    //     BeginMessage: Message + Send + 'static,
+    //     BeginMessage::Result: Send,
+    //     EndMessage: Message,
+    // {
+    //     fn begin_scan(
+    //         &mut self,
+    //         timestamp: SystemTime,
+    //         response_skeleton_opt: Option<ResponseSkeleton>,
+    //         ctx: &mut Context<Accountant>,
+    //     ) -> Result<BeginMessage, Error> {
+    //         todo!("Implement NullScanner")
+    //     }
+    //
+    //     fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error> {
+    //         todo!()
+    //     }
+    //
+    //     fn scan_started_at(&self) -> Option<SystemTime> {
+    //         todo!()
+    //     }
+    //
+    //     as_any_impl!();
+    // }
 
-    impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for NullScanner
-    where
-        BeginMessage: Message + Send + 'static,
-        BeginMessage::Result: Send,
-        EndMessage: Message,
+    pub struct ScannerMock<BeginMessage, EndMessage> {
+        begin_scan_params: RefCell<Vec<(SystemTime, Option<ResponseSkeleton>)>>,
+        begin_scan_results: Arc<Mutex<Vec<Box<BeginMessage>>>>,
+    }
+
+    impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage>
+        for ScannerMock<BeginMessage, EndMessage>
     {
         fn begin_scan(
             &mut self,
@@ -237,7 +266,7 @@ pub(in crate::accountant) mod scanners {
             response_skeleton_opt: Option<ResponseSkeleton>,
             ctx: &mut Context<Accountant>,
         ) -> Result<BeginMessage, Error> {
-            todo!("Implement NullScanner")
+            todo!()
         }
 
         fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error> {
@@ -247,8 +276,22 @@ pub(in crate::accountant) mod scanners {
         fn scan_started_at(&self) -> Option<SystemTime> {
             todo!()
         }
+    }
 
-        as_any_impl!();
+    impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
+        pub fn new() -> Self {
+            Self {
+                begin_scan_params: RefCell::new(vec![]),
+                begin_scan_results: Arc::new(Mutex::new(vec![])),
+            }
+        }
+
+        // pub fn begin_scan_params (&self, params: &)
+        //
+        // pub fn begin_scan_result (&mut self, result: Result<Box<BeginMessage>, Error>) -> Self {
+        //     self.begin_scan_results.push (result);
+        //     self
+        // }
     }
 
     #[derive(Default)]
