@@ -430,6 +430,11 @@ impl Neighborhood {
             self.logger,
             "Changed public IP from {} to {}", old_public_ip, new_public_ip
         );
+        let gossip = self.gossip_producer.produce_debut (&self.neighborhood_database);
+        let package = IncipientCoresPackage::new (
+            self.cryptde,
+
+        )
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
@@ -1383,7 +1388,7 @@ mod tests {
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::peer_actors::PeerActors;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-    use crate::sub_lib::versioned_data::VersionedData;
+    use crate::sub_lib::versioned_data::{VersionedData};
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_wallet;
@@ -3229,17 +3234,32 @@ mod tests {
     }
 
     #[test]
-    fn handle_new_public_ip_changes_public_ip_and_nothing_else() {
+    fn handle_new_public_ip_changes_public_ip_and_sends_ip_change_gossip() {
         init_test_logging();
         let subject_node = make_global_cryptde_node_record(1234, true);
-        let neighbor = make_node_record(1050, true);
-        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor));
+        let neighbor1 = make_node_record(1050, true);
+        let neighbor2 = make_node_record(1051, true);
+        let produce_debut_results_arc = Arc::new(Mutex::new(vec![]));
+        let gossip = Gossip_0v1::new (vec![]);
+        let gossip_producer = GossipProducerMock::new()
+            .produce_debut_params(&produce_debut_results_arc)
+            .produce_debut_result(gossip.clone());
+        let system = System::new ("test");
+        let (hopper, _, hopper_recording_arc) = make_recorder();
+        let hopper_addr = hopper.start();
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor1));
+        let neighbor2_key = subject.neighborhood_database.add_node (neighbor2).unwrap();
+        subject.neighborhood_database.add_arbitrary_full_neighbor(neighbor1.public_key(), &neighbor2_key);
+        subject.gossip_producer = Box::new (gossip_producer);
+        subject.hopper_no_lookup = Some (hopper_addr.recipient());
         let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
 
         subject.handle_new_public_ip(NewPublicIp {
             new_ip: new_public_ip,
         });
 
+        System::current().stop_with_code(0);
+        system.run();
         assert_eq!(
             subject
                 .neighborhood_database
@@ -3249,6 +3269,23 @@ mod tests {
                 .ip_addr(),
             new_public_ip
         );
+        let mut produce_debut_results = produce_debut_results_arc.lock().unwrap();
+        let actual_database: NeighborhoodDatabase = produce_debut_results.remove(0);
+        assert_eq! (actual_database.root().public_key(), subject.neighborhood_database.root().public_key());
+        let hopper_recording = hopper_recording_arc.lock().unwrap();
+        let actual_hopper_message_1 = hopper_recording.get_record::<NoLookupIncipientCoresPackage>(0);
+        assert_eq! (&actual_hopper_message_1.public_key, neighbor1.public_key());
+        assert_eq! (&actual_hopper_message_1.node_addr, neighbor1.metadata.node_addr_opt.as_ref().unwrap());
+        let actual_hopper_message_2 = hopper_recording.get_record::<NoLookupIncipientCoresPackage>(0);
+        assert_eq! (&actual_hopper_message_2.public_key, neighbor2.public_key());
+        assert_eq! (&actual_hopper_message_2.node_addr, neighbor2.metadata.node_addr_opt.as_ref().unwrap());
+        let expected_cores_package_1 = IncipientCoresPackage::new(
+            subject.cryptde,
+            neighbor1.public_key(),
+            neighbor1.node_addr_opt().as_ref().unwrap(),
+            MessageType::Gossip(gossip.into()),
+        ).unwrap();
+        assert_eq! (*actual_cores_package, expected_cores_package_1);
         TestLogHandler::new()
             .exists_log_containing("INFO: Neighborhood: Changed public IP from 1.2.3.4 to 4.3.2.1");
     }
@@ -4625,6 +4662,8 @@ mod tests {
     pub struct GossipProducerMock {
         produce_params: Arc<Mutex<Vec<(NeighborhoodDatabase, PublicKey)>>>,
         produce_results: RefCell<Vec<Option<Gossip_0v1>>>,
+        produce_debut_params: Arc<Mutex<Vec<NeighborhoodDatabase>>>,
+        produce_debut_results: RefCell<Vec<Gossip_0v1>>,
     }
 
     impl GossipProducer for GossipProducerMock {
@@ -4640,8 +4679,9 @@ mod tests {
             self.produce_results.borrow_mut().remove(0)
         }
 
-        fn produce_debut(&self, _database: &NeighborhoodDatabase) -> Gossip_0v1 {
-            unimplemented!()
+        fn produce_debut(&self, database: &NeighborhoodDatabase) -> Gossip_0v1 {
+            self.produce_debut_params.lock().unwrap().push(database.clone());
+            self.produce_debut_results.borrow_mut().remove(0)
         }
     }
 
@@ -4660,6 +4700,19 @@ mod tests {
 
         pub fn produce_result(self, result: Option<Gossip_0v1>) -> GossipProducerMock {
             self.produce_results.borrow_mut().push(result);
+            self
+        }
+
+        pub fn produce_debut_params(
+            mut self,
+            params_arc: &Arc<Mutex<Vec<NeighborhoodDatabase>>>,
+        ) -> GossipProducerMock {
+            self.produce_debut_params = params_arc.clone();
+            self
+        }
+
+        pub fn produce_debut_result(self, result: Gossip_0v1) -> GossipProducerMock {
+            self.produce_debut_results.borrow_mut().push(result);
             self
         }
     }
