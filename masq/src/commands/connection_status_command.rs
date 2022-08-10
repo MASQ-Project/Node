@@ -5,6 +5,7 @@ use crate::commands::commands_common::CommandError::Payload;
 use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
+use clap::{App, SubCommand};
 use masq_lib::as_any_impl;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{
@@ -26,6 +27,10 @@ const CONNECTED_TO_NEIGHBOR_MSG: &str =
     "ConnectedToNeighbor: External node(s) are connected to us.";
 const THREE_HOPS_ROUTE_FOUND_MSG: &str =
     "ThreeHopsRouteFound: You can relay data over the network.";
+
+pub fn connection_status_subcommand() -> App<'static, 'static> {
+    SubCommand::with_name("connection-status").about(CONNECTION_STATUS_ABOUT)
+}
 
 impl Command for ConnectionStatusCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
