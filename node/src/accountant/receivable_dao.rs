@@ -1126,6 +1126,7 @@ mod tests {
         assert!(result.is_empty())
     }
 
+    //TODO delete me
     #[test]
     fn metadata_gets_gone_after_the_procedure_of_new_delinquencies() {
         let payment_thresholds = PaymentThresholds {
@@ -1161,6 +1162,7 @@ mod tests {
         assert_eq!(error, Error::QueryReturnedNoRows)
     }
 
+    //TODO delete me
     #[test]
     fn temporary_metadata_table_gets_gone_after_disconnection<'a: 'b, 'b>() {
         let payment_thresholds = PaymentThresholds {

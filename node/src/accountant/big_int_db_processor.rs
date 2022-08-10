@@ -75,6 +75,7 @@ impl<T: DAOTableIdentifier> BigIntSQLProcessor<T> for BigIntDbProcessorReal<T> {
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
         let select_sql = config.select_sql();
+        eprintln!("selct sql: {}", select_sql);
         let mut select_stm = Self::prepare_statement(form_of_conn, &select_sql);
         match select_stm.query_row([], |row| {
             let low_bytes_result = row.get::<usize, i64>(0);
@@ -190,8 +191,8 @@ impl<'a, T: DAOTableIdentifier> BigIntSqlConfig<'a, T> {
             "select {} from {} where {} = '{}'",
             &self.params.wei_change_params[1].0[1..],
             T::table_name(),
-            &key_info.0[1..],
-            key_info.1
+            self.params.table_key_name,
+            key_info.1.to_string()
         )
     }
 
@@ -768,14 +769,18 @@ mod tests {
         )
     }
 
+    fn create_new_empty_db(module: &str, test_name: &str) -> Connection {
+        let home_dir = ensure_node_home_directory_exists(module, test_name);
+        let db_path = home_dir.join("test_table.db");
+        Connection::open(db_path.as_path()).unwrap()
+    }
+
     fn initiate_simple_connection_and_test_table(
         module: &str,
         test_name: &str,
         read_only_conn: bool, //TODO is this flag really used anywhere?
     ) -> Box<ConnectionWrapperReal> {
-        let home_dir = ensure_node_home_directory_exists(module, test_name);
-        let db_path = home_dir.join("test_table.db");
-        let conn = Connection::open(db_path.as_path()).unwrap();
+        let conn = create_new_empty_db(module, test_name);
         conn.execute(
             "create table test_table (name text primary key, balance_high_b integer not null, balance_low_b integer not null) strict",
             [],
@@ -784,6 +789,7 @@ mod tests {
         let conn = if !read_only_conn {
             conn
         } else {
+            let db_path = conn.path().unwrap().to_path_buf();
             drop(conn);
             Connection::open_with_flags(db_path.as_path(), OpenFlags::SQLITE_OPEN_READ_ONLY)
                 .unwrap()
@@ -899,6 +905,52 @@ mod tests {
             Some(|table_name |format!("update {} set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where name = :name",table_name)),
             Some((&"Joe", -5, 2233333)),
             Subtraction("balance", enough_big_number.abs() as u128), true);
+    }
+
+    #[test]
+    fn select_stm_in_update_with_overflow_gets_also_well_along_numeric_key_value_and_different_table_and_substitution_param_name(
+    ) {
+        let conn = create_new_empty_db(
+            "big_int_db_processor",
+            "select_stm_in_update_with_overflow_gets_also_well_along_numeric_key_value_and_different_table_and_substitution_param_name"
+        );
+        let conn = ConnectionWrapperReal::new(conn);
+        let mut stm = conn.prepare("create table test_table \
+        (family_members_count int primary key, costs_per_month_per_district_high_b int not null, costs_per_month_per_district_low_b int not null)").unwrap();
+        stm.execute([]).unwrap();
+        let mut stm = conn.prepare("insert into test_table \
+        (family_members_count, costs_per_month_per_district_high_b, costs_per_month_per_district_low_b) values (4,4578,5468956)").unwrap();
+        stm.execute([]).unwrap();
+        let balance_change = Addition("costs_per_month_per_district", 50000);
+        let update_config = BigIntSqlConfig::new(
+            "update test_table set costs_per_month_per_district_high_b = costs_per_month_per_district_high_b + :costs_per_month_per_district_high_b,\
+             costs_per_month_per_district_low_b = costs_per_month_per_district_low_b + :costs_per_month_per_district_low_b where family_members_count = :members_count",
+            None,
+            SQLParamsBuilder::default()
+                .wei_change(balance_change)
+                .key("family_members_count", ":members_count", &4)
+                .build(),
+        );
+
+        let result = BigIntDbProcessorReal::<DummyDao>::new()
+            .update_threatened_by_overflow(Either::Left(&conn), update_config);
+
+        assert_eq!(result, Ok(()));
+        let (high_bytes_added, low_bytes_added) = BigIntDivider::deconstruct(50000);
+        conn.prepare("select * from test_table")
+            .unwrap()
+            .query_row([], |row| {
+                let member_count = row.get::<usize, i64>(0).unwrap();
+                let high_bytes = row.get::<usize, i64>(1).unwrap();
+                let low_bytes = row.get::<usize, i64>(2).unwrap();
+                assert_eq!(member_count, 4);
+                //the added 1 seems wrong, but we're exercising code intended
+                //specially for dealing with overflow and the addition is automated (even though unreasonable in this case)
+                assert_eq!(high_bytes, 4578 + high_bytes_added + 1);
+                assert_eq!(low_bytes, 5468956 + low_bytes_added);
+                Ok(())
+            })
+            .unwrap();
     }
 
     #[test]
@@ -1154,5 +1206,43 @@ mod tests {
         let result = BigIntDivider::reconstitute(-9223372036854775808, 0);
 
         assert_eq!(result, -0x40000000000000000000000000000000)
+    }
+
+    #[test]
+    fn divided_integers_can_be_ordered() {
+        let a = i64::MAX as i128 * 22;
+        let b = i64::MAX as i128 + 556;
+        let c = i64::MAX as i128;
+        let d = (i64::MAX - 6568) as i128;
+        let e = 3333;
+        let f = 0;
+        let g = -45;
+        let h = (i64::MIN + 789) as i128;
+        let i = i64::MIN as i128;
+        let j = i64::MIN as i128 - 114;
+        let k = i64::MIN as i128 * 14;
+        let vec = vec![b, c, d, e, f, g, h, i, j, k];
+
+        let _ = vec.into_iter().enumerate().fold(
+            a,
+            |previous, current: (usize, i128)| {
+                let previous_sign = previous.is_negative();
+                let current_sign = current.1.is_negative();
+                let (previous_high_b, previous_low_b) = BigIntDivider::deconstruct(previous);
+                let (current_high_b, current_low_b) = BigIntDivider::deconstruct(current.1);
+                assert!(
+                    (previous_high_b > current_high_b) || (previous_high_b == current_high_b && previous_low_b >= current_low_b) ,
+                    "previous_high_b: {}, current_high_b: {} and previous_low_b: {}, current_low_b: {} for {} and {} which is idx {}",
+                    previous_high_b,
+                    current_high_b,
+                    previous_low_b,
+                    current_low_b,
+                    BigIntDivider::reconstitute(previous_high_b, previous_low_b),
+                    BigIntDivider::reconstitute(current_high_b, current_low_b),
+                    current.0
+                );
+                current.1
+            },
+        );
     }
 }

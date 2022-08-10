@@ -490,6 +490,7 @@ impl FinancialsCommand {
     where
         T: Display + PartialEq + From<u32>,
     {
+        todo!("tear this code out - it should be already substituted by simpler code with regex");
         let stringified = gwei.to_string();
         let gross_length = stringified.len();
         if gwei == T::from(0) {
@@ -833,6 +834,7 @@ impl FinancialsCommand {
     }
 
     fn parse_time_params(time_range: &[&str]) -> Result<(u64, u64), String> {
+        todo!("problem, we actually don't want values bigger than i64:MAX");
         Ok((
             Self::parse_integer(time_range[0])?,
             Self::parse_integer(time_range[1])?,

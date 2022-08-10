@@ -96,8 +96,8 @@ pub struct TopStmConfig {
 impl TopStmConfig {
     pub fn new(age_param: &'static str) -> Self {
         Self {
-            limit_clause: "limit ?",
-            gwei_min_resolution_clause: "where balance >= ?",
+            limit_clause: "limit :limit_count",
+            gwei_min_resolution_clause: "where (balance_high_b > 0) or ((balance_high_b = 0) and (balance_low_b >= 1000000000))",
             age_param,
         }
     }
@@ -108,7 +108,7 @@ pub struct RangeStmConfig {
     pub gwei_min_resolution_clause: &'static str,
     //note that this constrain, even though unchangeable, must be also supplied among other arguments
     //because otherwise the value won't adopt the rusqlite's specific 128_blob binary format
-    pub gwei_min_resolution_params: Vec<i128>,
+    pub gwei_min_resolution_params: Vec<i128>, //TODO make this say: Unilateral or Bilateral
     pub secondary_order_param: &'static str,
 }
 
@@ -119,6 +119,13 @@ pub struct AssemblerFeeder {
     pub order_by_second_param: &'static str,
     pub limit_clause: &'static str,
 }
+
+// where_clause: "where last_paid_timestamp <= :max_timestamp and last_paid_timestamp >= :min_timestamp and \
+//              ((balance_high_b > :min_balance_high_b) or ((balance_high_b = :min_balance_high_b) and (balance_low_b >= :min_balance_low_b)) and \
+//              ((balance_high_b < :max_balance_high_b) or ((balance_high_b = :max_balance_high_b) and (balance_low_b >= :max_balance_low_b))",
+// gwei_min_resolution_clause: "and ((balance_high_b > 0) or ((balance_high_b = 0) and (balance_low_b >= 1000000000))",
+// gwei_min_resolution_params: vec![WEIS_OF_GWEI], //TODO we can eliminate this now
+// secondary_order_param: "last_paid_timestamp asc"
 
 impl<N: Copy + Display> CustomQuery<N> {
     pub fn query<R, S, F1, F2>(
@@ -135,11 +142,10 @@ impl<N: Copy + Display> CustomQuery<N> {
         S: TryFrom<N>,
         i128: TryFrom<N>,
     {
-        let (finalized_stm, params): (String, _) = match self {
+        let (finalized_stm, params): (String, Vec<(&str, Box<dyn ToSql>)>) = match self {
             Self::TopRecords { count, ordered_by } => {
                 let (order_by_first_param, order_by_second_param) =
                     Self::ordering(ordered_by, variant_top.age_param);
-                let (limit_high_b, limit_low_b) = BigIntDivider::deconstruct(WEIS_OF_GWEI);
                 (
                     stm_assembler(AssemblerFeeder {
                         main_where_clause: variant_top.gwei_min_resolution_clause,
@@ -148,11 +154,7 @@ impl<N: Copy + Display> CustomQuery<N> {
                         order_by_second_param,
                         limit_clause: variant_top.limit_clause,
                     }),
-                    vec![
-                        Box::new(limit_high_b) as Box<dyn ToSql>,
-                        Box::new(limit_low_b),
-                        Box::new(count as i64),
-                    ],
+                    vec![(":limit_count", Box::new(count as i64))],
                 )
             }
             Self::RangeQuery {
@@ -160,37 +162,37 @@ impl<N: Copy + Display> CustomQuery<N> {
                 max_age_s: max_age,
                 min_amount_gwei: min_amount,
                 max_amount_gwei: max_amount,
-            } => {
-                let now = to_time_t(SystemTime::now());
-                let params: Vec<Box<dyn ToSql>> = vec![
-                    Box::new(now - min_age as i64) as Box<dyn ToSql>,
-                    Box::new(now - max_age as i64),
-                ]
-                .into_iter()
-                .chain(Self::break_big_int_and_flat_nesting(
-                    vec![min_amount, max_amount],
-                    variant_range.gwei_min_resolution_params,
-                ))
-                .collect();
-                (
-                    stm_assembler(AssemblerFeeder {
-                        main_where_clause: variant_range.where_clause,
-                        where_clause_extension: variant_range.gwei_min_resolution_clause,
-                        order_by_first_param: "balance desc",
-                        order_by_second_param: variant_range.secondary_order_param,
-                        limit_clause: "",
-                    }),
-                    params,
-                )
-            }
+            } => (
+                stm_assembler(AssemblerFeeder {
+                    main_where_clause: variant_range.where_clause,
+                    where_clause_extension: variant_range.gwei_min_resolution_clause,
+                    order_by_first_param: "balance desc",
+                    order_by_second_param: variant_range.secondary_order_param,
+                    limit_clause: "",
+                }),
+                Self::set_up_age_constrains(min_age, max_age)
+                    .into_iter()
+                    .chain(Self::set_up_wei_constrains(
+                        vec![min_amount, max_amount],
+                        variant_range.gwei_min_resolution_params,
+                    ))
+                    .collect::<Vec<(&str, Box<dyn ToSql>)>>(),
+            ),
         };
-        match conn
+        eprintln!("{}", finalized_stm);
+        match
+
+            //TODO put this whole thing into a function
+        conn
             .prepare(&finalized_stm)
             .expect("select statement is wrong")
             .query_map(
-                params_from_iter(params.iter().map(|param| &*param)),
+                params_from_iter(params.iter().map(|(_, value)| &*value)),
                 value_fetcher,
-            ) {
+            )
+            //TODO ...down to here
+
+        {
             Ok(accounts) => {
                 let vectored = accounts.flatten().collect::<Vec<R>>();
                 (!vectored.is_empty()).then_some(vectored)
@@ -199,10 +201,24 @@ impl<N: Copy + Display> CustomQuery<N> {
         }
     }
 
-    fn break_big_int_and_flat_nesting(
+    fn set_up_age_constrains(min_age: u64, max_age: u64) -> Vec<(&'static str, Box<dyn ToSql>)> {
+        let now = to_time_t(SystemTime::now());
+        vec![
+            (
+                ":min_timestamp",
+                Box::new((now - checked_conversion::<u64, i64>(min_age))),
+            ),
+            (
+                ":max_timestamp",
+                Box::new((now - checked_conversion::<u64, i64>(max_age))),
+            ),
+        ]
+    }
+
+    fn set_up_wei_constrains(
         two_limits: Vec<N>,
         one_or_two_limits: Vec<i128>,
-    ) -> Vec<Box<dyn ToSql>>
+    ) -> Vec<(&'static str, Box<dyn ToSql>)>
     where
         i128: TryFrom<N>,
     {
@@ -225,8 +241,8 @@ impl<N: Copy + Display> CustomQuery<N> {
         age_param: &'static str,
     ) -> (&'static str, &'static str) {
         match ordering {
-            TopRecordsOrdering::Age => (age_param, "balance desc"),
-            TopRecordsOrdering::Balance => ("balance desc", age_param),
+            TopRecordsOrdering::Age => (age_param, "balance_high_b desc, balance_low_b desc"),
+            TopRecordsOrdering::Balance => ("balance_high_b desc, balance_low_b desc", age_param),
         }
     }
 }
