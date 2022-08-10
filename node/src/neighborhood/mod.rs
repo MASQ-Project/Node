@@ -430,11 +430,31 @@ impl Neighborhood {
             self.logger,
             "Changed public IP from {} to {}", old_public_ip, new_public_ip
         );
+        /*
+        let expected_cores_package_2 = NoLookupIncipientCoresPackage::new(
+            subject.cryptde,
+            neighbor2.public_key(),
+            neighbor2.node_addr_opt().as_ref().unwrap(),
+            MessageType::Gossip(gossip.into()),
+        ).unwrap();
+         */
         let gossip = self.gossip_producer.produce_debut (&self.neighborhood_database);
-        let package = IncipientCoresPackage::new (
-            self.cryptde,
-
-        )
+        let neighbor_keys = self.neighbor_keys();
+        neighbor_keys.iter().for_each (|neighbor_key| {
+            // TODO: What if a neighbor doesn't have a NodeAddr (that is, is originate-only)?
+            let neighbor = self.neighborhood_database.node_by_key(neighbor_key).expect("Node disappeared");
+            let package = NoLookupIncipientCoresPackage::new (
+                self.cryptde,
+                neighbor_key,
+                neighbor.node_addr_opt().as_ref().expect ("Drive me in"),
+                MessageType::Gossip(gossip.clone().into())
+            ).expect("Could not create ICP");
+            self.hopper_no_lookup
+                .as_ref()
+                .expect("Hopper is unbound")
+                .try_send (package)
+                .expect("Hopper is dead");
+        });
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
@@ -3248,8 +3268,12 @@ mod tests {
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let hopper_addr = hopper.start();
         let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor1));
-        let neighbor2_key = subject.neighborhood_database.add_node (neighbor2).unwrap();
-        subject.neighborhood_database.add_arbitrary_full_neighbor(neighbor1.public_key(), &neighbor2_key);
+        let db = &mut subject.neighborhood_database;
+        let root_key = db.root().public_key().clone();
+        let neighbor1_key = db.add_node(neighbor1.clone()).unwrap();
+        let neighbor2_key = db.add_node (neighbor2.clone()).unwrap();
+        db.add_arbitrary_full_neighbor(&root_key, &neighbor1_key);
+        db.add_arbitrary_full_neighbor(&root_key, &neighbor2_key);
         subject.gossip_producer = Box::new (gossip_producer);
         subject.hopper_no_lookup = Some (hopper_addr.recipient());
         let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
@@ -3273,19 +3297,28 @@ mod tests {
         let actual_database: NeighborhoodDatabase = produce_debut_results.remove(0);
         assert_eq! (actual_database.root().public_key(), subject.neighborhood_database.root().public_key());
         let hopper_recording = hopper_recording_arc.lock().unwrap();
-        let actual_hopper_message_1 = hopper_recording.get_record::<NoLookupIncipientCoresPackage>(0);
-        assert_eq! (&actual_hopper_message_1.public_key, neighbor1.public_key());
-        assert_eq! (&actual_hopper_message_1.node_addr, neighbor1.metadata.node_addr_opt.as_ref().unwrap());
-        let actual_hopper_message_2 = hopper_recording.get_record::<NoLookupIncipientCoresPackage>(0);
-        assert_eq! (&actual_hopper_message_2.public_key, neighbor2.public_key());
-        assert_eq! (&actual_hopper_message_2.node_addr, neighbor2.metadata.node_addr_opt.as_ref().unwrap());
-        let expected_cores_package_1 = IncipientCoresPackage::new(
+        let idx_0 = hopper_recording.get_record::<NoLookupIncipientCoresPackage>(0);
+        let idx_1 = hopper_recording.get_record::<NoLookupIncipientCoresPackage>(1);
+        let (actual_hopper_message_1, actual_hopper_message_2) = if idx_0.public_key == neighbor1_key {
+            (idx_0, idx_1)
+        }
+        else {
+            (idx_1, idx_0)
+        };
+        let expected_hopper_message_1 = NoLookupIncipientCoresPackage::new(
             subject.cryptde,
             neighbor1.public_key(),
             neighbor1.node_addr_opt().as_ref().unwrap(),
+            MessageType::Gossip(gossip.clone().into()),
+        ).unwrap();
+        assert_eq! (*actual_hopper_message_1, expected_hopper_message_1);
+        let expected_hopper_message_2 = NoLookupIncipientCoresPackage::new(
+            subject.cryptde,
+            neighbor2.public_key(),
+            neighbor2.node_addr_opt().as_ref().unwrap(),
             MessageType::Gossip(gossip.into()),
         ).unwrap();
-        assert_eq! (*actual_cores_package, expected_cores_package_1);
+        assert_eq! (*actual_hopper_message_2, expected_hopper_message_2);
         TestLogHandler::new()
             .exists_log_containing("INFO: Neighborhood: Changed public IP from 1.2.3.4 to 4.3.2.1");
     }
