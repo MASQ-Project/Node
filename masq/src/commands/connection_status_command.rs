@@ -74,6 +74,12 @@ impl ConnectionStatusCommand {
     }
 }
 
+impl Default for ConnectionStatusCommand {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
