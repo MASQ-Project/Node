@@ -24,7 +24,7 @@ const CONNECTION_STATUS_ABOUT: &str =
             or ThreeHopsRouteFound)";
 const NOT_CONNECTED_MSG: &str = "NotConnected: No external neighbor is connected to us.";
 const CONNECTED_TO_NEIGHBOR_MSG: &str =
-    "ConnectedToNeighbor: External node(s) are connected to us.";
+    "ConnectedToNeighbor: External neighbor(s) are connected to us.";
 const THREE_HOPS_ROUTE_FOUND_MSG: &str =
     "ThreeHopsRouteFound: You can relay data over the network.";
 
@@ -106,7 +106,7 @@ mod tests {
         );
         assert_eq!(
             CONNECTED_TO_NEIGHBOR_MSG,
-            "ConnectedToNeighbor: External node(s) are connected to us."
+            "ConnectedToNeighbor: External neighbor(s) are connected to us."
         );
         assert_eq!(
             THREE_HOPS_ROUTE_FOUND_MSG,
@@ -155,7 +155,7 @@ mod tests {
         assert_on_connection_status_response(
             UiConnectionStage::ConnectedToNeighbor,
             (
-                "\nConnectedToNeighbor: External node(s) are connected to us.\n\n",
+                "\nConnectedToNeighbor: External neighbor(s) are connected to us.\n\n",
                 "",
             ),
         );
