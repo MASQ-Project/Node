@@ -101,8 +101,8 @@ impl ConnectionProgress {
 
         debug!(
             logger,
-            "Pass gossip received from node with IP Address {:?} to a node with IP Address {:?}. Hence, updating the connection \
-            stage of the new node node to StageZero.",
+            "Pass gossip received from node with IP Address {:?} to a node with IP Address {:?}. \
+            Hence, updating the connection stage of the new node to StageZero.",
             self.current_peer_addr,
             new_pass_target
         );
@@ -344,7 +344,7 @@ mod tests {
             &format!(
                 "DEBUG: connection_progress_handles_pass_gossip_correctly_and_performs_logging\
                 _in_order: Pass gossip received from node with IP Address {:?} to a node with \
-                IP Address {:?}. Hence, updating the connection stage of the new node node to StageZero.",
+                IP Address {:?}. Hence, updating the connection stage of the new node to StageZero.",
                 ip_addr, pass_target
             ),
         ]);
