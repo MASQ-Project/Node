@@ -80,7 +80,6 @@ mod tests {
     use masq_lib::messages::{
         ToMessageBody, UiConnectionStage, UiConnectionStatusRequest, UiConnectionStatusResponse,
     };
-    use masq_lib::ui_gateway::MessageBody;
     use std::sync::{Arc, Mutex};
 
     #[test]
@@ -131,65 +130,35 @@ mod tests {
 
     #[test]
     fn connection_status_command_happy_path_for_not_connected() {
-        let stage = UiConnectionStage::NotConnected;
-
-        let (transact_params, stdout, stderr) =
-            get_transact_params_and_std_output_for_connection_status(stage);
-
-        assert_eq!(
-            transact_params,
-            vec![(
-                UiConnectionStatusRequest {}.tmb(0),
-                STANDARD_COMMAND_TIMEOUT_MILLIS
-            )]
+        assert_on_connection_status_response(
+            UiConnectionStage::NotConnected,
+            (
+                "\nNotConnected: No external neighbor is connected to us.\n\n",
+                "",
+            ),
         );
-        assert_eq!(
-            stdout,
-            "\nNotConnected: No external neighbor is connected to us.\n\n"
-        );
-        assert_eq!(stderr, "");
     }
 
     #[test]
     fn connection_status_command_happy_path_for_connected_to_neighbor() {
-        let stage = UiConnectionStage::ConnectedToNeighbor;
-
-        let (transact_params, stdout, stderr) =
-            get_transact_params_and_std_output_for_connection_status(stage);
-
-        assert_eq!(
-            transact_params,
-            vec![(
-                UiConnectionStatusRequest {}.tmb(0),
-                STANDARD_COMMAND_TIMEOUT_MILLIS
-            )]
+        assert_on_connection_status_response(
+            UiConnectionStage::ConnectedToNeighbor,
+            (
+                "\nConnectedToNeighbor: External node(s) are connected to us.\n\n",
+                "",
+            ),
         );
-        assert_eq!(
-            stdout,
-            "\nConnectedToNeighbor: External node(s) are connected to us.\n\n"
-        );
-        assert_eq!(stderr, "");
     }
 
     #[test]
     fn connection_status_command_happy_path_for_three_hops_route_found() {
-        let stage = UiConnectionStage::ThreeHopsRouteFound;
-
-        let (transact_params, stdout, stderr) =
-            get_transact_params_and_std_output_for_connection_status(stage);
-
-        assert_eq!(
-            transact_params,
-            vec![(
-                UiConnectionStatusRequest {}.tmb(0),
-                STANDARD_COMMAND_TIMEOUT_MILLIS
-            )]
+        assert_on_connection_status_response(
+            UiConnectionStage::ThreeHopsRouteFound,
+            (
+                "\nThreeHopsRouteFound: You can relay data over the network.\n\n",
+                "",
+            ),
         );
-        assert_eq!(
-            stdout,
-            "\nThreeHopsRouteFound: You can relay data over the network.\n\n"
-        );
-        assert_eq!(stderr, "");
     }
 
     #[test]
@@ -220,9 +189,7 @@ mod tests {
         );
     }
 
-    fn get_transact_params_and_std_output_for_connection_status(
-        stage: UiConnectionStage,
-    ) -> (Vec<(MessageBody, u64)>, String, String) {
+    fn assert_on_connection_status_response(stage: UiConnectionStage, response: (&str, &str)) {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiConnectionStatusResponse { stage };
         let mut context = CommandContextMock::new()
@@ -238,6 +205,15 @@ mod tests {
         let transact_params = transact_params_arc.lock().unwrap().clone();
         let stdout = stdout_arc.lock().unwrap().get_string();
         let stderr = stderr_arc.lock().unwrap().get_string();
-        (transact_params, stdout, stderr)
+        let (stdout_expected, stderr_expected) = response;
+        assert_eq!(
+            transact_params,
+            vec![(
+                UiConnectionStatusRequest {}.tmb(0),
+                STANDARD_COMMAND_TIMEOUT_MILLIS,
+            )]
+        );
+        assert_eq!(stdout, stdout_expected);
+        assert_eq!(stderr, stderr_expected);
     }
 }
