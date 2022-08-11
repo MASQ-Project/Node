@@ -16,7 +16,7 @@ impl ConnectionChangeNotification {
         let _lock = term_interface.lock();
         let output_string = match response.stage {
             UiConnectionStage::NotConnected => {
-                todo!("Panic shouldn't happen after GH-623.")
+                todo!("This code is unreachable before GH-623 gets implemented. Hence this todo should be replaced with some code once the card is played.")
             }
             UiConnectionStage::ConnectedToNeighbor => {
                 "\nConnectedToNeighbor: Established neighborship with an external node.\n"

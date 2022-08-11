@@ -81,7 +81,7 @@ impl ConnectionProgress {
 
         debug!(
             logger,
-            "The connection stage for node with IP address {:?} has been updated from {:?} to {:?}.",
+            "The connection stage for Node with IP address {:?} has been updated from {:?} to {:?}.",
             self.current_peer_addr,
             self.connection_stage,
             connection_stage
@@ -101,7 +101,8 @@ impl ConnectionProgress {
 
         debug!(
             logger,
-            "The node with IP address {:?} has passed to a new node with IP address {:?}.",
+            "Pass gossip received from Node with IP Address {:?} to a Node with IP Address {:?}. \
+            Hence, updating the connection stage of the new Node to StageZero.",
             self.current_peer_addr,
             new_pass_target
         );
@@ -335,15 +336,15 @@ mod tests {
             &format!(
                 "DEBUG: connection_progress_handles_pass_gossip_correctly_and\
                 _performs_logging_in_order: The connection stage \
-                for node with IP address {:?} has been updated from {:?} to {:?}.",
+                for Node with IP address {:?} has been updated from {:?} to {:?}.",
                 ip_addr,
                 ConnectionStage::StageZero,
                 ConnectionStage::TcpConnectionEstablished
             ),
             &format!(
-                "DEBUG: connection_progress_handles_pass_gossip_correctly_and\
-                _performs_logging_in_order: The node with IP address \
-                {:?} has passed to a new node with IP address {:?}.",
+                "DEBUG: connection_progress_handles_pass_gossip_correctly_and_performs_logging\
+                _in_order: Pass gossip received from Node with IP Address {:?} to a Node with \
+                IP Address {:?}. Hence, updating the connection stage of the new Node to StageZero.",
                 ip_addr, pass_target
             ),
         ]);
@@ -535,7 +536,7 @@ mod tests {
         );
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: updates_the_connection_stage_to_tcp_connection_established_and_performs_logging\
-            : The connection stage for node with IP address 1.1.1.1 has been updated from {:?} to {:?}.",
+            : The connection stage for Node with IP address 1.1.1.1 has been updated from {:?} to {:?}.",
             ConnectionStage::StageZero,
             ConnectionStage::TcpConnectionEstablished
         ));
