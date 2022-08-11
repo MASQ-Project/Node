@@ -252,10 +252,10 @@ pub fn remap_payable_accounts(accounts: Vec<PayableAccount>) -> Vec<UiPayableAcc
         .into_iter()
         .map(|account| UiPayableAccount {
             wallet: account.wallet.to_string(),
-            age_s: (to_time_t(SystemTime::now()) - to_time_t(account.last_paid_timestamp)) as u64,
-            balance_gwei: match (account.balance_wei / (WEIS_OF_GWEI as u128)) as u64{
-                x if x > 0 => x,
-                _ => panic!("Broken code: PayableAccount with less than 1 Gwei passed through db query constrains; wallet: {}, balance: {}",account.wallet,account.balance_wei)
+            age_s: to_age(account.last_paid_timestamp),
+            balance_gwei: {
+                let gwei = (account.balance_wei / (WEIS_OF_GWEI as u128)) as u64;
+                if gwei > 0 { gwei } else { panic!("Broken code: PayableAccount with less than 1 Gwei passed through db query constrains; wallet: {}, balance: {}", account.wallet, account.balance_wei) }
             },
             pending_payable_hash_opt: account
                 .pending_payable_opt
@@ -269,17 +269,21 @@ pub fn remap_receivable_accounts(accounts: Vec<ReceivableAccount>) -> Vec<UiRece
         .into_iter()
         .map(|account| UiReceivableAccount {
             wallet: account.wallet.to_string(),
-            age_s: (to_time_t(SystemTime::now()) - to_time_t(account.last_received_timestamp)) as u64,
-            balance_gwei: match (account.balance_wei / (WEIS_OF_GWEI as i128)) as i64{
-            x if x != 0 => x,
-            _ => panic!("Broken code: ReceivableAccount with balance between {} Gwei passed through db query constrains; wallet: {}, balance: {}",
-                        if account.balance_wei.is_positive() {"1 and 0"}else{"-1 and 0"},
+            age_s: to_age(account.last_received_timestamp),
+            balance_gwei:{
+                let gwei =  (account.balance_wei / (WEIS_OF_GWEI as i128)) as i64;
+                if gwei != 0 {gwei} else {panic!("Broken code: ReceivableAccount with balance between {} and 0 Gwei passed through db query constrains; wallet: {}, balance: {}",
+                        if account.balance_wei.is_positive() {"1"}else{"-1"},
                         account.wallet,
                         account.balance_wei
-            )
-        },
+            )}
+          },
         })
         .collect()
+}
+
+fn to_age(timestamp: SystemTime) -> u64 {
+    (to_time_t(SystemTime::now()) - to_time_t(timestamp)) as u64
 }
 
 #[cfg(test)]

@@ -980,7 +980,7 @@ impl Accountant {
             .map(remap_receivable_accounts)
     }
 
-    fn process_stats(&self, msg: &UiFinancialsRequest) -> Option<UiFinancialsStatistics> {
+    fn process_stats(&self, msg: &UiFinancialsRequest) -> Option<UiFinancialStatistics> {
         if msg.stats_required {
             Some(UiFinancialStatistics {
                 total_unpaid_and_pending_payable_gwei: wei_to_gwei(self.payable_dao.total()),
