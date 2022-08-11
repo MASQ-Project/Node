@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::terminal::terminal_interface::TerminalWrapper;
-use masq_lib::messages::{UiConnectionChangeBroadcast, UiConnectionChangeStage};
+use masq_lib::messages::{UiConnectionChangeBroadcast, UiConnectionStage};
 use masq_lib::short_writeln;
 use std::io::Write;
 
@@ -15,10 +15,13 @@ impl ConnectionChangeNotification {
     ) {
         let _lock = term_interface.lock();
         let output_string = match response.stage {
-            UiConnectionChangeStage::ConnectedToNeighbor => {
+            UiConnectionStage::NotConnected => {
+                todo!("This code is unreachable before GH-623 gets implemented. Hence this todo should be replaced with some code once the card is played.")
+            }
+            UiConnectionStage::ConnectedToNeighbor => {
                 "\nConnectedToNeighbor: Established neighborship with an external node.\n"
             }
-            UiConnectionChangeStage::ThreeHopsRouteFound => {
+            UiConnectionStage::ThreeHopsRouteFound => {
                 "\nThreeHopsRouteFound: You can now relay data over the network.\n"
             }
         };
@@ -41,7 +44,7 @@ mod tests {
         let mut stdout = ByteArrayWriter::new();
         let stderr = ByteArrayWriter::new();
         let msg = UiConnectionChangeBroadcast {
-            stage: UiConnectionChangeStage::ConnectedToNeighbor,
+            stage: UiConnectionStage::ConnectedToNeighbor,
         };
         let term_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
 
@@ -60,7 +63,7 @@ mod tests {
         let mut stdout = ByteArrayWriter::new();
         let stderr = ByteArrayWriter::new();
         let msg = UiConnectionChangeBroadcast {
-            stage: UiConnectionChangeStage::ThreeHopsRouteFound,
+            stage: UiConnectionStage::ThreeHopsRouteFound,
         };
         let term_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
 

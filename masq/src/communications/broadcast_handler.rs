@@ -195,7 +195,7 @@ mod tests {
     use crossbeam_channel::{bounded, unbounded, Receiver};
     use masq_lib::messages::{
         CrashReason, SerializableLogLevel, ToMessageBody, UiConnectionChangeBroadcast,
-        UiConnectionChangeStage, UiLogBroadcast, UiNodeCrashedBroadcast,
+        UiConnectionStage, UiLogBroadcast, UiNodeCrashedBroadcast,
     };
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
     use masq_lib::ui_gateway::MessagePath;
@@ -350,7 +350,7 @@ mod tests {
         let terminal_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
 
         let message_body = UiConnectionChangeBroadcast {
-            stage: UiConnectionChangeStage::ConnectedToNeighbor,
+            stage: UiConnectionStage::ConnectedToNeighbor,
         }
         .tmb(0);
 

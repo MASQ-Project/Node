@@ -548,16 +548,29 @@ pub struct UiPaymentThresholds {
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
-pub enum UiConnectionChangeStage {
+pub enum UiConnectionStage {
+    NotConnected,
     ConnectedToNeighbor,
     ThreeHopsRouteFound,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiConnectionChangeBroadcast {
-    pub stage: UiConnectionChangeStage,
+    pub stage: UiConnectionStage,
 }
 fire_and_forget_message!(UiConnectionChangeBroadcast, "connectionChange");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiConnectionStatusRequest {}
+
+conversation_message!(UiConnectionStatusRequest, "connectionStatus");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+pub struct UiConnectionStatusResponse {
+    pub stage: UiConnectionStage,
+}
+
+conversation_message!(UiConnectionStatusResponse, "connectionStatus");
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
 pub struct UiDescriptorRequest {}

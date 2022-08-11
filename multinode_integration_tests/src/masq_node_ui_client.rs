@@ -61,10 +61,15 @@ impl MASQNodeUIClient {
         self.buffered_or_incoming(MessagePath::FireAndForget, timeout)
     }
 
-    pub fn wait_for_specific_broadcast(&self, target_opcodes: Vec<&str>, timeout: Duration) -> MessageBody {
-        let qualifies = |message_body: &MessageBody| target_opcodes.contains (&message_body.opcode.as_str());
+    pub fn wait_for_specific_broadcast(
+        &self,
+        target_opcodes: Vec<&str>,
+        timeout: Duration,
+    ) -> MessageBody {
+        let qualifies =
+            |message_body: &MessageBody| target_opcodes.contains(&message_body.opcode.as_str());
         if let Some(target) = self.check_for_buffered_message(MessagePath::FireAndForget) {
-            if qualifies (&target) {
+            if qualifies(&target) {
                 return target;
             }
         }
@@ -72,11 +77,14 @@ impl MASQNodeUIClient {
         let iteration_timeout = Duration::from_millis(200);
         loop {
             match self.try_wait_for_message(MessagePath::FireAndForget, iteration_timeout) {
-                Some (message_body) if qualifies(&message_body) => return message_body,
-                _ => ()
+                Some(message_body) if qualifies(&message_body) => return message_body,
+                _ => (),
             }
-            if Instant::now().duration_since(begin).gt (&timeout) {
-                panic!("Timeout waiting for UI broadcast from Node with one of these opcodes: {:?}", target_opcodes);
+            if Instant::now().duration_since(begin).gt(&timeout) {
+                panic!(
+                    "Timeout waiting for UI broadcast from Node with one of these opcodes: {:?}",
+                    target_opcodes
+                );
             }
         }
     }
@@ -90,7 +98,7 @@ impl MASQNodeUIClient {
 
     fn wait_for_message(&self, path: MessagePath, timeout: Duration) -> MessageBody {
         match self.try_wait_for_message(path, timeout) {
-            Some (message_body) => message_body,
+            Some(message_body) => message_body,
             None => panic!("Timeout waiting for UI message from Node: {:?}", path),
         }
     }
@@ -110,7 +118,7 @@ impl MASQNodeUIClient {
                 }
                 None => {
                     if let Some(target) = target_opt {
-                        return Some (target);
+                        return Some(target);
                     } else {
                         thread::sleep(Duration::from_millis(100));
                     }

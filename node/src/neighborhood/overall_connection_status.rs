@@ -5,7 +5,8 @@ use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
 };
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, NodeDescriptor};
 use actix::Recipient;
-use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionChangeStage};
+use masq_lib::logger::Logger;
+use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
 use std::net::IpAddr;
 use std::string::String;
@@ -64,7 +65,7 @@ impl ConnectionProgress {
         }
     }
 
-    pub fn update_stage(&mut self, connection_stage: ConnectionStage) {
+    pub fn update_stage(&mut self, logger: &Logger, connection_stage: ConnectionStage) {
         // TODO: We may prefer to use an enum with variants "Up, Down, StageZero, Failure", for transitions instead of checks
         let current_stage = usize::try_from(&self.connection_stage);
         let new_stage = usize::try_from(&connection_stage);
@@ -78,10 +79,18 @@ impl ConnectionProgress {
             }
         }
 
+        debug!(
+            logger,
+            "The connection stage for Node with IP address {:?} has been updated from {:?} to {:?}.",
+            self.current_peer_addr,
+            self.connection_stage,
+            connection_stage
+        );
+
         self.connection_stage = connection_stage;
     }
 
-    pub fn handle_pass_gossip(&mut self, new_pass_target: IpAddr) {
+    pub fn handle_pass_gossip(&mut self, logger: &Logger, new_pass_target: IpAddr) {
         if self.connection_stage != ConnectionStage::TcpConnectionEstablished {
             panic!(
                 "Can't update the stage from {:?} to {:?}",
@@ -89,6 +98,14 @@ impl ConnectionProgress {
                 ConnectionStage::StageZero
             )
         };
+
+        debug!(
+            logger,
+            "Pass gossip received from Node with IP Address {:?} to a Node with IP Address {:?}. \
+            Hence, updating the connection stage of the new Node to StageZero.",
+            self.current_peer_addr,
+            new_pass_target
+        );
 
         self.connection_stage = ConnectionStage::StageZero;
         self.current_peer_addr = new_pass_target;
@@ -102,18 +119,12 @@ pub enum OverallConnectionStage {
     ThreeHopsRouteFound = 2, // Data can be relayed once this stage is reached
 }
 
-impl From<OverallConnectionStage> for UiConnectionChangeStage {
-    fn from(stage: OverallConnectionStage) -> UiConnectionChangeStage {
+impl From<OverallConnectionStage> for UiConnectionStage {
+    fn from(stage: OverallConnectionStage) -> UiConnectionStage {
         match stage {
-            OverallConnectionStage::NotConnected => {
-                panic!("UiConnectionChangeStage doesn't have a stage named NotConnected")
-            }
-            OverallConnectionStage::ConnectedToNeighbor => {
-                UiConnectionChangeStage::ConnectedToNeighbor
-            }
-            OverallConnectionStage::ThreeHopsRouteFound => {
-                UiConnectionChangeStage::ThreeHopsRouteFound
-            }
+            OverallConnectionStage::NotConnected => UiConnectionStage::NotConnected,
+            OverallConnectionStage::ConnectedToNeighbor => UiConnectionStage::ConnectedToNeighbor,
+            OverallConnectionStage::ThreeHopsRouteFound => UiConnectionStage::ThreeHopsRouteFound,
         }
     }
 }
@@ -186,9 +197,10 @@ impl OverallConnectionStatus {
     pub fn update_connection_stage(
         connection_progress: &mut ConnectionProgress,
         event: ConnectionProgressEvent,
+        logger: &Logger,
     ) {
         let mut modify_connection_progress =
-            |stage: ConnectionStage| connection_progress.update_stage(stage);
+            |stage: ConnectionStage| connection_progress.update_stage(logger, stage);
 
         match event {
             ConnectionProgressEvent::TcpConnectionSuccessful => {
@@ -204,7 +216,7 @@ impl OverallConnectionStatus {
                 modify_connection_progress(ConnectionStage::NeighborshipEstablished);
             }
             ConnectionProgressEvent::PassGossipReceived(new_pass_target) => {
-                connection_progress.handle_pass_gossip(new_pass_target);
+                connection_progress.handle_pass_gossip(logger, new_pass_target);
             }
             ConnectionProgressEvent::PassLoopFound => {
                 modify_connection_progress(ConnectionStage::Failed(PassLoopFound));
@@ -235,7 +247,7 @@ impl OverallConnectionStatus {
     }
 
     fn send_message_to_ui(
-        stage: UiConnectionChangeStage,
+        stage: UiConnectionStage,
         node_to_ui_recipient: &Recipient<NodeToUiMessage>,
     ) {
         let message = NodeToUiMessage {
@@ -281,7 +293,8 @@ mod tests {
     use crate::test_utils::unshared_test_utils::make_node_to_ui_recipient;
     use actix::System;
     use masq_lib::blockchains::chains::Chain;
-    use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionChangeStage};
+    use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::ui_gateway::MessageTarget;
 
     #[test]
@@ -298,14 +311,18 @@ mod tests {
     }
 
     #[test]
-    fn connection_progress_handles_pass_gossip_correctly() {
+    fn connection_progress_handles_pass_gossip_correctly_and_performs_logging_in_order() {
+        init_test_logging();
         let ip_addr = make_ip(1);
         let initial_node_descriptor = make_node_descriptor(ip_addr);
         let mut subject = ConnectionProgress::new(initial_node_descriptor.clone());
         let pass_target = make_ip(2);
-        subject.update_stage(ConnectionStage::TcpConnectionEstablished);
+        let logger = Logger::new(
+            "connection_progress_handles_pass_gossip_correctly_and_performs_logging_in_order",
+        );
+        subject.update_stage(&logger, ConnectionStage::TcpConnectionEstablished);
 
-        subject.handle_pass_gossip(pass_target);
+        subject.handle_pass_gossip(&logger, pass_target);
 
         assert_eq!(
             subject,
@@ -314,7 +331,23 @@ mod tests {
                 current_peer_addr: pass_target,
                 connection_stage: ConnectionStage::StageZero
             }
-        )
+        );
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &format!(
+                "DEBUG: connection_progress_handles_pass_gossip_correctly_and\
+                _performs_logging_in_order: The connection stage \
+                for Node with IP address {:?} has been updated from {:?} to {:?}.",
+                ip_addr,
+                ConnectionStage::StageZero,
+                ConnectionStage::TcpConnectionEstablished
+            ),
+            &format!(
+                "DEBUG: connection_progress_handles_pass_gossip_correctly_and_performs_logging\
+                _in_order: Pass gossip received from Node with IP Address {:?} to a Node with \
+                IP Address {:?}. Hence, updating the connection stage of the new Node to StageZero.",
+                ip_addr, pass_target
+            ),
+        ]);
     }
 
     #[test]
@@ -326,7 +359,7 @@ mod tests {
         let mut subject = ConnectionProgress::new(initial_node_descriptor);
         let pass_target = make_ip(2);
 
-        subject.handle_pass_gossip(pass_target);
+        subject.handle_pass_gossip(&Logger::new("test"), pass_target);
     }
 
     #[test]
@@ -476,13 +509,17 @@ mod tests {
     }
 
     #[test]
-    fn updates_the_connection_stage_to_tcp_connection_established() {
+    fn updates_the_connection_stage_to_tcp_connection_established_and_performs_logging() {
+        init_test_logging();
         let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
 
         OverallConnectionStatus::update_connection_stage(
             subject.get_connection_progress_by_ip(node_ip_addr).unwrap(),
             ConnectionProgressEvent::TcpConnectionSuccessful,
+            &Logger::new(
+                "updates_the_connection_stage_to_tcp_connection_established_and_performs_logging",
+            ),
         );
 
         assert_eq!(
@@ -496,7 +533,13 @@ mod tests {
                     connection_stage: ConnectionStage::TcpConnectionEstablished
                 }],
             }
-        )
+        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: updates_the_connection_stage_to_tcp_connection_established_and_performs_logging\
+            : The connection stage for Node with IP address 1.1.1.1 has been updated from {:?} to {:?}.",
+            ConnectionStage::StageZero,
+            ConnectionStage::TcpConnectionEstablished
+        ));
     }
 
     #[test]
@@ -509,6 +552,7 @@ mod tests {
         OverallConnectionStatus::update_connection_stage(
             connection_progress_to_modify,
             ConnectionProgressEvent::TcpConnectionFailed,
+            &Logger::new("updates_the_connection_stage_to_failed_when_tcp_connection_fails"),
         );
 
         assert_eq!(
@@ -531,14 +575,17 @@ mod tests {
         let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         let connection_progress = subject.get_connection_progress_by_ip(node_ip_addr).unwrap();
+        let logger = Logger::new("updates_the_connection_stage_to_neighborship_established_when_introduction_gossip_is_received");
         OverallConnectionStatus::update_connection_stage(
             connection_progress,
             ConnectionProgressEvent::TcpConnectionSuccessful,
+            &logger,
         );
 
         OverallConnectionStatus::update_connection_stage(
             connection_progress,
             ConnectionProgressEvent::IntroductionGossipReceived(make_ip(1)),
+            &logger,
         );
 
         assert_eq!(
@@ -556,14 +603,17 @@ mod tests {
         let (node_ip_addr, node_descriptor) = make_node(1);
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         let connection_progress = subject.get_connection_progress_by_ip(node_ip_addr).unwrap();
+        let logger = Logger::new("updates_the_connection_stage_to_neighborship_established_when_standard_gossip_is_received");
         OverallConnectionStatus::update_connection_stage(
             connection_progress,
             ConnectionProgressEvent::TcpConnectionSuccessful,
+            &logger,
         );
 
         OverallConnectionStatus::update_connection_stage(
             connection_progress,
             ConnectionProgressEvent::StandardGossipReceived,
+            &logger,
         );
 
         assert_eq!(
@@ -583,14 +633,18 @@ mod tests {
         let pass_target = make_ip(1);
         let connection_progress_to_modify =
             subject.get_connection_progress_by_ip(node_ip_addr).unwrap();
+        let logger =
+            Logger::new("updates_the_connection_stage_to_stage_zero_when_pass_gossip_is_received");
         OverallConnectionStatus::update_connection_stage(
             connection_progress_to_modify,
             ConnectionProgressEvent::TcpConnectionSuccessful,
+            &logger,
         );
 
         OverallConnectionStatus::update_connection_stage(
             connection_progress_to_modify,
             ConnectionProgressEvent::PassGossipReceived(pass_target),
+            &logger,
         );
 
         assert_eq!(
@@ -613,14 +667,17 @@ mod tests {
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         let connection_progress_to_modify =
             subject.get_connection_progress_by_ip(node_ip_addr).unwrap();
+        let logger = Logger::new("updates_connection_stage_to_failed_when_pass_loop_is_found");
         OverallConnectionStatus::update_connection_stage(
             connection_progress_to_modify,
             ConnectionProgressEvent::TcpConnectionSuccessful,
+            &logger,
         );
 
         OverallConnectionStatus::update_connection_stage(
             connection_progress_to_modify,
             ConnectionProgressEvent::PassLoopFound,
+            &logger,
         );
 
         assert_eq!(
@@ -643,14 +700,18 @@ mod tests {
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor.clone()]);
         let connection_progress_to_modify =
             subject.get_connection_progress_by_ip(node_ip_addr).unwrap();
+        let logger =
+            Logger::new("updates_connection_stage_to_failed_when_no_gossip_response_is_received");
         OverallConnectionStatus::update_connection_stage(
             connection_progress_to_modify,
             ConnectionProgressEvent::TcpConnectionSuccessful,
+            &logger,
         );
 
         OverallConnectionStatus::update_connection_stage(
             connection_progress_to_modify,
             ConnectionProgressEvent::NoGossipResponseReceived,
+            &logger,
         );
 
         assert_eq!(
@@ -695,6 +756,7 @@ mod tests {
         OverallConnectionStatus::update_connection_stage(
             connection_progress_to_modify,
             ConnectionProgressEvent::IntroductionGossipReceived(make_ip(1)),
+            &Logger::new("can_t_establish_neighborhsip_without_having_a_tcp_connection"),
         );
     }
 
@@ -702,11 +764,11 @@ mod tests {
     fn converts_connected_to_neighbor_stage_into_ui_connection_change_stage() {
         let connected_to_neighbor = OverallConnectionStage::ConnectedToNeighbor;
 
-        let connected_to_neighbor_converted: UiConnectionChangeStage = connected_to_neighbor.into();
+        let connected_to_neighbor_converted: UiConnectionStage = connected_to_neighbor.into();
 
         assert_eq!(
             connected_to_neighbor_converted,
-            UiConnectionChangeStage::ConnectedToNeighbor
+            UiConnectionStage::ConnectedToNeighbor
         );
     }
 
@@ -714,21 +776,21 @@ mod tests {
     fn converts_three_hops_route_found_stage_into_ui_connection_change_stage() {
         let three_hops_route_found = OverallConnectionStage::ThreeHopsRouteFound;
 
-        let three_hops_route_found_converted: UiConnectionChangeStage =
-            three_hops_route_found.into();
+        let three_hops_route_found_converted: UiConnectionStage = three_hops_route_found.into();
 
         assert_eq!(
             three_hops_route_found_converted,
-            UiConnectionChangeStage::ThreeHopsRouteFound
+            UiConnectionStage::ThreeHopsRouteFound
         );
     }
 
     #[test]
-    #[should_panic(expected = "UiConnectionChangeStage doesn't have a stage named NotConnected")]
-    fn no_stage_named_not_connected_in_ui_connection_change_stage() {
+    fn converts_not_connected_into_ui_connection_change_stage() {
         let not_connected = OverallConnectionStage::NotConnected;
 
-        let _not_connected_converted: UiConnectionChangeStage = not_connected.into();
+        let not_connected_converted: UiConnectionStage = not_connected.into();
+
+        assert_eq!(not_connected_converted, UiConnectionStage::NotConnected);
     }
 
     #[test]
@@ -773,7 +835,7 @@ mod tests {
             Some(NodeToUiMessage {
                 target: MessageTarget::AllClients,
                 body: UiConnectionChangeBroadcast {
-                    stage: UiConnectionChangeStage::ThreeHopsRouteFound
+                    stage: UiConnectionStage::ThreeHopsRouteFound
                 }
                 .tmb(0)
             })
@@ -799,7 +861,7 @@ mod tests {
             Some(NodeToUiMessage {
                 target: MessageTarget::AllClients,
                 body: UiConnectionChangeBroadcast {
-                    stage: UiConnectionChangeStage::ConnectedToNeighbor
+                    stage: UiConnectionStage::ConnectedToNeighbor
                 }
                 .tmb(0)
             })
