@@ -19,6 +19,7 @@ use masq_lib::logger::Logger;
 use std::borrow::Borrow;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
+use std::time::SystemTime;
 
 pub struct RoutingServiceSubs {
     pub proxy_client_subs_opt: Option<ProxyClientSubs>,
@@ -183,6 +184,7 @@ impl RoutingService {
         )
         .expect("Encryption of LiveCoresPackage failed");
         let inbound_client_data = InboundClientData {
+            timestamp: ibcd_but_data.timestamp,
             peer_addr: ibcd_but_data.peer_addr,
             reception_port: ibcd_but_data.reception_port,
             last_data: ibcd_but_data.last_data,
@@ -437,6 +439,7 @@ impl RoutingService {
                 }
                 match self.routing_service_subs.to_accountant_routing.try_send(
                     ReportRoutingServiceProvidedMessage {
+                        timestamp: SystemTime::now(),
                         paying_wallet: payer.wallet,
                         payload_size,
                         service_rate: self.per_routing_service,
@@ -518,6 +521,7 @@ mod tests {
     use super::*;
     use crate::banned_dao::BAN_CACHE;
     use crate::neighborhood::gossip::{GossipBuilder, Gossip_0v1};
+    use crate::node_test_utils::check_timestamp;
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
     use crate::sub_lib::cryptde::{encodex, CryptDE, PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -541,6 +545,7 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::net::SocketAddr;
     use std::str::FromStr;
+    use std::time::SystemTime;
 
     #[test]
     fn dns_resolution_failures_are_reported_to_the_proxy_server() {
@@ -562,6 +567,7 @@ mod tests {
         );
         let data_enc = encodex(cryptdes.main, &cryptdes.main.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             sequence_number: None,
@@ -609,6 +615,7 @@ mod tests {
         );
         let data_enc = encodex(cryptdes.main, &cryptdes.main.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             sequence_number: None,
@@ -652,6 +659,7 @@ mod tests {
         );
         let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             sequence_number: None,
@@ -703,6 +711,7 @@ mod tests {
         );
         let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             sequence_number: None,
@@ -756,6 +765,7 @@ mod tests {
             .encode(&main_cryptde.public_key(), &data_ser)
             .unwrap();
         let inbound_client_data = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             sequence_number: None,
@@ -828,6 +838,7 @@ mod tests {
             .encode(&main_cryptde.public_key(), &data_ser)
             .unwrap();
         let inbound_client_data = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             sequence_number: None,
@@ -886,6 +897,7 @@ mod tests {
         let lcp_a = lcp.clone();
         let lcp_enc = encodex(main_cryptde, main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.3.2.4:5678").unwrap(),
             reception_port: None,
             last_data: false,
@@ -966,6 +978,7 @@ mod tests {
         let lcp_a = lcp.clone();
         let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.3.2.4:5678").unwrap(),
             reception_port: None,
             last_data: false,
@@ -1041,6 +1054,7 @@ mod tests {
         );
         let data_enc = encodex(cryptde, &cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.3.2.4:5678").unwrap(),
             reception_port: None,
             last_data: false,
@@ -1120,6 +1134,7 @@ mod tests {
             .encode(&main_cryptde.public_key(), &data_ser)
             .unwrap();
         let inbound_client_data = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             last_data: true,
@@ -1150,12 +1165,13 @@ mod tests {
             rate_pack_routing_byte(103),
             false,
         );
+        let before = SystemTime::now();
 
         subject.route(inbound_client_data);
 
         System::current().stop();
         system.run();
-
+        let after = SystemTime::now();
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
         let expected_lcp = lcp_a.into_next_live(main_cryptde).unwrap().1;
@@ -1172,10 +1188,12 @@ mod tests {
         );
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         let message = accountant_recording.get_record::<ReportRoutingServiceProvidedMessage>(0);
+        check_timestamp(before, message.timestamp, after);
         assert!(message.paying_wallet.congruent(&paying_wallet));
         assert_eq!(
             *message,
             ReportRoutingServiceProvidedMessage {
+                timestamp: message.timestamp,
                 paying_wallet: address_paying_wallet,
                 payload_size: lcp.payload.len(),
                 service_rate: rate_pack_routing(103),
@@ -1212,6 +1230,7 @@ mod tests {
         let lcp_a = lcp.clone();
         let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             last_data: true,
@@ -1241,20 +1260,23 @@ mod tests {
             rate_pack_routing_byte(103),
             false,
         );
+        let before = SystemTime::now();
 
         subject.route(inbound_client_data);
 
         System::current().stop();
         system.run();
-
+        let after = SystemTime::now();
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let record = hopper_recording.get_record::<InboundClientData>(0);
+        check_timestamp(before, record.timestamp, after);
         let expected_lcp = lcp_a.into_next_live(main_cryptde).unwrap().1;
         let expected_lcp_enc =
             encodex(main_cryptde, &main_cryptde.public_key(), &expected_lcp).unwrap();
         assert_eq!(
             *record,
             InboundClientData {
+                timestamp: record.timestamp,
                 peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
                 reception_port: None,
                 last_data: true,
@@ -1294,6 +1316,7 @@ mod tests {
             .encode(&main_cryptde.public_key(), &data_ser)
             .unwrap();
         let inbound_client_data = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             last_data: true,
@@ -1397,6 +1420,7 @@ mod tests {
             .encode(&main_cryptde.public_key(), &data_ser)
             .unwrap();
         let inbound_client_data = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             last_data: true,
@@ -1580,6 +1604,7 @@ mod tests {
         let lcp = LiveCoresPackage::new(route, main_cryptde.encode(&next_key, &payload).unwrap());
         let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             last_data: true,
@@ -1653,6 +1678,7 @@ mod tests {
         );
         let data_enc = encodex(main_cryptde, &main_cryptde.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             last_data: true,
@@ -1699,6 +1725,7 @@ mod tests {
     fn route_logs_and_ignores_inbound_client_data_that_doesnt_deserialize_properly() {
         init_test_logging();
         let inbound_client_data = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             last_data: true,
@@ -1756,6 +1783,7 @@ mod tests {
             .encode(&main_cryptde.public_key(), &data_ser)
             .unwrap();
         let inbound_client_data = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             last_data: true,
@@ -1825,6 +1853,7 @@ mod tests {
         );
         let lcp = LiveCoresPackage::new(Route { hops: vec![] }, CryptData::new(&[]));
         let ibcd = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: None,
             last_data: true,

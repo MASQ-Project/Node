@@ -4,9 +4,9 @@ version = 3
 
 [[package]]
 name = "default-net"
-version = "0.8.1"
+version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "98eef9f91cd6efd62a5be88d9e7bcd98389cab90ea006fb07a8a683a9a4ac0de"
+checksum = "b4c02564d247dfbb3dae21f141da9053e83d1b5efb0018081a2ced47dfed3f97"
 dependencies = [
  "libc",
  "windows",
@@ -14,9 +14,9 @@ dependencies = [
 
 [[package]]
 name = "libc"
-version = "0.2.120"
+version = "0.2.126"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ad5c14e80759d0939d013e6ca49930e59fc53dd8e5009132f76240c179380c09"
+checksum = "349d5a591cd28b49e1d1037471617a32ddcda5731b99419008085f72d5a53836"
 
 [[package]]
 name = "port_exposer"

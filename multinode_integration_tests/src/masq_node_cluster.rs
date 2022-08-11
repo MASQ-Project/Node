@@ -10,7 +10,7 @@ use node_lib::sub_lib::cryptde::PublicKey;
 use std::collections::HashMap;
 use std::collections::HashSet;
 use std::env;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4, ToSocketAddrs};
 
 pub struct MASQNodeCluster {
     startup_configs: HashMap<(String, usize), NodeStartupConfig>,
@@ -23,6 +23,7 @@ pub struct MASQNodeCluster {
 
 impl MASQNodeCluster {
     pub fn start() -> Result<MASQNodeCluster, String> {
+        MASQNodeCluster::docker_version()?;
         MASQNodeCluster::cleanup()?;
         MASQNodeCluster::create_network()?;
         let host_node_parent_dir = match env::var("HOST_NODE_PARENT_DIR") {
@@ -40,14 +41,6 @@ impl MASQNodeCluster {
             next_index: 1,
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
         })
-    }
-
-    pub fn host_ip_addr() -> IpAddr {
-        if Self::is_in_jenkins() {
-            IpAddr::V4(Ipv4Addr::new(172, 18, 0, 2))
-        } else {
-            IpAddr::V4(Ipv4Addr::new(172, 18, 0, 1))
-        }
     }
 
     pub fn next_index(&self) -> usize {
@@ -76,7 +69,7 @@ impl MASQNodeCluster {
 
     pub fn start_named_real_node(
         &mut self,
-        name: String,
+        name: &str,
         index: usize,
         config: NodeStartupConfig,
     ) -> MASQRealNode {
@@ -244,14 +237,7 @@ impl MASQNodeCluster {
     }
 
     fn remove_network_if_running() -> Result<(), String> {
-        let mut command = Command::new("docker", Command::strings(vec!["network", "ls"]));
-        if command.wait_for_exit() != 0 {
-            return Err(format!(
-                "Could not list networks: {}",
-                command.stderr_as_string()
-            ));
-        }
-        let output = command.stdout_as_string();
+        let output = Self::list_network()?;
         if !output.contains("integration_net") {
             return Ok(());
         }
@@ -261,11 +247,39 @@ impl MASQNodeCluster {
         );
         match command.wait_for_exit() {
             0 => Ok(()),
+            _ if command
+                .stderr_as_string()
+                .starts_with("Error: No such network: integration_net") =>
+            {
+                Ok(())
+            }
             _ => Err(format!(
                 "Could not remove network integration_net: {}",
                 command.stderr_as_string()
             )),
         }
+    }
+
+    fn docker_version() -> Result<String, String> {
+        let mut command = Command::new("docker", Command::strings(vec!["--version"]));
+        if command.wait_for_exit() != 0 {
+            return Err(format!(
+                "Could not get Docker version: {}",
+                command.stderr_as_string()
+            ));
+        }
+        Ok(command.stdout_as_string())
+    }
+
+    fn list_network() -> Result<String, String> {
+        let mut command = Command::new("docker", Command::strings(vec!["network", "ls"]));
+        if command.wait_for_exit() != 0 {
+            return Err(format!(
+                "Could not list networks: {}",
+                command.stderr_as_string()
+            ));
+        }
+        Ok(command.stdout_as_string())
     }
 
     fn create_network() -> Result<(), String> {
@@ -298,6 +312,29 @@ impl MASQNodeCluster {
                 "Could not connect subjenkins to integration_net: {}",
                 command.stderr_as_string()
             )),
+        }
+    }
+}
+
+pub struct DockerHostSocketAddr {
+    socket_addrs: Vec<SocketAddr>,
+}
+
+impl ToSocketAddrs for DockerHostSocketAddr {
+    type Iter = std::vec::IntoIter<SocketAddr>;
+
+    fn to_socket_addrs(&self) -> std::io::Result<Self::Iter> {
+        Ok(self.socket_addrs.clone().into_iter())
+    }
+}
+
+impl DockerHostSocketAddr {
+    pub fn new(port: u16) -> Self {
+        Self {
+            socket_addrs: vec![
+                SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(172, 18, 0, 2), port)),
+                SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(172, 18, 0, 1), port)),
+            ],
         }
     }
 }

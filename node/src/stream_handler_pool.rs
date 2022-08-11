@@ -601,7 +601,7 @@ mod tests {
     use crate::json_discriminator_factory::JsonDiscriminatorFactory;
     use crate::json_masquerader::JsonMasquerader;
     use crate::masquerader::Masquerader;
-    use crate::node_test_utils::FailingMasquerader;
+    use crate::node_test_utils::{check_timestamp, FailingMasquerader};
     use crate::sub_lib::dispatcher::InboundClientData;
     use crate::sub_lib::neighborhood::{
         ConnectionProgressEvent, ConnectionProgressMessage, NodeQueryResponseMetadata,
@@ -634,6 +634,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
+    use std::time::SystemTime;
     use tokio::prelude::Async;
 
     #[test]
@@ -669,6 +670,7 @@ mod tests {
         second_chunk.extend(Vec::from("glorp".as_bytes()));
         second_chunk.extend(a_third_http_req.clone());
         let awaiter = dispatcher.get_awaiter();
+        let before = SystemTime::now();
 
         thread::spawn(move || {
             let system = System::new("test");
@@ -719,10 +721,14 @@ mod tests {
         });
 
         awaiter.await_message_count(4);
+        let after = SystemTime::now();
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
+        let dispatcher_record = dispatcher_recording.get_record::<dispatcher::InboundClientData>(0);
+        check_timestamp(before, dispatcher_record.timestamp, after);
         assert_eq!(
-            dispatcher_recording.get_record::<dispatcher::InboundClientData>(0),
+            dispatcher_record,
             &dispatcher::InboundClientData {
+                timestamp: dispatcher_record.timestamp,
                 peer_addr: peer_addr_a,
                 reception_port,
                 last_data: false,
@@ -731,9 +737,12 @@ mod tests {
                 data: one_http_req_a,
             }
         );
+        let dispatcher_record = dispatcher_recording.get_record::<dispatcher::InboundClientData>(1);
+        check_timestamp(before, dispatcher_record.timestamp, after);
         assert_eq!(
-            dispatcher_recording.get_record::<dispatcher::InboundClientData>(1),
+            dispatcher_record,
             &dispatcher::InboundClientData {
+                timestamp: dispatcher_record.timestamp,
                 peer_addr: peer_addr_a,
                 reception_port,
                 last_data: false,
@@ -742,9 +751,12 @@ mod tests {
                 data: another_http_req_a,
             }
         );
+        let dispatcher_record = dispatcher_recording.get_record::<dispatcher::InboundClientData>(2);
+        check_timestamp(before, dispatcher_record.timestamp, after);
         assert_eq!(
-            dispatcher_recording.get_record::<dispatcher::InboundClientData>(2),
+            dispatcher_record,
             &dispatcher::InboundClientData {
+                timestamp: dispatcher_record.timestamp,
                 peer_addr: peer_addr_a,
                 reception_port,
                 last_data: false,
@@ -753,8 +765,9 @@ mod tests {
                 data: a_third_http_req_a,
             }
         );
+        let dispatcher_record = dispatcher_recording.get_record::<dispatcher::StreamShutdownMsg>(3);
         assert_eq!(
-            dispatcher_recording.get_record::<dispatcher::StreamShutdownMsg>(3),
+            dispatcher_record,
             &dispatcher::StreamShutdownMsg {
                 peer_addr: peer_addr_a,
                 stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
@@ -1250,6 +1263,7 @@ mod tests {
         });
 
         let subject_subs = rx.recv().unwrap();
+        let before = SystemTime::now();
 
         subject_subs
             .transmit_sub
@@ -1278,15 +1292,18 @@ mod tests {
             .unwrap();
 
         await_messages(1, &poll_write_params_arc_a);
+        let after = SystemTime::now();
         let poll_write_params = poll_write_params_arc_a.lock().unwrap();
         assert_eq!(poll_write_params[0], outgoing_masked);
 
         dispatcher_awaiter.await_message_count(1);
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let ibcd = dispatcher_recording.get_record::<InboundClientData>(0);
+        check_timestamp(before, ibcd.timestamp, after);
         assert_eq!(
             ibcd,
             &InboundClientData {
+                timestamp: ibcd.timestamp,
                 peer_addr: SocketAddr::from_str("1.2.3.5:7000").unwrap(),
                 reception_port: Some(54321),
                 last_data: false,

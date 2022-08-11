@@ -72,12 +72,12 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
 }
 
 fn non_pending_payables(node: &MASQRealNode) -> Vec<PayableAccount> {
-    let payable_dao = payable_dao(node);
+    let payable_dao = payable_dao(node.name());
     payable_dao.non_pending_payables()
 }
 
 fn receivables(node: &MASQRealNode) -> Vec<ReceivableAccount> {
-    let receivable_dao = receivable_dao(node);
+    let receivable_dao = receivable_dao(node.name());
     receivable_dao.receivables()
 }
 

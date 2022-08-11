@@ -232,6 +232,7 @@ mod tests {
     use std::net::{IpAddr, Ipv4Addr, SocketAddr};
     use std::str::FromStr;
     use std::thread;
+    use std::time::SystemTime;
 
     #[test]
     fn constants_have_correct_values() {
@@ -263,6 +264,7 @@ mod tests {
         let reception_port = Some(8080);
         let data: Vec<u8> = vec![9, 10, 11];
         let ibcd_in = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr,
             reception_port,
             sequence_number: Some(0),
@@ -301,6 +303,7 @@ mod tests {
         let reception_port = Some(8080);
         let data: Vec<u8> = vec![9, 10, 11];
         let ibcd_in = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr,
             reception_port,
             last_data: false,
@@ -340,6 +343,7 @@ mod tests {
         let reception_port = Some(1234);
         let data: Vec<u8> = vec![9, 10, 11];
         let ibcd_in = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr,
             reception_port,
             last_data: false,
@@ -365,6 +369,7 @@ mod tests {
         let reception_port = Some(1234);
         let data: Vec<u8> = vec![9, 10, 11];
         let ibcd_in = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr,
             reception_port,
             last_data: false,
