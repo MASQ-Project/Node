@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::convert::TryInto;
 use std::time::Duration;
 
 use masq_lib::messages::{
@@ -11,8 +10,6 @@ use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::NodeStartupConfigBuilder;
-use node_lib::neighborhood::AccessibleGossipRecord;
-use node_lib::sub_lib::cryptde::PublicKey;
 
 #[test]
 fn connection_progress_is_properly_broadcast() {
