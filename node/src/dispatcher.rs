@@ -135,18 +135,7 @@ impl Handler<NewPublicIp> for Dispatcher {
     type Result = ();
 
     fn handle(&mut self, msg: NewPublicIp, _ctx: &mut Self::Context) -> Self::Result {
-        match &self.node_descriptor.node_addr_opt {
-            None => warning!(
-                self.logger,
-                "Received attempt to set public IP to {} while not in Standard mode - rejecting",
-                msg.new_ip
-            ),
-            Some(node_addr) => {
-                let ports = &node_addr.ports();
-                self.node_descriptor.node_addr_opt = Some(NodeAddr::new(&msg.new_ip, ports));
-                Bootstrapper::report_local_descriptor(main_cryptde(), &self.node_descriptor);
-            }
-        }
+        self.handle_new_public_ip(msg);
     }
 }
 
@@ -203,6 +192,21 @@ impl Dispatcher {
         subs.ui_gateway_sub
             .try_send(response_msg)
             .expect("UiGateway is dead");
+    }
+
+    fn handle_new_public_ip(&mut self, msg: NewPublicIp) {
+        match &self.node_descriptor.node_addr_opt {
+            None => warning!(
+                self.logger,
+                "Received attempt to set public IP to {} while not in Standard mode - rejecting",
+                msg.new_ip
+            ),
+            Some(node_addr) => {
+                let ports = &node_addr.ports();
+                self.node_descriptor.node_addr_opt = Some(NodeAddr::new(&msg.new_ip, ports));
+                Bootstrapper::report_local_descriptor(main_cryptde(), &self.node_descriptor);
+            }
+        }
     }
 }
 

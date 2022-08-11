@@ -42,6 +42,7 @@ use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
 use tokio::prelude::Future;
+use crate::sub_lib::peer_actors::NewPublicIp;
 
 // IMPORTANT: Nothing at or below the level of StreamHandlerPool should know about StreamKeys.
 // StreamKeys should exist solely between ProxyServer and ProxyClient. Many of the streams
@@ -165,6 +166,14 @@ impl Handler<NodeFromUiMessage> for StreamHandlerPool {
 
     fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
         handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
+    }
+}
+
+impl Handler<NewPublicIp> for StreamHandlerPool {
+    type Result = ();
+
+    fn handle(&mut self, msg: NewPublicIp, _ctx: &mut Self::Context) -> Self::Result {
+        todo! ();
     }
 }
 
