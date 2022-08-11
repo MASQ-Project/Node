@@ -53,7 +53,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
     }
 
     fn return_all_fingerprints(&self) -> Vec<PendingPayableFingerprint> {
-        let mut stm = self.conn.prepare("select rowid, transaction_hash, amount, payable_timestamp, attempt from pending_payable where process_error is null").expect("Internal error");
+        let mut stm = self.conn.prepare("select rowid, transaction_hash, amount_high_b, amount_low_b, payable_timestamp, attempt from pending_payable where process_error is null").expect("Internal error");
         stm.query_map([], |row| {
             let rowid: u64 = Self::get_with_expect(row, 0);
             let transaction_hash: String = Self::get_with_expect(row, 1);
@@ -86,7 +86,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
     ) -> Result<(), PendingPayableDaoError> {
         let (high_bytes, low_bytes) =
             BigIntDivider::deconstruct(checked_conversion::<u128, i128>(amount));
-        let mut stm = self.conn.prepare("insert into pending_payable (transaction_hash, amount_high_b, amount_low_b, payable_timestamp, attempt, process_error) values (?,?,?,?,?)").expect("Internal error");
+        let mut stm = self.conn.prepare("insert into pending_payable (transaction_hash, amount_high_b, amount_low_b, payable_timestamp, attempt, process_error) values (?,?,?,?,?,?)").expect("Internal error");
         let params: &[&dyn ToSql] = &[
             &format!("{:?}", transaction_hash),
             &high_bytes,

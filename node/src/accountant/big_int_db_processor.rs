@@ -1148,6 +1148,27 @@ mod tests {
     }
 
     #[test]
+    fn deconstruct_works_for_zero_plus_one() {
+        let result = BigIntDivider::deconstruct(1);
+
+        assert_eq!(result, (0, 1))
+    }
+
+    #[test]
+    fn deconstruct_works_for_zero() {
+        let result = BigIntDivider::deconstruct(0);
+
+        assert_eq!(result, (0, 0))
+    }
+
+    #[test]
+    fn deconstruct_works_for_zero_minus_one() {
+        let result = BigIntDivider::deconstruct(-1);
+
+        assert_eq!(result, (-1, i64::MAX))
+    }
+
+    #[test]
     fn deconstruct_works_for_small_negative_number() {
         let result = BigIntDivider::deconstruct(-454887);
 
@@ -1223,17 +1244,17 @@ mod tests {
 
     #[test]
     fn divided_integers_can_be_ordered() {
-        let a = i64::MAX as i128 * 22;
-        let b = i64::MAX as i128 + 556;
+        let a = i64::MAX as i128 * 23;
+        let b = i64::MAX as i128 + 1;
         let c = i64::MAX as i128;
-        let d = (i64::MAX - 6568) as i128;
-        let e = 3333;
+        let d = (i64::MAX - 1) as i128;
+        let e = 5432;
         let f = 0;
-        let g = -45;
-        let h = (i64::MIN + 789) as i128;
+        let g = -4567;
+        let h = (i64::MIN + 1) as i128;
         let i = i64::MIN as i128;
-        let j = i64::MIN as i128 - 114;
-        let k = i64::MIN as i128 * 14;
+        let j = i64::MIN as i128 - 1;
+        let k = i64::MIN as i128 * 32;
         let vec = vec![b, c, d, e, f, g, h, i, j, k];
 
         let _ = vec.into_iter().enumerate().fold(

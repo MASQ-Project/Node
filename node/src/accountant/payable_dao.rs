@@ -214,7 +214,7 @@ impl PayableDao for PayableDaoReal {
 
         custom_query.query::<_, i64, _, _>(
             self.conn.as_ref(),
-            Self::stm_assembler_of_payable_custom_query,
+            Self::stm_assembler_of_payable_cq,
             variant_top,
             variant_range,
             Self::form_payable_account,
@@ -327,7 +327,7 @@ impl PayableDaoReal {
         }
     }
 
-    fn stm_assembler_of_payable_custom_query(feeder: AssemblerFeeder) -> String {
+    fn stm_assembler_of_payable_cq(feeder: AssemblerFeeder) -> String {
         format!(
             "select
                wallet_address,

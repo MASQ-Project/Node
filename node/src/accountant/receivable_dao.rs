@@ -164,41 +164,43 @@ impl ReceivableDao for ReceivableDaoReal {
     fn paid_delinquencies(&self, payment_thresholds: &PaymentThresholds) -> Vec<ReceivableAccount> {
         let sql = indoc!(
             r"
-            select r.wallet_address, r.balance, r.last_received_timestamp
+            select r.wallet_address, r.balance_high_b, r.balance_low_b, r.last_received_timestamp
             from receivable r inner join banned b on r.wallet_address = b.wallet_address
             where
-                r.balance <= :unban_balance
+                ((r.balance_high_b < :unban_balance_high_b) or ((balance_high_b = :unban_balance_high_b) and (balance_low_b <= :unban_balance_low_b)))
         "
         );
         let mut stmt = self.conn.prepare(sql).expect("Couldn't prepare statement");
-        let unban_balance = BigIntDivider::deconstruct(
+        let (unban_balance_high_b, unban_balance_low_b) = BigIntDivider::deconstruct(
             (payment_thresholds.unban_below_gwei as i128) * WEIS_OF_GWEI,
         );
-        todo!("here you have to write something like comparison in high bytes and low bytes")
-        // stmt.query_map(
-        //
-        //     // named_params! {
-        //     //     ":unban_balance": unban_balance,
-        //     // },
-        //     Self::form_receivable_account,
-        // )
-        // .expect("Couldn't retrieve new delinquencies: database corruption")
-        // .flatten()
-        // .collect()
+        stmt.query_map(
+            named_params! {
+                ":unban_balance_high_b": unban_balance_high_b,
+                ":unban_balance_low_b": unban_balance_low_b
+            },
+            Self::form_receivable_account,
+        )
+        .expect("Couldn't retrieve new delinquencies: database corruption")
+        .flatten()
+        .collect()
     }
 
     fn custom_query(&self, custom_query: CustomQuery<i64>) -> Option<Vec<ReceivableAccount>> {
         let variant_top = TopStmConfig::new("last_received_timestamp asc");
 
         let variant_range = RangeStmConfig {
-            where_clause: "where last_received_timestamp <= ? and last_received_timestamp >= ? and balance >= ? and balance <= ?",
-            gwei_min_resolution_clause: "and (balance >= ? or balance <= ?)",
+            where_clause: "where ((last_received_timestamp <= :max_timestamp) and (last_received_timestamp >= :min_timestamp)) \
+            and ((balance_high_b > :min_balance_high_b) or ((balance_high_b = :min_balance_high_b) and (balance_low_b >= :min_balance_low_b))) \
+            and ((balance_high_b < :max_balance_high_b) or ((balance_high_b = :max_balance_high_b) and (balance_low_b <= :max_balance_low_b)))",
+            gwei_min_resolution_clause: "and (((balance_high_b > 0) or ((balance_high_b = 0) and (balance_low_b >= 1000000000))) \
+            or ((balance_high_b < -1) or ((balance_high_b = -1) and (balance_low_b <= 9223372035854775807))))", //i64::MAX - 1*10^9
             secondary_order_param: "last_received_timestamp asc"
         };
 
         custom_query.query::<_, i64, _, _>(
             self.conn.as_ref(),
-            Self::stm_assembler_of_receivable_custom_query,
+            Self::stm_assembler_of_receivable_cq,
             variant_top,
             variant_range,
             Self::form_receivable_account,
@@ -387,11 +389,12 @@ impl ReceivableDaoReal {
         }
     }
 
-    fn stm_assembler_of_receivable_custom_query(feeder: AssemblerFeeder) -> String {
+    fn stm_assembler_of_receivable_cq(feeder: AssemblerFeeder) -> String {
         format!(
             "select
                  wallet_address,
-                 balance,
+                 balance_high_b,
+                 balance_low_b,
                  last_received_timestamp
              from
                  receivable
@@ -472,6 +475,9 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(
+        expected = "Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128"
+    )]
     fn try_multi_insert_payment_handles_error_of_number_sign_check() {
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
@@ -488,14 +494,7 @@ mod tests {
             wei_amount: u128::MAX,
         }];
 
-        let result = subject.try_multi_insert_payment(SystemTime::now(), &payments.as_slice());
-
-        assert_eq!(
-            result,
-            Err(ReceivableDaoError::SignConversion(
-                SignConversionError::Msg("Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128".to_string())
-            ))
-        )
+        let _ = subject.try_multi_insert_payment(SystemTime::now(), &payments.as_slice());
     }
 
     #[test]
@@ -531,17 +530,15 @@ mod tests {
         );
         let now = SystemTime::now();
         let wallet = make_wallet("booga");
-        let status = {
-            let subject = ReceivableDaoReal::new(
-                DbInitializerReal::default()
-                    .initialize(&home_dir, true, MigratorConfig::test_default())
-                    .unwrap(),
-            );
+        let subject = ReceivableDaoReal::new(
+            DbInitializerReal::default()
+                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .unwrap(),
+        );
 
-            subject.more_money_receivable(now, &wallet, 1234).unwrap();
-            subject.account_status(&wallet).unwrap()
-        };
+        subject.more_money_receivable(now, &wallet, 1234).unwrap();
 
+        let status = subject.account_status(&wallet).unwrap();
         assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance_wei, 1234);
         assert_eq!(to_time_t(status.last_received_timestamp), to_time_t(now));
@@ -1438,32 +1435,32 @@ mod tests {
         let main_test_setup = |insert: &dyn Fn(&str, i128, i64)| {
             insert(
                 "0x1111111111111111111111111111111111111111",
-                999_454_656,
+                999_454_656 * WEIS_OF_GWEI,
                 timestamp1, //too old
             );
             insert(
                 "0x2222222222222222222222222222222222222222",
-                -6_655_455, //too small
+                -6_655_455 * WEIS_OF_GWEI, //too small
                 timestamp2,
             );
             insert(
                 "0x3333333333333333333333333333333333333333",
-                1_000_000_230,
+                1_000_000_230 * WEIS_OF_GWEI,
                 timestamp3,
             );
             insert(
                 "0x4444444444444444444444444444444444444444",
-                1_990_000_200, //too big
+                1_990_000_200 * WEIS_OF_GWEI, //too big
                 timestamp4,
             );
             insert(
                 "0x5555555555555555555555555555555555555555",
-                1_000_000_230,
+                1_000_000_230 * WEIS_OF_GWEI,
                 timestamp5,
             );
             insert(
                 "0x6666666666666666666666666666666666666666",
-                1_050_444_230,
+                1_050_444_230 * WEIS_OF_GWEI,
                 timestamp6,
             );
         };
@@ -1484,17 +1481,17 @@ mod tests {
             vec![
                 ReceivableAccount {
                     wallet: Wallet::new("0x6666666666666666666666666666666666666666"),
-                    balance_wei: 1_050_444_230,
+                    balance_wei: 1_050_444_230_000_000_000,
                     last_received_timestamp: from_time_t(timestamp6),
                 },
                 ReceivableAccount {
                     wallet: Wallet::new("0x5555555555555555555555555555555555555555"),
-                    balance_wei: 1_000_000_230,
+                    balance_wei: 1_000_000_230_000_000_000,
                     last_received_timestamp: from_time_t(timestamp5),
                 },
                 ReceivableAccount {
                     wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
-                    balance_wei: 1_000_000_230,
+                    balance_wei: 1_000_000_230_000_000_000,
                     last_received_timestamp: from_time_t(timestamp3),
                 }
             ]
@@ -1508,12 +1505,12 @@ mod tests {
         let main_setup = |insert: &dyn Fn(&str, i128, i64)| {
             insert(
                 "0x1111111111111111111111111111111111111111",
-                400_005_601, //smaller than 1 Gwei
+                999_999_999, //smaller than 1 Gwei
                 now_time_t() - 11_001,
             );
             insert(
                 "0x2222222222222222222222222222222222222222",
-                -100_005_601, //smaller than -1 Gwei
+                -999_999_999, //smaller than -1 Gwei
                 now_time_t() - 5_606,
             );
             insert(
@@ -1569,7 +1566,7 @@ mod tests {
             let (high_bytes, low_bytes) = BigIntDivider::deconstruct(balance);
             let params: &[&dyn ToSql] = &[&wallet, &high_bytes, &low_bytes, &timestamp];
             conn
-                .prepare("insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (?, ?, ?)")
+                .prepare("insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (?, ?, ?, ?)")
                 .unwrap()
                 .execute(params)
                 .unwrap();
@@ -1720,7 +1717,7 @@ mod tests {
     }
 
     fn add_receivable_account(conn: &Box<dyn ConnectionWrapper>, account: &ReceivableAccount) {
-        let mut stmt = conn.prepare ("insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (?, ?, ?)").unwrap();
+        let mut stmt = conn.prepare ("insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (?, ?, ?, ?)").unwrap();
         let (high_bytes, low_bytes) = BigIntDivider::deconstruct(account.balance_wei);
         let params: &[&dyn ToSql] = &[
             &account.wallet,
@@ -1745,15 +1742,18 @@ mod tests {
     where
         F: Fn(&dyn Fn(&str, i128, i64)),
     {
-        let home_dir = ensure_node_home_directory_exists("receivable_dao", test_name);
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(
+                &ensure_node_home_directory_exists("receivable_dao", test_name),
+                true,
+                MigratorConfig::test_default(),
+            )
             .unwrap();
         let insert = |wallet: &str, balance: i128, timestamp: i64| {
             let (high_bytes, low_bytes) = BigIntDivider::deconstruct(balance);
             let params: &[&dyn ToSql] = &[&wallet, &high_bytes, &low_bytes, &timestamp];
             conn
-                .prepare("insert into receivable (wallet_address, balance, last_received_timestamp) values (?, ?, ?)")
+                .prepare("insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (?, ?, ?, ?)")
                 .unwrap()
                 .execute(params)
                 .unwrap();
