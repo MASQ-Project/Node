@@ -8,10 +8,10 @@ use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
 use crate::sub_lib::accountant::WEIS_OF_GWEI;
 use masq_lib::messages::{
-    TopRecordsConfig, TopRecordsOrdering, UiPayableAccount, UiReceivableAccount,
+    RangeQuery, TopRecordsConfig, TopRecordsOrdering, UiPayableAccount, UiReceivableAccount,
 };
 use masq_lib::utils::ExpectValue;
-use rusqlite::{params_from_iter, Row, ToSql};
+use rusqlite::{params_from_iter, MappedRows, Row, ToSql};
 use std::cell::RefCell;
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
@@ -88,7 +88,6 @@ pub enum CustomQuery<N> {
 
 pub struct TopStmConfig {
     limit_clause: &'static str,
-    //this constrain, unlike to the other case, has a clear look and a constant value
     gwei_min_resolution_clause: &'static str,
     age_param: &'static str,
 }
@@ -106,9 +105,6 @@ impl TopStmConfig {
 pub struct RangeStmConfig {
     pub where_clause: &'static str,
     pub gwei_min_resolution_clause: &'static str,
-    //note that this constrain, even though unchangeable, must be also supplied among other arguments
-    //because otherwise the value won't adopt the rusqlite's specific 128_blob binary format
-    pub gwei_min_resolution_params: Vec<i128>, //TODO make this say: Unilateral or Bilateral
     pub secondary_order_param: &'static str,
 }
 
@@ -119,13 +115,6 @@ pub struct AssemblerFeeder {
     pub order_by_second_param: &'static str,
     pub limit_clause: &'static str,
 }
-
-// where_clause: "where last_paid_timestamp <= :max_timestamp and last_paid_timestamp >= :min_timestamp and \
-//              ((balance_high_b > :min_balance_high_b) or ((balance_high_b = :min_balance_high_b) and (balance_low_b >= :min_balance_low_b)) and \
-//              ((balance_high_b < :max_balance_high_b) or ((balance_high_b = :max_balance_high_b) and (balance_low_b >= :max_balance_low_b))",
-// gwei_min_resolution_clause: "and ((balance_high_b > 0) or ((balance_high_b = 0) and (balance_low_b >= 1000000000))",
-// gwei_min_resolution_params: vec![WEIS_OF_GWEI], //TODO we can eliminate this now
-// secondary_order_param: "last_paid_timestamp asc"
 
 impl<N: Copy + Display> CustomQuery<N> {
     pub fn query<R, S, F1, F2>(
@@ -140,7 +129,7 @@ impl<N: Copy + Display> CustomQuery<N> {
         F1: Fn(AssemblerFeeder) -> String,
         F2: Fn(&Row) -> rusqlite::Result<R>,
         S: TryFrom<N>,
-        i128: TryFrom<N>,
+        i128: From<N>,
     {
         let (finalized_stm, params): (String, Vec<(&str, Box<dyn ToSql>)>) = match self {
             Self::TopRecords { count, ordered_by } => {
@@ -166,39 +155,39 @@ impl<N: Copy + Display> CustomQuery<N> {
                 stm_assembler(AssemblerFeeder {
                     main_where_clause: variant_range.where_clause,
                     where_clause_extension: variant_range.gwei_min_resolution_clause,
-                    order_by_first_param: "balance desc",
+                    order_by_first_param: "balance_high_b desc, balance_low_b desc",
                     order_by_second_param: variant_range.secondary_order_param,
                     limit_clause: "",
                 }),
                 Self::set_up_age_constrains(min_age, max_age)
                     .into_iter()
-                    .chain(Self::set_up_wei_constrains(
-                        vec![min_amount, max_amount],
-                        variant_range.gwei_min_resolution_params,
-                    ))
+                    .chain(Self::set_up_wei_constrains(vec![min_amount, max_amount]))
                     .collect::<Vec<(&str, Box<dyn ToSql>)>>(),
             ),
         };
         eprintln!("{}", finalized_stm);
-        match
+        let accounts = Self::execute_query(conn, &finalized_stm, params, value_fetcher);
+        (!accounts.is_empty()).then_some(accounts)
+    }
 
-            //TODO put this whole thing into a function
-        conn
-            .prepare(&finalized_stm)
+    fn execute_query<'a, R, F1>(
+        conn: &'a dyn ConnectionWrapper,
+        stm: &'a str,
+        params: Vec<(&str, Box<dyn ToSql>)>,
+        value_fetcher: F1,
+    ) -> Vec<R>
+    where
+        F1: Fn(&Row) -> rusqlite::Result<R>,
+    {
+        conn.prepare(stm)
             .expect("select statement is wrong")
             .query_map(
                 params_from_iter(params.iter().map(|(_, value)| &*value)),
                 value_fetcher,
             )
-            //TODO ...down to here
-
-        {
-            Ok(accounts) => {
-                let vectored = accounts.flatten().collect::<Vec<R>>();
-                (!vectored.is_empty()).then_some(vectored)
-            }
-            Err(e) => panic!("database corrupt: {}", e),
-        }
+            .unwrap_or_else(|e| panic!("database corrupt: {}", e))
+            .flatten()
+            .collect::<Vec<R>>()
     }
 
     fn set_up_age_constrains(min_age: u64, max_age: u64) -> Vec<(&'static str, Box<dyn ToSql>)> {
@@ -215,25 +204,25 @@ impl<N: Copy + Display> CustomQuery<N> {
         ]
     }
 
-    fn set_up_wei_constrains(
-        two_limits: Vec<N>,
-        one_or_two_limits: Vec<i128>,
-    ) -> Vec<(&'static str, Box<dyn ToSql>)>
+    fn set_up_wei_constrains(two_limits: Vec<N>) -> Vec<(&'static str, Box<dyn ToSql>)>
     where
-        i128: TryFrom<N>,
+        i128: From<N>,
     {
-        // .chain(
-        //     variant_range
-        //         .gwei_min_resolution_params
-        //         .into_iter()
-        //         .flat_map(|i128_limit| {
-        //             let (high_bytes, low_bytes) = BigIntDivider::deconstruct(i128_limit);
-        //             vec![Box::new(high_bytes), Box::new(low_bytes)]
-        //         }),
-        // )
-        todo!()
-        // Box::new(checked_conversion::<N, S>(min_amount)),
-        // Box::new(checked_conversion::<N, S>(max_amount)),
+        [
+            (":min_balance_high_b", ":min_balance_low_b"),
+            (":max_balance_high_b", ":max_balance_low_b"),
+        ]
+        .into_iter()
+        .zip(two_limits.into_iter())
+        .flat_map(|(param_names, gwei_num)| {
+            let wei_num = i128::from(gwei_num) * WEIS_OF_GWEI;
+            let (high_bytes, low_bytes) = BigIntDivider::deconstruct(wei_num);
+            vec![
+                (param_names.0, Box::new(high_bytes) as Box<dyn ToSql>),
+                (param_names.1, Box::new(low_bytes)),
+            ]
+        })
+        .collect()
     }
 
     fn ordering(
@@ -243,6 +232,17 @@ impl<N: Copy + Display> CustomQuery<N> {
         match ordering {
             TopRecordsOrdering::Age => (age_param, "balance_high_b desc, balance_low_b desc"),
             TopRecordsOrdering::Balance => ("balance_high_b desc, balance_low_b desc", age_param),
+        }
+    }
+}
+
+impl<T: Copy> From<&RangeQuery<T>> for CustomQuery<T> {
+    fn from(user_input: &RangeQuery<T>) -> Self {
+        Self::RangeQuery {
+            min_age_s: user_input.min_age_s,
+            max_age_s: user_input.max_age_s,
+            min_amount_gwei: user_input.min_amount_gwei,
+            max_amount_gwei: user_input.max_amount_gwei,
         }
     }
 }
@@ -322,7 +322,7 @@ mod tests {
         let conn_read_only =
             Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
         let conn_wrapped = ConnectionWrapperReal::new(conn_read_only);
-        let subject = CustomQuery::<u128>::TopRecords {
+        let subject = CustomQuery::<u64>::TopRecords {
             count: 12,
             ordered_by: Balance,
         };
@@ -338,7 +338,6 @@ mod tests {
             RangeStmConfig {
                 where_clause: "",
                 gwei_min_resolution_clause: "",
-                gwei_min_resolution_params: vec![],
                 secondary_order_param: "",
             },
             |_row| Ok(()),

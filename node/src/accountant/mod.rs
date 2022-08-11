@@ -41,6 +41,7 @@ use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
+use crate::{process_partial_range_queries, process_top_records_query};
 use actix::Actor;
 use actix::Addr;
 use actix::AsyncContext;
@@ -56,6 +57,7 @@ use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{plus, ExpectValue};
+use paste::paste;
 use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::any::type_name;
@@ -949,45 +951,9 @@ impl Accountant {
         if let Err(message_body) = Self::financials_entry_check(msg, context_id) {
             return message_body;
         };
-        let stats_opt = if msg.stats_required {
-            Some(UiFinancialStatistics {
-                total_unpaid_and_pending_payable_gwei: wei_to_gwei(self.payable_dao.total()),
-                total_paid_payable_gwei: wei_to_gwei(
-                    self.financial_statistics.total_paid_payable_wei,
-                ),
-                total_unpaid_receivable_gwei: wei_to_gwei(self.receivable_dao.total()),
-                total_paid_receivable_gwei: wei_to_gwei(
-                    self.financial_statistics.total_paid_receivable_wei,
-                ),
-            })
-        } else {
-            None
-        };
-        let top_records_opt = msg.top_records_opt.map(|config| FirmQueryResult {
-            payable: self
-                .request_payable_accounts_by_specific_mode(config.into())
-                .unwrap_or_default(),
-            receivable: self
-                .request_receivable_accounts_by_specific_mode(config.into())
-                .unwrap_or_default(),
-        });
-        let custom_query_records_opt =
-            msg.custom_queries_opt
-                .as_ref()
-                .map(|specs| CustomQueryResult {
-                    payable_opt: self.fill_in_values_to_report(
-                        specs.payable_opt.as_ref(),
-                        |accountant, mode| {
-                            accountant.request_payable_accounts_by_specific_mode(mode)
-                        },
-                    ),
-                    receivable_opt: self.fill_in_values_to_report(
-                        specs.receivable_opt.as_ref(),
-                        |accountant, mode| {
-                            accountant.request_receivable_accounts_by_specific_mode(mode)
-                        },
-                    ),
-                });
+        let stats_opt = self.process_stats(msg);
+        let top_records_opt = self.process_top_records_query(msg);
+        let custom_query_records_opt = self.process_custom_queries(msg);
         UiFinancialsResponse {
             stats_opt,
             top_records_opt,
@@ -1014,27 +980,29 @@ impl Accountant {
             .map(remap_receivable_accounts)
     }
 
-    fn fill_in_values_to_report<N: Copy, R, F>(
-        &self,
-        query_specs_opt: Option<&RangeQuery<N>>,
-        convertor: F,
-    ) -> Option<Vec<R>>
-    where
-        F: Fn(&Accountant, CustomQuery<N>) -> Option<Vec<R>>,
-    {
-        if let Some(payable_specs) = query_specs_opt {
-            convertor(
-                self,
-                CustomQuery::RangeQuery {
-                    min_age_s: payable_specs.min_age_s,
-                    max_age_s: payable_specs.max_age_s,
-                    min_amount_gwei: payable_specs.min_amount_gwei,
-                    max_amount_gwei: payable_specs.max_amount_gwei,
-                },
-            )
+    fn process_stats(&self, msg: &UiFinancialsRequest) -> Option<UiFinancialsStatistics> {
+        if msg.stats_required {
+            Some(UiFinancialStatistics {
+                total_unpaid_and_pending_payable_gwei: wei_to_gwei(self.payable_dao.total()),
+                total_paid_payable_gwei: wei_to_gwei(
+                    self.financial_statistics.total_paid_payable_wei,
+                ),
+                total_unpaid_receivable_gwei: wei_to_gwei(self.receivable_dao.total()),
+                total_paid_receivable_gwei: wei_to_gwei(
+                    self.financial_statistics.total_paid_receivable_wei,
+                ),
+            })
         } else {
             None
         }
+    }
+
+    fn process_top_records_query(&self, msg: &UiFinancialsRequest) -> Option<FirmQueryResult> {
+        process_top_records_query!(self, msg, "payable", "receivable")
+    }
+
+    fn process_custom_queries(&self, msg: &UiFinancialsRequest) -> Option<CustomQueryResult> {
+        process_partial_range_queries!(self, msg, "payable", "receivable")
     }
 
     fn financials_entry_check(

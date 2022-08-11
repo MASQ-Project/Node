@@ -3,7 +3,7 @@
 #![cfg(test)]
 
 use crate::accountant::big_int_db_processor::{
-    BigIntDbError, BigIntSQLProcessor, BigIntSqlConfig, DAOTableIdentifier,
+    BigIntDbError, BigIntDbProcessor, BigIntSqlConfig, DAOTableIdentifier,
 };
 use crate::accountant::dao_utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payable_dao::{
@@ -826,49 +826,26 @@ pub fn make_pending_payable_fingerprint() -> PendingPayableFingerprint {
 }
 
 #[derive(Default, Debug)]
-pub struct InsertUpdateCoreMock {
-    update_params: Arc<
-        Mutex<
-            Vec<(
-                Option<ArbitraryIdStamp>,
-                String,
-                String,
-                String,
-                Vec<(String, String)>,
-            )>,
-        >,
-    >, //trait-object-like params tested specially
+pub struct BigIntDbProcessorMock {
+    update_params: Arc<Mutex<Vec<(Option<ArbitraryIdStamp>, SQLConfigAbstract, String)>>>, //trait-object-like params tested specially
     update_results: RefCell<Vec<Result<(), BigIntDbError>>>,
-    upsert_params: Arc<
-        Mutex<
-            Vec<(
-                ArbitraryIdStamp,
-                String,
-                String,
-                String,
-                Vec<(String, String)>,
-            )>,
-        >,
-    >,
-    upsert_results: RefCell<Vec<Result<(), BigIntDbError>>>,
+    execute_params: Arc<Mutex<Vec<(ArbitraryIdStamp, SQLConfigAbstract, String)>>>,
+    execute_results: RefCell<Vec<Result<(), BigIntDbError>>>,
 }
 
-impl<T: DAOTableIdentifier> BigIntSQLProcessor<T> for InsertUpdateCoreMock {
+impl<T: DAOTableIdentifier> BigIntDbProcessor<T> for BigIntDbProcessorMock {
     fn execute<'a>(
         &self,
         conn: &dyn ConnectionWrapper,
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
-        let owned_params = owned_params(&config);
-        let (main, select) = config.capture_sqls();
-        self.upsert_params.lock().unwrap().push((
+        let config_characteristics = config.config_characteristics_for_assertion();
+        self.execute_params.lock().unwrap().push((
             conn.arbitrary_id_stamp(),
-            main,
-            select,
+            config_characteristics,
             T::table_name(),
-            owned_params,
         ));
-        self.upsert_results.borrow_mut().remove(0)
+        self.execute_results.borrow_mut().remove(0)
     }
 
     fn update_threatened_by_overflow<'a>(
@@ -876,49 +853,35 @@ impl<T: DAOTableIdentifier> BigIntSQLProcessor<T> for InsertUpdateCoreMock {
         conn: Either<&dyn ConnectionWrapper, &RusqliteTransaction>,
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
-        let owned_params = owned_params(&config);
-        let (main, select) = config.capture_sqls();
+        let config_characteristics = config.config_characteristics_for_assertion();
         self.update_params.lock().unwrap().push((
             if let Either::Left(conn) = conn {
                 Some(conn.arbitrary_id_stamp())
             } else {
                 None
             },
-            main,
-            select,
+            config_characteristics,
             T::table_name(),
-            owned_params,
         ));
         self.update_results.borrow_mut().remove(0)
     }
 }
 
-fn owned_params<T: DAOTableIdentifier>(config: &BigIntSqlConfig<T>) -> Vec<(String, String)> {
-    todo!("repair me")
-    // config
-    //     .params_opt
-    //     .as_ref()
-    //     .unwrap()
-    //     .
-    //     .iter()
-    //     .map(|(str, to_sql)| (str.to_string(), (to_sql as &dyn Display).to_string()))
-    //     .collect()
+#[derive(Debug)]
+pub struct SQLConfigAbstract {
+    pub main_stm: String,
+    pub select_stm: String,
+    pub overflow_update_stm: String,
+    //further only params alone
+    pub table_key_name: String,
+    pub wei_change_params: [(String, i64); 2],
+    pub remaining_params: Vec<(String, String)>,
 }
 
-impl InsertUpdateCoreMock {
+impl BigIntDbProcessorMock {
     pub fn update_params(
         mut self,
-        params: &Arc<
-            Mutex<
-                Vec<(
-                    Option<ArbitraryIdStamp>,
-                    String,
-                    String,
-                    String,
-                    Vec<(String, String)>,
-                )>,
-            >,
-        >,
+        params: &Arc<Mutex<Vec<(Option<ArbitraryIdStamp>, SQLConfigAbstract, String)>>>,
     ) -> Self {
         self.update_params = params.clone();
         self
@@ -929,26 +892,16 @@ impl InsertUpdateCoreMock {
         self
     }
 
-    pub fn upsert_params(
+    pub fn execute_params(
         mut self,
-        params: &Arc<
-            Mutex<
-                Vec<(
-                    ArbitraryIdStamp,
-                    String,
-                    String,
-                    String,
-                    Vec<(String, String)>,
-                )>,
-            >,
-        >,
+        params: &Arc<Mutex<Vec<(ArbitraryIdStamp, SQLConfigAbstract, String)>>>,
     ) -> Self {
-        self.upsert_params = params.clone();
+        self.execute_params = params.clone();
         self
     }
 
-    pub fn upsert_results(self, result: Result<(), BigIntDbError>) -> Self {
-        self.upsert_results.borrow_mut().push(result);
+    pub fn execute_result(self, result: Result<(), BigIntDbError>) -> Self {
+        self.execute_results.borrow_mut().push(result);
         self
     }
 }

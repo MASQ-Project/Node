@@ -4,9 +4,11 @@ use crate::accountant::big_int_db_processor::ByteOrder::{High, Low};
 use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::payable_dao::PayableDaoError;
 use crate::accountant::receivable_dao::ReceivableDaoError;
+use crate::accountant::test_utils::SQLConfigAbstract;
 use crate::accountant::{checked_conversion, politely_checked_conversion};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
+use futures::collect;
 use itertools::{chain, Either};
 use masq_lib::utils::ExpectValue;
 use nix::libc::iovec;
@@ -20,7 +22,7 @@ use std::ops::Neg;
 use std::os::raw::c_int;
 use std::slice::Iter;
 
-pub trait BigIntSQLProcessor<T: DAOTableIdentifier>: Send + Debug {
+pub trait BigIntDbProcessor<T: DAOTableIdentifier>: Send + Debug {
     fn execute<'a>(
         &self,
         conn: &dyn ConnectionWrapper,
@@ -39,7 +41,7 @@ pub struct BigIntDbProcessorReal<T: DAOTableIdentifier> {
     phantom: PhantomData<T>,
 }
 
-impl<T: DAOTableIdentifier> BigIntSQLProcessor<T> for BigIntDbProcessorReal<T> {
+impl<T: DAOTableIdentifier> BigIntDbProcessor<T> for BigIntDbProcessorReal<T> {
     fn execute<'a>(
         &self,
         conn: &dyn ConnectionWrapper,
@@ -75,7 +77,6 @@ impl<T: DAOTableIdentifier> BigIntSQLProcessor<T> for BigIntDbProcessorReal<T> {
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
         let select_sql = config.select_sql();
-        eprintln!("selct sql: {}", select_sql);
         let mut select_stm = Self::prepare_statement(form_of_conn, &select_sql);
         match select_stm.query_row([], |row| {
             let low_bytes_result = row.get::<usize, i64>(0);
@@ -215,8 +216,20 @@ impl<'a, T: DAOTableIdentifier> BigIntSqlConfig<'a, T> {
     }
 
     #[cfg(test)]
-    pub fn capture_sqls(&self) -> (String, String) {
-        (self.construct_main_sql(), self.select_sql())
+    pub fn config_characteristics_for_assertion(&self) -> SQLConfigAbstract {
+        SQLConfigAbstract {
+            main_stm: self.construct_main_sql(),
+            select_stm: self.select_sql(),
+            overflow_update_stm: self.prepare_update_sql(),
+            table_key_name: self.params.table_key_name.to_string(),
+            wei_change_params: self.params.wei_change_params.clone(),
+            remaining_params: self
+                .params
+                .params_except_wei_change
+                .iter()
+                .map(|(name, value)| (name.to_string(), value.to_string()))
+                .collect(),
+        }
     }
 }
 

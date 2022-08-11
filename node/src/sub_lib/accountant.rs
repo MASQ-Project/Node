@@ -8,6 +8,7 @@ use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
 use lazy_static::lazy_static;
+use masq_lib::messages::CustomQueryResult;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
@@ -153,6 +154,49 @@ pub enum SignConversionError {
     U64(String),
     U128(String),
     I128(String),
+}
+
+#[macro_export]
+macro_rules! process_partial_range_queries {
+    ($self: expr, $msg: expr, $($table_name: literal),+) => {
+        $msg.custom_queries_opt.as_ref().map(|specs|{
+            let (payable_opt, receivable_opt) =
+
+            ($(paste! {
+                if let Some(query_specs) = specs.[<$table_name _opt>].as_ref() {
+                    $self.[<request_ $table_name _accounts_by_specific_mode>](
+                        query_specs.into()
+                    )
+                } else {
+                    None
+                }
+            }),+);
+
+            CustomQueryResult {
+                payable_opt,
+                receivable_opt,
+            }
+        })
+    };
+}
+
+#[macro_export]
+macro_rules! process_top_records_query {
+    ($self: expr, $msg: expr, $($table_name: literal),+) => {
+        $msg.top_records_opt.map(|config|{
+            let (payable, receivable) =
+
+            ($(paste! {
+                $self.[<request_ $table_name _accounts_by_specific_mode>](config.into())
+               .unwrap_or_default()
+            }),+);
+
+            FirmQueryResult{
+                payable,
+                receivable
+            }
+        })
+    };
 }
 
 #[cfg(test)]
