@@ -9,7 +9,9 @@ use masq_lib::messages::{
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
-use multinode_integration_tests_lib::masq_real_node::{ConsumingWalletInfo, NodeStartupConfigBuilder};
+use multinode_integration_tests_lib::masq_real_node::{
+    ConsumingWalletInfo, NodeStartupConfigBuilder,
+};
 
 #[test]
 fn connection_progress_is_properly_broadcast() {
@@ -26,7 +28,9 @@ fn connection_progress_is_properly_broadcast() {
     // and hook a UI to it
     let subject = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .consuming_wallet_info(ConsumingWalletInfo::PrivateKey("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string()))
+            .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(
+                "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string(),
+            ))
             .neighbor(relay_1.node_reference())
             .ui_port(ui_port)
             .build(),
