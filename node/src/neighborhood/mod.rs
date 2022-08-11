@@ -1470,6 +1470,12 @@ impl<'a> ComputedRouteSegment<'a> {
 
 #[cfg(test)]
 mod tests {
+    use actix::dev::{MessageResponse, ResponseChannel};
+    use actix::Message;
+    use actix::Recipient;
+    use actix::System;
+    use itertools::Itertools;
+    use serde_cbor;
     use std::any::TypeId;
     use std::cell::RefCell;
     use std::convert::TryInto;
@@ -1477,16 +1483,8 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
-    use std::time::Instant;
-
-    use actix::dev::{MessageResponse, ResponseChannel};
-    use actix::Message;
-    use actix::Recipient;
-    use actix::System;
-    use itertools::Itertools;
-
-    use serde_cbor;
     use std::time::Duration;
+    use std::time::Instant;
     use tokio::prelude::Future;
 
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
@@ -1494,7 +1492,7 @@ mod tests {
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::ui_gateway::MessagePath::Conversation;
-    use masq_lib::ui_gateway::{MessageBody, MessageTarget};
+    use masq_lib::ui_gateway::MessageTarget;
     use masq_lib::utils::running_test;
 
     use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -1507,10 +1505,10 @@ mod tests {
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
+    use crate::sub_lib::neighborhood::RatePack;
     use crate::sub_lib::neighborhood::{
         AskAboutDebutGossipMessage, ExpectedServices, NeighborhoodMode,
     };
-    use crate::sub_lib::neighborhood::{ExpectedServices, NeighborhoodMode, RatePack};
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::peer_actors::PeerActors;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
