@@ -109,12 +109,15 @@ impl ReceivableDao for ReceivableDaoReal {
         amount: u128,
     ) -> Result<(), ReceivableDaoError> {
         Ok(self.big_int_db_processor.execute(&*self.conn, BigIntSqlConfig::new(
-            "insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (:wallet, :balance, :last_received_timestamp)", //"update receivable set balance = :updated_balance where wallet_address = :wallet"
+             "update or ignore receivable set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where wallet_address = :wallet; \
+               insert or ignore into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (:wallet, :balance_high_b, :balance_low_b, :last_received)))",
+            //"update receivable set balance = :updated_balance where wallet_address = :wallet"
             None,
             SQLParamsBuilder::default()
-                        .other(vec![(":last_received_timestamp",&to_time_t(timestamp))])
-                        .key( ":wallet", "wallet_address",wallet)
-                        .wei_change(Addition("balance",amount)).build(),
+                        .key(  "wallet_address",":wallet",wallet)
+                        .wei_change(Addition("balance",amount))
+                        .other(vec![(":last_received",&to_time_t(timestamp))])
+                        .build()
         ))?)
     }
 
@@ -123,25 +126,33 @@ impl ReceivableDao for ReceivableDaoReal {
             .unwrap_or_else(|e| self.more_money_received_pretty_error_log(&payments, e))
     }
 
+    // and r.balance > :balance_to_decrease_from + :slope * (:sugg_and_grace - r.last_received_timestamp)
+    // and r.balance > :permanent_debt
+
     fn new_delinquencies(
         &self,
         system_now: SystemTime,
         payment_thresholds: &PaymentThresholds,
     ) -> Vec<ReceivableAccount> {
-        if self.mine_metadata_of_yet_unbanned(payment_thresholds, system_now) {
+            let now = to_time_t(SystemTime::now());
+            let slope =  ThresholdUtils::calculate_sloped_threshold_by_time(
+                payment_thresholds,
+                checked_conversion::<i64, u64>(now),
+            );
             let sql = indoc!(
                 r"
-                select r.wallet_address, r.balance, r.last_received_timestamp
+                select r.wallet_address, r.balance_high_b, r.balance_low_h, r.last_received_timestamp
                 from receivable r
                 left outer join banned b on r.wallet_address = b.wallet_address
                 inner join delinquency_metadata d on r.wallet_address = d.wallet_address
                 where
                     r.last_received_timestamp < :sugg_and_grace
-                    and r.balance > d.curve_point
+                    and  (r.balance_high_b > :debt_threshold_high_b) or ((balance_high_b = :debt_threshold_high_b) and (balance_low_b > :balance_to_decrease_from_low_b))
+                    + :slope
                     and b.wallet_address is null
             "
             );
-            let new_delinquencies = self
+            self
                 .conn
                 .prepare(sql)
                 .expect("Couldn't prepare statement")
@@ -153,12 +164,7 @@ impl ReceivableDao for ReceivableDaoReal {
                 )
                 .expect("Couldn't retrieve new delinquencies: database corruption")
                 .flatten()
-                .collect();
-            self.truncate_metadata_table();
-            new_delinquencies
-        } else {
-            vec![]
-        }
+                .collect()
     }
 
     fn paid_delinquencies(&self, payment_thresholds: &PaymentThresholds) -> Vec<ReceivableAccount> {
@@ -167,7 +173,7 @@ impl ReceivableDao for ReceivableDaoReal {
             select r.wallet_address, r.balance_high_b, r.balance_low_b, r.last_received_timestamp
             from receivable r inner join banned b on r.wallet_address = b.wallet_address
             where
-                ((r.balance_high_b < :unban_balance_high_b) or ((balance_high_b = :unban_balance_high_b) and (balance_low_b <= :unban_balance_low_b)))
+                (r.balance_high_b < :unban_balance_high_b) or ((balance_high_b = :unban_balance_high_b) and (balance_low_b <= :unban_balance_low_b))
         "
         );
         let mut stmt = self.conn.prepare(sql).expect("Couldn't prepare statement");
@@ -215,7 +221,7 @@ impl ReceivableDao for ReceivableDaoReal {
         let mut stmt = self
             .conn
             .prepare(
-                "select wallet_address, balance, last_received_timestamp from receivable where wallet_address = ?",
+                "select wallet_address, balance_high_b, balance_low_b, last_received_timestamp from receivable where wallet_address = ?",
             )
             .expect("Internal error");
         match stmt
