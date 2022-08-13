@@ -757,6 +757,7 @@ mod tests {
     use tokio::executor::current_thread::CurrentThread;
     use tokio::prelude::stream::FuturesUnordered;
     use tokio::prelude::Async;
+    use masq_lib::constants::TLS_PORT;
 
     lazy_static! {
         pub static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
@@ -1721,7 +1722,7 @@ mod tests {
         };
         let third_message = AddStreamMsg {
             connection_info: connection_info3,
-            origin_port: Some(443),
+            origin_port: Some(TLS_PORT),
             port_configuration: PortConfiguration::new(vec![], false),
         };
         let one_listener_handler = ListenerHandlerNull::new(vec![first_message, second_message])
