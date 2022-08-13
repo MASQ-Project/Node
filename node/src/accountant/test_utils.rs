@@ -829,19 +829,23 @@ pub fn make_pending_payable_fingerprint() -> PendingPayableFingerprint {
 pub struct BigIntDbProcessorMock {
     update_params: Arc<Mutex<Vec<(Option<ArbitraryIdStamp>, SQLConfigAbstract, String)>>>, //trait-object-like params tested specially
     update_results: RefCell<Vec<Result<(), BigIntDbError>>>,
-    execute_params: Arc<Mutex<Vec<(ArbitraryIdStamp, SQLConfigAbstract, String)>>>,
+    execute_params: Arc<Mutex<Vec<(Option<ArbitraryIdStamp>, SQLConfigAbstract, String)>>>,
     execute_results: RefCell<Vec<Result<(), BigIntDbError>>>,
 }
 
 impl<T: DAOTableIdentifier> BigIntDbProcessor<T> for BigIntDbProcessorMock {
     fn execute<'a>(
         &self,
-        conn: &dyn ConnectionWrapper,
+        conn: Either<&dyn ConnectionWrapper, &RusqliteTransaction>,
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
         let config_characteristics = config.config_characteristics_for_assertion();
         self.execute_params.lock().unwrap().push((
-            conn.arbitrary_id_stamp(),
+            if let Either::Left(conn) = conn {
+                Some(conn.arbitrary_id_stamp())
+            } else {
+                None
+            },
             config_characteristics,
             T::table_name(),
         ));
@@ -894,7 +898,7 @@ impl BigIntDbProcessorMock {
 
     pub fn execute_params(
         mut self,
-        params: &Arc<Mutex<Vec<(ArbitraryIdStamp, SQLConfigAbstract, String)>>>,
+        params: &Arc<Mutex<Vec<(Option<ArbitraryIdStamp>, SQLConfigAbstract, String)>>>,
     ) -> Self {
         self.execute_params = params.clone();
         self

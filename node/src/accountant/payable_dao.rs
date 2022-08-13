@@ -17,6 +17,7 @@ use crate::sub_lib::wallet::Wallet;
 #[cfg(test)]
 use ethereum_types::{BigEndianHash, U256};
 use itertools::Either;
+use itertools::Either::Left;
 use masq_lib::utils::ExpectValue;
 use rusqlite::types::ToSql;
 #[cfg(test)]
@@ -115,7 +116,7 @@ impl PayableDao for PayableDaoReal {
         amount: u128,
     ) -> Result<(), PayableDaoError> {
         Ok(self.big_int_db_processor.execute(
-            self.conn.as_ref(),
+            Left(self.conn.as_ref()),
             BigIntSqlConfig::new(
                 "insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid) values (:wallet, :balance_high_b, :balance_low_b, :last_paid_timestamp, null) on conflict (wallet_address) do",
                 Some(|table|format!("update {} set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where wallet_address = :wallet", table)),
@@ -160,7 +161,7 @@ impl PayableDao for PayableDaoReal {
             checked_conversion::<u64, i64>(fingerprint.rowid_opt.expectv("initialized rowid"));
         Ok(self
             .big_int_db_processor
-            .execute(self.conn.as_ref(), BigIntSqlConfig::new(
+            .execute(Left(self.conn.as_ref()), BigIntSqlConfig::new(
                 "update payable set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid",
                 None,
                    SQLParamsBuilder::default()
@@ -1287,7 +1288,7 @@ mod tests {
         let mut execute_params = execute_params_arc.lock().unwrap();
         let (captured_conn_id_stamp, inner_characteristics, table) = execute_params.remove(0);
         assert!(execute_params.is_empty());
-        assert_eq!(captured_conn_id_stamp, conn_id_stamp);
+        assert_eq!(captured_conn_id_stamp, Some(conn_id_stamp));
         assert_eq!(
             inner_characteristics.main_stm,
             "update payable set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid "

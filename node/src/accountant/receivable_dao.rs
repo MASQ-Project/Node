@@ -17,6 +17,7 @@ use crate::sub_lib::accountant::{PaymentThresholds, WEIS_OF_GWEI};
 use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
 use itertools::Either;
+use itertools::Either::Left;
 use masq_lib::logger::Logger;
 use masq_lib::utils::plus;
 use rusqlite::types::ToSql;
@@ -108,11 +109,9 @@ impl ReceivableDao for ReceivableDaoReal {
         wallet: &Wallet,
         amount: u128,
     ) -> Result<(), ReceivableDaoError> {
-        Ok(self.big_int_db_processor.execute(&*self.conn, BigIntSqlConfig::new(
-             "update or ignore receivable set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where wallet_address = :wallet; \
-               insert or ignore into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (:wallet, :balance_high_b, :balance_low_b, :last_received)))",
-            //"update receivable set balance = :updated_balance where wallet_address = :wallet"
-            None,
+        Ok(self.big_int_db_processor.execute(Left(self.conn.as_ref()), BigIntSqlConfig::new(
+               "insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (:wallet, :balance_high_b, :balance_low_b, :last_received) on conflict (wallet_address) do",
+            Some(|table|format!("update {} set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b",table)),
             SQLParamsBuilder::default()
                         .key(  "wallet_address",":wallet",wallet)
                         .wei_change(Addition("balance",amount))
@@ -126,21 +125,18 @@ impl ReceivableDao for ReceivableDaoReal {
             .unwrap_or_else(|e| self.more_money_received_pretty_error_log(&payments, e))
     }
 
-    // and r.balance > :balance_to_decrease_from + :slope * (:sugg_and_grace - r.last_received_timestamp)
-    // and r.balance > :permanent_debt
-
     fn new_delinquencies(
         &self,
         system_now: SystemTime,
         payment_thresholds: &PaymentThresholds,
     ) -> Vec<ReceivableAccount> {
-            let now = to_time_t(SystemTime::now());
-            let slope =  ThresholdUtils::calculate_sloped_threshold_by_time(
-                payment_thresholds,
-                checked_conversion::<i64, u64>(now),
-            );
-            let sql = indoc!(
-                r"
+        let now = to_time_t(SystemTime::now());
+        let slope = ThresholdUtils::calculate_sloped_threshold_by_time(
+            payment_thresholds,
+            checked_conversion::<i64, u64>(now),
+        );
+        let sql = indoc!(
+            r"
                 select r.wallet_address, r.balance_high_b, r.balance_low_h, r.last_received_timestamp
                 from receivable r
                 left outer join banned b on r.wallet_address = b.wallet_address
@@ -151,20 +147,19 @@ impl ReceivableDao for ReceivableDaoReal {
                     + :slope
                     and b.wallet_address is null
             "
-            );
-            self
-                .conn
-                .prepare(sql)
-                .expect("Couldn't prepare statement")
-                .query_map(
-                    named_params! {
-                        ":sugg_and_grace": payment_thresholds.sugg_and_grace(to_time_t(system_now)),
-                    },
-                    Self::form_receivable_account,
-                )
-                .expect("Couldn't retrieve new delinquencies: database corruption")
-                .flatten()
-                .collect()
+        );
+        self.conn
+            .prepare(sql)
+            .expect("Couldn't prepare statement")
+            .query_map(
+                named_params! {
+                    ":sugg_and_grace": payment_thresholds.sugg_and_grace(to_time_t(system_now)),
+                },
+                Self::form_receivable_account,
+            )
+            .expect("Couldn't retrieve new delinquencies: database corruption")
+            .flatten()
+            .collect()
     }
 
     fn paid_delinquencies(&self, payment_thresholds: &PaymentThresholds) -> Vec<ReceivableAccount> {
@@ -351,9 +346,8 @@ impl ReceivableDaoReal {
         let xactn = self.conn.transaction()?;
         {
             for transaction in payments {
-                //TODO this is highly wrong!! use 'execute' instead
-                self.big_int_db_processor.update_threatened_by_overflow(Either::Right(&xactn), BigIntSqlConfig::new(
-                    "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet",
+                self.big_int_db_processor.execute(Either::Right(&xactn), BigIntSqlConfig::new(
+                    "update receivable set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, last_received_timestamp = :last_received where wallet_address = :wallet",
                     None,
                     SQLParamsBuilder::default()
                                 .key( "wallet_address", ":wallet",&transaction.from)
@@ -612,32 +606,26 @@ mod tests {
             subject.more_money_receivable(now, &debtor2, 2345).unwrap();
             subject
         };
+        let transactions = vec![
+            BlockchainTransaction {
+                from: debtor1.clone(),
+                wei_amount: 1200_u128,
+                block_number: 35_u64,
+            },
+            BlockchainTransaction {
+                from: debtor2.clone(),
+                wei_amount: 2300_u128,
+                block_number: 57_u64,
+            },
+        ];
 
-        let (status1, status2) = {
-            let transactions = vec![
-                BlockchainTransaction {
-                    from: debtor1.clone(),
-                    wei_amount: 1200_u128,
-                    block_number: 35_u64,
-                },
-                BlockchainTransaction {
-                    from: debtor2.clone(),
-                    wei_amount: 2300_u128,
-                    block_number: 57_u64,
-                },
-            ];
+        subject.more_money_received(now, transactions);
 
-            subject.more_money_received(now, transactions);
-            (
-                subject.account_status(&debtor1).unwrap(),
-                subject.account_status(&debtor2).unwrap(),
-            )
-        };
-
+        let status1 = subject.account_status(&debtor1).unwrap();
         assert_eq!(status1.wallet, debtor1);
         assert_eq!(status1.balance_wei, 34);
         assert_eq!(to_time_t(status1.last_received_timestamp), to_time_t(now));
-
+        let status2 = subject.account_status(&debtor2).unwrap();
         assert_eq!(status2.wallet, debtor2);
         assert_eq!(status2.balance_wei, 45);
         assert_eq!(to_time_t(status2.last_received_timestamp), to_time_t(now));
@@ -655,24 +643,21 @@ mod tests {
                 .initialize(&home_dir, true, MigratorConfig::test_default())
                 .unwrap(),
         );
+        let transactions = vec![BlockchainTransaction {
+            from: debtor.clone(),
+            wei_amount: 2300_u128,
+            block_number: 33_u64,
+        }];
 
-        let status = {
-            let transactions = vec![BlockchainTransaction {
-                from: debtor.clone(),
-                wei_amount: 2300_u128,
-                block_number: 33_u64,
-            }];
-            subject.more_money_received(SystemTime::now(), transactions);
-            subject.account_status(&debtor)
-        };
+        subject.more_money_received(SystemTime::now(), transactions);
 
+        let status = subject.account_status(&debtor);
         assert!(status.is_none());
     }
 
     #[test]
     fn more_money_received_logs_when_try_multi_insert_payment_fails() {
         init_test_logging();
-
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
             "more_money_received_logs_when_try_multi_insert_payment_fails",
@@ -695,7 +680,6 @@ mod tests {
                 .unwrap();
             xactn.commit().unwrap();
         }
-
         let payments = vec![
             BlockchainTransaction {
                 block_number: 1234567890,
@@ -718,7 +702,7 @@ mod tests {
 
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: ReceivableDaoReal: Payment reception failed, rolling back: \
-            RusqliteError(\"Updating balance for receivable of -123456789123456789 Wei to 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with error 'no such table: receivable'\")\n\
+            RusqliteError(\"Wei change: error after invalid update command for receivable of -123456789123456789 Wei to 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with error 'no such table: receivable'\")\n\
             Block #    Wallet                                     Amount            \n\
             1234567890 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 123456789123456789\n\
             2345678901 0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 234567891234567891\n\

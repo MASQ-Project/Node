@@ -25,7 +25,7 @@ use std::slice::Iter;
 pub trait BigIntDbProcessor<T: DAOTableIdentifier>: Send + Debug {
     fn execute<'a>(
         &self,
-        conn: &dyn ConnectionWrapper,
+        conn: Either<&dyn ConnectionWrapper, &Transaction>,
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError>;
 
@@ -44,11 +44,11 @@ pub struct BigIntDbProcessorReal<T: DAOTableIdentifier> {
 impl<T: DAOTableIdentifier> BigIntDbProcessor<T> for BigIntDbProcessorReal<T> {
     fn execute<'a>(
         &self,
-        conn: &dyn ConnectionWrapper,
+        conn: Either<&dyn ConnectionWrapper, &Transaction>,
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
         let main_sql = config.construct_main_sql();
-        let mut stm = conn.prepare(&main_sql).expect("internal rusqlite error");
+        let mut stm = Self::prepare_statement(conn, &main_sql);
         let params = config
             .params
             .pure_rusqlite_params_uncorrected()
@@ -58,7 +58,7 @@ impl<T: DAOTableIdentifier> BigIntDbProcessor<T> for BigIntDbProcessorReal<T> {
             //SQLITE_CONSTRAINT_DATATYPE (3091),
             //the moment of Sqlite trying to store the number as REAL in a strict INT column
             Err(Error::SqliteFailure(e, _)) if e.extended_code == c_int::from(3091) => {
-                self.update_threatened_by_overflow(Either::Left(conn), config)
+                self.update_threatened_by_overflow(conn, config)
             }
             Err(e) => Err(BigIntDbError(format!(
                 "Wei change: error after invalid {} command for {} of {} Wei to {} with error '{}'",
@@ -73,11 +73,11 @@ impl<T: DAOTableIdentifier> BigIntDbProcessor<T> for BigIntDbProcessorReal<T> {
 
     fn update_threatened_by_overflow<'a>(
         &self,
-        form_of_conn: Either<&dyn ConnectionWrapper, &Transaction>,
+        conn: Either<&dyn ConnectionWrapper, &Transaction>,
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
         let select_sql = config.select_sql();
-        let mut select_stm = Self::prepare_statement(form_of_conn, &select_sql);
+        let mut select_stm = Self::prepare_statement(conn, &select_sql);
         match select_stm.query_row([], |row| {
             let low_bytes_result = row.get::<usize, i64>(0);
             match low_bytes_result {
@@ -89,7 +89,7 @@ impl<T: DAOTableIdentifier> BigIntDbProcessor<T> for BigIntDbProcessorReal<T> {
                         & 0x7FFFFFFFFFFFFFFF) as i64
                         - low_bytes;
                     let update_sql = config.prepare_update_sql();
-                    let mut update_stm = Self::prepare_statement(form_of_conn, &update_sql);
+                    let mut update_stm = Self::prepare_statement(conn, &update_sql);
                     let wei_update_array = [
                         (wei_change_params[0].0.as_str(), high_bytes_correction),
                         (wei_change_params[1].0.as_str(), low_bytes_correction),
@@ -208,11 +208,20 @@ impl<'a, T: DAOTableIdentifier> BigIntSqlConfig<'a, T> {
     }
 
     fn determine_command(&self) -> String {
-        self.main_sql
+        let keyword = self
+            .main_sql
             .chars()
             .skip_while(|char| char.is_whitespace())
             .take_while(|char| !char.is_whitespace())
-            .collect()
+            .collect::<String>();
+        match (keyword.trim(), self.update_clause_opt.is_some()) {
+            ("insert", true) => "upsert".to_string(),
+            ("update", false) => keyword,
+            _ => panic!(
+                "broken code: unexpected or misplaced command \"{}\" in upsert",
+                keyword
+            ),
+        }
     }
 
     #[cfg(test)]
@@ -449,6 +458,7 @@ mod tests {
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::make_wallet;
+    use itertools::Either::Left;
     use itertools::{Either, Itertools};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::types::ToSqlOutput;
@@ -625,17 +635,17 @@ mod tests {
     }
 
     #[test]
-    fn determine_command_works_for_insert() {
+    fn determine_command_works_for_upsert() {
         let subject: BigIntSqlConfig<'_, DummyDao> = BigIntSqlConfig {
             main_sql: "insert into table (a,b) values ('a','b')",
-            update_clause_opt: None,
+            update_clause_opt: Some(|table| format!("side clause {}", table)),
             params: make_empty_sql_params(),
             phantom: Default::default(),
         };
 
         let result = subject.determine_command();
 
-        assert_eq!(result, "insert".to_string())
+        assert_eq!(result, "upsert".to_string())
     }
 
     #[test]
@@ -653,23 +663,48 @@ mod tests {
     }
 
     #[test]
-    fn determine_command_works_for_any_other_case() {
+    #[should_panic(expected = "broken code: unexpected or misplaced command \"some\" in upsert")]
+    fn determine_command_panics_if_unknown_command_without_update_clause() {
         let subject: BigIntSqlConfig<'_, DummyDao> = BigIntSqlConfig {
-            main_sql: "other sql command",
+            main_sql: "some other sql command",
             update_clause_opt: None,
             params: make_empty_sql_params(),
             phantom: Default::default(),
         };
 
-        let result = subject.determine_command();
+        let _ = subject.determine_command();
+    }
 
-        assert_eq!(result, "other".to_string())
+    #[test]
+    #[should_panic(expected = "broken code: unexpected or misplaced command \"wow\" in upsert")]
+    fn determine_command_panics_if_malformed_upsert() {
+        let subject: BigIntSqlConfig<'_, DummyDao> = BigIntSqlConfig {
+            main_sql: "wow sql command",
+            update_clause_opt: Some(|table| format!("side clause {}", table)),
+            params: make_empty_sql_params(),
+            phantom: Default::default(),
+        };
+
+        let _ = subject.determine_command();
+    }
+
+    #[test]
+    #[should_panic(expected = "broken code: unexpected or misplaced command \"update\" in upsert")]
+    fn determine_command_panics_if_upsert_starting_with_update() {
+        let subject: BigIntSqlConfig<'_, DummyDao> = BigIntSqlConfig {
+            main_sql: "update sql command",
+            update_clause_opt: Some(|table| format!("hawk clause {}", table)),
+            params: make_empty_sql_params(),
+            phantom: Default::default(),
+        };
+
+        let _ = subject.determine_command();
     }
 
     #[test]
     fn determine_command_allows_preceding_spaces() {
         let subject: BigIntSqlConfig<'_, DummyDao> = BigIntSqlConfig {
-            main_sql: "  insert into table (a,b) values ('a','b')",
+            main_sql: "  update into table (a,b) values ('a','b')",
             update_clause_opt: None,
             params: make_empty_sql_params(),
             phantom: Default::default(),
@@ -677,7 +712,7 @@ mod tests {
 
         let result = subject.determine_command();
 
-        assert_eq!(result, "insert".to_string())
+        assert_eq!(result, "update".to_string())
     }
 
     fn insert_single_record(conn: &dyn ConnectionWrapper, params: [&dyn ToSql; 3]) {
@@ -736,29 +771,54 @@ mod tests {
         requested_wei_change: WeiChange,
         do_we_expect_overflow: bool,
     ) {
-        let conn =
+        let act = |conn: &mut dyn ConnectionWrapper, subject: &BigIntDbProcessorReal<DummyDao>| {
+            subject.execute(
+                Left(conn),
+                BigIntSqlConfig::new(
+                    main_sql,
+                    update_clause_opt,
+                    SQLParamsBuilder::default()
+                        .key("name", ":name", &"Joe")
+                        .wei_change(requested_wei_change.clone())
+                        .build(),
+                ),
+            )
+        };
+
+        precise_upsert_or_update_assertion_test_environment(
+            test_name,
+            init_record_opt,
+            &requested_wei_change,
+            do_we_expect_overflow,
+            act,
+        )
+    }
+
+    fn precise_upsert_or_update_assertion_test_environment<F>(
+        test_name: &str,
+        init_record_opt: Option<(&str, i64, i64)>,
+        requested_wei_change: &WeiChange,
+        do_we_expect_overflow: bool,
+        act: F,
+    ) where
+        F: Fn(
+            &mut dyn ConnectionWrapper,
+            &BigIntDbProcessorReal<DummyDao>,
+        ) -> Result<(), BigIntDbError>,
+    {
+        let mut conn =
             initiate_simple_connection_and_test_table("big_int_db_processor", test_name, false);
         if let Some(values) = init_record_opt {
             insert_single_record(conn.as_ref(), [&values.0, &values.1, &values.2])
         };
         let subject = BigIntDbProcessorReal::<DummyDao>::new();
 
-        let result = subject.execute(
-            conn.as_ref(),
-            BigIntSqlConfig::new(
-                main_sql,
-                update_clause_opt,
-                SQLParamsBuilder::default()
-                    .key("name", ":name", &"Joe")
-                    .wei_change(requested_wei_change.clone())
-                    .build(),
-            ),
-        );
+        let result = act(conn.as_mut(), &subject);
 
         assert_eq!(result, Ok(()));
         let wei_change = match requested_wei_change {
-            Addition(_, num) => checked_conversion::<u128, i128>(num),
-            Subtraction(_, num) => checked_conversion::<u128, i128>(num).neg(),
+            Addition(_, num) => checked_conversion::<u128, i128>(*num),
+            Subtraction(_, num) => checked_conversion::<u128, i128>(*num).neg(),
         };
         let wei_change_deconstructed = BigIntDivider::deconstruct(wei_change);
         let (_, low_bytes) = wei_change_deconstructed;
@@ -921,6 +981,36 @@ mod tests {
     }
 
     #[test]
+    fn update_alone_works_also_for_transaction_instead_of_connection() {
+        let wei_change = Addition("balance", 255);
+        let act = |conn: &mut dyn ConnectionWrapper, subject: &BigIntDbProcessorReal<DummyDao>| {
+            let tx = conn.transaction().unwrap();
+
+            let result = subject.execute(
+                Either::Right(&tx),
+                BigIntSqlConfig::new(
+                                "update test_table set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where name = :name",
+                                None,
+                                SQLParamsBuilder::default()
+                                    .key("name", ":name", &"Joe")
+                                    .wei_change(wei_change.clone())
+                                    .build(),
+                            ),
+            );
+            tx.commit().unwrap();
+            result
+        };
+
+        precise_upsert_or_update_assertion_test_environment(
+            "update_alone_works_also_for_transaction_instead_of_connection",
+            Some((&"Joe", 47, 598745133)),
+            &wei_change,
+            false,
+            act,
+        )
+    }
+
+    #[test]
     fn select_stm_in_update_with_overflow_gets_also_well_along_numeric_key_value_and_different_table_and_substitution_param_name(
     ) {
         let conn = create_new_empty_db(
@@ -985,13 +1075,13 @@ mod tests {
                     .build(),
             );
 
-        let result = subject.execute(conn.as_ref(), config);
+        let result = subject.execute(Left(conn.as_ref()), config);
 
         assert_eq!(
             result,
             Err(BigIntDbError(
                 //sadly, I wasn't able to get a nicer error case with a more obvious relation to the tested requirements
-                "Wei change: error after invalid insert command for test_table of 5555 Wei to Joe with error 'NOT NULL constraint failed: test_table.balance_low_b'"
+                "Wei change: error after invalid upsert command for test_table of 5555 Wei to Joe with error 'NOT NULL constraint failed: test_table.balance_low_b'"
                     .to_string()
             ))
         );
@@ -1015,12 +1105,12 @@ mod tests {
                 .build(),
         );
 
-        let result = subject.execute(conn.as_ref(), config);
+        let result = subject.execute(Left(conn.as_ref()), config);
 
         assert_eq!(
             result,
             Err(BigIntDbError(
-                "Wei change: error after invalid insert command for test_table of 4879898145125 \
+                "Wei change: error after invalid upsert command for test_table of 4879898145125 \
                 Wei to Joe with error 'Invalid parameter name: :balance_high_b'"
                     .to_string()
             ))
