@@ -70,22 +70,31 @@ impl MASQNodeUIClient {
             |message_body: &MessageBody| target_opcodes.contains(&message_body.opcode.as_str());
         if let Some(target) = self.check_for_buffered_message(MessagePath::FireAndForget) {
             if qualifies(&target) {
-eprintln! ("Broadcast {} was already waiting", target.opcode);
+                eprintln!("Broadcast {} was already waiting", target.opcode);
                 return target;
             }
         }
         let begin = Instant::now();
         let iteration_timeout = Duration::from_millis(200);
-eprintln! ("Nothing that qualified was waiting. Blocking for a qualifying broadcast for {:?}...", iteration_timeout);
+        eprintln!(
+            "Nothing that qualified was waiting. Blocking for a qualifying broadcast for {:?}...",
+            iteration_timeout
+        );
         loop {
             match self.try_wait_for_message(MessagePath::FireAndForget, iteration_timeout) {
                 Some(message_body) if qualifies(&message_body) => {
-eprintln! ("Qualifying broadcast {} arrived: returning", message_body.opcode);
-                    return message_body
-                },
+                    eprintln!(
+                        "Qualifying broadcast {} arrived: returning",
+                        message_body.opcode
+                    );
+                    return message_body;
+                }
                 x => {
-eprintln! ("Hoping for qualifying broadcast, received {:?} instead; still waiting", x);
-                },
+                    eprintln!(
+                        "Hoping for qualifying broadcast, received {:?} instead; still waiting",
+                        x
+                    );
+                }
             }
             if Instant::now().duration_since(begin).gt(&timeout) {
                 panic!(
@@ -102,7 +111,6 @@ eprintln! ("Hoping for qualifying broadcast, received {:?} instead; still waitin
         }
         self.wait_for_message(path, timeout)
     }
-
 
     fn wait_for_message(&self, path: MessagePath, timeout: Duration) -> MessageBody {
         match self.try_wait_for_message(path, timeout) {
