@@ -43,6 +43,7 @@ use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use masq_lib::constants::TLS_PORT;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::collections::HashMap;
@@ -50,7 +51,6 @@ use std::net::SocketAddr;
 use std::rc::Rc;
 use std::time::{Duration, SystemTime};
 use tokio::prelude::Future;
-use masq_lib::constants::TLS_PORT;
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
 pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);
