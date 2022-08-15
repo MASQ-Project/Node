@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::command::Command;
-use crate::mock_node_bin::CONTROL_STREAM_PORT;
+use crate::main::CONTROL_STREAM_PORT;
 use crate::masq_node::MASQNode;
 use crate::masq_node::MASQNodeUtils;
 use crate::masq_node::NodeReference;

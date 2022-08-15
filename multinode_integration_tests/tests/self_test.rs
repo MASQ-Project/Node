@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use multinode_integration_tests_lib::command::Command;
-use multinode_integration_tests_lib::mock_node_bin::CONTROL_STREAM_PORT;
+use multinode_integration_tests_lib::main::CONTROL_STREAM_PORT;
 use multinode_integration_tests_lib::masq_cores_client::MASQCoresClient;
 use multinode_integration_tests_lib::masq_cores_server::MASQCoresServer;
 use multinode_integration_tests_lib::masq_node::MASQNode;

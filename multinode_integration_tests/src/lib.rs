@@ -3,7 +3,7 @@
 pub mod big_data_server;
 pub mod blockchain;
 pub mod command;
-pub mod mock_node_bin;
+pub mod main;
 pub mod masq_cores_client;
 pub mod masq_cores_server;
 pub mod masq_mock_node;
@@ -16,5 +16,4 @@ pub mod masq_real_node;
 pub mod mock_blockchain_client_server;
 pub mod multinode_gossip;
 pub mod neighborhood_constructor;
-pub mod router_bin;
 pub mod utils;
