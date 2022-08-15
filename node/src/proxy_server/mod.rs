@@ -50,7 +50,6 @@ use std::net::SocketAddr;
 use std::rc::Rc;
 use std::time::{Duration, SystemTime};
 use tokio::prelude::Future;
-use masq_lib::constants::TLS_PORT;
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
 pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);
@@ -392,7 +391,7 @@ impl ProxyServer {
     fn tls_connect(&mut self, msg: &InboundClientData) {
         let http_data = HttpProtocolPack {}.find_host(&msg.data.clone().into());
         match http_data {
-            Some(ref host) if host.port == Some(TLS_PORT) => {
+            Some(ref host) if host.port == Some(443) => {
                 let stream_key = self.make_stream_key(msg);
                 self.tunneled_hosts.insert(stream_key, host.name.clone());
                 self.subs
@@ -646,7 +645,7 @@ impl ProxyServer {
         let tunnelled_host = self.tunneled_hosts.get(stream_key);
         let new_ibcd = match tunnelled_host {
             Some(_) => InboundClientData {
-                reception_port: Some(TLS_PORT),
+                reception_port: Some(443),
                 ..ibcd
             },
             None => ibcd,
@@ -1308,7 +1307,7 @@ mod tests {
                 last_data: false,
             },
             target_hostname: Some(String::from("realdomain.nu")),
-            target_port: TLS_PORT,
+            target_port: 443,
             protocol: ProxyProtocol::TLS,
             originator_public_key: key.clone(),
         };
@@ -1405,7 +1404,7 @@ mod tests {
         let inbound_client_data = InboundClientData {
             timestamp: SystemTime::now(),
             peer_addr: socket_addr,
-            reception_port: Some(TLS_PORT),
+            reception_port: Some(443),
             last_data: false,
             is_clandestine: false,
             sequence_number: Some(0),
@@ -1861,7 +1860,7 @@ mod tests {
                         stream_key,
                         sequenced_packet: SequencedPacket::new(expected_data, 0, true),
                         target_hostname: None,
-                        target_port: TLS_PORT,
+                        target_port: 443,
                         protocol: ProxyProtocol::TLS,
                         originator_public_key: alias_cryptde.public_key().clone(),
                     }
@@ -4461,7 +4460,7 @@ mod tests {
                     stream_key: affected_stream_key,
                     sequenced_packet: SequencedPacket::new(vec![], 1234, true),
                     target_hostname: Some(String::from("tunneled.com")),
-                    target_port: TLS_PORT,
+                    target_port: 443,
                     protocol: ProxyProtocol::TLS,
                     originator_public_key: alias_cryptde().public_key().clone(),
                 }

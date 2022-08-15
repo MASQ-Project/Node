@@ -64,7 +64,7 @@ mod tests {
     use super::*;
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::test_utils::{main_cryptde, make_meaningless_stream_key};
-    use masq_lib::constants::{HTTP_PORT, TLS_PORT};
+    use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use std::net::SocketAddr;
@@ -167,7 +167,7 @@ mod tests {
             timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             sequence_number: Some(0),
-            reception_port: Some(TLS_PORT),
+            reception_port: Some(443),
             last_data: false,
             is_clandestine: false,
             data: data.clone().into(),
@@ -188,7 +188,7 @@ mod tests {
                     last_data: false
                 },
                 target_hostname: Some(String::from("server.com")),
-                target_port: TLS_PORT,
+                target_port: 443,
                 protocol: ProxyProtocol::TLS,
                 originator_public_key: cryptde.public_key().clone(),
             })
@@ -214,7 +214,7 @@ mod tests {
         let ibcd = InboundClientData {
             timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
-            reception_port: Some(TLS_PORT),
+            reception_port: Some(443),
             last_data: true,
             is_clandestine: false,
             sequence_number: Some(0),
@@ -236,7 +236,7 @@ mod tests {
                     last_data: true
                 },
                 target_hostname: None,
-                target_port: TLS_PORT,
+                target_port: 443,
                 protocol: ProxyProtocol::TLS,
                 originator_public_key: cryptde.public_key().clone(),
             })
