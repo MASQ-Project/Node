@@ -9,7 +9,7 @@ use masq_lib::messages::{
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
-use multinode_integration_tests_lib::masq_real_node::{ConsumingWalletInfo, NodeStartupConfigBuilder};
+use multinode_integration_tests_lib::masq_real_node::{ConsumingWalletInfo, MASQRealNode, NodeStartupConfigBuilder};
 
 #[test]
 fn connection_progress_is_properly_broadcast() {
@@ -33,12 +33,15 @@ fn connection_progress_is_properly_broadcast() {
     );
     let ui_client = subject.make_ui(ui_port);
 
-    // Hook up an exit Node to make the Node fully connected
-    let _exit_node = cluster.start_real_node(
-        NodeStartupConfigBuilder::standard()
-            .neighbor(relay_2.node_reference())
-            .build(),
-    );
+    // Hook up enough new Nodes to make the subject fully connected
+    let _additional_nodes = (0..3).into_iter()
+        .map (|_| {
+            cluster.start_real_node(
+                NodeStartupConfigBuilder::standard()
+                    .neighbor(relay_2.node_reference())
+                    .build())
+        })
+        .collect::<Vec<MASQRealNode>>();
 
     let message_body =
         ui_client.wait_for_specific_broadcast(vec!["connectionChange"], Duration::from_secs(5));
