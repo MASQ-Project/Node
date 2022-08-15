@@ -22,7 +22,6 @@ use crate::sub_lib::neighborhood::{
 };
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, ZERO_RATE_PACK};
 use crate::sub_lib::node_addr::NodeAddr;
-use crate::sub_lib::peer_actors::NewPublicIp;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_connector::StreamConnector;
 use crate::sub_lib::stream_connector::StreamConnectorReal;
@@ -45,6 +44,7 @@ use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
 use tokio::prelude::Future;
+use crate::sub_lib::peer_actors::NewPublicIp;
 
 // IMPORTANT: Nothing at or below the level of StreamHandlerPool should know about StreamKeys.
 // StreamKeys should exist solely between ProxyServer and ProxyClient. Many of the streams
@@ -144,7 +144,7 @@ impl Handler<RemoveStreamMsg> for StreamHandlerPool {
 impl Handler<NewPublicIp> for StreamHandlerPool {
     type Result = ();
 
-    fn handle(&mut self, _msg: NewPublicIp, _ctx: &mut Self::Context) -> Self::Result {
+    fn handle (&mut self, _msg: NewPublicIp, _ctx: &mut Self::Context) -> Self::Result {
         self.handle_new_public_ip()
     }
 }
@@ -1159,22 +1159,13 @@ mod tests {
     fn handle_new_public_ip_removes_all_stream_writers() {
         init_test_logging();
         let mut subject = StreamHandlerPool::new(vec![], false);
-        subject.stream_writers.insert(
-            StreamWriterKey::from(SocketAddr::from_str("1.2.3.4:5678").unwrap()),
-            None,
-        );
-        subject.stream_writers.insert(
-            StreamWriterKey::from(SocketAddr::from_str("2.3.4.5:6789").unwrap()),
-            None,
-        );
-        subject.stream_writers.insert(
-            StreamWriterKey::from(SocketAddr::from_str("3.4.5.6:7890").unwrap()),
-            None,
-        );
+        subject.stream_writers.insert(StreamWriterKey::from(SocketAddr::from_str("1.2.3.4:5678").unwrap()), None);
+        subject.stream_writers.insert(StreamWriterKey::from(SocketAddr::from_str("2.3.4.5:6789").unwrap()), None);
+        subject.stream_writers.insert(StreamWriterKey::from(SocketAddr::from_str("3.4.5.6:7890").unwrap()), None);
 
         subject.handle_new_public_ip();
 
-        assert_eq!(subject.stream_writers.len(), 0);
+        assert_eq! (subject.stream_writers.len(), 0);
     }
 
     #[test]

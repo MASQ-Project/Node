@@ -736,7 +736,6 @@ mod tests {
     use log::LevelFilter;
     use log::LevelFilter::Off;
     use masq_lib::blockchains::chains::Chain;
-    use masq_lib::constants::TLS_PORT;
     use masq_lib::logger::Logger;
     use masq_lib::logger::TEST_LOG_RECIPIENT_GUARD;
     use masq_lib::test_utils::environment_guard::ClapGuard;
@@ -758,6 +757,7 @@ mod tests {
     use tokio::executor::current_thread::CurrentThread;
     use tokio::prelude::stream::FuturesUnordered;
     use tokio::prelude::Async;
+    use masq_lib::constants::TLS_PORT;
 
     lazy_static! {
         pub static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);
