@@ -84,6 +84,7 @@ impl DbInitializer for DbInitializerReal {
         let database_file_path = &path.join(DATABASE_FILE);
         match Connection::open_with_flags(database_file_path, flags) {
             Ok(conn) => {
+                //                Self::question_special_setup(&conn, &migrator_config);
                 eprintln!("Opened existing database at {:?}", database_file_path);
                 let config = self.extract_configurations(&conn);
                 match (
@@ -334,6 +335,10 @@ impl DbInitializerReal {
             [],
         )
         .expect("Can't create banned table");
+    }
+
+    fn question_special_setup(conn: &Connection, migrator_config: &MigratorConfig) {
+        todo!()
     }
 
     fn extract_configurations(&self, conn: &Connection) -> HashMap<String, (Option<String>, bool)> {

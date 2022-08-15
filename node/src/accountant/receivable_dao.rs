@@ -125,6 +125,17 @@ impl ReceivableDao for ReceivableDaoReal {
             .unwrap_or_else(|e| self.more_money_received_pretty_error_log(&payments, e))
     }
 
+    // select r.wallet_address, r.balance, r.last_received_timestamp
+    // from receivable r left outer join banned b on r.wallet_address = b.wallet_address
+    // where
+    // r.last_received_timestamp < :sugg_and_grace
+    // and r.balance > :balance_to_decrease_from + :slope * (:sugg_and_grace - r.last_received_timestamp)
+    // and r.balance > :permanent_debt
+    // and b.wallet_address is null
+
+    // and r.balance > :debt_threshold + :slope * (:sugg_and_grace - r.last_received_timestamp)
+    //                 i64               f64       i64             - i64
+
     fn new_delinquencies(
         &self,
         system_now: SystemTime,
@@ -143,7 +154,7 @@ impl ReceivableDao for ReceivableDaoReal {
                 inner join delinquency_metadata d on r.wallet_address = d.wallet_address
                 where
                     r.last_received_timestamp < :sugg_and_grace
-                    and  (r.balance_high_b > :debt_threshold_high_b) or ((balance_high_b = :debt_threshold_high_b) and (balance_low_b > :balance_to_decrease_from_low_b))
+                    and  (r.balance_high_b > 0) or ((balance_high_b = 0) and (balance_low_b > (:debt_threshold + :slope * (:sugg_and_grace - r.last_received_timestamp)))
                     + :slope
                     and b.wallet_address is null
             "
@@ -231,6 +242,7 @@ impl ReceivableDao for ReceivableDaoReal {
 
 impl ReceivableDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> ReceivableDaoReal {
+        todo!("register the newly defined sqlite function here");
         ReceivableDaoReal {
             conn,
             big_int_db_processor: Box::new(BigIntDbProcessorReal::new()),

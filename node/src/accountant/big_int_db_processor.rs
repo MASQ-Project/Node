@@ -7,14 +7,16 @@ use crate::accountant::receivable_dao::ReceivableDaoError;
 use crate::accountant::test_utils::SQLConfigAbstract;
 use crate::accountant::{checked_conversion, politely_checked_conversion};
 use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::sub_lib::accountant::WEIS_OF_GWEI;
 use crate::sub_lib::wallet::Wallet;
 use futures::collect;
 use itertools::{chain, Either};
 use masq_lib::utils::ExpectValue;
 use nix::libc::iovec;
+use rusqlite::functions::{Context, FunctionFlags};
 use rusqlite::types::ToSqlOutput;
 use rusqlite::ErrorCode::ConstraintViolation;
-use rusqlite::{params_from_iter, Error, Statement, ToSql, Transaction};
+use rusqlite::{params_from_iter, Connection, Error, Statement, ToSql, Transaction};
 use std::fmt::{write, Debug, Display, Formatter};
 use std::iter::{once, Chain, Map};
 use std::marker::PhantomData;
@@ -427,15 +429,25 @@ pub struct BigIntDivider {}
 
 impl BigIntDivider {
     pub fn deconstruct(num: i128) -> (i64, i64) {
-        let low_bits = (num & 0x7FFFFFFFFFFFFFFFi128) as i64;
-        let high_bits = (num >> 63) as i64;
-        if num.is_positive() && (high_bits.abs() as u64 & 0xC000000000000000u64) > 0 {
+        (
+            Self::deconstruct_high_bytes(num),
+            Self::deconstruct_low_bytes(num),
+        )
+    }
+
+    fn deconstruct_high_bytes(num: i128) -> i64 {
+        let high_bytes = (num >> 63) as i64;
+        if num.is_positive() && (high_bytes.abs() as u64 & 0xC000000000000000u64) > 0 {
             panic!("Too big positive integer to be divided: {:#X}", num)
         }
         if num < -0x40000000000000000000000000000000 {
             panic!("Too big negative integer to be divided: -{:#X}", num)
         }
-        (high_bits, low_bits)
+        high_bytes
+    }
+
+    fn deconstruct_low_bytes(num: i128) -> i64 {
+        (num & 0x7FFFFFFFFFFFFFFFi128) as i64
     }
 
     pub fn reconstitute(high_bytes: i64, low_bytes: i64) -> i128 {
@@ -446,6 +458,30 @@ impl BigIntDivider {
 
     pub fn reconstitute_unsigned(high_bytes: i64, low_bytes: i64) -> u128 {
         checked_conversion::<i128, u128>(Self::reconstitute(high_bytes, low_bytes))
+    }
+
+    pub fn register_deconstruct_for_db_connection(conn: &Connection) -> rusqlite::Result<()> {
+        let flags = FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC;
+        let common_preparation = |ctx: &Context| {
+            let top_point_gwei = ctx
+                .get_raw(0)
+                .as_i64()
+                .expect("wrong value, should be 64-bit integer");
+            let decrease = ctx
+                .get_raw(1)
+                .as_f64()
+                .expect("wrong value, should be 64-bit real num");
+            top_point_gwei as i128 * WEIS_OF_GWEI - decrease as i128
+        };
+        conn.create_scalar_function::<_, i64>("biginthigh", 2, flags, move |ctx| {
+            let hight_of_wei = common_preparation(ctx);
+            Ok(Self::deconstruct_high_bytes(hight_of_wei))
+        })
+        .expect("failure in scalar function addition");
+        conn.create_scalar_function::<_, i64>("bigintlow", 2, flags, move |ctx| {
+            let hight_of_wei = common_preparation(ctx);
+            Ok(Self::deconstruct_low_bytes(hight_of_wei))
+        })
     }
 }
 
@@ -1367,6 +1403,63 @@ mod tests {
                 );
                 current.1
             },
+        );
+    }
+
+    #[test]
+    fn register_deconstruct_for_db_connection_works() {
+        let conn = create_new_empty_db(
+            "big_int_db_processor",
+            "register_deconstruct_for_db_connection_works",
+        );
+
+        BigIntDivider::register_deconstruct_for_db_connection(&conn).unwrap();
+
+        conn.execute("create table test_table (computed_high_bytes int, computed_low_bytes int, database_parameter int not null)",[]).unwrap();
+        let database_value_1: i64 = 12222;
+        let database_value_2: i64 = 23333444;
+        let database_value_3: i64 = 5555;
+        conn.execute(
+            "insert into test_table (database_parameter) values (?),(?),(?)",
+            &[&database_value_1, &database_value_2, &database_value_3],
+        )
+        .unwrap();
+        let arbitrary_constant = 111222333444_i64;
+        conn.execute(
+            "update test_table set \
+        computed_high_bytes = biginthigh(:my_constant, 3.143 * database_parameter),\
+        computed_low_bytes = bigintlow(:my_constant, 3.143 * database_parameter)",
+            &[(":my_constant", &arbitrary_constant)],
+        )
+        .unwrap();
+        let mut stm = conn
+            .prepare("select computed_high_bytes, computed_low_bytes from test_table")
+            .unwrap();
+        let computed_values = stm
+            .query_map([], |row| {
+                let high_bytes = row.get::<usize, i64>(0).unwrap();
+                let low_bytes = row.get::<usize, i64>(1).unwrap();
+                Ok((high_bytes, low_bytes))
+            })
+            .unwrap()
+            .flatten()
+            .collect::<Vec<_>>();
+        assert_eq!(
+            computed_values,
+            vec![
+                BigIntDivider::deconstruct(
+                    arbitrary_constant as i128 * 1_000_000_000
+                        - (3.143 * database_value_1 as f64) as i128
+                ),
+                BigIntDivider::deconstruct(
+                    arbitrary_constant as i128 * 1_000_000_000
+                        - (3.143 * database_value_2 as f64) as i128
+                ),
+                BigIntDivider::deconstruct(
+                    arbitrary_constant as i128 * 1_000_000_000
+                        - (3.143 * database_value_3 as f64) as i128
+                )
+            ]
         );
     }
 }
