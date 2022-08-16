@@ -273,15 +273,12 @@ impl<'a> SQLParamsBuilder<'a> {
         self
     }
 
-    pub fn other(
-        mut self,
-        mut params: Vec<(&'a str, &'a (dyn ExtendedParamsMarker + 'a))>,
-    ) -> Self {
+    pub fn other(mut self, params: Vec<(&'a str, &'a (dyn ExtendedParamsMarker + 'a))>) -> Self {
         self.other_params = params;
         self
     }
 
-    pub fn build(mut self) -> SQLParams<'a> {
+    pub fn build(self) -> SQLParams<'a> {
         let key_spec = self
             .key_spec_opt
             .unwrap_or_else(|| panic!("SQLparams cannot miss the component of a key"));
@@ -486,22 +483,10 @@ mod tests {
     use crate::accountant::big_int_db_processor::WeiChange::Addition;
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::test_utils::make_wallet;
+    use itertools::Either;
     use itertools::Either::Left;
-    use itertools::{Either, Itertools};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::types::ToSqlOutput;
     use rusqlite::{Connection, OpenFlags, ToSql};
-
-    fn convert_params_to_debuggable_values<'a>(
-        standard_params: Vec<(&'a str, &'a dyn ToSql)>,
-    ) -> Vec<(&'a str, ToSqlOutput)> {
-        let mut vec = standard_params
-            .into_iter()
-            .map(|(name, value)| (name, value.to_sql().unwrap()))
-            .collect_vec();
-        vec.sort_by(|(name_a, _), (name_b, _)| name_a.cmp(name_b));
-        vec
-    }
 
     #[derive(Debug)]
     struct DummyDao {}
@@ -1378,8 +1363,6 @@ mod tests {
         let _ = vec.into_iter().enumerate().fold(
             a,
             |previous, current: (usize, i128)| {
-                let previous_sign = previous.is_negative();
-                let current_sign = current.1.is_negative();
                 let (previous_high_b, previous_low_b) = BigIntDivider::deconstruct(previous);
                 let (current_high_b, current_low_b) = BigIntDivider::deconstruct(current.1);
                 assert!(

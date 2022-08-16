@@ -1176,7 +1176,7 @@ mod tests {
                 )
                 .unwrap();
         }
-        let malformed_setup_function = |conn: &Connection| Err(Error::GetAuxWrongType);
+        let malformed_setup_function = |_: &_| Err(Error::GetAuxWrongType);
         let init_config = DbInitializationConfig::panic_on_migration()
             .add_special_conn_setup(malformed_setup_function);
 
@@ -1453,7 +1453,7 @@ mod tests {
 
     fn make_config_with_specific_migration_arguments() -> DbInitializationConfig {
         DbInitializationConfig {
-            special_conn_setup: vec![|conn: &Connection| {
+            special_conn_setup: vec![|_: &_| {
                 5;
                 Ok(())
             }],
@@ -1468,11 +1468,11 @@ mod tests {
 
     #[test]
     fn partial_eq_is_implemented_for_db_initialization_config() {
-        let fn_one = |conn: &Connection| {
+        let fn_one = |_: &_| {
             5;
             Ok(())
         };
-        let fn_two = |conn: &Connection| {
+        let fn_two = |_: &_| {
             make_wallet("blah");
             Ok(())
         };
@@ -1499,11 +1499,11 @@ mod tests {
 
     #[test]
     fn debug_is_implemented_for_db_initialization_config() {
-        let fn_one = |conn: &Connection| {
+        let fn_one = |_: &_| {
             5;
             Ok(())
         };
-        let fn_two = |conn: &Connection| {
+        let fn_two = |_: &_| {
             make_wallet("blah");
             Ok(())
         };
@@ -1555,9 +1555,9 @@ mod tests {
 
     #[test]
     fn allow_nonstandard_setup_retrieves_first_error_encountered() {
-        let fn_one = |conn: &Connection| Ok(());
-        let fn_two = |conn: &Connection| Err(Error::ExecuteReturnedResults);
-        let fn_three = |conn: &Connection| Err(Error::GetAuxWrongType);
+        let fn_one = |_: &_| Ok(());
+        let fn_two = |_: &_| Err(Error::ExecuteReturnedResults);
+        let fn_three = |_: &_| Err(Error::GetAuxWrongType);
         let conn = Connection::open_in_memory().unwrap();
         let init_config =
             make_default_config_with_different_pointers(vec![fn_one, fn_two, fn_three]);

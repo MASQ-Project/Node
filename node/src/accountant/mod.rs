@@ -1453,8 +1453,8 @@ pub mod check_sqlite_fns {
 
         fn handle(
             &mut self,
-            msg: CheckSqliteFunctionsDefinedByUs,
-            ctx: &mut Self::Context,
+            _msg: CheckSqliteFunctionsDefinedByUs,
+            _ctx: &mut Self::Context,
         ) -> Self::Result {
             //hypothesis is that this is gonna blow up in the middle of the operation if our defined functions haven't been hooked up
             self.receivable_dao.test_our_defined_sqlite_functions();

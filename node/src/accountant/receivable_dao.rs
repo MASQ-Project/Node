@@ -101,7 +101,7 @@ impl ReceivableDaoFactory for DaoFactoryReal {
             self.data_directory.as_path(),
             self.create_if_necessary,
             {
-                let mut init_config = self.init_config.take().expectv("init config");
+                let init_config = self.init_config.take().expectv("init config");
                 init_config
                     .add_special_conn_setup(BigIntDivider::register_deconstruct_for_db_connection)
             },
@@ -274,7 +274,7 @@ impl ReceivableDaoReal {
         }
     }
 
-    //TODO delete me...
+    // TODO delete me...
     pub fn delinquency_curve_height_detection(
         payment_thresholds: &PaymentThresholds,
         now: i64,
@@ -287,15 +287,6 @@ impl ReceivableDaoReal {
             checked_conversion::<i64, u64>(time),
         ) as i128
             * WEIS_OF_GWEI
-    }
-
-    fn prepare_multi_insert_statement(row_count: usize) -> String {
-        let mut flexible_part = "(?, ?),".repeat(row_count);
-        flexible_part.pop();
-        format!(
-            "insert into delinquency_metadata (wallet_address,curve_point) values {}",
-            flexible_part
-        )
     }
 
     fn try_multi_insert_payment(

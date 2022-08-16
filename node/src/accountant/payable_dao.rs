@@ -369,7 +369,6 @@ mod tests {
         BigIntDbProcessorMock,
     };
     use crate::database::connection_wrapper::ConnectionWrapperReal;
-    use crate::database::db_initializer;
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
@@ -424,11 +423,6 @@ mod tests {
         let subject = {
             let subject = PayableDaoReal::new(boxed_conn);
             subject.more_money_payable(now, &wallet, 1234).unwrap();
-            let mut flags = OpenFlags::empty();
-            flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
-            let conn =
-                Connection::open_with_flags(&home_dir.join(db_initializer::DATABASE_FILE), flags)
-                    .unwrap();
             subject
         };
 

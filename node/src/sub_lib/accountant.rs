@@ -84,7 +84,7 @@ pub struct AccountantConfig {
     pub when_pending_too_long_sec: u64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct AccountantSubs {
     pub bind: Recipient<BindMessage>,
     pub start: Recipient<StartMessage>,
@@ -114,7 +114,7 @@ pub struct AccountantSubsFactoryReal {}
 
 impl AccountantSubsFactory for AccountantSubsFactoryReal {
     fn make(&self, addr: &Addr<Accountant>) -> AccountantSubs {
-        todo!()
+        Accountant::make_subs_from(addr)
     }
 }
 
@@ -213,9 +213,12 @@ macro_rules! process_top_records_query {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::test_utils::AccountantBuilder;
+    use crate::accountant::Accountant;
     use crate::sub_lib::accountant::{
-        PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
-        DEFAULT_SCAN_INTERVALS, TEMPORARY_CONSUMING_WALLET,
+        AccountantSubsFactory, AccountantSubsFactoryReal, PaymentThresholds, ScanIntervals,
+        DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS,
+        TEMPORARY_CONSUMING_WALLET,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
@@ -258,5 +261,16 @@ mod tests {
         let subject = make_accountant_subs_from_recorder(&addr);
 
         assert_eq!(format!("{:?}", subject), "AccountantSubs");
+    }
+
+    #[test]
+    fn accountant_subs_factory_produces_proper_subs() {
+        let subject = AccountantSubsFactoryReal {};
+        let accountant = AccountantBuilder::default().build();
+        let addr = accountant.start();
+
+        let subs = subject.make(&addr);
+
+        assert_eq!(subs, Accountant::make_subs_from(&addr))
     }
 }

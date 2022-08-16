@@ -1825,12 +1825,10 @@ mod tests {
 
     impl AccountantSubsFactory for AccountantSubsFactoryTestOnly {
         fn make(&self, addr: &Addr<Accountant>) -> AccountantSubs {
-            //making it obvious that this better shouldn't be moved out from under the test attribute
-            if !cfg!(test) {
-                panic!("permitted only in tests")
-            };
             self.address_leaker.try_send(addr.clone()).unwrap();
-            Accountant::make_subs_from(addr)
+            //making sure this code wouldn't work in real life
+            let addr = Recorder::new().start();
+            make_accountant_subs_from_recorder(&addr)
         }
     }
 
