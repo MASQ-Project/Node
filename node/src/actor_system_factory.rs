@@ -1890,6 +1890,7 @@ mod tests {
         assert_eq!(system.run(), 0);
         assurance_rv.try_recv().unwrap();
         //we didn't blow up, it recognized the functions
+        //this is an example of the error: "no such function: biginthigh"
     }
 
     #[test]

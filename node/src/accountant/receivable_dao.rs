@@ -97,14 +97,15 @@ pub trait ReceivableDaoFactory {
 
 impl ReceivableDaoFactory for DaoFactoryReal {
     fn make(&self) -> Box<dyn ReceivableDao> {
-        Box::new(ReceivableDaoReal::new(connection_or_panic(
-            &DbInitializerReal::default(),
-            self.data_directory.as_path(),
-            self.create_if_necessary,
+        Box::new(ReceivableDaoReal::new(
+            connection_or_panic(
+                &DbInitializerReal::default(),
+                self.data_directory.as_path(),
+                self.create_if_necessary,
             {
                 let mut init_config = self.migrator_config.take().expectv("init config");
-                init_config
-            },
+                init_config.add_special_conn_setup(BigIntDivider::register_deconstruct_for_db_connection)
+                },
         )))
     }
 }
@@ -252,6 +253,16 @@ impl ReceivableDao for ReceivableDaoReal {
             Ok(value) => value,
             Err(e) => panic!("Database is corrupt: {:?}", e),
         }
+    }
+
+    #[cfg(test)]
+    fn test_our_defined_sqlite_functions(&self) {
+        self.conn
+            .prepare("select biginthigh(4578745,89.7888)")
+            .unwrap();
+        self.conn
+            .prepare("select bigintlow(787845,7878.0056)")
+            .unwrap();
     }
 }
 
@@ -403,7 +414,7 @@ mod tests {
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::DbInitializer;
     use crate::database::db_initializer::DbInitializerReal;
-    use crate::database::db_migrations::MigratorConfig;
+    use crate::database::db_migrations::{ExternalData, MigratorConfig};
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_wallet;
@@ -411,6 +422,7 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use std::sync::{Arc, Mutex};
+    use masq_lib::utils::NeighborhoodModeLight;
 
     #[test]
     fn conversion_from_pce_works() {
@@ -422,6 +434,22 @@ mod tests {
             subject,
             ReceivableDaoError::ConfigurationError("BadHexFormat(\"booga\")".to_string())
         );
+    }
+
+    #[test]
+    fn factory_produces_connection_that_recognizes_our_defined_sqlite_functions(){
+        let home_dir = ensure_node_home_directory_exists("receivable_dao","factory_produces_connection_that_recognizes_our_defined_sqlite_functions");
+        DbInitializerReal::default().initialize(&home_dir,true,MigratorConfig::create_or_migrate(ExternalData{
+            chain: Default::default(),
+            neighborhood_mode: NeighborhoodModeLight::Standard,
+            db_password_opt: None}
+        )).unwrap();
+        let subject = DaoFactoryReal::new(&home_dir,false,MigratorConfig::panic_on_migration());
+
+        let receivable_dao = subject.make();
+
+        receivable_dao.test_our_defined_sqlite_functions();
+        //we didn't blow up, all is good
     }
 
     #[test]

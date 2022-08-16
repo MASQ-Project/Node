@@ -15,7 +15,7 @@ use masq_lib::logger::Logger;
 #[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
-use rusqlite::{params_from_iter, Error, Params, Row, Transaction};
+use rusqlite::{params_from_iter, Error, Params, Row, Transaction, Connection};
 use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
@@ -811,10 +811,24 @@ impl DbMigratorReal {
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(Clone)]
 pub struct MigratorConfig {
+    pub special_conn_setup: Vec<fn(&Connection)->rusqlite::Result<()>>,
+    //only things related to migrations
     pub should_be_suppressed: Suppression,
     pub external_dataset: Option<ExternalData>,
+}
+
+impl PartialEq for MigratorConfig{
+    fn eq(&self, other: &Self) -> bool {
+        todo!()
+    }
+}
+
+impl Debug for MigratorConfig{
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
+    }
 }
 
 #[derive(PartialEq, Debug, Clone, Copy)]
@@ -825,8 +839,13 @@ pub enum Suppression {
 }
 
 impl MigratorConfig {
+    pub fn add_special_conn_setup(mut self, setter: fn(&Connection)->rusqlite::Result<()>) -> Self{
+        todo!()
+    }
+
     pub fn panic_on_migration() -> Self {
         Self {
+            special_conn_setup: vec![],
             should_be_suppressed: Suppression::No,
             external_dataset: None,
         }
@@ -835,6 +854,7 @@ impl MigratorConfig {
     pub fn create_or_migrate(external_params: ExternalData) -> Self {
         //is used also if a fresh db is being created
         Self {
+            special_conn_setup: vec![],
             should_be_suppressed: Suppression::No,
             external_dataset: Some(external_params),
         }
@@ -842,6 +862,7 @@ impl MigratorConfig {
 
     pub fn migration_suppressed() -> Self {
         Self {
+            special_conn_setup: vec![],
             should_be_suppressed: Suppression::Yes,
             external_dataset: None,
         }
@@ -849,6 +870,7 @@ impl MigratorConfig {
 
     pub fn migration_suppressed_with_error() -> Self {
         Self {
+            special_conn_setup: vec![],
             should_be_suppressed: Suppression::WithErr,
             external_dataset: None,
         }
@@ -857,6 +879,7 @@ impl MigratorConfig {
     #[cfg(test)]
     pub fn test_default() -> Self {
         Self {
+            special_conn_setup: vec![],
             should_be_suppressed: Suppression::Yes,
             external_dataset: Some(ExternalData {
                 chain: TEST_DEFAULT_CHAIN,
@@ -1140,6 +1163,7 @@ mod tests {
         assert_eq!(
             MigratorConfig::panic_on_migration(),
             MigratorConfig {
+                special_conn_setup: vec![],
                 should_be_suppressed: Suppression::No,
                 external_dataset: None
             }
@@ -1151,6 +1175,7 @@ mod tests {
         assert_eq!(
             MigratorConfig::create_or_migrate(make_external_migration_parameters()),
             MigratorConfig {
+                special_conn_setup: vec![],
                 should_be_suppressed: Suppression::No,
                 external_dataset: Some(make_external_migration_parameters())
             }
@@ -1162,6 +1187,7 @@ mod tests {
         assert_eq!(
             MigratorConfig::migration_suppressed(),
             MigratorConfig {
+                special_conn_setup: vec![],
                 should_be_suppressed: Suppression::Yes,
                 external_dataset: None
             }
@@ -1173,6 +1199,7 @@ mod tests {
         assert_eq!(
             MigratorConfig::migration_suppressed_with_error(),
             MigratorConfig {
+                special_conn_setup: vec![],
                 should_be_suppressed: Suppression::WithErr,
                 external_dataset: None
             }
