@@ -13,8 +13,8 @@ use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::bootstrapper::CryptDEPair;
+use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{connection_or_panic, DbInitializer, DbInitializerReal};
-use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::node_configurator::configurator::Configurator;
 use crate::sub_lib::accountant::{
@@ -49,7 +49,6 @@ use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, AutomapProtocol};
 use std::net::{IpAddr, Ipv4Addr};
-use std::path::Path;
 
 pub trait ActorSystemFactory {
     fn make_and_start_actors(
@@ -453,7 +452,7 @@ impl ActorFactory for ActorFactoryReal {
             db_initializer,
             data_directory,
             false,
-            MigratorConfig::panic_on_migration(),
+            DbInitializationConfig::panic_on_migration(),
         ));
         let cloned_config = config.clone();
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
@@ -640,8 +639,7 @@ mod tests {
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
-    use actix::Message;
-    use actix::{Actor, Arbiter, Context, Handler, Running, System};
+    use actix::{Actor, Arbiter, System};
     use automap_lib::control_layer::automap_control::AutomapChange;
     #[cfg(all(test, not(feature = "no_test_share")))]
     use automap_lib::mocks::{
@@ -948,7 +946,7 @@ mod tests {
         proxy_server_params: Arc<Mutex<Option<(CryptDEPair, BootstrapperConfig)>>>,
         hopper_params: Arc<Mutex<Option<HopperConfig>>>,
         neighborhood_params: Arc<Mutex<Option<(&'a dyn CryptDE, BootstrapperConfig)>>>,
-        accountant_params: Arc<Mutex<Option<(BootstrapperConfig)>>>,
+        accountant_params: Arc<Mutex<Option<BootstrapperConfig>>>,
         ui_gateway_params: Arc<Mutex<Option<UiGatewayConfig>>>,
         blockchain_bridge_params: Arc<Mutex<Option<BootstrapperConfig>>>,
         configurator_params: Arc<Mutex<Option<BootstrapperConfig>>>,
@@ -1837,10 +1835,10 @@ mod tests {
     }
 
     #[test]
-    fn functions_of_big_int_divider_are_registered_for_receivable_dao_in_accountant() {
+    fn our_big_int_sqlite_functions_are_hooked_up_to_receivable_dao_in_accountant() {
         let data_dir = ensure_node_home_directory_exists(
             "actor_system_factory",
-            "functions_of_big_int_divider_are_registered_for_receivable_dao_in_accountant",
+            "our_big_int_sqlite_functions_are_hooked_up_to_receivable_dao_in_accountant",
         );
         let mut accountant_config = make_populated_accountant_config_with_defaults();
         accountant_config.payment_thresholds.debt_threshold_gwei = 1000000;
@@ -1849,7 +1847,11 @@ mod tests {
             .permanent_debt_allowed_gwei = 1000;
         accountant_config.payment_thresholds.unban_below_gwei = 1000;
         let db_conn = DbInitializerReal::default()
-            .initialize(data_dir.as_ref(), true, MigratorConfig::test_default())
+            .initialize(
+                data_dir.as_ref(),
+                true,
+                DbInitializationConfig::test_default(),
+            )
             .unwrap();
         let receivable_dao = ReceivableDaoReal::new(db_conn);
         let last_received = from_time_t(
@@ -1870,7 +1872,6 @@ mod tests {
         b_config.data_directory = data_dir;
         let system = System::new("big_int_divider_functions_for_accountant");
         let (addr_tx, addr_rv) = bounded(1);
-        let (assurance_tx, assurance_rv) = bounded(1);
         let subject = ActorFactoryReal {};
 
         subject.make_and_start_accountant(
@@ -1885,10 +1886,9 @@ mod tests {
         let accountant_addr = addr_rv.try_recv().unwrap();
         //this message also stops the system after the check
         accountant_addr
-            .try_send(CheckSqliteFunctionsDefinedByUs { assurance_tx })
+            .try_send(CheckSqliteFunctionsDefinedByUs {})
             .unwrap();
         assert_eq!(system.run(), 0);
-        assurance_rv.try_recv().unwrap();
         //we didn't blow up, it recognized the functions
         //this is an example of the error: "no such function: biginthigh"
     }

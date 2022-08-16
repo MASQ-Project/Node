@@ -3,7 +3,7 @@
 use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::big_int_db_processor::{
     collect_and_sum_i128_values_from_table, BigIntDbProcessor, BigIntDbProcessorReal,
-    BigIntDivider, BigIntSqlConfig, DAOTableIdentifier, SQLParams, SQLParamsBuilder, WeiChange,
+    BigIntDivider, BigIntSqlConfig, DAOTableIdentifier, SQLParamsBuilder,
 };
 use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
@@ -16,7 +16,6 @@ use crate::sub_lib::accountant::WEIS_OF_GWEI;
 use crate::sub_lib::wallet::Wallet;
 #[cfg(test)]
 use ethereum_types::{BigEndianHash, U256};
-use itertools::Either;
 use itertools::Either::Left;
 use masq_lib::utils::ExpectValue;
 use rusqlite::types::ToSql;
@@ -364,17 +363,17 @@ impl DAOTableIdentifier for PayableDaoReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::big_int_db_processor::BigIntDbError;
     use crate::accountant::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::accountant::test_utils::{
-        assert_database_blows_up_on_an_unexpected_error, convert_to_all_string_values,
-        make_pending_payable_fingerprint, BigIntDbProcessorMock,
+        assert_database_blows_up_on_an_unexpected_error, make_pending_payable_fingerprint,
+        BigIntDbProcessorMock,
     };
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer;
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
-    use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
-    use crate::database::db_migrations::MigratorConfig;
+    use crate::database::db_initializer::{
+        DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
+    };
     use crate::test_utils::make_wallet;
     use ethereum_types::BigEndianHash;
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
@@ -397,7 +396,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let status = {
             let boxed_conn = DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .initialize(&home_dir, true, DbInitializationConfig::test_default())
                 .unwrap();
             let subject = PayableDaoReal::new(boxed_conn);
 
@@ -420,7 +419,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let now = SystemTime::now();
         let boxed_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, true, DbInitializationConfig::test_default())
             .unwrap();
         let subject = {
             let subject = PayableDaoReal::new(boxed_conn);
@@ -455,7 +454,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .initialize(&home_dir, true, DbInitializationConfig::test_default())
                 .unwrap(),
         );
 
@@ -476,7 +475,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let pending_payable_rowid = 656;
         let boxed_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, true, DbInitializationConfig::test_default())
             .unwrap();
         {
             insert_single_record_into_payable(
@@ -519,7 +518,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let rowid = 656;
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, true, DbInitializationConfig::test_default())
             .unwrap();
         let subject = PayableDaoReal::new(conn);
 
@@ -553,7 +552,7 @@ mod tests {
         let home_dir =
             ensure_node_home_directory_exists("payable_dao", "transaction_confirmed_works");
         let boxed_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, true, DbInitializationConfig::test_default())
             .unwrap();
         let hash = H256::from_uint(&U256::from(12345));
         let rowid = 789;
@@ -651,7 +650,7 @@ mod tests {
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .initialize(&home_dir, true, DbInitializationConfig::test_default())
                 .unwrap(),
         );
         let mut pending_payable_fingerprint = make_pending_payable_fingerprint();
@@ -697,7 +696,7 @@ mod tests {
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .initialize(&home_dir, true, DbInitializationConfig::test_default())
                 .unwrap(),
         );
 
@@ -714,7 +713,7 @@ mod tests {
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .initialize(&home_dir, true, DbInitializationConfig::test_default())
                 .unwrap(),
         );
         let mut flags = OpenFlags::empty();
@@ -796,7 +795,7 @@ mod tests {
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .initialize(&home_dir, true, DbInitializationConfig::test_default())
                 .unwrap(),
         );
 
@@ -1145,7 +1144,7 @@ mod tests {
     fn total_works() {
         let home_dir = ensure_node_home_directory_exists("payable_dao", "total_works");
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, true, DbInitializationConfig::test_default())
             .unwrap();
         let timestamp = dao_utils::now_time_t();
         insert_record(
@@ -1189,7 +1188,7 @@ mod tests {
         let home_dir =
             ensure_node_home_directory_exists("payable_dao", "total_takes_negative_sum_as_error");
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, true, DbInitializationConfig::test_default())
             .unwrap();
         let timestamp = dao_utils::now_time_t();
         insert_record(
@@ -1209,7 +1208,7 @@ mod tests {
         let home_dir =
             ensure_node_home_directory_exists("payable_dao", "correctly_totals_zero_records");
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, true, DbInitializationConfig::test_default())
             .unwrap();
         let subject = PayableDaoReal::new(conn);
 
@@ -1334,7 +1333,7 @@ mod tests {
     {
         let home_dir = ensure_node_home_directory_exists("payable_dao", test_name);
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, true, DbInitializationConfig::test_default())
             .unwrap();
         let insert = |wallet: &str,
                       wei_balance: i128,

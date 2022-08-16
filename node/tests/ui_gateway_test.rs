@@ -17,7 +17,7 @@ use masq_lib::utils::find_free_port;
 use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
-use node_lib::database::db_migrations::MigratorConfig;
+use node_lib::database::db_migrations::DbInitializationConfig;
 use node_lib::test_utils::make_wallet;
 use std::time::SystemTime;
 use utils::CommandConfig;
@@ -32,7 +32,11 @@ fn ui_requests_something_and_gets_corresponding_response() {
     );
     let make_conn = || {
         DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::panic_on_migration())
+            .initialize(
+                &home_dir,
+                true,
+                DbInitializationConfig::panic_on_migration(),
+            )
             .unwrap()
     };
     PayableDaoReal::new(make_conn())

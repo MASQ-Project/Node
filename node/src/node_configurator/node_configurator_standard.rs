@@ -16,7 +16,8 @@ use log::LevelFilter;
 
 use crate::apps::app_node;
 use crate::bootstrapper::PortConfiguration;
-use crate::database::db_migrations::{ExternalData, MigratorConfig};
+use crate::database::db_initializer::DbInitializationConfig;
+use crate::database::db_migrations::ExternalData;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
 use crate::node_configurator::unprivileged_parse_args_configuration::{
@@ -84,7 +85,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
         let mut persistent_config = initialize_database(
             &self.privileged_config.data_directory,
             true,
-            MigratorConfig::create_or_migrate(self.wrap_up_db_externals(multi_config)),
+            DbInitializationConfig::create_or_migrate(self.wrap_up_db_externals(multi_config)),
         );
         let mut unprivileged_config = BootstrapperConfig::new();
         let parse_args_configurator = UnprivilegedParseArgsConfigurationDaoReal {};
@@ -311,7 +312,11 @@ mod tests {
         .unwrap()];
         {
             let conn = DbInitializerReal::default()
-                .initialize(home_dir.as_path(), true, MigratorConfig::test_default())
+                .initialize(
+                    home_dir.as_path(),
+                    true,
+                    DbInitializationConfig::test_default(),
+                )
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
             persistent_config.change_password(None, "password").unwrap();
@@ -456,7 +461,11 @@ mod tests {
         );
         let mut persistent_config = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir.clone(), true, MigratorConfig::test_default())
+                .initialize(
+                    &home_dir.clone(),
+                    true,
+                    DbInitializationConfig::test_default(),
+                )
                 .unwrap(),
         )));
         let consuming_private_key =

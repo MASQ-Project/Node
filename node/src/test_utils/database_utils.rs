@@ -3,9 +3,11 @@
 #![cfg(test)]
 
 use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::database::db_migrations::DbMigrator;
+use crate::database::db_migrations::{DbMigrator, ExternalData};
 use itertools::Itertools;
 use masq_lib::logger::Logger;
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+use masq_lib::utils::NeighborhoodModeLight;
 use rusqlite::{Connection, Error};
 use std::cell::RefCell;
 use std::collections::HashSet;
@@ -303,4 +305,12 @@ fn select_desired_sql_element(found_elements: Vec<String>, searched_element_name
         )
     }
     searched_element.remove(0)
+}
+
+pub fn make_external_migration_parameters() -> ExternalData {
+    ExternalData {
+        chain: TEST_DEFAULT_CHAIN,
+        neighborhood_mode: NeighborhoodModeLight::Standard,
+        db_password_opt: None,
+    }
 }

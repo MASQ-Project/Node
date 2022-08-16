@@ -25,8 +25,8 @@ use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, ExpectValue};
 
 use crate::bootstrapper::BootstrapperConfig;
+use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
@@ -463,7 +463,7 @@ impl Neighborhood {
                 .initialize(
                     &self.data_directory,
                     false,
-                    MigratorConfig::panic_on_migration(),
+                    DbInitializationConfig::panic_on_migration(),
                 )
                 .expect("Neighborhood could not connect to database");
             self.persistent_config_opt = Some(Box::new(PersistentConfigurationReal::from(conn)));
@@ -1426,7 +1426,7 @@ mod tests {
         );
         {
             let _ = DbInitializerReal::default()
-                .initialize(&data_dir, true, MigratorConfig::test_default())
+                .initialize(&data_dir, true, DbInitializationConfig::test_default())
                 .unwrap();
         }
         let cryptde = main_cryptde();
@@ -1473,7 +1473,7 @@ mod tests {
         );
         {
             let _ = DbInitializerReal::default()
-                .initialize(&data_dir, true, MigratorConfig::test_default())
+                .initialize(&data_dir, true, DbInitializationConfig::test_default())
                 .unwrap();
         }
         let cryptde: &dyn CryptDE = main_cryptde();
@@ -3501,7 +3501,7 @@ mod tests {
         );
         {
             let _ = DbInitializerReal::default()
-                .initialize(&data_dir, true, MigratorConfig::test_default())
+                .initialize(&data_dir, true, DbInitializationConfig::test_default())
                 .unwrap();
         }
         let cryptde: &dyn CryptDE = main_cryptde();

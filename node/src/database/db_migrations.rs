@@ -3,7 +3,7 @@
 use crate::accountant::big_int_db_processor::BigIntDivider;
 use crate::blockchain::bip39::Bip39;
 use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
+use crate::database::db_initializer::{DbInitializationConfig, CURRENT_SCHEMA_VERSION};
 use crate::db_config::db_encryption_layer::DbEncryptionLayer;
 use crate::db_config::typed_config_layer::decode_bytes;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
@@ -12,10 +12,8 @@ use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
-#[cfg(test)]
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
-use rusqlite::{params_from_iter, Error, Params, Row, Transaction, Connection};
+use rusqlite::{params_from_iter, Error, Params, Row, Transaction};
 use std::cell::RefCell;
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
@@ -811,85 +809,6 @@ impl DbMigratorReal {
     }
 }
 
-#[derive(Clone)]
-pub struct MigratorConfig {
-    pub special_conn_setup: Vec<fn(&Connection)->rusqlite::Result<()>>,
-    //only things related to migrations
-    pub should_be_suppressed: Suppression,
-    pub external_dataset: Option<ExternalData>,
-}
-
-impl PartialEq for MigratorConfig{
-    fn eq(&self, other: &Self) -> bool {
-        todo!()
-    }
-}
-
-impl Debug for MigratorConfig{
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
-    }
-}
-
-#[derive(PartialEq, Debug, Clone, Copy)]
-pub enum Suppression {
-    No,
-    Yes,
-    WithErr,
-}
-
-impl MigratorConfig {
-    pub fn add_special_conn_setup(mut self, setter: fn(&Connection)->rusqlite::Result<()>) -> Self{
-        todo!()
-    }
-
-    pub fn panic_on_migration() -> Self {
-        Self {
-            special_conn_setup: vec![],
-            should_be_suppressed: Suppression::No,
-            external_dataset: None,
-        }
-    }
-
-    pub fn create_or_migrate(external_params: ExternalData) -> Self {
-        //is used also if a fresh db is being created
-        Self {
-            special_conn_setup: vec![],
-            should_be_suppressed: Suppression::No,
-            external_dataset: Some(external_params),
-        }
-    }
-
-    pub fn migration_suppressed() -> Self {
-        Self {
-            special_conn_setup: vec![],
-            should_be_suppressed: Suppression::Yes,
-            external_dataset: None,
-        }
-    }
-
-    pub fn migration_suppressed_with_error() -> Self {
-        Self {
-            special_conn_setup: vec![],
-            should_be_suppressed: Suppression::WithErr,
-            external_dataset: None,
-        }
-    }
-
-    #[cfg(test)]
-    pub fn test_default() -> Self {
-        Self {
-            special_conn_setup: vec![],
-            should_be_suppressed: Suppression::Yes,
-            external_dataset: Some(ExternalData {
-                chain: TEST_DEFAULT_CHAIN,
-                neighborhood_mode: NeighborhoodModeLight::Standard,
-                db_password_opt: None,
-            }),
-        }
-    }
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub struct ExternalData {
     pub chain: Chain,
@@ -911,10 +830,10 @@ impl ExternalData {
     }
 }
 
-impl From<(MigratorConfig, bool)> for ExternalData {
-    fn from(tuple: (MigratorConfig, bool)) -> Self {
-        let (migrator_config, db_newly_created) = tuple;
-        migrator_config.external_dataset.unwrap_or_else(|| {
+impl From<(DbInitializationConfig, bool)> for ExternalData {
+    fn from(tuple: (DbInitializationConfig, bool)) -> Self {
+        let (init_config, db_newly_created) = tuple;
+        init_config.external_dataset.unwrap_or_else(|| {
             panic!(
                 "{}",
                 if db_newly_created {
@@ -953,9 +872,9 @@ mod tests {
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION, DATABASE_FILE,
     };
     use crate::database::db_migrations::{
-        DBMigrationUtilities, DBMigrationUtilitiesReal, DatabaseMigration, DbMigrator,
-        ExternalData, MigDeclarationUtilities, Migrate_0_to_1, MigratorConfig, StatementObject,
-        StatementWithRusqliteParams, Suppression,
+        DBMigrationUtilities, DBMigrationUtilitiesReal, DatabaseMigration, DbInitializationConfig,
+        DbMigrator, ExternalData, MigDeclarationUtilities, Migrate_0_to_1, StatementObject,
+        StatementWithRusqliteParams,
     };
     use crate::database::db_migrations::{DBMigratorInnerConfiguration, DbMigratorReal};
     use crate::db_config::db_encryption_layer::DbEncryptionLayer;
@@ -971,6 +890,7 @@ mod tests {
         assert_create_table_stm_contains_all_parts,
         assert_index_stm_is_coupled_with_right_parameter, assert_no_index_exists_for_table,
         assert_table_does_not_exist, bring_db_0_back_to_life_and_return_connection,
+        make_external_migration_parameters,
     };
     use crate::test_utils::database_utils::{assert_table_created_as_strict, retrieve_config_row};
     use crate::test_utils::make_wallet;
@@ -1138,14 +1058,6 @@ mod tests {
         }
     }
 
-    fn make_external_migration_parameters() -> ExternalData {
-        ExternalData {
-            chain: TEST_DEFAULT_CHAIN,
-            neighborhood_mode: NeighborhoodModeLight::Standard,
-            db_password_opt: None,
-        }
-    }
-
     const _SMART_REMINDER: () = check_schema_version_continuity();
 
     #[allow(dead_code)]
@@ -1156,54 +1068,6 @@ mod tests {
              work correctly if any new migration added"
             )
         };
-    }
-
-    #[test]
-    fn panic_on_migration_properly_set() {
-        assert_eq!(
-            MigratorConfig::panic_on_migration(),
-            MigratorConfig {
-                special_conn_setup: vec![],
-                should_be_suppressed: Suppression::No,
-                external_dataset: None
-            }
-        )
-    }
-
-    #[test]
-    fn create_or_migrate_properly_set() {
-        assert_eq!(
-            MigratorConfig::create_or_migrate(make_external_migration_parameters()),
-            MigratorConfig {
-                special_conn_setup: vec![],
-                should_be_suppressed: Suppression::No,
-                external_dataset: Some(make_external_migration_parameters())
-            }
-        )
-    }
-
-    #[test]
-    fn migration_suppressed_properly_set() {
-        assert_eq!(
-            MigratorConfig::migration_suppressed(),
-            MigratorConfig {
-                special_conn_setup: vec![],
-                should_be_suppressed: Suppression::Yes,
-                external_dataset: None
-            }
-        )
-    }
-
-    #[test]
-    fn suppressed_with_error_properly_set() {
-        assert_eq!(
-            MigratorConfig::migration_suppressed_with_error(),
-            MigratorConfig {
-                special_conn_setup: vec![],
-                should_be_suppressed: Suppression::WithErr,
-                external_dataset: None
-            }
-        )
     }
 
     #[test]
@@ -1876,7 +1740,7 @@ mod tests {
             &dir_path,
             1,
             false,
-            MigratorConfig::create_or_migrate(make_external_migration_parameters()),
+            DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
         );
         let connection = result.unwrap();
         let (mp_value, mp_encrypted) = retrieve_config_row(connection.as_ref(), "mapping_protocol");
@@ -1904,7 +1768,7 @@ mod tests {
                     &dir_path,
                     start_at,
                     true,
-                    MigratorConfig::create_or_migrate(make_external_migration_parameters()),
+                    DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
                 )
                 .unwrap();
         }
@@ -1913,7 +1777,7 @@ mod tests {
             &dir_path,
             start_at + 1,
             false,
-            MigratorConfig::create_or_migrate(make_external_migration_parameters()),
+            DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
         );
 
         let connection = result.unwrap();
@@ -1944,7 +1808,7 @@ mod tests {
                     &dir_path,
                     start_at,
                     true,
-                    MigratorConfig::create_or_migrate(make_external_migration_parameters()),
+                    DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
                 )
                 .unwrap();
         }
@@ -1953,7 +1817,7 @@ mod tests {
             &dir_path,
             start_at + 1,
             false,
-            MigratorConfig::create_or_migrate(ExternalData::new(
+            DbInitializationConfig::create_or_migrate(ExternalData::new(
                 DEFAULT_CHAIN,
                 NeighborhoodModeLight::ConsumeOnly,
                 None,
@@ -1984,16 +1848,16 @@ mod tests {
         let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
         let password_opt = &Some("password".to_string());
         let subject = DbInitializerReal::default();
-        let mut migrator_config =
-            MigratorConfig::create_or_migrate(make_external_migration_parameters());
-        migrator_config
+        let mut init_config =
+            DbInitializationConfig::create_or_migrate(make_external_migration_parameters());
+        init_config
             .external_dataset
             .as_mut()
             .unwrap()
             .db_password_opt = password_opt.clone();
         let original_private_key = {
             let schema3_conn = subject
-                .initialize_to_version(&data_path, 3, true, migrator_config.clone())
+                .initialize_to_version(&data_path, 3, true, init_config.clone())
                 .unwrap();
             let mnemonic = Mnemonic::new(MnemonicType::Words24, Language::English);
             let seed = Seed::new(&mnemonic, "booga");
@@ -2041,7 +1905,7 @@ mod tests {
 
         let migrated_private_key = {
             let mut schema4_conn = subject
-                .initialize_to_version(&data_path, 4, false, migrator_config)
+                .initialize_to_version(&data_path, 4, false, init_config)
                 .unwrap();
             {
                 let mut stmt = schema4_conn.prepare("select count(*) from config where name in ('consuming_wallet_derivation_path', 'consuming_wallet_public_key', 'seed')").unwrap();
@@ -2075,16 +1939,16 @@ mod tests {
         let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
         let password_opt = &Some("password".to_string());
         let subject = DbInitializerReal::default();
-        let mut migrator_config =
-            MigratorConfig::create_or_migrate(make_external_migration_parameters());
-        migrator_config
+        let mut init_config =
+            DbInitializationConfig::create_or_migrate(make_external_migration_parameters());
+        init_config
             .external_dataset
             .as_mut()
             .unwrap()
             .db_password_opt = password_opt.clone();
 
         let mut schema4_conn = subject
-            .initialize_to_version(&data_path, 4, false, migrator_config)
+            .initialize_to_version(&data_path, 4, false, init_config)
             .unwrap();
 
         {
@@ -2117,7 +1981,7 @@ mod tests {
                 &dir_path,
                 start_at,
                 true,
-                MigratorConfig::create_or_migrate(make_external_migration_parameters()),
+                DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
             )
             .unwrap();
         let wallet_1 = make_wallet("scotland_yard");
@@ -2135,7 +1999,7 @@ mod tests {
                 &dir_path,
                 start_at + 1,
                 false,
-                MigratorConfig::create_or_migrate(ExternalData::new(
+                DbInitializationConfig::create_or_migrate(ExternalData::new(
                     TEST_DEFAULT_CHAIN,
                     NeighborhoodModeLight::ConsumeOnly,
                     Some("password".to_string()),
@@ -2196,7 +2060,7 @@ mod tests {
                     &dir_path,
                     start_at,
                     true,
-                    MigratorConfig::create_or_migrate(make_external_migration_parameters()),
+                    DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
                 )
                 .unwrap();
         }
@@ -2221,7 +2085,7 @@ mod tests {
                 &dir_path,
                 start_at + 1,
                 false,
-                MigratorConfig::create_or_migrate(ExternalData::new(
+                DbInitializationConfig::create_or_migrate(ExternalData::new(
                     TEST_DEFAULT_CHAIN,
                     NeighborhoodModeLight::ConsumeOnly,
                     Some("password".to_string()),
@@ -2318,7 +2182,7 @@ mod tests {
                     &dir_path,
                     5,
                     true,
-                    MigratorConfig::create_or_migrate(make_external_migration_parameters()),
+                    DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
                 )
                 .unwrap();
         }
@@ -2327,7 +2191,7 @@ mod tests {
             &dir_path,
             6,
             false,
-            MigratorConfig::create_or_migrate(make_external_migration_parameters()),
+            DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
         );
 
         let connection = result.unwrap();
@@ -2359,7 +2223,7 @@ mod tests {
                 &dir_path,
                 6,
                 true,
-                MigratorConfig::create_or_migrate(make_external_migration_parameters()),
+                DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
             )
             .unwrap();
         insert_value(&*pre_db_conn,"insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) \
@@ -2382,7 +2246,7 @@ mod tests {
                 &dir_path,
                 7,
                 false,
-                MigratorConfig::create_or_migrate(make_external_migration_parameters()),
+                DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
             )
             .unwrap();
 
@@ -2472,7 +2336,7 @@ mod tests {
                 &dir_path,
                 6,
                 true,
-                MigratorConfig::create_or_migrate(make_external_migration_parameters()),
+                DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
             )
             .unwrap();
         let mut subject = DbMigratorReal::new(make_external_migration_parameters());

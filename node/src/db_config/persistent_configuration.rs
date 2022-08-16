@@ -575,8 +575,8 @@ impl PersistentConfigurationReal {
 mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
+    use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::database::db_migrations::MigratorConfig;
     use crate::db_config::config_dao::ConfigDaoRecord;
     use crate::db_config::mocks::{ConfigDaoMock, ConfigDaoWriteableMock};
     use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
@@ -1945,7 +1945,7 @@ mod tests {
             "current_config_table_schema",
         );
         let db_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, true, DbInitializationConfig::test_default())
             .unwrap();
         let mut statement = db_conn.prepare("select name from config").unwrap();
         statement

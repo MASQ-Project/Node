@@ -18,7 +18,7 @@ use node_lib::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceNonClandestine, REQUESTS_IN_PARALLEL,
 };
 use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
-use node_lib::database::db_migrations::{ExternalData, MigratorConfig};
+use node_lib::database::db_migrations::{DbInitializationConfig, ExternalData, MigratorConfig};
 use node_lib::sub_lib::accountant::{PaymentThresholds, WEIS_OF_GWEI};
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
@@ -103,7 +103,7 @@ fn verify_bill_payment() {
         .initialize(
             Path::new(&consuming_node_path),
             true,
-            make_migrator_config(cluster.chain),
+            make_init_config(cluster.chain),
         )
         .unwrap();
     let consuming_payable_dao = PayableDaoReal::new(consuming_node_connection);
@@ -142,7 +142,7 @@ fn verify_bill_payment() {
         .initialize(
             Path::new(&serving_node_1_path),
             true,
-            make_migrator_config(cluster.chain),
+            make_init_config(cluster.chain),
         )
         .unwrap();
     let serving_node_1_receivable_dao = ReceivableDaoReal::new(serving_node_1_connection);
@@ -158,7 +158,7 @@ fn verify_bill_payment() {
         .initialize(
             Path::new(&serving_node_2_path),
             true,
-            make_migrator_config(cluster.chain),
+            make_init_config(cluster.chain),
         )
         .unwrap();
     let serving_node_2_receivable_dao = ReceivableDaoReal::new(serving_node_2_connection);
@@ -174,7 +174,7 @@ fn verify_bill_payment() {
         .initialize(
             Path::new(&serving_node_3_path),
             true,
-            make_migrator_config(cluster.chain),
+            make_init_config(cluster.chain),
         )
         .unwrap();
     let serving_node_3_receivable_dao = ReceivableDaoReal::new(serving_node_3_connection);
@@ -311,8 +311,8 @@ fn verify_bill_payment() {
     });
 }
 
-fn make_migrator_config(chain: Chain) -> MigratorConfig {
-    MigratorConfig::create_or_migrate(ExternalData::new(
+fn make_init_config(chain: Chain) -> DbInitializationConfig {
+    DbInitializationConfig::create_or_migrate(ExternalData::new(
         chain,
         NeighborhoodModeLight::Standard,
         None,

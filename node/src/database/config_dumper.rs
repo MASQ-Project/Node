@@ -3,10 +3,10 @@
 use crate::apps::app_config_dumper;
 use crate::blockchain::bip39::Bip39;
 use crate::bootstrapper::RealUser;
+use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{
     DbInitializer, DbInitializerReal, InitializationError, DATABASE_FILE,
 };
-use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::typed_config_layer::{decode_bytes, encode_bytes};
 use crate::node_configurator::DirsWrapperReal;
@@ -41,7 +41,10 @@ impl DumpConfigRunner for DumpConfigRunnerReal {
             distill_args(&DirsWrapperReal {}, args)?;
         let cryptde = CryptDEReal::new(chain);
         PrivilegeDropperReal::new().drop_privileges(&real_user);
-        let config_dao = make_config_dao(&data_directory, MigratorConfig::migration_suppressed()); //dump config is not supposed to migrate db
+        let config_dao = make_config_dao(
+            &data_directory,
+            DbInitializationConfig::migration_suppressed(),
+        ); //dump config is not supposed to migrate db
         let configuration = config_dao.get_all().expect("Couldn't fetch configuration");
         let json = configuration_to_json(configuration, password_opt, &cryptde);
         write_string(streams, json);
@@ -118,9 +121,9 @@ fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> 
     }
 }
 
-fn make_config_dao(data_directory: &Path, migrator_config: MigratorConfig) -> ConfigDaoReal {
+fn make_config_dao(data_directory: &Path, init_config: DbInitializationConfig) -> ConfigDaoReal {
     let conn = DbInitializerReal::default()
-        .initialize(data_directory, false, migrator_config)
+        .initialize(data_directory, false, init_config)
         .unwrap_or_else(|e| if e == InitializationError::Nonexistent {panic!("Could not find database at: {}. Would be created when the Node firstly operates. Running --dump-config before has no effect",data_directory.to_string_lossy())} else {
             panic!(
                 "Can't initialize database at {:?}: {:?}",
@@ -241,7 +244,7 @@ mod tests {
                 .initialize(
                     &data_dir,
                     true,
-                    MigratorConfig::create_or_migrate(ExternalData::new(
+                    DbInitializationConfig::create_or_migrate(ExternalData::new(
                         TEST_DEFAULT_CHAIN,
                         NeighborhoodModeLight::ZeroHop,
                         None,
@@ -296,7 +299,11 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, false, MigratorConfig::panic_on_migration())
+            .initialize(
+                &data_dir,
+                false,
+                DbInitializationConfig::panic_on_migration(),
+            )
             .unwrap();
         let dao = ConfigDaoReal::new(conn);
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
@@ -360,7 +367,7 @@ mod tests {
                 .initialize(
                     &data_dir,
                     true,
-                    MigratorConfig::create_or_migrate(ExternalData::new(
+                    DbInitializationConfig::create_or_migrate(ExternalData::new(
                         TEST_DEFAULT_CHAIN,
                         NeighborhoodModeLight::ConsumeOnly,
                         None,
@@ -416,7 +423,11 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, false, MigratorConfig::panic_on_migration())
+            .initialize(
+                &data_dir,
+                false,
+                DbInitializationConfig::panic_on_migration(),
+            )
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
@@ -469,7 +480,7 @@ mod tests {
                 .initialize(
                     &data_dir,
                     true,
-                    MigratorConfig::create_or_migrate(ExternalData::new(
+                    DbInitializationConfig::create_or_migrate(ExternalData::new(
                         TEST_DEFAULT_CHAIN,
                         NeighborhoodModeLight::Standard,
                         None,
@@ -525,7 +536,11 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, false, MigratorConfig::panic_on_migration())
+            .initialize(
+                &data_dir,
+                false,
+                DbInitializationConfig::panic_on_migration(),
+            )
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);

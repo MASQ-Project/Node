@@ -2,27 +2,22 @@
 
 use crate::accountant::big_int_db_processor::ByteOrder::{High, Low};
 use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
+use crate::accountant::checked_conversion;
 use crate::accountant::payable_dao::PayableDaoError;
 use crate::accountant::receivable_dao::ReceivableDaoError;
 use crate::accountant::test_utils::SQLConfigAbstract;
-use crate::accountant::{checked_conversion, politely_checked_conversion};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::accountant::WEIS_OF_GWEI;
 use crate::sub_lib::wallet::Wallet;
-use futures::collect;
-use itertools::{chain, Either};
+use itertools::Either;
 use masq_lib::utils::ExpectValue;
-use nix::libc::iovec;
 use rusqlite::functions::{Context, FunctionFlags};
-use rusqlite::types::ToSqlOutput;
-use rusqlite::ErrorCode::ConstraintViolation;
-use rusqlite::{params_from_iter, Connection, Error, Statement, ToSql, Transaction};
-use std::fmt::{write, Debug, Display, Formatter};
-use std::iter::{once, Chain, Map};
+use rusqlite::{Connection, Error, Statement, ToSql, Transaction};
+use std::fmt::{Debug, Display, Formatter};
+use std::iter::once;
 use std::marker::PhantomData;
 use std::ops::Neg;
 use std::os::raw::c_int;
-use std::slice::Iter;
 
 pub trait BigIntDbProcessor<T: DAOTableIdentifier>: Send + Debug {
     fn execute<'a>(
@@ -489,16 +484,13 @@ impl BigIntDivider {
 mod tests {
     use super::*;
     use crate::accountant::big_int_db_processor::WeiChange::Addition;
-    use crate::accountant::payable_dao::PayableDaoReal;
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
-    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::make_wallet;
     use itertools::Either::Left;
     use itertools::{Either, Itertools};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::types::ToSqlOutput;
-    use rusqlite::{named_params, params, Connection, OpenFlags, ToSql};
+    use rusqlite::{Connection, OpenFlags, ToSql};
 
     fn convert_params_to_debuggable_values<'a>(
         standard_params: Vec<(&'a str, &'a dyn ToSql)>,

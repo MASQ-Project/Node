@@ -4,14 +4,15 @@ use crate::accountant::payable_dao::PayableAccount;
 use crate::accountant::receivable_dao::ReceivableAccount;
 use crate::accountant::{checked_conversion, sign_conversion};
 use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
-use crate::database::db_migrations::MigratorConfig;
+use crate::database::db_initializer::{
+    connection_or_panic, DbInitializationConfig, DbInitializerReal,
+};
 use crate::sub_lib::accountant::WEIS_OF_GWEI;
 use masq_lib::messages::{
     RangeQuery, TopRecordsConfig, TopRecordsOrdering, UiPayableAccount, UiReceivableAccount,
 };
 use masq_lib::utils::ExpectValue;
-use rusqlite::{params_from_iter, MappedRows, Row, ToSql};
+use rusqlite::{params_from_iter, Row, ToSql};
 use std::cell::RefCell;
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
@@ -37,19 +38,19 @@ pub fn from_time_t(time_t: i64) -> SystemTime {
 pub struct DaoFactoryReal {
     pub data_directory: PathBuf,
     pub create_if_necessary: bool,
-    pub migrator_config: RefCell<Option<MigratorConfig>>,
+    pub init_config: RefCell<Option<DbInitializationConfig>>,
 }
 
 impl DaoFactoryReal {
     pub fn new(
         data_directory: &Path,
         create_if_necessary: bool,
-        migrator_config: MigratorConfig,
+        init_config: DbInitializationConfig,
     ) -> Self {
         Self {
             data_directory: data_directory.to_path_buf(),
             create_if_necessary,
-            migrator_config: RefCell::new(Some(migrator_config)),
+            init_config: RefCell::new(Some(init_config)),
         }
     }
 
@@ -58,7 +59,7 @@ impl DaoFactoryReal {
             &DbInitializerReal::default(),
             &self.data_directory,
             self.create_if_necessary,
-            self.migrator_config.take().expectv("MigratorConfig"),
+            self.init_config.take().expectv("MigratorConfig"),
         )
     }
 }
@@ -195,11 +196,11 @@ impl<N: Copy + Display> CustomQuery<N> {
         vec![
             (
                 ":min_timestamp",
-                Box::new((now - checked_conversion::<u64, i64>(min_age))),
+                Box::new(now - checked_conversion::<u64, i64>(min_age)),
             ),
             (
                 ":max_timestamp",
-                Box::new((now - checked_conversion::<u64, i64>(max_age))),
+                Box::new(now - checked_conversion::<u64, i64>(max_age)),
             ),
         ]
     }
@@ -302,7 +303,7 @@ mod tests {
         let subject = DaoFactoryReal::new(
             &PathBuf::from_str("nonexistent").unwrap(),
             false,
-            MigratorConfig::test_default(),
+            DbInitializationConfig::test_default(),
         );
 
         let _ = subject.make_connection();

@@ -596,8 +596,8 @@ mod tests {
     use super::*;
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
+    use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::database::db_migrations::MigratorConfig;
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::db_config::persistent_configuration::PersistentConfigError::NotPresent;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
@@ -1376,7 +1376,11 @@ mod tests {
         running_test();
         let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir.clone(), true, MigratorConfig::test_default())
+                .initialize(
+                    &home_dir.clone(),
+                    true,
+                    DbInitializationConfig::test_default(),
+                )
                 .unwrap(),
         ));
         let consuming_private_key_text =

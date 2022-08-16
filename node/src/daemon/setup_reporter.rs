@@ -5,8 +5,8 @@ use crate::bootstrapper::BootstrapperConfig;
 use crate::daemon::dns_inspector::dns_inspector_factory::{
     DnsInspectorFactory, DnsInspectorFactoryReal,
 };
+use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, InitializationError};
-use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao_null::ConfigDaoNull;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
@@ -418,7 +418,7 @@ impl SetupReporterReal {
         match initializer.initialize(
             data_directory,
             false,
-            MigratorConfig::migration_suppressed_with_error(),
+            DbInitializationConfig::migration_suppressed_with_error(),
         ) {
             Ok(conn) => {
                 let parse_args_configuration = UnprivilegedParseArgsConfigurationDaoReal {};
@@ -1156,7 +1156,7 @@ mod tests {
         );
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, true, DbInitializationConfig::test_default())
             .unwrap();
         let mut config = PersistentConfigurationReal::from(conn);
         config.change_password(None, "password").unwrap();
@@ -2077,7 +2077,7 @@ mod tests {
             subject.run_configuration(&multi_config, &home_dir);
 
         let error = DbInitializerReal::default()
-            .initialize(&home_dir, false, MigratorConfig::test_default())
+            .initialize(&home_dir, false, DbInitializationConfig::test_default())
             .unwrap_err();
         assert_eq!(error, InitializationError::Nonexistent);
         assert_eq!(

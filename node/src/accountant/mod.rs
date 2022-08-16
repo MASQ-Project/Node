@@ -12,8 +12,8 @@ pub mod test_utils;
 use masq_lib::constants::{MUTUALLY_EXCLUSIVE_REQUEST_PARAMS, REQUEST_WITH_NO_VALUES, SCAN_ERROR};
 
 use masq_lib::messages::{
-    CustomQueryResult, FirmQueryResult, RangeQuery, ScanType, UiFinancialStatistics,
-    UiPayableAccount, UiReceivableAccount, UiScanRequest, UiScanResponse,
+    CustomQueryResult, FirmQueryResult, ScanType, UiFinancialStatistics, UiPayableAccount,
+    UiReceivableAccount, UiScanRequest, UiScanResponse,
 };
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 
@@ -30,7 +30,7 @@ use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
 use crate::bootstrapper::BootstrapperConfig;
-use crate::database::db_migrations::MigratorConfig;
+use crate::database::db_initializer::DbInitializationConfig;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
@@ -462,7 +462,11 @@ impl Accountant {
     }
 
     pub fn dao_factory(data_directory: &Path) -> DaoFactoryReal {
-        DaoFactoryReal::new(data_directory, false, MigratorConfig::panic_on_migration())
+        DaoFactoryReal::new(
+            data_directory,
+            false,
+            DbInitializationConfig::panic_on_migration(),
+        )
     }
 
     fn handle_scan_message(
@@ -1440,12 +1444,9 @@ fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
 pub mod check_sqlite_fns {
     use super::*;
     use actix::System;
-    use crossbeam_channel::Sender;
 
     #[derive(Message)]
-    pub struct CheckSqliteFunctionsDefinedByUs {
-        pub assurance_tx: Sender<()>,
-    }
+    pub struct CheckSqliteFunctionsDefinedByUs {}
 
     impl Handler<CheckSqliteFunctionsDefinedByUs> for Accountant {
         type Result = ();

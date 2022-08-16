@@ -48,10 +48,10 @@ impl ConnectionWrapperReal {
 
 #[cfg(test)]
 mod tests {
+    use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
     };
-    use crate::database::db_migrations::MigratorConfig;
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoRead, ConfigDaoReal};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 
@@ -59,7 +59,7 @@ mod tests {
     fn commit_works() {
         let data_dir = ensure_node_home_directory_exists("connection_wrapper", "commit_works");
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, true, MigratorConfig::test_default())
+            .initialize(&data_dir, true, DbInitializationConfig::test_default())
             .unwrap();
         let mut config_dao = ConfigDaoReal::new(conn);
         {
@@ -79,7 +79,7 @@ mod tests {
     fn drop_works() {
         let data_dir = ensure_node_home_directory_exists("connection_wrapper", "drop_works");
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, true, MigratorConfig::test_default())
+            .initialize(&data_dir, true, DbInitializationConfig::test_default())
             .unwrap();
         let mut config_dao = ConfigDaoReal::new(conn);
         {

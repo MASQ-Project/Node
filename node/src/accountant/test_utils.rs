@@ -34,7 +34,7 @@ use ethereum_types::{BigEndianHash, H256, U256};
 use itertools::Either;
 use rusqlite::{Connection, Row, Transaction as RusqliteTransaction};
 use std::cell::RefCell;
-use std::fmt::{Debug, Display};
+use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
