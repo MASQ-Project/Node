@@ -1325,7 +1325,7 @@ mod tests {
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
-    use crate::accountant::scanners::scanners::{NullScanner, Scanner};
+    use crate::accountant::scanners::scanners::{Scanner, ScannerMock};
     use crate::accountant::test_utils::{
         bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_pending_payable_fingerprint,
         make_receivable_account, BannedDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock,
@@ -1435,7 +1435,7 @@ mod tests {
         }
     }
 
-    // fn Box::new(NullScanner {}) -> Scanner {
+    // fn Box::new(ScannerMock::new()) -> Scanner {
     //     Scanner::new(ScanType::Payables, Box::new(|_, _| {}), Box::new(|_, _| {}))
     // }
 
@@ -2137,8 +2137,8 @@ mod tests {
             .payable_dao(payable_dao) // For Accountant
             .payable_dao(PayableDaoMock::new()) // For Scanner
             .build();
-        subject.scanners.pending_payables = Box::new(NullScanner {});
-        subject.scanners.receivables = Box::new(NullScanner {});
+        subject.scanners.pending_payables = Box::new(ScannerMock::new());
+        subject.scanners.receivables = Box::new(ScannerMock::new());
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
         let peer_actors = peer_actors_builder()
@@ -2189,8 +2189,8 @@ mod tests {
             .receivable_dao(receivable_dao) // For Accountant
             .receivable_dao(ReceivableDaoMock::new()) // For Scanner
             .build();
-        subject.scanners.pending_payables = Box::new(NullScanner {});
-        subject.scanners.payables = Box::new(NullScanner {});
+        subject.scanners.pending_payables = Box::new(ScannerMock::new());
+        subject.scanners.payables = Box::new(ScannerMock::new());
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
         let peer_actors = peer_actors_builder()
@@ -2390,8 +2390,8 @@ mod tests {
             .receivable_dao(ReceivableDaoMock::new())
             .banned_dao(banned_dao)
             .build();
-        subject.scanners.pending_payables = Box::new(NullScanner {});
-        subject.scanners.payables = Box::new(NullScanner {});
+        subject.scanners.pending_payables = Box::new(ScannerMock::new());
+        subject.scanners.payables = Box::new(ScannerMock::new());
         subject.notify_later.scan_for_receivable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_receivable_params_arc)
@@ -2507,8 +2507,8 @@ mod tests {
             .pending_payable_dao(pending_payable_dao) // For Accountant
             .pending_payable_dao(PendingPayableDaoMock::new()) // For Scanner
             .build();
-        subject.scanners.receivables = Box::new(NullScanner {}); //skipping
-        subject.scanners.payables = Box::new(NullScanner {}); //skipping
+        subject.scanners.receivables = Box::new(ScannerMock::new()); //skipping
+        subject.scanners.payables = Box::new(ScannerMock::new()); //skipping
         subject.notify_later.scan_for_pending_payable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_pending_payable_params_arc)
@@ -2609,8 +2609,8 @@ mod tests {
             .payable_dao(payable_dao) // For Accountant
             .payable_dao(PayableDaoMock::new()) // For Scanner
             .build();
-        subject.scanners.pending_payables = Box::new(NullScanner {}); //skipping
-        subject.scanners.receivables = Box::new(NullScanner {}); //skipping
+        subject.scanners.pending_payables = Box::new(ScannerMock::new()); //skipping
+        subject.scanners.receivables = Box::new(ScannerMock::new()); //skipping
         subject.notify_later.scan_for_payable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_payables_params_arc)
@@ -2825,8 +2825,8 @@ mod tests {
             .payable_dao(payable_dao) // For Accountant
             .payable_dao(PayableDaoMock::new()) // For Scanner
             .build();
-        subject.scanners.pending_payables = Box::new(NullScanner {});
-        subject.scanners.receivables = Box::new(NullScanner {});
+        subject.scanners.pending_payables = Box::new(ScannerMock::new());
+        subject.scanners.receivables = Box::new(ScannerMock::new());
         let subject_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&subject_addr);
         send_bind_message!(accountant_subs, peer_actors);
@@ -4395,7 +4395,7 @@ mod tests {
                     .pending_payable_dao(pending_payable_dao) // For Accountant
                     .pending_payable_dao(PendingPayableDaoMock::new()) // For Scanner
                     .build();
-                subject.scanners.receivables = Box::new(NullScanner {});
+                subject.scanners.receivables = Box::new(ScannerMock::new());
                 let notify_later_half_mock = NotifyLaterHandleMock::default()
                     .notify_later_params(&notify_later_scan_for_pending_payable_arc_cloned)
                     .permit_to_send_out();

@@ -18,6 +18,7 @@ pub(in crate::accountant) mod scanners {
     use masq_lib::messages::ScanType;
     use masq_lib::messages::ScanType::PendingPayables;
     use std::any::Any;
+    use std::borrow::BorrowMut;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
@@ -224,41 +225,16 @@ pub(in crate::accountant) mod scanners {
         }
     }
 
-    // pub struct NullScanner {}
-    //
-    // impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for NullScanner
-    // where
-    //     BeginMessage: Message + Send + 'static,
-    //     BeginMessage::Result: Send,
-    //     EndMessage: Message,
-    // {
-    //     fn begin_scan(
-    //         &mut self,
-    //         timestamp: SystemTime,
-    //         response_skeleton_opt: Option<ResponseSkeleton>,
-    //         ctx: &mut Context<Accountant>,
-    //     ) -> Result<BeginMessage, Error> {
-    //         todo!("Implement NullScanner")
-    //     }
-    //
-    //     fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error> {
-    //         todo!()
-    //     }
-    //
-    //     fn scan_started_at(&self) -> Option<SystemTime> {
-    //         todo!()
-    //     }
-    //
-    //     as_any_impl!();
-    // }
-
     pub struct ScannerMock<BeginMessage, EndMessage> {
         begin_scan_params: RefCell<Vec<(SystemTime, Option<ResponseSkeleton>)>>,
-        begin_scan_results: Arc<Mutex<Vec<Box<BeginMessage>>>>,
+        begin_scan_results: Arc<Mutex<Vec<Result<Box<BeginMessage>, Error>>>>,
     }
 
     impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage>
         for ScannerMock<BeginMessage, EndMessage>
+    where
+        BeginMessage: Message,
+        EndMessage: Message,
     {
         fn begin_scan(
             &mut self,
@@ -286,12 +262,22 @@ pub(in crate::accountant) mod scanners {
             }
         }
 
-        // pub fn begin_scan_params (&self, params: &)
-        //
-        // pub fn begin_scan_result (&mut self, result: Result<Box<BeginMessage>, Error>) -> Self {
-        //     self.begin_scan_results.push (result);
-        //     self
-        // }
+        pub fn begin_scan_params(
+            mut self,
+            params: Vec<(SystemTime, Option<ResponseSkeleton>)>,
+        ) -> Self {
+            self.begin_scan_params = RefCell::new(params);
+            self
+        }
+
+        pub fn begin_scan_result(self, result: Result<Box<BeginMessage>, Error>) -> Self {
+            self.begin_scan_results
+                .lock()
+                .unwrap()
+                .borrow_mut()
+                .push(result);
+            self
+        }
     }
 
     #[derive(Default)]
