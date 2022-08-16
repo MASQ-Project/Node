@@ -1,12 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::{
-    checked_conversion, ReceivedPayments, ReportTransactionReceipts, ScanError, SentPayables,
+    checked_conversion, Accountant, ReceivedPayments, ReportTransactionReceipts, ScanError,
+    SentPayables,
 };
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
-use actix::Message;
 use actix::Recipient;
+use actix::{Addr, Message};
 use lazy_static::lazy_static;
 use masq_lib::messages::CustomQueryResult;
 use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -103,6 +104,18 @@ pub struct AccountantSubs {
 impl Debug for AccountantSubs {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         write!(f, "AccountantSubs")
+    }
+}
+
+pub trait AccountantSubsFactory {
+    fn make(&self, addr: &Addr<Accountant>) -> AccountantSubs;
+}
+
+pub struct AccountantSubsFactoryReal {}
+
+impl AccountantSubsFactory for AccountantSubsFactoryReal {
+    fn make(&self, addr: &Addr<Accountant>) -> AccountantSubs {
+        todo!()
     }
 }
 

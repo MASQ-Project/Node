@@ -17,7 +17,9 @@ use crate::database::db_initializer::{connection_or_panic, DbInitializer, DbInit
 use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::node_configurator::configurator::Configurator;
-use crate::sub_lib::accountant::AccountantSubs;
+use crate::sub_lib::accountant::{
+    AccountantSubs, AccountantSubsFactory, AccountantSubsFactoryReal,
+};
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::configurator::ConfiguratorSubs;
 use crate::sub_lib::cryptde::CryptDE;
@@ -152,9 +154,9 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         let neighborhood_subs = actor_factory.make_and_start_neighborhood(cryptdes.main, &config);
         let accountant_subs = actor_factory.make_and_start_accountant(
             &config,
-            &config.data_directory.clone(),
             &db_initializer,
             &BannedCacheLoaderReal {},
+            &AccountantSubsFactoryReal {},
         );
         let ui_gateway_subs = actor_factory.make_and_start_ui_gateway(&config);
         let stream_handler_pool_subs = actor_factory.make_and_start_stream_handler_pool(&config);
@@ -359,9 +361,9 @@ pub trait ActorFactory {
     fn make_and_start_accountant(
         &self,
         config: &BootstrapperConfig,
-        data_directory: &Path,
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
+        accountant_subs_factory: &dyn AccountantSubsFactory,
     ) -> AccountantSubs;
     fn make_and_start_ui_gateway(&self, config: &BootstrapperConfig) -> UiGatewaySubs;
     fn make_and_start_stream_handler_pool(
@@ -438,11 +440,11 @@ impl ActorFactory for ActorFactoryReal {
     fn make_and_start_accountant(
         &self,
         config: &BootstrapperConfig,
-        data_directory: &Path,
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
+        accountant_subs_factory: &dyn AccountantSubsFactory,
     ) -> AccountantSubs {
-        let cloned_config = config.clone();
+        let data_directory = config.data_directory.as_path();
         let payable_dao_factory = Accountant::dao_factory(data_directory);
         let receivable_dao_factory = Accountant::dao_factory(data_directory);
         let pending_payable_dao_factory = Accountant::dao_factory(data_directory);
@@ -453,6 +455,7 @@ impl ActorFactory for ActorFactoryReal {
             false,
             MigratorConfig::panic_on_migration(),
         ));
+        let cloned_config = config.clone();
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Accountant> = arbiter.start(move |_| {
             Accountant::new(
@@ -463,7 +466,7 @@ impl ActorFactory for ActorFactoryReal {
                 Box::new(banned_dao_factory),
             )
         });
-        Accountant::make_subs_from(&addr)
+        accountant_subs_factory.make(&addr)
     }
 
     fn make_and_start_ui_gateway(&self, config: &BootstrapperConfig) -> UiGatewaySubs {
@@ -599,12 +602,17 @@ impl LogRecipientSetter for LogRecipientSetterReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::check_sqlite_fns::CheckSqliteFunctionsDefinedByUs;
+    use crate::accountant::dao_utils::{from_time_t, to_time_t};
+    use crate::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
+    use crate::accountant::test_utils::bc_from_ac_plus_earning_wallet;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::node_test_utils::{
         make_stream_handler_pool_subs_from, make_stream_handler_pool_subs_from_recorder,
         start_recorder_refcell_opt,
     };
+    use crate::sub_lib::accountant::WEIS_OF_GWEI;
     use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -632,20 +640,21 @@ mod tests {
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
-    use actix::{Actor, Arbiter, System};
+    use actix::Message;
+    use actix::{Actor, Arbiter, Context, Handler, Running, System};
     use automap_lib::control_layer::automap_control::AutomapChange;
     #[cfg(all(test, not(feature = "no_test_share")))]
     use automap_lib::mocks::{
         parameterizable_automap_control, TransactorMock, PUBLIC_IP, ROUTER_IP,
     };
-    use crossbeam_channel::unbounded;
+    use crossbeam_channel::{bounded, unbounded, Sender};
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
     #[cfg(feature = "log_recipient_test")]
     use masq_lib::logger::INITIALIZATION_COUNTER;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::utils::running_test;
     use masq_lib::utils::AutomapProtocol::Igdp;
@@ -659,7 +668,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
-    use std::time::Duration;
+    use std::time::{Duration, SystemTime};
 
     struct LogRecipientSetterNull {}
 
@@ -854,15 +863,15 @@ mod tests {
         fn make_and_start_accountant(
             &self,
             config: &BootstrapperConfig,
-            data_directory: &Path,
             _db_initializer: &dyn DbInitializer,
             _banned_cache_loader: &dyn BannedCacheLoader,
+            _accountant_subs_factory: &dyn AccountantSubsFactory,
         ) -> AccountantSubs {
             self.parameters
                 .accountant_params
                 .lock()
                 .unwrap()
-                .get_or_insert((config.clone(), data_directory.to_path_buf()));
+                .get_or_insert(config.clone());
             let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.accountant);
             make_accountant_subs_from_recorder(&addr)
         }
@@ -939,7 +948,7 @@ mod tests {
         proxy_server_params: Arc<Mutex<Option<(CryptDEPair, BootstrapperConfig)>>>,
         hopper_params: Arc<Mutex<Option<HopperConfig>>>,
         neighborhood_params: Arc<Mutex<Option<(&'a dyn CryptDE, BootstrapperConfig)>>>,
-        accountant_params: Arc<Mutex<Option<(BootstrapperConfig, PathBuf)>>>,
+        accountant_params: Arc<Mutex<Option<(BootstrapperConfig)>>>,
         ui_gateway_params: Arc<Mutex<Option<UiGatewayConfig>>>,
         blockchain_bridge_params: Arc<Mutex<Option<BootstrapperConfig>>>,
         configurator_params: Arc<Mutex<Option<BootstrapperConfig>>>,
@@ -1810,6 +1819,77 @@ mod tests {
             Box::new(ActorFactoryReal {}),
             Box::new(persistent_config),
         );
+    }
+
+    struct AccountantSubsFactoryTestOnly {
+        address_leaker: Sender<Addr<Accountant>>,
+    }
+
+    impl AccountantSubsFactory for AccountantSubsFactoryTestOnly {
+        fn make(&self, addr: &Addr<Accountant>) -> AccountantSubs {
+            //making it obvious that this better shouldn't be moved out from under the test attribute
+            if !cfg!(test) {
+                panic!("permitted only in tests")
+            };
+            self.address_leaker.try_send(addr.clone()).unwrap();
+            Accountant::make_subs_from(addr)
+        }
+    }
+
+    #[test]
+    fn functions_of_big_int_divider_are_registered_for_receivable_dao_in_accountant() {
+        let data_dir = ensure_node_home_directory_exists(
+            "actor_system_factory",
+            "functions_of_big_int_divider_are_registered_for_receivable_dao_in_accountant",
+        );
+        let mut accountant_config = make_populated_accountant_config_with_defaults();
+        accountant_config.payment_thresholds.debt_threshold_gwei = 1000000;
+        accountant_config
+            .payment_thresholds
+            .permanent_debt_allowed_gwei = 1000;
+        accountant_config.payment_thresholds.unban_below_gwei = 1000;
+        let db_conn = DbInitializerReal::default()
+            .initialize(data_dir.as_ref(), true, MigratorConfig::test_default())
+            .unwrap();
+        let receivable_dao = ReceivableDaoReal::new(db_conn);
+        let last_received = from_time_t(
+            to_time_t(SystemTime::now())
+                - (accountant_config.payment_thresholds.maturity_threshold_sec
+                    + accountant_config
+                        .payment_thresholds
+                        .payment_grace_period_sec) as i64,
+        );
+        receivable_dao
+            .more_money_receivable(
+                last_received,
+                &make_wallet("unimportant_wallet"),
+                (1000001 * WEIS_OF_GWEI) as u128,
+            )
+            .unwrap();
+        let mut b_config = bc_from_ac_plus_earning_wallet(accountant_config, make_wallet("mine"));
+        b_config.data_directory = data_dir;
+        let system = System::new("big_int_divider_functions_for_accountant");
+        let (addr_tx, addr_rv) = bounded(1);
+        let (assurance_tx, assurance_rv) = bounded(1);
+        let subject = ActorFactoryReal {};
+
+        subject.make_and_start_accountant(
+            &b_config,
+            &DbInitializerReal::default(),
+            &BannedCacheLoaderMock::default(),
+            &AccountantSubsFactoryTestOnly {
+                address_leaker: addr_tx,
+            },
+        );
+
+        let accountant_addr = addr_rv.try_recv().unwrap();
+        //this message also stops the system after the check
+        accountant_addr
+            .try_send(CheckSqliteFunctionsDefinedByUs { assurance_tx })
+            .unwrap();
+        assert_eq!(system.run(), 0);
+        assurance_rv.try_recv().unwrap();
+        //we didn't blow up, it recognized the functions
     }
 
     #[test]

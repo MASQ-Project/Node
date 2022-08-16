@@ -1437,6 +1437,32 @@ fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
 }
 
 #[cfg(test)]
+pub mod check_sqlite_fns {
+    use super::*;
+    use actix::System;
+    use crossbeam_channel::Sender;
+
+    #[derive(Message)]
+    pub struct CheckSqliteFunctionsDefinedByUs {
+        pub assurance_tx: Sender<()>,
+    }
+
+    impl Handler<CheckSqliteFunctionsDefinedByUs> for Accountant {
+        type Result = ();
+
+        fn handle(
+            &mut self,
+            msg: CheckSqliteFunctionsDefinedByUs,
+            ctx: &mut Self::Context,
+        ) -> Self::Result {
+            //hypothesis is that this is gonna blow up in the middle of the operation if our defined functions haven't been hooked up
+            self.receivable_dao.test_our_defined_sqlite_functions();
+            System::current().stop();
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use std::cell::RefCell;
