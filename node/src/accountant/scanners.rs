@@ -5,6 +5,7 @@ pub(in crate::accountant) mod scanners {
     use crate::accountant::pending_payable_dao::PendingPayableDao;
     use crate::accountant::receivable_dao::ReceivableDao;
     use crate::accountant::tools::{PayableExceedThresholdTools, PayableExceedThresholdToolsReal};
+    use crate::accountant::ReportAccountsPayable;
     use crate::accountant::{
         Accountant, CancelFailedPendingTransaction, ConfirmPendingTransaction, ReceivedPayments,
         ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
@@ -12,16 +13,17 @@ pub(in crate::accountant) mod scanners {
     };
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::sub_lib::accountant::AccountantConfig;
-    use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
     use actix::dev::SendError;
     use actix::{Context, Message, Recipient};
+    use itertools::Itertools;
     use masq_lib::logger::{timestamp_as_string, Logger};
     use masq_lib::messages::ScanType;
     use masq_lib::messages::ScanType::PendingPayables;
     use std::any::Any;
     use std::borrow::BorrowMut;
     use std::cell::RefCell;
+    use std::ops::Add;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
 
@@ -85,7 +87,7 @@ pub(in crate::accountant) mod scanners {
             timestamp: SystemTime,
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
-            ctx: &mut Context<Accountant>,
+            // ctx: &mut Context<Accountant>,
         ) -> Result<BeginMessage, Error>;
         fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error>;
         fn scan_started_at(&self) -> Option<SystemTime>;
@@ -110,18 +112,13 @@ pub(in crate::accountant) mod scanners {
         payable_threshold_tools: Box<dyn PayableExceedThresholdTools>,
     }
 
-    impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for PayableScanner
-    where
-        BeginMessage: Message,
-        EndMessage: Message,
-    {
+    impl Scanner<ReportAccountsPayable, SentPayable> for PayableScanner {
         fn begin_scan(
             &mut self,
             timestamp: SystemTime,
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
-            ctx: &mut Context<Accountant>,
-        ) -> Result<BeginMessage, Error> {
+        ) -> Result<ReportAccountsPayable, Error> {
             todo!("Implement PayableScanner");
             // common::start_scan_at(&mut self.common, timestamp);
             // let start_message = BeginScanAMessage {};
@@ -159,7 +156,7 @@ pub(in crate::accountant) mod scanners {
             }
         }
 
-        fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error> {
+        fn scan_finished(&mut self, message: SentPayable) -> Result<(), Error> {
             todo!()
             // Use the passed-in message and the internal DAO to finish the scan
             // Ok(())
@@ -274,6 +271,29 @@ pub(in crate::accountant) mod scanners {
                 None
             }
         }
+
+        fn payables_debug_summary(&self, qualified_payables: &[PayableAccount]) -> String {
+            let now = SystemTime::now();
+            let list = qualified_payables
+                .iter()
+                .map(|payable| {
+                    let p_age = now
+                        .duration_since(payable.last_paid_timestamp)
+                        .expect("Payable time is corrupt");
+                    let threshold = self
+                        .payable_exceeded_threshold(payable)
+                        .expect("Threshold suddenly changed!");
+                    format!(
+                        "{} owed for {}sec exceeds threshold: {}; creditor: {}",
+                        payable.balance,
+                        p_age.as_secs(),
+                        threshold,
+                        payable.wallet
+                    )
+                })
+                .join("\n");
+            String::from("Paying qualified debts:\n").add(&list)
+        }
     }
 
     pub struct PendingPayableScanner {
@@ -291,7 +311,6 @@ pub(in crate::accountant) mod scanners {
             timestamp: SystemTime,
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
-            ctx: &mut Context<Accountant>,
         ) -> Result<BeginMessage, Error> {
             todo!("Implement PendingPayableScanner")
         }
@@ -331,7 +350,6 @@ pub(in crate::accountant) mod scanners {
             timestamp: SystemTime,
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
-            ctx: &mut Context<Accountant>,
         ) -> Result<BeginMessage, Error> {
             todo!()
         }
@@ -402,7 +420,6 @@ pub(in crate::accountant) mod scanners {
             timestamp: SystemTime,
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
-            ctx: &mut Context<Accountant>,
         ) -> Result<BeginMessage, Error> {
             self.begin_scan_params
                 .borrow_mut()
@@ -474,28 +491,28 @@ mod tests {
     };
     use crate::accountant::test_utils::{PayableDaoMock, PendingPayableDaoMock, ReceivableDaoMock};
 
-    #[test]
-    fn scanners_struct_can_be_constructed_with_the_respective_scanners() {
-        let scanners = Scanners::new(
-            Box::new(PayableDaoMock::new()),
-            Box::new(PendingPayableDaoMock::new()),
-            Box::new(ReceivableDaoMock::new()),
-        );
-
-        scanners
-            .payables
-            .as_any()
-            .downcast_ref::<PayableScanner>()
-            .unwrap();
-        scanners
-            .pending_payables
-            .as_any()
-            .downcast_ref::<PendingPayableScanner>()
-            .unwrap();
-        scanners
-            .receivables
-            .as_any()
-            .downcast_ref::<ReceivableScanner>()
-            .unwrap();
-    }
+    // #[test]
+    // fn scanners_struct_can_be_constructed_with_the_respective_scanners() {
+    //     let scanners = Scanners::new(
+    //         Box::new(PayableDaoMock::new()),
+    //         Box::new(PendingPayableDaoMock::new()),
+    //         Box::new(ReceivableDaoMock::new()),
+    //     );
+    //
+    //     scanners
+    //         .payables
+    //         .as_any()
+    //         .downcast_ref::<PayableScanner>()
+    //         .unwrap();
+    //     scanners
+    //         .pending_payables
+    //         .as_any()
+    //         .downcast_ref::<PendingPayableScanner>()
+    //         .unwrap();
+    //     scanners
+    //         .receivables
+    //         .as_any()
+    //         .downcast_ref::<ReceivableScanner>()
+    //         .unwrap();
+    // }
 }
