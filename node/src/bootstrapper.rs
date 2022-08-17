@@ -21,7 +21,7 @@ use crate::node_configurator::{initialize_database, DirsWrapper, NodeConfigurato
 use crate::privilege_drop::{IdWrapper, IdWrapperReal};
 use crate::server_initializer::LoggerInitializerWrapper;
 use crate::sub_lib::accountant;
-use crate::sub_lib::accountant::AccountantConfig;
+use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds};
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_null::CryptDENull;
@@ -337,6 +337,7 @@ pub struct BootstrapperConfig {
     pub alias_cryptde_null_opt: Option<CryptDENull>,
     pub mapping_protocol_opt: Option<AutomapProtocol>,
     pub real_user: RealUser,
+    pub payment_thresholds_opt: Option<PaymentThresholds>,
 
     // These fields must be set without privilege: otherwise the database will be created as root
     pub db_password_opt: Option<String>,
@@ -376,6 +377,7 @@ impl BootstrapperConfig {
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
             real_user: RealUser::new(None, None, None),
+            payment_thresholds_opt: Default::default(),
 
             // These fields must be set without privilege: otherwise the database will be created as root
             db_password_opt: None,

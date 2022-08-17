@@ -491,18 +491,19 @@ fn configure_accountant_config(
             |pc: &dyn PersistentConfiguration| pc.scan_intervals(),
             |pc: &mut dyn PersistentConfiguration, intervals| pc.set_scan_intervals(intervals),
         )?,
-        payment_thresholds: process_combined_params(
-            "payment-thresholds",
-            multi_config,
-            persist_config,
-            |str: &str| PaymentThresholds::try_from(str),
-            |pc: &dyn PersistentConfiguration| pc.payment_thresholds(),
-            |pc: &mut dyn PersistentConfiguration, curves| pc.set_payment_thresholds(curves),
-        )?,
         suppress_initial_scans,
         when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
     };
+    let scanners_config = process_combined_params(
+        "payment-thresholds",
+        multi_config,
+        persist_config,
+        |str: &str| PaymentThresholds::try_from(str),
+        |pc: &dyn PersistentConfiguration| pc.payment_thresholds(),
+        |pc: &mut dyn PersistentConfiguration, curves| pc.set_payment_thresholds(curves),
+    )?;
     config.accountant_config_opt = Some(accountant_config);
+    config.payment_thresholds_opt = Some(scanners_config);
     Ok(())
 }
 
@@ -1739,24 +1740,26 @@ mod tests {
             .unwrap();
 
         let actual_accountant_config = config.accountant_config_opt.unwrap();
+        let actual_scanners_config = config.payment_thresholds_opt.unwrap();
         let expected_accountant_config = AccountantConfig {
             scan_intervals: ScanIntervals {
                 pending_payable_scan_interval: Duration::from_secs(180),
                 payable_scan_interval: Duration::from_secs(150),
                 receivable_scan_interval: Duration::from_secs(130),
             },
-            payment_thresholds: PaymentThresholds {
-                threshold_interval_sec: 1000,
-                debt_threshold_gwei: 10000,
-                payment_grace_period_sec: 1000,
-                maturity_threshold_sec: 10000,
-                permanent_debt_allowed_gwei: 20000,
-                unban_below_gwei: 20000,
-            },
             suppress_initial_scans: false,
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
+        let expected_scanners_config = PaymentThresholds {
+            threshold_interval_sec: 1000,
+            debt_threshold_gwei: 10000,
+            payment_grace_period_sec: 1000,
+            maturity_threshold_sec: 10000,
+            permanent_debt_allowed_gwei: 20000,
+            unban_below_gwei: 20000,
+        };
         assert_eq!(actual_accountant_config, expected_accountant_config);
+        assert_eq!(actual_scanners_config, expected_scanners_config);
         let set_scan_intervals_params = set_scan_intervals_params_arc.lock().unwrap();
         assert_eq!(*set_scan_intervals_params, vec!["180|150|130".to_string()]);
         let set_payment_thresholds_params = set_payment_thresholds_params_arc.lock().unwrap();
@@ -1807,24 +1810,26 @@ mod tests {
             .unwrap();
 
         let actual_accountant_config = config.accountant_config_opt.unwrap();
+        let actual_scanners_config = config.payment_thresholds_opt.unwrap();
         let expected_accountant_config = AccountantConfig {
             scan_intervals: ScanIntervals {
                 pending_payable_scan_interval: Duration::from_secs(180),
                 payable_scan_interval: Duration::from_secs(150),
                 receivable_scan_interval: Duration::from_secs(130),
             },
-            payment_thresholds: PaymentThresholds {
-                threshold_interval_sec: 1000,
-                debt_threshold_gwei: 100000,
-                payment_grace_period_sec: 1000,
-                maturity_threshold_sec: 1000,
-                permanent_debt_allowed_gwei: 20000,
-                unban_below_gwei: 20000,
-            },
             suppress_initial_scans: false,
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
+        let expected_scanners_config = PaymentThresholds {
+            threshold_interval_sec: 1000,
+            debt_threshold_gwei: 100000,
+            payment_grace_period_sec: 1000,
+            maturity_threshold_sec: 1000,
+            permanent_debt_allowed_gwei: 20000,
+            unban_below_gwei: 20000,
+        };
         assert_eq!(actual_accountant_config, expected_accountant_config);
+        assert_eq!(actual_scanners_config, expected_scanners_config);
         //no prepared results for the setter methods, that is they were uncalled
     }
 

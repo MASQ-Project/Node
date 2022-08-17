@@ -430,17 +430,18 @@ impl Handler<NodeFromUiMessage> for Accountant {
 
 impl Accountant {
     pub fn new(
-        config: &BootstrapperConfig,
+        config: &mut BootstrapperConfig,
         payable_dao_factory: Box<dyn PayableDaoFactory>,
         receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
         pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
         banned_dao_factory: Box<dyn BannedDaoFactory>,
     ) -> Accountant {
+        let mut accountant_config = config
+            .accountant_config_opt
+            .take()
+            .expect("Accountant config");
         Accountant {
-            config: *config
-                .accountant_config_opt
-                .as_ref()
-                .expectv("Accountant config"),
+            config: accountant_config,
             consuming_wallet: config.consuming_wallet_opt.clone(),
             earning_wallet: config.earning_wallet.clone(),
             payable_dao: payable_dao_factory.make(),
@@ -506,36 +507,37 @@ impl Accountant {
     // }
 
     fn scan_for_delinquencies(&self) {
-        info!(self.logger, "Scanning for delinquencies");
-        let now = SystemTime::now();
-        self.receivable_dao
-            .new_delinquencies(now, &self.config.payment_thresholds)
-            .into_iter()
-            .for_each(|account| {
-                self.banned_dao.ban(&account.wallet);
-                let (balance, age) = Self::balance_and_age(&account);
-                info!(
-                    self.logger,
-                    "Wallet {} (balance: {} MASQ, age: {} sec) banned for delinquency",
-                    account.wallet,
-                    balance,
-                    age.as_secs()
-                )
-            });
-        self.receivable_dao
-            .paid_delinquencies(&self.config.payment_thresholds)
-            .into_iter()
-            .for_each(|account| {
-                self.banned_dao.unban(&account.wallet);
-                let (balance, age) = Self::balance_and_age(&account);
-                info!(
-                    self.logger,
-                    "Wallet {} (balance: {} MASQ, age: {} sec) is no longer delinquent: unbanned",
-                    account.wallet,
-                    balance,
-                    age.as_secs()
-                )
-            });
+        todo!("migrate the below fn to scanners");
+        // info!(self.logger, "Scanning for delinquencies");
+        // let now = SystemTime::now();
+        // self.receivable_dao
+        //     .new_delinquencies(now, &self.config.payment_thresholds)
+        //     .into_iter()
+        //     .for_each(|account| {
+        //         self.banned_dao.ban(&account.wallet);
+        //         let (balance, age) = Self::balance_and_age(&account);
+        //         info!(
+        //             self.logger,
+        //             "Wallet {} (balance: {} MASQ, age: {} sec) banned for delinquency",
+        //             account.wallet,
+        //             balance,
+        //             age.as_secs()
+        //         )
+        //     });
+        // self.receivable_dao
+        //     .paid_delinquencies(&self.config.payment_thresholds)
+        //     .into_iter()
+        //     .for_each(|account| {
+        //         self.banned_dao.unban(&account.wallet);
+        //         let (balance, age) = Self::balance_and_age(&account);
+        //         info!(
+        //             self.logger,
+        //             "Wallet {} (balance: {} MASQ, age: {} sec) is no longer delinquent: unbanned",
+        //             account.wallet,
+        //             balance,
+        //             age.as_secs()
+        //         )
+        //     });
     }
 
     fn scan_for_receivables(&self, response_skeleton_opt: Option<ResponseSkeleton>) {
@@ -1209,7 +1211,8 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::unshared_test_utils::{
-        make_accountant_config_null, make_populated_accountant_config_with_defaults,
+        make_accountant_config_null, make_payment_thresholds_with_defaults,
+        make_populated_accountant_config_with_defaults,
         prove_that_crash_request_handler_is_hooked_up, NotifyHandleMock, NotifyLaterHandleMock,
         SystemKillerActor,
     };
@@ -1327,7 +1330,7 @@ mod tests {
             BannedDaoFactoryMock::new(banned_dao).called(&banned_dao_factory_called);
 
         let _ = Accountant::new(
-            &config,
+            &mut config,
             Box::new(payable_dao_factory),
             Box::new(receivable_dao_factory),
             Box::new(pending_payable_dao_factory),
@@ -1360,6 +1363,7 @@ mod tests {
         let mut bootstrapper_config = BootstrapperConfig::new();
         bootstrapper_config.accountant_config_opt =
             Some(make_populated_accountant_config_with_defaults());
+        bootstrapper_config.payment_thresholds_opt = Some(make_payment_thresholds_with_defaults());
         let payable_dao_factory = Box::new(
             PayableDaoFactoryMock::new()
                 .make_result(PayableDaoMock::new()) // For Accountant
@@ -1378,7 +1382,7 @@ mod tests {
         let banned_dao_factory = Box::new(BannedDaoFactoryMock::new(BannedDaoMock::new()));
 
         let result = Accountant::new(
-            &bootstrapper_config,
+            &mut bootstrapper_config,
             payable_dao_factory,
             receivable_dao_factory,
             pending_payable_dao_factory,
@@ -1435,8 +1439,8 @@ mod tests {
                 },
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 suppress_initial_scans: true,
-                payment_thresholds: Default::default(),
             },
+            Default::default(),
             make_wallet("earning_wallet"),
         );
         let receivable_dao = ReceivableDaoMock::new()
@@ -1490,8 +1494,8 @@ mod tests {
                 },
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 suppress_initial_scans: true,
-                payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             },
+            make_payment_thresholds_with_defaults(),
             make_wallet("earning_wallet"),
         );
         let subject = AccountantBuilder::default()
@@ -1535,8 +1539,8 @@ mod tests {
                 },
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 suppress_initial_scans: true,
-                payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             },
+            make_payment_thresholds_with_defaults(),
             make_wallet("some_wallet_address"),
         );
         let payable_account = PayableAccount {
@@ -1597,8 +1601,8 @@ mod tests {
                 },
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 suppress_initial_scans: true,
-                payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             },
+            make_payment_thresholds_with_defaults(),
             make_wallet("earning_wallet"),
         );
         let subject = AccountantBuilder::default()
@@ -1642,8 +1646,8 @@ mod tests {
                 },
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 suppress_initial_scans: true,
-                payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             },
+            make_payment_thresholds_with_defaults(),
             make_wallet("some_wallet_address"),
         );
         let fingerprint = PendingPayableFingerprint {
@@ -1705,8 +1709,8 @@ mod tests {
                 },
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 suppress_initial_scans: true,
-                payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             },
+            make_payment_thresholds_with_defaults(),
             make_wallet("some_wallet_address"),
         );
         let pending_payable_dao = PendingPayableDaoMock::default();
@@ -1759,8 +1763,8 @@ mod tests {
                 },
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 suppress_initial_scans: true,
-                payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             },
+            make_payment_thresholds_with_defaults(),
             make_wallet("earning_wallet"),
         );
         let subject = AccountantBuilder::default()
@@ -1812,6 +1816,7 @@ mod tests {
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
                 make_populated_accountant_config_with_defaults(),
+                make_payment_thresholds_with_defaults(),
                 make_wallet("some_wallet_address"),
             ))
             .payable_dao(payable_dao) // For Accountant
@@ -1992,6 +1997,7 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
                 make_populated_accountant_config_with_defaults(),
+                make_payment_thresholds_with_defaults(),
                 make_wallet("some_wallet_address"),
             ))
             .payable_dao(payable_dao) // For Accountant
@@ -2042,6 +2048,7 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
                 make_populated_accountant_config_with_defaults(),
+                make_payment_thresholds_with_defaults(),
                 earning_wallet.clone(),
             ))
             .payable_dao(payable_dao) // For Accountant
@@ -2095,6 +2102,7 @@ mod tests {
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
                 make_populated_accountant_config_with_defaults(),
+                make_payment_thresholds_with_defaults(),
                 earning_wallet.clone(),
             ))
             .payable_dao(PayableDaoMock::new().non_pending_payables_result(vec![]))
@@ -2137,10 +2145,10 @@ mod tests {
                     receivable_scan_interval: Duration::from_secs(100),
                     pending_payable_scan_interval: Duration::from_millis(100), //except here, where we use it to stop the system
                 },
-                payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 suppress_initial_scans: false,
             },
+            make_payment_thresholds_with_defaults(),
             make_wallet("buy"),
             make_wallet("hi"),
         );
@@ -2199,10 +2207,13 @@ mod tests {
             captured_timestamp < SystemTime::now()
                 && captured_timestamp >= from_time_t(to_time_t(SystemTime::now()) - 5)
         );
-        assert_eq!(captured_curves, *DEFAULT_PAYMENT_THRESHOLDS);
+        assert_eq!(captured_curves, make_payment_thresholds_with_defaults());
         let paid_delinquencies_params = paid_delinquencies_params_arc.lock().unwrap();
         assert_eq!(paid_delinquencies_params.len(), 1);
-        assert_eq!(paid_delinquencies_params[0], *DEFAULT_PAYMENT_THRESHOLDS);
+        assert_eq!(
+            paid_delinquencies_params[0],
+            make_payment_thresholds_with_defaults()
+        );
     }
 
     #[test]
@@ -2223,8 +2234,8 @@ mod tests {
                 },
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 suppress_initial_scans: false,
-                payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             },
+            make_payment_thresholds_with_defaults(),
             earning_wallet.clone(),
         );
         let new_delinquent_account = ReceivableAccount {
@@ -2339,10 +2350,10 @@ mod tests {
                     receivable_scan_interval: Duration::from_secs(100),
                     pending_payable_scan_interval: Duration::from_millis(98),
                 },
-                payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 suppress_initial_scans: false,
             },
+            make_payment_thresholds_with_defaults(),
             make_wallet("hi"),
         );
         // slightly above minimum balance, to the right of the curve (time intersection)
@@ -2442,8 +2453,8 @@ mod tests {
                 },
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 suppress_initial_scans: false,
-                payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             },
+            make_payment_thresholds_with_defaults(),
             make_wallet("hi"),
         );
         let now = to_time_t(SystemTime::now());
@@ -2536,8 +2547,8 @@ mod tests {
                 },
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 suppress_initial_scans: true,
-                payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             },
+            make_payment_thresholds_with_defaults(),
             make_wallet("hi"),
         );
         let payable_dao = PayableDaoMock::new(); // No payables: demanding one would cause a panic
@@ -2568,8 +2579,6 @@ mod tests {
     fn scan_for_payables_message_does_not_trigger_payment_for_balances_below_the_curve() {
         init_test_logging();
         let accountant_config = make_populated_accountant_config_with_defaults();
-        let config = bc_from_ac_plus_earning_wallet(accountant_config, make_wallet("mine"));
-        let now = to_time_t(SystemTime::now());
         let payment_thresholds = PaymentThresholds {
             threshold_interval_sec: 2_592_000,
             debt_threshold_gwei: 1_000_000_000,
@@ -2578,6 +2587,13 @@ mod tests {
             permanent_debt_allowed_gwei: 10_000_000,
             unban_below_gwei: 10_000_000,
         };
+        let config = bc_from_ac_plus_earning_wallet(
+            accountant_config,
+            payment_thresholds.clone(),
+            make_wallet("mine"),
+        );
+        let now = to_time_t(SystemTime::now());
+
         let accounts = vec![
             // below minimum balance, to the right of time intersection (inside buffer zone)
             PayableAccount {
@@ -2623,7 +2639,6 @@ mod tests {
             .payable_dao(PayableDaoMock::new()) // For Scanner
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
-        subject.config.payment_thresholds = payment_thresholds;
 
         let result = subject
             .scanners
@@ -2646,10 +2661,10 @@ mod tests {
                     payable_scan_interval: Duration::from_millis(100),
                     receivable_scan_interval: Duration::from_secs(50_000),
                 },
-                payment_thresholds: DEFAULT_PAYMENT_THRESHOLDS.clone(),
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
                 suppress_initial_scans: false,
             },
+            make_payment_thresholds_with_defaults(),
             make_wallet("mine"),
         );
         let now = to_time_t(SystemTime::now());
@@ -2711,7 +2726,11 @@ mod tests {
     fn scan_for_delinquencies_triggers_bans_and_unbans() {
         init_test_logging();
         let accountant_config = make_populated_accountant_config_with_defaults();
-        let config = bc_from_ac_plus_earning_wallet(accountant_config, make_wallet("mine"));
+        let config = bc_from_ac_plus_earning_wallet(
+            accountant_config,
+            make_payment_thresholds_with_defaults(),
+            make_wallet("mine"),
+        );
         let newly_banned_1 = make_receivable_account(1234, true);
         let newly_banned_2 = make_receivable_account(2345, true);
         let newly_unbanned_1 = make_receivable_account(3456, false);
@@ -2806,6 +2825,7 @@ mod tests {
         payable_dao.have_non_pending_payables_shut_down_the_system = true;
         let config = bc_from_ac_plus_earning_wallet(
             make_populated_accountant_config_with_defaults(),
+            make_payment_thresholds_with_defaults(),
             make_wallet("mine"),
         );
         let system = System::new(
@@ -2857,6 +2877,7 @@ mod tests {
         payable_dao.have_non_pending_payables_shut_down_the_system = true;
         let config = bc_from_ac_plus_earning_wallet(
             make_populated_accountant_config_with_defaults(),
+            make_payment_thresholds_with_defaults(),
             make_wallet("mine"),
         );
         let system = System::new(
@@ -2922,6 +2943,7 @@ mod tests {
             ]);
         let config = bc_from_ac_plus_earning_wallet(
             make_populated_accountant_config_with_defaults(),
+            make_payment_thresholds_with_defaults(),
             make_wallet("mine"),
         );
         let system = System::new("pending payable scan");
@@ -3013,6 +3035,7 @@ mod tests {
         let consuming_wallet = make_wallet("our consuming wallet");
         let config = bc_from_ac_plus_wallets(
             make_populated_accountant_config_with_defaults(),
+            make_payment_thresholds_with_defaults(),
             consuming_wallet.clone(),
             make_wallet("our earning wallet"),
         );
@@ -3063,6 +3086,7 @@ mod tests {
         let earning_wallet = make_wallet("our earning wallet");
         let config = bc_from_ac_plus_earning_wallet(
             make_populated_accountant_config_with_defaults(),
+            make_payment_thresholds_with_defaults(),
             earning_wallet.clone(),
         );
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -3111,6 +3135,7 @@ mod tests {
         init_test_logging();
         let config = bc_from_ac_plus_earning_wallet(
             make_populated_accountant_config_with_defaults(),
+            make_payment_thresholds_with_defaults(),
             make_wallet("hi"),
         );
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -3159,6 +3184,7 @@ mod tests {
         let consuming_wallet = make_wallet("the consuming wallet");
         let config = bc_from_ac_plus_wallets(
             make_populated_accountant_config_with_defaults(),
+            make_payment_thresholds_with_defaults(),
             consuming_wallet.clone(),
             make_wallet("the earning wallet"),
         );
@@ -3204,6 +3230,7 @@ mod tests {
         let earning_wallet = make_wallet("the earning wallet");
         let config = bc_from_ac_plus_earning_wallet(
             make_populated_accountant_config_with_defaults(),
+            make_payment_thresholds_with_defaults(),
             earning_wallet.clone(),
         );
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -3246,6 +3273,7 @@ mod tests {
         init_test_logging();
         let config = bc_from_ac_plus_earning_wallet(
             make_populated_accountant_config_with_defaults(),
+            make_payment_thresholds_with_defaults(),
             make_wallet("hi"),
         );
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
@@ -3297,6 +3325,7 @@ mod tests {
         let consuming_wallet = make_wallet("my consuming wallet");
         let config = bc_from_ac_plus_wallets(
             make_accountant_config_null(),
+            make_payment_thresholds_with_defaults(),
             consuming_wallet.clone(),
             make_wallet("my earning wallet"),
         );
@@ -3345,8 +3374,11 @@ mod tests {
     fn report_exit_service_provided_message_is_received_from_our_earning_wallet() {
         init_test_logging();
         let earning_wallet = make_wallet("my earning wallet");
-        let config =
-            bc_from_ac_plus_earning_wallet(make_accountant_config_null(), earning_wallet.clone());
+        let config = bc_from_ac_plus_earning_wallet(
+            make_accountant_config_null(),
+            make_payment_thresholds_with_defaults(),
+            earning_wallet.clone(),
+        );
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new().non_pending_payables_result(vec![]);
         let receivable_dao_mock = ReceivableDaoMock::new()
@@ -3405,8 +3437,11 @@ mod tests {
     #[test]
     fn report_exit_service_consumed_message_is_received() {
         init_test_logging();
-        let config =
-            bc_from_ac_plus_earning_wallet(make_accountant_config_null(), make_wallet("hi"));
+        let config = bc_from_ac_plus_earning_wallet(
+            make_accountant_config_null(),
+            make_payment_thresholds_with_defaults(),
+            make_wallet("hi"),
+        );
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new()
             .non_pending_payables_result(vec![])
@@ -3454,6 +3489,7 @@ mod tests {
         let consuming_wallet = make_wallet("own consuming wallet");
         let config = bc_from_ac_plus_wallets(
             make_accountant_config_null(),
+            make_payment_thresholds_with_defaults(),
             consuming_wallet.clone(),
             make_wallet("own earning wallet"),
         );
@@ -3497,8 +3533,11 @@ mod tests {
     fn report_exit_service_consumed_message_is_received_for_our_earning_wallet() {
         init_test_logging();
         let earning_wallet = make_wallet("own earning wallet");
-        let config =
-            bc_from_ac_plus_earning_wallet(make_accountant_config_null(), earning_wallet.clone());
+        let config = bc_from_ac_plus_earning_wallet(
+            make_accountant_config_null(),
+            make_payment_thresholds_with_defaults(),
+            earning_wallet.clone(),
+        );
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new()
             .non_pending_payables_result(vec![])
@@ -4173,10 +4212,10 @@ mod tests {
                         pending_payable_scan_interval,
                     ),
                 },
-                payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
                 suppress_initial_scans: false,
                 when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             },
+            make_payment_thresholds_with_defaults(),
             make_wallet("some_wallet_address"),
         );
         let fingerprint_1_first_round = PendingPayableFingerprint {
@@ -4774,6 +4813,7 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
                 make_populated_accountant_config_with_defaults(),
+                make_payment_thresholds_with_defaults(),
                 make_wallet("some_wallet_address"),
             ))
             .payable_dao(payable_dao) // For Accountant

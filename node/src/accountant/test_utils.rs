@@ -20,10 +20,12 @@ use crate::database::dao_utils;
 use crate::database::dao_utils::{from_time_t, to_time_t};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
-use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds};
+use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds, DEFAULT_PAYMENT_THRESHOLDS};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
-use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
+use crate::test_utils::unshared_test_utils::{
+    make_payment_thresholds_with_defaults, make_populated_accountant_config_with_defaults,
+};
 use actix::System;
 use ethereum_types::{BigEndianHash, H256, U256};
 use rusqlite::{Connection, Error, OptionalExtension};
@@ -148,9 +150,10 @@ impl AccountantBuilder {
     }
 
     pub fn build(self) -> Accountant {
-        let config = self.config.unwrap_or({
+        let mut config = self.config.unwrap_or({
             let mut config = BootstrapperConfig::default();
             config.accountant_config_opt = Some(make_populated_accountant_config_with_defaults());
+            config.payment_thresholds_opt = Some(make_payment_thresholds_with_defaults());
             config
         });
         let payable_dao_factory = self.payable_dao_factory.unwrap_or(
@@ -172,7 +175,7 @@ impl AccountantBuilder {
             .banned_dao_factory
             .unwrap_or(Box::new(BannedDaoFactoryMock::new(BannedDaoMock::new())));
         let accountant = Accountant::new(
-            &config,
+            &mut config,
             Box::new(payable_dao_factory),
             Box::new(receivable_dao_factory),
             Box::new(pending_payable_dao_factory),
@@ -681,22 +684,26 @@ impl BannedDaoMock {
 }
 
 pub fn bc_from_ac_plus_earning_wallet(
-    ac: AccountantConfig,
+    accountant_config: AccountantConfig,
+    payment_thresholds: PaymentThresholds,
     earning_wallet: Wallet,
 ) -> BootstrapperConfig {
     let mut bc = BootstrapperConfig::new();
-    bc.accountant_config_opt = Some(ac);
+    bc.accountant_config_opt = Some(accountant_config);
+    bc.payment_thresholds_opt = Some(payment_thresholds);
     bc.earning_wallet = earning_wallet;
     bc
 }
 
 pub fn bc_from_ac_plus_wallets(
-    ac: AccountantConfig,
+    accountant_config: AccountantConfig,
+    payment_thresholds: PaymentThresholds,
     consuming_wallet: Wallet,
     earning_wallet: Wallet,
 ) -> BootstrapperConfig {
     let mut bc = BootstrapperConfig::new();
-    bc.accountant_config_opt = Some(ac);
+    bc.accountant_config_opt = Some(accountant_config);
+    bc.payment_thresholds_opt = Some(payment_thresholds);
     bc.consuming_wallet_opt = Some(consuming_wallet);
     bc.earning_wallet = earning_wallet;
     bc

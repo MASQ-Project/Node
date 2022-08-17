@@ -293,6 +293,9 @@ mod tests {
     use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
     use crate::sub_lib::combined_parameters::CombinedParamsDataTypes::U128;
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+    use crate::test_utils::unshared_test_utils::{
+        make_payment_thresholds_with_defaults, make_scan_intervals_with_defaults,
+    };
     use std::panic::catch_unwind;
 
     #[test]
@@ -425,7 +428,8 @@ mod tests {
 
         let panic_2 = catch_unwind(|| {
             let _: &[(&str, CombinedParamsDataTypes)] =
-                (&CombinedParams::PaymentThresholds(Some(*DEFAULT_PAYMENT_THRESHOLDS))).into();
+                (&CombinedParams::PaymentThresholds(Some(make_payment_thresholds_with_defaults())))
+                    .into();
         })
         .unwrap_err();
         let panic_2_msg = panic_2.downcast_ref::<String>().unwrap();
@@ -434,13 +438,13 @@ mod tests {
             panic_2_msg,
             &format!(
                 "should be called only on uninitialized object, not: PaymentThresholds(Some({:?}))",
-                *DEFAULT_PAYMENT_THRESHOLDS
+                make_payment_thresholds_with_defaults()
             )
         );
 
         let panic_3 = catch_unwind(|| {
             let _: &[(&str, CombinedParamsDataTypes)] =
-                (&CombinedParams::ScanIntervals(Some(*DEFAULT_SCAN_INTERVALS))).into();
+                (&CombinedParams::ScanIntervals(Some(make_scan_intervals_with_defaults()))).into();
         })
         .unwrap_err();
         let panic_3_msg = panic_3.downcast_ref::<String>().unwrap();
@@ -449,7 +453,7 @@ mod tests {
             panic_3_msg,
             &format!(
                 "should be called only on uninitialized object, not: ScanIntervals(Some({:?}))",
-                *DEFAULT_SCAN_INTERVALS
+                make_scan_intervals_with_defaults()
             )
         );
     }
@@ -471,7 +475,7 @@ mod tests {
         );
 
         let panic_2 = catch_unwind(|| {
-            (&CombinedParams::PaymentThresholds(Some(*DEFAULT_PAYMENT_THRESHOLDS)))
+            (&CombinedParams::PaymentThresholds(Some(make_payment_thresholds_with_defaults())))
                 .initiate_objects(HashMap::new());
         })
         .unwrap_err();
@@ -481,12 +485,12 @@ mod tests {
             panic_2_msg,
             &format!(
                 "should be called only on uninitialized object, not: PaymentThresholds(Some({:?}))",
-                *DEFAULT_PAYMENT_THRESHOLDS
+                make_payment_thresholds_with_defaults()
             )
         );
 
         let panic_3 = catch_unwind(|| {
-            (&CombinedParams::ScanIntervals(Some(*DEFAULT_SCAN_INTERVALS)))
+            (&CombinedParams::ScanIntervals(Some(make_scan_intervals_with_defaults())))
                 .initiate_objects(HashMap::new());
         })
         .unwrap_err();
@@ -496,7 +500,7 @@ mod tests {
             panic_3_msg,
             &format!(
                 "should be called only on uninitialized object, not: ScanIntervals(Some({:?}))",
-                *DEFAULT_SCAN_INTERVALS
+                make_scan_intervals_with_defaults()
             )
         );
     }

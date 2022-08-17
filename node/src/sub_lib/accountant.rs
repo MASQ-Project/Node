@@ -38,7 +38,7 @@ lazy_static! {
 }
 
 //please, alphabetical order
-#[derive(PartialEq, Debug, Clone, Copy, Default)]
+#[derive(PartialEq, Debug, Clone, Default)]
 pub struct PaymentThresholds {
     pub debt_threshold_gwei: i64,
     pub maturity_threshold_sec: i64,
@@ -59,17 +59,17 @@ impl PaymentThresholds {
     }
 }
 
-#[derive(PartialEq, Debug, Clone, Copy, Default)]
+#[derive(PartialEq, Debug, Clone, Default)]
 pub struct ScanIntervals {
     pub pending_payable_scan_interval: Duration,
     pub payable_scan_interval: Duration,
     pub receivable_scan_interval: Duration,
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Debug)]
 pub struct AccountantConfig {
     pub scan_intervals: ScanIntervals,
-    pub payment_thresholds: PaymentThresholds,
+    // pub payment_thresholds: PaymentThresholds,
     pub suppress_initial_scans: bool,
     pub when_pending_too_long_sec: u64,
 }

@@ -150,9 +150,10 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         });
         let blockchain_bridge_subs = actor_factory.make_and_start_blockchain_bridge(&config);
         let neighborhood_subs = actor_factory.make_and_start_neighborhood(cryptdes.main, &config);
+        let data_directory = config.data_directory.clone();
         let accountant_subs = actor_factory.make_and_start_accountant(
-            &config,
-            &config.data_directory.clone(),
+            &mut config.clone(),
+            &data_directory,
             &db_initializer,
             &BannedCacheLoaderReal {},
         );
@@ -358,7 +359,7 @@ pub trait ActorFactory {
     ) -> NeighborhoodSubs;
     fn make_and_start_accountant(
         &self,
-        config: &BootstrapperConfig,
+        config: &mut BootstrapperConfig,
         data_directory: &Path,
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
@@ -437,12 +438,12 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_accountant(
         &self,
-        config: &BootstrapperConfig,
+        config: &mut BootstrapperConfig,
         data_directory: &Path,
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
     ) -> AccountantSubs {
-        let cloned_config = config.clone();
+        let mut cloned_config = config.clone();
         let payable_dao_factory = Accountant::dao_factory(data_directory);
         let receivable_dao_factory = Accountant::dao_factory(data_directory);
         let pending_payable_dao_factory = Accountant::dao_factory(data_directory);
@@ -456,7 +457,7 @@ impl ActorFactory for ActorFactoryReal {
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Accountant> = arbiter.start(move |_| {
             Accountant::new(
-                &cloned_config,
+                &mut cloned_config,
                 Box::new(payable_dao_factory),
                 Box::new(receivable_dao_factory),
                 Box::new(pending_payable_dao_factory),
@@ -853,7 +854,7 @@ mod tests {
 
         fn make_and_start_accountant(
             &self,
-            config: &BootstrapperConfig,
+            config: &mut BootstrapperConfig,
             data_directory: &Path,
             _db_initializer: &dyn DbInitializer,
             _banned_cache_loader: &dyn BannedCacheLoader,
@@ -1052,6 +1053,7 @@ mod tests {
                     rate_pack(100),
                 ),
             },
+            payment_thresholds_opt: Default::default(),
         };
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("eth-ropsten".to_string());
@@ -1122,6 +1124,7 @@ mod tests {
                     rate_pack(100),
                 ),
             },
+            payment_thresholds_opt: Default::default(),
         };
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = make_subject_with_null_setter();
@@ -1414,6 +1417,7 @@ mod tests {
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![]),
             },
+            payment_thresholds_opt: Default::default(),
         };
         let system = System::new("MASQNode");
         let mut subject = make_subject_with_null_setter();
@@ -1600,6 +1604,7 @@ mod tests {
                 ),
             },
             node_descriptor: Default::default(),
+            payment_thresholds_opt: Default::default(),
         };
         let subject = make_subject_with_null_setter();
         let system = System::new("MASQNode");

@@ -50,7 +50,7 @@ mod tests {
     fn payable_thresholds_real_can_be_constructed_properly() {
         let payment_thresholds = DEFAULT_PAYMENT_THRESHOLDS.clone();
         let payable_exceed_threshold_tools_real =
-            PayableExceedThresholdToolsReal::new(payment_thresholds);
+            PayableExceedThresholdToolsReal::new(payment_thresholds.clone());
 
         assert_eq!(
             payable_exceed_threshold_tools_real.payment_thresholds,

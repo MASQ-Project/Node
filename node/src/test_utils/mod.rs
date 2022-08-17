@@ -518,7 +518,8 @@ pub mod unshared_test_utils {
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::accountant::{
-        AccountantConfig, DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS,
+        AccountantConfig, PaymentThresholds, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
+        DEFAULT_SCAN_INTERVALS,
     };
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::sub_lib::utils::{
@@ -592,8 +593,8 @@ pub mod unshared_test_utils {
         persistent_config_mock: PersistentConfigurationMock,
     ) -> PersistentConfigurationMock {
         persistent_config_mock
-            .payment_thresholds_result(Ok(*DEFAULT_PAYMENT_THRESHOLDS))
-            .scan_intervals_result(Ok(*DEFAULT_SCAN_INTERVALS))
+            .payment_thresholds_result(Ok(make_payment_thresholds_with_defaults()))
+            .scan_intervals_result(Ok(make_scan_intervals_with_defaults()))
     }
 
     pub fn make_persistent_config_real_with_config_dao_null() -> PersistentConfigurationReal {
@@ -602,17 +603,23 @@ pub mod unshared_test_utils {
 
     pub fn make_populated_accountant_config_with_defaults() -> AccountantConfig {
         AccountantConfig {
-            scan_intervals: *DEFAULT_SCAN_INTERVALS,
-            payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
+            scan_intervals: make_scan_intervals_with_defaults(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             suppress_initial_scans: false,
         }
     }
 
+    pub fn make_payment_thresholds_with_defaults() -> PaymentThresholds {
+        DEFAULT_PAYMENT_THRESHOLDS.clone()
+    }
+
+    pub fn make_scan_intervals_with_defaults() -> ScanIntervals {
+        DEFAULT_SCAN_INTERVALS.clone()
+    }
+
     pub fn make_accountant_config_null() -> AccountantConfig {
         AccountantConfig {
             scan_intervals: Default::default(),
-            payment_thresholds: Default::default(),
             when_pending_too_long_sec: Default::default(),
             suppress_initial_scans: false,
         }
