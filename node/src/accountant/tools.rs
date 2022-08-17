@@ -10,7 +10,9 @@ pub trait PayableExceedThresholdTools {
 }
 
 #[derive(Default)]
-pub struct PayableExceedThresholdToolsReal {}
+pub struct PayableExceedThresholdToolsReal {
+    pub payment_thresholds: PaymentThresholds,
+}
 
 impl PayableExceedThresholdTools for PayableExceedThresholdToolsReal {
     fn is_innocent_age(&self, age: u64, limit: u64) -> bool {
@@ -31,4 +33,28 @@ impl PayableExceedThresholdTools for PayableExceedThresholdToolsReal {
         m * x as f64 + b
     }
     as_any_impl!();
+}
+
+impl PayableExceedThresholdToolsReal {
+    pub fn new(payment_thresholds: PaymentThresholds) -> Self {
+        Self { payment_thresholds }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
+
+    #[test]
+    fn payable_thresholds_real_can_be_constructed_properly() {
+        let payment_thresholds = DEFAULT_PAYMENT_THRESHOLDS.clone();
+        let payable_exceed_threshold_tools_real =
+            PayableExceedThresholdToolsReal::new(payment_thresholds);
+
+        assert_eq!(
+            payable_exceed_threshold_tools_real.payment_thresholds,
+            payment_thresholds
+        )
+    }
 }
