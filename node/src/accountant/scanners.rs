@@ -214,34 +214,35 @@ pub(in crate::accountant) mod scanners {
         }
 
         fn payable_exceeded_threshold(&self, payable: &PayableAccount) -> Option<u64> {
+            todo!("Fix the config variable problem");
             // TODO: This calculation should be done in the database, if possible
-            let time_since_last_paid = SystemTime::now()
-                .duration_since(payable.last_paid_timestamp)
-                .expect("Internal error")
-                .as_secs();
-
-            if self.payable_threshold_tools.is_innocent_age(
-                time_since_last_paid,
-                self.config.payment_thresholds.maturity_threshold_sec as u64,
-            ) {
-                return None;
-            }
-
-            if self.payable_threshold_tools.is_innocent_balance(
-                payable.balance,
-                self.config.payment_thresholds.permanent_debt_allowed_gwei,
-            ) {
-                return None;
-            }
-
-            let threshold = self
-                .payable_threshold_tools
-                .calculate_payout_threshold(self.config.payment_thresholds, time_since_last_paid);
-            if payable.balance as f64 > threshold {
-                Some(threshold as u64)
-            } else {
-                None
-            }
+            // let time_since_last_paid = SystemTime::now()
+            //     .duration_since(payable.last_paid_timestamp)
+            //     .expect("Internal error")
+            //     .as_secs();
+            //
+            // if self.payable_threshold_tools.is_innocent_age(
+            //     time_since_last_paid,
+            //     self.config.payment_thresholds.maturity_threshold_sec as u64,
+            // ) {
+            //     return None;
+            // }
+            //
+            // if self.payable_threshold_tools.is_innocent_balance(
+            //     payable.balance,
+            //     self.config.payment_thresholds.permanent_debt_allowed_gwei,
+            // ) {
+            //     return None;
+            // }
+            //
+            // let threshold = self
+            //     .payable_threshold_tools
+            //     .calculate_payout_threshold(self.config.payment_thresholds, time_since_last_paid);
+            // if payable.balance as f64 > threshold {
+            //     Some(threshold as u64)
+            // } else {
+            //     None
+            // }
         }
 
         fn payables_debug_summary(&self, qualified_payables: &[PayableAccount]) -> String {

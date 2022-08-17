@@ -85,8 +85,6 @@ pub struct Accountant {
     report_new_payments_sub: Option<Recipient<ReceivedPayments>>,
     report_sent_payments_sub: Option<Recipient<SentPayable>>,
     ui_message_sub: Option<Recipient<NodeToUiMessage>>,
-    // The below field has been migrated to payable scanner
-    // payable_threshold_tools: Box<dyn PayableExceedThresholdTools>,
     logger: Logger,
 }
 
@@ -463,7 +461,6 @@ impl Accountant {
             report_new_payments_sub: None,
             report_sent_payments_sub: None,
             ui_message_sub: None,
-            // payable_threshold_tools: Box::new(PayableExceedThresholdToolsReal::default()),
             logger: Logger::new("Accountant"),
         }
     }
