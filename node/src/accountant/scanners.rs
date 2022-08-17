@@ -50,33 +50,6 @@ pub(in crate::accountant) mod scanners {
         }
     }
 
-    // struct ScannerADao {}
-    // struct ScannerBDao {}
-    //
-    // struct BeginScanAMessage{
-    //
-    // }
-    //
-    // impl Message for BeginScanAMessage{}
-    //
-    // struct FinishScanAMessage {
-    //
-    // }
-    //
-    // impl Message for FinishScanAMessage{}
-    //
-    // struct BeginScanBMessage {
-    //
-    // }
-    //
-    // impl Message for BeginScanBMessage{}
-    //
-    // struct FinishScanBMessage {
-    //
-    // }
-    //
-    // impl Message for FinishScanAMessage{}
-
     pub trait Scanner<BeginMessage, EndMessage>
     where
         BeginMessage: Message,
@@ -87,7 +60,6 @@ pub(in crate::accountant) mod scanners {
             timestamp: SystemTime,
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
-            // ctx: &mut Context<Accountant>,
         ) -> Result<BeginMessage, Error>;
         fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error>;
         fn scan_started_at(&self) -> Option<SystemTime>;

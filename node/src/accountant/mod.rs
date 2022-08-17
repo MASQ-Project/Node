@@ -450,7 +450,6 @@ impl Accountant {
             pending_payable_dao: pending_payable_dao_factory.make(),
             banned_dao: banned_dao_factory.make(),
             crashable: config.crash_point == CrashPoint::Message,
-            // TODO: pending_payable_dao and receivable_dao can live inside Scanners instead of Accountant
             scanners: Scanners::new(
                 payable_dao_factory.make(),
                 pending_payable_dao_factory.make(),
@@ -507,42 +506,6 @@ impl Accountant {
     //         todo!()
     //     }
     //     // TODO: migrate the scanner.notify_later_assertable(self, ctx) to begin_scan()
-    // }
-
-    // TODO: Remove this function, it has been migrated to scanners
-    // fn scan_for_payables(&self, response_skeleton_opt: Option<ResponseSkeleton>) {
-    //     info!(self.logger, "Scanning for payables");
-    //
-    //     let all_non_pending_payables = self.payable_dao.non_pending_payables();
-    //     debug!(
-    //         self.logger,
-    //         "{}",
-    //         Self::investigate_debt_extremes(&all_non_pending_payables)
-    //     );
-    //     let qualified_payables = all_non_pending_payables
-    //         .into_iter()
-    //         .filter(|account| self.should_pay(account))
-    //         .collect::<Vec<PayableAccount>>();
-    //     info!(
-    //         self.logger,
-    //         "Chose {} qualified debts to pay",
-    //         qualified_payables.len()
-    //     );
-    //     debug!(
-    //         self.logger,
-    //         "{}",
-    //         self.payables_debug_summary(&qualified_payables)
-    //     );
-    //     if !qualified_payables.is_empty() {
-    //         self.report_accounts_payable_sub_opt
-    //             .as_ref()
-    //             .expect("BlockchainBridge is unbound")
-    //             .try_send(ReportAccountsPayable {
-    //                 accounts: qualified_payables,
-    //                 response_skeleton_opt,
-    //             })
-    //             .expect("BlockchainBridge is dead")
-    //     }
     // }
 
     fn scan_for_delinquencies(&self) {
