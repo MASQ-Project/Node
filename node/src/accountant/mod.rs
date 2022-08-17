@@ -3,6 +3,7 @@ pub mod payable_dao;
 pub mod pending_payable_dao;
 pub mod receivable_dao;
 pub mod scanners;
+pub mod tools;
 
 #[cfg(test)]
 pub mod test_utils;
@@ -20,6 +21,7 @@ use crate::accountant::receivable_dao::{
 use crate::accountant::scanners::scanners::{
     NotifyLaterForScanners, Scanner, Scanners, TransactionConfirmationTools,
 };
+use crate::accountant::tools::{PayableExceedThresholdTools, PayableExceedThresholdToolsReal};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
@@ -83,7 +85,8 @@ pub struct Accountant {
     report_new_payments_sub: Option<Recipient<ReceivedPayments>>,
     report_sent_payments_sub: Option<Recipient<SentPayable>>,
     ui_message_sub: Option<Recipient<NodeToUiMessage>>,
-    payable_threshold_tools: Box<dyn PayableExceedThresholdTools>,
+    // The below field has been migrated to payable scanner
+    // payable_threshold_tools: Box<dyn PayableExceedThresholdTools>,
     logger: Logger,
 }
 
@@ -188,9 +191,23 @@ impl Handler<ScanForPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
         // self.handle_scan_message(&mut self.scanners.payables, msg.response_skeleton_opt, ctx)
-        self.scanners
-            .payables
-            .begin_scan(SystemTime::now(), msg.response_skeleton_opt, ctx);
+        match self.scanners.payables.begin_scan(
+            SystemTime::now(),
+            msg.response_skeleton_opt,
+            &self.logger,
+            ctx,
+        ) {
+            Ok(message) => self
+                .report_accounts_payable_sub_opt
+                .as_ref()
+                .expect("BlockchainBridge is unbound")
+                .try_send(message)
+                .expect("BlockchainBridge is dead"),
+            Err(e) if e.contains("Called from ScannerMock") => {
+                todo!("Make sure no code is executed after this")
+            }
+            Err(e) => todo!("Use logger to print out the error message"),
+        }
     }
 }
 
@@ -206,6 +223,7 @@ impl Handler<ScanForPendingPayables> for Accountant {
         self.scanners.pending_payables.begin_scan(
             SystemTime::now(),
             msg.response_skeleton_opt,
+            &self.logger,
             ctx,
         );
     }
@@ -220,9 +238,12 @@ impl Handler<ScanForReceivables> for Accountant {
         //     msg.response_skeleton_opt,
         //     ctx,
         // );
-        self.scanners
-            .receivables
-            .begin_scan(SystemTime::now(), msg.response_skeleton_opt, ctx);
+        self.scanners.receivables.begin_scan(
+            SystemTime::now(),
+            msg.response_skeleton_opt,
+            &self.logger,
+            ctx,
+        );
     }
 }
 
@@ -446,7 +467,7 @@ impl Accountant {
             report_new_payments_sub: None,
             report_sent_payments_sub: None,
             ui_message_sub: None,
-            payable_threshold_tools: Box::new(PayableExceedThresholdToolsReal::default()),
+            // payable_threshold_tools: Box::new(PayableExceedThresholdToolsReal::default()),
             logger: Logger::new("Accountant"),
         }
     }
@@ -606,40 +627,40 @@ impl Accountant {
         (balance, age)
     }
 
-    fn should_pay(&self, payable: &PayableAccount) -> bool {
-        self.payable_exceeded_threshold(payable).is_some()
-    }
-
-    fn payable_exceeded_threshold(&self, payable: &PayableAccount) -> Option<u64> {
-        // TODO: This calculation should be done in the database, if possible
-        let time_since_last_paid = SystemTime::now()
-            .duration_since(payable.last_paid_timestamp)
-            .expect("Internal error")
-            .as_secs();
-
-        if self.payable_threshold_tools.is_innocent_age(
-            time_since_last_paid,
-            self.config.payment_thresholds.maturity_threshold_sec as u64,
-        ) {
-            return None;
-        }
-
-        if self.payable_threshold_tools.is_innocent_balance(
-            payable.balance,
-            self.config.payment_thresholds.permanent_debt_allowed_gwei,
-        ) {
-            return None;
-        }
-
-        let threshold = self
-            .payable_threshold_tools
-            .calculate_payout_threshold(self.config.payment_thresholds, time_since_last_paid);
-        if payable.balance as f64 > threshold {
-            Some(threshold as u64)
-        } else {
-            None
-        }
-    }
+    // fn should_pay(&self, payable: &PayableAccount) -> bool {
+    //     self.payable_exceeded_threshold(payable).is_some()
+    // }
+    //
+    // fn payable_exceeded_threshold(&self, payable: &PayableAccount) -> Option<u64> {
+    //     // TODO: This calculation should be done in the database, if possible
+    //     let time_since_last_paid = SystemTime::now()
+    //         .duration_since(payable.last_paid_timestamp)
+    //         .expect("Internal error")
+    //         .as_secs();
+    //
+    //     if self.payable_threshold_tools.is_innocent_age(
+    //         time_since_last_paid,
+    //         self.config.payment_thresholds.maturity_threshold_sec as u64,
+    //     ) {
+    //         return None;
+    //     }
+    //
+    //     if self.payable_threshold_tools.is_innocent_balance(
+    //         payable.balance,
+    //         self.config.payment_thresholds.permanent_debt_allowed_gwei,
+    //     ) {
+    //         return None;
+    //     }
+    //
+    //     let threshold = self
+    //         .payable_threshold_tools
+    //         .calculate_payout_threshold(self.config.payment_thresholds, time_since_last_paid);
+    //     if payable.balance as f64 > threshold {
+    //         Some(threshold as u64)
+    //     } else {
+    //         None
+    //     }
+    // }
 
     fn record_service_provided(
         &self,
@@ -710,62 +731,6 @@ impl Accountant {
         match &self.consuming_wallet {
             Some(ref consuming) if consuming.address() == wallet.address() => true,
             _ => wallet.address() == self.earning_wallet.address(),
-        }
-    }
-
-    //for debugging only
-    fn investigate_debt_extremes(all_non_pending_payables: &[PayableAccount]) -> String {
-        if all_non_pending_payables.is_empty() {
-            "Payable scan found no debts".to_string()
-        } else {
-            struct PayableInfo {
-                balance: i64,
-                age: Duration,
-            }
-            let now = SystemTime::now();
-            let init = (
-                PayableInfo {
-                    balance: 0,
-                    age: Duration::ZERO,
-                },
-                PayableInfo {
-                    balance: 0,
-                    age: Duration::ZERO,
-                },
-            );
-            let (biggest, oldest) = all_non_pending_payables.iter().fold(init, |sofar, p| {
-                let (mut biggest, mut oldest) = sofar;
-                let p_age = now
-                    .duration_since(p.last_paid_timestamp)
-                    .expect("Payable time is corrupt");
-                {
-                    //look at a test if not understandable
-                    let check_age_parameter_if_the_first_is_the_same =
-                        || -> bool { p.balance == biggest.balance && p_age > biggest.age };
-
-                    if p.balance > biggest.balance || check_age_parameter_if_the_first_is_the_same()
-                    {
-                        biggest = PayableInfo {
-                            balance: p.balance,
-                            age: p_age,
-                        }
-                    }
-
-                    let check_balance_parameter_if_the_first_is_the_same =
-                        || -> bool { p_age == oldest.age && p.balance > oldest.balance };
-
-                    if p_age > oldest.age || check_balance_parameter_if_the_first_is_the_same() {
-                        oldest = PayableInfo {
-                            balance: p.balance,
-                            age: p_age,
-                        }
-                    }
-                }
-                (biggest, oldest)
-            });
-            format!("Payable scan found {} debts; the biggest is {} owed for {}sec, the oldest is {} owed for {}sec",
-                    all_non_pending_payables.len(), biggest.balance, biggest.age.as_secs(),
-                    oldest.balance, oldest.age.as_secs())
         }
     }
 
@@ -1266,38 +1231,6 @@ impl From<&PendingPayableFingerprint> for PendingPayableId {
     }
 }
 
-//TODO the data types should change with GH-497 (including signed => unsigned)
-trait PayableExceedThresholdTools {
-    fn is_innocent_age(&self, age: u64, limit: u64) -> bool;
-    fn is_innocent_balance(&self, balance: i64, limit: i64) -> bool;
-    fn calculate_payout_threshold(&self, payment_thresholds: PaymentThresholds, x: u64) -> f64;
-    as_any_dcl!();
-}
-
-#[derive(Default)]
-struct PayableExceedThresholdToolsReal {}
-
-impl PayableExceedThresholdTools for PayableExceedThresholdToolsReal {
-    fn is_innocent_age(&self, age: u64, limit: u64) -> bool {
-        age <= limit
-    }
-
-    fn is_innocent_balance(&self, balance: i64, limit: i64) -> bool {
-        balance <= limit
-    }
-
-    fn calculate_payout_threshold(&self, payment_thresholds: PaymentThresholds, x: u64) -> f64 {
-        let m = -((payment_thresholds.debt_threshold_gwei as f64
-            - payment_thresholds.permanent_debt_allowed_gwei as f64)
-            / (payment_thresholds.threshold_interval_sec as f64
-                - payment_thresholds.maturity_threshold_sec as f64));
-        let b = payment_thresholds.debt_threshold_gwei as f64
-            - m * payment_thresholds.maturity_threshold_sec as f64;
-        m * x as f64 + b
-    }
-    as_any_impl!();
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1333,6 +1266,7 @@ mod tests {
         ReceivableDaoMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
+    use crate::accountant::tools::PayableExceedThresholdTools;
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
     use crate::blockchain::blockchain_interface::BlockchainError;
