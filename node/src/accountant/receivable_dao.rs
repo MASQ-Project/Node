@@ -20,7 +20,7 @@ use indoc::indoc;
 use itertools::Either;
 use itertools::Either::Left;
 use masq_lib::logger::Logger;
-use masq_lib::utils::ExpectValue;
+use masq_lib::utils::{plus, ExpectValue};
 use rusqlite::types::ToSql;
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
@@ -161,16 +161,21 @@ impl ReceivableDao for ReceivableDaoReal {
             payment_thresholds,
             checked_conversion::<i64, u64>(now),
         );
+        let (permanent_debt_allowed_high_b, permanent_debt_allowed_low_b) =
+            BigIntDivider::deconstruct(
+                checked_conversion::<u64, i128>(payment_thresholds.permanent_debt_allowed_gwei)
+                    * WEIS_OF_GWEI,
+            );
         let sql = indoc!(
             r"
-                select r.wallet_address, r.balance_high_b, r.balance_low_h, r.last_received_timestamp
+                select r.wallet_address, r.balance_high_b, r.balance_low_b, r.last_received_timestamp
                 from receivable r
                 left outer join banned b on r.wallet_address = b.wallet_address
-                inner join delinquency_metadata d on r.wallet_address = d.wallet_address
                 where
                     r.last_received_timestamp < :sugg_and_grace
-                    and  (r.balance_high_b > 0) or ((balance_high_b = 0) and (balance_low_b > (:debt_threshold + :slope * (:sugg_and_grace - r.last_received_timestamp)))
-                    + :slope
+                    and ((r.balance_high_b > biginthigh(:debt_threshold, :slope * (:sugg_and_grace - r.last_received_timestamp)))
+                    or ((balance_high_b = 0) and (balance_low_b > bigintlow(:debt_threshold + :slope * (:sugg_and_grace - r.last_received_timestamp)))))
+                    and (r.balance_high_b > :permanent_debt_allowed_high_b) or ((r.balance_high_b = 0) and (r.balance_low_b > :permanent_debt_allowed_low_b))
                     and b.wallet_address is null
             "
         );
@@ -179,7 +184,11 @@ impl ReceivableDao for ReceivableDaoReal {
             .expect("Couldn't prepare statement")
             .query_map(
                 named_params! {
+                    ":debt_threshold": payment_thresholds.debt_threshold_gwei,
+                    ":slope": slope,
                     ":sugg_and_grace": payment_thresholds.sugg_and_grace(to_time_t(system_now)),
+                    ":permanent_debt_allowed_high_b": permanent_debt_allowed_high_b,
+                    ":permanent_debt_allowed_low_b": permanent_debt_allowed_low_b
                 },
                 Self::form_receivable_account,
             )
@@ -367,20 +376,34 @@ impl ReceivableDaoReal {
         payments: &[BlockchainTransaction],
         error: ReceivableDaoError,
     ) {
-        let mut report_lines = vec![format!("{:10} {:42} {:18}", "Block #", "Wallet", "Amount")];
-        let mut sum = 0u128;
-        payments.iter().for_each(|t| {
-            report_lines.push(format!(
-                "{:10} {:42} {:18}",
-                t.block_number, t.from, t.wei_amount
-            ));
-            sum += t.wei_amount;
-        });
-        report_lines.push(format!("{:10} {:42} {:18}", "TOTAL", "", sum));
-        let report = report_lines.join("\n");
+        fn finalize_report(data: (Vec<String>, u128)) -> String {
+            let (report_lines, sum) = data;
+            plus(report_lines, format!("{:10} {:42} {:18}", "TOTAL", "", sum)).join("\n")
+        }
+        fn record_one_more_transaction(
+            acc: (Vec<String>, u128),
+            bc_tx: &BlockchainTransaction,
+        ) -> (Vec<String>, u128) {
+            let lines_adjusted = plus(
+                acc.0,
+                format!(
+                    "{:10} {:42} {:18}",
+                    bc_tx.block_number, bc_tx.from, bc_tx.wei_amount
+                ),
+            );
+            let sum_so_far = acc.1 + bc_tx.wei_amount;
+            (lines_adjusted, sum_so_far)
+        }
+        let init = (
+            vec![format!("{:10} {:42} {:18}", "Block #", "Wallet", "Amount")],
+            0_u128,
+        );
+        let aggregated = payments.iter().fold(init, record_one_more_transaction);
         error!(
             self.logger,
-            "Payment reception failed, rolling back: {:?}\n{}", error, report
+            "Payment reception failed, rolling back: {:?}\n{}",
+            error,
+            finalize_report(aggregated)
         );
     }
 }
@@ -410,6 +433,7 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::NeighborhoodModeLight;
+    use std::path::Path;
 
     #[test]
     fn conversion_from_pce_works() {
@@ -778,6 +802,16 @@ mod tests {
         )
     }
 
+    fn make_connection_with_our_defined_sqlite_functions(
+        home_dir: &Path,
+    ) -> Box<dyn ConnectionWrapper> {
+        let init_config = DbInitializationConfig::test_default()
+            .add_special_conn_setup(BigIntDivider::register_deconstruct_for_db_connection);
+        DbInitializerReal::default()
+            .initialize(home_dir, true, init_config)
+            .unwrap()
+    }
+
     #[test]
     fn new_delinquencies_unit_slope() {
         fn wei_conversion(gwei: u64) -> i128 {
@@ -823,10 +857,7 @@ mod tests {
         not_delinquent_above_slope_after_stop.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_thru_decreasing(now) - 2);
         let home_dir = ensure_node_home_directory_exists("accountant", "new_delinquencies");
-        let db_initializer = DbInitializerReal::default();
-        let conn = db_initializer
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
-            .unwrap();
+        let conn = make_connection_with_our_defined_sqlite_functions(&home_dir);
         add_receivable_account(&conn, &not_delinquent_inside_grace_period);
         add_receivable_account(&conn, &not_delinquent_after_grace_below_slope);
         add_receivable_account(&conn, &delinquent_above_slope_after_grace);
@@ -863,10 +894,7 @@ mod tests {
             from_time_t(payment_thresholds.sugg_and_grace(now) - 75);
         let home_dir =
             ensure_node_home_directory_exists("accountant", "new_delinquencies_shallow_slope");
-        let db_initializer = DbInitializerReal::default();
-        let conn = db_initializer
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
-            .unwrap();
+        let conn = make_connection_with_our_defined_sqlite_functions(&home_dir);
         add_receivable_account(&conn, &not_delinquent);
         add_receivable_account(&conn, &delinquent);
         let subject = ReceivableDaoReal::new(conn);
@@ -898,10 +926,7 @@ mod tests {
             from_time_t(payment_thresholds.sugg_and_grace(now) - 75);
         let home_dir =
             ensure_node_home_directory_exists("accountant", "new_delinquencies_steep_slope");
-        let db_initializer = DbInitializerReal::default();
-        let conn = db_initializer
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
-            .unwrap();
+        let conn = make_connection_with_our_defined_sqlite_functions(&home_dir);
         add_receivable_account(&conn, &not_delinquent);
         add_receivable_account(&conn, &delinquent);
         let subject = ReceivableDaoReal::new(conn);
@@ -935,10 +960,7 @@ mod tests {
             "receivable_dao",
             "new_delinquencies_does_not_find_existing_delinquencies",
         );
-        let db_initializer = DbInitializerReal::default();
-        let conn = db_initializer
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
-            .unwrap();
+        let conn = make_connection_with_our_defined_sqlite_functions(&home_dir);
         add_receivable_account(&conn, &existing_delinquency);
         add_receivable_account(&conn, &new_delinquency);
         add_banned_account(&conn, &existing_delinquency);
@@ -965,10 +987,7 @@ mod tests {
             "receivable_dao",
             "new_delinquencies_work_for_still_empty_tables",
         );
-        let db_initializer = DbInitializerReal::default();
-        let conn = db_initializer
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
-            .unwrap();
+        let conn = make_connection_with_our_defined_sqlite_functions(&home_dir);
         let subject = ReceivableDaoReal::new(conn);
 
         let result = subject.new_delinquencies(from_time_t(now), &payment_thresholds);

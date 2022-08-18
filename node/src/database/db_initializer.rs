@@ -67,7 +67,6 @@ impl DbInitializer for DbInitializerReal {
             init_config,
         )
     }
-    //nonstandard
     fn initialize_to_version(
         &self,
         path: &Path,
@@ -85,7 +84,7 @@ impl DbInitializer for DbInitializerReal {
         match Connection::open_with_flags(database_file_path, flags) {
             Ok(conn) => {
                 eprintln!("Opened existing database at {:?}", database_file_path);
-                Self::allow_nonstandard_setup(&conn, &init_config)?;
+                Self::conn_special_setup(&conn, &init_config)?;
                 let config = self.extract_configurations(&conn);
                 match (
                     Self::is_migration_required(config.get("schema_version"))?,
@@ -117,6 +116,7 @@ impl DbInitializer for DbInitializerReal {
                 match Connection::open_with_flags(database_file_path, flags) {
                     Ok(conn) => {
                         eprintln!("Created new database at {:?}", database_file_path);
+                        Self::conn_special_setup(&conn, &init_config)?;
                         self.create_database_tables(&conn, ExternalData::from((init_config, true)));
                         Ok(Box::new(ConnectionWrapperReal::new(conn)))
                     }
@@ -334,7 +334,7 @@ impl DbInitializerReal {
         .expect("Can't create banned table");
     }
 
-    fn allow_nonstandard_setup(
+    fn conn_special_setup(
         conn: &Connection,
         init_config: &DbInitializationConfig,
     ) -> Result<(), InitializationError> {
@@ -734,6 +734,7 @@ pub mod test_utils {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::big_int_db_processor::BigIntDivider;
     use crate::database::db_initializer::InitializationError::SqliteError;
     use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
     use crate::test_utils::database_utils::{
@@ -748,15 +749,16 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
-        TEST_DEFAULT_CHAIN,
+        node_home_directory, TEST_DEFAULT_CHAIN,
     };
     use masq_lib::utils::NeighborhoodModeLight;
     use regex::Regex;
     use rusqlite::{Error, OpenFlags};
+    use std::borrow::Borrow;
     use std::fs::File;
     use std::io::{Read, Write};
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-    use std::ops::Not;
+    use std::ops::{Deref, Not};
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use tokio::net::TcpListener;
@@ -1161,20 +1163,125 @@ mod tests {
         );
     }
 
-    #[test]
-    fn adding_special_setup_to_the_connection_goes_wrong() {
-        let home_dir = ensure_node_home_directory_exists(
-            "db_initializer",
-            "adding_special_setup_to_the_connection_goes_wrong",
-        );
-        {
-            DbInitializerReal::default()
+    fn connection_special_setup_changed_assertion<F, E>(init_conn: Option<&Connection>, modifier: F)
+    where
+        F: FnOnce() -> Result<Option<Box<dyn ConnectionWrapper>>, E>,
+        E: Debug,
+    {
+        fn ask_pragma(conn: &Connection) -> u16 {
+            conn.pragma_query_value(None, "busy_timeout", |row| row.get::<usize, u16>(0))
+                .unwrap()
+        }
+        fn ending_assertion(conn: &Connection, value_by_default: u16) {
+            let after = ask_pragma(conn.borrow());
+            assert_eq!(value_by_default, 5000);
+            assert_eq!(after, 12345)
+        };
+        if let Some(conn) = init_conn {
+            let value_by_default = ask_pragma(conn.borrow());
+            modifier().unwrap();
+            ending_assertion(conn, value_by_default)
+        } else {
+            let dir_of_example_db = node_home_directory(
+                "db_initializer",
+                "connection_special_setup_changed_assertion",
+            )
+            .join("example_db_before_creation");
+            let mut conn = DbInitializerReal::default()
                 .initialize(
-                    home_dir.as_path(),
+                    &dir_of_example_db,
                     true,
                     DbInitializationConfig::test_default(),
                 )
                 .unwrap();
+            let tx = conn.transaction().unwrap();
+            let by_default = ask_pragma(tx.deref());
+            let mut conn = modifier().unwrap().unwrap();
+            let test_tx = conn.transaction().unwrap();
+            ending_assertion(test_tx.deref(), by_default)
+        };
+    }
+
+    #[test]
+    fn add_special_setup_works() {
+        let subject = DbInitializationConfig::test_default();
+        let setup_fn = move |conn: &Connection| {
+            conn.pragma_update(None, "busy_timeout", 12345).unwrap();
+            Ok(())
+        };
+        let conn = Connection::open_in_memory().unwrap();
+
+        let result = subject.add_special_conn_setup(setup_fn);
+
+        connection_special_setup_changed_assertion::<_, ()>(Some(&conn), || {
+            result.special_conn_setup[0](&conn).unwrap();
+            Ok(None)
+        })
+    }
+
+    #[test]
+    fn conn_special_setup_retrieves_first_error_encountered() {
+        let fn_one = |_: &_| Ok(());
+        let fn_two = |_: &_| Err(Error::ExecuteReturnedResults);
+        let fn_three = |_: &_| Err(Error::GetAuxWrongType);
+        let conn = Connection::open_in_memory().unwrap();
+        let init_config =
+            make_default_config_with_different_pointers(vec![fn_one, fn_two, fn_three]);
+
+        let result = DbInitializerReal::conn_special_setup(&conn, &init_config);
+
+        assert_eq!(result, Err(SqliteError(Error::ExecuteReturnedResults)))
+    }
+
+    #[test]
+    fn conn_special_setup_works_at_database_creation() {
+        let home_dir = ensure_node_home_directory_exists(
+            "db_initialization",
+            "conn_special_setup_works_at_database_creation",
+        );
+        let init_config =
+            DbInitializationConfig::test_default().add_special_conn_setup(|conn: &Connection| {
+                conn.pragma_update(None, "busy_timeout", 12345).unwrap();
+                Ok(())
+            });
+
+        connection_special_setup_changed_assertion::<_, ()>(None, || {
+            Ok(Some(
+                DbInitializerReal::default()
+                    .initialize(&home_dir, true, init_config)
+                    .unwrap(),
+            ))
+        })
+    }
+
+    #[test]
+    fn conn_special_setup_works_at_opening_existing_database() {
+        let home_dir = ensure_node_home_directory_exists(
+            "db_initialization",
+            "conn_special_setup_works_at_database_creation",
+        );
+        let mut db_conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .unwrap();
+        let init_conn = db_conn.transaction().unwrap();
+        let init_config =
+            DbInitializationConfig::test_default().add_special_conn_setup(|conn: &Connection| {
+                conn.pragma_update(None, "busy_timeout", 12345).unwrap();
+                Ok(())
+            });
+
+        connection_special_setup_changed_assertion::<_, ()>(Some(init_conn.deref()), || {
+            DbInitializerReal::default()
+                .initialize(&home_dir, false, init_config)
+                .unwrap();
+            Ok(None)
+        })
+    }
+
+    fn processing_special_setup_test_body(test_name: &str, pre_initialization: fn(&Path)) {
+        let home_dir = ensure_node_home_directory_exists("db_initializer", test_name);
+        {
+            pre_initialization(home_dir.as_path())
         }
         let malformed_setup_function = |_: &_| Err(Error::GetAuxWrongType);
         let init_config = DbInitializationConfig::panic_on_migration()
@@ -1187,6 +1294,26 @@ mod tests {
         assert_eq!(
             error,
             InitializationError::SqliteError(Error::GetAuxWrongType)
+        )
+    }
+
+    #[test]
+    fn processing_special_setup_to_the_connection_goes_wrong_on_new_database() {
+        processing_special_setup_test_body(
+            "processing_special_setup_to_the_connection_goes_wrong_on_new_database",
+            |path| {
+                DbInitializerReal::default()
+                    .initialize(path, true, DbInitializationConfig::test_default())
+                    .unwrap();
+            },
+        )
+    }
+
+    #[test]
+    fn processing_special_setup_to_the_connection_goes_wrong_on_existing_database() {
+        processing_special_setup_test_body(
+            "processing_special_setup_to_the_connection_goes_wrong_on_existing_database",
+            |path| {},
         )
     }
 
@@ -1529,42 +1656,6 @@ mod tests {
         );
         assert!(regex_one.is_match(&config_one_debug));
         assert!(regex_two.is_match(&config_two_debug))
-    }
-
-    #[test]
-    fn add_special_setup_works() {
-        let subject = DbInitializationConfig::test_default();
-        let setup_fn = move |conn: &Connection| {
-            conn.pragma_update(None, "busy_timeout", 12345).unwrap();
-            Ok(())
-        };
-        let conn = Connection::open_in_memory().unwrap();
-
-        let result = subject.add_special_conn_setup(setup_fn);
-
-        let ask_pragma = |conn: &Connection| {
-            conn.pragma_query_value(None, "busy_timeout", |row| row.get::<usize, u16>(0))
-                .unwrap()
-        };
-        let before = ask_pragma(&conn);
-        assert_eq!(before, 5000);
-        result.special_conn_setup[0](&conn).unwrap();
-        let after = ask_pragma(&conn);
-        assert_eq!(after, 12345)
-    }
-
-    #[test]
-    fn allow_nonstandard_setup_retrieves_first_error_encountered() {
-        let fn_one = |_: &_| Ok(());
-        let fn_two = |_: &_| Err(Error::ExecuteReturnedResults);
-        let fn_three = |_: &_| Err(Error::GetAuxWrongType);
-        let conn = Connection::open_in_memory().unwrap();
-        let init_config =
-            make_default_config_with_different_pointers(vec![fn_one, fn_two, fn_three]);
-
-        let result = DbInitializerReal::allow_nonstandard_setup(&conn, &init_config);
-
-        assert_eq!(result, Err(SqliteError(Error::ExecuteReturnedResults)))
     }
 
     #[test]
