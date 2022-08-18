@@ -1164,7 +1164,7 @@ mod tests {
 
     fn connection_special_setup_changed_assertion<F, E>(init_conn: Option<&Connection>, modifier: F)
     where
-        F: FnOnce() -> Result<Option<Box<dyn ConnectionWrapper>>, E>,
+        F: FnOnce() -> Option<Box<dyn ConnectionWrapper>>,
         E: Debug,
     {
         fn ask_pragma(conn: &Connection) -> u16 {
@@ -1178,7 +1178,16 @@ mod tests {
         }
         if let Some(conn) = init_conn {
             let value_by_default = ask_pragma(conn.borrow());
-            modifier().unwrap();
+            let mut new_wrapped_conn_opt = modifier();
+            let tx_opt = if let Some(conn) = new_wrapped_conn_opt.as_mut() {
+                Some(conn.transaction().unwrap())
+            } else {
+                None
+            };
+            let conn = match tx_opt.as_ref() {
+                Some(tx) => tx.deref(),
+                None => conn,
+            };
             ending_assertion(conn, value_by_default)
         } else {
             let dir_of_example_db = node_home_directory(
@@ -1195,7 +1204,7 @@ mod tests {
                 .unwrap();
             let tx = conn.transaction().unwrap();
             let by_default = ask_pragma(tx.deref());
-            let mut conn = modifier().unwrap().unwrap();
+            let mut conn = modifier().unwrap();
             let test_tx = conn.transaction().unwrap();
             ending_assertion(test_tx.deref(), by_default)
         }
@@ -1214,7 +1223,7 @@ mod tests {
 
         connection_special_setup_changed_assertion::<_, ()>(Some(&conn), || {
             result.special_conn_setup[0](&conn).unwrap();
-            Ok(None)
+            None
         })
     }
 
@@ -1245,11 +1254,11 @@ mod tests {
             });
 
         connection_special_setup_changed_assertion::<_, ()>(None, || {
-            Ok(Some(
+            Some(
                 DbInitializerReal::default()
                     .initialize(&home_dir, true, init_config)
                     .unwrap(),
-            ))
+            )
         })
     }
 
@@ -1257,12 +1266,12 @@ mod tests {
     fn conn_special_setup_works_at_opening_existing_database() {
         let home_dir = ensure_node_home_directory_exists(
             "db_initialization",
-            "conn_special_setup_works_at_database_creation",
+            "conn_special_setup_works_at_opening_existing_database",
         );
-        let mut db_conn = DbInitializerReal::default()
+        let mut conn_wrapper = DbInitializerReal::default()
             .initialize(&home_dir, true, DbInitializationConfig::test_default())
             .unwrap();
-        let init_conn = db_conn.transaction().unwrap();
+        let init_conn = conn_wrapper.transaction().unwrap();
         let init_config =
             DbInitializationConfig::test_default().add_special_conn_setup(|conn: &Connection| {
                 conn.pragma_update(None, "busy_timeout", 12345).unwrap();
@@ -1270,10 +1279,11 @@ mod tests {
             });
 
         connection_special_setup_changed_assertion::<_, ()>(Some(init_conn.deref()), || {
-            DbInitializerReal::default()
-                .initialize(&home_dir, false, init_config)
-                .unwrap();
-            Ok(None)
+            Some(
+                DbInitializerReal::default()
+                    .initialize(&home_dir, false, init_config)
+                    .unwrap(),
+            )
         })
     }
 

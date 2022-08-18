@@ -31,12 +31,12 @@ use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTr
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
-use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
+use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::{AccountantConfig, FinancialStatistics, PaymentThresholds};
-use crate::sub_lib::accountant::{AccountantSubs};
+use crate::sub_lib::accountant::{ReportExitServiceConsumedMessage, WEIS_OF_GWEI};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
@@ -582,7 +582,7 @@ impl Accountant {
     }
 
     fn balance_and_age(account: &ReceivableAccount) -> (String, Duration) {
-        let balance = format!("{}", (account.balance_wei as f64) / 1_000_000_000.0);
+        let balance = format!("{}", account.balance_wei / WEIS_OF_GWEI);
         let age = account
             .last_received_timestamp
             .elapsed()
@@ -1364,7 +1364,11 @@ impl ThresholdUtils {
     pub fn slope(payment_thresholds: &PaymentThresholds, for_wei_computation: bool) -> f64 {
         if payment_thresholds.debt_threshold_gwei <= payment_thresholds.permanent_debt_allowed_gwei
         {
-            todo!()
+            panic!(
+                "Debt threshold ({}) cannot be smaller than permanent debt allowed ({})",
+                payment_thresholds.debt_threshold_gwei,
+                payment_thresholds.permanent_debt_allowed_gwei
+            )
         }
         let slope = -(payment_thresholds.debt_threshold_gwei as f64
             - payment_thresholds.permanent_debt_allowed_gwei as f64)
@@ -4155,6 +4159,23 @@ mod tests {
         let slope = ThresholdUtils::slope(&payment_thresholds, true);
 
         assert_eq!(slope, -3.75e25)
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Debt threshold (1000000) cannot be smaller than permanent debt allowed (1000001)"
+    )]
+    fn slope_does_not_tolerate_disproportional_parameters() {
+        let payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 20,
+            payment_grace_period_sec: 33,
+            permanent_debt_allowed_gwei: 1_000_001,
+            debt_threshold_gwei: 1_000_000,
+            threshold_interval_sec: 100,
+            unban_below_gwei: 0,
+        };
+
+        let _ = ThresholdUtils::slope(&payment_thresholds, false);
     }
 
     #[test]

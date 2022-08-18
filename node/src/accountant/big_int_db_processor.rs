@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::big_int_db_processor::ByteOrder::{High, Low};
+use crate::accountant::big_int_db_processor::UserDefinedFunctionError::ImproperInputValue;
 use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::checked_conversion;
 use crate::accountant::payable_dao::PayableDaoError;
@@ -417,6 +418,14 @@ pub fn collect_and_sum_i128_values_from_table(
         .sum()
 }
 
+macro_rules! create_big_int_sqlite_fn {
+    ($conn: expr, $flags: expr, $intern_fn_name: ident, $sqlite_fn_name: literal) => {
+        $conn.create_scalar_function::<_, i64>($sqlite_fn_name, 2, $flags, move |ctx| {
+            Ok(Self::$intern_fn_name(common_arg_distillation(ctx)?))
+        })
+    };
+}
+
 pub struct BigIntDivider {}
 
 impl BigIntDivider {
@@ -453,8 +462,7 @@ impl BigIntDivider {
     }
 
     pub fn register_deconstruct_for_db_connection(conn: &Connection) -> rusqlite::Result<()> {
-        let flags = FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC;
-        let common_preparation = |ctx: &Context| {
+        fn common_arg_distillation(ctx: &Context) -> rusqlite::Result<i128> {
             let top_point_gwei = ctx
                 .get_raw(0)
                 .as_i64()
@@ -464,17 +472,28 @@ impl BigIntDivider {
                 .as_f64()
                 .expect("wrong value, should be 64-bit real num");
             if !decrease.is_sign_negative() {
-                todo!()
+                return Err(Error::UserFunctionError(Box::new(ImproperInputValue(
+                    decrease.to_string(),
+                ))));
             }
-            top_point_gwei as i128 * WEIS_OF_GWEI + decrease as i128
+            Ok(top_point_gwei as i128 * WEIS_OF_GWEI + decrease as i128)
         };
-        conn.create_scalar_function::<_, i64>("biginthigh", 2, flags, move |ctx| {
-            Ok(Self::deconstruct_high_bytes(common_preparation(ctx)))
-        })
-        .expect("failure in scalar function addition");
-        conn.create_scalar_function::<_, i64>("bigintlow", 2, flags, move |ctx| {
-            Ok(Self::deconstruct_low_bytes(common_preparation(ctx)))
-        })
+        let flags = FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC;
+        create_big_int_sqlite_fn!(conn, flags, deconstruct_high_bytes, "biginthigh"); //TODO add a question mark here
+        create_big_int_sqlite_fn!(conn, flags, deconstruct_low_bytes, "bigintlow")
+    }
+}
+
+#[derive(Debug)]
+enum UserDefinedFunctionError<E: Debug + Display> {
+    ImproperInputValue(E),
+}
+
+impl<E: Debug + Display> std::error::Error for UserDefinedFunctionError<E> {}
+
+impl<E: Debug + Display> Display for UserDefinedFunctionError<E> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        todo!()
     }
 }
 
@@ -483,11 +502,13 @@ mod tests {
     use super::*;
     use crate::accountant::big_int_db_processor::WeiChange::Addition;
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
+    use crate::database::db_initializer::InitializationError::SqliteError;
     use crate::test_utils::make_wallet;
     use itertools::Either;
     use itertools::Either::Left;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::{Connection, OpenFlags, ToSql};
+    use rusqlite::Error::SqliteFailure;
+    use rusqlite::{Connection, ToSql};
 
     #[derive(Debug)]
     struct DummyDao {}
@@ -820,8 +841,7 @@ mod tests {
             &BigIntDbProcessorReal<DummyDao>,
         ) -> Result<(), BigIntDbError>,
     {
-        let mut conn =
-            initiate_simple_connection_and_test_table("big_int_db_processor", test_name, false);
+        let mut conn = initiate_simple_connection_and_test_table("big_int_db_processor", test_name);
         if let Some(values) = init_record_opt {
             insert_single_record(conn.as_ref(), [&values.0, &values.1, &values.2])
         };
@@ -865,7 +885,6 @@ mod tests {
     fn initiate_simple_connection_and_test_table(
         module: &str,
         test_name: &str,
-        read_only_conn: bool, //TODO is this flag really used anywhere?
     ) -> Box<ConnectionWrapperReal> {
         let conn = create_new_empty_db(module, test_name);
         conn.execute(
@@ -873,14 +892,6 @@ mod tests {
             [],
         )
             .unwrap();
-        let conn = if !read_only_conn {
-            conn
-        } else {
-            let db_path = conn.path().unwrap().to_path_buf();
-            drop(conn);
-            Connection::open_with_flags(db_path.as_path(), OpenFlags::SQLITE_OPEN_READ_ONLY)
-                .unwrap()
-        };
         Box::new(ConnectionWrapperReal::new(conn))
     }
 
@@ -1075,7 +1086,6 @@ mod tests {
         let conn = initiate_simple_connection_and_test_table(
             "big_int_db_processor",
             "insert_failed_update_failed_too",
-            false,
         );
         insert_single_record(conn.as_ref(), [&"Joe", &60, &5555]);
         let subject = BigIntDbProcessorReal::<DummyDao>::new();
@@ -1106,7 +1116,6 @@ mod tests {
         let conn = initiate_simple_connection_and_test_table(
             "big_int_db_processor",
             "insert_handles_unspecific_failures",
-            false,
         );
         let subject = BigIntDbProcessorReal::<DummyDao>::new();
         let balance_change = Addition("balance", 4879898145125);
@@ -1136,7 +1145,6 @@ mod tests {
         let conn = initiate_simple_connection_and_test_table(
             "big_int_db_processor",
             "update_with_overflow_handles_unspecific_error",
-            false,
         );
         let balance_change = Addition("balance", 100);
         let update_config = BigIntSqlConfig::new(
@@ -1163,7 +1171,6 @@ mod tests {
         let conn = initiate_simple_connection_and_test_table(
             "big_int_db_processor",
             "update_with_overflow_is_designed_to_handle_one_record_a_time",
-            false,
         );
         insert_single_record(&*conn, [&"Joe", &60, &5555]);
         insert_single_record(&*conn, [&"Jodie", &77, &0]);
@@ -1186,7 +1193,6 @@ mod tests {
         let conn = initiate_simple_connection_and_test_table(
             "big_int_db_processor",
             "update_with_overflow_handles_error_from_executing_the_initial_select_stm",
-            false,
         );
         conn.prepare("alter table test_table drop column balance_low_b")
             .unwrap()
@@ -1382,17 +1388,21 @@ mod tests {
         );
     }
 
-    //TODO this might deserve another test for the slope negative...
+    fn create_test_table_and_run_register_deconstruct_for_db_connection(
+        test_name: &str,
+    ) -> Connection {
+        let conn = create_new_empty_db("big_int_db_processor", test_name);
+        BigIntDivider::register_deconstruct_for_db_connection(&conn).unwrap();
+        conn.execute("create table test_table (computed_high_bytes int, computed_low_bytes int, database_parameter int not null)",[]).unwrap();
+        conn
+    }
+
     #[test]
     fn register_deconstruct_for_db_connection_works() {
-        let conn = create_new_empty_db(
-            "big_int_db_processor",
+        let conn = create_test_table_and_run_register_deconstruct_for_db_connection(
             "register_deconstruct_for_db_connection_works",
         );
 
-        BigIntDivider::register_deconstruct_for_db_connection(&conn).unwrap();
-
-        conn.execute("create table test_table (computed_high_bytes int, computed_low_bytes int, database_parameter int not null)",[]).unwrap();
         let database_value_1: i64 = 12222;
         let database_value_2: i64 = 23333444;
         let database_value_3: i64 = 5555;
@@ -1438,5 +1448,33 @@ mod tests {
                 )
             ]
         );
+    }
+
+    #[test]
+    fn user_defined_functions_error_implements_display() {
+        todo!("finish me")
+    }
+
+    #[test]
+    fn our_sqlite_functions_are_specialized_and_thus_should_not_take_positive_number_for_the_second_parameter(
+    ) {
+        let conn = create_test_table_and_run_register_deconstruct_for_db_connection(
+            "our_sqlite_functions_are_specialized_and_thus_should_not_take_positive_number_for_the_second_parameter"
+        );
+        let error_invoker = |bytes_type: &str| {
+            let sql = format!(
+                "insert into test_table (computed_{0}_bytes) values (bigint{0}(45656,5656.23))",
+                bytes_type
+            );
+            conn.execute(&sql, []).unwrap_err()
+        };
+
+        let high_bytes_error = error_invoker("high");
+        let low_bytes_error = error_invoker("low");
+
+        assert!(matches!(high_bytes_error, Error::UserFunctionError(..)));
+        assert_eq!(high_bytes_error.to_string(), "blaaah");
+        assert!(matches!(low_bytes_error, Error::UserFunctionError(..)));
+        assert_eq!(low_bytes_error.to_string(), "blah blah")
     }
 }
