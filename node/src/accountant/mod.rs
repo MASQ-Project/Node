@@ -869,13 +869,13 @@ impl Accountant {
     }
 
     fn msg_id(timestamp: SystemTime) -> String {
-        let full = timestamp
+        let microseconds_since_epoch = timestamp
             .duration_since(UNIX_EPOCH)
             .expect("time travelers")
-            .as_micros()
-            .to_string();
-        let len = full.len();
-        (&full[len - 3..len]).to_string()
+            .as_micros();
+        let lowest_3_digits = microseconds_since_epoch % 1000;
+        lowest_3_digits
+            .to_string()
     }
 
     fn handle_report_services_consumed_message(&mut self, msg: ReportServicesConsumedMessage) {
