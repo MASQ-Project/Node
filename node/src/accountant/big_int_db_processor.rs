@@ -463,16 +463,17 @@ impl BigIntDivider {
                 .get_raw(1)
                 .as_f64()
                 .expect("wrong value, should be 64-bit real num");
-            top_point_gwei as i128 * WEIS_OF_GWEI - decrease as i128
+            if !decrease.is_sign_negative() {
+                todo!()
+            }
+            top_point_gwei as i128 * WEIS_OF_GWEI + decrease as i128
         };
         conn.create_scalar_function::<_, i64>("biginthigh", 2, flags, move |ctx| {
-            let hight_of_wei = common_preparation(ctx);
-            Ok(Self::deconstruct_high_bytes(hight_of_wei))
+            Ok(Self::deconstruct_high_bytes(common_preparation(ctx)))
         })
         .expect("failure in scalar function addition");
         conn.create_scalar_function::<_, i64>("bigintlow", 2, flags, move |ctx| {
-            let hight_of_wei = common_preparation(ctx);
-            Ok(Self::deconstruct_low_bytes(hight_of_wei))
+            Ok(Self::deconstruct_low_bytes(common_preparation(ctx)))
         })
     }
 }
@@ -1381,6 +1382,7 @@ mod tests {
         );
     }
 
+    //TODO this might deserve another test for the slope negative...
     #[test]
     fn register_deconstruct_for_db_connection_works() {
         let conn = create_new_empty_db(
@@ -1402,8 +1404,8 @@ mod tests {
         let arbitrary_constant = 111222333444_i64;
         conn.execute(
             "update test_table set \
-        computed_high_bytes = biginthigh(:my_constant, 3.143 * database_parameter),\
-        computed_low_bytes = bigintlow(:my_constant, 3.143 * database_parameter)",
+        computed_high_bytes = biginthigh(:my_constant, -3.143 * database_parameter),\
+        computed_low_bytes = bigintlow(:my_constant, -3.143 * database_parameter)",
             &[(":my_constant", &arbitrary_constant)],
         )
         .unwrap();
@@ -1424,15 +1426,15 @@ mod tests {
             vec![
                 BigIntDivider::deconstruct(
                     arbitrary_constant as i128 * 1_000_000_000
-                        - (3.143 * database_value_1 as f64) as i128
+                        + (-3.143 * database_value_1 as f64) as i128
                 ),
                 BigIntDivider::deconstruct(
                     arbitrary_constant as i128 * 1_000_000_000
-                        - (3.143 * database_value_2 as f64) as i128
+                        + (-3.143 * database_value_2 as f64) as i128
                 ),
                 BigIntDivider::deconstruct(
                     arbitrary_constant as i128 * 1_000_000_000
-                        - (3.143 * database_value_3 as f64) as i128
+                        + (-3.143 * database_value_3 as f64) as i128
                 )
             ]
         );

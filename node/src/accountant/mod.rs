@@ -31,12 +31,12 @@ use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTr
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
-use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::{AccountantConfig, FinancialStatistics, PaymentThresholds};
+use crate::sub_lib::accountant::{AccountantSubs};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
@@ -1361,17 +1361,26 @@ impl PayableThresholdTools for PayableThresholdToolsReal {
 pub struct ThresholdUtils {}
 
 impl ThresholdUtils {
-    pub fn slope(payment_thresholds: &PaymentThresholds) -> f64 {
-        -(Self::convert(payment_thresholds.debt_threshold_gwei) as f64
-            - Self::convert(payment_thresholds.permanent_debt_allowed_gwei) as f64)
-            / Self::convert(payment_thresholds.threshold_interval_sec) as f64
+    pub fn slope(payment_thresholds: &PaymentThresholds, for_wei_computation: bool) -> f64 {
+        if payment_thresholds.debt_threshold_gwei <= payment_thresholds.permanent_debt_allowed_gwei
+        {
+            todo!()
+        }
+        let slope = -(payment_thresholds.debt_threshold_gwei as f64
+            - payment_thresholds.permanent_debt_allowed_gwei as f64)
+            / Self::convert(payment_thresholds.threshold_interval_sec) as f64;
+        if for_wei_computation {
+            slope * 10_u64.pow(9) as f64
+        } else {
+            slope
+        }
     }
 
     fn convert(num: u64) -> i64 {
         checked_conversion::<u64, i64>(num)
     }
 
-    pub fn compute_theoretical_interception_with_y_axis(
+    fn compute_theoretical_interception_with_y_axis(
         m: f64,
         debt_threshold: i64,
         maturity_threshold_sec: i64,
@@ -1385,7 +1394,7 @@ impl ThresholdUtils {
         payment_thresholds: &PaymentThresholds,
         time: u64,
     ) -> f64 {
-        let m = ThresholdUtils::slope(payment_thresholds);
+        let m = ThresholdUtils::slope(payment_thresholds, false);
         let b = ThresholdUtils::compute_theoretical_interception_with_y_axis(
             m,
             ThresholdUtils::convert(payment_thresholds.debt_threshold_gwei),
@@ -4127,6 +4136,25 @@ mod tests {
             middle_point_timestamp,
             lower_corner_timestamp,
         )
+    }
+
+    #[test]
+    fn slope_has_loose_enough_limitations_to_allow_work_with_number_bigger_than_masq_token_max_supply(
+    ) {
+        //max masq token supply by August 2022: 37,500,000
+        let payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 20,
+            payment_grace_period_sec: 33,
+            permanent_debt_allowed_gwei: 1,
+            debt_threshold_gwei: 37500000000000000,
+            threshold_interval_sec: 1,
+            unban_below_gwei: 0,
+        };
+
+        //we run it in the wei mode so the taken money numbers go multiplicated by 10^9
+        let slope = ThresholdUtils::slope(&payment_thresholds, true);
+
+        assert_eq!(slope, -3.75e25)
     }
 
     #[test]

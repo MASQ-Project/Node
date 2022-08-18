@@ -734,7 +734,6 @@ pub mod test_utils {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::big_int_db_processor::BigIntDivider;
     use crate::database::db_initializer::InitializationError::SqliteError;
     use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
     use crate::test_utils::database_utils::{
@@ -1176,7 +1175,7 @@ mod tests {
             let after = ask_pragma(conn.borrow());
             assert_eq!(value_by_default, 5000);
             assert_eq!(after, 12345)
-        };
+        }
         if let Some(conn) = init_conn {
             let value_by_default = ask_pragma(conn.borrow());
             modifier().unwrap();
@@ -1199,7 +1198,7 @@ mod tests {
             let mut conn = modifier().unwrap().unwrap();
             let test_tx = conn.transaction().unwrap();
             ending_assertion(test_tx.deref(), by_default)
-        };
+        }
     }
 
     #[test]
@@ -1313,7 +1312,7 @@ mod tests {
     fn processing_special_setup_to_the_connection_goes_wrong_on_existing_database() {
         processing_special_setup_test_body(
             "processing_special_setup_to_the_connection_goes_wrong_on_existing_database",
-            |path| {},
+            |_path| {},
         )
     }
 

@@ -139,28 +139,13 @@ impl ReceivableDao for ReceivableDaoReal {
             .unwrap_or_else(|e| self.more_money_received_pretty_error_log(&payments, e))
     }
 
-    // select r.wallet_address, r.balance, r.last_received_timestamp
-    // from receivable r left outer join banned b on r.wallet_address = b.wallet_address
-    // where
-    // r.last_received_timestamp < :sugg_and_grace
-    // and r.balance > :balance_to_decrease_from + :slope * (:sugg_and_grace - r.last_received_timestamp)
-    // and r.balance > :permanent_debt
-    // and b.wallet_address is null
-
-    // and r.balance > :debt_threshold + :slope * (:sugg_and_grace - r.last_received_timestamp)
-    //                 i64               f64       i64             - i64
-
     fn new_delinquencies(
         &self,
         system_now: SystemTime,
         payment_thresholds: &PaymentThresholds,
     ) -> Vec<ReceivableAccount> {
-        let now = to_time_t(SystemTime::now());
         //TODO how to test this slope???
-        let slope = ThresholdUtils::calculate_sloped_threshold_by_time(
-            payment_thresholds,
-            checked_conversion::<i64, u64>(now),
-        );
+        let slope = ThresholdUtils::slope(payment_thresholds, true);
         let (permanent_debt_allowed_high_b, permanent_debt_allowed_low_b) =
             BigIntDivider::deconstruct(
                 checked_conversion::<u64, i128>(payment_thresholds.permanent_debt_allowed_gwei)
@@ -174,8 +159,9 @@ impl ReceivableDao for ReceivableDaoReal {
                 where
                     r.last_received_timestamp < :sugg_and_grace
                     and ((r.balance_high_b > biginthigh(:debt_threshold, :slope * (:sugg_and_grace - r.last_received_timestamp)))
-                    or ((balance_high_b = 0) and (balance_low_b > bigintlow(:debt_threshold + :slope * (:sugg_and_grace - r.last_received_timestamp)))))
-                    and (r.balance_high_b > :permanent_debt_allowed_high_b) or ((r.balance_high_b = 0) and (r.balance_low_b > :permanent_debt_allowed_low_b))
+                        or ((r.balance_high_b = biginthigh(:debt_threshold, :slope * (:sugg_and_grace - r.last_received_timestamp)))
+                        and (r.balance_low_b > bigintlow(:debt_threshold, :slope * (:sugg_and_grace - r.last_received_timestamp)))))
+                    and ((r.balance_high_b > :permanent_debt_allowed_high_b) or ((r.balance_high_b = 0) and (r.balance_low_b > :permanent_debt_allowed_low_b)))
                     and b.wallet_address is null
             "
         );
@@ -184,7 +170,7 @@ impl ReceivableDao for ReceivableDaoReal {
             .expect("Couldn't prepare statement")
             .query_map(
                 named_params! {
-                    ":debt_threshold": payment_thresholds.debt_threshold_gwei,
+                    ":debt_threshold": checked_conversion::<u64,i64>(payment_thresholds.debt_threshold_gwei),
                     ":slope": slope,
                     ":sugg_and_grace": payment_thresholds.sugg_and_grace(to_time_t(system_now)),
                     ":permanent_debt_allowed_high_b": permanent_debt_allowed_high_b,
@@ -281,21 +267,6 @@ impl ReceivableDaoReal {
             big_int_db_processor: Box::new(BigIntDbProcessorReal::new()),
             logger: Logger::new("ReceivableDaoReal"),
         }
-    }
-
-    // TODO delete me...
-    pub fn delinquency_curve_height_detection(
-        payment_thresholds: &PaymentThresholds,
-        now: i64,
-        timestamp: i64,
-    ) -> i128 {
-        let time = payment_thresholds.grace(now) - timestamp;
-        let time = if time.is_negative() { 0 } else { time };
-        ThresholdUtils::calculate_sloped_threshold_by_time(
-            payment_thresholds,
-            checked_conversion::<i64, u64>(time),
-        ) as i128
-            * WEIS_OF_GWEI
     }
 
     fn try_multi_insert_payment(
@@ -419,9 +390,7 @@ mod tests {
     use super::*;
     use crate::accountant::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::accountant::test_utils::{
-        assert_database_blows_up_on_an_unexpected_error,
-        assert_on_sloped_segment_of_payment_thresholds_and_its_proper_alignment,
-        make_receivable_account,
+        assert_database_blows_up_on_an_unexpected_error, make_receivable_account,
     };
     use crate::database::db_initializer::DbInitializerReal;
     use crate::database::db_initializer::{DbInitializationConfig, DbInitializer};
@@ -731,77 +700,6 @@ mod tests {
         assert_eq!(result, None);
     }
 
-    #[test]
-    fn delinquency_high_detection_goes_along_proper_line() {
-        let payment_thresholds = PaymentThresholds {
-            maturity_threshold_sec: 333,
-            payment_grace_period_sec: 444,
-            permanent_debt_allowed_gwei: 1456,
-            debt_threshold_gwei: 9876,
-            threshold_interval_sec: 1111111,
-            unban_below_gwei: 0,
-        };
-        let now = to_time_t(SystemTime::now());
-        let higher_corner_timestamp = (now
-            - ThresholdUtils::convert(
-                payment_thresholds.maturity_threshold_sec
-                    + payment_thresholds.payment_grace_period_sec,
-            )) as u64;
-        let middle_point_timestamp = (now
-            - ThresholdUtils::convert(
-                payment_thresholds.maturity_threshold_sec
-                    + payment_thresholds.payment_grace_period_sec
-                    + payment_thresholds.threshold_interval_sec / 2,
-            )) as u64;
-        let lower_corner_timestamp = (now
-            - ThresholdUtils::convert(
-                payment_thresholds.maturity_threshold_sec
-                    + payment_thresholds.payment_grace_period_sec
-                    + payment_thresholds.threshold_interval_sec,
-            )) as u64;
-        let tested_fn = |payment_thresholds: &PaymentThresholds, time| {
-            ReceivableDaoReal::delinquency_curve_height_detection(
-                payment_thresholds,
-                now,
-                time as i64,
-            )
-        };
-
-        assert_on_sloped_segment_of_payment_thresholds_and_its_proper_alignment(
-            tested_fn,
-            payment_thresholds,
-            higher_corner_timestamp,
-            middle_point_timestamp,
-            lower_corner_timestamp,
-        )
-    }
-
-    #[test]
-    fn despite_unrealistic_scenario_we_make_sure_timestamp_gap_smaller_than_grace_period_can_never_blow_up(
-    ) {
-        let payment_thresholds = PaymentThresholds {
-            maturity_threshold_sec: 25,
-            payment_grace_period_sec: 50,
-            permanent_debt_allowed_gwei: 100,
-            debt_threshold_gwei: 200,
-            threshold_interval_sec: 100,
-            unban_below_gwei: 0,
-        };
-        let now = to_time_t(SystemTime::now());
-        let timestamp = now - 11;
-
-        let result = ReceivableDaoReal::delinquency_curve_height_detection(
-            &payment_thresholds,
-            now,
-            timestamp,
-        );
-
-        assert_eq!(
-            result,
-            payment_thresholds.debt_threshold_gwei as i128 * WEIS_OF_GWEI
-        )
-    }
-
     fn make_connection_with_our_defined_sqlite_functions(
         home_dir: &Path,
     ) -> Box<dyn ConnectionWrapper> {
@@ -902,7 +800,7 @@ mod tests {
         let result = subject.new_delinquencies(from_time_t(now), &payment_thresholds);
 
         assert_contains(&result, &delinquent);
-        assert_eq!(1, result.len());
+        assert_eq!(result.len(), 1);
     }
 
     #[test]
@@ -934,7 +832,7 @@ mod tests {
         let result = subject.new_delinquencies(from_time_t(now), &payment_thresholds);
 
         assert_contains(&result, &delinquent);
-        assert_eq!(1, result.len());
+        assert_eq!(result.len(), 1);
     }
 
     #[test]
@@ -969,7 +867,7 @@ mod tests {
         let result = subject.new_delinquencies(from_time_t(now), &payment_thresholds);
 
         assert_contains(&result, &new_delinquency);
-        assert_eq!(1, result.len());
+        assert_eq!(result.len(), 1);
     }
 
     #[test]
@@ -1023,7 +921,7 @@ mod tests {
         let result = subject.paid_delinquencies(&payment_thresholds);
 
         assert_contains(&result, &paid_delinquent);
-        assert_eq!(1, result.len());
+        assert_eq!(result.len(), 1);
     }
 
     #[test]
@@ -1057,7 +955,7 @@ mod tests {
         let result = subject.paid_delinquencies(&payment_thresholds);
 
         assert_contains(&result, &newly_non_delinquent);
-        assert_eq!(1, result.len());
+        assert_eq!(result.len(), 1);
     }
 
     #[test]

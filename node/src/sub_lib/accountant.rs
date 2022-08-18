@@ -42,6 +42,7 @@ lazy_static! {
     };
 }
 
+//TODO initialization of debt_threshold_gwei and permanent_debt_allowed_gwei should make sure the first value is bigger than the second!
 //please, alphabetical order
 #[derive(PartialEq, Debug, Clone, Copy, Default)]
 pub struct PaymentThresholds {
