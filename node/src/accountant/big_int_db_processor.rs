@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::big_int_db_processor::ByteOrder::{High, Low};
-use crate::accountant::big_int_db_processor::UserDefinedFunctionError::ImproperInputValue;
+use crate::accountant::big_int_db_processor::UserDefinedFunctionError::InvalidInputValue;
 use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::checked_conversion;
 use crate::accountant::payable_dao::PayableDaoError;
@@ -13,6 +13,7 @@ use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
 use masq_lib::utils::ExpectValue;
 use rusqlite::functions::{Context, FunctionFlags};
+use rusqlite::Error::UserFunctionError;
 use rusqlite::{Connection, Error, Statement, ToSql, Transaction};
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
@@ -418,11 +419,23 @@ pub fn collect_and_sum_i128_values_from_table(
         .sum()
 }
 
-macro_rules! create_big_int_sqlite_fn {
-    ($conn: expr, $flags: expr, $intern_fn_name: ident, $sqlite_fn_name: literal) => {
-        $conn.create_scalar_function::<_, i64>($sqlite_fn_name, 2, $flags, move |ctx| {
-            Ok(Self::$intern_fn_name(common_arg_distillation(ctx)?))
-        })
+macro_rules! create_big_int_sqlite_fns {
+    ($conn: expr, $flags: expr, $($sqlite_fn_name: expr),+; $($intern_fn_name: ident),+) => {
+        $($conn.create_scalar_function::<_, i64>($sqlite_fn_name, 2, $flags, move |ctx| {
+            Ok(BigIntDivider::$intern_fn_name(common_arg_distillation(
+                ctx,
+                $sqlite_fn_name,
+            )?))
+        })?;)+
+    }
+}
+
+macro_rules! parse_fn_creation_args {
+    ($ctx: expr, $fn_name: expr, $($idx: expr),+; $($parser: ident),+; $($err_msg: literal),+) => {
+        ($($ctx.get_raw($idx)
+            .$parser()
+            .map_err(|_| invalid_input_error($fn_name, format!($err_msg, $ctx.get_raw($idx))))?
+        ),+)
     };
 }
 
@@ -457,43 +470,72 @@ impl BigIntDivider {
         (high_bytes << 63) | low_bytes
     }
 
-    pub fn reconstitute_unsigned(high_bytes: i64, low_bytes: i64) -> u128 {
-        checked_conversion::<i128, u128>(Self::reconstitute(high_bytes, low_bytes))
+    pub fn register_deconstruct_for_sqlite_connection(conn: &Connection) -> rusqlite::Result<()> {
+        Self::guts_of_register_deconstruct(conn, "biginthigh", "bigintlow")
     }
 
-    pub fn register_deconstruct_for_db_connection(conn: &Connection) -> rusqlite::Result<()> {
-        fn common_arg_distillation(ctx: &Context) -> rusqlite::Result<i128> {
-            let top_point_gwei = ctx
-                .get_raw(0)
-                .as_i64()
-                .expect("wrong value, should be 64-bit integer");
-            let decrease = ctx
-                .get_raw(1)
-                .as_f64()
-                .expect("wrong value, should be 64-bit real num");
-            if !decrease.is_sign_negative() {
-                return Err(Error::UserFunctionError(Box::new(ImproperInputValue(
-                    decrease.to_string(),
-                ))));
+    fn guts_of_register_deconstruct(
+        conn: &Connection,
+        fn_name_1: &'static str,
+        fn_name_2: &'static str,
+    ) -> rusqlite::Result<()> {
+        fn invalid_input_error(fn_name: &str, message: String) -> Error {
+            UserFunctionError(Box::new(InvalidInputValue(fn_name.to_string(), message)))
+        }
+        fn negativity_check_and_final_composition(
+            fn_name: &str,
+            tuple: (i64, f64),
+        ) -> rusqlite::Result<i128> {
+            let (point_to_decrease_from_gwei, decrease_wei) = tuple;
+            if decrease_wei.is_sign_negative() {
+                Ok(point_to_decrease_from_gwei as i128 * WEIS_OF_GWEI + decrease_wei as i128)
+            } else {
+                Err(invalid_input_error(
+                    fn_name,
+                    format!(
+                        "None negative slope, while designed only for use with negative one: {}",
+                        decrease_wei
+                    ),
+                ))
             }
-            Ok(top_point_gwei as i128 * WEIS_OF_GWEI + decrease as i128)
-        };
-        let flags = FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC;
-        create_big_int_sqlite_fn!(conn, flags, deconstruct_high_bytes, "biginthigh"); //TODO add a question mark here
-        create_big_int_sqlite_fn!(conn, flags, deconstruct_low_bytes, "bigintlow")
+        }
+        fn common_arg_distillation(ctx: &Context, fn_name: &str) -> rusqlite::Result<i128> {
+            negativity_check_and_final_composition(
+                fn_name,
+                parse_fn_creation_args!(
+                    ctx, fn_name,
+                    0, 1;
+                    as_i64, as_f64;
+                    "First argument takes only i64, not: {:?}",
+                    "Second argument takes only a real number, not: {:?}"
+                ),
+            )
+        }
+
+        create_big_int_sqlite_fns!(
+            conn,
+            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+            fn_name_1, fn_name_2;
+            deconstruct_high_bytes, deconstruct_low_bytes
+        );
+        Ok(())
     }
 }
 
-#[derive(Debug)]
-enum UserDefinedFunctionError<E: Debug + Display> {
-    ImproperInputValue(E),
+#[derive(Debug, PartialEq)]
+enum UserDefinedFunctionError {
+    InvalidInputValue(String, String),
 }
 
-impl<E: Debug + Display> std::error::Error for UserDefinedFunctionError<E> {}
+impl std::error::Error for UserDefinedFunctionError {}
 
-impl<E: Debug + Display> Display for UserDefinedFunctionError<E> {
+impl Display for UserDefinedFunctionError {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        match self {
+            InvalidInputValue(fn_name, err_msg) => {
+                write!(f, "Error from {}: {}", fn_name, err_msg)
+            }
+        }
     }
 }
 
@@ -502,13 +544,12 @@ mod tests {
     use super::*;
     use crate::accountant::big_int_db_processor::WeiChange::Addition;
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
-    use crate::database::db_initializer::InitializationError::SqliteError;
     use crate::test_utils::make_wallet;
     use itertools::Either;
     use itertools::Either::Left;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::Error::SqliteFailure;
-    use rusqlite::{Connection, ToSql};
+    use rusqlite::{Connection, ErrorCode, ToSql};
 
     #[derive(Debug)]
     struct DummyDao {}
@@ -1388,19 +1429,19 @@ mod tests {
         );
     }
 
-    fn create_test_table_and_run_register_deconstruct_for_db_connection(
+    fn create_test_table_and_run_register_deconstruct_for_sqlite_connection(
         test_name: &str,
     ) -> Connection {
         let conn = create_new_empty_db("big_int_db_processor", test_name);
-        BigIntDivider::register_deconstruct_for_db_connection(&conn).unwrap();
+        BigIntDivider::register_deconstruct_for_sqlite_connection(&conn).unwrap();
         conn.execute("create table test_table (computed_high_bytes int, computed_low_bytes int, database_parameter int not null)",[]).unwrap();
         conn
     }
 
     #[test]
-    fn register_deconstruct_for_db_connection_works() {
-        let conn = create_test_table_and_run_register_deconstruct_for_db_connection(
-            "register_deconstruct_for_db_connection_works",
+    fn register_deconstruct_for_sqlite_connection_works() {
+        let conn = create_test_table_and_run_register_deconstruct_for_sqlite_connection(
+            "register_deconstruct_for_sqlite_connection_works",
         );
 
         let database_value_1: i64 = 12222;
@@ -1452,13 +1493,71 @@ mod tests {
 
     #[test]
     fn user_defined_functions_error_implements_display() {
-        todo!("finish me")
+        assert_eq!(
+            InvalidInputValue("CoolFn".to_string(), "error message".to_string()).to_string(),
+            "Error from CoolFn: error message".to_string()
+        )
+    }
+
+    #[test]
+    fn register_deconstruct_for_sqlite_connection_returns_error_at_setting_the_first_function() {
+        let conn = create_test_table_and_run_register_deconstruct_for_sqlite_connection(
+            "register_deconstruct_for_sqlite_connection_returns_error_at_setting_the_first_function",
+        );
+
+        let result = conn
+            .execute(
+                "insert into test_table (computed_high_bytes) values (biginthigh('hello',-45.666))",
+                [],
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            result,
+            SqliteFailure(
+                rusqlite::ffi::Error {
+                    code: ErrorCode::Unknown,
+                    extended_code: 1
+                },
+                Some(
+                    "Error from biginthigh: First argument takes only i64, not: Text([104, 101, 108, 108, 111])"
+                        .to_string()
+                )
+            )
+        )
+    }
+
+    #[test]
+    fn register_deconstruct_for_sqlite_connection_returns_error_at_setting_the_second_function() {
+        let conn = create_test_table_and_run_register_deconstruct_for_sqlite_connection(
+            "register_deconstruct_for_sqlite_connection_returns_error_at_setting_the_second_function",
+        );
+
+        let result = conn
+            .execute(
+                "insert into test_table (computed_high_bytes) values (bigintlow('bye',-45.666))",
+                [],
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            result,
+            SqliteFailure(
+                rusqlite::ffi::Error {
+                    code: ErrorCode::Unknown,
+                    extended_code: 1
+                },
+                Some(
+                    "Error from bigintlow: First argument takes only i64, not: Text([98, 121, 101])".to_string()
+                )
+            )
+        )
     }
 
     #[test]
     fn our_sqlite_functions_are_specialized_and_thus_should_not_take_positive_number_for_the_second_parameter(
     ) {
-        let conn = create_test_table_and_run_register_deconstruct_for_db_connection(
+        let conn = create_test_table_and_run_register_deconstruct_for_sqlite_connection(
             "our_sqlite_functions_are_specialized_and_thus_should_not_take_positive_number_for_the_second_parameter"
         );
         let error_invoker = |bytes_type: &str| {
@@ -1472,9 +1571,76 @@ mod tests {
         let high_bytes_error = error_invoker("high");
         let low_bytes_error = error_invoker("low");
 
-        assert!(matches!(high_bytes_error, Error::UserFunctionError(..)));
-        assert_eq!(high_bytes_error.to_string(), "blaaah");
-        assert!(matches!(low_bytes_error, Error::UserFunctionError(..)));
-        assert_eq!(low_bytes_error.to_string(), "blah blah")
+        assert_eq!(high_bytes_error,
+                   SqliteFailure(
+                       rusqlite::ffi::Error{ code: ErrorCode::Unknown, extended_code: 1 },
+                       Some("Error from biginthigh: None negative slope, while designed only for use with negative one: 5656.23".to_string())
+                   )
+        );
+        assert_eq!(low_bytes_error,
+                   SqliteFailure(
+                       rusqlite::ffi::Error{ code: ErrorCode::Unknown, extended_code: 1 },
+                       Some("Error from bigintlow: None negative slope, while designed only for use with negative one: 5656.23".to_string())
+                   )
+        );
+    }
+
+    #[test]
+    fn other_than_real_num_argument_error() {
+        let conn = create_test_table_and_run_register_deconstruct_for_sqlite_connection(
+            "other_than_real_num_argument_error",
+        );
+
+        let result = conn
+            .execute(
+                "insert into test_table (computed_high_bytes) values (bigintlow(15464646,7866))",
+                [],
+            )
+            .unwrap_err();
+
+        assert_eq!(
+            result,
+            SqliteFailure(
+                rusqlite::ffi::Error{ code: ErrorCode::Unknown, extended_code: 1 },
+                Some("Error from bigintlow: Second argument takes only a real number, not: Integer(7866)".to_string()
+            ))
+        )
+    }
+
+    #[test]
+    fn first_fn_returns_internal_error_from_create_scalar_function() {
+        let conn = create_test_table_and_run_register_deconstruct_for_sqlite_connection(
+            "first_fn_returns_internal_error_from_create_scalar_function",
+        );
+
+        let result =
+            BigIntDivider::guts_of_register_deconstruct(&conn, "badly\u{0000}named", "bigintlow")
+                .unwrap_err();
+
+        //I couldn't assert on an exact fit because the error carries unstable code
+        assert_eq!(
+            result.to_string(),
+            "nul byte found in provided data at position: 5".to_string()
+        )
+    }
+
+    #[test]
+    fn second_fn_returns_internal_error_from_create_scalar_function() {
+        let conn = create_test_table_and_run_register_deconstruct_for_sqlite_connection(
+            "second_fn_returns_internal_error_from_create_scalar_function",
+        );
+
+        let result = BigIntDivider::guts_of_register_deconstruct(
+            &conn,
+            "biginthigh",
+            "also\u{0000}badlynamed",
+        )
+        .unwrap_err();
+
+        //I couldn't assert on an exact fit because the error carries unstable code
+        assert_eq!(
+            result.to_string(),
+            "nul byte found in provided data at position: 4".to_string()
+        )
     }
 }

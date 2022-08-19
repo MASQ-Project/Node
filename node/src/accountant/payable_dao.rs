@@ -188,7 +188,9 @@ impl PayableDao for PayableDaoReal {
                 (Ok(wallet), Ok(high_b), Ok(low_b), Ok(last_paid_timestamp)) => {
                     Ok(PayableAccount {
                         wallet,
-                        balance_wei: BigIntDivider::reconstitute_unsigned(high_b, low_b),
+                        balance_wei: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
+                            high_b, low_b,
+                        )),
                         last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
                         pending_payable_opt: None,
                     })
@@ -254,7 +256,9 @@ impl PayableDao for PayableDaoReal {
                 (Ok(high_bytes), Ok(low_bytes), Ok(last_paid_timestamp), Ok(rowid)) => {
                     Ok(PayableAccount {
                         wallet: wallet.clone(),
-                        balance_wei: BigIntDivider::reconstitute_unsigned(high_bytes, low_bytes),
+                        balance_wei: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
+                            high_bytes, low_bytes,
+                        )),
                         last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
                         pending_payable_opt: match rowid {
                             Some(rowid) => Some(PendingPayableId {
@@ -308,7 +312,9 @@ impl PayableDaoReal {
                 Ok(hash_opt),
             ) => Ok(PayableAccount {
                 wallet,
-                balance_wei: BigIntDivider::reconstitute_unsigned(high_bytes, low_bytes),
+                balance_wei: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
+                    high_bytes, low_bytes,
+                )),
                 last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
                 pending_payable_opt: rowid_opt.map(|rowid| {
                     let hash_str =

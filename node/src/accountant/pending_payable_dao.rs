@@ -66,7 +66,10 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
                 timestamp: from_time_t(timestamp),
                 hash: H256::from_str(&transaction_hash[2..]).expectv("string hash"),
                 attempt_opt: Some(attempt),
-                amount: BigIntDivider::reconstitute_unsigned(amount_high_bytes, amount_low_bytes),
+                amount: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
+                    amount_high_bytes,
+                    amount_low_bytes,
+                )),
                 process_error: None,
             })
         })
@@ -186,7 +189,7 @@ mod tests {
     use crate::accountant::pending_payable_dao::{
         PendingPayableDao, PendingPayableDaoError, PendingPayableDaoReal,
     };
-    use crate::accountant::sign_conversion;
+    use crate::accountant::{checked_conversion, sign_conversion};
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer::{
@@ -570,7 +573,10 @@ mod tests {
                     timestamp: from_time_t(timestamp),
                     hash: H256::from_str(&transaction_hash[2..]).unwrap(),
                     attempt_opt: Some(attempt),
-                    amount: BigIntDivider::reconstitute_unsigned(amount_high_b, amount_low_b),
+                    amount: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
+                        amount_high_b,
+                        amount_low_b,
+                    )),
                     process_error,
                 })
             })
