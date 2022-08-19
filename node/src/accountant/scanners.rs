@@ -12,7 +12,7 @@ pub(in crate::accountant) mod scanners {
         ScanForPendingPayables, ScanForReceivables, SentPayable,
     };
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-    use crate::sub_lib::accountant::AccountantConfig;
+    use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds};
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
     use actix::dev::SendError;
     use actix::{Context, Message, Recipient};
@@ -24,6 +24,7 @@ pub(in crate::accountant) mod scanners {
     use std::borrow::BorrowMut;
     use std::cell::RefCell;
     use std::ops::Add;
+    use std::rc::Rc;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
 
@@ -41,11 +42,21 @@ pub(in crate::accountant) mod scanners {
             payable_dao: Box<dyn PayableDao>,
             pending_payable_dao: Box<dyn PendingPayableDao>,
             receivable_dao: Box<dyn ReceivableDao>,
+            payment_thresholds: Rc<PaymentThresholds>,
         ) -> Self {
             Scanners {
-                payables: Box::new(PayableScanner::new(payable_dao)),
-                pending_payables: Box::new(PendingPayableScanner::new(pending_payable_dao)),
-                receivables: Box::new(ReceivableScanner::new(receivable_dao)),
+                payables: Box::new(PayableScanner::new(
+                    payable_dao,
+                    Rc::clone(&payment_thresholds),
+                )),
+                pending_payables: Box::new(PendingPayableScanner::new(
+                    pending_payable_dao,
+                    Rc::clone(&payment_thresholds),
+                )),
+                receivables: Box::new(ReceivableScanner::new(
+                    receivable_dao,
+                    Rc::clone(&payment_thresholds),
+                )),
             }
         }
     }
@@ -68,12 +79,14 @@ pub(in crate::accountant) mod scanners {
 
     struct ScannerCommon {
         initiated_at_opt: Option<SystemTime>,
+        payment_thresholds: Rc<PaymentThresholds>,
     }
 
-    impl Default for ScannerCommon {
-        fn default() -> Self {
+    impl ScannerCommon {
+        fn new(payment_thresholds: Rc<PaymentThresholds>) -> Self {
             Self {
                 initiated_at_opt: None,
+                payment_thresholds,
             }
         }
     }
@@ -143,9 +156,9 @@ pub(in crate::accountant) mod scanners {
     }
 
     impl PayableScanner {
-        pub fn new(dao: Box<dyn PayableDao>) -> Self {
+        pub fn new(dao: Box<dyn PayableDao>, payment_thresholds: Rc<PaymentThresholds>) -> Self {
             Self {
-                common: ScannerCommon::default(),
+                common: ScannerCommon::new(payment_thresholds),
                 dao,
                 payable_threshold_tools: Box::new(PayableExceedThresholdToolsReal::default()),
             }
@@ -216,33 +229,34 @@ pub(in crate::accountant) mod scanners {
         fn payable_exceeded_threshold(&self, payable: &PayableAccount) -> Option<u64> {
             todo!("Fix the config variable problem");
             // TODO: This calculation should be done in the database, if possible
-            // let time_since_last_paid = SystemTime::now()
-            //     .duration_since(payable.last_paid_timestamp)
-            //     .expect("Internal error")
-            //     .as_secs();
-            //
-            // if self.payable_threshold_tools.is_innocent_age(
-            //     time_since_last_paid,
-            //     self.config.payment_thresholds.maturity_threshold_sec as u64,
-            // ) {
-            //     return None;
-            // }
-            //
-            // if self.payable_threshold_tools.is_innocent_balance(
-            //     payable.balance,
-            //     self.config.payment_thresholds.permanent_debt_allowed_gwei,
-            // ) {
-            //     return None;
-            // }
-            //
-            // let threshold = self
-            //     .payable_threshold_tools
-            //     .calculate_payout_threshold(self.config.payment_thresholds, time_since_last_paid);
-            // if payable.balance as f64 > threshold {
-            //     Some(threshold as u64)
-            // } else {
-            //     None
-            // }
+            let time_since_last_paid = SystemTime::now()
+                .duration_since(payable.last_paid_timestamp)
+                .expect("Internal error")
+                .as_secs();
+
+            if self.payable_threshold_tools.is_innocent_age(
+                time_since_last_paid,
+                self.common.payment_thresholds.maturity_threshold_sec as u64,
+            ) {
+                return None;
+            }
+
+            if self.payable_threshold_tools.is_innocent_balance(
+                payable.balance,
+                self.common.payment_thresholds.permanent_debt_allowed_gwei,
+            ) {
+                return None;
+            }
+
+            let threshold = self.payable_threshold_tools.calculate_payout_threshold(
+                self.common.payment_thresholds.clone(),
+                time_since_last_paid,
+            );
+            if payable.balance as f64 > threshold {
+                Some(threshold as u64)
+            } else {
+                None
+            }
         }
 
         fn payables_debug_summary(&self, qualified_payables: &[PayableAccount]) -> String {
@@ -300,9 +314,12 @@ pub(in crate::accountant) mod scanners {
     }
 
     impl PendingPayableScanner {
-        pub fn new(dao: Box<dyn PendingPayableDao>) -> Self {
+        pub fn new(
+            dao: Box<dyn PendingPayableDao>,
+            payment_thresholds: Rc<PaymentThresholds>,
+        ) -> Self {
             Self {
-                common: ScannerCommon::default(),
+                common: ScannerCommon::new(payment_thresholds),
                 dao,
             }
         }
@@ -339,9 +356,9 @@ pub(in crate::accountant) mod scanners {
     }
 
     impl ReceivableScanner {
-        pub fn new(dao: Box<dyn ReceivableDao>) -> Self {
+        pub fn new(dao: Box<dyn ReceivableDao>, payment_thresholds: Rc<PaymentThresholds>) -> Self {
             Self {
-                common: ScannerCommon::default(),
+                common: ScannerCommon::new(payment_thresholds),
                 dao,
             }
         }
@@ -463,29 +480,33 @@ mod tests {
         PayableScanner, PendingPayableScanner, ReceivableScanner, Scanners,
     };
     use crate::accountant::test_utils::{PayableDaoMock, PendingPayableDaoMock, ReceivableDaoMock};
+    use crate::test_utils::unshared_test_utils::make_payment_thresholds_with_defaults;
+    use std::rc::Rc;
 
-    // #[test]
-    // fn scanners_struct_can_be_constructed_with_the_respective_scanners() {
-    //     let scanners = Scanners::new(
-    //         Box::new(PayableDaoMock::new()),
-    //         Box::new(PendingPayableDaoMock::new()),
-    //         Box::new(ReceivableDaoMock::new()),
-    //     );
-    //
-    //     scanners
-    //         .payables
-    //         .as_any()
-    //         .downcast_ref::<PayableScanner>()
-    //         .unwrap();
-    //     scanners
-    //         .pending_payables
-    //         .as_any()
-    //         .downcast_ref::<PendingPayableScanner>()
-    //         .unwrap();
-    //     scanners
-    //         .receivables
-    //         .as_any()
-    //         .downcast_ref::<ReceivableScanner>()
-    //         .unwrap();
-    // }
+    #[test]
+    fn scanners_struct_can_be_constructed_with_the_respective_scanners() {
+        let payment_thresholds = Rc::new(make_payment_thresholds_with_defaults());
+        let scanners = Scanners::new(
+            Box::new(PayableDaoMock::new()),
+            Box::new(PendingPayableDaoMock::new()),
+            Box::new(ReceivableDaoMock::new()),
+            Rc::clone(&payment_thresholds),
+        );
+
+        scanners
+            .payables
+            .as_any()
+            .downcast_ref::<PayableScanner>()
+            .unwrap();
+        scanners
+            .pending_payables
+            .as_any()
+            .downcast_ref::<PendingPayableScanner>()
+            .unwrap();
+        scanners
+            .receivables
+            .as_any()
+            .downcast_ref::<ReceivableScanner>()
+            .unwrap();
+    }
 }

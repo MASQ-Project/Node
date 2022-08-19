@@ -40,11 +40,11 @@ lazy_static! {
 //please, alphabetical order
 #[derive(PartialEq, Debug, Clone, Default)]
 pub struct PaymentThresholds {
-    pub debt_threshold_gwei: i64,
-    pub maturity_threshold_sec: i64,
+    pub debt_threshold_gwei: i64,    // Paybale
+    pub maturity_threshold_sec: i64, // Payable
     pub payment_grace_period_sec: i64,
-    pub permanent_debt_allowed_gwei: i64,
-    pub threshold_interval_sec: i64,
+    pub permanent_debt_allowed_gwei: i64, // Payable
+    pub threshold_interval_sec: i64,      // Payable
     pub unban_below_gwei: i64,
 }
 

@@ -60,6 +60,7 @@ use std::any::Any;
 use std::default::Default;
 use std::ops::Add;
 use std::path::Path;
+use std::rc::Rc;
 use std::time::{Duration, SystemTime};
 use web3::types::{TransactionReceipt, H256};
 
@@ -68,7 +69,7 @@ pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
 
 pub struct Accountant {
-    config: AccountantConfig,
+    accountant_config: AccountantConfig,
     consuming_wallet: Option<Wallet>,
     earning_wallet: Wallet,
     payable_dao: Box<dyn PayableDao>,
@@ -86,6 +87,7 @@ pub struct Accountant {
     report_sent_payments_sub: Option<Recipient<SentPayable>>,
     ui_message_sub: Option<Recipient<NodeToUiMessage>>,
     logger: Logger,
+    payment_thresholds: Rc<PaymentThresholds>,
 }
 
 impl Actor for Accountant {
@@ -145,7 +147,7 @@ impl Handler<StartMessage> for Accountant {
     type Result = ();
 
     fn handle(&mut self, _msg: StartMessage, ctx: &mut Self::Context) -> Self::Result {
-        if self.config.suppress_initial_scans {
+        if self.accountant_config.suppress_initial_scans {
             info!(
                 &self.logger,
                 "Started with --scans off; declining to begin database and blockchain scans"
@@ -440,8 +442,14 @@ impl Accountant {
             .accountant_config_opt
             .take()
             .expect("Accountant config");
+        let payment_thresholds = Rc::new(
+            config
+                .payment_thresholds_opt
+                .take()
+                .expectv("Payment thresholds"),
+        );
         Accountant {
-            config: accountant_config,
+            accountant_config,
             consuming_wallet: config.consuming_wallet_opt.clone(),
             earning_wallet: config.earning_wallet.clone(),
             payable_dao: payable_dao_factory.make(),
@@ -453,6 +461,7 @@ impl Accountant {
                 payable_dao_factory.make(),
                 pending_payable_dao_factory.make(),
                 receivable_dao_factory.make(),
+                Rc::clone(&payment_thresholds),
             ),
             tools: TransactionConfirmationTools::default(),
             notify_later: NotifyLaterForScanners::default(),
@@ -463,6 +472,7 @@ impl Accountant {
             report_sent_payments_sub: None,
             ui_message_sub: None,
             logger: Logger::new("Accountant"),
+            payment_thresholds,
         }
     }
 
@@ -1036,7 +1046,7 @@ impl Accountant {
             PendingTransactionStatus::Failure(fingerprint.into())
         }
         match receipt.status {
-            None => handle_none_status(fingerprint, self.config.when_pending_too_long_sec, logger),
+            None => handle_none_status(fingerprint, self.accountant_config.when_pending_too_long_sec, logger),
             Some(status_code) =>
                 match status_code.as_u64() {
                     0 => handle_status_with_failure(fingerprint, logger),
@@ -1226,7 +1236,7 @@ mod tests {
         is_innocent_age_results: RefCell<Vec<bool>>,
         is_innocent_balance_params: Arc<Mutex<Vec<(i64, i64)>>>,
         is_innocent_balance_results: RefCell<Vec<bool>>,
-        calculate_payout_threshold_params: Arc<Mutex<Vec<(PaymentThresholds, u64)>>>,
+        calculate_payout_threshold_params: Arc<Mutex<Vec<(Rc<PaymentThresholds>, u64)>>>,
         calculate_payout_threshold_results: RefCell<Vec<f64>>,
     }
 
@@ -1247,7 +1257,11 @@ mod tests {
             self.is_innocent_balance_results.borrow_mut().remove(0)
         }
 
-        fn calculate_payout_threshold(&self, payment_thresholds: PaymentThresholds, x: u64) -> f64 {
+        fn calculate_payout_threshold(
+            &self,
+            payment_thresholds: Rc<PaymentThresholds>,
+            x: u64,
+        ) -> f64 {
             self.calculate_payout_threshold_params
                 .lock()
                 .unwrap()
@@ -1281,7 +1295,7 @@ mod tests {
 
         fn calculate_payout_threshold_params(
             mut self,
-            params: &Arc<Mutex<Vec<(PaymentThresholds, u64)>>>,
+            params: &Arc<Mutex<Vec<(Rc<PaymentThresholds>, u64)>>>,
         ) -> Self {
             self.calculate_payout_threshold_params = params.clone();
             self
@@ -2837,7 +2851,10 @@ mod tests {
             .bootstrapper_config(config)
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
-        subject.config.scan_intervals.payable_scan_interval = Duration::from_millis(10);
+        subject
+            .accountant_config
+            .scan_intervals
+            .payable_scan_interval = Duration::from_millis(10);
         // let is_scan_running_initially = subject.scanners.payables.is_scan_running();
         let addr = subject.start();
 
@@ -2889,7 +2906,10 @@ mod tests {
             .bootstrapper_config(config)
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
-        subject.config.scan_intervals.payable_scan_interval = Duration::from_millis(10);
+        subject
+            .accountant_config
+            .scan_intervals
+            .payable_scan_interval = Duration::from_millis(10);
         subject.logger = Logger::new(
             "accountant_doesn_t_starts_another_scan_in_case_\
         it_receives_the_message_and_the_scanner_is_running",
