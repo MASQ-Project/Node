@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::big_int_db_processor::{
-    collect_and_sum_i128_values_from_table, BigIntDbProcessor, BigIntDbProcessorReal,
+    collect_and_sum_i128_values_from_table, BigIntDbProcessor,
     BigIntDivider, BigIntSqlConfig, DAOTableIdentifier, SQLParamsBuilder,
 };
 use crate::accountant::dao_utils;
@@ -113,7 +113,7 @@ impl ReceivableDaoFactory for DaoFactoryReal {
 #[derive(Debug)]
 pub struct ReceivableDaoReal {
     conn: Box<dyn ConnectionWrapper>,
-    big_int_db_processor: Box<dyn BigIntDbProcessor<Self>>,
+    big_int_db_processor: BigIntDbProcessor<Self>,
     logger: Logger,
 }
 
@@ -145,7 +145,6 @@ impl ReceivableDao for ReceivableDaoReal {
         system_now: SystemTime,
         payment_thresholds: &PaymentThresholds,
     ) -> Vec<ReceivableAccount> {
-        //TODO how to test this slope???
         let slope = ThresholdUtils::slope(payment_thresholds, true);
         let (permanent_debt_allowed_high_b, permanent_debt_allowed_low_b) =
             BigIntDivider::deconstruct(
@@ -265,7 +264,7 @@ impl ReceivableDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> ReceivableDaoReal {
         ReceivableDaoReal {
             conn,
-            big_int_db_processor: Box::new(BigIntDbProcessorReal::new()),
+            big_int_db_processor: BigIntDbProcessor::new(),
             logger: Logger::new("ReceivableDaoReal"),
         }
     }
@@ -1310,100 +1309,6 @@ mod tests {
     )]
     fn form_receivable_account_panics_on_database_error() {
         assert_database_blows_up_on_an_unexpected_error(ReceivableDaoReal::form_receivable_account);
-    }
-
-    // #[test]
-    // fn upsert_in_more_money_receivable_params_assertion() {
-    //     let insert_or_update_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let wallet = make_wallet("xyz123");
-    //     let amount = 100;
-    //     let insert_update_core = BigIntDbProcessorMock::default()
-    //         .upsert_params(&insert_or_update_params_arc)
-    //         .upsert_results(Err(BigIntDbError("SomethingWrong".to_string())));
-    //     let conn = ConnectionWrapperMock::new();
-    //     let conn_id_stamp = conn.set_arbitrary_id_stamp();
-    //     let mut subject = ReceivableDaoReal::new(Box::new(conn));
-    //     subject.big_int_db_processor = Box::new(insert_update_core);
-    //     let now = SystemTime::now();
-    //
-    //     let result = subject.more_money_receivable(now, &wallet, amount);
-    //
-    //     assert_eq!(result, Err(RusqliteError("SomethingWrong".to_string())));
-    //     let mut insert_or_update_params = insert_or_update_params_arc.lock().unwrap();
-    //     let (captured_conn_id_stamp, insert_update_sql, select_sql, table, sql_param_names) =
-    //         insert_or_update_params.remove(0);
-    //     assert_eq!(captured_conn_id_stamp, conn_id_stamp);
-    //     assert!(insert_or_update_params.is_empty());
-    //     assert_eq!(insert_update_sql, "insert into receivable (wallet_address, balance, last_received_timestamp) values (:wallet, :balance, :last_received_timestamp)"); //"update receivable set balance = :updated_balance where wallet_address = :wallet"
-    //     assert_eq!(select_sql, "blaaaaaaaaaaaaaaaaaaah"); //TODO finish this
-    //     assert_eq!(table, "receivable".to_string());
-    //     assert_eq!(
-    //         sql_param_names,
-    //         convert_to_all_string_values(vec![
-    //             (":wallet", &wallet.to_string()),
-    //             (":balance", &amount.to_string()),
-    //             (":last_received_timestamp", &to_time_t(now).to_string())
-    //         ])
-    //     )
-    // }
-
-    #[test]
-    fn update_in_try_multi_insert_payment_returns_early_error_with_params_assertion() {
-        todo!("fix me or delete me");
-        // let home = ensure_node_home_directory_exists(
-        //     "receivable_dao",
-        //     "update_in_try_multi_insert_payment_returns_early_error_with_params_assertion",
-        // );
-        // let conn = DbInitializerReal::default()
-        //     .initialize(&home, true, MigratorConfig::test_default())
-        //     .unwrap();
-        // let insert_or_update_params_arc = Arc::new(Mutex::new(vec![]));
-        // let insert_update_core = BigIntDbProcessorMock::default()
-        //     .update_params(&insert_or_update_params_arc)
-        //     .update_result(Err(BigIntDbError("SomethingWrong".to_string())));
-        // let mut subject = ReceivableDaoReal::new(conn);
-        // subject.big_int_db_processor = Box::new(insert_update_core);
-        // let payments = vec![
-        //     BlockchainTransaction {
-        //         block_number: 42u64,
-        //         from: make_wallet("some_address"),
-        //         wei_amount: 18446744073709551615,
-        //     },
-        //     BlockchainTransaction {
-        //         block_number: 60u64,
-        //         from: make_wallet("other_address"),
-        //         wei_amount: 444444555333337,
-        //     },
-        // ];
-        // let now = SystemTime::now();
-        //
-        // let result = subject.try_multi_insert_payment(now, &payments);
-        //
-        // assert_eq!(
-        //     result,
-        //     Err(ReceivableDaoError::RusqliteError(
-        //         "SomethingWrong".to_string()
-        //     ))
-        // );
-        // let mut insert_or_update_params = insert_or_update_params_arc.lock().unwrap();
-        // let (captured_conn_id_stamp_opt, select_sql, update_sql, table, sql_param_names) =
-        //     insert_or_update_params.pop().unwrap();
-        // assert_eq!(captured_conn_id_stamp_opt, None); //implication: operation over sqlite transaction
-        // assert_eq!(
-        //     select_sql,
-        //     "select balance from receivable where wallet_address = :wallet"
-        // );
-        // assert_eq!(update_sql, "update receivable set balance = :updated_balance, last_received_timestamp = :last_received where wallet_address = :wallet");
-        // assert_eq!(table, "receivable".to_string());
-        // assert_eq!(
-        //     sql_param_names,
-        //     convert_to_all_string_values(vec![
-        //         (":wallet", &make_wallet("some_address").to_string()),
-        //         (":balance", &(-18446744073709551615_i128).to_string()),
-        //         (":last_received", &to_time_t(now).to_string())
-        //     ])
-        // );
-        // assert_eq!(insert_or_update_params.pop(), None)
     }
 
     #[test]

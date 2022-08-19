@@ -6,7 +6,6 @@ use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::checked_conversion;
 use crate::accountant::payable_dao::PayableDaoError;
 use crate::accountant::receivable_dao::ReceivableDaoError;
-use crate::accountant::test_utils::SQLConfigAbstract;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::accountant::WEIS_OF_GWEI;
 use crate::sub_lib::wallet::Wallet;
@@ -21,27 +20,13 @@ use std::marker::PhantomData;
 use std::ops::Neg;
 use std::os::raw::c_int;
 
-pub trait BigIntDbProcessor<T: DAOTableIdentifier>: Send + Debug {
-    fn execute<'a>(
-        &self,
-        conn: Either<&dyn ConnectionWrapper, &Transaction>,
-        config: BigIntSqlConfig<'a, T>,
-    ) -> Result<(), BigIntDbError>;
-
-    fn update_threatened_by_overflow<'a>(
-        &self,
-        conn: Either<&dyn ConnectionWrapper, &Transaction>,
-        config: BigIntSqlConfig<'a, T>,
-    ) -> Result<(), BigIntDbError>;
-}
-
 #[derive(Debug)]
-pub struct BigIntDbProcessorReal<T: DAOTableIdentifier> {
+pub struct BigIntDbProcessor<T: DAOTableIdentifier> {
     phantom: PhantomData<T>,
 }
 
-impl<T: DAOTableIdentifier> BigIntDbProcessor<T> for BigIntDbProcessorReal<T> {
-    fn execute<'a>(
+impl<T: DAOTableIdentifier> BigIntDbProcessor<T> {
+    pub fn execute<'a>(
         &self,
         conn: Either<&dyn ConnectionWrapper, &Transaction>,
         config: BigIntSqlConfig<'a, T>,
@@ -123,15 +108,15 @@ impl<T: DAOTableIdentifier> BigIntDbProcessor<T> for BigIntDbProcessorReal<T> {
     }
 }
 
-impl<T: DAOTableIdentifier> BigIntDbProcessorReal<T> {
-    pub fn new() -> BigIntDbProcessorReal<T> {
+impl<T: DAOTableIdentifier> BigIntDbProcessor<T> {
+    pub fn new() -> BigIntDbProcessor<T> {
         Self {
             phantom: Default::default(),
         }
     }
 }
 
-impl<T: DAOTableIdentifier> BigIntDbProcessorReal<T> {
+impl<T: DAOTableIdentifier> BigIntDbProcessor<T> {
     fn prepare_statement<'a>(
         form_of_conn: Either<&'a dyn ConnectionWrapper, &'a Transaction>,
         sql: &'a str,
@@ -220,23 +205,6 @@ impl<'a, T: DAOTableIdentifier> BigIntSqlConfig<'a, T> {
                 "broken code: unexpected or misplaced command \"{}\" in upsert",
                 keyword
             ),
-        }
-    }
-
-    #[cfg(test)]
-    pub fn config_characteristics_for_assertion(&self) -> SQLConfigAbstract {
-        SQLConfigAbstract {
-            main_stm: self.construct_main_sql(),
-            select_stm: self.select_sql(),
-            overflow_update_stm: self.prepare_update_sql(),
-            table_key_name: self.params.table_key_name.to_string(),
-            wei_change_params: self.params.wei_change_params.clone(),
-            remaining_params: self
-                .params
-                .params_except_wei_change
-                .iter()
-                .map(|(name, value)| (name.to_string(), value.to_string()))
-                .collect(),
         }
     }
 }
@@ -847,7 +815,7 @@ mod tests {
         requested_wei_change: WeiChange,
         do_we_expect_overflow: bool,
     ) {
-        let act = |conn: &mut dyn ConnectionWrapper, subject: &BigIntDbProcessorReal<DummyDao>| {
+        let act = |conn: &mut dyn ConnectionWrapper, subject: &BigIntDbProcessor<DummyDao>| {
             subject.execute(
                 Left(conn),
                 BigIntSqlConfig::new(
@@ -879,14 +847,14 @@ mod tests {
     ) where
         F: Fn(
             &mut dyn ConnectionWrapper,
-            &BigIntDbProcessorReal<DummyDao>,
+            &BigIntDbProcessor<DummyDao>,
         ) -> Result<(), BigIntDbError>,
     {
         let mut conn = initiate_simple_connection_and_test_table("big_int_db_processor", test_name);
         if let Some(values) = init_record_opt {
             insert_single_record(conn.as_ref(), [&values.0, &values.1, &values.2])
         };
-        let subject = BigIntDbProcessorReal::<DummyDao>::new();
+        let subject = BigIntDbProcessor::<DummyDao>::new();
 
         let result = act(conn.as_mut(), &subject);
 
@@ -1049,7 +1017,7 @@ mod tests {
     #[test]
     fn update_alone_works_also_for_transaction_instead_of_connection() {
         let wei_change = Addition("balance", 255);
-        let act = |conn: &mut dyn ConnectionWrapper, subject: &BigIntDbProcessorReal<DummyDao>| {
+        let act = |conn: &mut dyn ConnectionWrapper, subject: &BigIntDbProcessor<DummyDao>| {
             let tx = conn.transaction().unwrap();
 
             let result = subject.execute(
@@ -1101,7 +1069,7 @@ mod tests {
                 .build(),
         );
 
-        let result = BigIntDbProcessorReal::<DummyDao>::new()
+        let result = BigIntDbProcessor::<DummyDao>::new()
             .update_threatened_by_overflow(Either::Left(&conn), update_config);
 
         assert_eq!(result, Ok(()));
@@ -1129,7 +1097,7 @@ mod tests {
             "insert_failed_update_failed_too",
         );
         insert_single_record(conn.as_ref(), [&"Joe", &60, &5555]);
-        let subject = BigIntDbProcessorReal::<DummyDao>::new();
+        let subject = BigIntDbProcessor::<DummyDao>::new();
         let balance_change = Addition("balance", 5555);
         let config = BigIntSqlConfig::new(
             "insert into test_table (name, balance_high_b, balance_low_b) values (:name,:balance_high_b,:balance_low_b) on conflict (name) do",
@@ -1158,7 +1126,7 @@ mod tests {
             "big_int_db_processor",
             "insert_handles_unspecific_failures",
         );
-        let subject = BigIntDbProcessorReal::<DummyDao>::new();
+        let subject = BigIntDbProcessor::<DummyDao>::new();
         let balance_change = Addition("balance", 4879898145125);
         let config = BigIntSqlConfig::new(
             "insert into test_table (name,balance_high_b,balance_low_b) values (:name,:balance_a,:balance_b) on conflict (name) do",
@@ -1197,7 +1165,7 @@ mod tests {
                 .build(),
         );
 
-        let result = BigIntDbProcessorReal::<DummyDao>::new()
+        let result = BigIntDbProcessor::<DummyDao>::new()
             .update_threatened_by_overflow(Either::Left(conn.as_ref()), update_config);
 
         //this kind of error is impossible in the real use case but is easiest regarding an arrangement of the test
@@ -1225,7 +1193,7 @@ mod tests {
                 .build()
         );
 
-        let _ = BigIntDbProcessorReal::<DummyDao>::new()
+        let _ = BigIntDbProcessor::<DummyDao>::new()
             .update_threatened_by_overflow(Either::Left(conn.as_ref()), update_config);
     }
 
@@ -1254,7 +1222,7 @@ mod tests {
                 .build(),
         );
 
-        let result = BigIntDbProcessorReal::<DummyDao>::new()
+        let result = BigIntDbProcessor::<DummyDao>::new()
             .update_threatened_by_overflow(Either::Left(conn.as_ref()), update_config);
 
         assert_eq!(

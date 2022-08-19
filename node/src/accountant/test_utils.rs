@@ -2,9 +2,6 @@
 
 #![cfg(test)]
 
-use crate::accountant::big_int_db_processor::{
-    BigIntDbError, BigIntDbProcessor, BigIntSqlConfig, DAOTableIdentifier,
-};
 use crate::accountant::dao_utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
@@ -20,19 +17,17 @@ use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::bootstrapper::BootstrapperConfig;
-use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
 use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds, WEIS_OF_GWEI};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::unshared_test_utils::{
-    make_populated_accountant_config_with_defaults, ArbitraryIdStamp,
+    make_populated_accountant_config_with_defaults,
 };
 use actix::System;
 use ethereum_types::{BigEndianHash, H256, U256};
-use itertools::Either;
-use rusqlite::{Connection, Row, Transaction as RusqliteTransaction};
+use rusqlite::{Connection, Row};
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::rc::Rc;
@@ -822,91 +817,6 @@ pub fn make_pending_payable_fingerprint() -> PendingPayableFingerprint {
         attempt_opt: Some(0),
         amount: 12345,
         process_error: None,
-    }
-}
-
-#[derive(Default, Debug)]
-pub struct BigIntDbProcessorMock {
-    update_params: Arc<Mutex<Vec<(Option<ArbitraryIdStamp>, SQLConfigAbstract, String)>>>, //trait-object-like params tested specially
-    update_results: RefCell<Vec<Result<(), BigIntDbError>>>,
-    execute_params: Arc<Mutex<Vec<(Option<ArbitraryIdStamp>, SQLConfigAbstract, String)>>>,
-    execute_results: RefCell<Vec<Result<(), BigIntDbError>>>,
-}
-
-impl<T: DAOTableIdentifier> BigIntDbProcessor<T> for BigIntDbProcessorMock {
-    fn execute<'a>(
-        &self,
-        conn: Either<&dyn ConnectionWrapper, &RusqliteTransaction>,
-        config: BigIntSqlConfig<'a, T>,
-    ) -> Result<(), BigIntDbError> {
-        let config_characteristics = config.config_characteristics_for_assertion();
-        self.execute_params.lock().unwrap().push((
-            if let Either::Left(conn) = conn {
-                Some(conn.arbitrary_id_stamp())
-            } else {
-                None
-            },
-            config_characteristics,
-            T::table_name(),
-        ));
-        self.execute_results.borrow_mut().remove(0)
-    }
-
-    fn update_threatened_by_overflow<'a>(
-        &self,
-        conn: Either<&dyn ConnectionWrapper, &RusqliteTransaction>,
-        config: BigIntSqlConfig<'a, T>,
-    ) -> Result<(), BigIntDbError> {
-        let config_characteristics = config.config_characteristics_for_assertion();
-        self.update_params.lock().unwrap().push((
-            if let Either::Left(conn) = conn {
-                Some(conn.arbitrary_id_stamp())
-            } else {
-                None
-            },
-            config_characteristics,
-            T::table_name(),
-        ));
-        self.update_results.borrow_mut().remove(0)
-    }
-}
-
-#[derive(Debug)]
-pub struct SQLConfigAbstract {
-    pub main_stm: String,
-    pub select_stm: String,
-    pub overflow_update_stm: String,
-    //further only params alone
-    pub table_key_name: String,
-    pub wei_change_params: [(String, i64); 2],
-    pub remaining_params: Vec<(String, String)>,
-}
-
-impl BigIntDbProcessorMock {
-    pub fn update_params(
-        mut self,
-        params: &Arc<Mutex<Vec<(Option<ArbitraryIdStamp>, SQLConfigAbstract, String)>>>,
-    ) -> Self {
-        self.update_params = params.clone();
-        self
-    }
-
-    pub fn update_result(self, result: Result<(), BigIntDbError>) -> Self {
-        self.update_results.borrow_mut().push(result);
-        self
-    }
-
-    pub fn execute_params(
-        mut self,
-        params: &Arc<Mutex<Vec<(Option<ArbitraryIdStamp>, SQLConfigAbstract, String)>>>,
-    ) -> Self {
-        self.execute_params = params.clone();
-        self
-    }
-
-    pub fn execute_result(self, result: Result<(), BigIntDbError>) -> Self {
-        self.execute_results.borrow_mut().push(result);
-        self
     }
 }
 

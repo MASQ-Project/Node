@@ -2,7 +2,7 @@
 
 use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::big_int_db_processor::{
-    collect_and_sum_i128_values_from_table, BigIntDbProcessor, BigIntDbProcessorReal,
+    collect_and_sum_i128_values_from_table, BigIntDbProcessor,
     BigIntDivider, BigIntSqlConfig, DAOTableIdentifier, SQLParamsBuilder,
 };
 use crate::accountant::dao_utils;
@@ -104,7 +104,7 @@ impl PayableDaoFactory for DaoFactoryReal {
 #[derive(Debug)]
 pub struct PayableDaoReal {
     conn: Box<dyn ConnectionWrapper>,
-    big_int_db_processor: Box<dyn BigIntDbProcessor<Self>>,
+    big_int_db_processor: BigIntDbProcessor<Self>,
 }
 
 impl PayableDao for PayableDaoReal {
@@ -284,7 +284,7 @@ impl PayableDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> PayableDaoReal {
         PayableDaoReal {
             conn,
-            big_int_db_processor: Box::new(BigIntDbProcessorReal::new()),
+            big_int_db_processor: BigIntDbProcessor::new(),
         }
     }
 
@@ -371,11 +371,9 @@ mod tests {
     use super::*;
     use crate::accountant::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::accountant::test_utils::{
-        assert_database_blows_up_on_an_unexpected_error, make_pending_payable_fingerprint,
-        BigIntDbProcessorMock,
+        assert_database_blows_up_on_an_unexpected_error, make_pending_payable_fingerprint
     };
     use crate::database::connection_wrapper::ConnectionWrapperReal;
-    use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
@@ -388,7 +386,6 @@ mod tests {
     use rusqlite::{Connection, OpenFlags};
     use std::path::Path;
     use std::str::FromStr;
-    use std::sync::{Arc, Mutex};
     use web3::types::U256;
 
     #[test]
@@ -1223,103 +1220,6 @@ mod tests {
     )]
     fn form_payable_account_panics_on_database_error() {
         assert_database_blows_up_on_an_unexpected_error(PayableDaoReal::form_payable_account);
-    }
-
-    #[test]
-    fn more_money_payable_error_handling_and_core_params_assertion() {
-        todo!("fix or delete me")
-        // let insert_or_update_params_arc = Arc::new(Mutex::new(vec![]));
-        // let wallet = make_wallet("xyz123");
-        // let amount = 100;
-        // let insert_update_core = BigIntDbProcessorMock::default()
-        //     .upsert_params(&insert_or_update_params_arc)
-        //     .upsert_results(Err(BigIntDbError("SomethingWrong".to_string())));
-        // let conn = ConnectionWrapperMock::new();
-        // let conn_id_stamp = conn.set_arbitrary_id_stamp();
-        // let mut subject = PayableDaoReal::new(Box::new(conn));
-        // subject.big_int_db_processor = Box::new(insert_update_core);
-        // let now = SystemTime::now();
-        //
-        // let result = subject.more_money_payable(now, &wallet, amount);
-        //
-        // assert_eq!(
-        //     result,
-        //     Err(PayableDaoError::RusqliteError("SomethingWrong".to_string()))
-        // );
-        // let mut insert_or_update_params = insert_or_update_params_arc.lock().unwrap();
-        // let (captured_conn_id_stamp, insert_update_sql, select_sql, table, sql_param_names) =
-        //     insert_or_update_params.remove(0);
-        // assert_eq!(captured_conn_id_stamp, conn_id_stamp);
-        // assert!(insert_or_update_params.is_empty());
-        // assert_eq!(insert_update_sql, "insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) \
-        //  values (:wallet, :balance, :last_paid_timestamp,null)" //"update payable set balance = :updated_balance where wallet_address = :wallet"
-        // );
-        // assert_eq!(select_sql, "blaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaah"); //TODO finish this
-        // assert_eq!(table, "payable".to_string());
-        // assert_eq!(
-        //     sql_param_names,
-        //     convert_to_all_string_values(vec![
-        //         (":wallet", &wallet.to_string()),
-        //         (":balance", &amount.to_string()),
-        //         (":last_paid_timestamp", &to_time_t(now).to_string())
-        //     ])
-        // )
-    }
-
-    #[test]
-    fn transaction_confirmed_params_assertion() {
-        let execute_params_arc = Arc::new(Mutex::new(vec![]));
-        let wrapped_conn = ConnectionWrapperMock::new();
-        let conn_id_stamp = wrapped_conn.set_arbitrary_id_stamp();
-        let fingerprint = make_pending_payable_fingerprint();
-        let (amount_high_b, amount_low_b) =
-            BigIntDivider::deconstruct(-(fingerprint.amount as i128));
-        let timestamp = fingerprint.timestamp;
-        let big_int_db_processor = BigIntDbProcessorMock::default()
-            .execute_params(&execute_params_arc)
-            .execute_result(Ok(()));
-        let mut subject = PayableDaoReal::new(Box::new(wrapped_conn));
-        subject.big_int_db_processor = Box::new(big_int_db_processor);
-
-        let result = subject.transaction_confirmed(&fingerprint);
-
-        assert_eq!(result, Ok(()));
-        let mut execute_params = execute_params_arc.lock().unwrap();
-        let (captured_conn_id_stamp, inner_characteristics, table) = execute_params.remove(0);
-        assert!(execute_params.is_empty());
-        assert_eq!(captured_conn_id_stamp, Some(conn_id_stamp));
-        assert_eq!(
-            inner_characteristics.main_stm,
-            "update payable set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid "
-        );
-        assert_eq!(
-            inner_characteristics.select_stm,
-            "select balance_low_b from payable where pending_payable_rowid = '33'"
-        );
-        assert_eq!(
-            inner_characteristics.overflow_update_stm,
-            "update payable set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid"
-        );
-        assert_eq!(
-            inner_characteristics.table_key_name,
-            "pending_payable_rowid"
-        );
-        //caution, the numbers are not the result they are just parameters
-        assert_eq!(
-            inner_characteristics.wei_change_params,
-            [
-                (":balance_high_b".to_string(), amount_high_b),
-                (":balance_low_b".to_string(), amount_low_b)
-            ]
-        );
-        assert_eq!(
-            inner_characteristics.remaining_params,
-            vec![
-                (":rowid".to_string(), "33".to_string()),
-                (":last_paid".to_string(), to_time_t(timestamp).to_string())
-            ]
-        );
-        assert_eq!(table, "payable");
     }
 
     #[test]

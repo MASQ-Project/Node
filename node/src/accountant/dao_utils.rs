@@ -166,7 +166,6 @@ impl<N: Copy + Display> CustomQuery<N> {
                     .collect::<Vec<(&str, Box<dyn ToSql>)>>(),
             ),
         };
-        eprintln!("{}", finalized_stm);
         let accounts = Self::execute_query(conn, &finalized_stm, params, value_fetcher);
         (!accounts.is_empty()).then_some(accounts)
     }
