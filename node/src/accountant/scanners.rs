@@ -4,6 +4,7 @@ pub(in crate::accountant) mod scanners {
     use crate::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoReal};
     use crate::accountant::pending_payable_dao::PendingPayableDao;
     use crate::accountant::receivable_dao::ReceivableDao;
+    use crate::accountant::tools::{investigate_debt_extremes, payables_debug_summary, should_pay};
     use crate::accountant::ReportAccountsPayable;
     use crate::accountant::{
         Accountant, CancelFailedPendingTransaction, ConfirmPendingTransaction, ReceivedPayments,
@@ -114,11 +115,11 @@ pub(in crate::accountant) mod scanners {
             debug!(
                 logger,
                 "{}",
-                Self::investigate_debt_extremes(&all_non_pending_payables)
+                investigate_debt_extremes(&all_non_pending_payables)
             );
             let qualified_payables = all_non_pending_payables
                 .into_iter()
-                .filter(|account| self.should_pay(account))
+                .filter(|account| should_pay(account, self.common.payment_thresholds.clone()))
                 .collect::<Vec<PayableAccount>>();
             info!(
                 logger,
@@ -128,7 +129,7 @@ pub(in crate::accountant) mod scanners {
             debug!(
                 logger,
                 "{}",
-                self.payables_debug_summary(&qualified_payables)
+                payables_debug_summary(&qualified_payables, self.common.payment_thresholds.clone())
             );
             match qualified_payables.is_empty() {
                 true => Err(String::from("No Qualified Payables found.")),
@@ -159,139 +160,6 @@ pub(in crate::accountant) mod scanners {
                 common: ScannerCommon::new(payment_thresholds),
                 dao,
             }
-        }
-
-        //for debugging only
-        pub fn investigate_debt_extremes(all_non_pending_payables: &[PayableAccount]) -> String {
-            if all_non_pending_payables.is_empty() {
-                "Payable scan found no debts".to_string()
-            } else {
-                struct PayableInfo {
-                    balance: i64,
-                    age: Duration,
-                }
-                let now = SystemTime::now();
-                let init = (
-                    PayableInfo {
-                        balance: 0,
-                        age: Duration::ZERO,
-                    },
-                    PayableInfo {
-                        balance: 0,
-                        age: Duration::ZERO,
-                    },
-                );
-                let (biggest, oldest) = all_non_pending_payables.iter().fold(init, |sofar, p| {
-                    let (mut biggest, mut oldest) = sofar;
-                    let p_age = now
-                        .duration_since(p.last_paid_timestamp)
-                        .expect("Payable time is corrupt");
-                    {
-                        //look at a test if not understandable
-                        let check_age_parameter_if_the_first_is_the_same =
-                            || -> bool { p.balance == biggest.balance && p_age > biggest.age };
-
-                        if p.balance > biggest.balance
-                            || check_age_parameter_if_the_first_is_the_same()
-                        {
-                            biggest = PayableInfo {
-                                balance: p.balance,
-                                age: p_age,
-                            }
-                        }
-
-                        let check_balance_parameter_if_the_first_is_the_same =
-                            || -> bool { p_age == oldest.age && p.balance > oldest.balance };
-
-                        if p_age > oldest.age || check_balance_parameter_if_the_first_is_the_same()
-                        {
-                            oldest = PayableInfo {
-                                balance: p.balance,
-                                age: p_age,
-                            }
-                        }
-                    }
-                    (biggest, oldest)
-                });
-                format!("Payable scan found {} debts; the biggest is {} owed for {}sec, the oldest is {} owed for {}sec",
-                        all_non_pending_payables.len(), biggest.balance, biggest.age.as_secs(),
-                        oldest.balance, oldest.age.as_secs())
-            }
-        }
-
-        fn should_pay(&self, payable: &PayableAccount) -> bool {
-            self.payable_exceeded_threshold(payable).is_some()
-        }
-
-        fn payable_exceeded_threshold(&self, payable: &PayableAccount) -> Option<u64> {
-            // TODO: This calculation should be done in the database, if possible
-            let time_since_last_paid = SystemTime::now()
-                .duration_since(payable.last_paid_timestamp)
-                .expect("Internal error")
-                .as_secs();
-
-            if PayableScanner::is_innocent_age(
-                time_since_last_paid,
-                self.common.payment_thresholds.maturity_threshold_sec as u64,
-            ) {
-                return None;
-            }
-
-            if PayableScanner::is_innocent_balance(
-                payable.balance,
-                self.common.payment_thresholds.permanent_debt_allowed_gwei,
-            ) {
-                return None;
-            }
-
-            let threshold = self.calculate_payout_threshold(time_since_last_paid);
-            if payable.balance as f64 > threshold {
-                Some(threshold as u64)
-            } else {
-                None
-            }
-        }
-
-        fn payables_debug_summary(&self, qualified_payables: &[PayableAccount]) -> String {
-            let now = SystemTime::now();
-            let list = qualified_payables
-                .iter()
-                .map(|payable| {
-                    let p_age = now
-                        .duration_since(payable.last_paid_timestamp)
-                        .expect("Payable time is corrupt");
-                    let threshold = self
-                        .payable_exceeded_threshold(payable)
-                        .expect("Threshold suddenly changed!");
-                    format!(
-                        "{} owed for {}sec exceeds threshold: {}; creditor: {}",
-                        payable.balance,
-                        p_age.as_secs(),
-                        threshold,
-                        payable.wallet
-                    )
-                })
-                .join("\n");
-            String::from("Paying qualified debts:\n").add(&list)
-        }
-
-        fn is_innocent_age(age: u64, limit: u64) -> bool {
-            age <= limit
-        }
-
-        fn is_innocent_balance(balance: i64, limit: i64) -> bool {
-            balance <= limit
-        }
-
-        fn calculate_payout_threshold(&self, x: u64) -> f64 {
-            let payment_thresholds = self.common.payment_thresholds.clone();
-            let m = -((payment_thresholds.debt_threshold_gwei as f64
-                - payment_thresholds.permanent_debt_allowed_gwei as f64)
-                / (payment_thresholds.threshold_interval_sec as f64
-                    - payment_thresholds.maturity_threshold_sec as f64));
-            let b = payment_thresholds.debt_threshold_gwei as f64
-                - m * payment_thresholds.maturity_threshold_sec as f64;
-            m * x as f64 + b
         }
     }
 
@@ -487,13 +355,22 @@ pub(in crate::accountant) mod scanners {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::payable_dao::PayableDaoReal;
+    use crate::accountant::payable_dao::{PayableAccount, PayableDaoReal};
     use crate::accountant::scanners::scanners::{
         PayableScanner, PendingPayableScanner, ReceivableScanner, Scanners,
     };
-    use crate::accountant::test_utils::{PayableDaoMock, PendingPayableDaoMock, ReceivableDaoMock};
-    use crate::test_utils::unshared_test_utils::make_payment_thresholds_with_defaults;
+    use crate::accountant::test_utils::{
+        AccountantBuilder, PayableDaoMock, PendingPayableDaoMock, ReceivableDaoMock,
+    };
+    use crate::bootstrapper::BootstrapperConfig;
+    use crate::database::dao_utils::{from_time_t, to_time_t};
+    use crate::sub_lib::accountant::PaymentThresholds;
+    use crate::test_utils::make_wallet;
+    use crate::test_utils::unshared_test_utils::{
+        make_payment_thresholds_with_defaults, make_populated_accountant_config_with_defaults,
+    };
     use std::rc::Rc;
+    use std::time::SystemTime;
 
     #[test]
     fn scanners_struct_can_be_constructed_with_the_respective_scanners() {

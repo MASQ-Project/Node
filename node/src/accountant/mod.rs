@@ -3921,52 +3921,6 @@ mod tests {
     //     assert_eq!(result, "Payable scan found 4 debts; the biggest is 2000000 owed for 10000sec, the oldest is 330 owed for 30000sec")
     // }
 
-    // TODO: Migrate this test to scanners
-    // #[test]
-    // fn payables_debug_summary_prints_pretty_summary() {
-    //     let now = to_time_t(SystemTime::now());
-    //     let payment_thresholds = PaymentThresholds {
-    //         threshold_interval_sec: 2_592_000,
-    //         debt_threshold_gwei: 1_000_000_000,
-    //         payment_grace_period_sec: 86_400,
-    //         maturity_threshold_sec: 86_400,
-    //         permanent_debt_allowed_gwei: 10_000_000,
-    //         unban_below_gwei: 10_000_000,
-    //     };
-    //     let qualified_payables = &[
-    //         PayableAccount {
-    //             wallet: make_wallet("wallet0"),
-    //             balance: payment_thresholds.permanent_debt_allowed_gwei + 1000,
-    //             last_paid_timestamp: from_time_t(
-    //                 now - payment_thresholds.threshold_interval_sec - 1234,
-    //             ),
-    //             pending_payable_opt: None,
-    //         },
-    //         PayableAccount {
-    //             wallet: make_wallet("wallet1"),
-    //             balance: payment_thresholds.permanent_debt_allowed_gwei + 1,
-    //             last_paid_timestamp: from_time_t(
-    //                 now - payment_thresholds.threshold_interval_sec - 1,
-    //             ),
-    //             pending_payable_opt: None,
-    //         },
-    //     ];
-    //     let mut config = BootstrapperConfig::default();
-    //     config.accountant_config_opt = Some(make_populated_accountant_config_with_defaults());
-    //     let mut subject = AccountantBuilder::default()
-    //         .bootstrapper_config(config)
-    //         .build();
-    //     subject.config.payment_thresholds = payment_thresholds;
-    //
-    //     let result = subject.payables_debug_summary(qualified_payables);
-    //
-    //     assert_eq!(result,
-    //                "Paying qualified debts:\n\
-    //                10001000 owed for 2593234sec exceeds threshold: 9512428; creditor: 0x0000000000000000000000000077616c6c657430\n\
-    //                10000001 owed for 2592001sec exceeds threshold: 9999604; creditor: 0x0000000000000000000000000077616c6c657431"
-    //     )
-    // }
-
     // TODO: This test should be migrated to scanners
     #[test]
     fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled() {
