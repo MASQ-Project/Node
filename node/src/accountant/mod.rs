@@ -21,7 +21,6 @@ use crate::accountant::receivable_dao::{
 use crate::accountant::scanners::scanners::{
     NotifyLaterForScanners, Scanner, Scanners, TransactionConfirmationTools,
 };
-use crate::accountant::tools::{PayableExceedThresholdTools, PayableExceedThresholdToolsReal};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
@@ -1201,7 +1200,6 @@ mod tests {
         ReceivableDaoMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
-    use crate::accountant::tools::PayableExceedThresholdTools;
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
     use crate::blockchain::blockchain_interface::BlockchainError;
@@ -1229,85 +1227,6 @@ mod tests {
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use masq_lib::logger::timestamp_as_string;
     use web3::types::{TransactionReceipt, H256};
-
-    #[derive(Default)]
-    struct PayableThresholdToolsMock {
-        is_innocent_age_params: Arc<Mutex<Vec<(u64, u64)>>>,
-        is_innocent_age_results: RefCell<Vec<bool>>,
-        is_innocent_balance_params: Arc<Mutex<Vec<(i64, i64)>>>,
-        is_innocent_balance_results: RefCell<Vec<bool>>,
-        calculate_payout_threshold_params: Arc<Mutex<Vec<(Rc<PaymentThresholds>, u64)>>>,
-        calculate_payout_threshold_results: RefCell<Vec<f64>>,
-    }
-
-    impl PayableExceedThresholdTools for PayableThresholdToolsMock {
-        fn is_innocent_age(&self, age: u64, limit: u64) -> bool {
-            self.is_innocent_age_params
-                .lock()
-                .unwrap()
-                .push((age, limit));
-            self.is_innocent_age_results.borrow_mut().remove(0)
-        }
-
-        fn is_innocent_balance(&self, balance: i64, limit: i64) -> bool {
-            self.is_innocent_balance_params
-                .lock()
-                .unwrap()
-                .push((balance, limit));
-            self.is_innocent_balance_results.borrow_mut().remove(0)
-        }
-
-        fn calculate_payout_threshold(
-            &self,
-            payment_thresholds: Rc<PaymentThresholds>,
-            x: u64,
-        ) -> f64 {
-            self.calculate_payout_threshold_params
-                .lock()
-                .unwrap()
-                .push((payment_thresholds, x));
-            self.calculate_payout_threshold_results
-                .borrow_mut()
-                .remove(0)
-        }
-    }
-
-    impl PayableThresholdToolsMock {
-        fn is_innocent_age_params(mut self, params: &Arc<Mutex<Vec<(u64, u64)>>>) -> Self {
-            self.is_innocent_age_params = params.clone();
-            self
-        }
-
-        fn is_innocent_age_result(self, result: bool) -> Self {
-            self.is_innocent_age_results.borrow_mut().push(result);
-            self
-        }
-
-        fn is_innocent_balance_params(mut self, params: &Arc<Mutex<Vec<(i64, i64)>>>) -> Self {
-            self.is_innocent_balance_params = params.clone();
-            self
-        }
-
-        fn is_innocent_balance_result(self, result: bool) -> Self {
-            self.is_innocent_balance_results.borrow_mut().push(result);
-            self
-        }
-
-        fn calculate_payout_threshold_params(
-            mut self,
-            params: &Arc<Mutex<Vec<(Rc<PaymentThresholds>, u64)>>>,
-        ) -> Self {
-            self.calculate_payout_threshold_params = params.clone();
-            self
-        }
-
-        fn calculate_payout_threshold_result(self, result: f64) -> Self {
-            self.calculate_payout_threshold_results
-                .borrow_mut()
-                .push(result);
-            self
-        }
-    }
 
     // fn Box::new(ScannerMock::new()) -> Scanner {
     //     Scanner::new(ScanType::Payables, Box::new(|_, _| {}), Box::new(|_, _| {}))
@@ -4049,86 +3968,6 @@ mod tests {
     // }
 
     // TODO: This test should be migrated to scanners
-    // #[test]
-    // fn threshold_calculation_depends_on_user_defined_payment_thresholds() {
-    //     let safe_age_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let safe_balance_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let calculate_payable_threshold_params_arc = Arc::new(Mutex::new(vec![]));
-    //     let balance = 5555;
-    //     let how_far_in_past = Duration::from_secs(1111 + 1);
-    //     let last_paid_timestamp = SystemTime::now().sub(how_far_in_past);
-    //     let payable_account = PayableAccount {
-    //         wallet: make_wallet("hi"),
-    //         balance,
-    //         last_paid_timestamp,
-    //         pending_payable_opt: None,
-    //     };
-    //     let custom_payment_thresholds = PaymentThresholds {
-    //         maturity_threshold_sec: 1111,
-    //         payment_grace_period_sec: 2222,
-    //         permanent_debt_allowed_gwei: 3333,
-    //         debt_threshold_gwei: 4444,
-    //         threshold_interval_sec: 5555,
-    //         unban_below_gwei: 3333,
-    //     };
-    //     let mut bootstrapper_config = BootstrapperConfig::default();
-    //     bootstrapper_config.accountant_config_opt = Some(AccountantConfig {
-    //         scan_intervals: Default::default(),
-    //         payment_thresholds: custom_payment_thresholds,
-    //         suppress_initial_scans: false,
-    //         when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-    //     });
-    //     let payable_thresholds_tools = PayableThresholdToolsMock::default()
-    //         .is_innocent_age_params(&safe_age_params_arc)
-    //         .is_innocent_age_result(
-    //             how_far_in_past.as_secs()
-    //                 <= custom_payment_thresholds.maturity_threshold_sec as u64,
-    //         )
-    //         .is_innocent_balance_params(&safe_balance_params_arc)
-    //         .is_innocent_balance_result(
-    //             balance <= custom_payment_thresholds.permanent_debt_allowed_gwei,
-    //         )
-    //         .calculate_payout_threshold_params(&calculate_payable_threshold_params_arc)
-    //         .calculate_payout_threshold_result(4567.0); //made up value
-    //     let mut subject = AccountantBuilder::default()
-    //         .bootstrapper_config(bootstrapper_config)
-    //         .build();
-    //     subject.scanners.payables.payable_thresholds_tools = Box::new(payable_thresholds_tools);
-    //
-    //     let result = subject.payable_exceeded_threshold(&payable_account);
-    //
-    //     assert_eq!(result, Some(4567));
-    //     let mut safe_age_params = safe_age_params_arc.lock().unwrap();
-    //     let safe_age_single_params = safe_age_params.remove(0);
-    //     assert_eq!(*safe_age_params, vec![]);
-    //     let (time_elapsed, curve_derived_time) = safe_age_single_params;
-    //     assert!(
-    //         (how_far_in_past.as_secs() - 3) < time_elapsed
-    //             && time_elapsed < (how_far_in_past.as_secs() + 3)
-    //     );
-    //     assert_eq!(
-    //         curve_derived_time,
-    //         custom_payment_thresholds.maturity_threshold_sec as u64
-    //     );
-    //     let safe_balance_params = safe_balance_params_arc.lock().unwrap();
-    //     assert_eq!(
-    //         *safe_balance_params,
-    //         vec![(
-    //             payable_account.balance,
-    //             custom_payment_thresholds.permanent_debt_allowed_gwei
-    //         )]
-    //     );
-    //     let mut calculate_payable_curves_params =
-    //         calculate_payable_threshold_params_arc.lock().unwrap();
-    //     let calculate_payable_curves_single_params = calculate_payable_curves_params.remove(0);
-    //     assert_eq!(*calculate_payable_curves_params, vec![]);
-    //     let (payment_thresholds, time_elapsed) = calculate_payable_curves_single_params;
-    //     assert!(
-    //         (how_far_in_past.as_secs() - 3) < time_elapsed
-    //             && time_elapsed < (how_far_in_past.as_secs() + 3)
-    //     );
-    //     assert_eq!(payment_thresholds, custom_payment_thresholds)
-    // }
     #[test]
     fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled() {
         init_test_logging();

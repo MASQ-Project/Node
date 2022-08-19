@@ -4,7 +4,6 @@ pub(in crate::accountant) mod scanners {
     use crate::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoReal};
     use crate::accountant::pending_payable_dao::PendingPayableDao;
     use crate::accountant::receivable_dao::ReceivableDao;
-    use crate::accountant::tools::{PayableExceedThresholdTools, PayableExceedThresholdToolsReal};
     use crate::accountant::ReportAccountsPayable;
     use crate::accountant::{
         Accountant, CancelFailedPendingTransaction, ConfirmPendingTransaction, ReceivedPayments,
@@ -94,7 +93,6 @@ pub(in crate::accountant) mod scanners {
     pub struct PayableScanner {
         common: ScannerCommon,
         dao: Box<dyn PayableDao>,
-        payable_threshold_tools: Box<dyn PayableExceedThresholdTools>,
     }
 
     impl Scanner<ReportAccountsPayable, SentPayable> for PayableScanner {
@@ -160,7 +158,6 @@ pub(in crate::accountant) mod scanners {
             Self {
                 common: ScannerCommon::new(payment_thresholds),
                 dao,
-                payable_threshold_tools: Box::new(PayableExceedThresholdToolsReal::default()),
             }
         }
 
@@ -227,31 +224,27 @@ pub(in crate::accountant) mod scanners {
         }
 
         fn payable_exceeded_threshold(&self, payable: &PayableAccount) -> Option<u64> {
-            todo!("Fix the config variable problem");
             // TODO: This calculation should be done in the database, if possible
             let time_since_last_paid = SystemTime::now()
                 .duration_since(payable.last_paid_timestamp)
                 .expect("Internal error")
                 .as_secs();
 
-            if self.payable_threshold_tools.is_innocent_age(
+            if PayableScanner::is_innocent_age(
                 time_since_last_paid,
                 self.common.payment_thresholds.maturity_threshold_sec as u64,
             ) {
                 return None;
             }
 
-            if self.payable_threshold_tools.is_innocent_balance(
+            if PayableScanner::is_innocent_balance(
                 payable.balance,
                 self.common.payment_thresholds.permanent_debt_allowed_gwei,
             ) {
                 return None;
             }
 
-            let threshold = self.payable_threshold_tools.calculate_payout_threshold(
-                self.common.payment_thresholds.clone(),
-                time_since_last_paid,
-            );
+            let threshold = self.calculate_payout_threshold(time_since_last_paid);
             if payable.balance as f64 > threshold {
                 Some(threshold as u64)
             } else {
@@ -280,6 +273,25 @@ pub(in crate::accountant) mod scanners {
                 })
                 .join("\n");
             String::from("Paying qualified debts:\n").add(&list)
+        }
+
+        fn is_innocent_age(age: u64, limit: u64) -> bool {
+            age <= limit
+        }
+
+        fn is_innocent_balance(balance: i64, limit: i64) -> bool {
+            balance <= limit
+        }
+
+        fn calculate_payout_threshold(&self, x: u64) -> f64 {
+            let payment_thresholds = self.common.payment_thresholds.clone();
+            let m = -((payment_thresholds.debt_threshold_gwei as f64
+                - payment_thresholds.permanent_debt_allowed_gwei as f64)
+                / (payment_thresholds.threshold_interval_sec as f64
+                    - payment_thresholds.maturity_threshold_sec as f64));
+            let b = payment_thresholds.debt_threshold_gwei as f64
+                - m * payment_thresholds.maturity_threshold_sec as f64;
+            m * x as f64 + b
         }
     }
 
