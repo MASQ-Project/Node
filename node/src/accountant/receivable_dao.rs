@@ -21,7 +21,6 @@ use itertools::Either;
 use itertools::Either::Left;
 use masq_lib::logger::Logger;
 use masq_lib::utils::{plus, ExpectValue};
-use rusqlite::types::ToSql;
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::{named_params, Error};
@@ -85,7 +84,7 @@ pub trait ReceivableDao: Send {
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 
     #[cfg(test)]
-    fn test_our_defined_sqlite_functions(&self) {
+    fn to_test_our_user_defined_sqlite_functions(&self) {
         intentionally_blank!()
     }
 }
@@ -250,7 +249,7 @@ impl ReceivableDao for ReceivableDaoReal {
     }
 
     #[cfg(test)]
-    fn test_our_defined_sqlite_functions(&self) {
+    fn to_test_our_user_defined_sqlite_functions(&self) {
         self.conn
             .prepare("select biginthigh(4578745,89.7888)")
             .unwrap();
@@ -264,7 +263,7 @@ impl ReceivableDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> ReceivableDaoReal {
         ReceivableDaoReal {
             conn,
-            big_int_db_processor: BigIntDbProcessor::new(),
+            big_int_db_processor:  BigIntDbProcessor::default(),
             logger: Logger::new("ReceivableDaoReal"),
         }
     }
@@ -403,6 +402,7 @@ mod tests {
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::NeighborhoodModeLight;
     use std::path::Path;
+    use rusqlite::ToSql;
 
     #[test]
     fn conversion_from_pce_works() {
@@ -441,7 +441,7 @@ mod tests {
 
         let receivable_dao = subject.make();
 
-        receivable_dao.test_our_defined_sqlite_functions();
+        receivable_dao.to_test_our_user_defined_sqlite_functions();
         //we didn't blow up, all is good
     }
 

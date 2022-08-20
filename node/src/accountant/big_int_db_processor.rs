@@ -18,7 +18,6 @@ use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
 use std::marker::PhantomData;
 use std::ops::Neg;
-use std::os::raw::c_int;
 
 #[derive(Debug)]
 pub struct BigIntDbProcessor<T: DAOTableIdentifier> {
@@ -41,7 +40,7 @@ impl<T: DAOTableIdentifier> BigIntDbProcessor<T> {
             Ok(_) => Ok(()),
             //SQLITE_CONSTRAINT_DATATYPE (3091),
             //the moment of Sqlite trying to store the number as REAL in a strict INT column
-            Err(Error::SqliteFailure(e, _)) if e.extended_code == c_int::from(3091) => {
+            Err(Error::SqliteFailure(e, _)) if e.extended_code == 3091 => {
                 self.update_threatened_by_overflow(conn, config)
             }
             Err(e) => Err(BigIntDbError(format!(
@@ -108,8 +107,8 @@ impl<T: DAOTableIdentifier> BigIntDbProcessor<T> {
     }
 }
 
-impl<T: DAOTableIdentifier> BigIntDbProcessor<T> {
-    pub fn new() -> BigIntDbProcessor<T> {
+impl<T: DAOTableIdentifier> Default for BigIntDbProcessor<T> {
+    fn default() -> BigIntDbProcessor<T> {
         Self {
             phantom: Default::default(),
         }
@@ -177,7 +176,7 @@ impl<'a, T: DAOTableIdentifier> BigIntSqlConfig<'a, T> {
             &self.params.wei_change_params[1].0[1..],
             T::table_name(),
             self.params.table_key_name,
-            key_info.1.to_string()
+            key_info.1
         )
     }
 
@@ -323,7 +322,7 @@ impl<'a> SQLParams<'a> {
     ) -> impl Iterator<Item = (&str, &dyn ToSql)> {
         self.pure_rusqlite_params(
             wei_change_params
-                .into_iter()
+                .iter()
                 .map(|(name, num)| (*name, num as &dyn ToSql)),
         )
     }
@@ -419,7 +418,7 @@ impl BigIntDivider {
 
     fn deconstruct_high_bytes(num: i128) -> i64 {
         let high_bytes = (num >> 63) as i64;
-        if num.is_positive() && (high_bytes.abs() as u64 & 0xC000000000000000u64) > 0 {
+        if num.is_positive() && (high_bytes.unsigned_abs() & 0xC000000000000000u64) > 0 {
             panic!("Too big positive integer to be divided: {:#X}", num)
         }
         if num < -0x40000000000000000000000000000000 {
@@ -854,7 +853,7 @@ mod tests {
         if let Some(values) = init_record_opt {
             insert_single_record(conn.as_ref(), [&values.0, &values.1, &values.2])
         };
-        let subject = BigIntDbProcessor::<DummyDao>::new();
+        let subject = BigIntDbProcessor::<DummyDao>::default();
 
         let result = act(conn.as_mut(), &subject);
 
@@ -1069,7 +1068,7 @@ mod tests {
                 .build(),
         );
 
-        let result = BigIntDbProcessor::<DummyDao>::new()
+        let result = BigIntDbProcessor::<DummyDao>::default()
             .update_threatened_by_overflow(Either::Left(&conn), update_config);
 
         assert_eq!(result, Ok(()));
@@ -1097,7 +1096,7 @@ mod tests {
             "insert_failed_update_failed_too",
         );
         insert_single_record(conn.as_ref(), [&"Joe", &60, &5555]);
-        let subject = BigIntDbProcessor::<DummyDao>::new();
+        let subject = BigIntDbProcessor::<DummyDao>::default();
         let balance_change = Addition("balance", 5555);
         let config = BigIntSqlConfig::new(
             "insert into test_table (name, balance_high_b, balance_low_b) values (:name,:balance_high_b,:balance_low_b) on conflict (name) do",
@@ -1126,7 +1125,7 @@ mod tests {
             "big_int_db_processor",
             "insert_handles_unspecific_failures",
         );
-        let subject = BigIntDbProcessor::<DummyDao>::new();
+        let subject = BigIntDbProcessor::<DummyDao>::default();
         let balance_change = Addition("balance", 4879898145125);
         let config = BigIntSqlConfig::new(
             "insert into test_table (name,balance_high_b,balance_low_b) values (:name,:balance_a,:balance_b) on conflict (name) do",
@@ -1165,7 +1164,7 @@ mod tests {
                 .build(),
         );
 
-        let result = BigIntDbProcessor::<DummyDao>::new()
+        let result = BigIntDbProcessor::<DummyDao>::default()
             .update_threatened_by_overflow(Either::Left(conn.as_ref()), update_config);
 
         //this kind of error is impossible in the real use case but is easiest regarding an arrangement of the test
@@ -1193,7 +1192,7 @@ mod tests {
                 .build()
         );
 
-        let _ = BigIntDbProcessor::<DummyDao>::new()
+        let _ = BigIntDbProcessor::<DummyDao>::default()
             .update_threatened_by_overflow(Either::Left(conn.as_ref()), update_config);
     }
 
@@ -1222,7 +1221,7 @@ mod tests {
                 .build(),
         );
 
-        let result = BigIntDbProcessor::<DummyDao>::new()
+        let result = BigIntDbProcessor::<DummyDao>::default()
             .update_threatened_by_overflow(Either::Left(conn.as_ref()), update_config);
 
         assert_eq!(

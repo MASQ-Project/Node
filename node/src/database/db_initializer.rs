@@ -8,8 +8,10 @@ use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
 use masq_lib::logger::Logger;
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+#[cfg(test)]
 use masq_lib::utils::NeighborhoodModeLight;
+#[cfg(test)]
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use rand::prelude::*;
 use rusqlite::Error::InvalidColumnType;
 use rusqlite::{Connection, OpenFlags};
@@ -20,6 +22,7 @@ use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::Path;
 use tokio::net::TcpListener;
+
 
 pub const DATABASE_FILE: &str = "node-data.db";
 pub const CURRENT_SCHEMA_VERSION: usize = 7;
@@ -339,7 +342,7 @@ impl DbInitializerReal {
         init_config: &DbInitializationConfig,
     ) -> Result<(), InitializationError> {
         if init_config.special_conn_setup.is_empty() {
-            return Ok(());
+            Ok(())
         } else {
             match init_config
                 .special_conn_setup

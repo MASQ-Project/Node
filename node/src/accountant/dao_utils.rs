@@ -87,6 +87,8 @@ pub enum CustomQuery<N> {
     },
 }
 
+type RusqliteParamsWithOwnedToSql = Vec<(&'static str, Box<dyn ToSql>)>;
+
 pub struct TopStmConfig {
     limit_clause: &'static str,
     gwei_min_resolution_clause: &'static str,
@@ -132,7 +134,7 @@ impl<N: Copy + Display> CustomQuery<N> {
         S: TryFrom<N>,
         i128: From<N>,
     {
-        let (finalized_stm, params): (String, Vec<(&str, Box<dyn ToSql>)>) = match self {
+        let (finalized_stm, params): (String, RusqliteParamsWithOwnedToSql) = match self {
             Self::TopRecords { count, ordered_by } => {
                 let (order_by_first_param, order_by_second_param) =
                     Self::ordering(ordered_by, variant_top.age_param);
@@ -173,7 +175,7 @@ impl<N: Copy + Display> CustomQuery<N> {
     fn execute_query<'a, R, F1>(
         conn: &'a dyn ConnectionWrapper,
         stm: &'a str,
-        params: Vec<(&str, Box<dyn ToSql>)>,
+        params: RusqliteParamsWithOwnedToSql,
         value_fetcher: F1,
     ) -> Vec<R>
     where
@@ -190,7 +192,7 @@ impl<N: Copy + Display> CustomQuery<N> {
             .collect::<Vec<R>>()
     }
 
-    fn set_up_age_constrains(min_age: u64, max_age: u64) -> Vec<(&'static str, Box<dyn ToSql>)> {
+    fn set_up_age_constrains(min_age: u64, max_age: u64) -> RusqliteParamsWithOwnedToSql {
         let now = to_time_t(SystemTime::now());
         vec![
             (
@@ -204,7 +206,7 @@ impl<N: Copy + Display> CustomQuery<N> {
         ]
     }
 
-    fn set_up_wei_constrains(two_limits: Vec<N>) -> Vec<(&'static str, Box<dyn ToSql>)>
+    fn set_up_wei_constrains(two_limits: Vec<N>) -> RusqliteParamsWithOwnedToSql
     where
         i128: From<N>,
     {

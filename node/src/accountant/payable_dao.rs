@@ -12,7 +12,6 @@ use crate::accountant::dao_utils::{
 use crate::accountant::{checked_conversion, sign_conversion, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::sub_lib::accountant::WEIS_OF_GWEI;
 use crate::sub_lib::wallet::Wallet;
 #[cfg(test)]
 use ethereum_types::{BigEndianHash, U256};
@@ -284,7 +283,7 @@ impl PayableDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> PayableDaoReal {
         PayableDaoReal {
             conn,
-            big_int_db_processor: BigIntDbProcessor::new(),
+            big_int_db_processor:  BigIntDbProcessor::default(),
         }
     }
 
@@ -387,6 +386,7 @@ mod tests {
     use std::path::Path;
     use std::str::FromStr;
     use web3::types::U256;
+    use crate::sub_lib::accountant::WEIS_OF_GWEI;
 
     #[test]
     fn more_money_payable_works_for_new_address() {

@@ -1,8 +1,7 @@
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use std::collections::HashMap;
 use std::thread;
 use std::time::Duration;
-
-// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use multinode_integration_tests_lib::masq_node::{MASQNode, NodeReference};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
@@ -82,7 +81,12 @@ fn non_pending_payables(node: &MASQRealNode) -> Vec<PayableAccount> {
 fn receivables(node: &MASQRealNode) -> Vec<ReceivableAccount> {
     let receivable_dao = receivable_dao(node.name());
     receivable_dao
-        .custom_query(CustomQuery::TopRecords(u16::MAX))
+        .custom_query(CustomQuery::RangeQuery {
+            min_age_s: 0,
+            max_age_s: i64::MAX as u64,
+            min_amount_gwei: i64::MIN,
+            max_amount_gwei: i64::MAX
+        })
         .unwrap_or_default()
 }
 

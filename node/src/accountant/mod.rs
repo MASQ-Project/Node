@@ -1470,7 +1470,7 @@ pub mod check_sqlite_fns {
             _ctx: &mut Self::Context,
         ) -> Self::Result {
             //hypothesis is that this is gonna blow up in the middle of the operation if our defined functions haven't been hooked up
-            self.receivable_dao.test_our_defined_sqlite_functions();
+            self.receivable_dao.to_test_our_user_defined_sqlite_functions();
             System::current().stop();
         }
     }

@@ -17,8 +17,8 @@ use node_lib::blockchain::bip32::Bip32ECKeyProvider;
 use node_lib::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceNonClandestine, REQUESTS_IN_PARALLEL,
 };
-use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
-use node_lib::database::db_migrations::{DbInitializationConfig, ExternalData, MigratorConfig};
+use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal,DbInitializationConfig};
+use node_lib::database::db_migrations::{ExternalData};
 use node_lib::sub_lib::accountant::{PaymentThresholds, WEIS_OF_GWEI};
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
@@ -422,7 +422,7 @@ fn build_config(
 
 fn expire_payables(path: PathBuf) {
     let conn = DbInitializerReal::default()
-        .initialize(&path, true, MigratorConfig::panic_on_migration())
+        .initialize(&path, true, DbInitializationConfig::panic_on_migration())
         .unwrap();
     let mut statement = conn
         .prepare("update payable set last_paid_timestamp = 0 where pending_payable_rowid is null")
@@ -437,7 +437,7 @@ fn expire_payables(path: PathBuf) {
 
 fn expire_receivables(path: PathBuf) {
     let conn = DbInitializerReal::default()
-        .initialize(&path, true, MigratorConfig::panic_on_migration())
+        .initialize(&path, true, DbInitializationConfig::panic_on_migration())
         .unwrap();
     let mut statement = conn
         .prepare("update receivable set last_received_timestamp = 0")

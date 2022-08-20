@@ -59,10 +59,6 @@ impl PaymentThresholds {
             - checked_conversion::<u64, i64>(self.payment_grace_period_sec)
     }
 
-    pub fn grace(&self, now: i64) -> i64 {
-        now - checked_conversion::<u64, i64>(self.payment_grace_period_sec)
-    }
-
     #[cfg(test)]
     pub fn sugg_thru_decreasing(&self, now: i64) -> i64 {
         self.sugg_and_grace(now) - checked_conversion::<u64, i64>(self.threshold_interval_sec)

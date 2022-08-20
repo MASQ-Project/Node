@@ -95,9 +95,14 @@ fn debtors_are_credited_once_but_not_twice() {
     // Use the receivable DAO to verify that the receivable's balance has been initialized
     {
         let receivable_dao = receivable_dao(&node_name);
-        let receivable_accounts = receivable_dao.receivables();
+        let receivable_accounts = receivable_dao.custom_query(CustomQuery::RangeQuery {
+            min_age_s: 0,
+            max_age_s: i64::MAX as u64,
+            min_amount_gwei: i64::MIN,
+            max_amount_gwei: i64::MAX
+        }).unwrap_or_default();
         assert_eq!(receivable_accounts.len(), 1);
-        assert_eq!(receivable_accounts[0].balance, 1_000_000);
+        assert_eq!(receivable_accounts[0].balance_wei, 1_000_000);
     }
     // Use the config DAO to verify that the start block has been set to 1000
     {
@@ -125,7 +130,12 @@ fn debtors_are_credited_once_but_not_twice() {
     {
         let receivable_dao = receivable_dao(&node_name);
         let receivable_accounts = receivable_dao
-            .custom_query(CustomQuery::TopRecords(100))
+            .custom_query(CustomQuery::RangeQuery {
+                min_age_s: 0,
+                max_age_s: i64::MAX as u64,
+                min_amount_gwei: i64::MIN,
+                max_amount_gwei: i64::MAX
+            })
             .unwrap_or_default();
         assert_eq!(receivable_accounts.len(), 1);
         assert_eq!(receivable_accounts[0].balance_wei, 1_000_000);
