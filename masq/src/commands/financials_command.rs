@@ -47,11 +47,11 @@ pub struct FinancialsCommand {
 #[derive(Debug, PartialEq)]
 struct CustomQueryInput {
     query: RefCell<Option<CustomQueries>>,
-    user_payable_format_opt: Option<UsersLiteralRangeDefinition>,
-    user_receivable_format_opt: Option<UsersLiteralRangeDefinition>,
+    user_payable_format_opt: Option<UsersOriginalLiteralRanges>,
+    user_receivable_format_opt: Option<UsersOriginalLiteralRanges>,
 }
 
-type UsersLiteralRangeDefinition = ((String, String), (String, String));
+type UsersOriginalLiteralRanges = ((String, String), (String, String));
 
 pub fn financials_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("financials")
@@ -196,7 +196,8 @@ macro_rules! dump_statistics_lines {
 }
 
 macro_rules! process_top_records {
-    ($self: expr, $stdout: expr, $account_type: literal, $headings: expr, $top_records: expr, $write_headings_fn:ident,$render_single_account_fn:ident) => {
+    ($self: expr, $stdout: expr, $account_type: literal, $headings: expr, $top_records: expr,
+    $write_headings_fn: ident, $render_single_account_fn: ident) => {
         if !$top_records.is_empty() {
             $self.title_for_tops($stdout, $account_type);
             $self.render_accounts_generic(
@@ -218,7 +219,8 @@ macro_rules! process_top_records {
 }
 
 macro_rules! process_custom_query {
-    ($self:expr, $stdout: expr, $account_type: literal, $headings: expr, $correct_field:ident,$custom_query: expr, $write_headings_fn:ident,$render_single_account_fn:ident) => {
+    ($self:expr, $stdout: expr, $account_type: literal, $headings: expr, $correct_field:ident,
+    $custom_query: expr, $write_headings_fn: ident, $render_single_account_fn: ident) => {
         if let Some(accounts) = $custom_query {
             Self::title_for_custom_query(
                 $stdout,
@@ -265,16 +267,26 @@ macro_rules! process_custom_query {
     };
 }
 
+macro_rules! are_two_dumps_to_be_printed_half_condition {
+    ($self: expr, $custom_query_result: expr, $results_field: ident; $user_format_field: ident) => {
+        ($custom_query_result.$results_field.is_some()
+            || $self
+                .custom_queries_opt
+                .as_ref()
+                .expectv("custom queries input")
+                .$user_format_field
+                .is_some())
+    };
+}
+
+type RangeQueryInputs<T> = (Option<RangeQuery<T>>, Option<UsersOriginalLiteralRanges>);
+
 impl FinancialsCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
-        fn rearrange_range_query_output<T>(
-            outputs: Option<(Option<RangeQuery<T>>, Option<UsersLiteralRangeDefinition>)>,
-        ) -> (Option<RangeQuery<T>>, Option<UsersLiteralRangeDefinition>) {
-            if let Some(x) = outputs {
-                x
-            } else {
-                (None, None)
-            }
+        fn rearrange_range_queries_inputs<T, U>(
+            tuple: (Option<RangeQueryInputs<T>>, Option<RangeQueryInputs<U>>),
+        ) -> (RangeQueryInputs<T>, RangeQueryInputs<U>) {
+            (tuple.0.unwrap_or_default(), tuple.1.unwrap_or_default())
         }
 
         let matches = match financials_subcommand().get_matches_from_safe(pieces) {
@@ -284,29 +296,30 @@ impl FinancialsCommand {
         let stats_required = !matches.is_present("no-stats");
         let top_records_opt = Self::parse_top_records_arg(&matches);
         let gwei_precision = matches.is_present("gwei");
+        let custom_queries_opt = match (
+            Self::parse_range_query_arg::<u64>(&matches, "payable"),
+            Self::parse_range_query_arg::<i64>(&matches, "receivable"),
+        ) {
+            (None, None) => None,
+            tuple => {
+                let (
+                    (payable_opt, user_payable_format_opt),
+                    (receivable_opt, user_receivable_format_opt),
+                ) = rearrange_range_queries_inputs(tuple);
+                Some(CustomQueryInput {
+                    query: RefCell::new(Some(CustomQueries {
+                        payable_opt,
+                        receivable_opt,
+                    })),
+                    user_payable_format_opt,
+                    user_receivable_format_opt,
+                })
+            }
+        };
         Ok(Self {
             stats_required,
             top_records_opt,
-            custom_queries_opt: match (
-                Self::parse_range_query_arg::<u64>(&matches, "payable"),
-                Self::parse_range_query_arg::<i64>(&matches, "receivable"),
-            ) {
-                (None, None) => None,
-                (payable_opt, receivable_opt) => {
-                    let (payable_opt, user_payable_format_opt) =
-                        rearrange_range_query_output(payable_opt);
-                    let (receivable_opt, user_receivable_format_opt) =
-                        rearrange_range_query_output(receivable_opt);
-                    Some(CustomQueryInput {
-                        query: RefCell::new(Some(CustomQueries {
-                            payable_opt,
-                            receivable_opt,
-                        })),
-                        user_payable_format_opt,
-                        user_receivable_format_opt,
-                    })
-                }
-            },
+            custom_queries_opt,
             gwei_precision,
         })
     }
@@ -399,20 +412,8 @@ impl FinancialsCommand {
     }
 
     fn are_two_dumps_to_be_printed(&self, custom_query_result: &CustomQueryResult) -> bool {
-        (custom_query_result.payable_opt.is_some()
-            || self
-                .custom_queries_opt
-                .as_ref()
-                .expectv("custom queries input")
-                .user_payable_format_opt
-                .is_some())
-            && (custom_query_result.receivable_opt.is_some()
-                || self
-                    .custom_queries_opt
-                    .as_ref()
-                    .expectv("custom queries input")
-                    .user_receivable_format_opt
-                    .is_some())
+        are_two_dumps_to_be_printed_half_condition!(self, custom_query_result, payable_opt; user_payable_format_opt)
+            && are_two_dumps_to_be_printed_half_condition!(self, custom_query_result, receivable_opt; user_receivable_format_opt)
     }
 
     fn parse_top_records_arg(matches: &ArgMatches) -> Option<TopRecordsConfig> {
@@ -428,23 +429,34 @@ impl FinancialsCommand {
         })
     }
 
-    fn parse_range_query_arg<
-        'a,
-        T: FromStr<Err = ParseIntError> + From<u32> + CheckedMul + Display + MaxValue,
-    >(
+    fn parse_range_query_arg<'a, T>(
         matches: &'a ArgMatches,
         parameter_name: &'a str,
-    ) -> Option<(Option<RangeQuery<T>>, Option<UsersLiteralRangeDefinition>)> {
+    ) -> Option<(Option<RangeQuery<T>>, Option<UsersOriginalLiteralRanges>)>
+    where
+        T: FromStr<Err = ParseIntError> + TryFrom<i64> + CheckedMul + Display + MaxValue,
+        <T as TryFrom<i64>>::Error: Debug,
+    {
+        let parse_params =
+            |time_range: &[&str], money_range: &str| -> ((u64, u64), (T, T, String, String)) {
+                (
+                    Self::parse_time_params(&time_range).expect("blown up after validation"),
+                    Self::parse_masq_range_to_gwei(money_range).expect("blown up after validation"),
+                )
+            };
+
         matches.value_of(parameter_name).map(|double| {
             //this is already after tight validation
-            let separated_ranges = double.split('|').collect::<Vec<&str>>();
-            let time_range = separated_ranges[0].split('-').collect::<Vec<&str>>();
-            let (min_age, max_age) =
-                Self::parse_time_params(&time_range).expect("blows up after validation?");
-            let (min_amount_num, max_amount_num, min_amount_str, max_amount_str) =
-                Self::parse_masq_range_to_gwei(separated_ranges[1])
-                    .expect("blows up after validation?");
-            //I'm arranging these types so that I can easily use them in the next step outside of here
+            let mut separated_ranges = double.split('|');
+            let time_range = separated_ranges
+                .next()
+                .expectv("first range")
+                .split('-')
+                .collect::<Vec<&str>>();
+            let (
+                (min_age, max_age),
+                (min_amount_num, max_amount_num, min_amount_str, max_amount_str),
+            ) = parse_params(&time_range, separated_ranges.next().expectv("second range"));
             (
                 Some(RangeQuery {
                     min_age_s: min_age,
@@ -707,7 +719,7 @@ impl FinancialsCommand {
     fn title_for_custom_query(
         stdout: &mut dyn Write,
         distinguished: &str,
-        user_written_ranges: &UsersLiteralRangeDefinition,
+        user_written_ranges: &UsersOriginalLiteralRanges,
     ) {
         let (age_range, balance_range) = Self::correct_users_writing_if_needed(user_written_ranges);
         short_writeln!(
@@ -720,7 +732,7 @@ impl FinancialsCommand {
     }
 
     fn correct_users_writing_if_needed(
-        user_ranges: &UsersLiteralRangeDefinition,
+        user_ranges: &UsersOriginalLiteralRanges,
     ) -> (String, String) {
         fn resolve_captures(captures: Captures) -> [Option<String>; 3] {
             let fetch_group = |idx: usize| FinancialsCommand::single_capture(&captures, idx);
@@ -878,18 +890,19 @@ impl FinancialsCommand {
     pub fn parse_masq_range_to_gwei<N>(range_str: &str) -> Result<(N, N, String, String), String>
     where
         N: FromStr<Err = ParseIntError>
-            + From<u32>
+            + TryFrom<i64>
             + Mul<Output = N>
             + CheckedMul
             + Display
             + MaxValue,
+        <N as TryFrom<i64>>::Error: Debug,
     {
         let (first, second_opt) = Self::extract_individual_masq_values(range_str)?;
         let first_as_num = Self::process_optionally_fragmentary_number(&first)?;
         let second_as_num = if let Some(second) = second_opt.as_ref() {
             Self::process_optionally_fragmentary_number(second)?
         } else {
-            N::max() //TODO I could write i64 or i64 as u64....well, I will have to avoid the u64::MAX
+            N::try_from(i64::MAX).expect("must be within limits")
         };
         Ok((
             first_as_num,
@@ -901,10 +914,13 @@ impl FinancialsCommand {
 
     fn process_optionally_fragmentary_number<N>(num: &str) -> Result<N, String>
     where
-        N: FromStr<Err = ParseIntError> + From<u32> + CheckedMul + Display,
+        N: FromStr<Err = ParseIntError> + TryFrom<i64> + CheckedMul + Display,
+        <N as TryFrom<i64>>::Error: Debug,
     {
         let final_unit_conversion = |parse_result: N, pow_factor: u32| {
-            if let Some(int) = parse_result.checked_mul(&N::from(10_u32.pow(pow_factor))) {
+            if let Some(int) =
+                parse_result.checked_mul(&N::try_from(10_i64.pow(pow_factor)).expect("no fear"))
+            {
                 Ok(int)
             } else {
                 Err(format!("Attempt with too big amount of MASQ: {}", num))
@@ -969,7 +985,8 @@ impl StringValuesOfAccount for UiReceivableAccount {
 
 pub fn validate_two_ranges<N>(double: String) -> Result<(), String>
 where
-    N: FromStr<Err = ParseIntError> + From<u32> + PartialOrd + Display + CheckedMul + MaxValue,
+    N: FromStr<Err = ParseIntError> + TryFrom<i64> + PartialOrd + Display + CheckedMul + MaxValue,
+    <N as TryFrom<i64>>::Error: Debug,
 {
     fn checked_division<'a>(
         str: &'a str,
@@ -2084,7 +2101,7 @@ mod tests {
                             min_age_s: 0,
                             max_age_s: 350000,
                             min_amount_gwei: 5000000000,
-                            max_amount_gwei: u64::MAX
+                            max_amount_gwei: i64::MAX as u64
                         }),
                         receivable_opt: Some(RangeQuery {
                             min_age_s: 5000,
