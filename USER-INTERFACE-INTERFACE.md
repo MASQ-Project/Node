@@ -702,7 +702,7 @@ than requested, a smaller amount is sent back.
 
 `wallet` is a wallet of the Node that we owe to.
 
-`ageS` is a number of seconds that elapsed since we settled a payment to this particular Node last time.
+`ageS` is a number of seconds that elapsed since our payment to this particular Node was confirmed last time.
 
 `balanceGwei` is a number of Gwei we owe to this particular Node.
 
@@ -723,11 +723,11 @@ redeem his liabilities.
 divided into two halves, the payable and the receivable. By using this query, though, it is still possible to query about
 just one from that pair.
 
-`payableOpt` is facultative, and represents specifically picked accounts from the payable table as a result of applying
-two-parameter filter consisted of a specific range in age and balance.
+`payableOpt` can be omitted if at least `receivableOpt` has been requested. It represents specifically picked accounts from
+the payable table as a result of applying two-parameter filter consisted of a specific range in age and balance.
 
-`receivableOpt` is facultative, and represents specifically picked accounts from the receivable table as a result of
-applying two-parameter filter consisted of a specific range in age and balance.
+`receivableOpt` can be omitted if at least `payableOpt` has been requested. It represents specifically picked accounts
+from the receivable table as a result of applying two-parameter filter consisted of a specific range in age and balance.
 
 The content of both retrieved subsets is structurally identical to those records that were described in detail above for
 `topRecords`.

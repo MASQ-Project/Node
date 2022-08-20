@@ -27,7 +27,7 @@ use thousands::Separable;
 
 const FINANCIALS_SUBCOMMAND_ABOUT: &str =
     "Displays financial statistics of this Node. Only valid if Node is already running.";
-const TOP_ARG_HELP: &str = "Returns a subset of the first N records (or fewer, if only a few exist) from both payable and receivable";
+const TOP_ARG_HELP: &str = "Returns a subset of the top N records (or fewer, if their total count is smaller) from both payable and receivable. By default, the ordering is done by balance but can be changed with the additional '--sorted' argument";
 const PAYABLE_ARG_HELP: &str = "Forms a detailed query about payable records by specifying two ranges, one for their age in seconds and another for their balance in MASQs (decimal numbers are supported, allowing Gwei precision). The desirable format of those values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>";
 const RECEIVABLE_ARG_HELP: &str = "Forms a detailed query about receivable records by specifying two ranges, one for their age in seconds and another for their balance in MASQs (decimal numbers are supported, allowing Gwei precision). The desirable format of those values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>";
 const NO_STATS_ARG_HELP: &str = "Disables statistics that displays by default, containing totals of paid and unpaid money from the perspective of debtors and creditors. This argument is not accepted alone and must be placed before other arguments";
@@ -144,7 +144,7 @@ impl Command for FinancialsCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
         let input = UiFinancialsRequest {
             stats_required: self.stats_required,
-            top_records_opt: self.top_records_opt.clone(),
+            top_records_opt: self.top_records_opt,
             custom_queries_opt: self
                 .custom_queries_opt
                 .as_ref()
@@ -185,7 +185,7 @@ impl Command for FinancialsCommand {
 }
 
 macro_rules! dump_statistics_lines {
- ($stdout: ident, $gwei_flag:expr,$stats:expr,$($parameter_name: literal),+, $($gwei:ident),+) => {
+ ($stdout: ident, $gwei_flag: expr, $stats: expr, $($parameter_name: literal),+, $($gwei: ident),+) => {
        $(dump_parameter_line(
                 $stdout,
                 $parameter_name,
@@ -236,7 +236,7 @@ macro_rules! process_custom_query {
             $self.render_accounts_generic(
                 $stdout,
                 accounts,
-                $headings,
+                &$headings,
                 Self::$write_headings_fn,
                 Self::$render_single_account_fn,
             )
@@ -390,7 +390,7 @@ impl FinancialsCommand {
             self,
             stdout,
             "payable",
-            &payable_headings,
+            payable_headings,
             user_payable_format_opt,
             custom_query_result.payable_opt,
             write_payable_headings,
@@ -403,7 +403,7 @@ impl FinancialsCommand {
             self,
             stdout,
             "receivable",
-            &receivable_headings,
+            receivable_headings,
             user_receivable_format_opt,
             custom_query_result.receivable_opt,
             write_receivable_headings,
@@ -432,7 +432,7 @@ impl FinancialsCommand {
     fn parse_range_query_arg<'a, T>(
         matches: &'a ArgMatches,
         parameter_name: &'a str,
-    ) -> Option<(Option<RangeQuery<T>>, Option<UsersOriginalLiteralRanges>)>
+    ) -> Option<RangeQueryInputs<T>>
     where
         T: FromStr<Err = ParseIntError> + TryFrom<i64> + CheckedMul + Display + MaxValue,
         <T as TryFrom<i64>>::Error: Debug,
@@ -440,14 +440,14 @@ impl FinancialsCommand {
         let parse_params =
             |time_range: &[&str], money_range: &str| -> ((u64, u64), (T, T, String, String)) {
                 (
-                    Self::parse_time_params(&time_range).expect("blown up after validation"),
+                    Self::parse_time_params(time_range).expect("blown up after validation"),
                     Self::parse_masq_range_to_gwei(money_range).expect("blown up after validation"),
                 )
             };
 
-        matches.value_of(parameter_name).map(|double| {
+        matches.value_of(parameter_name).map(|pair_of_ranges| {
             //this is already after tight validation
-            let mut separated_ranges = double.split('|');
+            let mut separated_ranges = pair_of_ranges.split('|');
             let time_range = separated_ranges
                 .next()
                 .expectv("first range")
@@ -502,41 +502,31 @@ impl FinancialsCommand {
     where
         T: Display + PartialEq + From<u32>,
     {
-        let stringified = gwei.to_string();
-        let gross_length = stringified.len();
+        let in_string = gwei.to_string();
+        let gross_length = in_string.len();
         if gwei == T::from(0) {
             return "0".to_string();
         }
         match gross_length {
             x if x <= 7 => "< 0.01".to_string(),
             x => {
-                let full_range = &stringified[0..gross_length - 7];
+                let full_range = &in_string[0..gross_length - 7];
                 let is_positive = &full_range[..=0] != "-";
-                let (decimals, integer_part_unsigned) = {
-                    let (decimal_length, integer_part) = match x {
-                        x if x == 8 && is_positive => (1, "0"),
-                        x if x == 8 => return "-0.01 < x < 0".to_string(),
-                        x if x == 9 && is_positive => (2, "0"),
-                        x if x == 9 => (1, "0"),
-                        _ => (
-                            2,
-                            &full_range[if is_positive { 0 } else { 1 }..full_range.len() - 2],
-                        ),
-                    };
-                    (
-                        Self::proper_decimal_format(full_range, decimal_length),
-                        integer_part,
-                    )
+                let (integer_part_unsigned, decimal_length) = match x {
+                    x if x == 8 && is_positive => ("0", 1),
+                    x if x == 8 => return "-0.01 < x < 0".to_string(),
+                    x if x == 9 && is_positive => ("0", 2),
+                    x if x == 9 => ("0", 1),
+                    _ => (
+                        &full_range[if is_positive { 0 } else { 1 }..full_range.len() - 2],
+                        2,
+                    ),
                 };
-                let numerical: u64 = integer_part_unsigned
-                    .parse()
-                    .expect("preceding checks failed");
-                let comma_delimited_int_part = numerical.separate_with_commas();
                 format!(
                     "{}{}.{}",
                     if is_positive { "" } else { "-" },
-                    comma_delimited_int_part,
-                    decimals
+                    integer_part_unsigned.separate_with_commas(),
+                    Self::proper_decimal_format(full_range, decimal_length)
                 )
             }
         }
@@ -591,7 +581,7 @@ impl FinancialsCommand {
         Self::yield_bigger_values_from_vecs(headings_widths.len(), headings_widths, values_widths)
     }
 
-    fn widths_of_str_values<'a, T: AsRef<str>>(headings: &[T]) -> Vec<usize> {
+    fn widths_of_str_values<T: AsRef<str>>(headings: &[T]) -> Vec<usize> {
         headings
             .iter()
             .map(|phrase| phrase.as_ref().len())
@@ -739,7 +729,7 @@ impl FinancialsCommand {
             [
                 fetch_group(1),
                 fetch_group(2),
-                fetch_group(5).or(fetch_group(3)),
+                fetch_group(5).or_else(|| fetch_group(3)),
             ]
         }
         fn assemble_optional_strings_into_single_number(strings: [Option<String>; 3]) -> String {
@@ -752,28 +742,33 @@ impl FinancialsCommand {
             })
         }
         fn compose_ranges(mut numbers: VecDeque<String>) -> (String, String) {
+            fn resolve_upper_bound(val: String) -> String {
+                if val.is_empty() {
+                    "UNLIMITED".to_string()
+                } else {
+                    val
+                }
+            }
             let mut pop = |param: &str| numbers.pop_front().expectv(param);
+
             (
                 format!("{}-{}", pop("age min"), pop("age max")),
-                format!("{}-{}", pop("balance min"), {
-                    let balance_max_str = pop("balance max");
-                    if balance_max_str.is_empty() {
-                        "UNLIMITED".to_string()
-                    } else {
-                        balance_max_str
-                    }
-                }),
+                format!(
+                    "{}-{}",
+                    pop("balance min"),
+                    resolve_upper_bound(pop("balance max"))
+                ),
             )
         }
 
-        let simpler_syntax_extractor =
+        let simplified_syntax_extractor =
             Regex::new("^(-?)0*(\\d+?)(((\\.\\d*[1-9])0*$)|$)|^$").expect("wrong regex");
         let apply_care = |remembered_user_input: &str| {
-            simpler_syntax_extractor
+            simplified_syntax_extractor
                 .captures(remembered_user_input)
                 .map(resolve_captures)
                 .unwrap_or_else(
-                    || panic!("Broken code: value must have been present during the check but yet wrong: {}",remembered_user_input)
+                    || panic!("Broken code: value must have been present during a check but yet wrong: {}",remembered_user_input)
                 )
         };
         let ((time_min, time_max), (amount_min, amount_max)) = user_ranges;
@@ -803,10 +798,10 @@ impl FinancialsCommand {
     }
 
     fn figure_out_max_widths(values_of_accounts: &[Vec<String>]) -> Vec<usize> {
-        let cell_count = values_of_accounts[0].len();
-        let init = vec![0_usize; cell_count];
+        let column_count = values_of_accounts[0].len();
+        let init = vec![0_usize; column_count];
         let widths_except_ordinal_num = values_of_accounts.iter().fold(init, |acc, record| {
-            Self::yield_bigger_values_from_vecs(cell_count, acc, Self::widths_of_str_values(record))
+            Self::yield_bigger_values_from_vecs(column_count, acc, Self::widths_of_str_values(record))
         });
         let mut result = vec![values_of_accounts.len().to_string().len()];
         result.extend(widths_except_ordinal_num);
@@ -814,11 +809,11 @@ impl FinancialsCommand {
     }
 
     fn yield_bigger_values_from_vecs(
-        cell_count: usize,
+        column_count: usize,
         first: Vec<usize>,
         second: Vec<usize>,
     ) -> Vec<usize> {
-        (0..cell_count).fold(vec![], |acc_inner, idx| {
+        (0..column_count).fold(vec![], |acc_inner, idx| {
             plus(acc_inner, first[idx].max(second[idx]))
         })
     }
@@ -908,7 +903,7 @@ impl FinancialsCommand {
             first_as_num,
             second_as_num,
             first,
-            second_opt.unwrap_or(String::new()), //empty string signifies unlimited
+            second_opt.unwrap_or_default(), //empty string signifies unlimited
         ))
     }
 
@@ -917,6 +912,9 @@ impl FinancialsCommand {
         N: FromStr<Err = ParseIntError> + TryFrom<i64> + CheckedMul + Display,
         <N as TryFrom<i64>>::Error: Debug,
     {
+        fn decimal_digits_count(num: &str, dot_idx: usize) -> usize {
+            num.chars().count() - dot_idx - 1
+        }
         let final_unit_conversion = |parse_result: N, pow_factor: u32| {
             if let Some(int) =
                 parse_result.checked_mul(&N::try_from(10_i64.pow(pow_factor)).expect("no fear"))
@@ -926,12 +924,12 @@ impl FinancialsCommand {
                 Err(format!("Attempt with too big amount of MASQ: {}", num))
             }
         };
+
         if let Some(dot_idx) = num.chars().position(|char| char == '.') {
             Self::pre_parsing_check(num, dot_idx)?;
-            let decimal_digits_count = num.chars().count() - dot_idx - 1;
-            let root_parsed: N =
-                Self::parse_integer(&num.chars().filter(|char| *char != '.').collect::<String>())?;
-            final_unit_conversion(root_parsed, 9 - decimal_digits_count as u32)
+            let naked_digits = &num.chars().filter(|char| *char != '.').collect::<String>();
+            let root_parsed: N = Self::parse_integer(naked_digits)?;
+            final_unit_conversion(root_parsed, 9 - decimal_digits_count(num, dot_idx) as u32)
         } else {
             let root_parsed = Self::parse_integer::<N>(num)?;
             final_unit_conversion(root_parsed, 9)
@@ -939,7 +937,7 @@ impl FinancialsCommand {
     }
 
     fn pre_parsing_check(num: &str, dot_idx: usize) -> Result<(), String> {
-        if dot_idx == num.len() - 1 {
+        if dot_idx == (num.len() - 1) {
             Err("Ending dot at decimal number is unsupported".to_string())
         } else if num.chars().filter(|char| *char == '.').count() != 1 {
             Err("Misused decimal number dot delimiter".to_string())
@@ -1034,7 +1032,7 @@ mod tests {
         );
         assert_eq!(
             TOP_ARG_HELP,
-            "Returns a subset of the first N records (or fewer, if only a few exist) from both payable and receivable"
+            "Returns a subset of the top N records (or fewer, if their total count is smaller) from both payable and receivable. By default, the ordering is done by balance but can be changed with the additional '--sorted' argument"
         );
         assert_eq!(PAYABLE_ARG_HELP,"Forms a detailed query about payable records by specifying two ranges, one for their age in seconds and another for their balance in MASQs (decimal numbers are supported, allowing Gwei precision). The desirable format of those values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>");
         assert_eq!(RECEIVABLE_ARG_HELP,"Forms a detailed query about receivable records by specifying two ranges, one for their age in seconds and another for their balance in MASQs (decimal numbers are supported, allowing Gwei precision). The desirable format of those values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>");
@@ -1706,7 +1704,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Broken code: value must have been present during the check but yet wrong: 0.4554booooga45"
+        expected = "Broken code: value must have been present during a check but yet wrong: 0.4554booooga45"
     )]
     fn correct_users_writing_complains_about_leaked_string_with_bad_syntax() {
         FinancialsCommand::correct_users_writing_if_needed(&transpose_inputs_to_nested_tuples([
