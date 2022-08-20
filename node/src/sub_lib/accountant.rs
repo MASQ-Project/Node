@@ -165,26 +165,33 @@ pub enum SignConversionError {
 }
 
 #[macro_export]
-macro_rules! process_partial_range_queries {
-    ($self: expr, $msg: expr, $($table_name: literal),+) => {
-        $msg.custom_queries_opt.as_ref().map(|specs|{
-            let (payable_opt, receivable_opt) =
+macro_rules! process_individual_range_queries {
+    ($self: expr, $msg: expr, $context_id: expr, $($table_name: literal),+) => {
+        Ok(match $msg.custom_queries_opt.as_ref(){
+            Some(specs) => {
+                let (payable_opt, receivable_opt) =
 
-            ($(paste! {
-                if let Some(query_specs) = specs.[<$table_name _opt>].as_ref() {
-                    $self.[<request_ $table_name _accounts_by_specific_mode>](
-                        query_specs.into()
-                    )
-                } else {
-                    None
-                }
-            }),+);
+                ($(paste! {
+                    if let Some(query_specs) = specs.[<$table_name _opt>].as_ref() {
+                        let query = CustomQuery::from(query_specs);
+                        Accountant::check_query_is_within_tech_limits(&query, $table_name, $context_id)?;
+                        $self.[<request_ $table_name _accounts_by_specific_mode>](
+                            query
+                        )
+                    } else {
+                        None
+                    }
+                }),+);
 
-            CustomQueryResult {
-                payable_opt,
-                receivable_opt,
+                Some(
+                    CustomQueryResult {
+                        payable_opt,
+                        receivable_opt,
+                    }
+                )
             }
-        })
+            None => None}
+        )
     };
 }
 

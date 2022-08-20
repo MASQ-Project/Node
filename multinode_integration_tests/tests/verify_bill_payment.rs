@@ -17,8 +17,10 @@ use node_lib::blockchain::bip32::Bip32ECKeyProvider;
 use node_lib::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceNonClandestine, REQUESTS_IN_PARALLEL,
 };
-use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal,DbInitializationConfig};
-use node_lib::database::db_migrations::{ExternalData};
+use node_lib::database::db_initializer::{
+    DbInitializationConfig, DbInitializer, DbInitializerReal,
+};
+use node_lib::database::db_migrations::ExternalData;
 use node_lib::sub_lib::accountant::{PaymentThresholds, WEIS_OF_GWEI};
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;

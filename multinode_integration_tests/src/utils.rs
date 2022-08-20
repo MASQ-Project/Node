@@ -8,8 +8,10 @@ use masq_lib::utils::NeighborhoodModeLight;
 use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
 use node_lib::database::connection_wrapper::ConnectionWrapper;
-use node_lib::database::db_initializer::{DbInitializationConfig, DbInitializer, DbInitializerReal};
-use node_lib::database::db_migrations::{ExternalData};
+use node_lib::database::db_initializer::{
+    DbInitializationConfig, DbInitializer, DbInitializerReal,
+};
+use node_lib::database::db_migrations::ExternalData;
 use node_lib::db_config::config_dao::{ConfigDao, ConfigDaoReal};
 use node_lib::neighborhood::node_record::NodeRecordInner_0v1;
 use node_lib::neighborhood::AccessibleGossipRecord;

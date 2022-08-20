@@ -1,8 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::big_int_db_processor::{
-    collect_and_sum_i128_values_from_table, BigIntDbProcessor,
-    BigIntDivider, BigIntSqlConfig, DAOTableIdentifier, SQLParamsBuilder,
+    collect_and_sum_i128_values_from_table, BigIntDbProcessor, BigIntDivider, BigIntSqlConfig,
+    DAOTableIdentifier, SQLParamsBuilder,
 };
 use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
@@ -263,7 +263,7 @@ impl ReceivableDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> ReceivableDaoReal {
         ReceivableDaoReal {
             conn,
-            big_int_db_processor:  BigIntDbProcessor::default(),
+            big_int_db_processor: BigIntDbProcessor::default(),
             logger: Logger::new("ReceivableDaoReal"),
         }
     }
@@ -401,8 +401,8 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::NeighborhoodModeLight;
-    use std::path::Path;
     use rusqlite::ToSql;
+    use std::path::Path;
 
     #[test]
     fn conversion_from_pce_works() {

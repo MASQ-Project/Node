@@ -9,9 +9,9 @@ use masq_lib::constants::{
 };
 use masq_lib::logger::Logger;
 #[cfg(test)]
-use masq_lib::utils::NeighborhoodModeLight;
-#[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+#[cfg(test)]
+use masq_lib::utils::NeighborhoodModeLight;
 use rand::prelude::*;
 use rusqlite::Error::InvalidColumnType;
 use rusqlite::{Connection, OpenFlags};
@@ -22,7 +22,6 @@ use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::Path;
 use tokio::net::TcpListener;
-
 
 pub const DATABASE_FILE: &str = "node-data.db";
 pub const CURRENT_SCHEMA_VERSION: usize = 7;

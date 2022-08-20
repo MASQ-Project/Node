@@ -2,8 +2,8 @@
 
 use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::big_int_db_processor::{
-    collect_and_sum_i128_values_from_table, BigIntDbProcessor,
-    BigIntDivider, BigIntSqlConfig, DAOTableIdentifier, SQLParamsBuilder,
+    collect_and_sum_i128_values_from_table, BigIntDbProcessor, BigIntDivider, BigIntSqlConfig,
+    DAOTableIdentifier, SQLParamsBuilder,
 };
 use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
@@ -283,7 +283,7 @@ impl PayableDaoReal {
     pub fn new(conn: Box<dyn ConnectionWrapper>) -> PayableDaoReal {
         PayableDaoReal {
             conn,
-            big_int_db_processor:  BigIntDbProcessor::default(),
+            big_int_db_processor: BigIntDbProcessor::default(),
         }
     }
 
@@ -370,12 +370,13 @@ mod tests {
     use super::*;
     use crate::accountant::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::accountant::test_utils::{
-        assert_database_blows_up_on_an_unexpected_error, make_pending_payable_fingerprint
+        assert_database_blows_up_on_an_unexpected_error, make_pending_payable_fingerprint,
     };
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
+    use crate::sub_lib::accountant::WEIS_OF_GWEI;
     use crate::test_utils::make_wallet;
     use ethereum_types::BigEndianHash;
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
@@ -386,7 +387,6 @@ mod tests {
     use std::path::Path;
     use std::str::FromStr;
     use web3::types::U256;
-    use crate::sub_lib::accountant::WEIS_OF_GWEI;
 
     #[test]
     fn more_money_payable_works_for_new_address() {

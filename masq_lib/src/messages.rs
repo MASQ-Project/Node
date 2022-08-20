@@ -604,7 +604,7 @@ pub struct CustomQueries {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct RangeQuery<T> {
     #[serde(rename = "minAgeS")]
-    pub min_age_s: u64, //TODO this might be a problem, in the end, we are able to give only i64 to rusqlite - mention in documentation and fix at individual places
+    pub min_age_s: u64,
     #[serde(rename = "maxAgeS")]
     pub max_age_s: u64,
     #[serde(rename = "minAmountGwei")]

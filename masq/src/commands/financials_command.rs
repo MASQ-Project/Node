@@ -12,7 +12,7 @@ use masq_lib::messages::{
 };
 use masq_lib::shared_schema::common_validators::validate_non_zero_u16;
 use masq_lib::short_writeln;
-use masq_lib::utils::{plus, ExpectValue};
+use masq_lib::utils::{plus, ExpectValue, MaxValue};
 use num::CheckedMul;
 use regex::{Captures, Regex};
 use std::cell::RefCell;
@@ -490,7 +490,6 @@ impl FinancialsCommand {
     where
         T: Display + PartialEq + From<u32>,
     {
-        todo!("tear this code out - it should be already substituted by simpler code with regex");
         let stringified = gwei.to_string();
         let gross_length = stringified.len();
         if gwei == T::from(0) {
@@ -834,7 +833,6 @@ impl FinancialsCommand {
     }
 
     fn parse_time_params(time_range: &[&str]) -> Result<(u64, u64), String> {
-        todo!("problem, we actually don't want values bigger than i64:MAX");
         Ok((
             Self::parse_integer(time_range[0])?,
             Self::parse_integer(time_range[1])?,
@@ -891,7 +889,7 @@ impl FinancialsCommand {
         let second_as_num = if let Some(second) = second_opt.as_ref() {
             Self::process_optionally_fragmentary_number(second)?
         } else {
-            N::max()
+            N::max() //TODO I could write i64 or i64 as u64....well, I will have to avoid the u64::MAX
         };
         Ok((
             first_as_num,
@@ -993,22 +991,6 @@ where
         Err("Both ranges must be ascending".to_string())
     } else {
         Ok(())
-    }
-}
-
-pub trait MaxValue {
-    fn max() -> Self;
-}
-
-impl MaxValue for i64 {
-    fn max() -> Self {
-        i64::MAX
-    }
-}
-
-impl MaxValue for u64 {
-    fn max() -> Self {
-        u64::MAX
     }
 }
 

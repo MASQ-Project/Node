@@ -1,7 +1,4 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use std::collections::HashMap;
-use std::thread;
-use std::time::Duration;
 use multinode_integration_tests_lib::masq_node::{MASQNode, NodeReference};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
@@ -12,6 +9,9 @@ use node_lib::accountant::dao_utils::CustomQuery;
 use node_lib::accountant::payable_dao::PayableAccount;
 use node_lib::accountant::receivable_dao::ReceivableAccount;
 use node_lib::sub_lib::wallet::Wallet;
+use std::collections::HashMap;
+use std::thread;
+use std::time::Duration;
 
 #[test]
 fn provided_and_consumed_services_are_recorded_in_databases() {
@@ -85,7 +85,7 @@ fn receivables(node: &MASQRealNode) -> Vec<ReceivableAccount> {
             min_age_s: 0,
             max_age_s: i64::MAX as u64,
             min_amount_gwei: i64::MIN,
-            max_amount_gwei: i64::MAX
+            max_amount_gwei: i64::MAX,
         })
         .unwrap_or_default()
 }
