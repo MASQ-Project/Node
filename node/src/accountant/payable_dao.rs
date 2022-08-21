@@ -979,13 +979,14 @@ mod tests {
     fn custom_query_in_range_mode() {
         //Two accounts differ only in debt's age but not balance which allows to check doubled ordering,
         //by balance and then by age.
-        let timestamp1 = dao_utils::now_time_t() - 70_000;
-        let timestamp2 = dao_utils::now_time_t() - 55_120;
-        let timestamp3 = dao_utils::now_time_t() - 330_000;
-        let timestamp4 = dao_utils::now_time_t() - 11_001;
-        let timestamp5 = dao_utils::now_time_t() - 30_786;
-        let timestamp6 = dao_utils::now_time_t() - 100_401;
-        let timestamp7 = dao_utils::now_time_t() - 80_333;
+        let now = now_time_t();
+        let timestamp1 = now - 70_000;
+        let timestamp2 = now - 55_120;
+        let timestamp3 = now - 330_000;
+        let timestamp4 = now - 19_999;
+        let timestamp5 = now - 30_786;
+        let timestamp6 = now - 100_401;
+        let timestamp7 = now - 80_333;
         let main_setup = |insert: &dyn Fn(&str, i128, i64, Option<i64>)| {
             //balances in these inserts are in Gwei
             insert(
@@ -1247,6 +1248,7 @@ mod tests {
                 &timestamp,
                 &pending_payable_rowid,
             ];
+            eprintln!("timestamp before: {}", timestamp);
             conn
                 .prepare("insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid) values (?,?,?,?,?)")
                 .unwrap()

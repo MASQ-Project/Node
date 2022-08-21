@@ -1121,12 +1121,14 @@ mod tests {
     fn custom_query_in_range_mode() {
         //Two accounts differ only in debt's age but not balance which allows to check doubled ordering,
         //by balance and then by age.
-        let timestamp1 = now_time_t() - 100_000;
-        let timestamp2 = now_time_t() - 86_401;
-        let timestamp3 = now_time_t() - 70_000;
-        let timestamp4 = now_time_t() - 50_001;
-        let timestamp5 = now_time_t() - 86_000;
-        let timestamp6 = now_time_t() - 66_244;
+        let now = now_time_t();
+        let timestamp1 = now - 99_001;
+        let timestamp2 = now - 86_401;
+        let timestamp3 = now - 70_000;
+        let timestamp4 = now - 69_000;
+        let timestamp5 = now - 86_000;
+        let timestamp6 = now - 66_244;
+        let timestamp7 = now - 59_999;
         let main_test_setup = |insert: &dyn Fn(&str, i128, i64)| {
             insert(
                 "0x1111111111111111111111111111111111111111",
@@ -1135,7 +1137,7 @@ mod tests {
             );
             insert(
                 "0x2222222222222222222222222222222222222222",
-                -6_655_455 * WEIS_OF_GWEI, //too small
+                -560_001 * WEIS_OF_GWEI, //too small
                 timestamp2,
             );
             insert(
@@ -1145,7 +1147,7 @@ mod tests {
             );
             insert(
                 "0x4444444444444444444444444444444444444444",
-                1_990_000_200 * WEIS_OF_GWEI, //too big
+                1_100_000_001 * WEIS_OF_GWEI, //too big
                 timestamp4,
             );
             insert(
@@ -1157,6 +1159,11 @@ mod tests {
                 "0x6666666666666666666666666666666666666666",
                 1_050_444_230 * WEIS_OF_GWEI,
                 timestamp6,
+            );
+            insert(
+                "0x7777777777777777777777777777777777777777",
+                900_000_000 * WEIS_OF_GWEI,
+                timestamp7, //too young
             );
         };
         let subject =

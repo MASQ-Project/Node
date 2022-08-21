@@ -193,20 +193,21 @@ impl<N: Copy + Display> CustomQuery<N> {
     }
 
     fn set_up_age_constrains(min_age: u64, max_age: u64) -> RusqliteParamsWithOwnedToSql {
-        let now = to_time_t(SystemTime::now());
+        let now = now_time_t();
+        let to_time_t = |limit|now - checked_conversion::<u64, i64>(limit);
         vec![
             (
                 ":min_timestamp",
-                Box::new(now - checked_conversion::<u64, i64>(min_age)),
+                Box::new(to_time_t(max_age)),
             ),
             (
                 ":max_timestamp",
-                Box::new(now - checked_conversion::<u64, i64>(max_age)),
-            ),
+                Box::new(to_time_t(min_age)),
+            )
         ]
     }
 
-    fn set_up_wei_constrains(two_limits: Vec<N>) -> RusqliteParamsWithOwnedToSql
+    fn set_up_wei_constrains(two_num_limits: Vec<N>) -> RusqliteParamsWithOwnedToSql
     where
         i128: From<N>,
     {
@@ -215,7 +216,7 @@ impl<N: Copy + Display> CustomQuery<N> {
             (":max_balance_high_b", ":max_balance_low_b"),
         ]
         .into_iter()
-        .zip(two_limits.into_iter())
+        .zip(two_num_limits.into_iter())
         .flat_map(|(param_names, gwei_num)| {
             let wei_num = i128::from(gwei_num) * WEIS_OF_GWEI;
             let (high_bytes, low_bytes) = BigIntDivider::deconstruct(wei_num);
@@ -295,6 +296,7 @@ mod tests {
     use crate::test_utils::make_wallet;
     use masq_lib::messages::TopRecordsOrdering::Balance;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use rusqlite::types::{ToSqlOutput, Value};
     use rusqlite::{Connection, OpenFlags};
     use std::str::FromStr;
 
@@ -308,6 +310,41 @@ mod tests {
         );
 
         let _ = subject.make_connection();
+    }
+
+    #[test]
+    fn set_up_age_constrains_works() {
+        let min_age = 5555;
+        let max_age = 10000;
+        let now = now_time_t();
+
+        let result = CustomQuery::<i64>::set_up_age_constrains(min_age, max_age);
+
+        assert_eq!(result.len(), 2);
+        let param_pair_1 = &result[0];
+        let param_pair_2 = &result[1];
+        assert_eq!(param_pair_1.0, ":min_timestamp");
+        assert_eq!(param_pair_2.0, ":max_timestamp");
+        let get_assigned_value = |value| match value {
+            ToSqlOutput::Owned(Value::Integer(num)) => num,
+            x => panic!("we expected integer and got this: {:?}", x),
+        };
+        let assigned_value_1 = get_assigned_value( param_pair_1.1.to_sql().unwrap());
+        let assigned_value_2 = get_assigned_value(param_pair_2.1.to_sql().unwrap());
+        let min_timestamp = now - max_age as i64;
+        let max_timestamp = now - min_age as i64;
+        assert!(
+            min_timestamp - 2 <= assigned_value_1 && assigned_value_1 <= min_timestamp + 2,
+            "min_timestamp blew up on {} while now is {}",
+            assigned_value_1,
+            now
+        );
+        assert!(
+            max_timestamp - 2 <= assigned_value_2 && assigned_value_2 <= max_timestamp + 2,
+            "max_timestamp blew up on {} while now is {}",
+            assigned_value_2,
+            now
+        )
     }
 
     #[test]

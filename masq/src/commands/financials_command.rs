@@ -19,8 +19,10 @@ use std::collections::VecDeque;
 use std::default::Default;
 use std::fmt::{Debug, Display};
 use std::io::Write;
+use std::mem::replace;
 use std::num::{IntErrorKind, ParseIntError};
 use std::ops::{Add, Mul};
+use std::process::id;
 use std::str::FromStr;
 use thousands::Separable;
 
@@ -172,7 +174,7 @@ macro_rules! dump_statistics_lines {
     }
 }
 
-macro_rules! process_records {
+macro_rules! process_retrieved_records {
     ($self:expr, $stdout: expr, $account_type: literal, $headings: expr, $user_range_format: ident,
     $query_results_opt: expr, $write_headings_fn: ident, $render_single_account_fn: ident) => {
         if $self.top_records_opt.is_some() {
@@ -332,7 +334,7 @@ impl FinancialsCommand {
         let two_dumps = self.two_dumps();
         let (payable_headings, receivable_headings) = Self::prepare_headings_of_records(gwei_flag);
         Self::triple_or_single_blank_line(stdout, leading_dump);
-        process_records!(
+        process_retrieved_records!(
             self,
             stdout,
             "payable",
@@ -345,7 +347,7 @@ impl FinancialsCommand {
         if two_dumps {
             Self::triple_or_single_blank_line(stdout, false)
         }
-        process_records!(
+        process_retrieved_records!(
             self,
             stdout,
             "receivable",
@@ -561,7 +563,7 @@ impl FinancialsCommand {
         stdout: &mut dyn Write,
         accounts: Vec<A>,
         headings: &HeadingsHolder,
-        render_headings_fn: fn(&mut dyn Write, &[&str], &[usize]),
+        render_headings_fn: fn(&mut dyn Write, &[(&str, &usize)]),
         render_account_fn: fn(&mut dyn Write, &[String], &[usize], usize),
     ) {
         let preformatted_subset = Self::create_subset_of_strings_ignoring_the_ordinal_numbers(
@@ -569,7 +571,10 @@ impl FinancialsCommand {
             headings.is_gwei,
         );
         let optimal_widths = Self::width_precise_calculation(headings, &preformatted_subset);
-        render_headings_fn(stdout, headings.words.as_slice(), &optimal_widths);
+        render_headings_fn(
+            stdout,
+            &Self::zip_them(headings.words.as_slice(), &optimal_widths),
+        );
         let mut ordinal_number = 0_usize;
         preformatted_subset.iter().for_each(|account| {
             ordinal_number += 1;
@@ -577,21 +582,32 @@ impl FinancialsCommand {
         });
     }
 
-    fn write_payable_headings(stdout: &mut dyn Write, headings: &[&str], optimal_widths: &[usize]) {
+    fn write_payable_headings(stdout: &mut dyn Write, h_and_w: &[(&str, &usize)]) {
         short_writeln!(
             stdout,
             "{:<ordinal_num_width$}   {:<wallet_width$}   {:<age_width$}   {:<balance_width$}   {:<hash_width$}",
-            headings[0],
-            headings[1],
-            headings[2],
-            headings[3],
-            headings[4],
-            ordinal_num_width = optimal_widths[0],
+            h_and_w[0].0,
+            h_and_w[1].0,
+            h_and_w[2].0,
+            h_and_w[3].0,
+            h_and_w[4].0,
+            ordinal_num_width = h_and_w[0].1,
             wallet_width = WALLET_ADDRESS_LENGTH,
-            age_width = optimal_widths[2],
-            balance_width = optimal_widths[3],
-            hash_width = optimal_widths[4]
+            age_width = h_and_w[2].1,
+            balance_width = h_and_w[3].1,
+            hash_width = h_and_w[4].1
         )
+    }
+
+    fn zip_them<'a>(
+        words: &'a [&'a str],
+        optimized_widths: &'a [usize],
+    ) -> Vec<(&'a str, &'a usize)> {
+        words
+            .iter()
+            .map(|word| *word)
+            .zip(optimized_widths.iter())
+            .collect()
     }
 
     fn render_single_payable(
@@ -616,22 +632,18 @@ impl FinancialsCommand {
         )
     }
 
-    fn write_receivable_headings(
-        stdout: &mut dyn Write,
-        headings: &[&str],
-        optimal_widths: &[usize],
-    ) {
+    fn write_receivable_headings(stdout: &mut dyn Write, h_and_w: &[(&str, &usize)]) {
         short_writeln!(
             stdout,
             "{:<ordinal_num_width$}   {:wallet_width$}   {:<age_width$}   {:<balance_width$}",
-            headings[0],
-            headings[1],
-            headings[2],
-            headings[3],
-            ordinal_num_width = optimal_widths[0],
+            h_and_w[0].0,
+            h_and_w[1].0,
+            h_and_w[2].0,
+            h_and_w[3].0,
+            ordinal_num_width = h_and_w[0].1,
             wallet_width = WALLET_ADDRESS_LENGTH,
-            age_width = optimal_widths[2],
-            balance_width = optimal_widths[3],
+            age_width = h_and_w[2].1,
+            balance_width = h_and_w[3].1,
         );
     }
 
@@ -739,14 +751,15 @@ impl FinancialsCommand {
 
     fn no_records_found<F>(stdout: &mut dyn Write, headings: &[&str], write_headings: F)
     where
-        F: Fn(&mut dyn Write, &[&str], &[usize]),
+        F: Fn(&mut dyn Write, &[(&str, &usize)]),
     {
         let headings_widths = Self::widths_of_str_values(headings);
-        write_headings(stdout, headings, &headings_widths);
+        write_headings(stdout, &Self::zip_them(headings, &headings_widths));
         short_writeln!(stdout, "\nNo records found",)
     }
 
     fn figure_out_max_widths(values_of_accounts: &[Vec<String>]) -> Vec<usize> {
+        //two-dimensional set of strings; measuring their lengths and saving the largest value for each column
         let column_count = values_of_accounts[0].len();
         let init = vec![0_usize; column_count];
         let widths_except_ordinal_num = values_of_accounts.iter().fold(init, |acc, record| {
@@ -763,7 +776,7 @@ impl FinancialsCommand {
 
     fn yield_bigger_values_from_vecs(
         column_count: usize,
-        first: Vec<usize>,
+        mut first: Vec<usize>,
         second: Vec<usize>,
     ) -> Vec<usize> {
         (0..column_count).fold(vec![], |acc_inner, idx| {
@@ -803,8 +816,14 @@ impl FinancialsCommand {
         captures.get(idx).map(|catch| catch.as_str().to_owned())
     }
 
+    fn masq_values_range_regex() -> Regex {
+        Regex::new("(^(-?\\d+\\.?\\d*)\\s*-\\s*(-?\\d+\\.?\\d*))|(^-?\\d+\\.?\\d*)$")
+            .expect("wrong regex")
+    }
+
     fn extract_individual_masq_values(
         masq_range_str: &str,
+        masq_values_range_regex: Regex,
     ) -> Result<(String, Option<String>), String> {
         fn resolve_captures(captures: Captures) -> (Option<String>, Option<String>) {
             let fetch_group = |idx: usize| FinancialsCommand::single_capture(&captures, idx);
@@ -814,7 +833,6 @@ impl FinancialsCommand {
                     Some(fetch_group(4).expect("the regex is wrong if it allows this panic")),
                     None,
                 ),
-                //TODO ask Dan if it's mandatory to have a test here if it closely resembles 'expect()' in this use
                 (first, second) => unreachable!(
                     "the regex was designed not to allow this: {:?}, {:?}",
                     first, second
@@ -822,10 +840,7 @@ impl FinancialsCommand {
             }
         }
 
-        let valid_masq_range_syntax =
-            Regex::new("(^(-?\\d+\\.?\\d*)\\s*-\\s*(-?\\d+\\.?\\d*))|(^-?\\d+\\.?\\d*)$")
-                .expect("wrong regex");
-        match valid_masq_range_syntax
+        match masq_values_range_regex
             .captures(masq_range_str)
             .map(resolve_captures)
         {
@@ -845,7 +860,8 @@ impl FinancialsCommand {
             + MaxValue,
         <N as TryFrom<i64>>::Error: Debug,
     {
-        let (first, second_opt) = Self::extract_individual_masq_values(range_str)?;
+        let (first, second_opt) =
+            Self::extract_individual_masq_values(range_str, Self::masq_values_range_regex())?;
         let first_as_num = Self::process_optionally_fragmentary_number(&first)?;
         let second_as_num = if let Some(second) = second_opt.as_ref() {
             Self::process_optionally_fragmentary_number(second)?
@@ -1666,6 +1682,16 @@ mod tests {
     )]
     fn parse_integer_overflow_indicates_broken_code() {
         let _: Result<u64, String> = FinancialsCommand::parse_integer("40000000000000000000");
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "entered unreachable code: the regex was designed not to allow this: None, Some(\"ghi\")"
+    )]
+    fn extract_individual_masq_values_regex_is_wrong() {
+        let regex = Regex::new("(abc)?(def)?(ghi)").unwrap();
+
+        let _ = FinancialsCommand::extract_individual_masq_values("ghi", regex);
     }
 
     #[test]
