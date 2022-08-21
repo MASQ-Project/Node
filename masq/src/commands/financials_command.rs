@@ -175,7 +175,7 @@ macro_rules! dump_statistics_lines {
 macro_rules! process_records {
     ($self:expr, $stdout: expr, $account_type: literal, $headings: expr, $user_range_format: ident,
     $query_results_opt: expr, $write_headings_fn: ident, $render_single_account_fn: ident) => {
-        if let Some(top_queries) = $self.top_records_opt.as_ref() {
+        if $self.top_records_opt.is_some() {
             $self.title_for_tops($stdout, $account_type);
             let records = $query_results_opt.expectv($account_type);
             if !records.is_empty() {
@@ -194,7 +194,7 @@ macro_rules! process_records {
                 )
             }
         } else if let Some(custom_queries) = $self.custom_queries_opt.as_ref() {
-            if let Some((user_range_format)) = custom_queries.$user_range_format.as_ref() {
+            if let Some(user_range_format) = custom_queries.$user_range_format.as_ref() {
                 Self::title_for_custom_query($stdout, $account_type, user_range_format);
                 if let Some(accounts) = $query_results_opt {
                     $self.render_accounts_generic(
@@ -329,7 +329,7 @@ impl FinancialsCommand {
         leading_dump: bool,
         gwei_flag: bool,
     ) {
-        let two_dumps = self.two_dumps(&returned_records);
+        let two_dumps = self.two_dumps();
         let (payable_headings, receivable_headings) = Self::prepare_headings_of_records(gwei_flag);
         Self::triple_or_single_blank_line(stdout, leading_dump);
         process_records!(
@@ -357,7 +357,7 @@ impl FinancialsCommand {
         );
     }
 
-    fn two_dumps(&self, query_results: &QueryResults) -> bool {
+    fn two_dumps(&self) -> bool {
         are_two_dumps_to_be_printed_half_condition!(
             self,
             user_payable_format_opt,
@@ -1670,25 +1670,17 @@ mod tests {
 
     #[test]
     fn two_dumps_works_for_top_records() {
-        let query_results = QueryResults {
-            payable_opt: None,
-            receivable_opt: None,
-        };
         let subject =
             FinancialsCommand::new(&array_of_borrows_to_vec(&["financials", "--top", "20"]))
                 .unwrap();
 
-        let result = subject.two_dumps(&query_results);
+        let result = subject.two_dumps();
 
         assert_eq!(result, true)
     }
 
     #[test]
     fn two_dumps_works_for_custom_query_with_only_payable() {
-        let query_results = QueryResults {
-            payable_opt: None,
-            receivable_opt: None,
-        };
         let subject = FinancialsCommand::new(&array_of_borrows_to_vec(&[
             "financials",
             "--payable",
@@ -1696,17 +1688,13 @@ mod tests {
         ]))
         .unwrap();
 
-        let result = subject.two_dumps(&query_results);
+        let result = subject.two_dumps();
 
         assert_eq!(result, false)
     }
 
     #[test]
     fn two_dumps_works_for_custom_query_with_only_receivable() {
-        let query_results = QueryResults {
-            payable_opt: None,
-            receivable_opt: None,
-        };
         let subject = FinancialsCommand::new(&array_of_borrows_to_vec(&[
             "financials",
             "--receivable",
@@ -1714,17 +1702,13 @@ mod tests {
         ]))
         .unwrap();
 
-        let result = subject.two_dumps(&query_results);
+        let result = subject.two_dumps();
 
         assert_eq!(result, false)
     }
 
     #[test]
     fn two_dumps_works_for_custom_query_with_both() {
-        let query_results = QueryResults {
-            payable_opt: None,
-            receivable_opt: None,
-        };
         let subject = FinancialsCommand::new(&array_of_borrows_to_vec(&[
             "financials",
             "--receivable",
@@ -1734,7 +1718,7 @@ mod tests {
         ]))
         .unwrap();
 
-        let result = subject.two_dumps(&query_results);
+        let result = subject.two_dumps();
 
         assert_eq!(result, true)
     }

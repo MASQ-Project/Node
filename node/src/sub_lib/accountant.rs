@@ -184,7 +184,7 @@ macro_rules! process_individual_range_queries {
                 }),+);
 
                 Some(
-                    CustomQueryResult {
+                    QueryResults {
                         payable_opt,
                         receivable_opt,
                     }
@@ -206,9 +206,9 @@ macro_rules! process_top_records_query {
                .unwrap_or_default()
             }),+);
 
-            FirmQueryResult{
-                payable,
-                receivable
+            QueryResults{
+                payable_opt: Some(payable),
+                receivable_opt: Some(receivable)
             }
         })
     };

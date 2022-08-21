@@ -16,8 +16,8 @@ use masq_lib::constants::{
 };
 
 use masq_lib::messages::{
-    CustomQueryResult, FirmQueryResult, ScanType, UiFinancialStatistics, UiPayableAccount,
-    UiReceivableAccount, UiScanRequest, UiScanResponse,
+    QueryResults, ScanType, UiFinancialStatistics, UiPayableAccount, UiReceivableAccount,
+    UiScanRequest, UiScanResponse,
 };
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 
@@ -960,15 +960,13 @@ impl Accountant {
             return message_body;
         };
         let stats_opt = self.process_stats(msg);
-        let top_records_opt = self.process_top_records_query(msg);
-        let custom_query_records_opt = match self.process_custom_queries(msg, context_id) {
-            Ok(query_results) => query_results,
+        let query_results_opt = match self.process_queries_of_records(msg, context_id) {
+            Ok(results_opt) => results_opt,
             Err(message_body) => return message_body,
         };
         UiFinancialsResponse {
             stats_opt,
-            top_records_opt,
-            custom_query_records_opt,
+            query_results_opt,
         }
         .tmb(context_id)
     }
@@ -1008,7 +1006,7 @@ impl Accountant {
         }
     }
 
-    fn process_top_records_query(&self, msg: &UiFinancialsRequest) -> Option<FirmQueryResult> {
+    fn process_top_records_query(&self, msg: &UiFinancialsRequest) -> Option<QueryResults> {
         process_top_records_query!(self, msg, "payable", "receivable")
     }
 
@@ -1016,8 +1014,27 @@ impl Accountant {
         &self,
         msg: &UiFinancialsRequest,
         context_id: u64,
-    ) -> Result<Option<CustomQueryResult>, MessageBody> {
+    ) -> Result<Option<QueryResults>, MessageBody> {
         process_individual_range_queries!(self, msg, context_id, "payable", "receivable")
+    }
+
+    fn process_queries_of_records(
+        &self,
+        msg: &UiFinancialsRequest,
+        context_id: u64,
+    ) -> Result<Option<QueryResults>, MessageBody> {
+        let top_records_opt = self.process_top_records_query(msg);
+        let custom_query_records_opt = match self.process_custom_queries(msg, context_id) {
+            Ok(query_results) => query_results,
+            Err(message_body) => return Err(message_body),
+        };
+        match vec![top_records_opt, custom_query_records_opt]
+            .into_iter()
+            .find(|results| results.is_some())
+        {
+            Some(results) => Ok(results),
+            None => Ok(None),
+        }
     }
 
     fn compare_amount_param<T>(num: &T) -> bool
@@ -1573,9 +1590,8 @@ mod tests {
     use web3::types::U256;
 
     use masq_lib::messages::{
-        CustomQueries, FirmQueryResult, RangeQuery, ScanType, TopRecordsConfig,
-        UiFinancialStatistics, UiMessageError, UiPayableAccount, UiReceivableAccount,
-        UiScanRequest, UiScanResponse,
+        CustomQueries, RangeQuery, ScanType, TopRecordsConfig, UiFinancialStatistics,
+        UiMessageError, UiPayableAccount, UiReceivableAccount, UiScanRequest, UiScanResponse,
     };
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
@@ -5195,8 +5211,7 @@ mod tests {
                     total_unpaid_receivable_gwei: 987,
                     total_paid_receivable_gwei: 0,
                 }),
-                top_records_opt: None,
-                custom_query_records_opt: None
+                query_results_opt: None,
             }
         );
     }
@@ -5233,8 +5248,7 @@ mod tests {
                     total_unpaid_receivable_gwei: 27670116110,
                     total_paid_receivable_gwei: 4455656989
                 }),
-                top_records_opt: None,
-                custom_query_records_opt: None
+                query_results_opt: None,
             }
             .tmb(context_id)
         )
@@ -5292,28 +5306,36 @@ mod tests {
         let after = SystemTime::now();
         let (computed_response, context_id) = UiFinancialsResponse::fmb(result).unwrap();
         let extracted_payable_ages = extract_ages_from_ui_payable_accounts(
-            &computed_response.top_records_opt.as_ref().unwrap().payable,
+            &computed_response
+                .query_results_opt
+                .as_ref()
+                .unwrap()
+                .payable_opt
+                .as_ref()
+                .unwrap(),
         );
         let extracted_receivable_ages = extract_ages_from_ui_receivable_accounts(
             &computed_response
-                .top_records_opt
+                .query_results_opt
                 .as_ref()
                 .unwrap()
-                .receivable,
+                .receivable_opt
+                .as_ref()
+                .unwrap(),
         );
         assert_eq!(context_id, context_id_expected);
         assert_eq!(
             computed_response,
             UiFinancialsResponse {
                 stats_opt: None,
-                top_records_opt: Some(FirmQueryResult {
-                    payable: vec![UiPayableAccount {
+                query_results_opt: Some(QueryResults {
+                    payable_opt: Some(vec![UiPayableAccount {
                         wallet: make_wallet("abcd123").to_string(),
                         age_s: extracted_payable_ages[0],
                         balance_gwei: 58,
                         pending_payable_hash_opt: None
-                    },],
-                    receivable: vec![
+                    },]),
+                    receivable_opt: Some(vec![
                         UiReceivableAccount {
                             wallet: make_wallet("efe4848").to_string(),
                             age_s: extracted_receivable_ages[0],
@@ -5324,9 +5346,8 @@ mod tests {
                             age_s: extracted_receivable_ages[1],
                             balance_gwei: 85_121
                         }
-                    ]
+                    ])
                 }),
-                custom_query_records_opt: None
             }
         );
         let time_needed_for_the_act_in_full_sec =
@@ -5397,11 +5418,10 @@ mod tests {
             response,
             UiFinancialsResponse {
                 stats_opt: None,
-                top_records_opt: Some(FirmQueryResult {
-                    payable: vec![],
-                    receivable: vec![]
-                }),
-                custom_query_records_opt: None
+                query_results_opt: Some(QueryResults {
+                    payable_opt: Some(vec![]),
+                    receivable_opt: Some(vec![])
+                })
             }
         );
         let payable_custom_query_params = payable_custom_query_params_arc.lock().unwrap();
@@ -5493,7 +5513,7 @@ mod tests {
         let (computed_response, context_id) = UiFinancialsResponse::fmb(result).unwrap();
         let extracted_payable_ages = extract_ages_from_ui_payable_accounts(
             computed_response
-                .custom_query_records_opt
+                .query_results_opt
                 .as_ref()
                 .unwrap()
                 .payable_opt
@@ -5502,7 +5522,7 @@ mod tests {
         );
         let extracted_receivable_ages = extract_ages_from_ui_receivable_accounts(
             computed_response
-                .custom_query_records_opt
+                .query_results_opt
                 .as_ref()
                 .unwrap()
                 .receivable_opt
@@ -5514,8 +5534,7 @@ mod tests {
             computed_response,
             UiFinancialsResponse {
                 stats_opt: None,
-                top_records_opt: None,
-                custom_query_records_opt: Some(CustomQueryResult {
+                query_results_opt: Some(QueryResults {
                     payable_opt: Some(vec![UiPayableAccount {
                         wallet: make_wallet("abcd123").to_string(),
                         age_s: extracted_payable_ages[0],
@@ -5613,7 +5632,7 @@ mod tests {
         let (computed_response, context_id) = UiFinancialsResponse::fmb(result).unwrap();
         let extracted_receivable_ages = extract_ages_from_ui_receivable_accounts(
             computed_response
-                .custom_query_records_opt
+                .query_results_opt
                 .as_ref()
                 .unwrap()
                 .receivable_opt
@@ -5625,8 +5644,7 @@ mod tests {
             computed_response,
             UiFinancialsResponse {
                 stats_opt: None,
-                top_records_opt: None,
-                custom_query_records_opt: Some(CustomQueryResult {
+                query_results_opt: Some(QueryResults {
                     payable_opt: None,
                     receivable_opt: Some(vec![UiReceivableAccount {
                         wallet: make_wallet("efe4848").to_string(),
