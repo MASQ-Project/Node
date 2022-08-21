@@ -617,10 +617,8 @@ pub struct RangeQuery<T> {
 pub struct UiFinancialsResponse {
     #[serde(rename = "statsOpt")]
     pub stats_opt: Option<UiFinancialStatistics>,
-    #[serde(rename = "topRecordsOpt")]
-    pub top_records_opt: Option<FirmQueryResult>,
-    #[serde(rename = "customQueryRecordsOpt")]
-    pub custom_query_records_opt: Option<CustomQueryResult>,
+    #[serde(rename = "queryResultsOpt")]
+    pub query_results_opt: Option<QueryResults>,
 }
 conversation_message!(UiFinancialsResponse, "financials");
 
@@ -637,13 +635,7 @@ pub struct UiFinancialStatistics {
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct FirmQueryResult {
-    pub payable: Vec<UiPayableAccount>,
-    pub receivable: Vec<UiReceivableAccount>,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
-pub struct CustomQueryResult {
+pub struct QueryResults {
     #[serde(rename = "payableOpt")]
     pub payable_opt: Option<Vec<UiPayableAccount>>,
     #[serde(rename = "receivableOpt")]

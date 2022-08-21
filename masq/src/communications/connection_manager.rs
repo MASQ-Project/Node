@@ -1177,8 +1177,7 @@ mod tests {
                     total_unpaid_receivable_gwei: 29,
                     total_paid_receivable_gwei: 32,
                 }),
-                top_records_opt: None,
-                custom_query_records_opt: None,
+                query_results_opt: None,
             }
             .tmb(1),
         );
@@ -1220,8 +1219,7 @@ mod tests {
                     total_unpaid_receivable_gwei: 29,
                     total_paid_receivable_gwei: 32,
                 }),
-                top_records_opt: None,
-                custom_query_records_opt: None
+                query_results_opt: None
             }
         );
         assert_eq!(context_id, 1);

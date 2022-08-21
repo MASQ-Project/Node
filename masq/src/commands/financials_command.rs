@@ -6,9 +6,8 @@ use crate::commands::commands_common::{
 };
 use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
 use masq_lib::messages::{
-    CustomQueries, CustomQueryResult, FirmQueryResult, RangeQuery, TopRecordsConfig,
-    UiFinancialStatistics, UiFinancialsRequest, UiFinancialsResponse, UiPayableAccount,
-    UiReceivableAccount,
+    CustomQueries, QueryResults, RangeQuery, TopRecordsConfig, UiFinancialStatistics,
+    UiFinancialsRequest, UiFinancialsResponse, UiPayableAccount, UiReceivableAccount,
 };
 use masq_lib::shared_schema::common_validators::validate_non_zero_u16;
 use masq_lib::short_writeln;
@@ -152,30 +151,8 @@ impl Command for FinancialsCommand {
         };
         let output: Result<UiFinancialsResponse, CommandError> =
             transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
-        let gwei_flag = self.gwei_precision;
         match output {
-            Ok(response) => {
-                let stdout = context.stdout();
-                if let Some(stats) = response.stats_opt.as_ref() {
-                    self.process_financial_status(stdout, stats, gwei_flag)
-                };
-                if let Some(top_records) = response.top_records_opt {
-                    self.process_top_records(
-                        stdout,
-                        top_records,
-                        response.stats_opt.is_none(),
-                        gwei_flag,
-                    )
-                } else if let Some(custom_query) = response.custom_query_records_opt {
-                    self.process_custom_query(
-                        stdout,
-                        custom_query,
-                        response.stats_opt.is_none(),
-                        gwei_flag,
-                    )
-                }
-                Ok(())
-            }
+            Ok(response) => self.process_command_response(response, context),
             Err(e) => {
                 short_writeln!(context.stderr(), "Financials retrieval failed: {:?}", e);
                 Err(e)
@@ -195,87 +172,66 @@ macro_rules! dump_statistics_lines {
     }
 }
 
-macro_rules! process_top_records {
-    ($self: expr, $stdout: expr, $account_type: literal, $headings: expr, $top_records: expr,
-    $write_headings_fn: ident, $render_single_account_fn: ident) => {
-        if !$top_records.is_empty() {
+macro_rules! process_records {
+    ($self:expr, $stdout: expr, $account_type: literal, $headings: expr, $user_range_format: ident,
+    $query_results_opt: expr, $write_headings_fn: ident, $render_single_account_fn: ident) => {
+        if let Some(top_queries) = $self.top_records_opt.as_ref() {
             $self.title_for_tops($stdout, $account_type);
-            $self.render_accounts_generic(
-                $stdout,
-                $top_records,
-                &$headings,
-                Self::$write_headings_fn,
-                Self::$render_single_account_fn,
-            );
-        } else {
-            $self.title_for_tops($stdout, $account_type);
-            Self::no_records_found(
-                $stdout,
-                $headings.words.as_slice(),
-                Self::$write_headings_fn,
-            )
-        }
-    };
-}
-
-macro_rules! process_custom_query {
-    ($self:expr, $stdout: expr, $account_type: literal, $headings: expr, $correct_field:ident,
-    $custom_query: expr, $write_headings_fn: ident, $render_single_account_fn: ident) => {
-        if let Some(accounts) = $custom_query {
-            Self::title_for_custom_query(
-                $stdout,
-                $account_type,
-                $self
-                    .custom_queries_opt
-                    .as_ref()
-                    .expectv("custom query")
-                    .$correct_field
-                    .as_ref()
-                    .expectv("custom query field"),
-            );
-            $self.render_accounts_generic(
-                $stdout,
-                accounts,
-                &$headings,
-                Self::$write_headings_fn,
-                Self::$render_single_account_fn,
-            )
-        } else if $self
-            .custom_queries_opt
-            .as_ref()
-            .expectv("custom query input")
-            .$correct_field
-            .is_some()
-        {
-            Self::title_for_custom_query(
-                $stdout,
-                $account_type,
-                $self
-                    .custom_queries_opt
-                    .as_ref()
-                    .expectv("custom query")
-                    .$correct_field
-                    .as_ref()
-                    .expectv("custom query field"),
-            );
-            Self::no_records_found(
-                $stdout,
-                $headings.words.as_slice(),
-                Self::$write_headings_fn,
-            )
-        }
+            let records = $query_results_opt.expectv($account_type);
+            if !records.is_empty() {
+                $self.render_accounts_generic(
+                    $stdout,
+                    records,
+                    &$headings,
+                    Self::$write_headings_fn,
+                    Self::$render_single_account_fn,
+                );
+            } else {
+                Self::no_records_found(
+                    $stdout,
+                    $headings.words.as_slice(),
+                    Self::$write_headings_fn,
+                )
+            }
+        } else if let Some(custom_queries) = $self.custom_queries_opt.as_ref() {
+            if let Some((user_range_format)) = custom_queries.$user_range_format.as_ref() {
+                Self::title_for_custom_query($stdout, $account_type, user_range_format);
+                if let Some(accounts) = $query_results_opt {
+                    $self.render_accounts_generic(
+                        $stdout,
+                        accounts,
+                        &$headings,
+                        Self::$write_headings_fn,
+                        Self::$render_single_account_fn,
+                    )
+                } else {
+                    Self::no_records_found(
+                        $stdout,
+                        $headings.words.as_slice(),
+                        Self::$write_headings_fn,
+                    )
+                }
+            }
+        };
     };
 }
 
 macro_rules! are_two_dumps_to_be_printed_half_condition {
-    ($self: expr, $custom_query_result: expr, $results_field: ident; $user_format_field: ident) => {
-        ($custom_query_result.$results_field.is_some()
-            || $self
-                .custom_queries_opt
-                .as_ref()
-                .expectv("custom queries input")
-                .$user_format_field
-                .is_some())
+    ($self: expr, $($user_format_field: ident),+) => {
+        ($self.top_records_opt.is_some() ||
+            (
+                $(if let Some(custom_queries) = $self
+                    .custom_queries_opt
+                    .as_ref()
+                {
+                    custom_queries
+                        .$user_format_field
+                        .is_some()
+                } else {
+                    false
+                })&+
+            )
+        )
     };
 }
 
@@ -324,7 +280,27 @@ impl FinancialsCommand {
         })
     }
 
-    fn process_financial_status(
+    fn process_command_response(
+        &self,
+        response: UiFinancialsResponse,
+        context: &mut dyn CommandContext,
+    ) -> Result<(), CommandError> {
+        let stdout = context.stdout();
+        if let Some(ref stats) = response.stats_opt {
+            self.process_financial_statistics(stdout, stats, self.gwei_precision)
+        };
+        if let Some(results) = response.query_results_opt {
+            self.process_queried_records(
+                stdout,
+                results,
+                response.stats_opt.is_none(),
+                self.gwei_precision,
+            )
+        }
+        Ok(())
+    }
+
+    fn process_financial_statistics(
         &self,
         stdout: &mut dyn Write,
         stats: &UiFinancialStatistics,
@@ -346,74 +322,47 @@ impl FinancialsCommand {
         );
     }
 
-    fn process_top_records(
+    fn process_queried_records(
         &self,
         stdout: &mut dyn Write,
-        top_records: FirmQueryResult,
+        returned_records: QueryResults,
         leading_dump: bool,
         gwei_flag: bool,
     ) {
+        let two_dumps = self.two_dumps(&returned_records);
         let (payable_headings, receivable_headings) = Self::prepare_headings_of_records(gwei_flag);
         Self::triple_or_single_blank_line(stdout, leading_dump);
-        process_top_records!(
-            self,
-            stdout,
-            "payable",
-            payable_headings,
-            top_records.payable,
-            write_payable_headings,
-            render_single_payable
-        );
-        Self::triple_or_single_blank_line(stdout, false);
-        process_top_records!(
-            self,
-            stdout,
-            "receivable",
-            receivable_headings,
-            top_records.receivable,
-            write_receivable_headings,
-            render_single_receivable
-        );
-    }
-
-    fn process_custom_query(
-        &self,
-        stdout: &mut dyn Write,
-        custom_query_result: CustomQueryResult,
-        leading_dump: bool,
-        gwei_flag: bool,
-    ) {
-        let two_dumps_to_be_printed = self.are_two_dumps_to_be_printed(&custom_query_result);
-        let (payable_headings, receivable_headings) = Self::prepare_headings_of_records(gwei_flag);
-        Self::triple_or_single_blank_line(stdout, leading_dump);
-        process_custom_query!(
+        process_records!(
             self,
             stdout,
             "payable",
             payable_headings,
             user_payable_format_opt,
-            custom_query_result.payable_opt,
+            returned_records.payable_opt,
             write_payable_headings,
             render_single_payable
         );
-        if two_dumps_to_be_printed {
+        if two_dumps {
             Self::triple_or_single_blank_line(stdout, false)
         }
-        process_custom_query!(
+        process_records!(
             self,
             stdout,
             "receivable",
             receivable_headings,
             user_receivable_format_opt,
-            custom_query_result.receivable_opt,
+            returned_records.receivable_opt,
             write_receivable_headings,
             render_single_receivable
         );
     }
 
-    fn are_two_dumps_to_be_printed(&self, custom_query_result: &CustomQueryResult) -> bool {
-        are_two_dumps_to_be_printed_half_condition!(self, custom_query_result, payable_opt; user_payable_format_opt)
-            && are_two_dumps_to_be_printed_half_condition!(self, custom_query_result, receivable_opt; user_receivable_format_opt)
+    fn two_dumps(&self, query_results: &QueryResults) -> bool {
+        are_two_dumps_to_be_printed_half_condition!(
+            self,
+            user_payable_format_opt,
+            user_receivable_format_opt
+        )
     }
 
     fn parse_top_records_arg(matches: &ArgMatches) -> Option<TopRecordsConfig> {
@@ -801,7 +750,11 @@ impl FinancialsCommand {
         let column_count = values_of_accounts[0].len();
         let init = vec![0_usize; column_count];
         let widths_except_ordinal_num = values_of_accounts.iter().fold(init, |acc, record| {
-            Self::yield_bigger_values_from_vecs(column_count, acc, Self::widths_of_str_values(record))
+            Self::yield_bigger_values_from_vecs(
+                column_count,
+                acc,
+                Self::widths_of_str_values(record),
+            )
         });
         let mut result = vec![values_of_accounts.len().to_string().len()];
         result.extend(widths_except_ordinal_num);
@@ -1017,8 +970,8 @@ mod tests {
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{
-        CustomQueryResult, FirmQueryResult, ToMessageBody, TopRecordsOrdering,
-        UiFinancialStatistics, UiFinancialsResponse, UiPayableAccount, UiReceivableAccount,
+        ToMessageBody, TopRecordsOrdering, UiFinancialStatistics, UiFinancialsResponse,
+        UiPayableAccount, UiReceivableAccount,
     };
     use masq_lib::utils::array_of_borrows_to_vec;
     use std::panic::catch_unwind;
@@ -1055,8 +1008,7 @@ mod tests {
                 total_unpaid_receivable_gwei: 2222,
                 total_paid_receivable_gwei: 3333,
             }),
-            top_records_opt: None,
-            custom_query_records_opt: None,
+            query_results_opt: None,
         }
         .tmb(0)));
         let subject = factory.make(&["financials".to_string()]).unwrap();
@@ -1071,11 +1023,10 @@ mod tests {
         let factory = CommandFactoryReal::new();
         let mut context = CommandContextMock::new().transact_result(Ok(UiFinancialsResponse {
             stats_opt: None,
-            top_records_opt: Some(FirmQueryResult {
-                payable: vec![],
-                receivable: vec![],
+            query_results_opt: Some(QueryResults {
+                payable_opt: Some(vec![]),
+                receivable_opt: Some(vec![]),
             }),
-            custom_query_records_opt: None,
         }
         .tmb(0)));
         let subject = factory
@@ -1102,11 +1053,10 @@ mod tests {
                 total_unpaid_receivable_gwei: 2222,
                 total_paid_receivable_gwei: 3333,
             }),
-            top_records_opt: Some(FirmQueryResult {
-                payable: vec![],
-                receivable: vec![],
+            query_results_opt: Some(QueryResults {
+                payable_opt: Some(vec![]),
+                receivable_opt: Some(vec![]),
             }),
-            custom_query_records_opt: None,
         }
         .tmb(0)));
         let subject = factory
@@ -1133,8 +1083,7 @@ mod tests {
                 total_unpaid_receivable_gwei: 2222,
                 total_paid_receivable_gwei: 3333,
             }),
-            top_records_opt: None,
-            custom_query_records_opt: Some(CustomQueryResult {
+            query_results_opt: Some(QueryResults {
                 payable_opt: None,
                 receivable_opt: None,
             }),
@@ -1277,8 +1226,7 @@ mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let irrelevant_response = UiFinancialsResponse {
             stats_opt: None,
-            top_records_opt: None,
-            custom_query_records_opt: None,
+            query_results_opt: None,
         };
         let args =
             array_of_borrows_to_vec(&["financials", "-g", "-t", "123", "-s", "balance", "-n"]);
@@ -1313,8 +1261,7 @@ mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let irrelevant_response = UiFinancialsResponse {
             stats_opt: None,
-            top_records_opt: None,
-            custom_query_records_opt: None,
+            query_results_opt: None,
         };
         let args = array_of_borrows_to_vec(&[
             "financials",
@@ -1366,8 +1313,7 @@ mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let irrelevant_response = UiFinancialsResponse {
             stats_opt: None,
-            top_records_opt: None,
-            custom_query_records_opt: None,
+            query_results_opt: None,
         };
         let args =
             array_of_borrows_to_vec(&["financials", "--no-stats", "--top", "7", "--sorted", "age"]);
@@ -1509,8 +1455,7 @@ mod tests {
                 total_unpaid_receivable_gwei: -55_000_400,
                 total_paid_receivable_gwei: 1_278_766_555_456,
             }),
-            top_records_opt: None,
-            custom_query_records_opt: None,
+            query_results_opt: None,
         };
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
@@ -1723,6 +1668,77 @@ mod tests {
         let _: Result<u64, String> = FinancialsCommand::parse_integer("40000000000000000000");
     }
 
+    #[test]
+    fn two_dumps_works_for_top_records() {
+        let query_results = QueryResults {
+            payable_opt: None,
+            receivable_opt: None,
+        };
+        let subject =
+            FinancialsCommand::new(&array_of_borrows_to_vec(&["financials", "--top", "20"]))
+                .unwrap();
+
+        let result = subject.two_dumps(&query_results);
+
+        assert_eq!(result, true)
+    }
+
+    #[test]
+    fn two_dumps_works_for_custom_query_with_only_payable() {
+        let query_results = QueryResults {
+            payable_opt: None,
+            receivable_opt: None,
+        };
+        let subject = FinancialsCommand::new(&array_of_borrows_to_vec(&[
+            "financials",
+            "--payable",
+            "20-40|60-120",
+        ]))
+        .unwrap();
+
+        let result = subject.two_dumps(&query_results);
+
+        assert_eq!(result, false)
+    }
+
+    #[test]
+    fn two_dumps_works_for_custom_query_with_only_receivable() {
+        let query_results = QueryResults {
+            payable_opt: None,
+            receivable_opt: None,
+        };
+        let subject = FinancialsCommand::new(&array_of_borrows_to_vec(&[
+            "financials",
+            "--receivable",
+            "20-40|-50-120",
+        ]))
+        .unwrap();
+
+        let result = subject.two_dumps(&query_results);
+
+        assert_eq!(result, false)
+    }
+
+    #[test]
+    fn two_dumps_works_for_custom_query_with_both() {
+        let query_results = QueryResults {
+            payable_opt: None,
+            receivable_opt: None,
+        };
+        let subject = FinancialsCommand::new(&array_of_borrows_to_vec(&[
+            "financials",
+            "--receivable",
+            "20-40|-50-120",
+            "--payable",
+            "15-55|667-800",
+        ]))
+        .unwrap();
+
+        let result = subject.two_dumps(&query_results);
+
+        assert_eq!(result, true)
+    }
+
     fn response_with_stats_and_either_top_records_or_top_queries(
         for_top_records: bool,
     ) -> UiFinancialsResponse {
@@ -1733,8 +1749,9 @@ mod tests {
                 total_unpaid_receivable_gwei: 0,
                 total_paid_receivable_gwei: 665557,
             }),
-            top_records_opt: for_top_records.then_some(FirmQueryResult {
-                payable: vec![
+            query_results_opt: Some(if for_top_records {
+                QueryResults {
+                    payable_opt: Some(vec![
                     UiPayableAccount {
                         wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
                         age_s: 5645405400,
@@ -1750,31 +1767,33 @@ mod tests {
                                 .to_string(),
                         ),
                     },
-                ],
-                receivable: vec![
-                    UiReceivableAccount {
-                        wallet: "0x6e250504DdfFDb986C4F0bb8Df162503B4118b05".to_string(),
-                        age_s: 22000,
-                        balance_gwei: 2444533124512,
-                    },
-                    UiReceivableAccount {
-                        wallet: "0x8bA50675e590b545D2128905b89039256Eaa24F6".to_string(),
-                        age_s: 19000,
-                        balance_gwei: -328123256546,
-                    },
-                ],
-            }),
-            custom_query_records_opt: (!for_top_records).then_some(CustomQueryResult {
-                payable_opt: Some(vec![UiPayableAccount {
-                    wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
-                    age_s: 150000,
-                    balance_gwei: 8,
-                    pending_payable_hash_opt: Some(
-                        "0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e"
-                            .to_string(),
-                    ),
-                }]),
-                receivable_opt: None,
+                ]),
+                    receivable_opt: Some(vec![
+                        UiReceivableAccount {
+                            wallet: "0x6e250504DdfFDb986C4F0bb8Df162503B4118b05".to_string(),
+                            age_s: 22000,
+                            balance_gwei: 2444533124512,
+                        },
+                        UiReceivableAccount {
+                            wallet: "0x8bA50675e590b545D2128905b89039256Eaa24F6".to_string(),
+                            age_s: 19000,
+                            balance_gwei: -328123256546,
+                        },
+                    ]),
+                }
+            } else {
+                QueryResults {
+                    payable_opt: Some(vec![UiPayableAccount {
+                        wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
+                        age_s: 150000,
+                        balance_gwei: 8,
+                        pending_payable_hash_opt: Some(
+                            "0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e"
+                                .to_string(),
+                        ),
+                    }]),
+                    receivable_opt: None,
+                }
             }),
         }
     }
@@ -2052,8 +2071,7 @@ mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiFinancialsResponse {
             stats_opt: None,
-            top_records_opt: None,
-            custom_query_records_opt: Some(CustomQueryResult {
+            query_results_opt: Some(QueryResults {
                 payable_opt: Some(vec![UiPayableAccount {
                     wallet: "0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440".to_string(),
                     age_s: 150000,
@@ -2140,11 +2158,10 @@ mod tests {
                 total_unpaid_receivable_gwei: 221144,
                 total_paid_receivable_gwei: 66555,
             }),
-            top_records_opt: Some(FirmQueryResult {
-                payable: vec![],
-                receivable: vec![],
+            query_results_opt: Some(QueryResults {
+                payable_opt: Some(vec![]),
+                receivable_opt: Some(vec![]),
             }),
-            custom_query_records_opt: None,
         };
         let args = array_of_borrows_to_vec(&["financials", "--top", "10"]);
         let mut context = CommandContextMock::new()
@@ -2216,8 +2233,7 @@ mod tests {
                 total_unpaid_receivable_gwei: 221144,
                 total_paid_receivable_gwei: 66555,
             }),
-            top_records_opt: None,
-            custom_query_records_opt: Some(CustomQueryResult {
+            query_results_opt: Some(QueryResults {
                 payable_opt: None,
                 receivable_opt: None,
             }),
@@ -2303,8 +2319,8 @@ mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiFinancialsResponse {
             stats_opt: None,
-            top_records_opt: Some(FirmQueryResult {
-                payable: vec![
+            query_results_opt: Some(QueryResults {
+                payable_opt: Some(vec![
                     UiPayableAccount {
                         wallet: "0xA884A2F1A5Ec6C2e499644666a5E6af97B966888".to_string(),
                         age_s: 5405400,
@@ -2320,8 +2336,8 @@ mod tests {
                         balance_gwei: 97524120,
                         pending_payable_hash_opt: None,
                     },
-                ],
-                receivable: vec![
+                ]),
+                receivable_opt: Some(vec![
                     UiReceivableAccount {
                         wallet: "0xaa22968a5263f165F014d3F21A443f10a116EDe0".to_string(),
                         age_s: 566668,
@@ -2332,9 +2348,8 @@ mod tests {
                         age_s: 11111111,
                         balance_gwei: -4551012,
                     },
-                ],
+                ]),
             }),
-            custom_query_records_opt: None,
         };
         let args = array_of_borrows_to_vec(&["financials", "--no-stats", "--top", "7"]);
         let mut context = CommandContextMock::new()
@@ -2388,8 +2403,7 @@ mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiFinancialsResponse {
             stats_opt: None,
-            top_records_opt: None,
-            custom_query_records_opt: Some(CustomQueryResult {
+            query_results_opt: Some(QueryResults {
                 payable_opt: Some(vec![
                     UiPayableAccount {
                         wallet: "0x6e250504DdfFDb986C4F0bb8Df162503B4118b05".to_string(),
@@ -2471,8 +2485,7 @@ mod tests {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = UiFinancialsResponse {
             stats_opt: None,
-            top_records_opt: None,
-            custom_query_records_opt: Some(CustomQueryResult {
+            query_results_opt: Some(QueryResults {
                 payable_opt: None,
                 receivable_opt: Some(vec![
                     UiReceivableAccount {
