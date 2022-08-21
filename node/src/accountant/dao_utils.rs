@@ -12,7 +12,7 @@ use masq_lib::messages::{
     RangeQuery, TopRecordsConfig, TopRecordsOrdering, UiPayableAccount, UiReceivableAccount,
 };
 use masq_lib::utils::ExpectValue;
-use rusqlite::{params_from_iter, Row, ToSql};
+use rusqlite::{Row, ToSql};
 use std::cell::RefCell;
 use std::fmt::Display;
 use std::path::{Path, PathBuf};
@@ -84,6 +84,7 @@ pub enum CustomQuery<N> {
         max_age_s: u64,
         min_amount_gwei: N,
         max_amount_gwei: N,
+        timestamp: SystemTime,
     },
 }
 
@@ -154,6 +155,7 @@ impl<N: Copy + Display> CustomQuery<N> {
                 max_age_s: max_age,
                 min_amount_gwei: min_amount,
                 max_amount_gwei: max_amount,
+                timestamp,
             } => (
                 stm_assembler(AssemblerFeeder {
                     main_where_clause: variant_range.where_clause,
@@ -162,7 +164,7 @@ impl<N: Copy + Display> CustomQuery<N> {
                     order_by_second_param: variant_range.secondary_order_param,
                     limit_clause: "",
                 }),
-                Self::set_up_age_constrains(min_age, max_age)
+                Self::set_up_age_constrains(min_age, max_age, timestamp)
                     .into_iter()
                     .chain(Self::set_up_wei_constrains(vec![min_amount, max_amount]))
                     .collect::<Vec<(&str, Box<dyn ToSql>)>>(),
@@ -184,7 +186,10 @@ impl<N: Copy + Display> CustomQuery<N> {
         conn.prepare(stm)
             .expect("select statement is wrong")
             .query_map(
-                params_from_iter(params.iter().map(|(_, value)| &*value)),
+                &*params
+                    .iter()
+                    .map(|(param_name, value)| (*param_name, value.as_ref()))
+                    .collect::<Vec<_>>(),
                 value_fetcher,
             )
             .unwrap_or_else(|e| panic!("database corrupt: {}", e))
@@ -192,18 +197,16 @@ impl<N: Copy + Display> CustomQuery<N> {
             .collect::<Vec<R>>()
     }
 
-    fn set_up_age_constrains(min_age: u64, max_age: u64) -> RusqliteParamsWithOwnedToSql {
-        let now = now_time_t();
-        let to_time_t = |limit|now - checked_conversion::<u64, i64>(limit);
+    fn set_up_age_constrains(
+        min_age: u64,
+        max_age: u64,
+        timestamp: SystemTime,
+    ) -> RusqliteParamsWithOwnedToSql {
+        let now = to_time_t(timestamp);
+        let to_time_t = |limit| now - checked_conversion::<u64, i64>(limit);
         vec![
-            (
-                ":min_timestamp",
-                Box::new(to_time_t(max_age)),
-            ),
-            (
-                ":max_timestamp",
-                Box::new(to_time_t(min_age)),
-            )
+            (":min_timestamp", Box::new(to_time_t(max_age))),
+            (":max_timestamp", Box::new(to_time_t(min_age))),
         ]
     }
 
@@ -246,6 +249,7 @@ impl<T: Copy> From<&RangeQuery<T>> for CustomQuery<T> {
             max_age_s: user_input.max_age_s,
             min_amount_gwei: user_input.min_amount_gwei,
             max_amount_gwei: user_input.max_amount_gwei,
+            timestamp: SystemTime::now(),
         }
     }
 }
@@ -316,9 +320,9 @@ mod tests {
     fn set_up_age_constrains_works() {
         let min_age = 5555;
         let max_age = 10000;
-        let now = now_time_t();
+        let now = SystemTime::now();
 
-        let result = CustomQuery::<i64>::set_up_age_constrains(min_age, max_age);
+        let result = CustomQuery::<i64>::set_up_age_constrains(min_age, max_age, now);
 
         assert_eq!(result.len(), 2);
         let param_pair_1 = &result[0];
@@ -329,28 +333,14 @@ mod tests {
             ToSqlOutput::Owned(Value::Integer(num)) => num,
             x => panic!("we expected integer and got this: {:?}", x),
         };
-        let assigned_value_1 = get_assigned_value( param_pair_1.1.to_sql().unwrap());
+        let assigned_value_1 = get_assigned_value(param_pair_1.1.to_sql().unwrap());
         let assigned_value_2 = get_assigned_value(param_pair_2.1.to_sql().unwrap());
-        let min_timestamp = now - max_age as i64;
-        let max_timestamp = now - min_age as i64;
-        assert!(
-            min_timestamp - 2 <= assigned_value_1 && assigned_value_1 <= min_timestamp + 2,
-            "min_timestamp blew up on {} while now is {}",
-            assigned_value_1,
-            now
-        );
-        assert!(
-            max_timestamp - 2 <= assigned_value_2 && assigned_value_2 <= max_timestamp + 2,
-            "max_timestamp blew up on {} while now is {}",
-            assigned_value_2,
-            now
-        )
+        assert_eq!(assigned_value_1, to_time_t(now) - 10000);
+        assert_eq!(assigned_value_2, to_time_t(now) - 5555)
     }
 
     #[test]
-    #[should_panic(
-        expected = "database corrupt: Wrong number of parameters passed to query. Got 1, needed 0"
-    )]
+    #[should_panic(expected = "database corrupt: Invalid parameter name: :limit_count")]
     fn erroneous_query_leads_to_panic() {
         let home_dir =
             ensure_node_home_directory_exists("dao_utils", "erroneous_query_leads_to_panic");
@@ -421,12 +411,12 @@ mod tests {
             ReceivableAccount {
                 wallet: make_wallet("ac45123"),
                 balance_wei: 4_888_123_457,
-                last_received_timestamp: SystemTime::now(), //unimportant
+                last_received_timestamp: SystemTime::now(),
             },
             ReceivableAccount {
                 wallet: make_wallet("ac3665c"),
                 balance_wei: 300_122_333,
-                last_received_timestamp: SystemTime::now(), //unimportant
+                last_received_timestamp: SystemTime::now(),
             },
         ];
         remap_receivable_accounts(accounts);
@@ -443,14 +433,45 @@ mod tests {
             ReceivableAccount {
                 wallet: make_wallet("ac45123"),
                 balance_wei: -4_000_123_457,
-                last_received_timestamp: SystemTime::now(), //unimportant
+                last_received_timestamp: SystemTime::now(),
             },
             ReceivableAccount {
                 wallet: make_wallet("ac3665c"),
                 balance_wei: -290_122_333,
-                last_received_timestamp: SystemTime::now(), //unimportant
+                last_received_timestamp: SystemTime::now(),
             },
         ];
         remap_receivable_accounts(accounts);
+    }
+
+    #[test]
+    fn custom_query_from_range_query_works() {
+        let subject = RangeQuery {
+            min_age_s: 12,
+            max_age_s: 55,
+            min_amount_gwei: 89_i64,
+            max_amount_gwei: 12222,
+        };
+        let before = SystemTime::now();
+
+        let result: CustomQuery<i64> = (&subject).into();
+
+        let after = SystemTime::now();
+        if let CustomQuery::RangeQuery {
+            min_age_s,
+            max_age_s,
+            min_amount_gwei,
+            max_amount_gwei,
+            timestamp,
+        } = result
+        {
+            assert_eq!(min_age_s, 12);
+            assert_eq!(max_age_s, 55);
+            assert_eq!(min_amount_gwei, 89);
+            assert_eq!(max_amount_gwei, 12222);
+            assert!(before <= timestamp && timestamp <= after)
+        } else {
+            panic!("we expected range query but got something else")
+        }
     }
 }

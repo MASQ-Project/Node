@@ -1056,6 +1056,7 @@ impl Accountant {
         }
     }
 
+    //if you look for usages, see it in a macro
     fn check_query_is_within_tech_limits<T>(
         query: &CustomQuery<T>,
         table: &str,
@@ -1085,6 +1086,7 @@ impl Accountant {
             max_age_s,
             min_amount_gwei,
             max_amount_gwei,
+            ..
         } = query
         {
             match (
@@ -5559,37 +5561,64 @@ mod tests {
         let time_needed_for_the_act_in_full_sec =
             (after.duration_since(before).unwrap().as_millis() / 1000 + 1) as u64;
         assert!(
-            extracted_payable_ages[0] >= 7580
+            7580 <= extracted_payable_ages[0]
                 && extracted_payable_ages[0] <= 7580 + time_needed_for_the_act_in_full_sec
         );
         assert!(
-            extracted_receivable_ages[0] >= 3333
+            3333 <= extracted_receivable_ages[0]
                 && extracted_receivable_ages[0] <= 3333 + time_needed_for_the_act_in_full_sec
         );
         assert!(
-            extracted_receivable_ages[1] >= 87000
+            87000 <= extracted_receivable_ages[1]
                 && extracted_receivable_ages[1] <= 87000 + time_needed_for_the_act_in_full_sec
         );
         let payable_custom_query_params = payable_custom_query_params_arc.lock().unwrap();
+        let actual_timestamp = extract_timestamp_from_custom_query(&payable_custom_query_params[0]);
         assert_eq!(
             *payable_custom_query_params,
             vec![CustomQuery::RangeQuery {
                 min_age_s: 0,
                 max_age_s: 8000,
                 min_amount_gwei: 0,
-                max_amount_gwei: 50000000
+                max_amount_gwei: 50000000,
+                timestamp: actual_timestamp
             }]
         );
+        assert!(
+            before <= actual_timestamp && actual_timestamp <= after,
+            "before: {:?}, actual: {:?}, after: {:?}",
+            before,
+            actual_timestamp,
+            after
+        );
         let receivable_custom_query_params = receivable_custom_query_params_arc.lock().unwrap();
+        let actual_timestamp =
+            extract_timestamp_from_custom_query(&receivable_custom_query_params[0]);
         assert_eq!(
             *receivable_custom_query_params,
             vec![CustomQuery::RangeQuery {
                 min_age_s: 2000,
                 max_age_s: 200000,
                 min_amount_gwei: 0,
-                max_amount_gwei: 60000000
+                max_amount_gwei: 60000000,
+                timestamp: actual_timestamp
             }]
+        );
+        assert!(
+            before <= actual_timestamp && actual_timestamp <= after,
+            "before: {:?}, actual: {:?}, after: {:?}",
+            before,
+            actual_timestamp,
+            after
         )
+    }
+
+    fn extract_timestamp_from_custom_query<T>(captured_input: &CustomQuery<T>) -> SystemTime {
+        if let CustomQuery::RangeQuery { timestamp, .. } = captured_input {
+            *timestamp
+        } else {
+            panic!("we expected range query whose part is also a timestamp")
+        }
     }
 
     #[test]
@@ -5654,22 +5683,27 @@ mod tests {
                 })
             }
         );
-        let time_needed_for_the_act_in_full_sec =
+        let time_needed_for_the_act_to_finish_its_job_in_secs =
             (after.duration_since(before).unwrap().as_millis() / 1000 + 1) as u64;
         assert!(
-            extracted_receivable_ages[0] >= 3333
-                && extracted_receivable_ages[0] <= 3333 + time_needed_for_the_act_in_full_sec
+            3333 <= extracted_receivable_ages[0]
+                && extracted_receivable_ages[0]
+                    <= 3333 + time_needed_for_the_act_to_finish_its_job_in_secs
         );
         let receivable_custom_query_params = receivable_custom_query_params_arc.lock().unwrap();
+        let actual_timestamp =
+            extract_timestamp_from_custom_query(&receivable_custom_query_params[0]);
         assert_eq!(
             *receivable_custom_query_params,
             vec![CustomQuery::RangeQuery {
                 min_age_s: 2000,
                 max_age_s: 200000,
                 min_amount_gwei: 0,
-                max_amount_gwei: 150000000000
+                max_amount_gwei: 150000000000,
+                timestamp: actual_timestamp
             }]
-        )
+        );
+        assert!(before <= actual_timestamp && actual_timestamp <= after)
     }
 
     fn asserts_compute_financials_tests_range_query_on_too_big_values_in_input(
@@ -5771,6 +5805,7 @@ mod tests {
             max_age_s: 4000000,
             min_amount_gwei: 55,
             max_amount_gwei: 6666,
+            timestamp: SystemTime::now(),
         };
 
         asser_check_query_is_within_tech_limits(
@@ -5788,6 +5823,7 @@ mod tests {
             max_age_s: i64::MAX as u64 + 3,
             min_amount_gwei: 55,
             max_amount_gwei: 6666,
+            timestamp: SystemTime::now(),
         };
 
         asser_check_query_is_within_tech_limits(
@@ -5805,6 +5841,7 @@ mod tests {
             max_age_s: 4545555,
             min_amount_gwei: i64::MAX as u64 + 9,
             max_amount_gwei: 6666,
+            timestamp: SystemTime::now(),
         };
 
         asser_check_query_is_within_tech_limits(
@@ -5822,6 +5859,7 @@ mod tests {
             max_age_s: 4545555,
             min_amount_gwei: 144,
             max_amount_gwei: i64::MAX as u64 + 11,
+            timestamp: SystemTime::now(),
         };
 
         asser_check_query_is_within_tech_limits(
@@ -5839,6 +5877,7 @@ mod tests {
             max_age_s: 4545555,
             min_amount_gwei: -500000,
             max_amount_gwei: -500,
+            timestamp: SystemTime::now(),
         };
 
         let result = Accountant::check_query_is_within_tech_limits(&query, "payable", 789);

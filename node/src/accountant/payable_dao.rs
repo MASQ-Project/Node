@@ -970,6 +970,7 @@ mod tests {
             max_age_s: 200000,
             min_amount_gwei: 500000000,
             max_amount_gwei: 3500000000,
+            timestamp: SystemTime::now(),
         });
 
         assert_eq!(result, None)
@@ -982,16 +983,15 @@ mod tests {
         let now = now_time_t();
         let timestamp1 = now - 70_000;
         let timestamp2 = now - 55_120;
-        let timestamp3 = now - 330_000;
+        let timestamp3 = now - 200_001;
         let timestamp4 = now - 19_999;
         let timestamp5 = now - 30_786;
         let timestamp6 = now - 100_401;
         let timestamp7 = now - 80_333;
         let main_setup = |insert: &dyn Fn(&str, i128, i64, Option<i64>)| {
-            //balances in these inserts are in Gwei
             insert(
                 "0x1111111111111111111111111111111111111111",
-                400_005_601 * WEIS_OF_GWEI, //too small
+                499_999_999 * WEIS_OF_GWEI, //too small
                 timestamp1,
                 None,
             );
@@ -1015,7 +1015,7 @@ mod tests {
             );
             insert(
                 "0x5555555555555555555555555555555555555555",
-                36_800_456_000 * WEIS_OF_GWEI, //too big
+                35_000_000_001 * WEIS_OF_GWEI, //too big
                 timestamp5,
                 None,
             );
@@ -1040,6 +1040,7 @@ mod tests {
                 max_age_s: 200000,
                 min_amount_gwei: 500_000_000,
                 max_amount_gwei: 35_000_000_000,
+                timestamp: from_time_t(now),
             })
             .unwrap();
 
@@ -1102,6 +1103,7 @@ mod tests {
                 max_age_s: 200000,
                 min_amount_gwei: u64::MIN,
                 max_amount_gwei: 35,
+                timestamp: SystemTime::now(),
             })
             .unwrap();
 

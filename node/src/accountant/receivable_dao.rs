@@ -1112,6 +1112,7 @@ mod tests {
             max_age_s: 200000,
             min_amount_gwei: 500000000,
             max_amount_gwei: 3500000000,
+            timestamp: SystemTime::now(),
         });
 
         assert_eq!(result, None)
@@ -1175,6 +1176,7 @@ mod tests {
                 max_age_s: 99000,
                 min_amount_gwei: -560000,
                 max_amount_gwei: 1_100_000_000,
+                timestamp: from_time_t(now),
             })
             .unwrap();
 
@@ -1237,6 +1239,7 @@ mod tests {
                 max_age_s: 200000,
                 min_amount_gwei: i64::MIN,
                 max_amount_gwei: 35_000_000_000,
+                timestamp: SystemTime::now(),
             })
             .unwrap();
 
