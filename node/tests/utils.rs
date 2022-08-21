@@ -4,6 +4,10 @@ use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::node_home_directory;
 use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
 use masq_lib::utils::localhost;
+use node_lib::database::connection_wrapper::ConnectionWrapper;
+use node_lib::database::db_initializer::{
+    DbInitializationConfig, DbInitializer, DbInitializerReal,
+};
 use node_lib::test_utils::await_value;
 use regex::{Captures, Regex};
 use std::env;
@@ -534,4 +538,10 @@ fn node_command() -> String {
         .unwrap();
     let bin_dir = &format!("target\\{}", debug_or_release);
     format!("{}\\MASQNode.exe", bin_dir)
+}
+
+pub fn make_conn(home_dir: &Path) -> Box<dyn ConnectionWrapper> {
+    DbInitializerReal::default()
+        .initialize(home_dir, true, DbInitializationConfig::panic_on_migration())
+        .unwrap()
 }
