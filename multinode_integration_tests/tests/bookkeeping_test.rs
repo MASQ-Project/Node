@@ -11,7 +11,7 @@ use node_lib::accountant::receivable_dao::ReceivableAccount;
 use node_lib::sub_lib::wallet::Wallet;
 use std::collections::HashMap;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 #[test]
 fn provided_and_consumed_services_are_recorded_in_databases() {
@@ -86,6 +86,7 @@ fn receivables(node: &MASQRealNode) -> Vec<ReceivableAccount> {
             max_age_s: i64::MAX as u64,
             min_amount_gwei: i64::MIN,
             max_amount_gwei: i64::MAX,
+            timestamp: SystemTime::now(),
         })
         .unwrap_or_default()
 }

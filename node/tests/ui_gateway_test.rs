@@ -4,11 +4,11 @@
 
 pub mod utils;
 
-use crate::utils::{MASQNode};
+use crate::utils::MASQNode;
 use masq_lib::messages::SerializableLogLevel::Warn;
 use masq_lib::messages::{
-    UiChangePasswordRequest, UiCheckPasswordRequest, UiCheckPasswordResponse, UiLogBroadcast, UiRedirect,
-    UiSetupRequest, UiSetupResponse, UiShutdownRequest, UiStartOrder, UiStartResponse,
+    UiChangePasswordRequest, UiCheckPasswordRequest, UiCheckPasswordResponse, UiLogBroadcast,
+    UiRedirect, UiSetupRequest, UiSetupResponse, UiShutdownRequest, UiStartOrder, UiStartResponse,
     UiWalletAddressesRequest, NODE_UI_PROTOCOL,
 };
 use masq_lib::test_utils::ui_connection::UiConnection;

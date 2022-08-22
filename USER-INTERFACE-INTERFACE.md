@@ -634,8 +634,8 @@ believed to be able to go down under zero).
         "totalUnpaidReceivableGwei": <integer>
         "totalPaidReceivableGwei": <nonnegative integer>
     }>,
-    "topRecordsOpt":<optional {
-        "payable": [
+    "queryResultsOpt":<optional {
+        "payableOpt": [
             {
               "wallet": <string>,
               "ageS": <integer>,
@@ -644,7 +644,7 @@ believed to be able to go down under zero).
             },
             [...]
         ],
-        "receivable": [
+        "receivableOpt": [
             {
               "wallet": <string>,
               "ageS": <integer>,
@@ -652,25 +652,6 @@ believed to be able to go down under zero).
             },
             [...]
         ]
-    }>,
-    "customQueryRecordsOpt":<optional {
-        "payableOpt": <optional [
-            {
-              "wallet": <string>,
-              "ageS": <integer>,
-              "balanceGwei": <integer>, 
-              "pendingPayableHashOpt": <optional string> 
-            },
-            [...]
-        ]>,
-        "receivableOpt": <optional [
-            {
-              "wallet": <string>,
-              "ageS": <integer>,
-              "balanceGwei": <integer>
-            },
-            [...]
-        ]>
     }>
 }
 ```
@@ -691,18 +672,29 @@ just the current Node run.
 payments we have seen confirmed on the blockchain. This includes both payments that have never been made and also
 payments that have been made but not yet confirmed.
 
-`totalPaidReceivableGwei` is the number of Gwei we have successfully received in confirmed payments from our debtors during
-the time the current instance of the Node has been running. In the future, this number may become cumulative over more
-time than just the current Node run.
+`totalPaidReceivableGwei` is the number of Gwei we have successfully received in confirmed payments from our debtors
+during the time the current instance of the Node has been running. In the future, this number may become cumulative over
+more time than just the current Node run.
 
-`topRecordsOpt` retrieves records sorted downwards and limited by their maximum count. If the table contains fewer records
-than requested, a smaller amount is sent back. 
+`queryResultsOpt`, no matter what mode of record retrieval was requested here is the place which will hold the found
+records. If a service is requested but no records can be handed back, the response will contain an empty array.   
+In case of use of the "topRecords" variation, those records will be sorted downwards and limited by their maximum count
+while their ordering depends on the second parameter that participated in the request (either by Balance or Age).
+If the table contains fewer records than requested by the count, a smaller amount is sent back.
+With the more customized query, a limiting range of both age and balances can be specified by the user and these two
+will determine the subset of records being returned. The results are always sorted by balance here. As well as with
+the previous, this kind of request produces an empty array if no records could be retrieved. 
+It's of note that these requests are optional and also because it is possible to request only one table view, not of
+both tables together, Null might be returned in various places, either at the level of individual tables or in the place
+of the whole thing. 
 
-`payable` is the part of top records referring to payable records if any exist. 
+`payableOpt` is the part referring to payable records if any exist, as explained before, Null or an empty array are also
+possible.
 
 `wallet` is a wallet of the Node that we owe to.
 
-`ageS` is a number of seconds that elapsed since our payment to this particular Node was confirmed last time.
+`ageS` is a number of seconds that elapsed since our payment to this particular Node was sent out last time, and the
+payment was later also confirmed on the blockchain.
 
 `balanceGwei` is a number of Gwei we owe to this particular Node.
 
@@ -719,18 +711,6 @@ redeem his liabilities.
 
 `balanceGwei` is a number of Gwei that this debtor owes to us.
 
-`customQueryRecordsOpt` is a response to those more complex queries with specific ranges of records. This response comes
-divided into two halves, the payable and the receivable. By using this query, though, it is still possible to query about
-just one from that pair.
-
-`payableOpt` can be omitted if at least `receivableOpt` has been requested. It represents specifically picked accounts from
-the payable table as a result of applying two-parameter filter consisted of a specific range in age and balance.
-
-`receivableOpt` can be omitted if at least `payableOpt` has been requested. It represents specifically picked accounts
-from the receivable table as a result of applying two-parameter filter consisted of a specific range in age and balance.
-
-The content of both retrieved subsets is structurally identical to those records that were described in detail above for
-`topRecords`.
 
 #### `generateWallets`
 ##### Direction: Request

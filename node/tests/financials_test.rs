@@ -14,9 +14,9 @@ use masq_lib::utils::find_free_port;
 use node_lib::accountant::dao_utils::{from_time_t, to_time_t};
 use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
+use node_lib::sub_lib::accountant::WEIS_OF_GWEI;
 use node_lib::test_utils::make_wallet;
 use std::time::SystemTime;
-use node_lib::sub_lib::accountant::WEIS_OF_GWEI;
 use utils::MASQNode;
 
 #[test]
@@ -88,7 +88,10 @@ fn financials_command_retrieves_payable_and_receivable_records() {
     let payable = query_results.payable_opt.unwrap();
     let receivable = query_results.receivable_opt.unwrap();
     assert_eq!(payable[0].wallet, wallet_payable.to_string());
-    assert_eq!(payable[0].balance_gwei, (amount_payable / WEIS_OF_GWEI as u128) as u64);
+    assert_eq!(
+        payable[0].balance_gwei,
+        (amount_payable / WEIS_OF_GWEI as u128) as u64
+    );
     assert_eq!(payable[0].pending_payable_hash_opt, None);
     assert_eq!(receivable[0].wallet, wallet_receivable_1.to_string());
     assert_eq!(receivable[0].balance_gwei, amount_receivable_1 as i64);

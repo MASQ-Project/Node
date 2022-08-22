@@ -120,6 +120,8 @@ pub struct AssemblerFeeder {
     pub limit_clause: &'static str,
 }
 
+//be aware that balances smaller than one Gwei won't be shown,
+//if there aren't any bigger ones the function returns None
 impl<N: Copy + Display> CustomQuery<N> {
     pub fn query<R, S, F1, F2>(
         self,

@@ -8,6 +8,7 @@ use log::Level;
 use regex::escape;
 use serde_derive::Serialize;
 
+use masq_lib::messages::TopRecordsOrdering::Balance;
 use masq_lib::messages::{FromMessageBody, ScanType, ToMessageBody, UiScanRequest, UiScanResponse};
 use masq_lib::test_utils::utils::is_running_under_github_actions;
 use masq_lib::utils::find_free_port;
@@ -88,7 +89,7 @@ fn debtors_are_credited_once_but_not_twice() {
             .more_money_receivable(
                 SystemTime::UNIX_EPOCH.add(Duration::from_secs(15_000_000)),
                 &Wallet::new("0x3333333333333333333333333333333333333333"),
-                1_000_000,
+                9_000_000_000,
             )
             .unwrap();
     }
@@ -99,12 +100,13 @@ fn debtors_are_credited_once_but_not_twice() {
             .custom_query(CustomQuery::RangeQuery {
                 min_age_s: 0,
                 max_age_s: i64::MAX as u64,
-                min_amount_gwei: i64::MIN,
+                min_amount_gwei: 0,
                 max_amount_gwei: i64::MAX,
+                timestamp: SystemTime::now(),
             })
             .unwrap_or_default();
         assert_eq!(receivable_accounts.len(), 1);
-        assert_eq!(receivable_accounts[0].balance_wei, 1_000_000);
+        assert_eq!(receivable_accounts[0].balance_wei, 9_000_000_000);
     }
     // Use the config DAO to verify that the start block has been set to 1000
     {
@@ -137,10 +139,11 @@ fn debtors_are_credited_once_but_not_twice() {
                 max_age_s: i64::MAX as u64,
                 min_amount_gwei: i64::MIN,
                 max_amount_gwei: i64::MAX,
+                timestamp: SystemTime::now(),
             })
             .unwrap_or_default();
         assert_eq!(receivable_accounts.len(), 1);
-        assert_eq!(receivable_accounts[0].balance_wei, 1_000_000);
+        assert_eq!(receivable_accounts[0].balance_wei, 9_000_000_000);
     }
     // Use the config DAO to verify that the start block has been advanced to 2001
     {
