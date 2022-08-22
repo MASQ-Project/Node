@@ -194,4 +194,86 @@ mod tests {
                    10000001 owed for 2592001sec exceeds threshold: 9999604; creditor: 0x0000000000000000000000000077616c6c657431"
         )
     }
+
+    // TODO: Either make this test work or write an alternative test in the desired file
+    // #[test]
+    // fn threshold_calculation_depends_on_user_defined_payment_thresholds() {
+    //     let safe_age_params_arc = Arc::new(Mutex::new(vec![]));
+    //     let safe_balance_params_arc = Arc::new(Mutex::new(vec![]));
+    //     let calculate_payable_threshold_params_arc = Arc::new(Mutex::new(vec![]));
+    //     let balance = 5555;
+    //     let how_far_in_past = Duration::from_secs(1111 + 1);
+    //     let last_paid_timestamp = SystemTime::now().sub(how_far_in_past);
+    //     let payable_account = PayableAccount {
+    //         wallet: make_wallet("hi"),
+    //         balance,
+    //         last_paid_timestamp,
+    //         pending_payable_opt: None,
+    //     };
+    //     let custom_payment_thresholds = PaymentThresholds {
+    //         maturity_threshold_sec: 1111,
+    //         payment_grace_period_sec: 2222,
+    //         permanent_debt_allowed_gwei: 3333,
+    //         debt_threshold_gwei: 4444,
+    //         threshold_interval_sec: 5555,
+    //         unban_below_gwei: 3333,
+    //     };
+    //     let mut bootstrapper_config = BootstrapperConfig::default();
+    //     bootstrapper_config.accountant_config_opt = Some(AccountantConfig {
+    //         scan_intervals: Default::default(),
+    //         payment_thresholds: custom_payment_thresholds,
+    //         suppress_initial_scans: false,
+    //         when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
+    //     });
+    //     let payable_thresholds_tools = PayableThresholdToolsMock::default()
+    //         .is_innocent_age_params(&safe_age_params_arc)
+    //         .is_innocent_age_result(
+    //             how_far_in_past.as_secs()
+    //                 <= custom_payment_thresholds.maturity_threshold_sec as u64,
+    //         )
+    //         .is_innocent_balance_params(&safe_balance_params_arc)
+    //         .is_innocent_balance_result(
+    //             balance <= custom_payment_thresholds.permanent_debt_allowed_gwei,
+    //         )
+    //         .calculate_payout_threshold_params(&calculate_payable_threshold_params_arc)
+    //         .calculate_payout_threshold_result(4567.0); //made up value
+    //     let mut subject = AccountantBuilder::default()
+    //         .bootstrapper_config(bootstrapper_config)
+    //         .build();
+    //     subject.scanners.payables.payable_thresholds_tools = Box::new(payable_thresholds_tools);
+    //
+    //     let result = subject.payable_exceeded_threshold(&payable_account);
+    //
+    //     assert_eq!(result, Some(4567));
+    //     let mut safe_age_params = safe_age_params_arc.lock().unwrap();
+    //     let safe_age_single_params = safe_age_params.remove(0);
+    //     assert_eq!(*safe_age_params, vec![]);
+    //     let (time_elapsed, curve_derived_time) = safe_age_single_params;
+    //     assert!(
+    //         (how_far_in_past.as_secs() - 3) < time_elapsed
+    //             && time_elapsed < (how_far_in_past.as_secs() + 3)
+    //     );
+    //     assert_eq!(
+    //         curve_derived_time,
+    //         custom_payment_thresholds.maturity_threshold_sec as u64
+    //     );
+    //     let safe_balance_params = safe_balance_params_arc.lock().unwrap();
+    //     assert_eq!(
+    //         *safe_balance_params,
+    //         vec![(
+    //             payable_account.balance,
+    //             custom_payment_thresholds.permanent_debt_allowed_gwei
+    //         )]
+    //     );
+    //     let mut calculate_payable_curves_params =
+    //         calculate_payable_threshold_params_arc.lock().unwrap();
+    //     let calculate_payable_curves_single_params = calculate_payable_curves_params.remove(0);
+    //     assert_eq!(*calculate_payable_curves_params, vec![]);
+    //     let (payment_thresholds, time_elapsed) = calculate_payable_curves_single_params;
+    //     assert!(
+    //         (how_far_in_past.as_secs() - 3) < time_elapsed
+    //             && time_elapsed < (how_far_in_past.as_secs() + 3)
+    //     );
+    //     assert_eq!(payment_thresholds, custom_payment_thresholds)
+    // }
 }
