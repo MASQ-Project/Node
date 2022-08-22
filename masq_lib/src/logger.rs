@@ -45,7 +45,7 @@ pub struct Logger {
 
 impl Debug for Logger {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Logger[\"{}\"]", self.name)
+        write!(f, "Logger{{ name: \"{}\" }}", self.name)
     }
 }
 
@@ -859,7 +859,7 @@ mod tests {
     fn debug_for_logger() {
         let logger = Logger::new("my new logger");
 
-        assert_eq!(format!("{:?}", logger), "Logger[\"my new logger\"]")
+        assert_eq!(format!("{:?}", logger), "Logger{ name: \"my new logger\" }")
     }
 
     fn timestamp_as_string(timestamp: &SystemTime) -> String {

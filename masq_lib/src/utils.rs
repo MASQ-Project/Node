@@ -337,22 +337,6 @@ pub fn type_name_of<T>(_examined: T) -> &'static str {
     std::any::type_name::<T>()
 }
 
-pub trait MaxValue {
-    fn max() -> Self;
-}
-
-impl MaxValue for i64 {
-    fn max() -> Self {
-        i64::MAX
-    }
-}
-
-impl MaxValue for u64 {
-    fn max() -> Self {
-        u64::MAX
-    }
-}
-
 #[macro_export]
 macro_rules! short_writeln {
     ($dst:expr) => (
@@ -718,15 +702,5 @@ mod tests {
 
     fn test_max<T: MaxValue>() -> T {
         T::max()
-    }
-
-    #[test]
-    fn max_value_for_i64_works() {
-        assert_eq!(test_max::<i64>(), i64::MAX)
-    }
-
-    #[test]
-    fn max_value_for_u64_works() {
-        assert_eq!(test_max::<u64>(), u64::MAX)
     }
 }

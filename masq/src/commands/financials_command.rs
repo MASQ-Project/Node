@@ -19,10 +19,8 @@ use std::collections::VecDeque;
 use std::default::Default;
 use std::fmt::{Debug, Display};
 use std::io::Write;
-use std::mem::replace;
 use std::num::{IntErrorKind, ParseIntError};
 use std::ops::{Add, Mul};
-use std::process::id;
 use std::str::FromStr;
 use thousands::Separable;
 
@@ -174,7 +172,7 @@ macro_rules! dump_statistics_lines {
     }
 }
 
-macro_rules! process_retrieved_records {
+macro_rules! process_records_after_their_fly_home {
     ($self:expr, $stdout: expr, $account_type: literal, $headings: expr, $user_range_format: ident,
     $query_results_opt: expr, $write_headings_fn: ident, $render_single_account_fn: ident) => {
         if $self.top_records_opt.is_some() {
@@ -218,7 +216,7 @@ macro_rules! process_retrieved_records {
     };
 }
 
-macro_rules! are_two_dumps_to_be_printed_half_condition {
+macro_rules! are_two_dumps {
     ($self: expr, $($user_format_field: ident),+) => {
         ($self.top_records_opt.is_some() ||
             (
@@ -241,7 +239,7 @@ type RangeQueryInputs<T> = (Option<RangeQuery<T>>, Option<UsersOriginalLiteralRa
 
 impl FinancialsCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
-        fn rearrange_range_queries_inputs<T, U>(
+        fn refine_range_query_inputs<T, U>(
             tuple: (Option<RangeQueryInputs<T>>, Option<RangeQueryInputs<U>>),
         ) -> (RangeQueryInputs<T>, RangeQueryInputs<U>) {
             (tuple.0.unwrap_or_default(), tuple.1.unwrap_or_default())
@@ -263,7 +261,7 @@ impl FinancialsCommand {
                 let (
                     (payable_opt, user_payable_format_opt),
                     (receivable_opt, user_receivable_format_opt),
-                ) = rearrange_range_queries_inputs(tuple);
+                ) = refine_range_query_inputs(tuple);
                 Some(CustomQueryInput {
                     query: RefCell::new(Some(CustomQueries {
                         payable_opt,
@@ -331,10 +329,10 @@ impl FinancialsCommand {
         leading_dump: bool,
         gwei_flag: bool,
     ) {
-        let two_dumps = self.two_dumps();
+        let two_dumps = self.are_two_dumps();
         let (payable_headings, receivable_headings) = Self::prepare_headings_of_records(gwei_flag);
         Self::triple_or_single_blank_line(stdout, leading_dump);
-        process_retrieved_records!(
+        process_records_after_their_fly_home!(
             self,
             stdout,
             "payable",
@@ -347,7 +345,7 @@ impl FinancialsCommand {
         if two_dumps {
             Self::triple_or_single_blank_line(stdout, false)
         }
-        process_retrieved_records!(
+        process_records_after_their_fly_home!(
             self,
             stdout,
             "receivable",
@@ -359,12 +357,8 @@ impl FinancialsCommand {
         );
     }
 
-    fn two_dumps(&self) -> bool {
-        are_two_dumps_to_be_printed_half_condition!(
-            self,
-            user_payable_format_opt,
-            user_receivable_format_opt
-        )
+    fn are_two_dumps(&self) -> bool {
+        are_two_dumps!(self, user_payable_format_opt, user_receivable_format_opt)
     }
 
     fn parse_top_records_arg(matches: &ArgMatches) -> Option<TopRecordsConfig> {
@@ -496,9 +490,9 @@ impl FinancialsCommand {
 
     fn process_gwei_into_right_format<T: Separable + Display + PartialEq + From<u32>>(
         gwei: T,
-        should_be_gwei: bool,
+        should_stay_gwei: bool,
     ) -> String {
-        if should_be_gwei {
+        if should_stay_gwei {
             gwei.separate_with_commas()
         } else {
             Self::convert_masq_from_gwei_and_dress_well(gwei)
@@ -539,17 +533,8 @@ impl FinancialsCommand {
             .collect()
     }
 
-    fn prepare_trait_objects<W: StringValuesOfAccount>(
-        accounts: &[W],
-    ) -> Vec<&dyn (StringValuesOfAccount)> {
-        accounts
-            .iter()
-            .map(|each| each as &dyn StringValuesOfAccount)
-            .collect()
-    }
-
-    fn create_subset_of_strings_ignoring_the_ordinal_numbers(
-        accounts: &[&dyn StringValuesOfAccount],
+    fn create_subset_of_strings_ignoring_the_ordinal_numbers<S: StringValuesOfAccount>(
+        accounts: &[S],
         gwei: bool,
     ) -> Vec<Vec<String>> {
         accounts
@@ -567,7 +552,7 @@ impl FinancialsCommand {
         render_account_fn: fn(&mut dyn Write, &[String], &[usize], usize),
     ) {
         let preformatted_subset = Self::create_subset_of_strings_ignoring_the_ordinal_numbers(
-            &Self::prepare_trait_objects(&accounts),
+            &accounts,
             headings.is_gwei,
         );
         let optimal_widths = Self::width_precise_calculation(headings, &preformatted_subset);
@@ -685,7 +670,7 @@ impl FinancialsCommand {
     fn correct_users_writing_if_needed(
         user_ranges: &UsersOriginalLiteralRanges,
     ) -> (String, String) {
-        fn resolve_captures(captures: Captures) -> [Option<String>; 3] {
+        fn handle_captures(captures: Captures) -> [Option<String>; 3] {
             let fetch_group = |idx: usize| FinancialsCommand::single_capture(&captures, idx);
             [
                 fetch_group(1),
@@ -727,7 +712,7 @@ impl FinancialsCommand {
         let apply_care = |remembered_user_input: &str| {
             simplified_syntax_extractor
                 .captures(remembered_user_input)
-                .map(resolve_captures)
+                .map(handle_captures)
                 .unwrap_or_else(
                     || panic!("Broken code: value must have been present during a check but yet wrong: {}",remembered_user_input)
                 )
@@ -776,7 +761,7 @@ impl FinancialsCommand {
 
     fn yield_bigger_values_from_vecs(
         column_count: usize,
-        mut first: Vec<usize>,
+        first: Vec<usize>,
         second: Vec<usize>,
     ) -> Vec<usize> {
         (0..column_count).fold(vec![], |acc_inner, idx| {
@@ -825,7 +810,7 @@ impl FinancialsCommand {
         masq_range_str: &str,
         masq_values_range_regex: Regex,
     ) -> Result<(String, Option<String>), String> {
-        fn resolve_captures(captures: Captures) -> (Option<String>, Option<String>) {
+        fn handle_captures(captures: Captures) -> (Option<String>, Option<String>) {
             let fetch_group = |idx: usize| FinancialsCommand::single_capture(&captures, idx);
             match (fetch_group(2), fetch_group(3)) {
                 (Some(second), Some(third)) => (Some(second), Some(third)),
@@ -842,7 +827,7 @@ impl FinancialsCommand {
 
         match masq_values_range_regex
             .captures(masq_range_str)
-            .map(resolve_captures)
+            .map(handle_captures)
         {
             Some((Some(first), Some(second))) => Ok((first, Some(second))),
             Some((Some(first), None)) => Ok((first, None)),
@@ -1543,7 +1528,7 @@ mod tests {
                 c: "baabaalooo",
             },
         ];
-        //filling being useful to reach an ordinal number of an account with more than just one digit, here three digits
+        //filling used to reach an ordinal number with more than just one digit, here three digits
         vec_of_accounts.append(&mut vec![
             TestAccount {
                 a: "",
@@ -1552,18 +1537,15 @@ mod tests {
             };
             100
         ]);
-        let to_inspect = vec_of_accounts
-            .iter()
-            .map(|each| each as &dyn StringValuesOfAccount)
-            .collect::<Vec<&dyn StringValuesOfAccount>>();
         let preformatted_subset =
             FinancialsCommand::create_subset_of_strings_ignoring_the_ordinal_numbers(
-                &to_inspect,
+                &vec_of_accounts,
                 false,
             );
 
         let result = FinancialsCommand::figure_out_max_widths(&preformatted_subset);
 
+        //the first number means number of digits within the biggest ordinal number
         assert_eq!(result, vec![3, 8, 5, 10])
     }
 
@@ -1695,18 +1677,18 @@ mod tests {
     }
 
     #[test]
-    fn two_dumps_works_for_top_records() {
+    fn are_two_dumps_works_for_top_records() {
         let subject =
             FinancialsCommand::new(&array_of_borrows_to_vec(&["financials", "--top", "20"]))
                 .unwrap();
 
-        let result = subject.two_dumps();
+        let result = subject.are_two_dumps();
 
         assert_eq!(result, true)
     }
 
     #[test]
-    fn two_dumps_works_for_custom_query_with_only_payable() {
+    fn are_two_dumps_works_for_custom_query_with_only_payable() {
         let subject = FinancialsCommand::new(&array_of_borrows_to_vec(&[
             "financials",
             "--payable",
@@ -1714,13 +1696,13 @@ mod tests {
         ]))
         .unwrap();
 
-        let result = subject.two_dumps();
+        let result = subject.are_two_dumps();
 
         assert_eq!(result, false)
     }
 
     #[test]
-    fn two_dumps_works_for_custom_query_with_only_receivable() {
+    fn are_two_dumps_works_for_custom_query_with_only_receivable() {
         let subject = FinancialsCommand::new(&array_of_borrows_to_vec(&[
             "financials",
             "--receivable",
@@ -1728,13 +1710,13 @@ mod tests {
         ]))
         .unwrap();
 
-        let result = subject.two_dumps();
+        let result = subject.are_two_dumps();
 
         assert_eq!(result, false)
     }
 
     #[test]
-    fn two_dumps_works_for_custom_query_with_both() {
+    fn are_two_dumps_works_for_custom_query_with_both() {
         let subject = FinancialsCommand::new(&array_of_borrows_to_vec(&[
             "financials",
             "--receivable",
@@ -1744,7 +1726,7 @@ mod tests {
         ]))
         .unwrap();
 
-        let result = subject.two_dumps();
+        let result = subject.are_two_dumps();
 
         assert_eq!(result, true)
     }

@@ -926,9 +926,9 @@ mod tests {
     }
 
     #[test]
-    //this and the opposite test (with just a small number subtracted) has an important implication: if we subtract small numbers we will very easily enter encounter an update with overflow,
+    //this and the oppositely focused test (with just a small number subtracted) has an important implication: if we subtract small numbers we will very easily enter encounter an update with overflow,
     //on the contrary, if we subtract very big numbers the chance is the smallest. The reason is in representation of those small negative numbers being subtracted, their low bytes are codified
-    //by a huge integer. This implies that often
+    //by a huge integer.
     fn update_alone_in_its_pure_look_works_just_fine_for_subtraction() {
         precise_upsert_or_update_assertion(
             "update_alone_in_its_pure_look_works_just_fine_for_subtraction",

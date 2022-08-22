@@ -566,7 +566,10 @@ field will be null or absent.
 ```
 "payload": {
     "statsRequired": <boolean>,
-    "topRecordsOpt": <optional positive integer>
+    "topRecordsOpt": <optional {
+            "count": <positive integer>,
+            "sortedBy": <string>
+        }>,
     "customQueriesOpt": <optional {
         "payableOpt" : <optional {
             "minAgeS": <positive integer>,
@@ -585,27 +588,53 @@ field will be null or absent.
 ```
 ##### Description:
 This command can serve several purposes. The standard one is to request financial statistics from the Node. There are 
-other options like to ask for a configurable view into the database, to be able to look at tracked debts of accounts
-written in it. Available for both the payable and receivable table. This can be achieved with different input,
-configurable parameters affecting the look of the output.
-One way is a query of top N records, ordered by balances, which automatically returns a given overview for each table.
-Other time, the user has a possibility to make up a more customized query for each table (possibly needing just one,
-but it works as well as both at the same time). That is done by supplying one range for ages and one for balances,
-limiting a subset of records that fit between those values.   
+other options like to ask for a view into the database, allowing customization, to be able to look at tracked debts
+of accounts recorded in the respective tables. Such an option is available for both the payable and receivable table.
+This can be achieved with different input, configurable parameters affecting the look of the output.
 
-While statistics has been considered a principal feature, command submitted like that will report back information
-about the Node's historical financial operations. This will include as well services ordered from other Nodes as services
-provided for other Nodes, represented by monetary values owed and paid to and from this Node's wallets.
+One way is a query of top N records, ordered according to one's choice either by their balances or ages. This kind
+of the request automatically returns given overviews for a pair of tables.
+
+Another time, the user can make up a more customized query for each table (possibly needing just one,
+but it works as well as both at the same time). The user must supply two ranges, one for age and one for balance,
+to set restrictions that will be put on the returned records.
+Usually the extremes in values supported by this query comes from the limits of a signed 64-bit integer. Values bigger
+than that will be caught and returned with an error.
+
+An important fact is that those two modes described above are mutually exclusive.
+
+While statistics has been considered an important feature of this command, if submitted like that, it will report back
+information about the Node's historical financial operations. This will include as well services ordered from other
+Nodes as services provided for other Nodes, represented by monetary values owed and paid to and from this Node's
+wallets.
 
 `statsRequested` works for signalization of a refusal of the statistics and so, if those yet wanted, this boolean flag
 should stay as `true`. However, using `false` without any attached query is forbidden as it would lead to a pointless
 request.
 
-`topRecordsOpt` initiates a request for a given number of top records in the tables. It should be a number bigger than
-zero. This information is also optional and so it stays out unless specified.
+`topRecordsOpt` initiates a request for a given number of top records in the tables. An optional feature. It is good to
+know that only accounts with positive balances can be displayed in this mode which means some receivables theoretically
+might be omitted given their nature of possible negative numbers.
 
-`customQueriesOpt` provides a way how to get a summary of accounts filtered by more specific parameters. It works for
-both payable and receivable, and it makes it possible to scope only one of those.
+`count` is number of records to be returned if they exist. It should be a number bigger than zero. The other side limit
+is made by unsigned 16-bit integer.
+
+`sortedBy` allows a choice of ordering, while each one goes downwards. Possible values: `Balance` and  `Age`.
+
+`customQueriesOpt` provides a way to get a summary of accounts with a more specific filter. It works for both account
+types receivable, and it is possible to decide for only one of those. This query would work also if one demands to
+display negative balances, and thus it is a good fit for a check of receivable accounts being negative. 
+
+`payableOpt` is an optional field and if supplied it sets the limits which will be applied in the search for accounts
+matching the requirements.
+
+`receivableOpt` is an optional field and if supplied it sets the limits which will be applied in the search for
+accounts matching the requirements.
+
+The following parts of objects possibly attached to those two previous fields are mostly the same for both.  
+The only difference is in value limits over the balance parameters where for payables you can supply values from 0
+to the maximum of signed 64-bit integer and for receivables the limits are from the minimum of signed 64-integer to
+up to its maximum.   
 
 `minAgeS` is measured in seconds from the present time and represents a constraint for the accounts we will be 
 searching over; this is the lower limit of the debt's age, respectively how long has it been since the last payment.
@@ -617,10 +646,7 @@ searching over; this is the upper limit of the debt's age, respectively how long
 their balances.
 
 `maxBalanceGwei` means an amount of Gwei, the maximal value to what the accounts to be reported should fit in with
-their balances. Suggestion: In our command line interface, we implemented this parameter as optional from the view of
-the user, if not specified, we automatically choose the biggest value under the hood, which is either a maximum of
-an unsigned 64-bit long integer or the signed version of it, depending on what table is queried (receivables are
-believed to be able to go down under zero). 
+their balances.
 
 #### `financials`
 ##### Direction: Response
@@ -660,13 +686,13 @@ Contains the requested financial statistics or parameterized views into the data
 
 `statsOpt` provides a collection of metrics about services consumed and provided.
 
-`totalUnpaidAndPendingPayableGwei` is the number of Gwei we believe we owe to other Nodes and that those other Nodes have
-not yet received, as far as we know. This includes both bills we haven't yet paid and bills we have paid, but whose
+`totalUnpaidAndPendingPayableGwei` is the number of Gwei we believe we owe to other Nodes and that those other Nodes
+have not yet received, as far as we know. This includes both bills we haven't yet paid and bills we have paid, but whose
 transactions we have not yet seen confirmed on the blockchain.
 
-`totalPaidPayableGwei` is the number of Gwei we have successfully paid to our creditors and seen confirmed during the time
-the current instance of the Node has been running. In the future, this number may become cumulative over more time than
-just the current Node run.
+`totalPaidPayableGwei` is the number of Gwei we have successfully paid to our creditors and seen confirmed during the
+time the current instance of the Node has been running. In the future, this number may become cumulative over more time
+than just the current Node run.
 
 `totalUnpaidReceivableGwei` is the number of Gwei we believe other Nodes owe to us, but have not yet been included in
 payments we have seen confirmed on the blockchain. This includes both payments that have never been made and also
@@ -685,11 +711,11 @@ With the more customized query, a limiting range of both age and balances can be
 will determine the subset of records being returned. The results are always sorted by balance here. As well as with
 the previous, this kind of request produces an empty array if no records could be retrieved. 
 It's of note that these requests are optional and also because it is possible to request only one table view, not of
-both tables together, Null might be returned in various places, either at the level of individual tables or in the place
-of the whole thing. 
+both tables together, Null might be returned in various places, either at the level of individual tables or in the
+place of the whole thing. 
 
-`payableOpt` is the part referring to payable records if any exist, as explained before, Null or an empty array are also
-possible.
+`payableOpt` is the part referring to payable records if any exist, as explained before, Null or an empty array are
+also possible.
 
 `wallet` is a wallet of the Node that we owe to.
 
@@ -698,7 +724,7 @@ payment was later also confirmed on the blockchain.
 
 `balanceGwei` is a number of Gwei we owe to this particular Node.
 
-`pendingPayableHashOpt` is present only sporadically, but says that we've recently approached paying our debt, 
+`pendingPayableHashOpt` is present only sporadically, but says that we've recently approached paying our debt,
 but the payment wasn't confirmed yet by our confirmation detector. If the value is present, it gives you a transaction
 hash of the so-believed pending transaction. 
 

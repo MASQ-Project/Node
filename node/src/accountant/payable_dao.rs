@@ -40,7 +40,7 @@ pub struct PayableAccount {
     pub pending_payable_opt: Option<PendingPayableId>,
 }
 
-//TODO two to three of these fields can be technically eliminated now but I think my old plan was not to do that because it could be potentially useful set of information,
+//TODO two to three of these fields can be technically eliminated now but I think my old plan was not to do that because it could be potentially a useful set of information,
 // I somehow didn't trust unconditionally to the pending payable record to be always secure - and so I still think this might wait for GH-576
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Payable {
