@@ -26,13 +26,13 @@ use thousands::Separable;
 
 const FINANCIALS_SUBCOMMAND_ABOUT: &str =
     "Displays financial statistics of this Node. Only valid if Node is already running.";
-const TOP_ARG_HELP: &str = "Returns a subset of the top N records (or fewer, if their total count is smaller) from both payable and receivable. By default, the ordering is done by balance but can be changed with the additional '--sorted' argument";
+const TOP_ARG_HELP: &str = "Returns a subset of the top N records (or fewer, if their total count is smaller) from both payable and receivable. By default, the ordering is done by balance but can be changed with the additional '--ordered' argument";
 const PAYABLE_ARG_HELP: &str = "Forms a detailed query about payable records by specifying two ranges, one for their age in seconds and another for their balance in MASQs (decimal numbers are supported, allowing Gwei precision). The desirable format of those values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>";
 const RECEIVABLE_ARG_HELP: &str = "Forms a detailed query about receivable records by specifying two ranges, one for their age in seconds and another for their balance in MASQs (decimal numbers are supported, allowing Gwei precision). The desirable format of those values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>";
 const NO_STATS_ARG_HELP: &str = "Disables statistics that displays by default, containing totals of paid and unpaid money from the perspective of debtors and creditors. This argument is not accepted alone and must be placed before other arguments";
 const GWEI_HELP: &str =
     "Orders rendering amounts of money in Gwei of MASQ instead of whole MASQs as the default";
-const SORTED_HELP: &str = "Allows a choice of parameter by which the returned records are sorted. This option works only together with the '--top' argument. Possible values: 'balance' or 'age', but 'balance' is defaulted and so hidden";
+const ORDERED_HELP: &str = "Allows a choice of parameter determining the order of the returned records. This option works only together with the '--top' argument. Possible values: 'balance' or 'age', but 'balance' is defaulted and so hidden";
 const WALLET_ADDRESS_LENGTH: usize = 42;
 
 #[derive(Debug, PartialEq)]
@@ -109,10 +109,10 @@ pub fn financials_subcommand() -> App<'static, 'static> {
                 .required(false),
         )
         .arg(
-            Arg::with_name("sorted")
-                .help(SORTED_HELP)
-                .value_name("SORTED")
-                .long("sorted")
+            Arg::with_name("ordered")
+                .help(ORDERED_HELP)
+                .value_name("ORDERED")
+                .long("ordered")
                 .short("s")
                 .case_insensitive(false)
                 .default_value_if("top", None, "balance")
@@ -132,9 +132,9 @@ pub fn financials_subcommand() -> App<'static, 'static> {
             ArgGroup::with_name("top-records-conflicts")
                 .args(&["top"])
                 .conflicts_with("custom-queries")
-                .requires("sorted"),
-            ArgGroup::with_name("sorted-conflicts")
-                .arg("sorted")
+                .requires("ordered"),
+            ArgGroup::with_name("ordered-conflicts")
+                .arg("ordered")
                 .conflicts_with("custom-queries"),
         ])
 }
@@ -367,7 +367,7 @@ impl FinancialsCommand {
                 .parse::<u16>()
                 .expect("top records count not properly validated"),
             ordered_by: matches
-                .value_of("sorted")
+                .value_of("ordered")
                 .expect("should be required and defaulted")
                 .try_into()
                 .expect("Clap did not catch invalid value"),
@@ -978,7 +978,7 @@ mod tests {
         );
         assert_eq!(
             TOP_ARG_HELP,
-            "Returns a subset of the top N records (or fewer, if their total count is smaller) from both payable and receivable. By default, the ordering is done by balance but can be changed with the additional '--sorted' argument"
+            "Returns a subset of the top N records (or fewer, if their total count is smaller) from both payable and receivable. By default, the ordering is done by balance but can be changed with the additional '--ordered' argument"
         );
         assert_eq!(PAYABLE_ARG_HELP,"Forms a detailed query about payable records by specifying two ranges, one for their age in seconds and another for their balance in MASQs (decimal numbers are supported, allowing Gwei precision). The desirable format of those values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>");
         assert_eq!(RECEIVABLE_ARG_HELP,"Forms a detailed query about receivable records by specifying two ranges, one for their age in seconds and another for their balance in MASQs (decimal numbers are supported, allowing Gwei precision). The desirable format of those values is <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>");
@@ -987,7 +987,7 @@ mod tests {
             GWEI_HELP,
             "Orders rendering amounts of money in Gwei of MASQ instead of whole MASQs as the default"
         );
-        assert_eq!(SORTED_HELP, "Allows a choice of parameter by which the returned records are sorted. This option works only together with the '--top' argument. Possible values: 'balance' or 'age', but 'balance' is defaulted and so hidden");
+        assert_eq!(ORDERED_HELP, "Allows a choice of parameter determining the order of the returned records. This option works only together with the '--top' argument. Possible values: 'balance' or 'age', but 'balance' is defaulted and so hidden");
         assert_eq!(WALLET_ADDRESS_LENGTH, 42);
     }
 
@@ -1174,7 +1174,7 @@ mod tests {
             "{}",
             err
         );
-        assert!(err.contains("financials <--receivable <RECEIVABLE>|--payable <PAYABLE>|--top <TOP>> <--payable <PAYABLE>|--receivable <RECEIVABLE>> <--sorted <SORTED>> <--top <TOP>>"),"{}",err)
+        assert!(err.contains("financials <--receivable <RECEIVABLE>|--payable <PAYABLE>|--top <TOP>> <--payable <PAYABLE>|--receivable <RECEIVABLE>> <--ordered <ORDERED>> <--top <TOP>>"),"{}",err)
     }
 
     fn assert_on_text_simply_in_ide_and_otherwise_in_terminal(
@@ -1236,14 +1236,14 @@ mod tests {
     }
 
     #[test]
-    fn sorted_arg_can_be_combined_with_top_records_only() {
+    fn ordered_can_be_combined_with_top_records_only() {
         let factory = CommandFactoryReal::new();
 
         let result = factory.make(&array_of_borrows_to_vec(&[
             "financials",
             "--receivable",
             "5-100|600-7000",
-            "--sorted",
+            "--ordered",
             "age",
         ]));
 
@@ -1261,13 +1261,13 @@ mod tests {
             "{}",
             err
         );
-        assert!(err.contains("financials <--receivable <RECEIVABLE>|--payable <PAYABLE>|--top <TOP>> <--payable <PAYABLE>|--receivable <RECEIVABLE>> <--sorted <SORTED>>"),"{}",err)
+        assert!(err.contains("financials <--receivable <RECEIVABLE>|--payable <PAYABLE>|--top <TOP>> <--payable <PAYABLE>|--receivable <RECEIVABLE>> <--ordered <ORDERED>>"),"{}",err)
     }
 
     #[test]
-    fn sorted_have_just_two_possible_values() {
+    fn ordered_have_just_two_possible_values() {
         let args =
-            array_of_borrows_to_vec(&["financials", "--top", "11", "--sorted", "upside-down"]);
+            array_of_borrows_to_vec(&["financials", "--top", "11", "--ordered", "upside-down"]);
 
         let result = financials_subcommand()
             .get_matches_from_safe(args)
@@ -1277,7 +1277,7 @@ mod tests {
             &result.message,
             &[
                 ("upside-down", true),
-                ("--sorted <SORTED>", true),
+                ("--ordered <ORDERED>", true),
                 ("age", false),
                 ("balance", false),
             ],
@@ -1378,14 +1378,20 @@ mod tests {
     }
 
     #[test]
-    fn financials_command_top_records_sorted_by_age_instead_of_balance() {
+    fn financials_command_top_records_ordered_by_age_instead_of_balance() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let irrelevant_response = UiFinancialsResponse {
             stats_opt: None,
             query_results_opt: None,
         };
-        let args =
-            array_of_borrows_to_vec(&["financials", "--no-stats", "--top", "7", "--sorted", "age"]);
+        let args = array_of_borrows_to_vec(&[
+            "financials",
+            "--no-stats",
+            "--top",
+            "7",
+            "--ordered",
+            "age",
+        ]);
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(irrelevant_response.tmb(31)));
@@ -1413,7 +1419,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_top_records_arg_with_sorted_defaulted_to_balance() {
+    fn parse_top_records_arg_with_ordered_defaulted_to_balance() {
         let args = array_of_borrows_to_vec(&["financials", "--top", "11"]);
         let matches = financials_subcommand().get_matches_from_safe(args).unwrap();
 

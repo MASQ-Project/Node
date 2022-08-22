@@ -5257,7 +5257,7 @@ mod tests {
     }
 
     #[test]
-    fn compute_financials_processes_request_with_top_records_only_and_balance_sorting() {
+    fn compute_financials_processes_request_with_top_records_only_and_balance_ordering() {
         let payable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_accounts_retrieved = vec![PayableAccount {
@@ -5385,7 +5385,7 @@ mod tests {
     }
 
     #[test]
-    fn compute_financials_processes_request_with_top_records_only_and_age_sorting() {
+    fn compute_financials_processes_request_with_top_records_only_and_age_ordering() {
         let payable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao = PayableDaoMock::new()

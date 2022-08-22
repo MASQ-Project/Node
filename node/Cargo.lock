@@ -1829,6 +1829,7 @@ dependencies = [
 name = "masq"
 version = "0.6.0"
 dependencies = [
+ "atty",
  "chrono",
  "clap",
  "crossbeam-channel 0.5.1",

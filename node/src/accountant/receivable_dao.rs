@@ -1018,14 +1018,14 @@ mod tests {
     }
 
     #[test]
-    fn custom_query_in_top_records_mode_default_sorting() {
+    fn custom_query_in_top_records_mode_default_ordering() {
         //Accounts of balances smaller than one gwei don't qualify.
         //Two accounts differ only in debt's age but not balance which allows to check doubled ordering,
         //here by balance and then by age.
         let now = now_time_t();
         let main_test_setup = common_setup_of_accounts_for_tests_of_top_records(now);
         let subject = custom_query_test_body_for_receivable(
-            "custom_query_in_top_records_mode_default_sorting",
+            "custom_query_in_top_records_mode_default_ordering",
             main_test_setup,
         );
 
@@ -1059,14 +1059,14 @@ mod tests {
     }
 
     #[test]
-    fn custom_query_in_top_records_mode_sorted_by_age() {
+    fn custom_query_in_top_records_mode_ordered_by_age() {
         //Accounts of balances smaller than one gwei don't qualify.
         //Two accounts differ only in balance but not the debt's age which allows to check doubled ordering,
         //here by age and then by balance.
         let now = now_time_t();
         let main_test_setup = common_setup_of_accounts_for_tests_of_top_records(now);
         let subject = custom_query_test_body_for_receivable(
-            "custom_query_in_top_records_mode_sorted_by_age",
+            "custom_query_in_top_records_mode_ordered_by_age",
             main_test_setup,
         );
 

@@ -699,8 +699,4 @@ mod tests {
         let result = type_name_of(running_test);
         assert_eq!(result, "masq_lib::utils::running_test")
     }
-
-    fn test_max<T: MaxValue>() -> T {
-        T::max()
-    }
 }

@@ -568,7 +568,7 @@ field will be null or absent.
     "statsRequired": <boolean>,
     "topRecordsOpt": <optional {
             "count": <positive integer>,
-            "sortedBy": <string>
+            "orderedBy": <string>
         }>,
     "customQueriesOpt": <optional {
         "payableOpt" : <optional {
@@ -587,26 +587,26 @@ field will be null or absent.
 }
 ```
 ##### Description:
-This command can serve several purposes. The standard one is to request financial statistics from the Node. There are 
-other options like to ask for a view into the database, allowing customization, to be able to look at tracked debts
-of accounts recorded in the respective tables. Such an option is available for both the payable and receivable table.
-This can be achieved with different input, configurable parameters affecting the look of the output.
+This command can serve several purposes. The standard one is to request financial statistics from the Node. However,
+there are other options, like to ask for a view into the database (with multi-parameter customization), to be able to
+look at tracked debts of accounts recorded in respective tables. Such an option is available for both the payable and
+receivable table.
 
-One way is a query of top N records, ordered according to one's choice either by their balances or ages. This kind
-of the request automatically returns given overviews for a pair of tables.
+One way to pursue it is a query of top N records, ordered by one's choice, either by balance or age. This command setup
+automatically returns results for the tables in a pair.
 
-Another time, the user can make up a more customized query for each table (possibly needing just one,
-but it works as well as both at the same time). The user must supply two ranges, one for age and one for balance,
-to set restrictions that will be put on the returned records.
-Usually the extremes in values supported by this query comes from the limits of a signed 64-bit integer. Values bigger
-than that will be caught and returned with an error.
+The user also can make up a more customized query, even separately for each table (but it would work as well as it does
+for both at the same time). The user must input two ranges, one for age and one for balance. Those set restrictions
+together that will be put on the returned records.
+Regarding possible values, the utmost extremes supported by this query derive from the limits of a signed 64-bit
+integer. Bigger values will be caught and answered with an error.
 
-An important fact is that those two modes described above are mutually exclusive.
+An important fact is that the two different modes described above exclude each other, only one can go a time.
 
-While statistics has been considered an important feature of this command, if submitted like that, it will report back
-information about the Node's historical financial operations. This will include as well services ordered from other
-Nodes as services provided for other Nodes, represented by monetary values owed and paid to and from this Node's
-wallets.
+While statistics has been considered a spinal feature of this command, if submitted with that on, it will report back
+structured information about the Node's historical financial operations. This will include services ordered from other
+Nodes as well as the opposite, services provided for other Nodes, represented by monetary values owed and paid to
+and from this Node's wallets.
 
 `statsRequested` works for signalization of a refusal of the statistics and so, if those yet wanted, this boolean flag
 should stay as `true`. However, using `false` without any attached query is forbidden as it would lead to a pointless
@@ -619,7 +619,7 @@ might be omitted given their nature of possible negative numbers.
 `count` is number of records to be returned if they exist. It should be a number bigger than zero. The other side limit
 is made by unsigned 16-bit integer.
 
-`sortedBy` allows a choice of ordering, while each one goes downwards. Possible values: `Balance` and  `Age`.
+`orderedBy` allows a choice of ordering, while each one goes downwards. Possible values: `Balance` and  `Age`.
 
 `customQueriesOpt` provides a way to get a summary of accounts with a more specific filter. It works for both account
 types receivable, and it is possible to decide for only one of those. This query would work also if one demands to
