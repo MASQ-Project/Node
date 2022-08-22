@@ -259,7 +259,6 @@ pub fn make_new_test_multi_config<'a>(
 
 #[cfg(test)]
 mod tests {
-    use std::cell::RefCell;
     use super::*;
     use crate::apps::app_node;
     use actix::{Handler, System};
@@ -269,7 +268,6 @@ mod tests {
     use masq_lib::multi_config::CommandLineVcl;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::ops::Sub;
-    use std::rc::Rc;
 
     #[test]
     fn indicates_dead_stream_identifies_dead_stream_errors() {

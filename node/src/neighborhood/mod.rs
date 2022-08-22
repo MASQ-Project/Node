@@ -281,6 +281,7 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
                             self.node_to_ui_recipient_opt
                                 .as_ref()
                                 .expect("UI Gateway is unbound"),
+                            &self.logger
                         );
                 }
                 _ => (),
@@ -800,12 +801,16 @@ impl Neighborhood {
             payload_size: 10000,
         };
         if self.handle_route_query_message(msg).is_some() {
+            debug! (&self.logger, "check_connectedness: made a good route for the first time");
             self.overall_connection_status.update_can_make_routes(true);
             self.connected_signal_opt
                 .as_ref()
                 .expect("Accountant was not bound")
                 .try_send(StartMessage {})
                 .expect("Accountant is dead")
+        }
+        else {
+            debug! (&self.logger, "check_connectedness: still failing to make a route");
         }
     }
 
@@ -3813,7 +3818,7 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_does_not_updates_past_neighbors_without_password_even_when_neighbor_list_changes(
+    fn neighborhood_does_not_update_past_neighbors_without_password_even_when_neighbor_list_changes(
     ) {
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let old_neighbor = make_node_record(1111, true);

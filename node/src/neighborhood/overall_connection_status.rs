@@ -230,6 +230,7 @@ impl OverallConnectionStatus {
     pub fn update_ocs_stage_and_send_message_to_ui(
         &mut self,
         node_to_ui_recipient: &Recipient<NodeToUiMessage>,
+        logger: &Logger,
     ) {
         // For now, this function is only called when Standard or Introduction Gossip
         // is received, as it is implemented only for the advancing transitions right now
@@ -237,8 +238,12 @@ impl OverallConnectionStatus {
         // write a more generalized fn, which can be called when any stage gets updated
         let prev_stage = self.stage;
         if self.can_make_routes() {
+            debug!(logger, "We can make routes! Updating overall connection stage from {:?} to {:?}",
+                self.stage, OverallConnectionStage::ThreeHopsRouteFound);
             self.stage = OverallConnectionStage::ThreeHopsRouteFound;
         } else {
+            debug!(logger, "We can't make routes yet. Updating overall connection stage from {:?} to {:?}",
+                self.stage, OverallConnectionStage::ConnectedToNeighbor);
             self.stage = OverallConnectionStage::ConnectedToNeighbor;
         }
         if self.stage as usize > prev_stage as usize {
@@ -413,7 +418,7 @@ mod tests {
     }
 
     #[test]
-    fn can_recieve_a_result_of_connection_progress_from_peer_addr() {
+    fn can_receive_a_result_of_connection_progress_from_peer_addr() {
         let peer_1_ip = make_ip(1);
         let peer_2_ip = make_ip(2);
         let desc_1 = make_node_descriptor(peer_1_ip);
@@ -826,7 +831,8 @@ mod tests {
             assert_stage_and_node_to_ui_message(
                 initial_stage,
                 can_make_routes,
-                "updates_the_stage_to_three_hops_route_found_in_case_introduction_or_standard_gossip_is_received_and_flag_is_true"
+                "updates_the_stage_to_three_hops_route_found_in_case_introduction_or_standard_gossip_is_received_and_flag_is_true",
+                &Logger::new("test"),
             );
 
         assert_eq!(stage, OverallConnectionStage::ThreeHopsRouteFound);
@@ -852,7 +858,8 @@ mod tests {
             assert_stage_and_node_to_ui_message(
                 initial_stage,
                 can_make_routes,
-                "updates_the_stage_to_connected_to_neighbor_in_case_introduction_or_standard_gossip_is_received_and_flag_is_false"
+                "updates_the_stage_to_connected_to_neighbor_in_case_introduction_or_standard_gossip_is_received_and_flag_is_false",
+                &Logger::new("test"),
             );
 
         assert_eq!(stage, OverallConnectionStage::ConnectedToNeighbor);
@@ -878,6 +885,7 @@ mod tests {
             initial_stage,
             can_make_routes,
             "doesn_t_send_message_to_the_ui_in_case_introduction_or_standard_gossip_is_received_but_stage_hasn_t_updated",
+            &Logger::new("test"),
         );
 
         assert_eq!(stage, initial_stage);
@@ -894,7 +902,8 @@ mod tests {
             assert_stage_and_node_to_ui_message(
                 initial_stage,
                 can_make_routes,
-                "doesn_t_send_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor"
+                "doesn_t_send_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor",
+                &Logger::new("test"),
             );
 
         assert_eq!(stage, OverallConnectionStage::ConnectedToNeighbor);
@@ -911,6 +920,7 @@ mod tests {
         initial_stage: OverallConnectionStage,
         can_make_routes: bool,
         test_name: &str,
+        logger: &Logger,
     ) -> (OverallConnectionStage, Option<NodeToUiMessage>) {
         let mut subject =
             OverallConnectionStatus::new(vec![make_node_descriptor(make_ip(u8::MAX))]);
@@ -919,7 +929,7 @@ mod tests {
         let system = System::new(test_name);
 
         subject.update_can_make_routes(can_make_routes);
-        subject.update_ocs_stage_and_send_message_to_ui(&node_to_ui_recipient);
+        subject.update_ocs_stage_and_send_message_to_ui(&node_to_ui_recipient, logger);
 
         System::current().stop();
         assert_eq!(system.run(), 0);
