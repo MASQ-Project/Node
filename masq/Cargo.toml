@@ -27,6 +27,9 @@ ctrlc = "3.2.1"
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 nix = "0.23.0"
 
+[dev-dependencies]
+atty = "0.2.14"
+
 [lib]
 name = "masq_cli_lib"
 path = "src/lib.rs"

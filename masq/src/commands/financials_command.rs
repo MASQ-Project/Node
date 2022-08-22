@@ -11,7 +11,7 @@ use masq_lib::messages::{
 };
 use masq_lib::shared_schema::common_validators::validate_non_zero_u16;
 use masq_lib::short_writeln;
-use masq_lib::utils::{plus, ExpectValue, MaxValue};
+use masq_lib::utils::{plus, ExpectValue};
 use num::CheckedMul;
 use regex::{Captures, Regex};
 use std::cell::RefCell;
@@ -379,7 +379,7 @@ impl FinancialsCommand {
         parameter_name: &'a str,
     ) -> Option<RangeQueryInputs<T>>
     where
-        T: FromStr<Err = ParseIntError> + TryFrom<i64> + CheckedMul + Display + MaxValue,
+        T: FromStr<Err = ParseIntError> + TryFrom<i64> + CheckedMul + Display,
         <T as TryFrom<i64>>::Error: Debug,
     {
         let parse_params =
@@ -588,11 +588,7 @@ impl FinancialsCommand {
         words: &'a [&'a str],
         optimized_widths: &'a [usize],
     ) -> Vec<(&'a str, &'a usize)> {
-        words
-            .iter()
-            .map(|word| *word)
-            .zip(optimized_widths.iter())
-            .collect()
+        words.iter().copied().zip(optimized_widths.iter()).collect()
     }
 
     fn render_single_payable(
@@ -837,12 +833,7 @@ impl FinancialsCommand {
 
     pub fn parse_masq_range_to_gwei<N>(range_str: &str) -> Result<(N, N, String, String), String>
     where
-        N: FromStr<Err = ParseIntError>
-            + TryFrom<i64>
-            + Mul<Output = N>
-            + CheckedMul
-            + Display
-            + MaxValue,
+        N: FromStr<Err = ParseIntError> + TryFrom<i64> + Mul<Output = N> + CheckedMul + Display,
         <N as TryFrom<i64>>::Error: Debug,
     {
         let (first, second_opt) =
@@ -937,7 +928,7 @@ impl StringValuesOfAccount for UiReceivableAccount {
 
 pub fn validate_two_ranges<N>(double: String) -> Result<(), String>
 where
-    N: FromStr<Err = ParseIntError> + TryFrom<i64> + PartialOrd + Display + CheckedMul + MaxValue,
+    N: FromStr<Err = ParseIntError> + TryFrom<i64> + PartialOrd + Display + CheckedMul,
     <N as TryFrom<i64>>::Error: Debug,
 {
     fn checked_division<'a>(
@@ -970,6 +961,7 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
+    use atty::Stream;
     use masq_lib::messages::{
         ToMessageBody, TopRecordsOrdering, UiFinancialStatistics, UiFinancialsResponse,
         UiPayableAccount, UiReceivableAccount,
@@ -1163,7 +1155,10 @@ mod tests {
         ),"{}",err);
     }
 
-    fn top_records_mutual_exclusivity_assertion(args: &[&str], err_msg_first_part: &str) {
+    fn top_records_mutual_exclusivity_assertion(
+        args: &[&str],
+        affected_parameters: &[(&str, bool)],
+    ) {
         let factory = CommandFactoryReal::new();
 
         let result = factory.make(&array_of_borrows_to_vec(args));
@@ -1173,32 +1168,71 @@ mod tests {
             Err(CommandFactoryError::CommandSyntax(err_msg)) => err_msg,
             Err(e) => panic!("we expected CommandSyntax error but got: {:?}", e),
         };
-        assert!(err.contains(err_msg_first_part), "{}", err);
+        assert_on_text_simply_in_ide_and_otherwise_in_terminal(&err, affected_parameters);
+        assert!(
+            err.contains("cannot be used with one or more of the other specified arguments"),
+            "{}",
+            err
+        );
         assert!(err.contains("financials <--receivable <RECEIVABLE>|--payable <PAYABLE>|--top <TOP>> <--payable <PAYABLE>|--receivable <RECEIVABLE>> <--sorted <SORTED>> <--top <TOP>>"),"{}",err)
+    }
+
+    fn assert_on_text_simply_in_ide_and_otherwise_in_terminal(
+        err: &str,
+        searched_words: &[(&str, bool)],
+    ) {
+        fn with_quotes(quotes: bool) -> &'static str {
+            if quotes {
+                "'"
+            } else {
+                ""
+            }
+        }
+        searched_words.iter().for_each(|(string, quotes)| {
+            if atty::is(Stream::Stderr) {
+                let regex = Regex::new(&format!("\x1B\\[.*m{}\x1B\\[0m", string)).unwrap();
+                assert!(
+                    regex.is_match(&err),
+                    "the regex didn't chase {} down here: {}",
+                    string,
+                    err
+                )
+            } else {
+                assert!(
+                    err.contains(&format!(
+                        "{}{}{}",
+                        with_quotes(*quotes),
+                        string,
+                        with_quotes(*quotes)
+                    )),
+                    "{} is not in {}",
+                    string,
+                    err
+                )
+            }
+        })
     }
 
     #[test]
     fn command_factory_top_records_and_payable_custom_query_are_mutually_exclusive() {
-        top_records_mutual_exclusivity_assertion(&[
-            "financials",
-            "--top",
-            "15",
-            "--payable",
-            "5-100|600-7000",
-        ],
-"The argument '--payable <PAYABLE>' cannot be used with one or more of the other specified arguments",
+        top_records_mutual_exclusivity_assertion(
+            &["financials", "--top", "15", "--payable", "5-100|600-7000"],
+            &[("--payable <PAYABLE>", true)],
         )
     }
 
     #[test]
     fn command_factory_top_records_and_receivable_custom_query_are_mutually_exclusive() {
-        top_records_mutual_exclusivity_assertion(&[
-            "financials",
-            "--top",
-            "15",
-            "--receivable",
-            "5-100|600-7000",
-        ],"The argument '--receivable <RECEIVABLE>' cannot be used with one or more of the other specified arguments")
+        top_records_mutual_exclusivity_assertion(
+            &[
+                "financials",
+                "--top",
+                "15",
+                "--receivable",
+                "5-100|600-7000",
+            ],
+            &[("--receivable <RECEIVABLE>", true)],
+        )
     }
 
     #[test]
@@ -1218,8 +1252,42 @@ mod tests {
             Err(CommandFactoryError::CommandSyntax(err_msg)) => err_msg,
             Err(e) => panic!("we expected CommandSyntax error but got: {:?}", e),
         };
-        assert!(err.contains("The argument '--receivable <RECEIVABLE>' cannot be used with one or more of the other specified arguments"),"{}",err);
+        assert_on_text_simply_in_ide_and_otherwise_in_terminal(
+            &err,
+            &[("--receivable <RECEIVABLE>", true)],
+        );
+        assert!(
+            err.contains("cannot be used with one or more of the other specified arguments"),
+            "{}",
+            err
+        );
         assert!(err.contains("financials <--receivable <RECEIVABLE>|--payable <PAYABLE>|--top <TOP>> <--payable <PAYABLE>|--receivable <RECEIVABLE>> <--sorted <SORTED>>"),"{}",err)
+    }
+
+    #[test]
+    fn sorted_have_just_two_possible_values() {
+        let args =
+            array_of_borrows_to_vec(&["financials", "--top", "11", "--sorted", "upside-down"]);
+
+        let result = financials_subcommand()
+            .get_matches_from_safe(args)
+            .unwrap_err();
+
+        assert_on_text_simply_in_ide_and_otherwise_in_terminal(
+            &result.message,
+            &[
+                ("upside-down", true),
+                ("--sorted <SORTED>", true),
+                ("age", false),
+                ("balance", false),
+            ],
+        );
+        assert!(
+            result.message.contains("isn't a valid value for"),
+            "{}",
+            result
+        );
+        assert!(result.message.contains("[possible values: "), "{}", result)
     }
 
     #[test]
@@ -1357,29 +1425,6 @@ mod tests {
                 count: 11,
                 ordered_by: TopRecordsOrdering::Balance
             })
-        )
-    }
-
-    #[test]
-    fn sorted_have_just_two_possible_values() {
-        let args =
-            array_of_borrows_to_vec(&["financials", "--top", "11", "--sorted", "upside-down"]);
-
-        let result = financials_subcommand()
-            .get_matches_from_safe(args)
-            .unwrap_err();
-
-        assert!(
-            result
-                .message
-                .contains("'upside-down' isn't a valid value for '--sorted <SORTED>'"),
-            "{}",
-            result
-        );
-        assert!(
-            result.message.contains("[possible values: age, balance]"),
-            "{}",
-            result
         )
     }
 
