@@ -61,76 +61,35 @@ pub(crate) fn investigate_debt_extremes(all_non_pending_payables: &[PayableAccou
     }
 }
 
-pub(crate) fn should_pay(
-    payable: &PayableAccount,
-    payment_thresholds: Rc<PaymentThresholds>,
-) -> bool {
-    payable_exceeded_threshold(payable, payment_thresholds).is_some()
-}
-
-fn payable_exceeded_threshold(
-    payable: &PayableAccount,
+fn is_payable_qualified(
+    payable_balance: i64,
+    time_since_last_paid: u64,
     payment_thresholds: Rc<PaymentThresholds>,
 ) -> Option<u64> {
     // TODO: This calculation should be done in the database, if possible
-    let time_since_last_paid = SystemTime::now()
-        .duration_since(payable.last_paid_timestamp)
-        .expect("Internal error")
-        .as_secs();
+    let maturity_time_limit = payment_thresholds.maturity_threshold_sec as u64;
+    let permanent_allowed_debt = payment_thresholds.permanent_debt_allowed_gwei;
 
-    if is_innocent_age(
-        time_since_last_paid,
-        payment_thresholds.maturity_threshold_sec as u64,
-    ) {
+    if time_since_last_paid <= maturity_time_limit {
         return None;
     }
 
-    if is_innocent_balance(
-        payable.balance,
-        payment_thresholds.permanent_debt_allowed_gwei,
-    ) {
+    if payable_balance <= permanent_allowed_debt {
         return None;
     }
 
-    let threshold = calculate_payout_threshold(time_since_last_paid, payment_thresholds);
-    if payable.balance as f64 > threshold {
-        Some(threshold as u64)
-    } else {
-        None
+    let payout_threshold = calculate_payout_threshold(time_since_last_paid, payment_thresholds);
+    if payable_balance as f64 <= payout_threshold {
+        return None;
     }
+
+    Some(threshold as u64)
 }
 
-pub(crate) fn payables_debug_summary(
-    qualified_payables: &[PayableAccount],
-    payment_thresholds: Rc<PaymentThresholds>,
-) -> String {
-    let now = SystemTime::now();
-    let list = qualified_payables
-        .iter()
-        .map(|payable| {
-            let p_age = now
-                .duration_since(payable.last_paid_timestamp)
-                .expect("Payable time is corrupt");
-            let threshold = payable_exceeded_threshold(payable, payment_thresholds.clone())
-                .expect("Threshold suddenly changed!");
-            format!(
-                "{} owed for {}sec exceeds threshold: {}; creditor: {}",
-                payable.balance,
-                p_age.as_secs(),
-                threshold,
-                payable.wallet
-            )
-        })
-        .join("\n");
-    String::from("Paying qualified debts:\n").add(&list)
-}
-
-fn is_innocent_age(age: u64, limit: u64) -> bool {
-    age <= limit
-}
-
-fn is_innocent_balance(balance: i64, limit: i64) -> bool {
-    balance <= limit
+fn payable_time_diff(time: SystemTime, payable: &PayableAccount) -> u64 {
+    time.duration_since(payable.last_paid_timestamp)
+        .expect("Payable time is corrupt")
+        .as_secs()
 }
 
 fn calculate_payout_threshold(x: u64, payment_thresholds: Rc<PaymentThresholds>) -> f64 {
@@ -143,10 +102,52 @@ fn calculate_payout_threshold(x: u64, payment_thresholds: Rc<PaymentThresholds>)
     m * x as f64 + b
 }
 
+// TODO: Test Me
+pub(crate) fn qualified_payables_and_summary(
+    non_pending_payables: Vec<PayableAccount>,
+    payment_thresholds: Rc<PaymentThresholds>,
+) -> (Vec<PayableAccount>, String) {
+    let now = SystemTime::now();
+    let qualified_summary = String::from("Paying qualified debts:\n");
+    let qualified_payables = non_pending_payables
+        .into_iter()
+        .filter(|account| {
+            let time_since_last_paid = payable_time_diff(now, payable);
+
+            match is_payable_qualified(
+                account.balance,
+                time_since_last_paid,
+                payment_thresholds.clone(),
+            ) {
+                Some(threshold) => {
+                    qualified_summary.add(
+                        "{} owed for {}sec exceeds threshold: {}; creditor: {}\n",
+                        account.balance,
+                        time_since_last_paid,
+                        threshold,
+                        account.wallet.clone(),
+                    );
+                    true
+                }
+                None => false,
+            }
+        })
+        .collect::<Vec<PayableAccount>>();
+
+    let summary = match qualified_payables.is_empty() {
+        true => String::from("No Qualified Payables found."),
+        false => qualified_summary,
+    };
+
+    (qualified_payables, summary)
+}
+
 #[cfg(test)]
 mod tests {
     use crate::accountant::payable_dao::PayableAccount;
-    use crate::accountant::tools::payables_debug_summary;
+    use crate::accountant::tools::{
+        is_payable_qualified, payable_debug_summary, payables_debug_summary,
+    };
     use crate::bootstrapper::BootstrapperConfig;
     use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::sub_lib::accountant::PaymentThresholds;
