@@ -28,7 +28,7 @@ use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::persistent_configuration::{
-    PersistentConfiguration, PersistentConfigurationReal,
+    PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::neighborhood::gossip::{DotGossipEndpoint, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
@@ -685,6 +685,14 @@ impl Neighborhood {
                     .set_past_neighbors(node_descriptors_opt, db_password)
                 {
                     Ok(_) => info!(self.logger, "Persisted neighbor changes for next run"),
+                    Err(PersistentConfigError::DatabaseError(msg))
+                        if &msg == "database is locked" =>
+                    {
+                        warning! (
+                        self.logger,
+                        "Could not persist immediate-neighbor changes: database locked - skipping"
+                    )
+                    }
                     Err(e) => error!(
                         self.logger,
                         "Could not persist immediate-neighbor changes: {:?}", e
@@ -3199,7 +3207,35 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_logs_error_when_past_neighbors_update_fails() {
+    fn neighborhood_warns_when_past_neighbors_update_fails_because_of_database_lock() {
+        init_test_logging();
+        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
+        let old_neighbor = make_node_record(1111, true);
+        let new_neighbor = make_node_record(2222, true);
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&old_neighbor));
+        subject
+            .neighborhood_database
+            .add_node(old_neighbor.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(subject_node.public_key(), old_neighbor.public_key());
+        let gossip_acceptor = NeighborReplacementGossipAcceptor {
+            new_neighbors: vec![old_neighbor.clone(), new_neighbor.clone()],
+        };
+        let persistent_config = PersistentConfigurationMock::new().set_past_neighbors_result(Err(
+            PersistentConfigError::DatabaseError("database is locked".to_string()),
+        ));
+        subject.gossip_acceptor = Box::new(gossip_acceptor);
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
+
+        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+
+        TestLogHandler::new().exists_log_containing("WARN: Neighborhood: Could not persist immediate-neighbor changes: database locked - skipping");
+    }
+
+    #[test]
+    fn neighborhood_logs_error_when_past_neighbors_update_fails_for_another_reason() {
         init_test_logging();
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let old_neighbor = make_node_record(1111, true);
