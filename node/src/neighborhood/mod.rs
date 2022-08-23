@@ -281,7 +281,7 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
                             self.node_to_ui_recipient_opt
                                 .as_ref()
                                 .expect("UI Gateway is unbound"),
-                            &self.logger
+                            &self.logger,
                         );
                 }
                 _ => (),
@@ -801,16 +801,28 @@ impl Neighborhood {
             payload_size: 10000,
         };
         if self.handle_route_query_message(msg).is_some() {
-            debug! (&self.logger, "check_connectedness: made a good route for the first time");
+            debug!(
+                &self.logger,
+                "check_connectedness: made a good route for the first time"
+            );
             self.overall_connection_status.update_can_make_routes(true);
+            self.overall_connection_status
+                .update_ocs_stage_and_send_message_to_ui(
+                    self.node_to_ui_recipient_opt
+                        .as_ref()
+                        .expect("UI was not bound."),
+                    &self.logger,
+                );
             self.connected_signal_opt
                 .as_ref()
                 .expect("Accountant was not bound")
                 .try_send(StartMessage {})
                 .expect("Accountant is dead")
-        }
-        else {
-            debug! (&self.logger, "check_connectedness: still failing to make a route");
+        } else {
+            debug!(
+                &self.logger,
+                "check_connectedness: still failing to make a route"
+            );
         }
     }
 
@@ -3685,7 +3697,61 @@ mod tests {
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 1);
+    }
+
+    #[test]
+    fn neighborhood_updates_ocs_stage_and_sends_message_to_the_ui_when_first_route_can_be_made() {
+        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
+        let relay1 = make_node_record(1111, true);
+        let relay2 = make_node_record(2222, false);
+        let exit = make_node_record(3333, false);
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&relay1));
+        let (ui_gateway, _, ui_gateway_arc) = make_recorder();
+        let (accountant, _, _) = make_recorder();
+        let mut replacement_database = subject.neighborhood_database.clone();
+        replacement_database.add_node(relay1.clone()).unwrap();
+        replacement_database.add_node(relay2.clone()).unwrap();
+        replacement_database.add_node(exit.clone()).unwrap();
+        replacement_database
+            .add_arbitrary_full_neighbor(subject_node.public_key(), relay1.public_key());
+        replacement_database.add_arbitrary_full_neighbor(relay1.public_key(), relay2.public_key());
+        replacement_database.add_arbitrary_full_neighbor(relay2.public_key(), exit.public_key());
+        subject.gossip_acceptor_opt = Some(Box::new(DatabaseReplacementGossipAcceptor {
+            replacement_database,
+        }));
+        subject.persistent_config_opt = Some(Box::new(
+            PersistentConfigurationMock::new().set_past_neighbors_result(Ok(())),
+        ));
+        subject
+            .overall_connection_status
+            .update_can_make_routes(false);
+        let system = System::new("neighborhood_updates_ocs_stage_and_sends_message_to_the_ui_when_first_route_can_be_made");
+        let node_to_ui_recipient = ui_gateway.start().recipient::<NodeToUiMessage>();
+        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
+        subject.connected_signal_opt = Some(accountant.start().recipient());
+
+        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+
+        System::current().stop();
+        system.run();
+        let ui_recording = ui_gateway_arc.lock().unwrap();
+        let node_to_ui_message = ui_recording.get_record::<NodeToUiMessage>(0);
+        assert_eq!(ui_recording.len(), 1);
         assert_eq!(subject.overall_connection_status.can_make_routes(), true);
+        assert_eq!(
+            subject.overall_connection_status.stage(),
+            OverallConnectionStage::ThreeHopsRouteFound
+        );
+        assert_eq!(
+            node_to_ui_message,
+            &NodeToUiMessage {
+                target: MessageTarget::AllClients,
+                body: UiConnectionChangeBroadcast {
+                    stage: UiConnectionStage::ThreeHopsRouteFound
+                }
+                .tmb(0),
+            }
+        );
     }
 
     struct NeighborReplacementGossipAcceptor {
