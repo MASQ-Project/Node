@@ -70,22 +70,17 @@ impl MASQNodeUIClient {
             |message_body: &MessageBody| target_opcodes.contains(&message_body.opcode.as_str());
         if let Some(target) = self.check_for_buffered_message(MessagePath::FireAndForget) {
             if qualifies(&target) {
-eprintln! ("Broadcast {} was already waiting", target.opcode);
                 return target;
             }
         }
         let begin = Instant::now();
         let iteration_timeout = Duration::from_millis(200);
-eprintln! ("Nothing that qualified was waiting. Blocking for a qualifying broadcast for {:?}...", iteration_timeout);
         loop {
             match self.try_wait_for_message(MessagePath::FireAndForget, iteration_timeout) {
                 Some(message_body) if qualifies(&message_body) => {
-eprintln! ("Qualifying broadcast {} arrived: returning", message_body.opcode);
                     return message_body
                 },
-                x => {
-eprintln! ("Hoping for qualifying broadcast, received {:?} instead; still waiting", x);
-                },
+                _ => ()
             }
             if Instant::now().duration_since(begin).gt(&timeout) {
                 panic!(
@@ -113,23 +108,18 @@ eprintln! ("Hoping for qualifying broadcast, received {:?} instead; still waitin
 
     fn try_wait_for_message(&self, path: MessagePath, timeout: Duration) -> Option<MessageBody> {
         let mut inner = self.inner.borrow_mut();
-        let mut target_opt = None;
         let deadline = SystemTime::now().add(timeout);
         loop {
             match self.check_for_waiting_message(&mut inner) {
                 Some(message) => {
                     if message.path == path {
-                        target_opt = Some(message)
+                        return Some(message)
                     } else {
                         inner.buffer.push(message)
                     }
                 }
                 None => {
-                    if let Some(target) = target_opt {
-                        return Some(target);
-                    } else {
-                        thread::sleep(Duration::from_millis(100));
-                    }
+                    thread::sleep(Duration::from_millis(100));
                 }
             }
             if SystemTime::now().ge(&deadline) {
