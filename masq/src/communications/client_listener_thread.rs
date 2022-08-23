@@ -10,7 +10,7 @@ use websocket::receiver::Reader;
 use websocket::ws::receiver::Receiver as WsReceiver;
 use websocket::OwnedMessage;
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ClientListenerError {
     Closed,
     Broken(String),

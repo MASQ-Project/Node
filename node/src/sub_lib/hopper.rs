@@ -32,7 +32,7 @@ use std::net::SocketAddr;
 /// verified. We can't use a regular IncipientCoresPackage for this, because it uses a Route full
 /// of PublicKeys destined to be looked up in the database by the Dispatcher.
 /// This struct can be used only for single-hop traffic.
-#[derive(Clone, Debug, PartialEq, Message)]
+#[derive(Clone, Debug, PartialEq, Eq, Message)]
 pub struct NoLookupIncipientCoresPackage {
     pub public_key: PublicKey,
     pub node_addr: NodeAddr,
@@ -59,13 +59,13 @@ impl NoLookupIncipientCoresPackage {
 }
 
 /// New CORES package about to be sent to the Hopper and thence put on the MASQ Network
-#[derive(Clone, Debug, PartialEq, Message)]
+#[derive(Clone, Debug, PartialEq, Eq, Message)]
 pub struct IncipientCoresPackage {
     pub route: Route,
     pub payload: CryptData,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MessageType {
     ClientRequest(VersionedData<ClientRequestPayload_0v1>),
     ClientResponse(VersionedData<ClientResponsePayload_0v1>),
@@ -94,7 +94,7 @@ impl IncipientCoresPackage {
 }
 
 /// CORES package that has traversed the MASQ Network and is arriving at its destination
-#[derive(Clone, Debug, PartialEq, Message)]
+#[derive(Clone, Debug, PartialEq, Eq, Message)]
 pub struct ExpiredCoresPackage<T> {
     pub immediate_neighbor: SocketAddr,
     pub paying_wallet: Option<Wallet>,

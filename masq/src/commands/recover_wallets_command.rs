@@ -12,14 +12,14 @@ use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct SeedSpec {
     mnemonic_phrase: Vec<String>,
     language: String,
     passphrase_opt: Option<String>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct RecoverWalletsCommand {
     db_password: String,
     seed_spec_opt: Option<SeedSpec>,

@@ -11,7 +11,7 @@ use std::fmt::{Debug, Formatter};
 use std::io;
 use std::io::{Read, Write};
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ContextError {
     ConnectionRefused(String),
     ConnectionDropped(String),

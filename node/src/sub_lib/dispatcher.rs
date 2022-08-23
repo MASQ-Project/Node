@@ -103,7 +103,7 @@ impl Component {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash, Ord, PartialEq, Eq, PartialOrd)]
 pub enum DispatcherError {
     IpAddressUnknown,
     StreamConnectError(String),
@@ -112,7 +112,7 @@ pub enum DispatcherError {
     NeighborhoodPanicked,
 }
 
-#[derive(PartialEq, Clone, Message)]
+#[derive(PartialEq, Eq, Clone, Message)]
 pub struct InboundClientData {
     pub timestamp: SystemTime,
     pub peer_addr: SocketAddr,
@@ -152,7 +152,7 @@ impl InboundClientData {
     }
 }
 
-#[derive(PartialEq, Clone, Message, Debug)]
+#[derive(PartialEq, Eq, Clone, Message, Debug)]
 pub struct StreamShutdownMsg {
     pub peer_addr: SocketAddr,
     pub stream_type: RemovedStreamType,

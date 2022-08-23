@@ -7,7 +7,7 @@ use crate::protocols::utils::{
 };
 use std::convert::TryFrom;
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Opcode {
     Get,
     MapUdp,
@@ -50,7 +50,7 @@ impl Opcode {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ResultCode {
     Success,
     UnsupportedVersion,

@@ -7,7 +7,7 @@ use crate::sub_lib::proxy_server::ProxyProtocol;
 use masq_lib::constants::{HTTP_PORT, TLS_PORT};
 use masq_lib::logger::Logger;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Host {
     pub name: String,
     pub port: Option<u16>,

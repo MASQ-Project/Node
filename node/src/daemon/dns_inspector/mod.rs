@@ -24,7 +24,7 @@ use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::net::IpAddr;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum DnsInspectionError {
     NotConnected,
     BadEntryFormat(String),

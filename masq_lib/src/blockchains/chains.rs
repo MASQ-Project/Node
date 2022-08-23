@@ -16,7 +16,7 @@ pub enum Chain {
     Dev,
 }
 
-#[derive(Debug, PartialEq, Copy, Clone, Eq, Hash)]
+#[derive(Debug, PartialEq, Eq, Copy, Clone, Hash)]
 pub enum ChainFamily {
     Eth,
     Polygon,

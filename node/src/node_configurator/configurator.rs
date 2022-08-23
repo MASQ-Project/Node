@@ -2125,7 +2125,7 @@ mod tests {
             let result = Configurator::parse_language(input)
                 .expect(format!("{} didn't parse", input).as_str());
 
-            // I can't believe that PartialEq is not implemented for Language. Sheesh!
+            // I can't believe that PartialEq, Eq is not implemented for Language. Sheesh!
             match result {
                 Language::English => assert_eq!(input, "English"),
                 Language::ChineseSimplified => assert_eq!(input, "Chinese"),
