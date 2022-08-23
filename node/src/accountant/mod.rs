@@ -874,8 +874,7 @@ impl Accountant {
             .expect("time travelers")
             .as_micros();
         let lowest_3_digits = microseconds_since_epoch % 1000;
-        lowest_3_digits
-            .to_string()
+        lowest_3_digits.to_string()
     }
 
     fn handle_report_services_consumed_message(&mut self, msg: ReportServicesConsumedMessage) {

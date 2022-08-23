@@ -1,4 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+#![cfg(test)]
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables,
@@ -10,9 +11,10 @@ use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::DaemonBindMessage;
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::stream_messages::{AddStreamMsg, PoolBindMessage, RemoveStreamMsg};
+use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
-use crate::sub_lib::accountant::{AccountantSubs, ReportServicesConsumedMessage};
+use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, SetDbPasswordMsg};
 use crate::sub_lib::blockchain_bridge::{ReportAccountsPayable, SetGasPriceMsg};
 use crate::sub_lib::configurator::{ConfiguratorSubs, NewPasswordMessage};
@@ -43,13 +45,17 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::test_utils::to_millis;
+use crate::test_utils::unshared_test_utils::SystemKillerActor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
+use actix::System;
 use actix::{Actor, Message};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use std::any::Any;
+use std::any::TypeId;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -60,6 +66,7 @@ pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
     node_query_responses: Vec<Option<NodeQueryResponseMetadata>>,
     route_query_responses: Vec<Option<RouteQueryResponse>>,
+    expected_count_by_msg_type_opt: Option<HashMap<TypeId, usize>>,
 }
 
 #[derive(Default)]
@@ -82,6 +89,20 @@ macro_rules! recorder_message_handler {
 
             fn handle(&mut self, msg: $message_type, _ctx: &mut Self::Context) {
                 self.record(msg);
+                if let Some(expected_count_by_msg_type) = &mut self.expected_count_by_msg_type_opt {
+                    let type_id = TypeId::of::<$message_type>();
+                    let count = expected_count_by_msg_type.entry(type_id).or_insert(0);
+                    if *count == 0 {
+                        panic!(
+                            "Received a message, which we were not supposed to receive. {:?}",
+                            stringify!($message_type)
+                        );
+                    };
+                    *count -= 1;
+                    if !expected_count_by_msg_type.values().any(|&x| x > 0) {
+                        System::current().stop();
+                    }
+                }
             }
         }
     };
@@ -211,6 +232,22 @@ impl Recorder {
 
     pub fn route_query_response(mut self, response: Option<RouteQueryResponse>) -> Recorder {
         self.route_query_responses.push(response);
+        self
+    }
+
+    pub fn stop_condition(self, message_type_id: TypeId) -> Recorder {
+        let mut expected_count_by_messages: HashMap<TypeId, usize> = HashMap::new();
+        expected_count_by_messages.insert(message_type_id, 1);
+        self.stop_after_messages_and_start_system_killer(expected_count_by_messages)
+    }
+
+    pub fn stop_after_messages_and_start_system_killer(
+        mut self,
+        expected_count_by_messages: HashMap<TypeId, usize>,
+    ) -> Recorder {
+        let system_killer = SystemKillerActor::new(Duration::from_secs(15));
+        system_killer.start();
+        self.expected_count_by_msg_type_opt = Some(expected_count_by_messages);
         self
     }
 }

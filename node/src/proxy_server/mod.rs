@@ -567,13 +567,12 @@ impl ProxyServer {
             }
             RemovedStreamType::NonClandestine(nca) => nca,
         };
-        let msg_peer_addr = msg.peer_addr;
         let stream_key = match self.keys_and_addrs.b_to_a(&msg.peer_addr) {
             None => {
                 warning!(
                     self.logger,
                     "Received instruction to shut down nonexistent stream to peer {} - ignoring",
-                    msg_peer_addr
+                    msg.peer_addr
                 );
                 return;
             }
@@ -585,7 +584,7 @@ impl ProxyServer {
                 "Reporting shutdown of {} to counterpart", &stream_key
             );
             let ibcd = InboundClientData {
-                timestamp: SystemTime::UNIX_EPOCH, // TODO: Drive this in
+                timestamp: SystemTime::now(),
                 peer_addr: msg.peer_addr,
                 reception_port: Some(nca.reception_port),
                 last_data: true,
@@ -597,7 +596,7 @@ impl ProxyServer {
         } else {
             debug!(
                 self.logger,
-                "Retiring stream key {}: StreamShutdownMsg for peer {}", &stream_key, msg_peer_addr
+                "Retiring stream key {}: StreamShutdownMsg for peer {}", &stream_key, msg.peer_addr
             );
             self.purge_stream_key(&stream_key);
         }
@@ -1018,7 +1017,6 @@ mod tests {
     use crate::sub_lib::sequence_buffer::SequencedPacket;
     use crate::sub_lib::ttl_hashmap::TtlHashMap;
     use crate::sub_lib::versioned_data::VersionedData;
-    use crate::test_utils::main_cryptde;
     use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::make_recorder;
@@ -1027,6 +1025,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::zero_hop_route_response;
     use crate::test_utils::{alias_cryptde, rate_pack};
+    use crate::test_utils::{main_cryptde, make_meaningless_public_key};
     use crate::test_utils::{make_meaningless_route, make_paying_wallet};
     use actix::System;
     use crossbeam_channel::unbounded;
@@ -1034,6 +1033,7 @@ mod tests {
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use std::any::TypeId;
     use std::cell::RefCell;
     use std::net::SocketAddr;
     use std::str::FromStr;
@@ -4549,6 +4549,123 @@ mod tests {
             .is_none());
         assert!(!subject.stream_key_routes.contains_key(&affected_stream_key));
         assert!(!subject.tunneled_hosts.contains_key(&affected_stream_key));
+    }
+
+    #[test]
+    fn proxy_server_processes_stream_shutdown_msg() {
+        let consuming_wallet_balance = Some(0);
+        let mut subject = ProxyServer::new(
+            main_cryptde(),
+            alias_cryptde(),
+            true,
+            consuming_wallet_balance,
+            false,
+        );
+        let (hopper, _, hopper_recording_arc) = make_recorder();
+        let (fake_proxy_server, _, proxy_server_recording_arc) = make_recorder();
+        let mut expected_messages_for_proxy_server = HashMap::new();
+        expected_messages_for_proxy_server.insert(TypeId::of::<AddReturnRouteMessage>(), 1);
+        expected_messages_for_proxy_server.insert(TypeId::of::<StreamShutdownMsg>(), 1);
+        let fake_proxy_server = fake_proxy_server
+            .stop_after_messages_and_start_system_killer(expected_messages_for_proxy_server);
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let system = System::new(
+            "handle_stream_shutdown_msg_sets_correct_timestamp_to_message_to_accountant",
+        );
+        let peer_actors = peer_actors_builder()
+            .accountant(accountant)
+            .proxy_server(fake_proxy_server)
+            .hopper(hopper)
+            .build();
+        let socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
+        let stream_key = StreamKey::new(main_cryptde().public_key().clone(), socket_addr);
+        subject.keys_and_addrs.insert(stream_key, socket_addr);
+        let exit_service_wallet = make_wallet("xyz");
+        let exit_service = ExpectedService::Exit(
+            make_meaningless_public_key(),
+            exit_service_wallet.clone(),
+            rate_pack(13),
+        );
+        subject.stream_key_routes.insert(
+            stream_key,
+            RouteQueryResponse {
+                route: make_meaningless_route(),
+                expected_services: ExpectedServices::RoundTrip(
+                    vec![ExpectedService::Nothing, exit_service.clone()],
+                    vec![exit_service.clone(), ExpectedService::Nothing],
+                    7,
+                ),
+            },
+        );
+        subject
+            .tunneled_hosts
+            .insert(stream_key, "blah".to_string());
+        let subject_addr = subject.start();
+        let proxy_server_subs = ProxyServer::make_subs_from(&subject_addr);
+        proxy_server_subs
+            .bind
+            .try_send(BindMessage { peer_actors })
+            .unwrap();
+        subject_addr
+            .try_send(StreamShutdownMsg {
+                peer_addr: socket_addr,
+                stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
+                    reception_port: HTTP_PORT,
+                    sequence_number: 1234,
+                }),
+                report_to_counterpart: true,
+            })
+            .unwrap();
+        let before = SystemTime::now();
+
+        assert_eq!(system.run(), 0); //stopped by the fake proxy server's recorder
+
+        let after = SystemTime::now();
+        let hopper_recording = hopper_recording_arc.lock().unwrap();
+        assert_eq!(hopper_recording.len(), 1);
+        let incipient_cores_package_msg = hopper_recording.get_record::<IncipientCoresPackage>(0);
+        assert_eq!(incipient_cores_package_msg.route, make_meaningless_route());
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.len(), 1);
+        let report_services_consumed_msg =
+            accountant_recording.get_record::<ReportServicesConsumedMessage>(0);
+        assert_eq!(
+            report_services_consumed_msg.exit.earning_wallet,
+            exit_service_wallet
+        );
+        assert!(report_services_consumed_msg.routing.is_empty());
+        assert_ne!(report_services_consumed_msg.routing_payload_size, 0); //negation!
+        assert_eq!(report_services_consumed_msg.exit.payload_size, 0);
+        assert_eq!(
+            report_services_consumed_msg.exit.service_rate,
+            rate_pack(13).exit_service_rate
+        );
+        let actual_timestamp = report_services_consumed_msg.timestamp;
+        assert!(before <= actual_timestamp && actual_timestamp <= after);
+        let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
+        assert_eq!(proxy_server_recording.len(), 2);
+        let add_return_route_msg = proxy_server_recording.get_record::<AddReturnRouteMessage>(0);
+        assert_eq!(
+            add_return_route_msg,
+            &AddReturnRouteMessage {
+                return_route_id: 7,
+                expected_services: vec![exit_service, ExpectedService::Nothing],
+                protocol: ProxyProtocol::TLS,
+                server_name: Some("blah".to_string())
+            }
+        );
+        let final_stream_shutdown_msg = proxy_server_recording.get_record::<StreamShutdownMsg>(1);
+        assert_eq!(
+            final_stream_shutdown_msg,
+            &StreamShutdownMsg {
+                peer_addr: socket_addr,
+                stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
+                    reception_port: 0,
+                    sequence_number: 0,
+                },),
+                report_to_counterpart: false
+            }
+        )
     }
 
     #[test]
