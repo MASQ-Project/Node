@@ -92,10 +92,10 @@ fn masq_terminates_based_on_loss_of_connection_to_the_daemon_integration() {
 }
 
 #[test]
-#[ignore]
-//we need to get back to that Windows-Actions issue once we have more time,
-//until then this ignore should promise a much more reliable flow in Actions
 fn handles_startup_and_shutdown_integration() {
+    if cfg!(windows) && is_running_under_github_actions() {
+        eprintln! ("This test is not run in Actions under Windows, because it's flaky there.")
+    }
     let dir_path = ensure_node_home_directory_exists(
         "masq_integration_tests",
         "handles_startup_and_shutdown_integration",
