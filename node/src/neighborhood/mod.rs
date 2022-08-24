@@ -806,7 +806,7 @@ impl Neighborhood {
         if self.handle_route_query_message(msg).is_some() {
             debug!(
                 &self.logger,
-                "check_connectedness: made a good route for the first time"
+                "The check_connectedness() found a 3 hops route for the first time."
             );
             self.overall_connection_status
                 .update_ocs_stage_and_send_message_to_ui(
@@ -824,7 +824,7 @@ impl Neighborhood {
         } else {
             debug!(
                 &self.logger,
-                "check_connectedness: still failing to make a route"
+                "The check_connectedness() still can't found a good route."
             );
         }
     }
@@ -3653,16 +3653,13 @@ mod tests {
         assert_eq!(accountant_recording.len(), 0);
     }
 
-    #[test]
-    fn neighborhood_starts_accountant_when_first_route_can_be_made() {
+    fn make_a_network_with_three_hops_route() -> Neighborhood {
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let relay1 = make_node_record(1111, true);
         let relay2 = make_node_record(2222, false);
         let exit = make_node_record(3333, false);
-        let (accountant, _, accountant_recording_arc) = make_recorder();
-        let (ui_gateway, _, _) = make_recorder();
-        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&relay1));
-        let mut replacement_database = subject.neighborhood_database.clone();
+        let mut neighborhood: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&relay1));
+        let mut replacement_database = neighborhood.neighborhood_database.clone();
         replacement_database.add_node(relay1.clone()).unwrap();
         replacement_database.add_node(relay2.clone()).unwrap();
         replacement_database.add_node(exit.clone()).unwrap();
@@ -3670,16 +3667,25 @@ mod tests {
             .add_arbitrary_full_neighbor(subject_node.public_key(), relay1.public_key());
         replacement_database.add_arbitrary_full_neighbor(relay1.public_key(), relay2.public_key());
         replacement_database.add_arbitrary_full_neighbor(relay2.public_key(), exit.public_key());
-        subject.gossip_acceptor_opt = Some(Box::new(DatabaseReplacementGossipAcceptor {
+        neighborhood.gossip_acceptor_opt = Some(Box::new(DatabaseReplacementGossipAcceptor {
             replacement_database,
         }));
-        subject.persistent_config_opt = Some(Box::new(
+        neighborhood.persistent_config_opt = Some(Box::new(
             PersistentConfigurationMock::new().set_past_neighbors_result(Ok(())),
         ));
+
+        neighborhood
+    }
+
+    #[test]
+    fn neighborhood_starts_accountant_when_first_route_can_be_made() {
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let (ui_gateway, _, _) = make_recorder();
+        let mut subject = make_a_network_with_three_hops_route();
         subject.node_to_ui_recipient_opt = Some(ui_gateway.start().recipient());
-        let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         bind_subject(&mut subject, peer_actors);
+        let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
 
         subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
 
@@ -3691,31 +3697,17 @@ mod tests {
 
     #[test]
     fn neighborhood_updates_ocs_stage_and_sends_message_to_the_ui_when_first_route_can_be_made() {
-        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
-        let relay1 = make_node_record(1111, true);
-        let relay2 = make_node_record(2222, false);
-        let exit = make_node_record(3333, false);
-        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&relay1));
+        init_test_logging();
+        let test_name = "neighborhood_updates_ocs_stage_and_sends_message_to_the_ui_when_first_route_can_be_made";
+        let mut subject: Neighborhood = make_a_network_with_three_hops_route();
         let (ui_gateway, _, ui_gateway_arc) = make_recorder();
         let (accountant, _, _) = make_recorder();
-        let mut replacement_database = subject.neighborhood_database.clone();
-        replacement_database.add_node(relay1.clone()).unwrap();
-        replacement_database.add_node(relay2.clone()).unwrap();
-        replacement_database.add_node(exit.clone()).unwrap();
-        replacement_database
-            .add_arbitrary_full_neighbor(subject_node.public_key(), relay1.public_key());
-        replacement_database.add_arbitrary_full_neighbor(relay1.public_key(), relay2.public_key());
-        replacement_database.add_arbitrary_full_neighbor(relay2.public_key(), exit.public_key());
-        subject.gossip_acceptor_opt = Some(Box::new(DatabaseReplacementGossipAcceptor {
-            replacement_database,
-        }));
-        subject.persistent_config_opt = Some(Box::new(
-            PersistentConfigurationMock::new().set_past_neighbors_result(Ok(())),
-        ));
-        let system = System::new("neighborhood_updates_ocs_stage_and_sends_message_to_the_ui_when_first_route_can_be_made");
         let node_to_ui_recipient = ui_gateway.start().recipient::<NodeToUiMessage>();
+        let connected_signal = accountant.start().recipient();
+        subject.logger = Logger::new(test_name);
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
-        subject.connected_signal_opt = Some(accountant.start().recipient());
+        subject.connected_signal_opt = Some(connected_signal);
+        let system = System::new(test_name);
 
         subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
 
@@ -3739,6 +3731,10 @@ mod tests {
                 .tmb(0),
             }
         );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {}: The check_connectedness() found a 3 hops route for the first time",
+            test_name
+        ));
     }
 
     struct NeighborReplacementGossipAcceptor {
