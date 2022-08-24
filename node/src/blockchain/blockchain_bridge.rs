@@ -91,7 +91,7 @@ impl Handler<BindMessage> for BlockchainBridge {
     }
 }
 
-#[derive(Debug, Eq, PartialEq, Message, Clone)]
+#[derive(Debug, PartialEq, Eq, Message, Clone)]
 pub struct RetrieveTransactions {
     pub recipient: Wallet,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
@@ -143,7 +143,7 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
     }
 }
 
-#[derive(Debug, PartialEq, Message, Clone)]
+#[derive(Debug, PartialEq, Eq, Message, Clone)]
 pub struct PendingPayableFingerprint {
     pub rowid_opt: Option<u64>, //None when initialized
     pub timestamp: SystemTime,
@@ -431,7 +431,7 @@ impl BlockchainBridge {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 struct PendingTxInfo {
     hash: H256,
     when_sent: SystemTime,

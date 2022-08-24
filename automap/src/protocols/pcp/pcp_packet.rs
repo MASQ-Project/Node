@@ -9,7 +9,7 @@ use std::convert::{From, TryFrom};
 use std::fmt::Debug;
 use std::net::IpAddr;
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Opcode {
     Announce,
     Map,
@@ -48,7 +48,7 @@ impl Opcode {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ResultCode {
     Success,
     UnsuppVersion,

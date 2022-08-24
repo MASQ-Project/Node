@@ -15,7 +15,7 @@ use rusqlite::{named_params, Error};
 use rusqlite::{OptionalExtension, Row};
 use std::time::SystemTime;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ReceivableDaoError {
     SignConversion(u64),
     ConfigurationError(String),
@@ -34,7 +34,7 @@ impl From<rusqlite::Error> for ReceivableDaoError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReceivableAccount {
     pub wallet: Wallet,
     pub balance: i64,
@@ -353,12 +353,11 @@ impl ReceivableDaoReal {
                     .map_err(|e| ReceivableDaoError::RusqliteError(e.to_string()))?;
             }
         }
-        let result = match xactn.commit() {
+        match xactn.commit() {
             // Error response is untested here, because without a mockable Transaction, it's untestable.
             Err(e) => Err(ReceivableDaoError::RusqliteError(format!("{:?}", e))),
             Ok(_) => Ok(()),
-        };
-        result
+        }
     }
 
     fn row_to_account(row: &Row) -> rusqlite::Result<ReceivableAccount> {

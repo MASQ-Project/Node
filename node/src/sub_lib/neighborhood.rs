@@ -52,7 +52,7 @@ pub struct RatePack {
     pub exit_service_rate: u64,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NeighborhoodMode {
     Standard(NodeAddr, Vec<NodeDescriptor>, RatePack),
     ZeroHop,
@@ -344,7 +344,7 @@ impl Display for DescriptorParsingError<'_> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NeighborhoodConfig {
     pub mode: NeighborhoodMode,
 }
@@ -377,7 +377,7 @@ impl Debug for NeighborhoodSubs {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeQueryResponseMetadata {
     pub public_key: PublicKey,
     pub node_addr_opt: Option<NodeAddr>,
@@ -399,15 +399,15 @@ impl NodeQueryResponseMetadata {
 }
 
 //TODO probably dead code?
-#[derive(Clone, Debug, Message, PartialEq)]
+#[derive(Clone, Debug, Message, PartialEq, Eq)]
 pub struct BootstrapNeighborhoodNowMessage {}
 
-#[derive(Clone, Debug, Message, PartialEq)]
+#[derive(Clone, Debug, Message, PartialEq, Eq)]
 pub struct NeighborhoodDotGraphRequest {
     pub client_id: u64,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NodeQueryMessage {
     IpAddress(IpAddr),
     PublicKey(PublicKey),
@@ -424,7 +424,7 @@ pub struct DispatcherNodeQueryMessage {
     pub recipient: Recipient<DispatcherNodeQueryResponse>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct RouteQueryMessage {
     pub target_key_opt: Option<PublicKey>,
     pub target_component: Component,
@@ -452,36 +452,36 @@ impl RouteQueryMessage {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExpectedService {
     Routing(PublicKey, Wallet, RatePack),
     Exit(PublicKey, Wallet, RatePack),
     Nothing,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExpectedServices {
     OneWay(Vec<ExpectedService>),
     RoundTrip(Vec<ExpectedService>, Vec<ExpectedService>, u32),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RouteQueryResponse {
     pub route: Route,
     pub expected_services: ExpectedServices,
 }
 
-#[derive(Clone, Debug, Message, PartialEq)]
+#[derive(Clone, Debug, Message, PartialEq, Eq)]
 pub struct RemoveNeighborMessage {
     pub public_key: PublicKey,
 }
 
-#[derive(Clone, Debug, Message, PartialEq)]
+#[derive(Clone, Debug, Message, PartialEq, Eq)]
 pub enum NodeRecordMetadataMessage {
     Desirable(PublicKey, bool),
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]
 pub enum GossipFailure_0v1 {
     NoNeighbors,

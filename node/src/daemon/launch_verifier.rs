@@ -125,7 +125,7 @@ impl VerifierToolsReal {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum LaunchVerification {
     Launched,             // Responded to contact via UiGateway
     CleanFailure,         // No response from UiGateway, no process at process_id

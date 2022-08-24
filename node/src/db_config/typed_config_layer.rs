@@ -3,7 +3,7 @@
 use crate::sub_lib::cryptde::PlainData;
 use rustc_hex::{FromHex, ToHex};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum TypedConfigLayerError {
     BadNumberFormat(String),
     BadHexFormat(String),

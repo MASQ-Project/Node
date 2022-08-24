@@ -118,7 +118,7 @@ pub trait StreamFactory: Send + Debug {
     fn make(&self) -> (Box<dyn Write>, Box<dyn Write>);
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct StreamFactoryReal;
 
 impl StreamFactory for StreamFactoryReal {

@@ -577,7 +577,7 @@ pub mod common_validators {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ParamError {
     pub parameter: String,
     pub reason: String,
@@ -592,7 +592,7 @@ impl ParamError {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ConfiguratorError {
     pub param_errors: Vec<ParamError>,
 }
