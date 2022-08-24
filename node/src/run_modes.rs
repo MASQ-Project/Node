@@ -15,7 +15,7 @@ use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use ProgramEntering::{Enter, Leave};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 enum Mode {
     DumpConfig,
     Initialization,
@@ -213,7 +213,7 @@ enum Leaving {
     ExitCode(i32),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum RunnerError {
     Configurator(ConfiguratorError),
     Numeric(i32),

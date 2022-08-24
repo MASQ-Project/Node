@@ -7,7 +7,7 @@ use rand::Rng;
 
 pub const EXAMPLE_ENCRYPTED: &str = "example_encrypted";
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum SecureConfigLayerError {
     NotPresent,
     PasswordError,

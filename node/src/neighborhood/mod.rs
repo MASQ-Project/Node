@@ -295,7 +295,7 @@ impl Handler<NewPasswordMessage> for Neighborhood {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct AccessibleGossipRecord {
     pub signed_gossip: PlainData,
     pub signature: CryptData,
@@ -327,7 +327,7 @@ impl TryFrom<GossipNodeRecord> for AccessibleGossipRecord {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum RouteDirection {
     Over,
     Back,
@@ -1330,7 +1330,7 @@ pub fn regenerate_signed_gossip(
     (signed_gossip, signature)
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 enum LinkType {
     Relay,
     Exit,

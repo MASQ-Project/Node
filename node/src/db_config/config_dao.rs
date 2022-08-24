@@ -4,14 +4,14 @@ use crate::database::dao_utils::DaoFactoryReal;
 use rusqlite::types::ToSql;
 use rusqlite::{Row, Rows, Statement};
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum ConfigDaoError {
     NotPresent,
     TransactionError,
     DatabaseError(String),
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct ConfigDaoRecord {
     pub name: String,
     pub value_opt: Option<String>,

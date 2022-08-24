@@ -11,7 +11,7 @@ use serde_derive::{Deserialize, Serialize};
 // This structure is the one that will travel from Node to Node in a CORES package.
 // There may soon be another version that always stays on the Node and is used to
 // remember Routes while they're in use.
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct LiveHop {
     pub public_key: PublicKey,
     pub payer: Option<Payer>,
