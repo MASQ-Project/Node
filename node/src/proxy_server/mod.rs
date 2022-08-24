@@ -80,7 +80,7 @@ pub struct ProxyServer {
     alias_cryptde: &'static dyn CryptDE,
     crashable: bool,
     logger: Logger,
-    normal_client_data_handler: MutabilityConflictAssistant<Box<dyn NormalClientDataHandler>>,
+    normal_client_data_handler: Arc<dyn NormalClientDataHandler>,
     route_ids_to_return_routes: TtlHashMap<u32, AddReturnRouteMessage>,
     browser_proxy_sequence_offset: bool,
 }
@@ -130,7 +130,7 @@ impl Handler<InboundClientData> for ProxyServer {
             self.tls_connect(&msg);
             self.browser_proxy_sequence_offset = true;
         } else {
-            self.normal_client_data_handler.assist().handle(self,msg, false);
+            Arc::clone(&self.normal_client_data_handler).handle(self, msg, false);
         }
     }
 }
@@ -229,7 +229,7 @@ impl ProxyServer {
             alias_cryptde,
             crashable,
             logger: Logger::new("ProxyServer"),
-            normal_client_data_handler: MutabilityConflictAssistant::new(Box::new(NormalClientDataHandlerReal{})),
+            normal_client_data_handler: Arc::new(NormalClientDataHandlerReal{}),
             route_ids_to_return_routes: TtlHashMap::new(RETURN_ROUTE_TTL),
             browser_proxy_sequence_offset: false,
         }
@@ -464,7 +464,7 @@ impl ProxyServer {
                 sequence_number: Some(nca.sequence_number),
                 data: vec![],
             };
-            self.normal_client_data_handler.assist().handle(self,ibcd, true);
+            Arc::clone(&self.normal_client_data_handler).handle(self, ibcd, true);
         } else {
             debug!(
                 self.logger,
@@ -845,7 +845,7 @@ impl ProxyServer {
             .try_send(report_message)
             .expect("Accountant is dead");
     }
-}
+}q
 
 pub trait NormalClientDataHandler{
     fn handle(&self, proxy_server: &mut ProxyServer, msg: InboundClientData, retire_stream_key: bool);
@@ -984,19 +984,6 @@ impl NormalClientDataHandler for NormalClientDataHandlerReal{
                 );
             }
         }
-    }
-}
-
-struct MutabilityConflictAssistant<T>{
-    conflicting_service: Arc<T>
-}
-
-impl <T> MutabilityConflictAssistant<T>{
-    fn new(service: T) ->Self{
-        Self{ conflicting_service: Arc::new(service) }
-    }
-    fn assist(&mut self) ->Arc<T> {
-        self.conflicting_service.clone()
     }
 }
 
@@ -4604,7 +4591,7 @@ mod tests {
             false,
         );
         let normal_client_handler = NormalClientDataHandlerMock::default().handle_params(&handle_normal_client_data_params_arc);
-        subject.normal_client_data_handler = MutabilityConflictAssistant::new(Box::new(normal_client_handler));
+        subject.normal_client_data_handler = Arc::new(normal_client_handler);
         let socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
         let stream_key = StreamKey::new(main_cryptde().public_key().clone(), socket_addr);
         subject.keys_and_addrs.insert(stream_key, socket_addr);
