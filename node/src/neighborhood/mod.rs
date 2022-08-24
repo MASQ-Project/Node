@@ -3653,20 +3653,42 @@ mod tests {
         assert_eq!(accountant_recording.len(), 0);
     }
 
-    fn make_a_network_with_three_hops_route() -> Neighborhood {
+    fn make_a_network_with_three_hops_route(n: u16) -> Neighborhood {
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let relay1 = make_node_record(1111, true);
-        let relay2 = make_node_record(2222, false);
-        let exit = make_node_record(3333, false);
         let mut neighborhood: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&relay1));
         let mut replacement_database = neighborhood.neighborhood_database.clone();
-        replacement_database.add_node(relay1.clone()).unwrap();
-        replacement_database.add_node(relay2.clone()).unwrap();
-        replacement_database.add_node(exit.clone()).unwrap();
-        replacement_database
-            .add_arbitrary_full_neighbor(subject_node.public_key(), relay1.public_key());
-        replacement_database.add_arbitrary_full_neighbor(relay1.public_key(), relay2.public_key());
-        replacement_database.add_arbitrary_full_neighbor(relay2.public_key(), exit.public_key());
+
+        fn nonce(x: u16) -> u16 {
+            x + (10 * x) + (100 * x) + (1000 * x)
+        }
+
+        for i in 1..n {
+            match i {
+                1 => {
+                    replacement_database.add_node(relay1.clone()).unwrap();
+                    replacement_database.add_arbitrary_full_neighbor(
+                        subject_node.public_key(),
+                        relay1.public_key(),
+                    );
+                }
+                2 => {
+                    let new_node = make_node_record(2222, false);
+                    replacement_database.add_node(new_node.clone()).unwrap();
+                    replacement_database
+                        .add_arbitrary_full_neighbor(relay1.public_key(), new_node.public_key());
+                }
+                i if i <= n => {
+                    let prev_node = make_node_record(nonce(i - 1), false);
+                    let new_node = make_node_record(nonce(i), false);
+                    replacement_database.add_node(new_node.clone()).unwrap();
+                    replacement_database
+                        .add_arbitrary_full_neighbor(prev_node.public_key(), new_node.public_key());
+                }
+                _ => (),
+            }
+        }
+
         neighborhood.gossip_acceptor_opt = Some(Box::new(DatabaseReplacementGossipAcceptor {
             replacement_database,
         }));
@@ -3681,7 +3703,7 @@ mod tests {
     fn neighborhood_starts_accountant_when_first_route_can_be_made() {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let (ui_gateway, _, _) = make_recorder();
-        let mut subject = make_a_network_with_three_hops_route();
+        let mut subject = make_a_network_with_three_hops_route(4);
         subject.node_to_ui_recipient_opt = Some(ui_gateway.start().recipient());
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         bind_subject(&mut subject, peer_actors);
@@ -3699,7 +3721,7 @@ mod tests {
     fn neighborhood_updates_ocs_stage_and_sends_message_to_the_ui_when_first_route_can_be_made() {
         init_test_logging();
         let test_name = "neighborhood_updates_ocs_stage_and_sends_message_to_the_ui_when_first_route_can_be_made";
-        let mut subject: Neighborhood = make_a_network_with_three_hops_route();
+        let mut subject: Neighborhood = make_a_network_with_three_hops_route(4);
         let (ui_gateway, _, ui_gateway_arc) = make_recorder();
         let (accountant, _, _) = make_recorder();
         let node_to_ui_recipient = ui_gateway.start().recipient::<NodeToUiMessage>();
