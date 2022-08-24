@@ -35,7 +35,9 @@ use crate::db_config::persistent_configuration::{
 use crate::neighborhood::gossip::{DotGossipEndpoint, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
 use crate::neighborhood::node_record::NodeRecordInner_0v1;
-use crate::neighborhood::overall_connection_status::OverallConnectionStatus;
+use crate::neighborhood::overall_connection_status::{
+    OverallConnectionStage, OverallConnectionStatus,
+};
 use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::PublicKey;
@@ -278,6 +280,7 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
                 | ConnectionProgressEvent::StandardGossipReceived => {
                     self.overall_connection_status
                         .update_ocs_stage_and_send_message_to_ui(
+                            OverallConnectionStage::ConnectedToNeighbor,
                             self.node_to_ui_recipient_opt
                                 .as_ref()
                                 .expect("UI Gateway is unbound"),
@@ -805,9 +808,9 @@ impl Neighborhood {
                 &self.logger,
                 "check_connectedness: made a good route for the first time"
             );
-            self.overall_connection_status.update_can_make_routes(true);
             self.overall_connection_status
                 .update_ocs_stage_and_send_message_to_ui(
+                    OverallConnectionStage::ThreeHopsRouteFound,
                     self.node_to_ui_recipient_opt
                         .as_ref()
                         .expect("UI was not bound."),
@@ -1863,7 +1866,6 @@ mod tests {
             assert_eq!(
                 actor.overall_connection_status,
                 OverallConnectionStatus {
-                    can_make_routes: false,
                     stage: OverallConnectionStage::NotConnected,
                     progress: vec![beginning_connection_progress_clone]
                 }
@@ -1919,7 +1921,6 @@ mod tests {
             assert_eq!(
                 actor.overall_connection_status,
                 OverallConnectionStatus {
-                    can_make_routes: false,
                     stage: OverallConnectionStage::NotConnected,
                     progress: vec![ConnectionProgress {
                         initial_node_descriptor: node_descriptor,
@@ -1989,7 +1990,6 @@ mod tests {
             assert_eq!(
                 actor.overall_connection_status,
                 OverallConnectionStatus {
-                    can_make_routes: false,
                     stage: OverallConnectionStage::NotConnected,
                     progress: vec![ConnectionProgress {
                         initial_node_descriptor: node_descriptor,
@@ -2035,7 +2035,6 @@ mod tests {
             assert_eq!(
                 actor.overall_connection_status,
                 OverallConnectionStatus {
-                    can_make_routes: false,
                     stage: OverallConnectionStage::NotConnected,
                     progress: vec![ConnectionProgress {
                         initial_node_descriptor: node_descriptor,
@@ -2080,7 +2079,6 @@ mod tests {
             assert_eq!(
                 actor.overall_connection_status,
                 OverallConnectionStatus {
-                    can_make_routes: false,
                     stage: OverallConnectionStage::NotConnected,
                     progress: vec![ConnectionProgress {
                         initial_node_descriptor: node_descriptor,
@@ -2128,7 +2126,6 @@ mod tests {
             assert_eq!(
                 actor.overall_connection_status,
                 OverallConnectionStatus {
-                    can_make_routes: false,
                     stage: OverallConnectionStage::ConnectedToNeighbor,
                     progress: vec![ConnectionProgress {
                         initial_node_descriptor: node_descriptor,
@@ -2188,7 +2185,6 @@ mod tests {
             assert_eq!(
                 actor.overall_connection_status,
                 OverallConnectionStatus {
-                    can_make_routes: false,
                     stage: OverallConnectionStage::ConnectedToNeighbor,
                     progress: vec![ConnectionProgress {
                         initial_node_descriptor: node_descriptor,
@@ -2245,7 +2241,6 @@ mod tests {
             assert_eq!(
                 actor.overall_connection_status,
                 OverallConnectionStatus {
-                    can_make_routes: false,
                     stage: OverallConnectionStage::NotConnected,
                     progress: vec![ConnectionProgress {
                         initial_node_descriptor: node_descriptor,
@@ -3645,9 +3640,6 @@ mod tests {
         subject.gossip_acceptor_opt = Some(Box::new(DatabaseReplacementGossipAcceptor {
             replacement_database,
         }));
-        subject
-            .overall_connection_status
-            .update_can_make_routes(true);
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
         let peer_actors = peer_actors_builder().accountant(accountant).build();
@@ -3659,7 +3651,6 @@ mod tests {
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
-        assert_eq!(subject.overall_connection_status.can_make_routes(), true);
     }
 
     #[test]
@@ -3668,6 +3659,8 @@ mod tests {
         let relay1 = make_node_record(1111, true);
         let relay2 = make_node_record(2222, false);
         let exit = make_node_record(3333, false);
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let (ui_gateway, _, _) = make_recorder();
         let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&relay1));
         let mut replacement_database = subject.neighborhood_database.clone();
         replacement_database.add_node(relay1.clone()).unwrap();
@@ -3683,10 +3676,7 @@ mod tests {
         subject.persistent_config_opt = Some(Box::new(
             PersistentConfigurationMock::new().set_past_neighbors_result(Ok(())),
         ));
-        subject
-            .overall_connection_status
-            .update_can_make_routes(false);
-        let (accountant, _, accountant_recording_arc) = make_recorder();
+        subject.node_to_ui_recipient_opt = Some(ui_gateway.start().recipient());
         let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         bind_subject(&mut subject, peer_actors);
@@ -3722,9 +3712,6 @@ mod tests {
         subject.persistent_config_opt = Some(Box::new(
             PersistentConfigurationMock::new().set_past_neighbors_result(Ok(())),
         ));
-        subject
-            .overall_connection_status
-            .update_can_make_routes(false);
         let system = System::new("neighborhood_updates_ocs_stage_and_sends_message_to_the_ui_when_first_route_can_be_made");
         let node_to_ui_recipient = ui_gateway.start().recipient::<NodeToUiMessage>();
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);

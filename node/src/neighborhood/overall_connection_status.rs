@@ -131,8 +131,6 @@ impl From<OverallConnectionStage> for UiConnectionStage {
 
 #[derive(PartialEq, Debug, Clone)]
 pub struct OverallConnectionStatus {
-    // The check_connectedness() updates the boolean when three hops route is found
-    pub can_make_routes: bool,
     // Transition depends on the ConnectionProgressMessage & check_connectedness(), they may not be in sync
     pub stage: OverallConnectionStage,
     // Corresponds to the initial_node_descriptors, that are entered by the user using --neighbors
@@ -147,7 +145,6 @@ impl OverallConnectionStatus {
             .collect();
 
         Self {
-            can_make_routes: false,
             stage: OverallConnectionStage::NotConnected,
             progress,
         }
@@ -229,28 +226,30 @@ impl OverallConnectionStatus {
 
     pub fn update_ocs_stage_and_send_message_to_ui(
         &mut self,
+        new_stage: OverallConnectionStage,
         node_to_ui_recipient: &Recipient<NodeToUiMessage>,
         logger: &Logger,
     ) {
-        // For now, this function is only called when Standard or Introduction Gossip
-        // is received, as it is implemented only for the advancing transitions right now
-        // TODO: Modify this fn when you're implementing the regressing transitions and try to
-        // write a more generalized fn, which can be called when any stage gets updated
+        // TODO: Modify this fn when you're implementing the regressing transitions
         let prev_stage = self.stage;
-        if self.can_make_routes() {
-            self.stage = OverallConnectionStage::ThreeHopsRouteFound;
-        } else {
-            self.stage = OverallConnectionStage::ConnectedToNeighbor;
-        }
-        if self.stage as usize > prev_stage as usize {
+        if new_stage as usize > prev_stage as usize {
+            self.stage = new_stage;
+            OverallConnectionStatus::send_message_to_ui(self.stage.into(), node_to_ui_recipient);
             debug!(
                 logger,
                 "The stage of OverallConnectionStatus has been changed \
                 from {:?} to {:?}. A message to the UI was also sent.",
                 prev_stage,
-                self.stage
+                new_stage
             );
-            OverallConnectionStatus::send_message_to_ui(self.stage.into(), node_to_ui_recipient);
+        } else {
+            trace!(
+                logger,
+                "There was an attempt to change the stage of OverallConnectionStatus \
+                from {:?} to {:?}. The request has been discarded.",
+                prev_stage,
+                new_stage
+            )
         }
     }
 
@@ -278,11 +277,7 @@ impl OverallConnectionStatus {
     }
 
     pub fn can_make_routes(&self) -> bool {
-        self.can_make_routes
-    }
-
-    pub fn update_can_make_routes(&mut self, can_make_routes: bool) {
-        self.can_make_routes = can_make_routes;
+        self.stage() == OverallConnectionStage::ThreeHopsRouteFound
     }
 
     pub fn stage(&self) -> OverallConnectionStage {
@@ -393,7 +388,6 @@ mod tests {
         assert_eq!(
             subject,
             OverallConnectionStatus {
-                can_make_routes: false,
                 stage: OverallConnectionStage::NotConnected,
                 progress: vec![
                     ConnectionProgress::new(node_desc_1),
@@ -533,7 +527,6 @@ mod tests {
         assert_eq!(
             subject,
             OverallConnectionStatus {
-                can_make_routes: false,
                 stage: OverallConnectionStage::NotConnected,
                 progress: vec![ConnectionProgress {
                     initial_node_descriptor: node_descriptor,
@@ -566,7 +559,6 @@ mod tests {
         assert_eq!(
             subject,
             OverallConnectionStatus {
-                can_make_routes: false,
                 stage: OverallConnectionStage::NotConnected,
                 progress: vec![ConnectionProgress {
                     initial_node_descriptor: node_descriptor,
@@ -658,7 +650,6 @@ mod tests {
         assert_eq!(
             subject,
             OverallConnectionStatus {
-                can_make_routes: false,
                 stage: OverallConnectionStage::NotConnected,
                 progress: vec![ConnectionProgress {
                     initial_node_descriptor: node_descriptor,
@@ -691,7 +682,6 @@ mod tests {
         assert_eq!(
             subject,
             OverallConnectionStatus {
-                can_make_routes: false,
                 stage: OverallConnectionStage::NotConnected,
                 progress: vec![ConnectionProgress {
                     initial_node_descriptor: node_descriptor,
@@ -725,7 +715,6 @@ mod tests {
         assert_eq!(
             subject,
             OverallConnectionStatus {
-                can_make_routes: false,
                 stage: OverallConnectionStage::NotConnected,
                 progress: vec![ConnectionProgress {
                     initial_node_descriptor: node_descriptor,
@@ -804,44 +793,33 @@ mod tests {
     #[test]
     fn we_can_ask_about_can_make_routes() {
         let node_descriptor = make_node_descriptor(make_ip(1));
-        let subject = OverallConnectionStatus::new(vec![node_descriptor]);
-
-        let can_make_routes = subject.can_make_routes();
-
-        assert_eq!(can_make_routes, false);
-    }
-
-    #[test]
-    fn can_update_the_boolean_can_make_routes() {
-        let node_descriptor = make_node_descriptor(make_ip(1));
         let mut subject = OverallConnectionStatus::new(vec![node_descriptor]);
-        let can_make_routes_initially = subject.can_make_routes();
 
-        subject.update_can_make_routes(true);
+        let initial_flag = subject.can_make_routes();
+        subject.stage = OverallConnectionStage::ThreeHopsRouteFound;
+        let final_flag = subject.can_make_routes();
 
-        let can_make_routes_finally = subject.can_make_routes();
-        assert_eq!(can_make_routes_initially, false);
-        assert_eq!(can_make_routes_finally, true);
+        assert_eq!(initial_flag, false);
+        assert_eq!(final_flag, true);
     }
 
     #[test]
-    fn updates_the_stage_to_three_hops_route_found_in_case_introduction_or_standard_gossip_is_received_and_flag_is_true(
-    ) {
+    fn updates_the_ocs_stage_to_three_hops_route_found() {
         init_test_logging();
-        let test_name = "updates_the_stage_to_three_hops_route_found_in_case_introduction_or_standard_gossip_is_received_and_flag_is_true";
+        let test_name = "updates_the_ocs_stage_to_three_hops_route_found";
         let initial_stage = OverallConnectionStage::NotConnected;
-        let can_make_routes = true;
+        let new_stage = OverallConnectionStage::ThreeHopsRouteFound;
 
         let (stage, message_opt) =
-            assert_stage_and_node_to_ui_message(initial_stage, can_make_routes, test_name);
+            assert_stage_and_node_to_ui_message(initial_stage, new_stage, test_name);
 
-        assert_eq!(stage, OverallConnectionStage::ThreeHopsRouteFound);
+        assert_eq!(stage, new_stage);
         assert_eq!(
             message_opt,
             Some(NodeToUiMessage {
                 target: MessageTarget::AllClients,
                 body: UiConnectionChangeBroadcast {
-                    stage: UiConnectionStage::ThreeHopsRouteFound
+                    stage: new_stage.into()
                 }
                 .tmb(0)
             })
@@ -849,30 +827,27 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {}: The stage of OverallConnectionStatus has been changed \
                 from {:?} to {:?}. A message to the UI was also sent.",
-            test_name,
-            OverallConnectionStage::NotConnected,
-            OverallConnectionStage::ThreeHopsRouteFound,
+            test_name, initial_stage, new_stage,
         ));
     }
 
     #[test]
-    fn updates_the_stage_to_connected_to_neighbor_in_case_introduction_or_standard_gossip_is_received_and_flag_is_false(
-    ) {
+    fn updates_the_ocs_stage_to_connected_to_neighbor() {
         init_test_logging();
-        let test_name = "updates_the_stage_to_connected_to_neighbor_in_case_introduction_or_standard_gossip_is_received_and_flag_is_false";
+        let test_name = "updates_the_ocs_stage_to_connected_to_neighbor";
         let initial_stage = OverallConnectionStage::NotConnected;
-        let can_make_routes = false;
+        let new_stage = OverallConnectionStage::ConnectedToNeighbor;
 
         let (stage, message_opt) =
-            assert_stage_and_node_to_ui_message(initial_stage, can_make_routes, test_name);
+            assert_stage_and_node_to_ui_message(initial_stage, new_stage, test_name);
 
-        assert_eq!(stage, OverallConnectionStage::ConnectedToNeighbor);
+        assert_eq!(stage, new_stage);
         assert_eq!(
             message_opt,
             Some(NodeToUiMessage {
                 target: MessageTarget::AllClients,
                 body: UiConnectionChangeBroadcast {
-                    stage: UiConnectionStage::ConnectedToNeighbor
+                    stage: new_stage.into()
                 }
                 .tmb(0)
             })
@@ -880,43 +855,47 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {}: The stage of OverallConnectionStatus has been changed \
                 from {:?} to {:?}. A message to the UI was also sent.",
-            test_name,
-            OverallConnectionStage::NotConnected,
-            OverallConnectionStage::ConnectedToNeighbor
+            test_name, initial_stage, new_stage
         ));
     }
 
     #[test]
-    fn doesn_t_send_message_to_the_ui_in_case_introduction_or_standard_gossip_is_received_but_stage_hasn_t_updated(
-    ) {
+    fn doesn_t_send_message_to_the_ui_in_case_stage_hasn_t_updated() {
+        init_test_logging();
+        let test_name = "doesn_t_send_message_to_the_ui_in_case_stage_hasn_t_updated";
         let initial_stage = OverallConnectionStage::ConnectedToNeighbor;
-        let can_make_routes = false;
+        let new_stage = initial_stage;
 
-        let (stage, message_opt) = assert_stage_and_node_to_ui_message(
-            initial_stage,
-            can_make_routes,
-            "doesn_t_send_message_to_the_ui_in_case_introduction_or_standard_gossip_is_received_but_stage_hasn_t_updated",
-        );
+        let (stage, message_opt) =
+            assert_stage_and_node_to_ui_message(initial_stage, new_stage, test_name);
 
         assert_eq!(stage, initial_stage);
         assert_eq!(message_opt, None);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "TRACE: {}: There was an attempt to change the stage of OverallConnectionStatus \
+            from {:?} to {:?}. The request has been discarded.",
+            test_name, initial_stage, new_stage
+        ));
     }
 
     #[test]
     fn doesn_t_send_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor(
     ) {
+        init_test_logging();
+        let test_name = "doesn_t_send_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor";
         let initial_stage = OverallConnectionStage::ThreeHopsRouteFound;
-        let can_make_routes = false;
+        let new_stage = OverallConnectionStage::ConnectedToNeighbor;
 
         let (stage, message_opt) =
-            assert_stage_and_node_to_ui_message(
-                initial_stage,
-                can_make_routes,
-                "doesn_t_send_a_message_to_ui_in_case_connection_drops_from_three_hops_to_connected_to_neighbor",
-            );
+            assert_stage_and_node_to_ui_message(initial_stage, new_stage, test_name);
 
-        assert_eq!(stage, OverallConnectionStage::ConnectedToNeighbor);
+        assert_eq!(stage, initial_stage);
         assert_eq!(message_opt, None);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "TRACE: {}: There was an attempt to change the stage of OverallConnectionStatus \
+            from {:?} to {:?}. The request has been discarded.",
+            test_name, initial_stage, new_stage
+        ));
     }
 
     #[test]
@@ -927,7 +906,7 @@ mod tests {
 
     fn assert_stage_and_node_to_ui_message(
         initial_stage: OverallConnectionStage,
-        can_make_routes: bool,
+        new_stage: OverallConnectionStage,
         test_name: &str,
         // logger: &Logger,
     ) -> (OverallConnectionStage, Option<NodeToUiMessage>) {
@@ -937,8 +916,8 @@ mod tests {
         subject.stage = initial_stage;
         let system = System::new(test_name);
 
-        subject.update_can_make_routes(can_make_routes);
         subject.update_ocs_stage_and_send_message_to_ui(
+            new_stage,
             &node_to_ui_recipient,
             &Logger::new(test_name),
         );
