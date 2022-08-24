@@ -18,7 +18,7 @@ use std::iter::once;
 
 const COLUMN_WIDTH: usize = 33;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ConfigurationCommand {
     pub db_password: Option<String>,
 }

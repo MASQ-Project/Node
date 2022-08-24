@@ -3,7 +3,7 @@ use crate::sub_lib::dispatcher::Endpoint;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use actix::Message;
 
-#[derive(PartialEq, Debug, Message, Clone)]
+#[derive(PartialEq, Eq, Debug, Message, Clone)]
 pub struct TransmitDataMsg {
     pub endpoint: Endpoint,
     pub last_data: bool,

@@ -8,7 +8,7 @@ use std::any::Any;
 use std::convert::TryFrom;
 use std::net::{IpAddr, Ipv4Addr};
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Protocol {
     Udp,
     Tcp,
@@ -35,7 +35,7 @@ impl Protocol {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct MapOpcodeData {
     pub mapping_nonce: [u8; 12],
     pub protocol: Protocol,

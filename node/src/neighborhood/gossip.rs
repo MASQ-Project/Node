@@ -149,7 +149,7 @@ impl GossipNodeRecord {
     }
 }
 
-#[derive(Clone, PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Debug, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]
 pub struct Gossip_0v1 {
     pub node_records: Vec<GossipNodeRecord>,

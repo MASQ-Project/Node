@@ -26,7 +26,7 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct NodeReference {
     pub public_key: PublicKey,
     pub node_addr_opt: Option<NodeAddr>,

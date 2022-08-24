@@ -12,7 +12,7 @@ use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
 use std::io::Write;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 enum InteractiveEvent {
     Break(bool), //exit code 0 vs 1
     Continue,

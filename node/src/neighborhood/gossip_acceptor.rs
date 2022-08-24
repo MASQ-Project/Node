@@ -16,7 +16,7 @@ use std::net::{IpAddr, SocketAddr};
 /// Gossip storms.
 pub const MAX_DEGREE: usize = 5;
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum GossipAcceptanceResult {
     // The incoming Gossip produced database changes. Generate standard Gossip and broadcast.
     Accepted,
@@ -30,7 +30,7 @@ pub enum GossipAcceptanceResult {
     Ban(String),
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 enum Qualification {
     Matched,
     Unmatched,
@@ -1134,7 +1134,7 @@ mod tests {
         assert_eq!(MAX_DEGREE, 5);
     }
 
-    #[derive(Clone, Copy, Debug, PartialEq)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     enum Mode {
         Standard,
         OriginateOnly,

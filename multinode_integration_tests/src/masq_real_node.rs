@@ -37,12 +37,12 @@ use std::time::Duration;
 
 pub const DATA_DIRECTORY: &str = "/node_root/home";
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Firewall {
     ports_to_open: Vec<u16>,
 }
 
-#[derive(PartialEq, Clone, Debug, Copy)]
+#[derive(PartialEq, Eq, Clone, Debug, Copy)]
 pub enum LocalIpInfo {
     ZeroHop,
     DistributedUnknown,
@@ -53,7 +53,7 @@ pub const DEFAULT_MNEMONIC_PHRASE: &str =
     "lamp sadness busy twist illegal task neither survey copper object room project";
 pub const DEFAULT_MNEMONIC_PASSPHRASE: &str = "weenie";
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum EarningWalletInfo {
     None,
     Address(String), // wallet address in string form: "0x<40 hex chars>"
@@ -80,7 +80,7 @@ pub fn make_earning_wallet_info(token: &str) -> EarningWalletInfo {
     EarningWalletInfo::Address(address[0..42].to_string().to_lowercase())
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum ConsumingWalletInfo {
     None,
     PrivateKey(String), // private address in string form, 64 hex characters
@@ -109,7 +109,7 @@ pub fn make_consuming_wallet_info(token: &str) -> ConsumingWalletInfo {
     ConsumingWalletInfo::PrivateKey(address[0..64].to_string())
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct NodeStartupConfig {
     pub neighborhood_mode: String,
     pub ip_info: LocalIpInfo,
@@ -784,7 +784,7 @@ impl MASQRealNode {
         startup_config: NodeStartupConfig,
         index: usize,
         host_node_parent_dir: Option<String>,
-        docker_run_fn: Box<dyn Fn(&str, IpAddr, &str) -> Result<(), String>>,
+        docker_run_fn: RunDockerFn,
     ) -> Self {
         let ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8));
         MASQNodeUtils::clean_up_existing_container(name);
@@ -1000,7 +1000,6 @@ impl MASQRealNode {
         Ok(())
     }
 
-    #[allow(clippy::unnecessary_wraps)]
     fn do_prepare_for_docker_run(container_name_ref: &str) -> Result<(), String> {
         let container_name = container_name_ref.to_string();
         let test_runner_node_home_dir =
@@ -1203,6 +1202,8 @@ struct MASQRealNodeGuts {
     accepts_connections: bool,
     routes_data: bool,
 }
+
+type RunDockerFn = Box<dyn Fn(&str, IpAddr, &str) -> Result<(), String>>;
 
 impl Drop for MASQRealNodeGuts {
     fn drop(&mut self) {

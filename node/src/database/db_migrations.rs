@@ -591,13 +591,13 @@ impl DbMigratorReal {
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct MigratorConfig {
     pub should_be_suppressed: Suppression,
     pub external_dataset: Option<ExternalData>,
 }
 
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum Suppression {
     No,
     Yes,
@@ -647,7 +647,7 @@ impl MigratorConfig {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalData {
     pub chain: Chain,
     pub neighborhood_mode: NeighborhoodModeLight,

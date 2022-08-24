@@ -6,7 +6,7 @@ use crate::sub_lib::utils::make_new_multi_config;
 use masq_lib::multi_config::{CommandLineVcl, MultiConfig};
 use masq_lib::shared_schema::ConfiguratorError;
 
-#[derive(Default, Clone, PartialEq, Debug)]
+#[derive(Default, Clone, PartialEq, Eq, Debug)]
 pub struct InitializationConfig {
     pub ui_port: u16,
 }

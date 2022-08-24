@@ -14,7 +14,7 @@ use masq_lib::{as_any_impl, short_writeln};
 use std::any::Any;
 use std::io::Write;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ChangePasswordCommand {
     pub old_password: Option<String>,
     pub new_password: String,

@@ -26,7 +26,7 @@ pub fn setup_subcommand() -> App<'static, 'static> {
     shared_app(SubCommand::with_name("setup").about(SETUP_COMMAND_ABOUT))
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct SetupCommand {
     pub values: Vec<UiSetupRequestValue>,
 }

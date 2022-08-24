@@ -10,7 +10,7 @@ use masq_lib::{as_any_impl, short_writeln};
 #[cfg(test)]
 use std::any::Any;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct WalletAddressesCommand {
     pub db_password: String,
 }
