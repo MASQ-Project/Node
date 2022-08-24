@@ -77,10 +77,8 @@ impl MASQNodeUIClient {
         let iteration_timeout = Duration::from_millis(200);
         loop {
             match self.try_wait_for_message(MessagePath::FireAndForget, iteration_timeout) {
-                Some(message_body) if qualifies(&message_body) => {
-                    return message_body
-                },
-                _ => ()
+                Some(message_body) if qualifies(&message_body) => return message_body,
+                _ => (),
             }
             if Instant::now().duration_since(begin).gt(&timeout) {
                 panic!(
@@ -98,7 +96,6 @@ impl MASQNodeUIClient {
         self.wait_for_message(path, timeout)
     }
 
-
     fn wait_for_message(&self, path: MessagePath, timeout: Duration) -> MessageBody {
         match self.try_wait_for_message(path, timeout) {
             Some(message_body) => message_body,
@@ -113,7 +110,7 @@ impl MASQNodeUIClient {
             match self.check_for_waiting_message(&mut inner) {
                 Some(message) => {
                     if message.path == path {
-                        return Some(message)
+                        return Some(message);
                     } else {
                         inner.buffer.push(message)
                     }

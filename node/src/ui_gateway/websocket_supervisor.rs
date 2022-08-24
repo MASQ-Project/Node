@@ -431,17 +431,19 @@ impl WebSocketSupervisorReal {
     ) -> Option<Vec<SendToClientWebsocketError>> {
         let errors: Vec<SendToClientWebsocketError> = clients
             .into_iter()
-            .flat_map(
-                |(client_id, client)| {
-                    debug!(Logger::new("experiment"), "We are sending msg to UI containing: {}", json);
-                    match client.send(OwnedMessage::Text(json.clone())) {
-                        Ok(_) => match client.flush() {
-                            Ok(_) => None,
-                            Err(e) => Some(SendToClientWebsocketError::FlushError((client_id, e))),
-                        },
-                        Err(e) => Some(SendToClientWebsocketError::SendError((client_id, e))),
-                    }
-                } )
+            .flat_map(|(client_id, client)| {
+                debug!(
+                    Logger::new("experiment"),
+                    "We are sending msg to UI containing: {}", json
+                );
+                match client.send(OwnedMessage::Text(json.clone())) {
+                    Ok(_) => match client.flush() {
+                        Ok(_) => None,
+                        Err(e) => Some(SendToClientWebsocketError::FlushError((client_id, e))),
+                    },
+                    Err(e) => Some(SendToClientWebsocketError::SendError((client_id, e))),
+                }
+            })
             .collect();
         if errors.is_empty() {
             None

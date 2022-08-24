@@ -9,7 +9,9 @@ use masq_lib::messages::{
 use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
-use multinode_integration_tests_lib::masq_real_node::{ConsumingWalletInfo, MASQRealNode, NodeStartupConfigBuilder};
+use multinode_integration_tests_lib::masq_real_node::{
+    ConsumingWalletInfo, MASQRealNode, NodeStartupConfigBuilder,
+};
 
 #[test]
 fn connection_progress_is_properly_broadcast() {
@@ -26,7 +28,9 @@ fn connection_progress_is_properly_broadcast() {
     // and hook a UI to it
     let subject = cluster.start_real_node(
         NodeStartupConfigBuilder::standard()
-            .consuming_wallet_info(ConsumingWalletInfo::PrivateKey("0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string()))
+            .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(
+                "0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF".to_string(),
+            ))
             .neighbor(relay_1.node_reference())
             .ui_port(ui_port)
             .build(),
@@ -34,12 +38,14 @@ fn connection_progress_is_properly_broadcast() {
     let ui_client = subject.make_ui(ui_port);
 
     // Hook up enough new Nodes to make the subject fully connected
-    let _additional_nodes = (0..3).into_iter()
-        .map (|_| {
+    let _additional_nodes = (0..3)
+        .into_iter()
+        .map(|_| {
             cluster.start_real_node(
                 NodeStartupConfigBuilder::standard()
                     .neighbor(relay_2.node_reference())
-                    .build())
+                    .build(),
+            )
         })
         .collect::<Vec<MASQRealNode>>();
 
