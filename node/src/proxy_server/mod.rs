@@ -49,6 +49,7 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
+use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::prelude::Future;
 
@@ -79,6 +80,7 @@ pub struct ProxyServer {
     alias_cryptde: &'static dyn CryptDE,
     crashable: bool,
     logger: Logger,
+    normal_client_data_handler: MutabilityConflictAssistant<Box<dyn NormalClientDataHandler>>,
     route_ids_to_return_routes: TtlHashMap<u32, AddReturnRouteMessage>,
     browser_proxy_sequence_offset: bool,
 }
@@ -128,7 +130,7 @@ impl Handler<InboundClientData> for ProxyServer {
             self.tls_connect(&msg);
             self.browser_proxy_sequence_offset = true;
         } else {
-            self.handle_normal_client_data(msg, false);
+            self.normal_client_data_handler.assist().handle(self,msg, false);
         }
     }
 }
@@ -227,6 +229,7 @@ impl ProxyServer {
             alias_cryptde,
             crashable,
             logger: Logger::new("ProxyServer"),
+            normal_client_data_handler: MutabilityConflictAssistant::new(Box::new(NormalClientDataHandlerReal{})),
             route_ids_to_return_routes: TtlHashMap::new(RETURN_ROUTE_TTL),
             browser_proxy_sequence_offset: false,
         }
@@ -429,137 +432,6 @@ impl ProxyServer {
             .unwrap_or_else(|| panic!("{} unbound in ProxyServer", actor_name))
     }
 
-    fn handle_normal_client_data(&mut self, msg: InboundClientData, retire_stream_key: bool) {
-        let route_source = self.out_subs("Neighborhood").route_source.clone();
-        let hopper = self.out_subs("Hopper").hopper.clone();
-        let accountant_sub = self.out_subs("Accountant").accountant.clone();
-        let dispatcher = self.out_subs("Dispatcher").dispatcher.clone();
-        let add_return_route_sub = self.out_subs("ProxyServer").add_return_route.clone();
-        let add_route_sub = self.out_subs("ProxyServer").add_route.clone();
-        let stream_shutdown_sub = self.out_subs("ProxyServer").stream_shutdown_sub.clone();
-        let source_addr = msg.peer_addr;
-        if self.consuming_wallet_balance.is_none() && self.is_decentralized {
-            let protocol_pack = match from_ibcd(&msg, &self.logger) {
-                None => return,
-                Some(pp) => pp,
-            };
-            let data = protocol_pack
-                .server_impersonator()
-                .consuming_wallet_absent();
-            let msg = TransmitDataMsg {
-                endpoint: Endpoint::Socket(source_addr),
-                last_data: true,
-                sequence_number: Some(0),
-                data,
-            };
-            dispatcher.try_send(msg).expect("Dispatcher is dead");
-            error!(
-                self.logger,
-                "Browser request rejected due to missing consuming wallet"
-            );
-            return;
-        }
-        let stream_key = self.make_stream_key(&msg);
-        let timestamp = msg.timestamp;
-        let payload = match self.make_payload(msg, &stream_key) {
-            Ok(payload) => payload,
-            Err(_e) => {
-                return;
-            }
-        };
-        let logger = self.logger.clone();
-        let minimum_hop_count = if self.is_decentralized {
-            DEFAULT_MINIMUM_HOP_COUNT
-        } else {
-            0
-        };
-        let cryptde = self.main_cryptde.dup();
-        match self.stream_key_routes.get(&stream_key) {
-            Some(route_query_response) => {
-                debug!(
-                    logger,
-                    "Transmitting down existing stream {}: sequence {}, length {}",
-                    stream_key,
-                    payload.sequenced_packet.sequence_number,
-                    payload.sequenced_packet.data.len()
-                );
-                ProxyServer::try_transmit_to_hopper(
-                    cryptde,
-                    &hopper,
-                    timestamp,
-                    route_query_response.clone(),
-                    payload,
-                    logger,
-                    source_addr,
-                    &dispatcher,
-                    &accountant_sub,
-                    &add_return_route_sub,
-                    if retire_stream_key {
-                        Some(&stream_shutdown_sub)
-                    } else {
-                        None
-                    },
-                );
-            }
-            None => {
-                debug!(logger,
-                    "Getting route and opening new stream with key {} to transmit: sequence {}, length {}",
-                    stream_key, payload.sequenced_packet.sequence_number, payload.sequenced_packet.data.len()
-                );
-                tokio::spawn(
-                    route_source
-                        .send(RouteQueryMessage::data_indefinite_route_request(
-                            minimum_hop_count,
-                        ))
-                        .then(move |route_result| {
-                            match route_result {
-                                Ok(Some(route_query_response)) => {
-                                    add_route_sub
-                                        .try_send(AddRouteMessage {
-                                            stream_key,
-                                            route: route_query_response.clone(),
-                                        })
-                                        .expect("ProxyServer is dead");
-                                    ProxyServer::try_transmit_to_hopper(
-                                        cryptde,
-                                        &hopper,
-                                        timestamp,
-                                        route_query_response,
-                                        payload,
-                                        logger,
-                                        source_addr,
-                                        &dispatcher,
-                                        &accountant_sub,
-                                        &add_return_route_sub,
-                                        if retire_stream_key {
-                                            Some(&stream_shutdown_sub)
-                                        } else {
-                                            None
-                                        },
-                                    );
-                                }
-                                Ok(None) => {
-                                    ProxyServer::handle_route_failure(
-                                        payload,
-                                        &logger,
-                                        source_addr,
-                                        &dispatcher,
-                                    );
-                                }
-                                Err(e) => {
-                                    error!(
-                                        logger,
-                                        "Neighborhood refused to answer route request: {:?}", e
-                                    );
-                                }
-                            };
-                            Ok(())
-                        }),
-                );
-            }
-        }
-    }
-
     fn handle_stream_shutdown_msg(&mut self, msg: StreamShutdownMsg) {
         let nca = match msg.stream_type {
             RemovedStreamType::Clandestine => {
@@ -592,7 +464,7 @@ impl ProxyServer {
                 sequence_number: Some(nca.sequence_number),
                 data: vec![],
             };
-            self.handle_normal_client_data(ibcd, true);
+            self.normal_client_data_handler.assist().handle(self,ibcd, true);
         } else {
             debug!(
                 self.logger,
@@ -975,6 +847,159 @@ impl ProxyServer {
     }
 }
 
+pub trait NormalClientDataHandler{
+    fn handle(&self, proxy_server: &mut ProxyServer, msg: InboundClientData, retire_stream_key: bool);
+}
+
+pub struct NormalClientDataHandlerReal{}
+
+impl NormalClientDataHandler for NormalClientDataHandlerReal{
+    fn handle(&self, proxy_s: &mut ProxyServer, msg: InboundClientData, retire_stream_key: bool) {
+        let route_source = proxy_s.out_subs("Neighborhood").route_source.clone();
+        let hopper = proxy_s.out_subs("Hopper").hopper.clone();
+        let accountant_sub = proxy_s.out_subs("Accountant").accountant.clone();
+        let dispatcher = proxy_s.out_subs("Dispatcher").dispatcher.clone();
+        let add_return_route_sub = proxy_s.out_subs("ProxyServer").add_return_route.clone();
+        let add_route_sub = proxy_s.out_subs("ProxyServer").add_route.clone();
+        let stream_shutdown_sub = proxy_s.out_subs("ProxyServer").stream_shutdown_sub.clone();
+        let source_addr = msg.peer_addr;
+        if proxy_s.consuming_wallet_balance.is_none() && proxy_s.is_decentralized {
+            let protocol_pack = match from_ibcd(&msg, &proxy_s.logger) {
+                None => return, //TODO found untested!
+                Some(pp) => pp,
+            };
+            let data = protocol_pack
+                .server_impersonator()
+                .consuming_wallet_absent();
+            let msg = TransmitDataMsg {
+                endpoint: Endpoint::Socket(source_addr),
+                last_data: true,
+                sequence_number: Some(0),
+                data,
+            };
+            dispatcher.try_send(msg).expect("Dispatcher is dead");
+            error!(
+                proxy_s.logger,
+                "Browser request rejected due to missing consuming wallet"
+            );
+            return;
+        }
+        let stream_key = proxy_s.make_stream_key(&msg);
+        let timestamp = msg.timestamp;
+        let payload = match proxy_s.make_payload(msg, &stream_key) {
+            Ok(payload) => payload,
+            Err(_e) => {
+               return //TODO found untested!
+            }
+        };
+        let logger = proxy_s.logger.clone();
+        let minimum_hop_count = if proxy_s.is_decentralized {
+            DEFAULT_MINIMUM_HOP_COUNT
+        } else {
+            0
+        };
+        let cryptde = proxy_s.main_cryptde.dup();
+        match proxy_s.stream_key_routes.get(&stream_key) {
+            Some(route_query_response) => {
+                debug!(
+                    logger,
+                    "Transmitting down existing stream {}: sequence {}, length {}",
+                    stream_key,
+                    payload.sequenced_packet.sequence_number,
+                    payload.sequenced_packet.data.len()
+                );
+                ProxyServer::try_transmit_to_hopper(
+                    cryptde,
+                    &hopper,
+                    timestamp,
+                    route_query_response.clone(),
+                    payload,
+                    logger,
+                    source_addr,
+                    &dispatcher,
+                    &accountant_sub,
+                    &add_return_route_sub,
+                    if retire_stream_key {
+                        Some(&stream_shutdown_sub)
+                    } else {
+                        None
+                    },
+                );
+            }
+            None => {
+                debug!(logger,
+                    "Getting route and opening new stream with key {} to transmit: sequence {}, length {}",
+                    stream_key, payload.sequenced_packet.sequence_number, payload.sequenced_packet.data.len()
+                );
+                tokio::spawn(
+                    route_source
+                        .send(RouteQueryMessage::data_indefinite_route_request(
+                            minimum_hop_count,
+                        ))
+                        .then(move |route_result| {
+                            match route_result {
+                                Ok(Some(route_query_response)) => {
+                                    add_route_sub
+                                        .try_send(AddRouteMessage {
+                                            stream_key,
+                                            route: route_query_response.clone(),
+                                        })
+                                        .expect("ProxyServer is dead");
+                                    ProxyServer::try_transmit_to_hopper(
+                                        cryptde,
+                                        &hopper,
+                                        timestamp,
+                                        route_query_response,
+                                        payload,
+                                        logger,
+                                        source_addr,
+                                        &dispatcher,
+                                        &accountant_sub,
+                                        &add_return_route_sub,
+                                        if retire_stream_key {
+                                            Some(&stream_shutdown_sub)
+                                        } else {
+                                            None
+                                        },
+                                    );
+                                }
+                                Ok(None) => {
+                                    ProxyServer::handle_route_failure(
+                                        payload,
+                                        &logger,
+                                        source_addr,
+                                        &dispatcher,
+                                    );
+                                }
+                                Err(e) => {
+                                    //TODO found untested!
+                                    error!(
+                                        logger,
+                                        "Neighborhood refused to answer route request: {:?}", e
+                                    );
+                                }
+                            };
+                            Ok(())
+                        }),
+                );
+            }
+        }
+    }
+}
+
+struct MutabilityConflictAssistant<T>{
+    conflicting_service: Arc<T>
+}
+
+impl <T> MutabilityConflictAssistant<T>{
+    fn new(service: T) ->Self{
+        Self{ conflicting_service: Arc::new(service) }
+    }
+    fn assist(&mut self) ->Arc<T> {
+        self.conflicting_service.clone()
+    }
+}
+
 enum ExitServiceSearch {
     Definite(ExitServiceConsumed),
     ZeroHop,
@@ -1017,7 +1042,7 @@ mod tests {
     use crate::sub_lib::sequence_buffer::SequencedPacket;
     use crate::sub_lib::ttl_hashmap::TtlHashMap;
     use crate::sub_lib::versioned_data::VersionedData;
-    use crate::test_utils::make_meaningless_stream_key;
+    use crate::test_utils::{make_meaningless_route, make_meaningless_stream_key};
     use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -1025,15 +1050,14 @@ mod tests {
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::zero_hop_route_response;
     use crate::test_utils::{alias_cryptde, rate_pack};
-    use crate::test_utils::{main_cryptde, make_meaningless_public_key};
-    use crate::test_utils::{make_meaningless_route, make_paying_wallet};
+    use crate::test_utils::{main_cryptde};
+    use crate::test_utils::{make_paying_wallet};
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-    use std::any::TypeId;
     use std::cell::RefCell;
     use std::net::SocketAddr;
     use std::str::FromStr;
@@ -1127,6 +1151,24 @@ mod tests {
             },
         )
         .unwrap()
+    }
+
+    #[derive(Default)]
+    struct NormalClientDataHandlerMock{
+        handle_params: Arc<Mutex<Vec<(InboundClientData,bool)>>>,
+    }
+
+    impl NormalClientDataHandler for NormalClientDataHandlerMock{
+        fn handle(&self, _proxy_server: &mut ProxyServer, msg: InboundClientData, retire_stream_key: bool) {
+            self.handle_params.lock().unwrap().push((msg,retire_stream_key))
+        }
+    }
+
+    impl NormalClientDataHandlerMock{
+        fn handle_params(mut self, params: &Arc<Mutex<Vec<(InboundClientData,bool)>>>)->Self{
+            self.handle_params = params.clone();
+            self
+        }
     }
 
     #[test]
@@ -4552,120 +4594,56 @@ mod tests {
     }
 
     #[test]
-    fn proxy_server_processes_stream_shutdown_msg() {
-        let consuming_wallet_balance = Some(0);
+    fn stream_shutdown_msg_populates_correct_inbound_client_data_msg() {
+        let handle_normal_client_data_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = ProxyServer::new(
             main_cryptde(),
             alias_cryptde(),
             true,
-            consuming_wallet_balance,
+            Some(0),
             false,
         );
-        let (hopper, _, hopper_recording_arc) = make_recorder();
-        let (fake_proxy_server, _, proxy_server_recording_arc) = make_recorder();
-        let mut expected_messages_for_proxy_server = HashMap::new();
-        expected_messages_for_proxy_server.insert(TypeId::of::<AddReturnRouteMessage>(), 1);
-        expected_messages_for_proxy_server.insert(TypeId::of::<StreamShutdownMsg>(), 1);
-        let fake_proxy_server = fake_proxy_server
-            .stop_after_messages_and_start_system_killer(expected_messages_for_proxy_server);
-        let (accountant, _, accountant_recording_arc) = make_recorder();
-        let system = System::new(
-            "handle_stream_shutdown_msg_sets_correct_timestamp_to_message_to_accountant",
-        );
-        let peer_actors = peer_actors_builder()
-            .accountant(accountant)
-            .proxy_server(fake_proxy_server)
-            .hopper(hopper)
-            .build();
+        let normal_client_handler = NormalClientDataHandlerMock::default().handle_params(&handle_normal_client_data_params_arc);
+        subject.normal_client_data_handler = MutabilityConflictAssistant::new(Box::new(normal_client_handler));
         let socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
         let stream_key = StreamKey::new(main_cryptde().public_key().clone(), socket_addr);
         subject.keys_and_addrs.insert(stream_key, socket_addr);
-        let exit_service_wallet = make_wallet("xyz");
-        let exit_service = ExpectedService::Exit(
-            make_meaningless_public_key(),
-            exit_service_wallet.clone(),
-            rate_pack(13),
-        );
         subject.stream_key_routes.insert(
             stream_key,
             RouteQueryResponse {
-                route: make_meaningless_route(),
+                route: Route{ hops: vec![] },
                 expected_services: ExpectedServices::RoundTrip(
-                    vec![ExpectedService::Nothing, exit_service.clone()],
-                    vec![exit_service.clone(), ExpectedService::Nothing],
-                    7,
+                    vec![],
+                    vec![],
+                    0,
                 ),
             },
         );
         subject
             .tunneled_hosts
             .insert(stream_key, "blah".to_string());
-        let subject_addr = subject.start();
-        let proxy_server_subs = ProxyServer::make_subs_from(&subject_addr);
-        proxy_server_subs
-            .bind
-            .try_send(BindMessage { peer_actors })
-            .unwrap();
-        subject_addr
-            .try_send(StreamShutdownMsg {
+        let msg = StreamShutdownMsg {
                 peer_addr: socket_addr,
                 stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
                     reception_port: HTTP_PORT,
                     sequence_number: 1234,
                 }),
                 report_to_counterpart: true,
-            })
-            .unwrap();
+            };
         let before = SystemTime::now();
 
-        assert_eq!(system.run(), 0); //stopped by the fake proxy server's recorder
+        subject.handle_stream_shutdown_msg(msg);
 
         let after = SystemTime::now();
-        let hopper_recording = hopper_recording_arc.lock().unwrap();
-        assert_eq!(hopper_recording.len(), 1);
-        let incipient_cores_package_msg = hopper_recording.get_record::<IncipientCoresPackage>(0);
-        assert_eq!(incipient_cores_package_msg.route, make_meaningless_route());
-        let accountant_recording = accountant_recording_arc.lock().unwrap();
-        assert_eq!(accountant_recording.len(), 1);
-        let report_services_consumed_msg =
-            accountant_recording.get_record::<ReportServicesConsumedMessage>(0);
-        assert_eq!(
-            report_services_consumed_msg.exit.earning_wallet,
-            exit_service_wallet
-        );
-        assert!(report_services_consumed_msg.routing.is_empty());
-        assert_ne!(report_services_consumed_msg.routing_payload_size, 0); //negation!
-        assert_eq!(report_services_consumed_msg.exit.payload_size, 0);
-        assert_eq!(
-            report_services_consumed_msg.exit.service_rate,
-            rate_pack(13).exit_service_rate
-        );
-        let actual_timestamp = report_services_consumed_msg.timestamp;
+        let handle_normal_client_data = handle_normal_client_data_params_arc.lock().unwrap();
+        let (inbound_client_data_msg, retire_stream_key) = &handle_normal_client_data[0];
+        assert_eq!(inbound_client_data_msg.peer_addr,socket_addr);
+        assert_eq!(inbound_client_data_msg.data,Vec::<u8>::new());
+        assert_eq!(inbound_client_data_msg.last_data,true);
+        assert_eq!(inbound_client_data_msg.is_clandestine,false);
+        let actual_timestamp = inbound_client_data_msg.timestamp;
         assert!(before <= actual_timestamp && actual_timestamp <= after);
-        let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
-        assert_eq!(proxy_server_recording.len(), 2);
-        let add_return_route_msg = proxy_server_recording.get_record::<AddReturnRouteMessage>(0);
-        assert_eq!(
-            add_return_route_msg,
-            &AddReturnRouteMessage {
-                return_route_id: 7,
-                expected_services: vec![exit_service, ExpectedService::Nothing],
-                protocol: ProxyProtocol::TLS,
-                server_name: Some("blah".to_string())
-            }
-        );
-        let final_stream_shutdown_msg = proxy_server_recording.get_record::<StreamShutdownMsg>(1);
-        assert_eq!(
-            final_stream_shutdown_msg,
-            &StreamShutdownMsg {
-                peer_addr: socket_addr,
-                stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
-                    reception_port: 0,
-                    sequence_number: 0,
-                },),
-                report_to_counterpart: false
-            }
-        )
+        assert_eq!(*retire_stream_key,true)
     }
 
     #[test]
