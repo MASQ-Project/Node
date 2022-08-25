@@ -1,5 +1,6 @@
 use crate::accountant::payable_dao::PayableAccount;
 use crate::accountant::scanners::scanners::PayableScanner;
+use crate::database::dao_utils::from_time_t;
 use crate::sub_lib::accountant::PaymentThresholds;
 use itertools::Itertools;
 use std::cell::RefCell;
@@ -11,56 +12,59 @@ use trust_dns::client::ClientHandle;
 //for debugging only
 pub(crate) fn investigate_debt_extremes(all_non_pending_payables: &[PayableAccount]) -> String {
     if all_non_pending_payables.is_empty() {
-        "Payable scan found no debts".to_string()
-    } else {
-        struct PayableInfo {
-            balance: i64,
-            age: Duration,
-        }
-        let now = SystemTime::now();
-        let init = (
-            PayableInfo {
-                balance: 0,
-                age: Duration::ZERO,
-            },
-            PayableInfo {
-                balance: 0,
-                age: Duration::ZERO,
-            },
-        );
-        let (biggest, oldest) = all_non_pending_payables.iter().fold(init, |sofar, p| {
-            let (mut biggest, mut oldest) = sofar;
-            let p_age = now
-                .duration_since(p.last_paid_timestamp)
-                .expect("Payable time is corrupt");
-            {
-                //look at a test if not understandable
-                let check_age_parameter_if_the_first_is_the_same =
-                    || -> bool { p.balance == biggest.balance && p_age > biggest.age };
+        return "Payable scan found no debts".to_string();
+    }
+    #[derive(Clone, Copy, Default)]
+    struct PayableInfo {
+        balance: i64,
+        age: u64,
+    }
 
-                if p.balance > biggest.balance || check_age_parameter_if_the_first_is_the_same() {
-                    biggest = PayableInfo {
-                        balance: p.balance,
-                        age: p_age,
-                    }
-                }
-
-                let check_balance_parameter_if_the_first_is_the_same =
-                    || -> bool { p_age == oldest.age && p.balance > oldest.balance };
-
-                if p_age > oldest.age || check_balance_parameter_if_the_first_is_the_same() {
-                    oldest = PayableInfo {
-                        balance: p.balance,
-                        age: p_age,
-                    }
-                }
+    fn bigger(payable_1: PayableInfo, payable_2: PayableInfo) -> PayableInfo {
+        if payable_1.balance > payable_2.balance {
+            payable_1
+        } else if payable_2.balance > payable_1.balance {
+            payable_2
+        } else {
+            if payable_1.age != payable_2.age {
+                return older(payable_1, payable_2);
             }
+            payable_1
+        }
+    }
+
+    fn older(payable_1: PayableInfo, payable_2: PayableInfo) -> PayableInfo {
+        if payable_1.age > payable_2.age {
+            payable_1
+        } else if payable_2.age > payable_1.age {
+            payable_2
+        } else {
+            if payable_1.balance != payable_2.balance {
+                return bigger(payable_1, payable_2);
+            }
+            payable_1
+        }
+    }
+
+    let now = SystemTime::now();
+    let init = (PayableInfo::default(), PayableInfo::default());
+    let (biggest, oldest) = all_non_pending_payables
+        .iter()
+        .map(|payable| PayableInfo {
+            balance: payable.balance,
+            age: payable_time_diff(now, payable),
+        })
+        .fold(init, |so_far, payable| {
+            let (mut biggest, mut oldest) = so_far;
+
+            biggest = bigger(biggest, payable);
+            oldest = older(oldest, payable);
+
             (biggest, oldest)
         });
-        format!("Payable scan found {} debts; the biggest is {} owed for {}sec, the oldest is {} owed for {}sec",
-                all_non_pending_payables.len(), biggest.balance, biggest.age.as_secs(),
-                oldest.balance, oldest.age.as_secs())
-    }
+    format!("Payable scan found {} debts; the biggest is {} owed for {}sec, the oldest is {} owed for {}sec",
+                all_non_pending_payables.len(), biggest.balance, biggest.age,
+                oldest.balance, oldest.age)
 }
 
 fn is_payable_qualified(
