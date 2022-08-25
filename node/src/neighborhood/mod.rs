@@ -806,7 +806,7 @@ impl Neighborhood {
         if self.handle_route_query_message(msg).is_some() {
             debug!(
                 &self.logger,
-                "The check_connectedness() found a 3 hops route for the first time."
+                "The connectivity check has found a 3 hops route."
             );
             self.overall_connection_status
                 .update_ocs_stage_and_send_message_to_ui(
@@ -824,7 +824,7 @@ impl Neighborhood {
         } else {
             debug!(
                 &self.logger,
-                "The check_connectedness() still can't found a good route."
+                "The connectivity check still can't find a good route."
             );
         }
     }
@@ -3641,7 +3641,7 @@ mod tests {
             replacement_database,
         }));
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
+        let system = System::new("neighborhood_does_not_start_accountant_if_already_connected");
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         bind_subject(&mut subject, peer_actors);
 
@@ -3651,51 +3651,6 @@ mod tests {
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0);
-    }
-
-    fn make_neighborhood_linearly_connected_with_nodes(hops: u16) -> Neighborhood {
-        let subject_node = make_global_cryptde_node_record(1234, true);
-        let relay1 = make_node_record(1111, true);
-        let mut nodes = vec![
-            subject_node.public_key().clone(),
-            relay1.public_key().clone(),
-        ];
-        let mut neighborhood: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&relay1));
-        let mut replacement_database = neighborhood.neighborhood_database.clone();
-
-        fn nonce(x: u16) -> u16 {
-            x + (10 * x) + (100 * x) + (1000 * x)
-        }
-
-        for i in 1..=hops {
-            match i {
-                1 => {
-                    replacement_database.add_node(relay1.clone()).unwrap();
-                }
-                i if i < hops => {
-                    let relay_node = make_node_record(nonce(i), false);
-                    replacement_database.add_node(relay_node.clone()).unwrap();
-                    nodes.push(relay_node.public_key().clone());
-                }
-                i if i == hops => {
-                    let exit_node = make_node_record(nonce(i), false);
-                    replacement_database.add_node(exit_node.clone()).unwrap();
-                    nodes.push(exit_node.public_key().clone());
-                }
-                _ => panic!("The match statement should be exhausting."),
-            }
-            replacement_database
-                .add_arbitrary_full_neighbor(&nodes[i as usize - 1], &nodes[i as usize]);
-        }
-
-        neighborhood.gossip_acceptor_opt = Some(Box::new(DatabaseReplacementGossipAcceptor {
-            replacement_database,
-        }));
-        neighborhood.persistent_config_opt = Some(Box::new(
-            PersistentConfigurationMock::new().set_past_neighbors_result(Ok(())),
-        ));
-
-        neighborhood
     }
 
     #[test]
@@ -3753,7 +3708,7 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {}: The check_connectedness() found a 3 hops route for the first time",
+            "DEBUG: {}: The connectivity check has found a 3 hops route.",
             test_name
         ));
     }
@@ -3780,7 +3735,7 @@ mod tests {
         assert_eq!(ui_recording.len(), 0);
         assert_eq!(subject.overall_connection_status.can_make_routes(), false);
         TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {}: The check_connectedness() still can't found a good route.",
+            "DEBUG: {}: The connectivity check still can't find a good route.",
             test_name
         ));
     }
@@ -5571,6 +5526,51 @@ mod tests {
             .cloned();
 
         message_opt
+    }
+
+    fn make_neighborhood_linearly_connected_with_nodes(hops: u16) -> Neighborhood {
+        let subject_node = make_global_cryptde_node_record(1234, true);
+        let relay1 = make_node_record(1111, true);
+        let mut nodes = vec![
+            subject_node.public_key().clone(),
+            relay1.public_key().clone(),
+        ];
+        let mut neighborhood: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&relay1));
+        let mut replacement_database = neighborhood.neighborhood_database.clone();
+
+        fn nonce(x: u16) -> u16 {
+            x + (10 * x) + (100 * x) + (1000 * x)
+        }
+
+        for i in 1..=hops {
+            match i {
+                1 => {
+                    replacement_database.add_node(relay1.clone()).unwrap();
+                }
+                i if i < hops => {
+                    let relay_node = make_node_record(nonce(i), false);
+                    replacement_database.add_node(relay_node.clone()).unwrap();
+                    nodes.push(relay_node.public_key().clone());
+                }
+                i if i == hops => {
+                    let exit_node = make_node_record(nonce(i), false);
+                    replacement_database.add_node(exit_node.clone()).unwrap();
+                    nodes.push(exit_node.public_key().clone());
+                }
+                _ => panic!("The match statement should be exhaustive."),
+            }
+            replacement_database
+                .add_arbitrary_full_neighbor(&nodes[i as usize - 1], &nodes[i as usize]);
+        }
+
+        neighborhood.gossip_acceptor_opt = Some(Box::new(DatabaseReplacementGossipAcceptor {
+            replacement_database,
+        }));
+        neighborhood.persistent_config_opt = Some(Box::new(
+            PersistentConfigurationMock::new().set_past_neighbors_result(Ok(())),
+        ));
+
+        neighborhood
     }
 
     pub struct NeighborhoodDatabaseMessage {}

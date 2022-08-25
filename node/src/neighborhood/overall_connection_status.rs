@@ -245,7 +245,7 @@ impl OverallConnectionStatus {
         } else {
             trace!(
                 logger,
-                "There was an attempt to change the stage of OverallConnectionStatus \
+                "There was an attempt to update the stage of OverallConnectionStatus \
                 from {:?} to {:?}. The request has been discarded.",
                 prev_stage,
                 new_stage
@@ -872,7 +872,7 @@ mod tests {
         assert_eq!(stage, initial_stage);
         assert_eq!(message_opt, None);
         TestLogHandler::new().exists_log_containing(&format!(
-            "TRACE: {}: There was an attempt to change the stage of OverallConnectionStatus \
+            "TRACE: {}: There was an attempt to update the stage of OverallConnectionStatus \
             from {:?} to {:?}. The request has been discarded.",
             test_name, initial_stage, new_stage
         ));
@@ -892,7 +892,7 @@ mod tests {
         assert_eq!(stage, initial_stage);
         assert_eq!(message_opt, None);
         TestLogHandler::new().exists_log_containing(&format!(
-            "TRACE: {}: There was an attempt to change the stage of OverallConnectionStatus \
+            "TRACE: {}: There was an attempt to update the stage of OverallConnectionStatus \
             from {:?} to {:?}. The request has been discarded.",
             test_name, initial_stage, new_stage
         ));
@@ -908,7 +908,6 @@ mod tests {
         initial_stage: OverallConnectionStage,
         new_stage: OverallConnectionStage,
         test_name: &str,
-        // logger: &Logger,
     ) -> (OverallConnectionStage, Option<NodeToUiMessage>) {
         let mut subject =
             OverallConnectionStatus::new(vec![make_node_descriptor(make_ip(u8::MAX))]);
