@@ -48,7 +48,7 @@ pub struct BindMessage {
 #[derive(Debug, Message, Clone)]
 pub struct StartMessage {}
 
-#[derive(Message, Clone, PartialEq, Debug)]
+#[derive(Message, Clone, PartialEq, Eq, Debug)]
 pub struct NewPublicIp {
     pub new_ip: IpAddr,
 }

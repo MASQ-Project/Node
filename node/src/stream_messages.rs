@@ -31,19 +31,19 @@ impl AddStreamMsg {
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct NonClandestineAttributes {
     pub reception_port: u16,
     pub sequence_number: u64,
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum RemovedStreamType {
     Clandestine,
     NonClandestine(NonClandestineAttributes),
 }
 
-#[derive(PartialEq, Message)]
+#[derive(PartialEq, Eq, Message)]
 pub struct RemoveStreamMsg {
     pub local_addr: SocketAddr,
     pub peer_addr: SocketAddr,

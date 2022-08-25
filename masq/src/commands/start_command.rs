@@ -17,7 +17,7 @@ pub fn start_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("start").about(START_SUBCOMMAND_ABOUT)
 }
 
-#[derive(Debug, PartialEq, Default)]
+#[derive(Debug, PartialEq, Eq, Default)]
 pub struct StartCommand {}
 
 impl Command for StartCommand {

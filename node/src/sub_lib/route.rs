@@ -13,7 +13,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::cmp::min;
 use std::iter;
 
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Route {
     pub hops: Vec<CryptData>,
 }
@@ -334,7 +334,7 @@ impl RouteSegment {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum RouteError {
     HopDecodeProblem(String),
     EmptyRoute,

@@ -18,7 +18,7 @@ use crate::commands::shutdown_command::ShutdownCommand;
 use crate::commands::start_command::StartCommand;
 use crate::commands::wallet_addresses_command::WalletAddressesCommand;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum CommandFactoryError {
     UnrecognizedSubcommand(String),
     CommandSyntax(String),

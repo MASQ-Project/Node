@@ -139,7 +139,7 @@ fn vcl_args_to_vcl_args(vcl_args: &[Box<dyn VclArg>]) -> Vec<&dyn VclArg> {
     vcl_args.iter().map(|box_ref| box_ref.as_ref()).collect()
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct NameValueVclArg {
     name: String,
     value: String,
@@ -168,7 +168,7 @@ impl NameValueVclArg {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct NameOnlyVclArg {
     name: String,
 }

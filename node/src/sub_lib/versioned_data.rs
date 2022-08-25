@@ -82,7 +82,7 @@ impl DataVersion {
     }
 }
 
-#[derive(Clone, Debug, Serialize, Deserialize, PartialEq)]
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VersionedData<T: Serialize + DeserializeOwned> {
     version: DataVersion,
     bytes: Vec<u8>,
@@ -153,7 +153,7 @@ where
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum StepError {
     DeserializationError(DataVersion, DataVersion, String),
     SemanticError(String),
@@ -164,7 +164,7 @@ pub trait MigrationStep: Send + Sync {
     fn dup(&self) -> Box<dyn MigrationStep>;
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum MigrationError {
     MigrationNotFound(DataVersion, DataVersion),
     MigrationFailed(StepError),
@@ -473,18 +473,18 @@ mod tests {
         );
     }
 
-    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
     struct PersonV44 {
         name: String,
     }
 
-    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
     struct PersonV45 {
         name: String,
         weight: u16,
     }
 
-    #[derive(Serialize, Deserialize, Debug, PartialEq)]
+    #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
     struct PersonV46 {
         name: String,
         weight: u16,

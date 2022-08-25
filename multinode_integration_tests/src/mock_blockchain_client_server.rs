@@ -362,7 +362,7 @@ impl MockBlockchainClientServer {
     }
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 enum RequestStage {
     Unparsed,
     Parsed {

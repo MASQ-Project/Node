@@ -6,7 +6,7 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
-#[derive(Debug, actix::Message, Clone, PartialEq)]
+#[derive(Debug, actix::Message, Clone, PartialEq, Eq)]
 pub struct NewPasswordMessage {
     pub new_password: String,
 }

@@ -33,14 +33,14 @@ lazy_static! {
     );
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct SeedSpec {
     word_count: usize,
     language: String,
     passphrase_opt: Option<String>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct GenerateWalletsCommand {
     db_password: String,
     seed_spec_opt: Option<SeedSpec>,

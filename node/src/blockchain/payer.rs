@@ -5,7 +5,7 @@ use crate::sub_lib::wallet::Wallet;
 use ethsign::Signature;
 use serde_derive::{Deserialize, Serialize};
 
-#[derive(Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Debug, Deserialize, PartialEq, Eq, Serialize)]
 pub struct Payer {
     #[serde(flatten)]
     pub wallet: Wallet,
