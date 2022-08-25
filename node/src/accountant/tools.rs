@@ -75,18 +75,15 @@ fn is_payable_qualified(
     let payable_balance = payable.balance;
 
     if time_since_last_paid <= maturity_time_limit {
-        todo!("test maturity_time_limit");
         return None;
     }
 
     if payable_balance <= permanent_allowed_debt {
-        todo!("test permanent_allowed_debt");
         return None;
     }
 
     let payout_threshold = calculate_payout_threshold(time_since_last_paid, payment_thresholds);
     if payable_balance as f64 <= payout_threshold {
-        todo!("test payout_threshold");
         return None;
     }
 
@@ -119,7 +116,6 @@ fn exceeded_summary(time: SystemTime, payable: &PayableAccount, threshold: u64) 
     )
 }
 
-// TODO: Test Me
 pub(crate) fn qualified_payables_and_summary(
     non_pending_payables: Vec<PayableAccount>,
     payment_thresholds: Rc<PaymentThresholds>,
@@ -147,70 +143,40 @@ pub(crate) fn qualified_payables_and_summary(
 #[cfg(test)]
 mod tests {
     use crate::accountant::payable_dao::PayableAccount;
-    use crate::accountant::tools::is_payable_qualified;
+    use crate::accountant::tools::{
+        calculate_payout_threshold, exceeded_summary, is_payable_qualified, payable_time_diff,
+        qualified_payables_and_summary,
+    };
     use crate::bootstrapper::BootstrapperConfig;
     use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
-    use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
+    use crate::test_utils::unshared_test_utils::{
+        make_payment_thresholds_with_defaults, make_populated_accountant_config_with_defaults,
+    };
     use std::rc::Rc;
     use std::time::SystemTime;
 
-    // #[test]
-    // fn payables_debug_summary_prints_pretty_summary() {
-    //     let now = to_time_t(SystemTime::now());
-    //     let payment_thresholds = PaymentThresholds {
-    //         threshold_interval_sec: 2_592_000,
-    //         debt_threshold_gwei: 1_000_000_000,
-    //         payment_grace_period_sec: 86_400,
-    //         maturity_threshold_sec: 86_400,
-    //         permanent_debt_allowed_gwei: 10_000_000,
-    //         unban_below_gwei: 10_000_000,
-    //     };
-    //     let payment_thresholds_rc = Rc::new(payment_thresholds.clone());
-    //     let qualified_payables = &[
-    //         PayableAccount {
-    //             wallet: make_wallet("wallet0"),
-    //             balance: payment_thresholds.permanent_debt_allowed_gwei + 1000,
-    //             last_paid_timestamp: from_time_t(
-    //                 now - payment_thresholds.threshold_interval_sec - 1234,
-    //             ),
-    //             pending_payable_opt: None,
-    //         },
-    //         PayableAccount {
-    //             wallet: make_wallet("wallet1"),
-    //             balance: payment_thresholds.permanent_debt_allowed_gwei + 1,
-    //             last_paid_timestamp: from_time_t(
-    //                 now - payment_thresholds.threshold_interval_sec - 1,
-    //             ),
-    //             pending_payable_opt: None,
-    //         },
-    //     ];
-    //
-    //     let result = payables_debug_summary(qualified_payables, payment_thresholds_rc);
-    //
-    //     assert_eq!(result,
-    //                "Paying qualified debts:\n\
-    //                10001000 owed for 2593234sec exceeds threshold: 9512428; creditor: 0x0000000000000000000000000077616c6c657430\n\
-    //                10000001 owed for 2592001sec exceeds threshold: 9999604; creditor: 0x0000000000000000000000000077616c6c657431"
-    //     )
-    // }
-
-    #[test]
-    fn payable_generated_before_maturity_time_limit_is_marked_unqualified() {
-        let now = SystemTime::now();
-        let payment_thresholds = PaymentThresholds {
+    fn make_custom_payment_thresholds() -> PaymentThresholds {
+        PaymentThresholds {
             threshold_interval_sec: 2_592_000,
             debt_threshold_gwei: 1_000_000_000,
             payment_grace_period_sec: 86_400,
             maturity_threshold_sec: 86_400,
             permanent_debt_allowed_gwei: 10_000_000,
             unban_below_gwei: 10_000_000,
-        };
-        let unqualified_time = (to_time_t(now) - payment_thresholds.threshold_interval_sec) + 100;
+        }
+    }
+
+    #[test]
+    fn payable_generated_before_maturity_time_limit_is_marked_unqualified() {
+        let now = SystemTime::now();
+        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let qualified_debt = payment_thresholds.permanent_debt_allowed_gwei + 1;
+        let unqualified_time = to_time_t(now) - payment_thresholds.maturity_threshold_sec + 1;
         let unqualified_payable_account = PayableAccount {
             wallet: make_wallet("wallet0"),
-            balance: payment_thresholds.permanent_debt_allowed_gwei + 1000,
+            balance: qualified_debt,
             last_paid_timestamp: from_time_t(unqualified_time),
             pending_payable_opt: None,
         };
@@ -222,6 +188,154 @@ mod tests {
         );
 
         assert_eq!(result, None);
+    }
+
+    #[test]
+    fn payable_with_low_debt_is_marked_unqualified() {
+        let now = SystemTime::now();
+        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let unqualified_debt = payment_thresholds.permanent_debt_allowed_gwei - 1;
+        let qualified_time = to_time_t(now) - payment_thresholds.maturity_threshold_sec - 1;
+        let unqualified_payable_account = PayableAccount {
+            wallet: make_wallet("wallet0"),
+            balance: unqualified_debt,
+            last_paid_timestamp: from_time_t(qualified_time),
+            pending_payable_opt: None,
+        };
+
+        let result = is_payable_qualified(
+            now,
+            &unqualified_payable_account,
+            Rc::new(payment_thresholds),
+        );
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn payable_with_low_payout_threshold_is_marked_unqualified() {
+        let now = SystemTime::now();
+        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let debt = payment_thresholds.permanent_debt_allowed_gwei + 1;
+        let time = to_time_t(now) - payment_thresholds.maturity_threshold_sec - 1;
+        let unqualified_payable_account = PayableAccount {
+            wallet: make_wallet("wallet0"),
+            balance: debt,
+            last_paid_timestamp: from_time_t(time),
+            pending_payable_opt: None,
+        };
+
+        let result = is_payable_qualified(
+            now,
+            &unqualified_payable_account,
+            Rc::new(payment_thresholds),
+        );
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn payable_above_threshold_values_is_marked_qualified_and_returns_threshold() {
+        let now = SystemTime::now();
+        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let debt = payment_thresholds.permanent_debt_allowed_gwei + 1_000_000_000;
+        let time = to_time_t(now) - payment_thresholds.maturity_threshold_sec - 1;
+        let payment_thresholds_rc = Rc::new(payment_thresholds);
+        let qualified_payable = PayableAccount {
+            wallet: make_wallet("wallet0"),
+            balance: debt,
+            last_paid_timestamp: from_time_t(time),
+            pending_payable_opt: None,
+        };
+        let threshold = calculate_payout_threshold(
+            payable_time_diff(now, &qualified_payable),
+            Rc::clone(&payment_thresholds_rc),
+        );
+        eprintln!("Threshold: {}, Debt: {}", threshold, debt);
+
+        let result =
+            is_payable_qualified(now, &qualified_payable, Rc::clone(&payment_thresholds_rc));
+
+        assert_eq!(result, Some(threshold as u64));
+    }
+
+    #[test]
+    fn qualified_payables_can_be_filtered_out_from_non_pending_payables_along_with_their_summary() {
+        let now = SystemTime::now();
+        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let mut unqualified_payable_accounts = vec![PayableAccount {
+            wallet: make_wallet("wallet1"),
+            balance: payment_thresholds.permanent_debt_allowed_gwei + 1,
+            last_paid_timestamp: from_time_t(
+                to_time_t(now) - payment_thresholds.maturity_threshold_sec + 1,
+            ),
+            pending_payable_opt: None,
+        }];
+        let mut qualified_payable_accounts = vec![
+            PayableAccount {
+                wallet: make_wallet("wallet2"),
+                balance: payment_thresholds.permanent_debt_allowed_gwei + 1_000_000_000,
+                last_paid_timestamp: from_time_t(
+                    to_time_t(now) - payment_thresholds.maturity_threshold_sec - 1,
+                ),
+                pending_payable_opt: None,
+            },
+            PayableAccount {
+                wallet: make_wallet("wallet3"),
+                balance: payment_thresholds.permanent_debt_allowed_gwei + 1_200_000_000,
+                last_paid_timestamp: from_time_t(
+                    to_time_t(now) - payment_thresholds.maturity_threshold_sec - 100,
+                ),
+                pending_payable_opt: None,
+            },
+        ];
+        let payment_thresholds_rc = Rc::new(payment_thresholds);
+        let mut all_non_pending_payables = Vec::new();
+        all_non_pending_payables.extend(qualified_payable_accounts.clone());
+        all_non_pending_payables.extend(unqualified_payable_accounts.clone());
+
+        let (qualified_payables, summary) = qualified_payables_and_summary(
+            all_non_pending_payables,
+            Rc::clone(&payment_thresholds_rc),
+        );
+
+        let mut expected_summary = String::from("Paying qualified debts:\n");
+        for payable in qualified_payable_accounts.iter() {
+            expected_summary.push_str(&exceeded_summary(
+                now,
+                &payable,
+                calculate_payout_threshold(
+                    payable_time_diff(now, &payable),
+                    payment_thresholds_rc.clone(),
+                ) as u64,
+            ))
+        }
+
+        assert_eq!(qualified_payables, qualified_payable_accounts);
+        assert_eq!(summary, expected_summary);
+    }
+
+    #[test]
+    fn returns_empty_array_and_summary_when_no_qualified_payables_are_found() {
+        let now = SystemTime::now();
+        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let mut unqualified_payable_accounts = vec![PayableAccount {
+            wallet: make_wallet("wallet1"),
+            balance: payment_thresholds.permanent_debt_allowed_gwei + 1,
+            last_paid_timestamp: from_time_t(
+                to_time_t(now) - payment_thresholds.maturity_threshold_sec + 1,
+            ),
+            pending_payable_opt: None,
+        }];
+        let payment_thresholds_rc = Rc::new(payment_thresholds);
+
+        let (qualified_payables, summary) = qualified_payables_and_summary(
+            unqualified_payable_accounts,
+            Rc::clone(&payment_thresholds_rc),
+        );
+
+        assert_eq!(qualified_payables, vec![]);
+        assert_eq!(summary, String::from("No Qualified Payables found."));
     }
 
     // TODO: Either make this test work or write an alternative test in the desired file
