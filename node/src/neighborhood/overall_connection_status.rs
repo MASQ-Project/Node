@@ -11,14 +11,14 @@ use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
 use std::net::IpAddr;
 use std::string::String;
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum ConnectionStageErrors {
     TcpConnectionFailed,
     NoGossipResponseReceived,
     PassLoopFound,
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum ConnectionStage {
     StageZero,
     TcpConnectionEstablished,
@@ -39,7 +39,7 @@ impl TryFrom<&ConnectionStage> for usize {
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct ConnectionProgress {
     pub initial_node_descriptor: NodeDescriptor,
     pub current_peer_addr: IpAddr,
@@ -112,7 +112,7 @@ impl ConnectionProgress {
     }
 }
 
-#[derive(PartialEq, Debug, Copy, Clone)]
+#[derive(PartialEq, Eq, Debug, Copy, Clone)]
 pub enum OverallConnectionStage {
     NotConnected = 0,
     ConnectedToNeighbor = 1, // When an Introduction or Standard Gossip (acceptance) is received
@@ -129,7 +129,7 @@ impl From<OverallConnectionStage> for UiConnectionStage {
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct OverallConnectionStatus {
     // Transition depends on the ConnectionProgressMessage & check_connectedness(), they may not be in sync
     pub stage: OverallConnectionStage,

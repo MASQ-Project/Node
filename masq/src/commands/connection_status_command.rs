@@ -16,7 +16,7 @@ use masq_lib::short_writeln;
 use std::any::Any;
 use std::fmt::Debug;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct ConnectionStatusCommand {}
 
 const CONNECTION_STATUS_ABOUT: &str =
