@@ -4,7 +4,7 @@ pub(in crate::accountant) mod scanners {
     use crate::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoReal};
     use crate::accountant::pending_payable_dao::PendingPayableDao;
     use crate::accountant::receivable_dao::ReceivableDao;
-    use crate::accountant::tools::{investigate_debt_extremes, payables_debug_summary, should_pay};
+    use crate::accountant::tools::{investigate_debt_extremes, qualified_payables_and_summary};
     use crate::accountant::ReportAccountsPayable;
     use crate::accountant::{
         Accountant, CancelFailedPendingTransaction, ConfirmPendingTransaction, ReceivedPayments,
@@ -117,22 +117,18 @@ pub(in crate::accountant) mod scanners {
                 "{}",
                 investigate_debt_extremes(&all_non_pending_payables)
             );
-            let qualified_payables = all_non_pending_payables
-                .into_iter()
-                .filter(|account| should_pay(account, self.common.payment_thresholds.clone()))
-                .collect::<Vec<PayableAccount>>();
+            let (qualified_payables, summary) = qualified_payables_and_summary(
+                all_non_pending_payables,
+                self.common.payment_thresholds.clone(),
+            );
             info!(
                 logger,
                 "Chose {} qualified debts to pay",
                 qualified_payables.len()
             );
-            debug!(
-                logger,
-                "{}",
-                payables_debug_summary(&qualified_payables, self.common.payment_thresholds.clone())
-            );
+            debug!(logger, "{}", summary);
             match qualified_payables.is_empty() {
-                true => Err(String::from("No Qualified Payables found.")),
+                true => Err(summary),
                 false => Ok(ReportAccountsPayable {
                     accounts: qualified_payables,
                     response_skeleton_opt,
