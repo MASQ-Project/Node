@@ -3882,47 +3882,6 @@ mod tests {
     }
 
     #[test]
-    // TODO: Migrate this test to Scanners
-    // fn investigate_debt_extremes_picks_the_most_relevant_records() {
-    //     let now = to_time_t(SystemTime::now());
-    //     let same_amount_significance = 2_000_000;
-    //     let same_age_significance = from_time_t(now - 30000);
-    //     let payables = &[
-    //         PayableAccount {
-    //             wallet: make_wallet("wallet0"),
-    //             balance: same_amount_significance,
-    //             last_paid_timestamp: from_time_t(now - 5000),
-    //             pending_payable_opt: None,
-    //         },
-    //         //this debt is more significant because beside being high in amount it's also older, so should be prioritized and picked
-    //         PayableAccount {
-    //             wallet: make_wallet("wallet1"),
-    //             balance: same_amount_significance,
-    //             last_paid_timestamp: from_time_t(now - 10000),
-    //             pending_payable_opt: None,
-    //         },
-    //         //similarly these two wallets have debts equally old but the second has a bigger balance and should be chosen
-    //         PayableAccount {
-    //             wallet: make_wallet("wallet3"),
-    //             balance: 100,
-    //             last_paid_timestamp: same_age_significance,
-    //             pending_payable_opt: None,
-    //         },
-    //         PayableAccount {
-    //             wallet: make_wallet("wallet2"),
-    //             balance: 330,
-    //             last_paid_timestamp: same_age_significance,
-    //             pending_payable_opt: None,
-    //         },
-    //     ];
-    //
-    //     let result = Accountant::investigate_debt_extremes(payables);
-    //
-    //     assert_eq!(result, "Payable scan found 4 debts; the biggest is 2000000 owed for 10000sec, the oldest is 330 owed for 30000sec")
-    // }
-
-    // TODO: This test should be migrated to scanners
-    #[test]
     fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled() {
         init_test_logging();
         let mark_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
