@@ -38,7 +38,7 @@ lazy_static! {
 }
 
 //please, alphabetical order
-#[derive(PartialEq, Debug, Clone, Copy, Default)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]
 pub struct PaymentThresholds {
     pub debt_threshold_gwei: i64,
     pub maturity_threshold_sec: i64,
@@ -59,14 +59,14 @@ impl PaymentThresholds {
     }
 }
 
-#[derive(PartialEq, Debug, Clone, Copy, Default)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]
 pub struct ScanIntervals {
     pub pending_payable_scan_interval: Duration,
     pub payable_scan_interval: Duration,
     pub receivable_scan_interval: Duration,
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct AccountantConfig {
     pub scan_intervals: ScanIntervals,
     pub payment_thresholds: PaymentThresholds,
@@ -96,7 +96,7 @@ impl Debug for AccountantSubs {
 }
 
 // TODO: These four structures all consist of exactly the same five fields. They could be factored out.
-#[derive(Clone, PartialEq, Debug, Message)]
+#[derive(Clone, PartialEq, Eq, Debug, Message)]
 pub struct ReportRoutingServiceProvidedMessage {
     pub timestamp: SystemTime,
     pub paying_wallet: Wallet,
@@ -105,7 +105,7 @@ pub struct ReportRoutingServiceProvidedMessage {
     pub byte_rate: u64,
 }
 
-#[derive(Clone, PartialEq, Debug, Message)]
+#[derive(Clone, PartialEq, Eq, Debug, Message)]
 pub struct ReportExitServiceProvidedMessage {
     pub timestamp: SystemTime,
     pub paying_wallet: Wallet,
@@ -114,7 +114,7 @@ pub struct ReportExitServiceProvidedMessage {
     pub byte_rate: u64,
 }
 
-#[derive(Clone, PartialEq, Debug, Message)]
+#[derive(Clone, PartialEq, Eq, Debug, Message)]
 pub struct ReportServicesConsumedMessage {
     pub timestamp: SystemTime,
     pub exit: ExitServiceConsumed,
@@ -129,7 +129,7 @@ pub struct RoutingServiceConsumed {
     pub byte_rate: u64,
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ExitServiceConsumed {
     pub earning_wallet: Wallet,
     pub payload_size: usize,
@@ -137,7 +137,7 @@ pub struct ExitServiceConsumed {
     pub byte_rate: u64,
 }
 
-#[derive(Clone, PartialEq, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct FinancialStatistics {
     pub total_paid_payable: u64,
     pub total_paid_receivable: u64,

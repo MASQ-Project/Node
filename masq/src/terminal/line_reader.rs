@@ -10,7 +10,7 @@ use std::fmt::Debug;
 use std::io::Write;
 
 //most of the events depend on the default linefeed signal handlers which ignore them unless you explicitly set the opposite
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TerminalEvent {
     CommandLine(Vec<String>),
     Error(Option<String>), //'None' when already processed by printing out

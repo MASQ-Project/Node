@@ -11,7 +11,7 @@ use crate::sub_lib::route::Route;
 use serde_derive::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct LiveCoresPackage {
     pub version: DataVersion,
     pub route: Route,

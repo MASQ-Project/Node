@@ -5,7 +5,7 @@ use std::fmt::Display;
 use std::fmt::Formatter;
 use std::marker::Send;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum MasqueradeError {
     NotThisMasquerader, // This masquerader can't unmask this data. Try another one.
     LowLevelDataError(String), // Error below the level of the masquerade protocol.

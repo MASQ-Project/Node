@@ -29,7 +29,7 @@ pub enum ProxyProtocol {
 // TODO: Based on the way it's used, this struct should comprise two elements: one, a nested
 // struct that contains all the small, quickly-cloned things, and the other the big,
 // expensively-cloned SequencedPacket.
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[allow(non_camel_case_types)]
 pub struct ClientRequestPayload_0v1 {
     pub stream_key: StreamKey,
@@ -63,7 +63,7 @@ pub struct AddReturnRouteMessage {
     pub server_name: Option<String>,
 }
 
-#[derive(Message, Debug, PartialEq)]
+#[derive(Message, Debug, PartialEq, Eq)]
 pub struct AddRouteMessage {
     pub stream_key: StreamKey,
     pub route: RouteQueryResponse,

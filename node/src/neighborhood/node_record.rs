@@ -45,7 +45,7 @@ impl TryFrom<&GossipNodeRecord> for NodeRecordInner_0v1 {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NodeRecordError {
     SelfNeighborAttempt(PublicKey),
 }
@@ -244,12 +244,12 @@ impl NodeRecord {
         &self.inner.rate_pack
     }
 
-    pub fn is_desirable(&self) -> bool {
-        self.metadata.desirable
+    pub fn is_desirable_for_exit(&self) -> bool {
+        self.metadata.desirable_for_exit
     }
 
-    pub fn set_desirable(&mut self, is_desirable: bool) {
-        self.metadata.desirable = is_desirable
+    pub fn set_desirable_for_exit(&mut self, is_desirable_for_exit: bool) {
+        self.metadata.desirable_for_exit = is_desirable_for_exit
     }
 
     pub fn update(&mut self, agr: AccessibleGossipRecord) -> Result<(), String> {
@@ -323,10 +323,10 @@ impl TryFrom<&GossipNodeRecord> for NodeRecord {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 pub struct NodeRecordMetadata {
-    pub desirable: bool,
+    pub desirable_for_exit: bool,
     pub last_update: u32,
     pub node_addr_opt: Option<NodeAddr>,
 }
@@ -334,7 +334,7 @@ pub struct NodeRecordMetadata {
 impl NodeRecordMetadata {
     pub fn new() -> NodeRecordMetadata {
         NodeRecordMetadata {
-            desirable: true,
+            desirable_for_exit: true,
             last_update: time_t_timestamp(),
             node_addr_opt: None,
         }
@@ -810,12 +810,12 @@ mod tests {
         let mut this_node = make_node_record(5432, true);
 
         assert!(
-            this_node.is_desirable(),
+            this_node.is_desirable_for_exit(),
             "initial state should have been desirable"
         );
-        this_node.set_desirable(true);
+        this_node.set_desirable_for_exit(true);
         assert!(
-            this_node.is_desirable(),
+            this_node.is_desirable_for_exit(),
             "Should be desirable after being set to true."
         );
     }
@@ -825,12 +825,12 @@ mod tests {
         let mut this_node = make_node_record(5432, true);
 
         assert!(
-            this_node.is_desirable(),
+            this_node.is_desirable_for_exit(),
             "initial state should have been desirable"
         );
-        this_node.set_desirable(false);
+        this_node.set_desirable_for_exit(false);
         assert!(
-            !this_node.is_desirable(),
+            !this_node.is_desirable_for_exit(),
             "Should be undesirable after being set to false."
         );
     }

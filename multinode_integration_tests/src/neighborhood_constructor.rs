@@ -247,7 +247,7 @@ fn from_masq_node_to_node_record(masq_node: &dyn MASQNode) -> NodeRecord {
     NodeRecord {
         inner: agr.inner.clone(),
         metadata: NodeRecordMetadata {
-            desirable: true,
+            desirable_for_exit: true,
             last_update: time_t_timestamp(),
             node_addr_opt: agr.node_addr_opt.clone(),
         },

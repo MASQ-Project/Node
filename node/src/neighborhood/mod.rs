@@ -7,7 +7,6 @@ pub mod gossip_producer;
 pub mod neighborhood_database;
 pub mod node_record;
 
-use std::cmp::Ordering;
 use std::convert::TryFrom;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -72,6 +71,7 @@ use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
+pub const UNDESIRABLE_FOR_EXIT_PENALTY: i64 = 100_000_000;
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -260,7 +260,7 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
                         self.logger,
                         "About to set desirable '{}' for '{:?}'", desirable, public_key
                     );
-                    node_record.set_desirable(desirable);
+                    node_record.set_desirable_for_exit(desirable);
                 };
             }
         };
@@ -296,7 +296,7 @@ impl Handler<NewPasswordMessage> for Neighborhood {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct AccessibleGossipRecord {
     pub signed_gossip: PlainData,
     pub signature: CryptData,
@@ -328,7 +328,7 @@ impl TryFrom<GossipNodeRecord> for AccessibleGossipRecord {
     }
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum RouteDirection {
     Over,
     Back,
@@ -711,6 +711,7 @@ impl Neighborhood {
             target_component: Component::ProxyClient,
             minimum_hop_count: DEFAULT_MINIMUM_HOP_COUNT,
             return_component_opt: Some(Component::ProxyServer),
+            payload_size: 10000,
         };
         if self.handle_route_query_message(msg).is_some() {
             self.is_connected_to_min_hop_count_radius = true;
@@ -826,6 +827,7 @@ impl Neighborhood {
             msg.target_key_opt.as_ref(),
             msg.minimum_hop_count,
             msg.target_component,
+            msg.payload_size,
             RouteDirection::Over,
         )?;
         debug!(self.logger, "Route over: {:?}", over);
@@ -834,6 +836,7 @@ impl Neighborhood {
             Some(self.cryptde.public_key()),
             msg.minimum_hop_count,
             msg.return_component_opt.expect("No return component"),
+            msg.payload_size,
             RouteDirection::Back,
         )?;
         debug!(self.logger, "Route back: {:?}", back);
@@ -888,58 +891,32 @@ impl Neighborhood {
     fn make_route_segment(
         &self,
         origin: &PublicKey,
-        target: Option<&PublicKey>,
+        target_opt: Option<&PublicKey>,
         minimum_hop_count: usize,
         target_component: Component,
+        payload_size: usize,
         direction: RouteDirection,
     ) -> Result<RouteSegment, String> {
-        let mut node_seqs =
-            self.complete_routes(vec![origin], target, minimum_hop_count, direction);
-
-        if node_seqs.is_empty() {
-            let target_str = match target {
-                Some(t) => format!(" {}", t),
-                None => String::from("Unknown"),
-            };
-            Err(format!(
-                "Couldn't find any routes: at least {}-hop from {} to {:?} at {}",
-                minimum_hop_count, origin, target_component, target_str
-            ))
-        } else {
-            // When the target is Some all exit nodes will be the target and it is not optimal to sort.
-            if target.is_none() {
-                self.sort_routes_by_desirable_exit_nodes(node_seqs.as_mut());
+        let route_opt = self.find_best_route_segment(
+            origin,
+            target_opt,
+            minimum_hop_count,
+            payload_size,
+            direction,
+        );
+        match route_opt {
+            None => {
+                let target_str = match target_opt {
+                    Some(t) => format!(" {}", t),
+                    None => String::from("Unknown"),
+                };
+                Err(format!(
+                    "Couldn't find any routes: at least {}-hop from {} to {:?} at {}",
+                    minimum_hop_count, origin, target_component, target_str
+                ))
             }
-            let chosen_node_seq = node_seqs.remove(0);
-            Ok(RouteSegment::new(chosen_node_seq, target_component))
+            Some(route) => Ok(RouteSegment::new(route, target_component)),
         }
-    }
-
-    fn sort_routes_by_desirable_exit_nodes(&self, node_seqs: &mut [Vec<&PublicKey>]) {
-        if node_seqs.is_empty() {
-            panic!("Unable to sort routes by desirable exit nodes: Missing routes.");
-        }
-        let get_the_exit_nodes_desirable_flag = |vec: &Vec<&PublicKey>| -> Option<bool> {
-            vec.last()
-                .map(|pk|
-                    self.neighborhood_database
-                        .node_by_key(pk)
-                        .unwrap_or_else(|| panic!("Unable to sort routes by desirable exit nodes: Missing NodeRecord for public key: [{}]", pk))
-                ).map(|node| node.is_desirable())
-        };
-
-        node_seqs.sort_by(|vec1: &Vec<&PublicKey>, vec2: &Vec<&PublicKey>| {
-            if vec1.is_empty() || vec2.is_empty() {
-                panic!("Unable to sort routes by desirable exit nodes: Missing route segments.")
-            }
-            let is_desirable1 = get_the_exit_nodes_desirable_flag(vec1);
-            let is_desirable2 = get_the_exit_nodes_desirable_flag(vec2);
-            match (is_desirable1, is_desirable2) {
-                (Some(true), Some(false)) => Ordering::Less,
-                (Some(false), Some(true)) => Ordering::Greater,
-                _ => Ordering::Equal,
-            }
-        });
     }
 
     fn make_expected_services(
@@ -1023,6 +1000,33 @@ impl Neighborhood {
         }
     }
 
+    fn compute_undesirability(
+        &self,
+        node_record: &NodeRecord,
+        payload_size: usize,
+        link_type: LinkType,
+    ) -> i64 {
+        let (per_byte, per_cores) = match link_type {
+            LinkType::Relay => (
+                node_record.inner.rate_pack.routing_byte_rate,
+                node_record.inner.rate_pack.routing_service_rate,
+            ),
+            LinkType::Exit => (
+                node_record.inner.rate_pack.exit_byte_rate,
+                node_record.inner.rate_pack.exit_service_rate,
+            ),
+            LinkType::Origin => (0, 0),
+        };
+        let rate_undesirability = per_cores as i64 + (per_byte as i64 * payload_size as i64);
+        let desirable_undesirability =
+            if !node_record.metadata.desirable_for_exit && (link_type == LinkType::Exit) {
+                UNDESIRABLE_FOR_EXIT_PENALTY
+            } else {
+                0
+            };
+        rate_undesirability + desirable_undesirability
+    }
+
     fn is_orig_node_on_back_leg(
         node: &NodeRecord,
         target_key_opt: Option<&PublicKey>,
@@ -1043,19 +1047,51 @@ impl Neighborhood {
         return_route_id
     }
 
-    // Main recursive routing engine. Supply origin key as single-element vector in prefix,
-    // target key, if any, in target, and minimum hop count in hops_remaining. Return value is
-    // a list of all the node sequences that will either go from the origin to the target in
-    // hops_remaining or more hops with no cycles, or from the origin hops_remaining hops out into
-    // the MASQ Network. No round trips; if you want a round trip, call this method twice.
-    // If the return value is empty, no qualifying route was found.
-    fn complete_routes<'a>(
+    // Interface to main routing engine. Supply source key, target key, if any, in target_opt,
+    // minimum hop count in hops_remaining, size of payload in bytes, and the route direction.
+    //
+    // Return value is the least undesirable route that will either go from the origin to the
+    // target in hops_remaining or more hops with no cycles, or from the origin hops_remaining hops
+    // out into the MASQ Network. No round trips; if you want a round trip, call this method twice.
+    // If the return value is None, no qualifying route was found.
+    fn find_best_route_segment<'a>(
+        &'a self,
+        source: &'a PublicKey,
+        target_opt: Option<&'a PublicKey>,
+        minimum_hops: usize,
+        payload_size: usize,
+        direction: RouteDirection,
+    ) -> Option<Vec<&'a PublicKey>> {
+        let mut minimum_undesirability = i64::MAX;
+        self.routing_engine(
+            vec![source],
+            0,
+            target_opt,
+            minimum_hops,
+            payload_size,
+            direction,
+            &mut minimum_undesirability,
+        )
+        .into_iter()
+        .filter(|cr| cr.undesirability <= minimum_undesirability)
+        .map(|cr| cr.nodes)
+        .next()
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn routing_engine<'a>(
         &'a self,
         prefix: Vec<&'a PublicKey>,
+        undesirability: i64,
         target_opt: Option<&'a PublicKey>,
         hops_remaining: usize,
+        payload_size: usize,
         direction: RouteDirection,
-    ) -> Vec<Vec<&'a PublicKey>> {
+        minimum_undesirability: &mut i64,
+    ) -> Vec<ComputedRouteSegment<'a>> {
+        if undesirability > *minimum_undesirability {
+            return vec![];
+        }
         let first_node_key = prefix.first().expect("Empty prefix");
         let previous_node = self
             .neighborhood_database
@@ -1070,7 +1106,10 @@ impl Neighborhood {
                 previous_node.public_key(),
             )
         {
-            vec![prefix]
+            if undesirability < *minimum_undesirability {
+                *minimum_undesirability = undesirability;
+            }
+            vec![ComputedRouteSegment::new(prefix, undesirability)]
         } else if (hops_remaining == 0) && target_opt.is_none() {
             // don't continue a targetless search past the minimum hop count
             vec![]
@@ -1094,15 +1133,48 @@ impl Neighborhood {
                         hops_remaining - 1
                     };
 
-                    self.complete_routes(
+                    let new_undesirability = self.compute_new_undesirability(
+                        node_record,
+                        undesirability,
+                        target_opt,
+                        hops_remaining,
+                        payload_size,
+                        direction,
+                    );
+
+                    self.routing_engine(
                         new_prefix.clone(),
+                        new_undesirability,
                         target_opt,
                         new_hops_remaining,
+                        payload_size,
                         direction,
+                        minimum_undesirability,
                     )
                 })
                 .collect()
         }
+    }
+
+    fn compute_new_undesirability(
+        &self,
+        node_record: &NodeRecord,
+        undesirability: i64,
+        target_opt: Option<&PublicKey>,
+        hops_remaining: usize,
+        payload_size: usize,
+        direction: RouteDirection,
+    ) -> i64 {
+        let link_type = match (direction, target_opt) {
+            (RouteDirection::Over, None) if hops_remaining == 0 => LinkType::Exit,
+            (RouteDirection::Over, _) => LinkType::Relay,
+            (RouteDirection::Back, Some(target)) if &node_record.inner.public_key == target => {
+                LinkType::Origin
+            }
+            (RouteDirection::Back, _) => LinkType::Relay,
+        };
+        let node_undesirability = self.compute_undesirability(node_record, payload_size, link_type);
+        undesirability + node_undesirability
     }
 
     fn handle_gossip_reply(
@@ -1254,6 +1326,27 @@ pub fn regenerate_signed_gossip(
     (signed_gossip, signature)
 }
 
+#[derive(PartialEq, Eq)]
+enum LinkType {
+    Relay,
+    Exit,
+    Origin,
+}
+
+struct ComputedRouteSegment<'a> {
+    pub nodes: Vec<&'a PublicKey>,
+    pub undesirability: i64,
+}
+
+impl<'a> ComputedRouteSegment<'a> {
+    pub fn new(nodes: Vec<&'a PublicKey>, undesirability: i64) -> Self {
+        Self {
+            nodes,
+            undesirability,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use std::cell::RefCell;
@@ -1262,6 +1355,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
+    use std::time::Instant;
 
     use actix::dev::{MessageResponse, ResponseChannel};
     use actix::Message;
@@ -1287,7 +1381,7 @@ mod tests {
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
-    use crate::sub_lib::neighborhood::{ExpectedServices, NeighborhoodMode};
+    use crate::sub_lib::neighborhood::{ExpectedServices, NeighborhoodMode, RatePack};
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::peer_actors::PeerActors;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -1836,7 +1930,7 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(5));
+        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(5, 400));
 
         System::current().stop_with_code(0);
         system.run();
@@ -1852,7 +1946,7 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(2));
+        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(2, 430));
 
         System::current().stop_with_code(0);
         system.run();
@@ -1874,9 +1968,9 @@ mod tests {
             .set_earning_wallet(earning_wallet);
         subject.consuming_wallet_opt = None;
         // These happen to be extracted in the desired order. We could not think of a way to guarantee it.
-        let mut undesirable_exit_node = make_node_record(2345, true);
-        let desirable_exit_node = make_node_record(3456, false);
-        undesirable_exit_node.set_desirable(false);
+        let desirable_exit_node = make_node_record(2345, false);
+        let mut undesirable_exit_node = make_node_record(3456, true);
+        undesirable_exit_node.set_desirable_for_exit(false);
         let originating_node = &subject.neighborhood_database.root().clone();
         {
             let db = &mut subject.neighborhood_database;
@@ -1893,7 +1987,7 @@ mod tests {
         }
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(1);
+        let msg = RouteQueryMessage::data_indefinite_route_request(1, 54000);
 
         let future = sub.send(msg);
 
@@ -1928,14 +2022,14 @@ mod tests {
                     ExpectedService::Exit(
                         desirable_exit_node.public_key().clone(),
                         desirable_exit_node.earning_wallet(),
-                        rate_pack(3456),
+                        rate_pack(2345),
                     ),
                 ],
                 vec![
                     ExpectedService::Exit(
                         desirable_exit_node.public_key().clone(),
                         desirable_exit_node.earning_wallet(),
-                        rate_pack(3456),
+                        rate_pack(2345),
                     ),
                     ExpectedService::Nothing,
                 ],
@@ -1966,7 +2060,7 @@ mod tests {
         }
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(1);
+        let msg = RouteQueryMessage::data_indefinite_route_request(1, 10000);
 
         let future = sub.send(msg);
 
@@ -1983,7 +2077,7 @@ mod tests {
         let subject = make_standard_subject();
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(2);
+        let msg = RouteQueryMessage::data_indefinite_route_request(2, 20000);
 
         let future = sub.send(msg);
 
@@ -2001,7 +2095,7 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(0));
+        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(0, 12345));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2076,8 +2170,8 @@ mod tests {
         let q = &make_node_record(3456, true);
         let r = &make_node_record(4567, false);
         let s = &make_node_record(5678, false);
-        let mut t = make_node_record(1111, false);
-        t.set_desirable(false);
+        let mut t = make_node_record(7777, false);
+        t.set_desirable_for_exit(false);
         {
             let db = &mut subject.neighborhood_database;
             db.add_node(q.clone()).unwrap();
@@ -2096,7 +2190,7 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(2));
+        let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(2, 5000));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2147,102 +2241,6 @@ mod tests {
     }
 
     #[test]
-    fn sort_routes_by_desirable_exit_nodes() {
-        let mut subject = make_standard_subject();
-
-        let us = subject.neighborhood_database.root().clone();
-        let routing_node = make_node_record(0000, true);
-        let desirable_node = make_node_record(1111, false);
-        let mut undesirable_node = make_node_record(2222, false);
-        undesirable_node.set_desirable(false);
-
-        subject
-            .neighborhood_database
-            .add_node(routing_node.clone())
-            .unwrap();
-        subject
-            .neighborhood_database
-            .add_node(undesirable_node.clone())
-            .unwrap();
-        subject
-            .neighborhood_database
-            .add_node(desirable_node.clone())
-            .unwrap();
-
-        let mut node_sequences = Vec::new();
-        node_sequences.push(vec![
-            us.public_key(),
-            routing_node.public_key(),
-            undesirable_node.public_key(),
-        ]);
-        node_sequences.push(vec![
-            us.public_key(),
-            routing_node.public_key(),
-            desirable_node.public_key(),
-        ]);
-
-        subject.sort_routes_by_desirable_exit_nodes(&mut node_sequences);
-
-        assert_eq!(desirable_node.public_key(), node_sequences[0][2]);
-        assert_eq!(undesirable_node.public_key(), node_sequences[1][2]);
-    }
-
-    #[test]
-    #[should_panic(expected = "Unable to sort routes by desirable exit nodes: Missing routes.")]
-    fn sort_routes_by_desirable_exit_nodes_panics_with_empty_node_sequences() {
-        let subject = make_standard_subject();
-
-        let mut node_sequences: Vec<Vec<&PublicKey>> = Vec::new();
-        subject.sort_routes_by_desirable_exit_nodes(&mut node_sequences);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Unable to sort routes by desirable exit nodes: Missing route segments."
-    )]
-    fn sort_routes_by_desirable_exit_nodes_panics_with_the_first_route_segment_empty() {
-        let subject = make_standard_subject();
-
-        let mut node_sequences: Vec<Vec<&PublicKey>> = Vec::new();
-        let public_key = &PublicKey::from(&b"1234"[..]);
-        node_sequences.push(vec![]);
-        node_sequences.push(vec![public_key]);
-
-        subject.sort_routes_by_desirable_exit_nodes(&mut node_sequences);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Unable to sort routes by desirable exit nodes: Missing route segments."
-    )]
-    fn sort_routes_by_desirable_exit_nodes_panics_with_the_second_route_segment_empty() {
-        let subject = make_standard_subject();
-
-        let mut node_sequences: Vec<Vec<&PublicKey>> = Vec::new();
-        let public_key = &PublicKey::from(&b"1234"[..]);
-        node_sequences.push(vec![public_key]);
-        node_sequences.push(vec![]);
-
-        subject.sort_routes_by_desirable_exit_nodes(&mut node_sequences);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Unable to sort routes by desirable exit nodes: Missing NodeRecord for public key: [MTIzNA]"
-    )]
-    fn sort_routes_by_desirable_exit_nodes_panics_when_node_record_is_missing() {
-        let subject = make_standard_subject();
-
-        let mut node_sequences: Vec<Vec<&PublicKey>> = Vec::new();
-        let public_key = &PublicKey::from(&b"1234"[..]);
-        node_sequences.push(vec![public_key]);
-        node_sequences.push(vec![public_key]);
-        println!("{}", public_key);
-
-        subject.sort_routes_by_desirable_exit_nodes(&mut node_sequences);
-    }
-
-    #[test]
     fn compose_route_query_response_returns_an_error_when_route_segment_is_empty() {
         let mut subject = make_standard_subject();
 
@@ -2287,8 +2285,8 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(2));
-        let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(2));
+        let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(2, 2000));
+        let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(2, 3000));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2338,11 +2336,13 @@ mod tests {
         )
         .unwrap();
 
-        let route_request_1 = route_sub.send(RouteQueryMessage::data_indefinite_route_request(2));
+        let route_request_1 =
+            route_sub.send(RouteQueryMessage::data_indefinite_route_request(2, 1000));
         let _ = set_wallet_sub.try_send(SetConsumingWalletMessage {
             wallet: expected_new_wallet,
         });
-        let route_request_2 = route_sub.send(RouteQueryMessage::data_indefinite_route_request(2));
+        let route_request_2 =
+            route_sub.send(RouteQueryMessage::data_indefinite_route_request(2, 2000));
 
         System::current().stop();
         system.run();
@@ -2431,41 +2431,114 @@ mod tests {
         db.add_arbitrary_full_neighbor(t, s);
         db.add_arbitrary_full_neighbor(s, r);
 
-        let contains = |routes: &Vec<Vec<&PublicKey>>, expected_keys: Vec<&PublicKey>| {
-            assert_contains(&routes, &expected_keys);
-        };
-
         // At least two hops from p to anywhere standard
-        let routes = subject.complete_routes(vec![p], None, 2, RouteDirection::Over);
+        let route_opt = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over);
 
-        assert_eq!(routes, vec![vec![p, s, t]]);
+        assert_eq!(route_opt.unwrap(), vec![p, s, t]);
         // no [p, r, s] or [p, s, r] because s and r are both neighbors of p and can't exit for it
 
         // At least two hops over from p to t
-        let routes = subject.complete_routes(vec![p], Some(t), 2, RouteDirection::Over);
+        let route_opt = subject.find_best_route_segment(p, Some(t), 2, 10000, RouteDirection::Over);
 
-        contains(&routes, vec![p, s, t]);
-        contains(&routes, vec![p, r, s, t]);
-        assert_eq!(2, routes.len());
+        assert_eq!(route_opt.unwrap(), vec![p, s, t]);
 
         // At least two hops over from t to p
-        let routes = subject.complete_routes(vec![t], Some(p), 2, RouteDirection::Over);
+        let route_opt = subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Over);
 
-        assert_eq!(routes, Vec::<Vec<&PublicKey>>::new());
+        assert_eq!(route_opt, None);
         // p is consume-only; can't be an exit Node.
 
         // At least two hops back from t to p
-        let routes = subject.complete_routes(vec![t], Some(p), 2, RouteDirection::Back);
+        let route_opt = subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Back);
 
-        contains(&routes, vec![t, s, p]);
-        contains(&routes, vec![t, s, r, p]);
-        assert_eq!(2, routes.len());
+        assert_eq!(route_opt.unwrap(), vec![t, s, p]);
         // p is consume-only, but it's the originating Node, so including it is okay
 
         // At least two hops from p to Q - impossible
-        let routes = subject.complete_routes(vec![p], Some(q), 2, RouteDirection::Over);
+        let route_opt = subject.find_best_route_segment(p, Some(q), 2, 10000, RouteDirection::Over);
 
-        assert_eq!(routes, Vec::<Vec<&PublicKey>>::new());
+        assert_eq!(route_opt, None);
+    }
+
+    /*
+            Database:
+
+            A---B---C---D---E
+            |   |   |   |   |
+            F---G---H---I---J
+            |   |   |   |   |
+            K---L---M---N---O
+            |   |   |   |   |
+            P---Q---R---S---T
+            |   |   |   |   |
+            U---V---W---X---Y
+
+            All these Nodes are standard-mode. L is the root Node.
+    */
+
+    #[test]
+    fn route_optimization_test() {
+        let mut subject = make_standard_subject();
+        let db = &mut subject.neighborhood_database;
+        let mut generator = 1000;
+        let mut make_node = |db: &mut NeighborhoodDatabase| {
+            let node = &db.add_node(make_node_record(generator, true)).unwrap();
+            generator += 1;
+            node.clone()
+        };
+        let mut make_row = |db: &mut NeighborhoodDatabase| {
+            let n1 = make_node(db);
+            let n2 = make_node(db);
+            let n3 = make_node(db);
+            let n4 = make_node(db);
+            let n5 = make_node(db);
+            db.add_arbitrary_full_neighbor(&n1, &n2);
+            db.add_arbitrary_full_neighbor(&n2, &n3);
+            db.add_arbitrary_full_neighbor(&n3, &n4);
+            db.add_arbitrary_full_neighbor(&n4, &n5);
+            (n1, n2, n3, n4, n5)
+        };
+        let join_rows = |db: &mut NeighborhoodDatabase, first_row, second_row| {
+            let (f1, f2, f3, f4, f5) = first_row;
+            let (s1, s2, s3, s4, s5) = second_row;
+            db.add_arbitrary_full_neighbor(f1, s1);
+            db.add_arbitrary_full_neighbor(f2, s2);
+            db.add_arbitrary_full_neighbor(f3, s3);
+            db.add_arbitrary_full_neighbor(f4, s4);
+            db.add_arbitrary_full_neighbor(f5, s5);
+        };
+        let designate_root_node = |db: &mut NeighborhoodDatabase, key| {
+            let root_node_key = db.root().public_key().clone();
+            let node = db.node_by_key(key).unwrap().clone();
+            db.root_mut().inner = node.inner.clone();
+            db.root_mut().metadata = node.metadata.clone();
+            db.remove_node(&root_node_key);
+        };
+        let (a, b, c, d, e) = make_row(db);
+        let (f, g, h, i, j) = make_row(db);
+        let (k, l, m, n, o) = make_row(db);
+        let (p, q, r, s, t) = make_row(db);
+        let (u, v, w, x, y) = make_row(db);
+        join_rows(db, (&a, &b, &c, &d, &e), (&f, &g, &h, &i, &j));
+        join_rows(db, (&f, &g, &h, &i, &j), (&k, &l, &m, &n, &o));
+        join_rows(db, (&k, &l, &m, &n, &o), (&p, &q, &r, &s, &t));
+        join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
+        designate_root_node(db, &l);
+        let before = Instant::now();
+
+        // All the target-designated routes from L to N
+        let route = subject
+            .find_best_route_segment(&l, Some(&n), 3, 10000, RouteDirection::Back)
+            .unwrap();
+
+        let after = Instant::now();
+        assert_eq!(route, vec![&l, &g, &h, &i, &n]); // Cheaper than [&l, &q, &r, &s, &n]
+        let interval = after.duration_since(before);
+        assert!(
+            interval.as_millis() <= 100,
+            "Should have calculated route in <=100ms, but was {}ms",
+            interval.as_millis()
+        );
     }
 
     /*
@@ -2489,10 +2562,77 @@ mod tests {
         db.add_arbitrary_full_neighbor(q, r);
 
         // At least two hops from P to anywhere standard
-        let routes = subject.complete_routes(vec![p], None, 2, RouteDirection::Over);
+        let route_opt = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over);
 
-        let expected: Vec<Vec<&PublicKey>> = vec![];
-        assert_eq!(routes, expected);
+        assert_eq!(route_opt, None);
+    }
+
+    #[test]
+    fn compute_undesirability_for_relay_nodes() {
+        let subject = make_standard_subject();
+        let mut node_record = make_node_record(1, false);
+        node_record.metadata.desirable_for_exit = true; // not used as exit: irrelevant
+        node_record.inner.rate_pack = RatePack {
+            routing_byte_rate: 100,
+            routing_service_rate: 200,
+            exit_byte_rate: 123456,
+            exit_service_rate: 234567,
+        };
+
+        let result = subject.compute_undesirability(&node_record, 10000, LinkType::Relay);
+
+        assert_eq!(result, 200 + (100 * 10000));
+    }
+
+    #[test]
+    fn compute_undesirability_for_exit_nodes() {
+        let subject = make_standard_subject();
+        let mut node_record = make_node_record(1, false);
+        node_record.metadata.desirable_for_exit = true; // used as exit, but leave out penalty for now
+        node_record.inner.rate_pack = RatePack {
+            routing_byte_rate: 123456,
+            routing_service_rate: 234567,
+            exit_byte_rate: 100,
+            exit_service_rate: 200,
+        };
+
+        let result = subject.compute_undesirability(&node_record, 10000, LinkType::Exit);
+
+        assert_eq!(result, 200 + (100 * 10000));
+    }
+
+    #[test]
+    fn compute_undesirability_for_origin() {
+        let subject = make_standard_subject();
+        let mut node_record = make_node_record(1, false);
+        node_record.metadata.desirable_for_exit = true; // not used as exit: irrelevant
+        node_record.inner.rate_pack = RatePack {
+            routing_byte_rate: 123456,
+            routing_service_rate: 234567,
+            exit_byte_rate: 345678,
+            exit_service_rate: 456789,
+        };
+
+        let result = subject.compute_undesirability(&node_record, 10000, LinkType::Origin);
+
+        assert_eq!(result, 0);
+    }
+
+    #[test]
+    fn compute_undesirability_for_undesirable_for_exit_node_used_as_exit() {
+        let subject = make_standard_subject();
+        let mut node_record = make_node_record(1, false);
+        node_record.metadata.desirable_for_exit = false; // used as exit: penalty is effective
+        node_record.inner.rate_pack = RatePack {
+            routing_byte_rate: 123456,
+            routing_service_rate: 234567,
+            exit_byte_rate: 1,
+            exit_service_rate: 1,
+        };
+
+        let result = subject.compute_undesirability(&node_record, 10000, LinkType::Exit);
+
+        assert_eq!(result, 1 + (1 * 10000) + UNDESIRABLE_FOR_EXIT_PENALTY);
     }
 
     #[test]
@@ -3616,6 +3756,7 @@ mod tests {
             target_component: Component::ProxyClient,
             minimum_hop_count: 3,
             return_component_opt: None,
+            payload_size: 10000,
         };
         let unsuccessful_three_hop_route = addr.send(three_hop_route_request);
         let public_key_query = addr.send(NodeQueryMessage::PublicKey(a.public_key().clone()));
@@ -3971,6 +4112,7 @@ mod tests {
             target_component: Component::ProxyClient,
             minimum_hop_count,
             return_component_opt: Some(Component::ProxyServer),
+            payload_size: 10000,
         });
 
         assert_eq!(
@@ -4016,6 +4158,7 @@ mod tests {
             target_component: Component::ProxyClient,
             minimum_hop_count,
             return_component_opt: Some(Component::ProxyServer),
+            payload_size: 10000,
         });
 
         let next_door_neighbor_cryptde =
@@ -4051,6 +4194,79 @@ mod tests {
             PublicKey::new(b""),
         ];
         assert_eq!(expected_public_keys, actual_keys);
+    }
+
+    /*
+           For the next two tests, the database looks like this:
+
+           +---A---+
+           |       |
+           O       X
+           |       |
+           +---B---+
+
+           O is the originating Node, X is the exit Node. Minimum hop count is 2.
+           Node A offers low per-packet rates and high per-byte rates; Node B offers
+           low per-byte rates and high per-packet rates. Large packets should prefer
+           route O -> A -> X -> A -> O; small packets should prefer route
+           O -> B -> X -> B -> O.
+    */
+
+    #[test]
+    fn handle_route_query_message_prefers_low_service_fees_for_small_packet() {
+        check_fee_preference(100, true);
+    }
+
+    #[test]
+    fn handle_route_query_message_prefers_low_byte_fees_for_large_packet() {
+        check_fee_preference(100_000, false);
+    }
+
+    fn check_fee_preference(payload_size: usize, a_not_b: bool) {
+        let mut subject = make_standard_subject();
+        let db = &mut subject.neighborhood_database;
+        let o = &db.root().public_key().clone();
+        let a = &db.add_node(make_node_record(2345, true)).unwrap();
+        let b = &db.add_node(make_node_record(3456, true)).unwrap();
+        let x = &db.add_node(make_node_record(4567, true)).unwrap();
+        db.add_arbitrary_full_neighbor(o, a);
+        db.add_arbitrary_full_neighbor(a, x);
+        db.add_arbitrary_full_neighbor(x, b);
+        db.add_arbitrary_full_neighbor(b, o);
+        db.node_by_key_mut(a).unwrap().inner.rate_pack = RatePack {
+            routing_byte_rate: 100,     // high
+            routing_service_rate: 1000, // low
+            exit_byte_rate: 0,
+            exit_service_rate: 0,
+        };
+        db.node_by_key_mut(b).unwrap().inner.rate_pack = RatePack {
+            routing_byte_rate: 1,          // low
+            routing_service_rate: 100_000, // high
+            exit_byte_rate: 0,
+            exit_service_rate: 0,
+        };
+
+        let response = subject
+            .handle_route_query_message(RouteQueryMessage {
+                target_key_opt: Some(x.clone()),
+                target_component: Component::ProxyClient,
+                minimum_hop_count: 2,
+                return_component_opt: Some(Component::ProxyServer),
+                payload_size,
+            })
+            .unwrap();
+
+        let (over, back) = match response.expected_services {
+            ExpectedServices::OneWay(_) => panic!("Expecting RoundTrip"),
+            ExpectedServices::RoundTrip(o, b, _) => (o[1].clone(), b[1].clone()),
+        };
+        let extract_key = |es: ExpectedService| match es {
+            ExpectedService::Routing(pk, _, _) => pk,
+            x => panic!("Expecting Routing, found {:?}", x),
+        };
+        let expected_relay_key = if a_not_b { a.clone() } else { b.clone() };
+        assert_eq!(extract_key(over), expected_relay_key);
+        assert_eq!(extract_key(back), expected_relay_key);
     }
 
     #[test]

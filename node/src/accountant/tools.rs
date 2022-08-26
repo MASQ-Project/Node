@@ -33,7 +33,7 @@ pub(in crate::accountant) mod accountant_tools {
         as_any_dcl!();
     }
 
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Eq)]
     pub struct PendingPayablesScanner;
 
     impl Scanner for PendingPayablesScanner {
@@ -58,7 +58,7 @@ pub(in crate::accountant) mod accountant_tools {
         as_any_impl!();
     }
 
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Eq)]
     pub struct PayablesScanner;
 
     impl Scanner for PayablesScanner {
@@ -79,7 +79,7 @@ pub(in crate::accountant) mod accountant_tools {
         as_any_impl!();
     }
 
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Eq)]
     pub struct ReceivablesScanner;
 
     impl Scanner for ReceivablesScanner {
@@ -106,7 +106,7 @@ pub(in crate::accountant) mod accountant_tools {
     }
 
     //this is for turning off a certain scanner in testing to prevent it make "noise"
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Eq)]
     pub struct NullScanner;
 
     impl Scanner for NullScanner {

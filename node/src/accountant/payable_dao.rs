@@ -14,13 +14,13 @@ use std::str::FromStr;
 use std::time::SystemTime;
 use web3::types::H256;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {
     SignConversion(u64),
     RusqliteError(String),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PayableAccount {
     pub wallet: Wallet,
     pub balance: i64,
@@ -28,7 +28,7 @@ pub struct PayableAccount {
     pub pending_payable_opt: Option<PendingPayableId>,
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Payable {
     pub to: Wallet,
     pub amount: u64,
