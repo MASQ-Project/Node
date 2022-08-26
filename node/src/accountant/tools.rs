@@ -1,153 +1,159 @@
-use crate::accountant::payable_dao::PayableAccount;
-use crate::accountant::scanners::scanners::PayableScanner;
-use crate::database::dao_utils::from_time_t;
-use crate::sub_lib::accountant::PaymentThresholds;
-use itertools::Itertools;
-use std::cell::RefCell;
-use std::ops::Add;
-use std::rc::Rc;
-use std::time::{Duration, SystemTime};
-use trust_dns::client::ClientHandle;
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-//for debugging only
-pub(crate) fn investigate_debt_extremes(all_non_pending_payables: &[PayableAccount]) -> String {
-    if all_non_pending_payables.is_empty() {
-        return "Payable scan found no debts".to_string();
-    }
-    #[derive(Clone, Copy, Default)]
-    struct PayableInfo {
-        balance: i64,
-        age: u64,
-    }
+pub(crate) mod payable_scanner_tools {
+    use crate::accountant::payable_dao::PayableAccount;
+    use crate::sub_lib::accountant::PaymentThresholds;
+    use std::rc::Rc;
+    use std::time::SystemTime;
 
-    fn bigger(payable_1: PayableInfo, payable_2: PayableInfo) -> PayableInfo {
-        if payable_1.balance > payable_2.balance {
-            payable_1
-        } else if payable_2.balance > payable_1.balance {
-            payable_2
-        } else {
-            if payable_1.age != payable_2.age {
-                return older(payable_1, payable_2);
-            }
-            payable_1
+    //for debugging only
+    pub(crate) fn investigate_debt_extremes(all_non_pending_payables: &[PayableAccount]) -> String {
+        if all_non_pending_payables.is_empty() {
+            return "Payable scan found no debts".to_string();
         }
-    }
-
-    fn older(payable_1: PayableInfo, payable_2: PayableInfo) -> PayableInfo {
-        if payable_1.age > payable_2.age {
-            payable_1
-        } else if payable_2.age > payable_1.age {
-            payable_2
-        } else {
-            if payable_1.balance != payable_2.balance {
-                return bigger(payable_1, payable_2);
-            }
-            payable_1
+        #[derive(Clone, Copy, Default)]
+        struct PayableInfo {
+            balance: i64,
+            age: u64,
         }
-    }
 
-    let now = SystemTime::now();
-    let init = (PayableInfo::default(), PayableInfo::default());
-    let (biggest, oldest) = all_non_pending_payables
-        .iter()
-        .map(|payable| PayableInfo {
-            balance: payable.balance,
-            age: payable_time_diff(now, payable),
-        })
-        .fold(init, |so_far, payable| {
-            let (mut biggest, mut oldest) = so_far;
+        fn bigger(payable_1: PayableInfo, payable_2: PayableInfo) -> PayableInfo {
+            if payable_1.balance > payable_2.balance {
+                payable_1
+            } else if payable_2.balance > payable_1.balance {
+                payable_2
+            } else {
+                if payable_1.age != payable_2.age {
+                    return older(payable_1, payable_2);
+                }
+                payable_1
+            }
+        }
 
-            biggest = bigger(biggest, payable);
-            oldest = older(oldest, payable);
+        fn older(payable_1: PayableInfo, payable_2: PayableInfo) -> PayableInfo {
+            if payable_1.age > payable_2.age {
+                payable_1
+            } else if payable_2.age > payable_1.age {
+                payable_2
+            } else {
+                if payable_1.balance != payable_2.balance {
+                    return bigger(payable_1, payable_2);
+                }
+                payable_1
+            }
+        }
 
-            (biggest, oldest)
-        });
-    format!("Payable scan found {} debts; the biggest is {} owed for {}sec, the oldest is {} owed for {}sec",
+        let now = SystemTime::now();
+        let init = (PayableInfo::default(), PayableInfo::default());
+        let (biggest, oldest) = all_non_pending_payables
+            .iter()
+            .map(|payable| PayableInfo {
+                balance: payable.balance,
+                age: payable_time_diff(now, payable),
+            })
+            .fold(init, |so_far, payable| {
+                let (mut biggest, mut oldest) = so_far;
+
+                biggest = bigger(biggest, payable);
+                oldest = older(oldest, payable);
+
+                (biggest, oldest)
+            });
+        format!("Payable scan found {} debts; the biggest is {} owed for {}sec, the oldest is {} owed for {}sec",
                 all_non_pending_payables.len(), biggest.balance, biggest.age,
                 oldest.balance, oldest.age)
-}
-
-fn is_payable_qualified(
-    time: SystemTime,
-    payable: &PayableAccount,
-    payment_thresholds: Rc<PaymentThresholds>,
-) -> Option<u64> {
-    // TODO: This calculation should be done in the database, if possible
-    let maturity_time_limit = payment_thresholds.maturity_threshold_sec as u64;
-    let permanent_allowed_debt = payment_thresholds.permanent_debt_allowed_gwei;
-    let time_since_last_paid = payable_time_diff(time, payable);
-    let payable_balance = payable.balance;
-
-    if time_since_last_paid <= maturity_time_limit {
-        return None;
     }
 
-    if payable_balance <= permanent_allowed_debt {
-        return None;
-    }
+    pub(crate) fn is_payable_qualified(
+        time: SystemTime,
+        payable: &PayableAccount,
+        payment_thresholds: Rc<PaymentThresholds>,
+    ) -> Option<u64> {
+        // TODO: This calculation should be done in the database, if possible
+        let maturity_time_limit = payment_thresholds.maturity_threshold_sec as u64;
+        let permanent_allowed_debt = payment_thresholds.permanent_debt_allowed_gwei;
+        let time_since_last_paid = payable_time_diff(time, payable);
+        let payable_balance = payable.balance;
 
-    let payout_threshold = calculate_payout_threshold(time_since_last_paid, payment_thresholds);
-    if payable_balance as f64 <= payout_threshold {
-        return None;
-    }
-
-    Some(payout_threshold as u64)
-}
-
-fn payable_time_diff(time: SystemTime, payable: &PayableAccount) -> u64 {
-    time.duration_since(payable.last_paid_timestamp)
-        .expect("Payable time is corrupt")
-        .as_secs()
-}
-
-fn calculate_payout_threshold(x: u64, payment_thresholds: Rc<PaymentThresholds>) -> f64 {
-    let m = -((payment_thresholds.debt_threshold_gwei as f64
-        - payment_thresholds.permanent_debt_allowed_gwei as f64)
-        / (payment_thresholds.threshold_interval_sec as f64
-            - payment_thresholds.maturity_threshold_sec as f64));
-    let b = payment_thresholds.debt_threshold_gwei as f64
-        - m * payment_thresholds.maturity_threshold_sec as f64;
-    m * x as f64 + b
-}
-
-fn exceeded_summary(time: SystemTime, payable: &PayableAccount, threshold: u64) -> String {
-    format!(
-        "{} owed for {}sec exceeds threshold: {}; creditor: {}\n",
-        payable.balance,
-        payable_time_diff(time, payable),
-        threshold,
-        payable.wallet.clone(),
-    )
-}
-
-pub(crate) fn qualified_payables_and_summary(
-    non_pending_payables: Vec<PayableAccount>,
-    payment_thresholds: Rc<PaymentThresholds>,
-) -> (Vec<PayableAccount>, String) {
-    let now = SystemTime::now();
-    let mut qualified_summary = String::from("Paying qualified debts:\n");
-    let mut qualified_payables: Vec<PayableAccount> = vec![];
-
-    for payable in non_pending_payables {
-        if let Some(threshold) = is_payable_qualified(now, &payable, payment_thresholds.clone()) {
-            let payable_summary = exceeded_summary(now, &payable, threshold);
-            qualified_summary.push_str(&payable_summary);
-            qualified_payables.push(payable);
+        if time_since_last_paid <= maturity_time_limit {
+            return None;
         }
+
+        if payable_balance <= permanent_allowed_debt {
+            return None;
+        }
+
+        let payout_threshold = calculate_payout_threshold(time_since_last_paid, payment_thresholds);
+        if payable_balance as f64 <= payout_threshold {
+            return None;
+        }
+
+        Some(payout_threshold as u64)
     }
 
-    let summary = match qualified_payables.is_empty() {
-        true => String::from("No Qualified Payables found."),
-        false => qualified_summary,
-    };
+    pub(crate) fn payable_time_diff(time: SystemTime, payable: &PayableAccount) -> u64 {
+        time.duration_since(payable.last_paid_timestamp)
+            .expect("Payable time is corrupt")
+            .as_secs()
+    }
 
-    (qualified_payables, summary)
+    pub(crate) fn calculate_payout_threshold(
+        x: u64,
+        payment_thresholds: Rc<PaymentThresholds>,
+    ) -> f64 {
+        let m = -((payment_thresholds.debt_threshold_gwei as f64
+            - payment_thresholds.permanent_debt_allowed_gwei as f64)
+            / (payment_thresholds.threshold_interval_sec as f64
+                - payment_thresholds.maturity_threshold_sec as f64));
+        let b = payment_thresholds.debt_threshold_gwei as f64
+            - m * payment_thresholds.maturity_threshold_sec as f64;
+        m * x as f64 + b
+    }
+
+    pub(crate) fn exceeded_summary(
+        time: SystemTime,
+        payable: &PayableAccount,
+        threshold: u64,
+    ) -> String {
+        format!(
+            "{} owed for {}sec exceeds threshold: {}; creditor: {}\n",
+            payable.balance,
+            payable_time_diff(time, payable),
+            threshold,
+            payable.wallet.clone(),
+        )
+    }
+
+    pub(crate) fn qualified_payables_and_summary(
+        non_pending_payables: Vec<PayableAccount>,
+        payment_thresholds: Rc<PaymentThresholds>,
+    ) -> (Vec<PayableAccount>, String) {
+        let now = SystemTime::now();
+        let mut qualified_summary = String::from("Paying qualified debts:\n");
+        let mut qualified_payables: Vec<PayableAccount> = vec![];
+
+        for payable in non_pending_payables {
+            if let Some(threshold) = is_payable_qualified(now, &payable, payment_thresholds.clone())
+            {
+                let payable_summary = exceeded_summary(now, &payable, threshold);
+                qualified_summary.push_str(&payable_summary);
+                qualified_payables.push(payable);
+            }
+        }
+
+        let summary = match qualified_payables.is_empty() {
+            true => String::from("No Qualified Payables found."),
+            false => qualified_summary,
+        };
+
+        (qualified_payables, summary)
+    }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::accountant::payable_dao::PayableAccount;
-    use crate::accountant::tools::{
+    use crate::accountant::tools::payable_scanner_tools::{
         calculate_payout_threshold, exceeded_summary, investigate_debt_extremes,
         is_payable_qualified, payable_time_diff, qualified_payables_and_summary,
     };

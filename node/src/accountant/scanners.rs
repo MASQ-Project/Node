@@ -4,7 +4,9 @@ pub(in crate::accountant) mod scanners {
     use crate::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoReal};
     use crate::accountant::pending_payable_dao::PendingPayableDao;
     use crate::accountant::receivable_dao::ReceivableDao;
-    use crate::accountant::tools::{investigate_debt_extremes, qualified_payables_and_summary};
+    use crate::accountant::tools::payable_scanner_tools::{
+        investigate_debt_extremes, qualified_payables_and_summary,
+    };
     use crate::accountant::ReportAccountsPayable;
     use crate::accountant::{
         Accountant, CancelFailedPendingTransaction, ConfirmPendingTransaction, ReceivedPayments,
