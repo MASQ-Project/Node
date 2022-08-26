@@ -7,7 +7,9 @@ pub mod server_impersonator_http;
 pub mod server_impersonator_tls;
 pub mod tls_protocol_pack;
 
-use crate::proxy_server::client_request_payload_factory::ClientRequestPayloadFactory;
+use crate::proxy_server::client_request_payload_factory::{
+    ClientRequestPayloadFactory, ClientRequestPayloadFactoryReal,
+};
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::proxy_server::protocol_pack::{from_ibcd, from_protocol, ProtocolPack};
 use crate::proxy_server::ExitServiceSearch::{Definite, ZeroHop};
@@ -27,11 +29,11 @@ use crate::sub_lib::neighborhood::{ExpectedService, NodeRecordMetadataMessage};
 use crate::sub_lib::neighborhood::{ExpectedServices, RatePack};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
-use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::{
     AddReturnRouteMessage, AddRouteMessage, DEFAULT_MINIMUM_HOP_COUNT,
 };
+use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -49,7 +51,6 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
-use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::prelude::Future;
 
@@ -69,7 +70,7 @@ struct ProxyServerOutSubs {
 
 pub struct ProxyServer {
     subs: Option<ProxyServerOutSubs>,
-    client_request_payload_factory: ClientRequestPayloadFactory,
+    client_request_payload_factory: Box<dyn ClientRequestPayloadFactory>,
     stream_key_factory: Box<dyn StreamKeyFactory>,
     keys_and_addrs: BidiHashMap<StreamKey, SocketAddr>,
     tunneled_hosts: HashMap<StreamKey, String>,
@@ -80,9 +81,9 @@ pub struct ProxyServer {
     alias_cryptde: &'static dyn CryptDE,
     crashable: bool,
     logger: Logger,
-    normal_client_data_handler: Arc<dyn NormalClientDataHandler>,
     route_ids_to_return_routes: TtlHashMap<u32, AddReturnRouteMessage>,
     browser_proxy_sequence_offset: bool,
+    inbound_client_data_helper: Box<dyn ICDHelperFactory>,
 }
 
 impl Actor for ProxyServer {
@@ -130,7 +131,13 @@ impl Handler<InboundClientData> for ProxyServer {
             self.tls_connect(&msg);
             self.browser_proxy_sequence_offset = true;
         } else {
-            Arc::clone(&self.normal_client_data_handler).handle(self, msg, false);
+            if let Err(e) = self
+                .inbound_client_data_helper
+                .make()
+                .help_to_handle_normal_client_data(self, msg, false)
+            {
+                error!(self.logger, "{}", e)
+            };
         }
     }
 }
@@ -218,7 +225,7 @@ impl ProxyServer {
     ) -> ProxyServer {
         ProxyServer {
             subs: None,
-            client_request_payload_factory: ClientRequestPayloadFactory::new(),
+            client_request_payload_factory: Box::new(ClientRequestPayloadFactoryReal::new()),
             stream_key_factory: Box::new(StreamKeyFactoryReal {}),
             keys_and_addrs: BidiHashMap::new(),
             tunneled_hosts: HashMap::new(),
@@ -229,9 +236,9 @@ impl ProxyServer {
             alias_cryptde,
             crashable,
             logger: Logger::new("ProxyServer"),
-            normal_client_data_handler: Arc::new(NormalClientDataHandlerReal{}),
             route_ids_to_return_routes: TtlHashMap::new(RETURN_ROUTE_TTL),
             browser_proxy_sequence_offset: false,
+            inbound_client_data_helper: Box::new(ICDHelperFactoryReal::new()),
         }
     }
 
@@ -464,7 +471,13 @@ impl ProxyServer {
                 sequence_number: Some(nca.sequence_number),
                 data: vec![],
             };
-            Arc::clone(&self.normal_client_data_handler).handle(self, ibcd, true);
+            if let Err(e) = self
+                .inbound_client_data_helper
+                .make()
+                .help_to_handle_normal_client_data(self, ibcd, true)
+            {
+                todo!() //error!(self.logger, "{}", e)
+            };
         } else {
             debug!(
                 self.logger,
@@ -509,7 +522,7 @@ impl ProxyServer {
         &mut self,
         ibcd: InboundClientData,
         stream_key: &StreamKey,
-    ) -> Result<ClientRequestPayload_0v1, ()> {
+    ) -> Result<ClientRequestPayload_0v1, String> {
         let tunnelled_host = self.tunneled_hosts.get(stream_key);
         let new_ibcd = match tunnelled_host {
             Some(_) => InboundClientData {
@@ -524,10 +537,7 @@ impl ProxyServer {
             self.alias_cryptde,
             &self.logger,
         ) {
-            None => {
-                error!(self.logger, "Couldn't create ClientRequestPayload");
-                Err(())
-            }
+            None => Err("Couldn't create ClientRequestPayload".to_string()),
             Some(payload) => match tunnelled_host {
                 Some(hostname) => Ok(ClientRequestPayload_0v1 {
                     target_hostname: Some(hostname.clone()),
@@ -845,28 +855,50 @@ impl ProxyServer {
             .try_send(report_message)
             .expect("Accountant is dead");
     }
-}q
-
-pub trait NormalClientDataHandler{
-    fn handle(&self, proxy_server: &mut ProxyServer, msg: InboundClientData, retire_stream_key: bool);
 }
 
-pub struct NormalClientDataHandlerReal{}
+pub trait ICDHelperFactory {
+    fn make(&self) -> Box<dyn ICDHelper>;
+}
 
-impl NormalClientDataHandler for NormalClientDataHandlerReal{
-    fn handle(&self, proxy_s: &mut ProxyServer, msg: InboundClientData, retire_stream_key: bool) {
-        let route_source = proxy_s.out_subs("Neighborhood").route_source.clone();
-        let hopper = proxy_s.out_subs("Hopper").hopper.clone();
-        let accountant_sub = proxy_s.out_subs("Accountant").accountant.clone();
-        let dispatcher = proxy_s.out_subs("Dispatcher").dispatcher.clone();
-        let add_return_route_sub = proxy_s.out_subs("ProxyServer").add_return_route.clone();
-        let add_route_sub = proxy_s.out_subs("ProxyServer").add_route.clone();
-        let stream_shutdown_sub = proxy_s.out_subs("ProxyServer").stream_shutdown_sub.clone();
+#[derive(Default)]
+struct ICDHelperFactoryReal {}
+
+impl ICDHelperFactoryReal {
+    fn new() -> Self {
+        Self::default()
+    }
+}
+
+impl ICDHelperFactory for ICDHelperFactoryReal {
+    fn make(&self) -> Box<dyn ICDHelper> {
+        Box::new(ICDHelperReal {})
+    }
+}
+
+pub trait ICDHelper {
+    fn help_to_handle_normal_client_data(
+        &self,
+        proxy_s: &mut ProxyServer,
+        msg: InboundClientData,
+        retire_stream_key: bool,
+    ) -> Result<(), String>;
+}
+
+struct ICDHelperReal {}
+
+impl ICDHelper for ICDHelperReal {
+    fn help_to_handle_normal_client_data(
+        &self,
+        proxy: &mut ProxyServer,
+        msg: InboundClientData,
+        retire_stream_key: bool,
+    ) -> Result<(), String> {
         let source_addr = msg.peer_addr;
-        if proxy_s.consuming_wallet_balance.is_none() && proxy_s.is_decentralized {
-            let protocol_pack = match from_ibcd(&msg, &proxy_s.logger) {
-                None => return, //TODO found untested!
-                Some(pp) => pp,
+        if proxy.consuming_wallet_balance.is_none() && proxy.is_decentralized {
+            let protocol_pack = match from_ibcd(&msg) {
+                Err(e) => return Err(e),
+                Ok(pp) => pp,
             };
             let data = protocol_pack
                 .server_impersonator()
@@ -877,42 +909,33 @@ impl NormalClientDataHandler for NormalClientDataHandlerReal{
                 sequence_number: Some(0),
                 data,
             };
-            dispatcher.try_send(msg).expect("Dispatcher is dead");
-            error!(
-                proxy_s.logger,
-                "Browser request rejected due to missing consuming wallet"
-            );
-            return;
+            proxy
+                .out_subs("Dispatcher")
+                .dispatcher
+                .try_send(msg)
+                .expect("Dispatcher is dead");
+            return Err("Browser request rejected due to missing consuming wallet".to_string());
         }
-        let stream_key = proxy_s.make_stream_key(&msg);
+        let stream_key = proxy.make_stream_key(&msg);
         let timestamp = msg.timestamp;
-        let payload = match proxy_s.make_payload(msg, &stream_key) {
+        let payload = match proxy.make_payload(msg, &stream_key) {
             Ok(payload) => payload,
-            Err(_e) => {
-               return //TODO found untested!
-            }
+            Err(e) => return Err(e),
         };
-        let logger = proxy_s.logger.clone();
-        let minimum_hop_count = if proxy_s.is_decentralized {
-            DEFAULT_MINIMUM_HOP_COUNT
-        } else {
-            0
-        };
-        let cryptde = proxy_s.main_cryptde.dup();
-        match proxy_s.stream_key_routes.get(&stream_key) {
-            Some(route_query_response) => {
-                debug!(
-                    logger,
-                    "Transmitting down existing stream {}: sequence {}, length {}",
-                    stream_key,
-                    payload.sequenced_packet.sequence_number,
-                    payload.sequenced_packet.data.len()
-                );
+        let cryptde = proxy.main_cryptde.dup();
+        let hopper = proxy.out_subs("Hopper").hopper.clone();
+        let dispatcher = proxy.out_subs("Dispatcher").dispatcher.clone();
+        let accountant_sub = proxy.out_subs("Accountant").accountant.clone();
+        let add_return_route_sub = proxy.out_subs("ProxyServer").add_return_route.clone();
+        let stream_shutdown_sub = proxy.out_subs("ProxyServer").stream_shutdown_sub.clone();
+        let try_transmit_to_hopper = {
+            let dispatcher = dispatcher.clone();
+            move |route_query_response, payload, logger| {
                 ProxyServer::try_transmit_to_hopper(
                     cryptde,
                     &hopper,
                     timestamp,
-                    route_query_response.clone(),
+                    route_query_response,
                     payload,
                     logger,
                     source_addr,
@@ -924,55 +947,75 @@ impl NormalClientDataHandler for NormalClientDataHandlerReal{
                     } else {
                         None
                     },
+                )
+            }
+        };
+        let handle_route_failure = move |payload, logger| {
+            ProxyServer::handle_route_failure(payload, &logger, source_addr, &dispatcher)
+        };
+        self.handle_transmitting(proxy, payload, try_transmit_to_hopper, handle_route_failure)
+    }
+}
+
+impl ICDHelperReal {
+    fn new() -> Self {
+        Self {}
+    }
+    fn handle_transmitting<F1, F2>(
+        &self,
+        proxy: &ProxyServer,
+        payload: ClientRequestPayload_0v1,
+        try_transmit_to_hopper: F1,
+        handle_route_failure: F2,
+    ) -> Result<(), String>
+    where
+        F1: FnOnce(RouteQueryResponse, ClientRequestPayload_0v1, Logger) + Send + 'static,
+        F2: FnOnce(ClientRequestPayload_0v1, Logger) + Send + 'static,
+    {
+        let logger = proxy.logger.clone();
+        match proxy.stream_key_routes.get(&payload.stream_key) {
+            Some(route_query_response) => {
+                debug!(
+                    logger,
+                    "Transmitting down existing stream {}: sequence {}, length {}",
+                    payload.stream_key,
+                    payload.sequenced_packet.sequence_number,
+                    payload.sequenced_packet.data.len()
                 );
+                try_transmit_to_hopper(route_query_response.clone(), payload, logger);
+                Ok(())
             }
             None => {
                 debug!(logger,
                     "Getting route and opening new stream with key {} to transmit: sequence {}, length {}",
-                    stream_key, payload.sequenced_packet.sequence_number, payload.sequenced_packet.data.len()
+                    payload.stream_key, payload.sequenced_packet.sequence_number, payload.sequenced_packet.data.len()
                 );
+                let add_route_sub = proxy.out_subs("ProxyServer").add_route.clone();
+                let route_source = proxy.out_subs("Neighborhood").route_source.clone();
                 tokio::spawn(
                     route_source
                         .send(RouteQueryMessage::data_indefinite_route_request(
-                            minimum_hop_count,
+                            if proxy.is_decentralized {
+                                DEFAULT_MINIMUM_HOP_COUNT
+                            } else {
+                                0
+                            },
                         ))
                         .then(move |route_result| {
                             match route_result {
                                 Ok(Some(route_query_response)) => {
                                     add_route_sub
                                         .try_send(AddRouteMessage {
-                                            stream_key,
+                                            stream_key: payload.stream_key,
                                             route: route_query_response.clone(),
                                         })
                                         .expect("ProxyServer is dead");
-                                    ProxyServer::try_transmit_to_hopper(
-                                        cryptde,
-                                        &hopper,
-                                        timestamp,
-                                        route_query_response,
-                                        payload,
-                                        logger,
-                                        source_addr,
-                                        &dispatcher,
-                                        &accountant_sub,
-                                        &add_return_route_sub,
-                                        if retire_stream_key {
-                                            Some(&stream_shutdown_sub)
-                                        } else {
-                                            None
-                                        },
-                                    );
+                                    try_transmit_to_hopper(route_query_response, payload, logger)
                                 }
-                                Ok(None) => {
-                                    ProxyServer::handle_route_failure(
-                                        payload,
-                                        &logger,
-                                        source_addr,
-                                        &dispatcher,
-                                    );
-                                }
+                                Ok(None) => {todo!(); handle_route_failure(payload, logger)},
                                 Err(e) => {
                                     //TODO found untested!
+                                    todo!();
                                     error!(
                                         logger,
                                         "Neighborhood refused to answer route request: {:?}", e
@@ -982,6 +1025,7 @@ impl NormalClientDataHandler for NormalClientDataHandlerReal{
                             Ok(())
                         }),
                 );
+                Ok(())
             }
         }
     }
@@ -1029,7 +1073,8 @@ mod tests {
     use crate::sub_lib::sequence_buffer::SequencedPacket;
     use crate::sub_lib::ttl_hashmap::TtlHashMap;
     use crate::sub_lib::versioned_data::VersionedData;
-    use crate::test_utils::{make_meaningless_route, make_meaningless_stream_key};
+    use crate::test_utils::main_cryptde;
+    use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
@@ -1037,8 +1082,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::zero_hop_route_response;
     use crate::test_utils::{alias_cryptde, rate_pack};
-    use crate::test_utils::{main_cryptde};
-    use crate::test_utils::{make_paying_wallet};
+    use crate::test_utils::{make_meaningless_route, make_meaningless_stream_key};
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
@@ -1051,6 +1095,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::SystemTime;
+    use sysinfo::Signal::Sys;
 
     #[test]
     fn constants_have_correct_values() {
@@ -1060,20 +1105,18 @@ mod tests {
 
     const STANDARD_CONSUMING_WALLET_BALANCE: i64 = 0;
 
-    impl Default for ProxyServerOutSubs {
-        fn default() -> Self {
-            let recorder = Recorder::new();
-            let addr = recorder.start();
-            ProxyServerOutSubs {
-                dispatcher: recipient!(addr, TransmitDataMsg),
-                hopper: recipient!(addr, IncipientCoresPackage),
-                accountant: recipient!(addr, ReportServicesConsumedMessage),
-                route_source: recipient!(addr, RouteQueryMessage),
-                update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
-                add_return_route: recipient!(addr, AddReturnRouteMessage),
-                add_route: recipient!(addr, AddRouteMessage),
-                stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
-            }
+    fn make_proxy_server_out_subs() -> ProxyServerOutSubs {
+        let recorder = Recorder::new();
+        let addr = recorder.start();
+        ProxyServerOutSubs {
+            dispatcher: recipient!(addr, TransmitDataMsg),
+            hopper: recipient!(addr, IncipientCoresPackage),
+            accountant: recipient!(addr, ReportServicesConsumedMessage),
+            route_source: recipient!(addr, RouteQueryMessage),
+            update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
+            add_return_route: recipient!(addr, AddReturnRouteMessage),
+            add_route: recipient!(addr, AddRouteMessage),
+            stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
         }
     }
 
@@ -1141,19 +1184,50 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct NormalClientDataHandlerMock{
-        handle_params: Arc<Mutex<Vec<(InboundClientData,bool)>>>,
+    struct ICDHelperFactoryMock {
+        make_results: RefCell<Vec<Box<dyn ICDHelper>>>,
     }
 
-    impl NormalClientDataHandler for NormalClientDataHandlerMock{
-        fn handle(&self, _proxy_server: &mut ProxyServer, msg: InboundClientData, retire_stream_key: bool) {
-            self.handle_params.lock().unwrap().push((msg,retire_stream_key))
+    impl ICDHelperFactoryMock {
+        fn make_result(self, result: Box<dyn ICDHelper>) -> Self {
+            self.make_results.borrow_mut().push(result);
+            self
         }
     }
 
-    impl NormalClientDataHandlerMock{
-        fn handle_params(mut self, params: &Arc<Mutex<Vec<(InboundClientData,bool)>>>)->Self{
-            self.handle_params = params.clone();
+    impl ICDHelperFactory for ICDHelperFactoryMock {
+        fn make(&self) -> Box<dyn ICDHelper> {
+            self.make_results.borrow_mut().remove(0)
+        }
+    }
+
+    #[derive(Default)]
+    struct ICDHelperMock {
+        help_to_handle_normal_client_data_params: Arc<Mutex<Vec<(InboundClientData, bool)>>>,
+    }
+
+    impl ICDHelper for ICDHelperMock {
+        fn help_to_handle_normal_client_data(
+            &self,
+            _proxy_s: &mut ProxyServer,
+            msg: InboundClientData,
+            retire_stream_key: bool,
+        ) -> Result<(), String> {
+            self.help_to_handle_normal_client_data_params
+                .lock()
+                .unwrap()
+                .push((msg, retire_stream_key));
+            //if needed, add code structure for results
+            Ok(())
+        }
+    }
+
+    impl ICDHelperMock {
+        fn help_to_handle_normal_client_data_params(
+            mut self,
+            params: &Arc<Mutex<Vec<(InboundClientData, bool)>>>,
+        ) -> Self {
+            self.help_to_handle_normal_client_data_params = params.clone();
             self
         }
     }
@@ -3201,7 +3275,7 @@ mod tests {
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
         );
-        subject.subs = Some(ProxyServerOutSubs::default());
+        subject.subs = Some(make_proxy_server_out_subs());
 
         let stream_key = make_meaningless_stream_key();
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -3942,7 +4016,7 @@ mod tests {
             Some(STANDARD_CONSUMING_WALLET_BALANCE),
             false,
         );
-        subject.subs = Some(ProxyServerOutSubs::default());
+        subject.subs = Some(make_proxy_server_out_subs());
 
         let peer_actors = peer_actors_builder()
             .neighborhood(neighborhood_mock)
@@ -4046,7 +4120,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Neighborhood unbound in ProxyServer")]
+    #[should_panic(expected = "Hopper unbound in ProxyServer")]
     fn panics_if_hopper_is_unbound() {
         let system = System::new("panics_if_hopper_is_unbound");
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
@@ -4056,7 +4130,7 @@ mod tests {
         let msg_from_dispatcher = InboundClientData {
             timestamp: SystemTime::now(),
             peer_addr: socket_addr.clone(),
-            reception_port: Some(53),
+            reception_port: Some(80),
             sequence_number: Some(0),
             last_data: false,
             is_clandestine: false,
@@ -4582,55 +4656,175 @@ mod tests {
 
     #[test]
     fn stream_shutdown_msg_populates_correct_inbound_client_data_msg() {
-        let handle_normal_client_data_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut subject = ProxyServer::new(
-            main_cryptde(),
-            alias_cryptde(),
-            true,
-            Some(0),
-            false,
+        let help_to_handle_normal_client_data_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(), true, Some(0), false);
+        let icd_helper = ICDHelperMock::default().help_to_handle_normal_client_data_params(
+            &help_to_handle_normal_client_data_params_arc,
         );
-        let normal_client_handler = NormalClientDataHandlerMock::default().handle_params(&handle_normal_client_data_params_arc);
-        subject.normal_client_data_handler = Arc::new(normal_client_handler);
+        let icd_helper_factory = ICDHelperFactoryMock::default().make_result(Box::new(icd_helper));
+        subject.inbound_client_data_helper = Box::new(icd_helper_factory);
         let socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
         let stream_key = StreamKey::new(main_cryptde().public_key().clone(), socket_addr);
         subject.keys_and_addrs.insert(stream_key, socket_addr);
         subject.stream_key_routes.insert(
             stream_key,
             RouteQueryResponse {
-                route: Route{ hops: vec![] },
-                expected_services: ExpectedServices::RoundTrip(
-                    vec![],
-                    vec![],
-                    0,
-                ),
+                route: Route { hops: vec![] },
+                expected_services: ExpectedServices::RoundTrip(vec![], vec![], 0),
             },
         );
         subject
             .tunneled_hosts
             .insert(stream_key, "blah".to_string());
         let msg = StreamShutdownMsg {
-                peer_addr: socket_addr,
-                stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
-                    reception_port: HTTP_PORT,
-                    sequence_number: 1234,
-                }),
-                report_to_counterpart: true,
-            };
+            peer_addr: socket_addr,
+            stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
+                reception_port: HTTP_PORT,
+                sequence_number: 1234,
+            }),
+            report_to_counterpart: true,
+        };
         let before = SystemTime::now();
 
         subject.handle_stream_shutdown_msg(msg);
 
         let after = SystemTime::now();
-        let handle_normal_client_data = handle_normal_client_data_params_arc.lock().unwrap();
+        let handle_normal_client_data =
+            help_to_handle_normal_client_data_params_arc.lock().unwrap();
         let (inbound_client_data_msg, retire_stream_key) = &handle_normal_client_data[0];
-        assert_eq!(inbound_client_data_msg.peer_addr,socket_addr);
-        assert_eq!(inbound_client_data_msg.data,Vec::<u8>::new());
-        assert_eq!(inbound_client_data_msg.last_data,true);
-        assert_eq!(inbound_client_data_msg.is_clandestine,false);
+        assert_eq!(inbound_client_data_msg.peer_addr, socket_addr);
+        assert_eq!(inbound_client_data_msg.data, Vec::<u8>::new());
+        assert_eq!(inbound_client_data_msg.last_data, true);
+        assert_eq!(inbound_client_data_msg.is_clandestine, false);
         let actual_timestamp = inbound_client_data_msg.timestamp;
         assert!(before <= actual_timestamp && actual_timestamp <= after);
-        assert_eq!(*retire_stream_key,true)
+        assert_eq!(*retire_stream_key, true)
+    }
+
+    #[test]
+    fn help_to_handle_normal_client_data_missing_consuming_wallet_and_protocol_pack_not_found() {
+        let mut proxy_server = ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, false);
+        proxy_server.subs = Some(make_proxy_server_out_subs());
+        let inbound_client_data_msg = InboundClientData {
+            timestamp: SystemTime::now(),
+            peer_addr: SocketAddr::from_str("1.2.3.4:4578").unwrap(),
+            reception_port: None,
+            last_data: true,
+            is_clandestine: false,
+            sequence_number: Some(123),
+            data: vec![],
+        };
+
+        let result = ICDHelperReal {}.help_to_handle_normal_client_data(
+            &mut proxy_server,
+            inbound_client_data_msg,
+            true,
+        );
+
+        assert_eq!(
+            result,
+            Err("No origin port specified with 0-byte non-clandestine packet: []".to_string())
+        );
+    }
+
+    #[test]
+    fn handle_transmitting_route_query_message_was_answered_with_failure() {
+        let mut proxy_server = ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, false);
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let neighborhood = neighborhood.route_query_response(None);
+        let (fake_proxy_server,_,proxy_server_recording_arc) = make_recorder();
+        let addr = neighborhood.start();
+        let route_query_msg_sub = recipient!(&addr,RouteQueryMessage);
+        let addr = fake_proxy_server.start();
+        let add_route_msg_sub = recipient!(&addr,AddRouteMessage);
+        let mut subs = make_proxy_server_out_subs();
+        subs.add_route = add_route_msg_sub;
+        subs.route_source = route_query_msg_sub;
+        proxy_server.subs = Some(subs);
+        let socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
+        let stream_key = StreamKey::new(main_cryptde().public_key().clone(), socket_addr);
+        let logger = Logger::new("handle_transmitting_route_query_message_was_answered_with_failure");
+        let payload =  ClientRequestPayload_0v1 {
+            stream_key,
+            sequenced_packet: SequencedPacket::new(vec![], 1234, true),
+            target_hostname: Some(String::from("tunneled.com")),
+            target_port: 443,
+            protocol: ProxyProtocol::TLS,
+            originator_public_key: alias_cryptde().public_key().clone(),
+        };
+        let system = System::new("handle_transmitting_route_query_message_was_answered_with_failure");
+        let subject = ICDHelperReal::new();
+        let assertion_msg = AssertionMsg
+
+        let result = subject.handle_transmitting(&proxy_server,payload,|_,_,_|{},|_,_|{});
+        // if result.is_err(){
+        //     System::current().stop()
+        // }
+
+        assert_eq!(system.run(),0);
+        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
+        assert_eq!(neighborhood_recording.len(),0);
+        let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
+        assert_eq!(proxy_server_recording.len(),0);
+        assert_eq!(result,Err("blah".to_string()))
+    }
+
+    #[derive(Default)]
+    struct ClientRequestPayloadFactoryMock {
+        make_results: RefCell<Vec<Option<ClientRequestPayload_0v1>>>,
+    }
+
+    impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryMock {
+        fn make(
+            &self,
+            _ibcd: &InboundClientData,
+            _stream_key: StreamKey,
+            _cryptde: &dyn CryptDE,
+            _logger: &Logger,
+        ) -> Option<ClientRequestPayload_0v1> {
+            self.make_results.borrow_mut().remove(0)
+        }
+    }
+
+    impl ClientRequestPayloadFactoryMock {
+        fn make_result(self, result: Option<ClientRequestPayload_0v1>) -> Self {
+            self.make_results.borrow_mut().push(result);
+            self
+        }
+    }
+
+    #[test]
+    fn help_to_handle_normal_client_data_make_payload_failed() {
+        let mut proxy_server = ProxyServer::new(
+            main_cryptde(),
+            alias_cryptde(),
+            true,
+            Some(STANDARD_CONSUMING_WALLET_BALANCE),
+            false,
+        );
+        proxy_server.subs = Some(make_proxy_server_out_subs());
+        proxy_server.client_request_payload_factory =
+            Box::new(ClientRequestPayloadFactoryMock::default().make_result(None));
+        let inbound_client_data_msg = InboundClientData {
+            timestamp: SystemTime::now(),
+            peer_addr: SocketAddr::from_str("1.2.3.4:4578").unwrap(),
+            reception_port: Some(568),
+            last_data: true,
+            is_clandestine: false,
+            sequence_number: Some(123),
+            data: vec![],
+        };
+
+        let result = ICDHelperReal {}.help_to_handle_normal_client_data(
+            &mut proxy_server,
+            inbound_client_data_msg,
+            true,
+        );
+
+        assert_eq!(
+            result,
+            Err("Couldn't create ClientRequestPayload".to_string())
+        );
     }
 
     #[test]
