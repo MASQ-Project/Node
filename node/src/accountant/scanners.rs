@@ -164,21 +164,38 @@ pub(in crate::accountant) mod scanners {
         dao: Box<dyn PendingPayableDao>,
     }
 
-    impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for PendingPayableScanner
-    where
-        BeginMessage: Message,
-        EndMessage: Message,
-    {
+    impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingPayableScanner {
         fn begin_scan(
             &mut self,
             timestamp: SystemTime,
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
-        ) -> Result<BeginMessage, Error> {
-            todo!("Implement PendingPayableScanner")
+        ) -> Result<RequestTransactionReceipts, Error> {
+            info!(logger, "Scanning for pending payable");
+            let filtered_pending_payable = self.dao.return_all_fingerprints();
+            match filtered_pending_payable.is_empty() {
+                true => {
+                    debug!(
+                        logger,
+                        "Pending payable scan ended. No pending payable found."
+                    );
+                    Err(String::from("No pending payable found."))
+                }
+                false => {
+                    debug!(
+                        logger,
+                        "Found {} pending payables to process",
+                        filtered_pending_payable.len()
+                    );
+                    Ok(RequestTransactionReceipts {
+                        pending_payable: filtered_pending_payable,
+                        response_skeleton_opt,
+                    })
+                }
+            }
         }
 
-        fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error> {
+        fn scan_finished(&mut self, message: ReportTransactionReceipts) -> Result<(), Error> {
             todo!()
         }
 
@@ -358,6 +375,8 @@ mod tests {
     use crate::accountant::test_utils::{
         AccountantBuilder, PayableDaoMock, PendingPayableDaoMock, ReceivableDaoMock,
     };
+    use crate::accountant::RequestTransactionReceipts;
+    use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use crate::bootstrapper::BootstrapperConfig;
     use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::sub_lib::accountant::PaymentThresholds;
@@ -449,6 +468,52 @@ mod tests {
             &format!("INFO: {}: Scanning for payables", test_name),
             "Chose 0 qualified debts to pay",
         ]);
+    }
+
+    #[test]
+    fn pending_payable_scanner_can_initiate_a_scan() {
+        init_test_logging();
+        let test_name = "pending_payable_scanner_can_initiate_a_scan";
+        let now = SystemTime::now();
+        let fingerprints = vec![PendingPayableFingerprint {
+            rowid_opt: Some(1234),
+            timestamp: SystemTime::now(),
+            hash: Default::default(),
+            attempt_opt: Some(1),
+            amount: 1_000_000,
+            process_error: None,
+        }];
+        let pending_payable_dao =
+            PendingPayableDaoMock::new().return_all_fingerprints_result(fingerprints.clone());
+        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let mut pending_payable_scanner =
+            PendingPayableScanner::new(Box::new(pending_payable_dao), Rc::new(payment_thresholds));
+
+        let result = pending_payable_scanner.begin_scan(now, None, &Logger::new(test_name));
+
+        assert_eq!(
+            result,
+            Ok(RequestTransactionReceipts {
+                pending_payable: fingerprints,
+                response_skeleton_opt: None
+            })
+        );
+    }
+
+    #[test]
+    fn pending_payable_scanner_throws_an_error_when_no_fingerprint_is_found() {
+        init_test_logging();
+        let test_name = "pending_payable_scanner_throws_an_error_when_no_fingerprint_is_found";
+        let now = SystemTime::now();
+        let pending_payable_dao =
+            PendingPayableDaoMock::new().return_all_fingerprints_result(vec![]);
+        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let mut pending_payable_scanner =
+            PendingPayableScanner::new(Box::new(pending_payable_dao), Rc::new(payment_thresholds));
+
+        let result = pending_payable_scanner.begin_scan(now, None, &Logger::new(test_name));
+
+        assert_eq!(result, Err(String::from("No pending payable found.")));
     }
 
     fn make_payables(
