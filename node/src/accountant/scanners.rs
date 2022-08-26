@@ -105,14 +105,12 @@ pub(in crate::accountant) mod scanners {
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
         ) -> Result<ReportAccountsPayable, Error> {
-            todo!("Implement PayableScanner");
             // common::start_scan_at(&mut self.common, timestamp);
             // let start_message = BeginScanAMessage {};
             // // Use the DAO, if necessary, to populate start_message
             // Ok(start_message)
 
             info!(logger, "Scanning for payables");
-            self.common.initiated_at_opt = Some(timestamp);
             let all_non_pending_payables = self.dao.non_pending_payables();
             debug!(
                 logger,
@@ -355,7 +353,7 @@ mod tests {
     use super::*;
     use crate::accountant::payable_dao::{PayableAccount, PayableDaoReal};
     use crate::accountant::scanners::scanners::{
-        PayableScanner, PendingPayableScanner, ReceivableScanner, Scanners,
+        PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner, Scanners,
     };
     use crate::accountant::test_utils::{
         AccountantBuilder, PayableDaoMock, PendingPayableDaoMock, ReceivableDaoMock,
@@ -363,10 +361,13 @@ mod tests {
     use crate::bootstrapper::BootstrapperConfig;
     use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::sub_lib::accountant::PaymentThresholds;
+    use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::test_utils::make_wallet;
     use crate::test_utils::unshared_test_utils::{
         make_payment_thresholds_with_defaults, make_populated_accountant_config_with_defaults,
     };
+    use masq_lib::logger::Logger;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::rc::Rc;
     use std::time::SystemTime;
 
@@ -395,5 +396,104 @@ mod tests {
             .as_any()
             .downcast_ref::<ReceivableScanner>()
             .unwrap();
+    }
+
+    #[test]
+    fn payable_scanner_can_initiate_a_scan() {
+        init_test_logging();
+        let test_name = "payable_scanner_can_initiate_a_scan";
+        let now = SystemTime::now();
+        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let (qualified_payable_accounts, _, all_non_pending_payables) =
+            make_payables(now, payment_thresholds.clone());
+        let payable_dao =
+            PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
+
+        let mut payable_scanner =
+            PayableScanner::new(Box::new(payable_dao), Rc::new(payment_thresholds));
+
+        let result = payable_scanner.begin_scan(now, None, &Logger::new(test_name));
+
+        let expected_message = ReportAccountsPayable {
+            accounts: qualified_payable_accounts.clone(),
+            response_skeleton_opt: None,
+        };
+        assert_eq!(result, Ok(expected_message));
+        TestLogHandler::new().assert_logs_match_in_order(vec![
+            &format!("INFO: {}: Scanning for payables", test_name),
+            &format!(
+                "INFO: {}: Chose {} qualified debts to pay",
+                test_name,
+                qualified_payable_accounts.len()
+            ),
+        ])
+    }
+
+    #[test]
+    fn payable_scanner_throws_error_in_case_no_qualified_payable_is_found() {
+        init_test_logging();
+        let test_name = "payable_scanner_throws_error_in_case_no_qualified_payable_is_found";
+        let now = SystemTime::now();
+        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let (_, unqualified_payable_accounts, _) = make_payables(now, payment_thresholds.clone());
+        let payable_dao =
+            PayableDaoMock::new().non_pending_payables_result(unqualified_payable_accounts);
+
+        let mut payable_scanner =
+            PayableScanner::new(Box::new(payable_dao), Rc::new(payment_thresholds));
+
+        let result = payable_scanner.begin_scan(now, None, &Logger::new(test_name));
+
+        assert_eq!(result, Err(String::from("No Qualified Payables found.")));
+        TestLogHandler::new().assert_logs_match_in_order(vec![
+            &format!("INFO: {}: Scanning for payables", test_name),
+            "Chose 0 qualified debts to pay",
+        ]);
+    }
+
+    fn make_payables(
+        now: SystemTime,
+        payment_thresholds: PaymentThresholds,
+    ) -> (
+        Vec<PayableAccount>,
+        Vec<PayableAccount>,
+        Vec<PayableAccount>,
+    ) {
+        let mut unqualified_payable_accounts = vec![PayableAccount {
+            wallet: make_wallet("wallet1"),
+            balance: payment_thresholds.permanent_debt_allowed_gwei + 1,
+            last_paid_timestamp: from_time_t(
+                to_time_t(now) - payment_thresholds.maturity_threshold_sec + 1,
+            ),
+            pending_payable_opt: None,
+        }];
+        let mut qualified_payable_accounts = vec![
+            PayableAccount {
+                wallet: make_wallet("wallet2"),
+                balance: payment_thresholds.permanent_debt_allowed_gwei + 1_000_000_000,
+                last_paid_timestamp: from_time_t(
+                    to_time_t(now) - payment_thresholds.maturity_threshold_sec - 1,
+                ),
+                pending_payable_opt: None,
+            },
+            PayableAccount {
+                wallet: make_wallet("wallet3"),
+                balance: payment_thresholds.permanent_debt_allowed_gwei + 1_200_000_000,
+                last_paid_timestamp: from_time_t(
+                    to_time_t(now) - payment_thresholds.maturity_threshold_sec - 100,
+                ),
+                pending_payable_opt: None,
+            },
+        ];
+
+        let mut all_non_pending_payables = Vec::new();
+        all_non_pending_payables.extend(qualified_payable_accounts.clone());
+        all_non_pending_payables.extend(unqualified_payable_accounts.clone());
+
+        (
+            qualified_payable_accounts,
+            unqualified_payable_accounts,
+            all_non_pending_payables,
+        )
     }
 }
