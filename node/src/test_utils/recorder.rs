@@ -1,5 +1,4 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-#![cfg(test)]
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables,
@@ -14,7 +13,6 @@ use crate::stream_messages::{AddStreamMsg, PoolBindMessage, RemoveStreamMsg};
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
-use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, SetDbPasswordMsg};
 use crate::sub_lib::blockchain_bridge::{ReportAccountsPayable, SetGasPriceMsg};
 use crate::sub_lib::configurator::{ConfiguratorSubs, NewPasswordMessage};
@@ -28,6 +26,7 @@ use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
+use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
@@ -45,17 +44,13 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::test_utils::to_millis;
-use crate::test_utils::unshared_test_utils::SystemKillerActor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
-use actix::System;
 use actix::{Actor, Message};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use std::any::Any;
-use std::any::TypeId;
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -66,7 +61,6 @@ pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
     node_query_responses: Vec<Option<NodeQueryResponseMetadata>>,
     route_query_responses: Vec<Option<RouteQueryResponse>>,
-    expected_count_by_msg_type_opt: Option<HashMap<TypeId, usize>>,
 }
 
 #[derive(Default)]
@@ -89,20 +83,6 @@ macro_rules! recorder_message_handler {
 
             fn handle(&mut self, msg: $message_type, _ctx: &mut Self::Context) {
                 self.record(msg);
-                if let Some(expected_count_by_msg_type) = &mut self.expected_count_by_msg_type_opt {
-                    let type_id = TypeId::of::<$message_type>();
-                    let count = expected_count_by_msg_type.entry(type_id).or_insert(0);
-                    if *count == 0 {
-                        panic!(
-                            "Received a message, which we were not supposed to receive. {:?}",
-                            stringify!($message_type)
-                        );
-                    };
-                    *count -= 1;
-                    if !expected_count_by_msg_type.values().any(|&x| x > 0) {
-                        System::current().stop();
-                    }
-                }
             }
         }
     };
@@ -190,8 +170,8 @@ impl Handler<RouteQueryMessage> for Recorder {
 }
 
 fn extract_response<T>(responses: &mut Vec<T>, err_msg: &str) -> T
-where
-    T: Clone,
+    where
+        T: Clone,
 {
     match responses.len() {
         n if n == 0 => panic!("{}", err_msg),
@@ -206,8 +186,8 @@ impl Recorder {
     }
 
     pub fn record<T>(&mut self, item: T)
-    where
-        T: Any + Send,
+        where
+            T: Any + Send,
     {
         let mut recording = self.recording.lock().unwrap();
         let messages: &mut Vec<Box<dyn Any + Send>> = &mut recording.messages;
@@ -234,22 +214,6 @@ impl Recorder {
         self.route_query_responses.push(response);
         self
     }
-
-    pub fn stop_condition(self, message_type_id: TypeId) -> Recorder {
-        let mut expected_count_by_messages: HashMap<TypeId, usize> = HashMap::new();
-        expected_count_by_messages.insert(message_type_id, 1);
-        self.stop_after_messages_and_start_system_killer(expected_count_by_messages)
-    }
-
-    pub fn stop_after_messages_and_start_system_killer(
-        mut self,
-        expected_count_by_messages: HashMap<TypeId, usize>,
-    ) -> Recorder {
-        let system_killer = SystemKillerActor::new(Duration::from_secs(15));
-        system_killer.start();
-        self.expected_count_by_msg_type_opt = Some(expected_count_by_messages);
-        self
-    }
 }
 
 impl Recording {
@@ -271,16 +235,16 @@ impl Recording {
     }
 
     pub fn get_record<T>(&self, index: usize) -> &T
-    where
-        T: Any + Send,
+        where
+            T: Any + Send,
     {
         self.get_record_inner_body(index)
             .unwrap_or_else(|e| panic!("{}", e))
     }
 
     pub fn get_record_opt<T>(&self, index: usize) -> Option<&T>
-    where
-        T: Any + Send,
+        where
+            T: Any + Send,
     {
         self.get_record_inner_body(index).ok()
     }
@@ -555,14 +519,14 @@ mod tests {
     use actix::Message;
     use actix::System;
 
-    #[derive(Debug, PartialEq, Message)]
+    #[derive(Debug, PartialEq, Eq, Message)]
     struct FirstMessageType {
         string: String,
     }
 
     recorder_message_handler!(FirstMessageType);
 
-    #[derive(Debug, PartialEq, Message)]
+    #[derive(Debug, PartialEq, Eq, Message)]
     struct SecondMessageType {
         size: usize,
         flag: bool,

@@ -33,7 +33,7 @@ use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::{
     AddReturnRouteMessage, AddRouteMessage, DEFAULT_MINIMUM_HOP_COUNT,
 };
-use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol};
+use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -41,11 +41,11 @@ use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::ttl_hashmap::TtlHashMap;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
-use actix::Actor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use actix::{Actor, MailboxError};
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::collections::HashMap;
@@ -476,7 +476,7 @@ impl ProxyServer {
                 .make()
                 .help_to_handle_normal_client_data(self, ibcd, true)
             {
-                todo!() //error!(self.logger, "{}", e)
+                error!(self.logger, "{}", e)
             };
         } else {
             debug!(
@@ -953,16 +953,12 @@ impl ICDHelper for ICDHelperReal {
         let handle_route_failure = move |payload, logger| {
             ProxyServer::handle_route_failure(payload, &logger, source_addr, &dispatcher)
         };
-        self.handle_transmitting(proxy, payload, try_transmit_to_hopper, handle_route_failure)
+        Self::handle_transmitting(proxy, payload, try_transmit_to_hopper, handle_route_failure)
     }
 }
 
 impl ICDHelperReal {
-    fn new() -> Self {
-        Self {}
-    }
     fn handle_transmitting<F1, F2>(
-        &self,
         proxy: &ProxyServer,
         payload: ClientRequestPayload_0v1,
         try_transmit_to_hopper: F1,
@@ -1001,31 +997,51 @@ impl ICDHelperReal {
                                 0
                             },
                         ))
+                        .timeout(Duration::from_nanos(1))
                         .then(move |route_result| {
-                            match route_result {
-                                Ok(Some(route_query_response)) => {
-                                    add_route_sub
-                                        .try_send(AddRouteMessage {
-                                            stream_key: payload.stream_key,
-                                            route: route_query_response.clone(),
-                                        })
-                                        .expect("ProxyServer is dead");
-                                    try_transmit_to_hopper(route_query_response, payload, logger)
-                                }
-                                Ok(None) => {todo!(); handle_route_failure(payload, logger)},
-                                Err(e) => {
-                                    //TODO found untested!
-                                    todo!();
-                                    error!(
-                                        logger,
-                                        "Neighborhood refused to answer route request: {:?}", e
-                                    );
-                                }
-                            };
+                            Self::resolve_route_query_response(
+                                route_result,
+                                payload,
+                                logger,
+                                add_route_sub,
+                                try_transmit_to_hopper,
+                                handle_route_failure,
+                            );
                             Ok(())
                         }),
                 );
                 Ok(())
+            }
+        }
+    }
+
+    fn resolve_route_query_response<F1, F2>(
+        route_result: Result<Option<RouteQueryResponse>, MailboxError>,
+        payload: ClientRequestPayload_0v1,
+        logger: Logger,
+        add_route_sub: Recipient<AddRouteMessage>,
+        try_transmit_to_hopper: F1,
+        handle_route_failure: F2,
+    ) where
+        F1: FnOnce(RouteQueryResponse, ClientRequestPayload_0v1, Logger) + Send + 'static,
+        F2: FnOnce(ClientRequestPayload_0v1, Logger) + Send + 'static,
+    {
+        match route_result {
+            Ok(Some(route_query_response)) => {
+                add_route_sub
+                    .try_send(AddRouteMessage {
+                        stream_key: payload.stream_key,
+                        route: route_query_response.clone(),
+                    })
+                    .expect("ProxyServer is dead");
+                try_transmit_to_hopper(route_query_response, payload, logger)
+            }
+            Ok(None) => handle_route_failure(payload, logger),
+            Err(e) => {
+                error!(
+                    logger,
+                    "Neighborhood refused to answer route request: {:?}", e
+                );
             }
         }
     }
@@ -1079,7 +1095,9 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
+    use crate::test_utils::unshared_test_utils::{
+        prove_that_crash_request_handler_is_hooked_up,
+    };
     use crate::test_utils::zero_hop_route_response;
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{make_meaningless_route, make_meaningless_stream_key};
@@ -1095,7 +1113,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::SystemTime;
-    use sysinfo::Signal::Sys;
 
     #[test]
     fn constants_have_correct_values() {
@@ -1204,6 +1221,7 @@ mod tests {
     #[derive(Default)]
     struct ICDHelperMock {
         help_to_handle_normal_client_data_params: Arc<Mutex<Vec<(InboundClientData, bool)>>>,
+        help_to_handle_normal_client_data_results: RefCell<Vec<Result<(), String>>>,
     }
 
     impl ICDHelper for ICDHelperMock {
@@ -1217,8 +1235,9 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push((msg, retire_stream_key));
-            //if needed, add code structure for results
-            Ok(())
+            self.help_to_handle_normal_client_data_results
+                .borrow_mut()
+                .remove(0)
         }
     }
 
@@ -1228,6 +1247,13 @@ mod tests {
             params: &Arc<Mutex<Vec<(InboundClientData, bool)>>>,
         ) -> Self {
             self.help_to_handle_normal_client_data_params = params.clone();
+            self
+        }
+
+        fn help_to_handle_normal_client_data_result(self, result: Result<(), String>) -> Self {
+            self.help_to_handle_normal_client_data_results
+                .borrow_mut()
+                .push(result);
             self
         }
     }
@@ -4655,12 +4681,37 @@ mod tests {
     }
 
     #[test]
+    fn handle_stream_shutdown_msg_logs_errors_from_handling_normal_client_data() {
+        init_test_logging();
+        let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(), true, Some(0), false);
+        let helper = ICDHelperMock::default()
+            .help_to_handle_normal_client_data_result(Err("Our help is not welcome".to_string()));
+        let helper_factory = ICDHelperFactoryMock::default().make_result(Box::new(helper));
+        subject.inbound_client_data_helper = Box::new(helper_factory);
+        let socket_addr = SocketAddr::from_str("3.4.5.6:7777").unwrap();
+        let stream_key = StreamKey::new(main_cryptde().public_key().clone(), socket_addr);
+        subject.keys_and_addrs.insert(stream_key, socket_addr);
+        let msg = StreamShutdownMsg {
+            peer_addr: socket_addr,
+            stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
+                reception_port: HTTP_PORT,
+                sequence_number: 1234,
+            }),
+            report_to_counterpart: true,
+        };
+
+        subject.handle_stream_shutdown_msg(msg);
+
+        TestLogHandler::new().exists_log_containing("ERROR: ProxyServer: Our help is not welcome");
+    }
+
+    #[test]
     fn stream_shutdown_msg_populates_correct_inbound_client_data_msg() {
         let help_to_handle_normal_client_data_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(), true, Some(0), false);
-        let icd_helper = ICDHelperMock::default().help_to_handle_normal_client_data_params(
-            &help_to_handle_normal_client_data_params_arc,
-        );
+        let icd_helper = ICDHelperMock::default()
+            .help_to_handle_normal_client_data_params(&help_to_handle_normal_client_data_params_arc)
+            .help_to_handle_normal_client_data_result(Ok(()));
         let icd_helper_factory = ICDHelperFactoryMock::default().make_result(Box::new(icd_helper));
         subject.inbound_client_data_helper = Box::new(icd_helper_factory);
         let socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
@@ -4728,23 +4779,15 @@ mod tests {
     }
 
     #[test]
-    fn handle_transmitting_route_query_message_was_answered_with_failure() {
-        let mut proxy_server = ProxyServer::new(main_cryptde(), alias_cryptde(), true, None, false);
-        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
-        let neighborhood = neighborhood.route_query_response(None);
-        let (fake_proxy_server,_,proxy_server_recording_arc) = make_recorder();
-        let addr = neighborhood.start();
-        let route_query_msg_sub = recipient!(&addr,RouteQueryMessage);
+    fn resolve_route_query_response_handles_error() {
+        init_test_logging();
+        let (fake_proxy_server, _, _) = make_recorder();
         let addr = fake_proxy_server.start();
-        let add_route_msg_sub = recipient!(&addr,AddRouteMessage);
-        let mut subs = make_proxy_server_out_subs();
-        subs.add_route = add_route_msg_sub;
-        subs.route_source = route_query_msg_sub;
-        proxy_server.subs = Some(subs);
+        let add_route_msg_sub = recipient!(&addr, AddRouteMessage);
         let socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
         let stream_key = StreamKey::new(main_cryptde().public_key().clone(), socket_addr);
-        let logger = Logger::new("handle_transmitting_route_query_message_was_answered_with_failure");
-        let payload =  ClientRequestPayload_0v1 {
+        let logger = Logger::new("resolve_route_query_response_handles_error");
+        let payload = ClientRequestPayload_0v1 {
             stream_key,
             sequenced_packet: SequencedPacket::new(vec![], 1234, true),
             target_hostname: Some(String::from("tunneled.com")),
@@ -4752,21 +4795,17 @@ mod tests {
             protocol: ProxyProtocol::TLS,
             originator_public_key: alias_cryptde().public_key().clone(),
         };
-        let system = System::new("handle_transmitting_route_query_message_was_answered_with_failure");
-        let subject = ICDHelperReal::new();
-        let assertion_msg = AssertionMsg
 
-        let result = subject.handle_transmitting(&proxy_server,payload,|_,_,_|{},|_,_|{});
-        // if result.is_err(){
-        //     System::current().stop()
-        // }
+        ICDHelperReal::resolve_route_query_response(
+            Err(MailboxError::Timeout),
+            payload,
+            logger,
+            add_route_msg_sub,
+            |_, _, _| {},
+            |_, _| {},
+        );
 
-        assert_eq!(system.run(),0);
-        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        assert_eq!(neighborhood_recording.len(),0);
-        let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
-        assert_eq!(proxy_server_recording.len(),0);
-        assert_eq!(result,Err("blah".to_string()))
+        TestLogHandler::new().exists_log_containing("ERROR: resolve_route_query_response_handles_error: Neighborhood refused to answer route request: MailboxError(Message delivery timed out)");
     }
 
     #[derive(Default)]
