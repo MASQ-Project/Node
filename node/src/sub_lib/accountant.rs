@@ -122,7 +122,7 @@ pub struct ReportServicesConsumedMessage {
     pub routing: Vec<RoutingServiceConsumed>,
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct RoutingServiceConsumed {
     pub earning_wallet: Wallet,
     pub service_rate: u64,

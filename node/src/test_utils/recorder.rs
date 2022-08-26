@@ -13,6 +13,7 @@ use crate::stream_messages::{AddStreamMsg, PoolBindMessage, RemoveStreamMsg};
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
+use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, SetDbPasswordMsg};
 use crate::sub_lib::blockchain_bridge::{ReportAccountsPayable, SetGasPriceMsg};
 use crate::sub_lib::configurator::{ConfiguratorSubs, NewPasswordMessage};
@@ -26,7 +27,6 @@ use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
-use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
@@ -170,8 +170,8 @@ impl Handler<RouteQueryMessage> for Recorder {
 }
 
 fn extract_response<T>(responses: &mut Vec<T>, err_msg: &str) -> T
-    where
-        T: Clone,
+where
+    T: Clone,
 {
     match responses.len() {
         n if n == 0 => panic!("{}", err_msg),
@@ -186,8 +186,8 @@ impl Recorder {
     }
 
     pub fn record<T>(&mut self, item: T)
-        where
-            T: Any + Send,
+    where
+        T: Any + Send,
     {
         let mut recording = self.recording.lock().unwrap();
         let messages: &mut Vec<Box<dyn Any + Send>> = &mut recording.messages;
@@ -235,16 +235,16 @@ impl Recording {
     }
 
     pub fn get_record<T>(&self, index: usize) -> &T
-        where
-            T: Any + Send,
+    where
+        T: Any + Send,
     {
         self.get_record_inner_body(index)
             .unwrap_or_else(|e| panic!("{}", e))
     }
 
     pub fn get_record_opt<T>(&self, index: usize) -> Option<&T>
-        where
-            T: Any + Send,
+    where
+        T: Any + Send,
     {
         self.get_record_inner_body(index).ok()
     }

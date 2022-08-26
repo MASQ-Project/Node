@@ -29,11 +29,11 @@ use crate::sub_lib::neighborhood::{ExpectedService, NodeRecordMetadataMessage};
 use crate::sub_lib::neighborhood::{ExpectedServices, RatePack};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
+use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::{
     AddReturnRouteMessage, AddRouteMessage, DEFAULT_MINIMUM_HOP_COUNT,
 };
-use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1};
 use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
@@ -130,14 +130,12 @@ impl Handler<InboundClientData> for ProxyServer {
         if msg.is_connect() {
             self.tls_connect(&msg);
             self.browser_proxy_sequence_offset = true;
-        } else {
-            if let Err(e) = self
-                .inbound_client_data_helper
-                .make()
-                .help_to_handle_normal_client_data(self, msg, false)
-            {
-                error!(self.logger, "{}", e)
-            };
+        } else if let Err(e) = self
+            .inbound_client_data_helper
+            .make()
+            .help_to_handle_normal_client_data(self, msg, false)
+        {
+            error!(self.logger, "{}", e)
         }
     }
 }
@@ -996,8 +994,8 @@ impl ICDHelperReal {
                             } else {
                                 0
                             },
+                            payload.sequenced_packet.data.len(),
                         ))
-                        .timeout(Duration::from_nanos(1))
                         .then(move |route_result| {
                             Self::resolve_route_query_response(
                                 route_result,
@@ -1095,9 +1093,7 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
-    use crate::test_utils::unshared_test_utils::{
-        prove_that_crash_request_handler_is_hooked_up,
-    };
+    use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::zero_hop_route_response;
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{make_meaningless_route, make_meaningless_stream_key};
