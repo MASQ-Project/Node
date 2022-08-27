@@ -3,7 +3,7 @@
 use clap::arg_enum;
 
 arg_enum! {
-    #[derive(Debug, PartialEq, Clone, Copy)]
+    #[derive(Debug, PartialEq, Eq, Clone, Copy)]
     pub enum CrashPoint {
         Message,
         Panic,

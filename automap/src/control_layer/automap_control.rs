@@ -15,7 +15,7 @@ use std::collections::HashSet;
 use std::fmt::Debug;
 use std::net::IpAddr;
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum AutomapChange {
     NewIp(IpAddr),
     Error(AutomapError),
@@ -30,7 +30,7 @@ pub trait AutomapControl {
     fn get_mapping_protocol(&self) -> Option<AutomapProtocol>;
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 struct AutomapControlRealInner {
     router_ip: IpAddr,
     transactor_idx: usize,
@@ -38,7 +38,7 @@ struct AutomapControlRealInner {
 
 type TransactorExperiment<T> = Box<dyn Fn(&dyn Transactor, IpAddr) -> Result<T, AutomapError>>;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 struct ProtocolInfo<T: PartialEq + Debug> {
     payload: T,
     router_ip: IpAddr,

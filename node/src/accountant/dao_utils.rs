@@ -73,7 +73,7 @@ impl<T> From<TopRecordsConfig> for CustomQuery<T> {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CustomQuery<N> {
     TopRecords {
         count: u16,

@@ -809,7 +809,7 @@ impl DbMigratorReal {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ExternalData {
     pub chain: Chain,
     pub neighborhood_mode: NeighborhoodModeLight,

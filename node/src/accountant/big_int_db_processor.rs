@@ -342,13 +342,13 @@ pub trait DAOTableIdentifier: Debug + Send {
     fn table_name() -> String;
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum WeiChange {
     Addition(&'static str, u128),
     Subtraction(&'static str, u128),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct BigIntDbError(pub String);
 
 macro_rules! insert_update_error_from {

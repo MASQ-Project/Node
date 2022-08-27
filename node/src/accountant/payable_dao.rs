@@ -26,13 +26,13 @@ use std::str::FromStr;
 use std::time::SystemTime;
 use web3::types::H256;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {
     SignConversion(u64),
     RusqliteError(String),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PayableAccount {
     pub wallet: Wallet,
     pub balance_wei: u128,
@@ -42,7 +42,7 @@ pub struct PayableAccount {
 
 //TODO two to three of these fields can be technically eliminated now but I think my old plan was not to do that because it could be potentially a useful set of information,
 // I somehow didn't trust unconditionally to the pending payable record to be always secure - and so I still think this might wait for GH-576
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Payable {
     pub to: Wallet,
     pub amount: u128,

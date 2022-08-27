@@ -11,7 +11,7 @@ use std::collections::HashSet;
 use std::convert::{TryFrom, TryInto};
 use std::net::IpAddr;
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 #[allow(clippy::large_enum_variant)]
 pub enum GossipType {
     DebutGossip(SingleNode),
@@ -64,7 +64,7 @@ pub trait MultinodeGossip {
     fn render(&self) -> Gossip_0v1;
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct SingleNode {
     node: AccessibleGossipRecord,
 }
@@ -148,7 +148,7 @@ impl SingleNode {
     }
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Introduction {
     introducer: AccessibleGossipRecord,
     introducee: AccessibleGossipRecord,
@@ -241,7 +241,7 @@ impl Introduction {
     }
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct Standard {
     nodes: Vec<AccessibleGossipRecord>,
 }

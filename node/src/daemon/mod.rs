@@ -74,7 +74,7 @@ impl ChannelFactoryReal {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct LaunchSuccess {
     pub new_process_id: u32,
     pub redirect_ui_port: u16,
@@ -88,7 +88,7 @@ pub trait Launcher {
     ) -> Result<Option<LaunchSuccess>, String>;
 }
 
-#[derive(Message, PartialEq, Clone)]
+#[derive(Message, PartialEq, Eq, Clone)]
 pub struct DaemonBindMessage {
     pub to_ui_message_recipient: Recipient<NodeToUiMessage>, // for everybody to send UI-bound messages to
     pub from_ui_message_recipient: Recipient<NodeFromUiMessage>, // for the WebsocketSupervisor to send inbound UI messages to the UiGateway

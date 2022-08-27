@@ -497,7 +497,7 @@ pub fn assert_eq_debug<T: Debug>(a: T, b: T) {
 }
 
 //must stay without cfg(test) -- used in another crate
-#[derive(Debug, Default, Clone, PartialEq, Deserialize, Serialize)]
+#[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize, Serialize)]
 pub struct TestRawTransaction {
     pub nonce: U256,
     pub to: Option<Address>,
@@ -867,7 +867,7 @@ pub mod unshared_test_utils {
             Mutex::new(MutexIncrementInset(0));
     }
 
-    #[derive(Clone, Copy, Debug, PartialEq)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct ArbitraryIdStamp(usize);
 
     impl ArbitraryIdStamp {

@@ -27,7 +27,7 @@ use std::time::Duration;
 pub const ROUTER_PORT: u16 = 5351; // from the PCP and PMP RFCs
 pub const HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS: u64 = 1000;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MappingConfig {
     pub hole_port: u16,
     pub next_lifetime: Duration,

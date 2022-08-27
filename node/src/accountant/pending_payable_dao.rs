@@ -12,7 +12,7 @@ use std::str::FromStr;
 use std::time::SystemTime;
 use web3::types::H256;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum PendingPayableDaoError {
     InsertionFailed(String),
     UpdateFailed(String),

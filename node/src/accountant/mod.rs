@@ -110,14 +110,14 @@ pub struct ResponseSkeleton {
     pub context_id: u64,
 }
 
-#[derive(Debug, Eq, Message, PartialEq)]
+#[derive(Debug, Message, PartialEq, Eq)]
 pub struct ReceivedPayments {
     pub timestamp: SystemTime,
     pub payments: Vec<BlockchainTransaction>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-#[derive(Debug, Message, PartialEq)]
+#[derive(Debug, Message, PartialEq, Eq)]
 pub struct SentPayables {
     pub timestamp: SystemTime,
     pub payable: Vec<Result<Payable, BlockchainError>>,
@@ -129,17 +129,17 @@ pub struct ScanForPayables {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-#[derive(Debug, Eq, Message, PartialEq, Clone, Copy)]
+#[derive(Debug, Message, PartialEq, Eq, Clone, Copy)]
 pub struct ScanForReceivables {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-#[derive(Debug, Clone, Copy, Eq, Message, PartialEq)]
+#[derive(Debug, Clone, Copy, Message, PartialEq, Eq)]
 pub struct ScanForPendingPayables {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-#[derive(Debug, Clone, Message, PartialEq)]
+#[derive(Debug, Clone, Message, PartialEq, Eq)]
 pub struct ScanError {
     pub scan_type: ScanType,
     pub response_skeleton: ResponseSkeleton,
@@ -314,7 +314,7 @@ pub trait SkeletonOptHolder {
     fn skeleton_opt(&self) -> Option<ResponseSkeleton>;
 }
 
-#[derive(Debug, PartialEq, Message, Clone)]
+#[derive(Debug, PartialEq, Eq, Message, Clone)]
 pub struct RequestTransactionReceipts {
     pub pending_payable: Vec<PendingPayableFingerprint>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
@@ -356,7 +356,7 @@ impl Handler<ReportTransactionReceipts> for Accountant {
     }
 }
 
-#[derive(Debug, PartialEq, Message, Clone)]
+#[derive(Debug, PartialEq, Eq, Message, Clone)]
 pub struct CancelFailedPendingTransaction {
     pub id: PendingPayableId,
 }
@@ -373,7 +373,7 @@ impl Handler<CancelFailedPendingTransaction> for Accountant {
     }
 }
 
-#[derive(Debug, PartialEq, Message, Clone)]
+#[derive(Debug, PartialEq, Eq, Message, Clone)]
 pub struct ConfirmPendingTransaction {
     pub pending_payable_fingerprint: PendingPayableFingerprint,
 }
@@ -1406,14 +1406,14 @@ impl Accountant {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 enum PendingTransactionStatus {
     StillPending(PendingPayableId), //updates slightly the record, waits an interval and starts a new round
     Failure(PendingPayableId),      //standard tx failure
     Confirmed(PendingPayableFingerprint), //tx was fully processed and successful
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub struct PendingPayableId {
     pub rowid: u64,
     pub hash: H256,

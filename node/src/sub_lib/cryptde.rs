@@ -12,7 +12,7 @@ use std::fmt;
 use std::iter::FromIterator;
 use std::str::FromStr;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct PrivateKey {
     data: Vec<u8>,
 }
@@ -181,7 +181,7 @@ impl<'a> Visitor<'a> for KeyVisitor {
     }
 }
 
-#[derive(Clone, PartialEq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct SymmetricKey {
     data: Vec<u8>,
 }
@@ -375,7 +375,7 @@ impl<'a> Visitor<'a> for CryptDataVisitor {
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PlainData {
     data: Vec<u8>,
 }
@@ -519,7 +519,7 @@ impl<'a> Visitor<'a> for PlainDataVisitor {
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum CryptdecError {
     EmptyKey,
     EmptyData,
@@ -990,7 +990,7 @@ mod tests {
         assert_eq!(result, String::from ("Tm93IGlzIHRoZSB0aW1lIGZvciBhbGwgZ29vZCBtZW4 Tm93IGlzIHRoZSB0aW1lIGZvciBhbGwgZ29vZCBtZW4"));
     }
 
-    #[derive(PartialEq, Debug, Serialize, Deserialize)]
+    #[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]
     struct TestStruct {
         string: String,
         number: u32,
@@ -1070,7 +1070,7 @@ mod tests {
         );
     }
 
-    #[derive(PartialEq, Debug)]
+    #[derive(PartialEq, Eq, Debug)]
     struct BadSerStruct {
         flag: bool,
     }

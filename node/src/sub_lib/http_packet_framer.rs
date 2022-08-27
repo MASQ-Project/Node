@@ -12,21 +12,21 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::usize;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum PacketProgressState {
     SeekingPacketStart,
     SeekingBodyStart,
     SeekingBodyEnd,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ChunkExistenceState {
     Standard,
     ChunkedResponse,
     Chunk,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub enum ChunkProgressState {
     None,
     SeekingLengthHeader,
@@ -34,7 +34,7 @@ pub enum ChunkProgressState {
     SeekingEndOfFinalChunk,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub struct HttpFramerState {
     pub data_so_far: Vec<u8>,
     pub packet_progress_state: PacketProgressState,

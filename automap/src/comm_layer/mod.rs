@@ -20,7 +20,7 @@ pub mod pmp;
 
 pub const DEFAULT_MAPPING_LIFETIME_SECONDS: u32 = 600; // ten minutes
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum AutomapErrorCause {
     UserError,
     NetworkConfiguration,
@@ -33,7 +33,7 @@ pub enum AutomapErrorCause {
     Unknown(String),
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum AutomapError {
     Unknown,
     NoLocalIpAddress,
@@ -122,7 +122,7 @@ impl Debug for dyn Transactor {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum HousekeepingThreadCommand {
     Stop,
     SetRemapIntervalMs(u64),

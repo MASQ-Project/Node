@@ -62,7 +62,7 @@ pub enum BlockchainError {
     TransactionFailed { msg: String, hash_opt: Option<H256> },
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum BlockchainTransactionError {
     UnusableWallet(String),
     Signing(String),
@@ -80,7 +80,7 @@ pub type Balance = BlockchainResult<web3::types::U256>;
 pub type Nonce = BlockchainResult<web3::types::U256>;
 pub type Receipt = BlockchainResult<Option<TransactionReceipt>>;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RetrievedBlockchainTransactions {
     pub new_start_block: u64,
     pub transactions: Vec<BlockchainTransaction>,

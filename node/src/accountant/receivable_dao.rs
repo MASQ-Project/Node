@@ -26,14 +26,14 @@ use rusqlite::Row;
 use rusqlite::{named_params, Error};
 use std::time::SystemTime;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ReceivableDaoError {
     SignConversion(SignConversionError<u128>),
     ConfigurationError(String),
     RusqliteError(String),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum SignConversionError<T> {
     Msg(String),
     BadNum(T),
@@ -51,7 +51,7 @@ impl From<rusqlite::Error> for ReceivableDaoError {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReceivableAccount {
     pub wallet: Wallet,
     pub balance_wei: i128,

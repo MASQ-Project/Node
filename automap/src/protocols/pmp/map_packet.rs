@@ -7,7 +7,7 @@ use crate::protocols::utils::{
 use std::any::Any;
 use std::convert::TryFrom;
 
-#[derive(Clone, PartialEq, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct MapOpcodeData {
     pub epoch_opt: Option<u32>,
     pub internal_port: u16,

@@ -526,7 +526,7 @@ pub struct DbInitializationConfig {
     pub external_dataset: Option<ExternalData>,
 }
 
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum Suppression {
     No,
     Yes,

@@ -35,7 +35,7 @@ lazy_static! {
     static ref FIND_FREE_PORT_NEXT: Arc<Mutex<u16>> = Arc::new(Mutex::new(FIND_FREE_PORT_LOWEST));
 }
 
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum AutomapProtocol {
     Pmp,
     Pcp,
@@ -187,7 +187,7 @@ where
     }
 }
 
-#[derive(PartialEq, Debug, Clone, Copy)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub enum NeighborhoodModeLight {
     Standard,
     ConsumeOnly,
