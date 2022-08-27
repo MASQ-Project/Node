@@ -8,7 +8,6 @@ use log::Level;
 use regex::escape;
 use serde_derive::Serialize;
 
-use masq_lib::messages::TopRecordsOrdering::Balance;
 use masq_lib::messages::{FromMessageBody, ScanType, ToMessageBody, UiScanRequest, UiScanResponse};
 use masq_lib::test_utils::utils::is_running_under_github_actions;
 use masq_lib::utils::find_free_port;
