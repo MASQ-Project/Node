@@ -831,7 +831,7 @@ impl Accountant {
         if let Some(rowid) = self.pending_payable_dao.fingerprint_rowid(hash) {
             debug!(
                 self.logger,
-                "Deleting an existing backup for a failed transaction {}", hash
+                "Deleting an existing fingerprint for a failed transaction {:?}", hash
             );
             if let Err(e) = self.pending_payable_dao.delete_fingerprint(rowid) {
                 panic!("Database unmaintainable; payable fingerprint deletion for transaction {:?} has stayed undone due to {:?}", hash,e)
@@ -840,7 +840,7 @@ impl Accountant {
 
         warning!(
             self.logger,
-            "Failed transaction with a hash '{}' but without the record - thrown out",
+            "Failed transaction with a hash '{:?}' but without the record - thrown out",
             hash
         )
     }
@@ -969,8 +969,8 @@ impl Accountant {
         {
             Ok(_) => warning!(
                 self.logger,
-                "Broken transaction {} left with an error mark; you should take over the care of this transaction to make sure your debts will be paid because there is no automated process that can fix this without you", msg.id.hash),
-            Err(e) => panic!("Unsuccessful attempt for transaction {} to mark fatal error at payable fingerprint due to {:?}; database unreliable", msg.id.hash,e),
+                "Broken transaction {:?} left with an error mark; you should take over the care of this transaction to make sure your debts will be paid because there is no automated process that can fix this without you", msg.id.hash),
+            Err(e) => panic!("Unsuccessful attempt for transaction {:?} to mark fatal error at payable fingerprint due to {:?}; database unreliable", msg.id.hash,e),
         }
     }
 
@@ -980,14 +980,14 @@ impl Accountant {
             .transaction_confirmed(&msg.pending_payable_fingerprint)
         {
             panic!(
-                "Was unable to uncheck pending payable '{}' after confirmation due to '{:?}'",
+                "Was unable to uncheck pending payable '{:?}' after confirmation due to '{:?}'",
                 msg.pending_payable_fingerprint.hash, e
             )
         } else {
             self.financial_statistics.total_paid_payable += msg.pending_payable_fingerprint.amount;
             debug!(
                 self.logger,
-                "Confirmation of transaction {}; record for payable was modified",
+                "Confirmation of transaction {:?}; record for payable was modified",
                 msg.pending_payable_fingerprint.hash
             );
             if let Err(e) = self.pending_payable_dao.delete_fingerprint(
@@ -995,7 +995,7 @@ impl Accountant {
                     .rowid_opt
                     .expectv("initialized rowid"),
             ) {
-                panic!("Was unable to delete payable fingerprint '{}' after successful transaction due to '{:?}'",msg.pending_payable_fingerprint.hash,e)
+                panic!("Was unable to delete payable fingerprint '{:?}' after successful transaction due to '{:?}'",msg.pending_payable_fingerprint.hash,e)
             } else {
                 info!(
                     self.logger,
@@ -1033,13 +1033,13 @@ impl Accountant {
             .for_each(|payable| {
                 let rowid = match self.pending_payable_dao.fingerprint_rowid(payable.tx_hash) {
                     Some(rowid) => rowid,
-                    None => panic!("Payable fingerprint for {} doesn't exist but should by now; system unreliable", payable.tx_hash)
+                    None => panic!("Payable fingerprint for {:?} doesn't exist but should by now; system unreliable", payable.tx_hash)
                 };
                 match self.payable_dao.as_ref().mark_pending_payable_rowid(&payable.to, rowid ) {
                     Ok(()) => (),
-                    Err(e) => panic!("Was unable to create a mark in payables for a new pending payable '{}' due to '{:?}'", payable.tx_hash, e)
+                    Err(e) => panic!("Was unable to create a mark in payables for a new pending payable '{:?}' due to '{:?}'", payable.tx_hash, e)
                 }
-                debug!(self.logger, "Payable '{}' has been marked as pending in the payable table",payable.tx_hash)
+                debug!(self.logger, "Payable '{:?}' has been marked as pending in the payable table",payable.tx_hash)
             })
     }
 
@@ -1052,7 +1052,7 @@ impl Accountant {
             logger: &Logger,
         ) -> PendingTransactionStatus {
             debug!(logger,
-                "DEBUG: Accountant: Interpreting a receipt for transaction '{}' but none was given; attempt {}, {}ms since sending",
+                "DEBUG: Accountant: Interpreting a receipt for transaction '{:?}' but none was given; attempt {}, {}ms since sending",
                 payable.hash, payable.attempt_opt.expectv("initialized attempt"),elapsed_in_ms(payable.timestamp)
             );
             PendingTransactionStatus::StillPending(PendingPayableId {
@@ -1082,7 +1082,7 @@ impl Accountant {
             max_pending_interval: u64,
             logger: &Logger,
         ) -> PendingTransactionStatus {
-            info!(logger,"Pending transaction '{}' couldn't be confirmed at attempt {} at {}ms after its sending",fingerprint.hash, fingerprint.attempt_opt.expectv("initialized attempt"), elapsed_in_ms(fingerprint.timestamp));
+            info!(logger,"Pending transaction '{:?}' couldn't be confirmed at attempt {} at {}ms after its sending",fingerprint.hash, fingerprint.attempt_opt.expectv("initialized attempt"), elapsed_in_ms(fingerprint.timestamp));
             let elapsed = fingerprint
                 .timestamp
                 .elapsed()
@@ -1092,7 +1092,7 @@ impl Accountant {
                 rowid: fingerprint.rowid_opt.expectv("initialized rowid"),
             };
             if max_pending_interval <= elapsed.as_secs() {
-                error!(logger,"Pending transaction '{}' has exceeded the maximum pending time ({}sec) and the confirmation process is going to be aborted now at the final attempt {}; \
+                error!(logger,"Pending transaction '{:?}' has exceeded the maximum pending time ({}sec) and the confirmation process is going to be aborted now at the final attempt {}; \
                  manual resolution is required from the user to complete the transaction.", fingerprint.hash, max_pending_interval, fingerprint.attempt_opt.expectv("initialized attempt"));
                 PendingTransactionStatus::Failure(transaction_id)
             } else {
@@ -1105,7 +1105,7 @@ impl Accountant {
         ) -> PendingTransactionStatus {
             info!(
                 logger,
-                "Transaction '{}' has been added to the blockchain; detected locally at attempt {} at {}ms after its sending",
+                "Transaction '{:?}' has been added to the blockchain; detected locally at attempt {} at {}ms after its sending",
                 fingerprint.hash,
                 fingerprint.attempt_opt.expectv("initialized attempt"),
                 elapsed_in_ms(fingerprint.timestamp)
@@ -1116,7 +1116,7 @@ impl Accountant {
             fingerprint: &PendingPayableFingerprint,
             logger: &Logger,
         ) -> PendingTransactionStatus {
-            error!(logger,"Pending transaction '{}' announced as a failure, interpreting attempt {} after {}ms from the sending",fingerprint.hash,fingerprint.attempt_opt.expectv("initialized attempt"),elapsed_in_ms(fingerprint.timestamp));
+            error!(logger,"Pending transaction '{:?}' announced as a failure, interpreting attempt {} after {}ms from the sending",fingerprint.hash,fingerprint.attempt_opt.expectv("initialized attempt"),elapsed_in_ms(fingerprint.timestamp));
             PendingTransactionStatus::Failure(fingerprint.into())
         }
         match receipt.status{
@@ -1125,7 +1125,7 @@ impl Accountant {
                     match status_code.as_u64(){
                     0 => handle_status_with_failure(fingerprint, logger),
                     1 => handle_status_with_success(fingerprint, logger),
-                    other => unreachable!("tx receipt for pending '{}' - tx status: code other than 0 or 1 shouldn't be possible, but was {}", fingerprint.hash, other)
+                    other => unreachable!("tx receipt for pending '{:?}' - tx status: code other than 0 or 1 shouldn't be possible, but was {}", fingerprint.hash, other)
                 }
             }
     }
@@ -1197,7 +1197,9 @@ impl Accountant {
             ),
             Err(e) => error!(
                 self.logger,
-                "Failed to make a fingerprint for pending payable '{}' due to '{:?}'", msg.hash, e
+                "Failed to make a fingerprint for pending payable '{:?}' due to '{:?}'",
+                msg.hash,
+                e
             ),
         }
     }
@@ -1913,7 +1915,7 @@ mod tests {
             hash
         ));
         log_handler.exists_log_containing(
-            r#"WARN: Accountant: Failed transaction with a hash '0x0000…3039' but without the record - thrown out"#,
+            r#"WARN: Accountant: Failed transaction with a hash '0x0000000000000000000000000000000000000000000000000000000000003039' but without the record - thrown out"#,
         );
     }
 
@@ -1987,7 +1989,7 @@ mod tests {
         log_handler.exists_log_containing("WARN: Accountant: Encountered transaction error at this end: \
          'TransactionFailed { msg: \"Attempt failed\", hash_opt: Some(0x0000000000000000000000000000000000000000000000000000000000003039)");
         log_handler.exists_log_containing(
-            "DEBUG: Accountant: Deleting an existing backup for a failed transaction 0x0000…3039",
+            "DEBUG: Accountant: Deleting an existing fingerprint for a failed transaction 0x0000000000000000000000000000000000000000000000000000000000003039",
         );
     }
 
@@ -3502,7 +3504,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Was unable to create a mark in payables for a new pending payable '0x0000…007b' due to 'SignConversion(9999999999999)'"
+        expected = "Was unable to create a mark in payables for a new pending payable '0x000000000000000000000000000000000000000000000000000000000000007b' due to 'SignConversion(9999999999999)'"
     )]
     fn handle_sent_payable_fails_to_make_a_mark_in_payables_and_so_panics() {
         let payable = Payable::new(
@@ -3585,14 +3587,14 @@ mod tests {
         assert_eq!(*fingerprint_rowid_params, vec![payable_hash_2]); //we know the other two errors are associated with an initiated transaction having a backup
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing("WARN: Accountant: Outbound transaction failure due to 'InvalidResponse'. Please check your blockchain service URL configuration.");
-        log_handler.exists_log_containing("DEBUG: Accountant: Payable '0x0000…00a6' has been marked as pending in the payable table");
+        log_handler.exists_log_containing("DEBUG: Accountant: Payable '0x00000000000000000000000000000000000000000000000000000000000000a6' has been marked as pending in the payable table");
         log_handler.exists_log_containing("WARN: Accountant: Encountered transaction error at this end: 'TransactionFailed { msg: \"closing hours, sorry\", hash_opt: None }'");
         log_handler.exists_log_containing("DEBUG: Accountant: Forgetting a transaction attempt that even did not reach the signing stage");
     }
 
     #[test]
     #[should_panic(
-        expected = "Payable fingerprint for 0x0000…0315 doesn't exist but should by now; system unreliable"
+        expected = "Payable fingerprint for 0x0000000000000000000000000000000000000000000000000000000000000315 doesn't exist but should by now; system unreliable"
     )]
     fn handle_sent_payable_receives_proper_payment_but_fingerprint_not_found_so_it_panics() {
         init_test_logging();
@@ -3651,13 +3653,13 @@ mod tests {
                 .unwrap();
         assert_eq!(*delete_pending_payable_fingerprint_params, vec![rowid]);
         let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing("DEBUG: Accountant: Confirmation of transaction 0x051a…8c19; record for payable was modified");
+        log_handler.exists_log_containing("DEBUG: Accountant: Confirmation of transaction 0x051aae12b9595ccaa43c2eabfd5b86347c37fa0988167165b0b17b23fcaa8c19; record for payable was modified");
         log_handler.exists_log_containing("INFO: Accountant: Transaction 0x051aae12b9595ccaa43c2eabfd5b86347c37fa0988167165b0b17b23fcaa8c19 has gone through the whole confirmation process succeeding");
     }
 
     #[test]
     #[should_panic(
-        expected = "Was unable to uncheck pending payable '0x0000…0315' after confirmation due to 'RusqliteError(\"record change not successful\")"
+        expected = "Was unable to uncheck pending payable '0x0000000000000000000000000000000000000000000000000000000000000315' after confirmation due to 'RusqliteError(\"record change not successful\")"
     )]
     fn handle_confirm_pending_transaction_panics_on_unchecking_payable_table() {
         init_test_logging();
@@ -3681,7 +3683,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Was unable to delete payable fingerprint '0x0000…0315' after successful transaction due to 'RecordDeletion(\"the database is fooling around with us\")'"
+        expected = "Was unable to delete payable fingerprint '0x0000000000000000000000000000000000000000000000000000000000000315' after successful transaction due to 'RecordDeletion(\"the database is fooling around with us\")'"
     )]
     fn handle_confirm_pending_transaction_panics_on_deleting_pending_payable_fingerprint() {
         init_test_logging();
@@ -3731,14 +3733,14 @@ mod tests {
         let mark_failure_params = mark_failure_params_arc.lock().unwrap();
         assert_eq!(*mark_failure_params, vec![rowid]);
         TestLogHandler::new().exists_log_containing(
-            "WARN: Accountant: Broken transaction 0x051a…8c19 left with an error mark; you should take over \
+            "WARN: Accountant: Broken transaction 0x051aae12b9595ccaa43c2eabfd5b86347c37fa0988167165b0b17b23fcaa8c19 left with an error mark; you should take over \
              the care of this transaction to make sure your debts will be paid because there is no automated process that can fix this without you",
         );
     }
 
     #[test]
     #[should_panic(
-        expected = "Unsuccessful attempt for transaction 0x051a…8c19 to mark fatal error at payable fingerprint due to UpdateFailed(\"no no no\")"
+        expected = "Unsuccessful attempt for transaction 0x051aae12b9595ccaa43c2eabfd5b86347c37fa0988167165b0b17b23fcaa8c19 to mark fatal error at payable fingerprint due to UpdateFailed(\"no no no\")"
     )]
     fn handle_cancel_pending_transaction_panics_on_its_inability_to_mark_failure() {
         let payable_dao = PayableDaoMock::default().transaction_canceled_result(Ok(()));
@@ -4238,9 +4240,9 @@ mod tests {
         assert_eq!(actual_confirmed_payable, expected_confirmed_payable);
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(
-            "WARN: Accountant: Broken transaction 0x0000…007b left with an error mark; you should take over the care of this transaction to make sure your debts will be paid because there \
+            "WARN: Accountant: Broken transaction 0x000000000000000000000000000000000000000000000000000000000000007b left with an error mark; you should take over the care of this transaction to make sure your debts will be paid because there \
              is no automated process that can fix this without you");
-        log_handler.exists_log_matching("INFO: Accountant: Transaction '0x0000…0237' has been added to the blockchain; detected locally at attempt 4 at \\d{2,}ms after its sending");
+        log_handler.exists_log_matching("INFO: Accountant: Transaction '0x0000000000000000000000000000000000000000000000000000000000000237' has been added to the blockchain; detected locally at attempt 4 at \\d{2,}ms after its sending");
         log_handler.exists_log_containing("INFO: Accountant: Transaction 0x0000000000000000000000000000000000000000000000000000000000000237 has gone through the whole confirmation process succeeding");
     }
 
@@ -4273,7 +4275,7 @@ mod tests {
                 rowid
             })]
         );
-        TestLogHandler::new().exists_log_matching("DEBUG: Accountant: Interpreting a receipt for transaction '0x0000…0913' but none was given; attempt 3, 100\\d\\dms since sending");
+        TestLogHandler::new().exists_log_matching("DEBUG: Accountant: Interpreting a receipt for transaction '0x0000000000000000000000000000000000000000000000000000000000000913' but none was given; attempt 3, 100\\d\\dms since sending");
     }
 
     #[test]
@@ -4364,7 +4366,7 @@ mod tests {
             })
         );
         TestLogHandler::new().exists_log_matching("ERROR: receipt_check_logger: Pending \
-         transaction '0x0000…11d7' announced as a failure, interpreting attempt 5 after 1500\\d\\dms from the sending");
+         transaction '0x00000000000000000000000000000000000000000000000000000000000011d7' announced as a failure, interpreting attempt 5 after 1500\\d\\dms from the sending");
     }
 
     #[test]
@@ -4396,7 +4398,7 @@ mod tests {
         );
         TestLogHandler::new().exists_log_containing(
             "INFO: none_within_waiting: Pending \
-         transaction '0x0000…0237' couldn't be confirmed at attempt 1 at ",
+         transaction '0x0000000000000000000000000000000000000000000000000000000000000237' couldn't be confirmed at attempt 1 at ",
         );
     }
 
@@ -4430,7 +4432,7 @@ mod tests {
             PendingTransactionStatus::Failure(PendingPayableId { hash, rowid })
         );
         TestLogHandler::new().exists_log_containing(
-            "ERROR: receipt_check_logger: Pending transaction '0x0000…0237' has exceeded the maximum \
+            "ERROR: receipt_check_logger: Pending transaction '0x0000000000000000000000000000000000000000000000000000000000000237' has exceeded the maximum \
              pending time (21600sec) and the confirmation process is going to be aborted now at the final attempt 10; manual resolution is required from the user to \
                complete the transaction",
         );
@@ -4438,7 +4440,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "tx receipt for pending '0x0000…007b' - tx status: code other than 0 or 1 shouldn't be possible, but was 456"
+        expected = "tx receipt for pending '0x000000000000000000000000000000000000000000000000000000000000007b' - tx status: code other than 0 or 1 shouldn't be possible, but was 456"
     )]
     fn interpret_transaction_receipt_panics_at_undefined_status_code() {
         let mut tx_receipt = TransactionReceipt::default();
@@ -4528,7 +4530,7 @@ mod tests {
             *insert_fingerprint_params,
             vec![(transaction_hash, amount, from_time_t(timestamp_secs))]
         );
-        TestLogHandler::new().exists_log_containing("ERROR: Accountant: Failed to make a fingerprint for pending payable '0x0000…01c8' due to 'InsertionFailed(\"Crashed\")'");
+        TestLogHandler::new().exists_log_containing("ERROR: Accountant: Failed to make a fingerprint for pending payable '0x00000000000000000000000000000000000000000000000000000000000001c8' due to 'InsertionFailed(\"Crashed\")'");
     }
 
     #[test]
