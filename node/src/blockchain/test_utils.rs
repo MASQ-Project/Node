@@ -19,11 +19,13 @@ use std::collections::VecDeque;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
+use jsonrpc_core::{Call};
 
-use web3::transports::{EventLoopHandle, Http};
+use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
-use web3::Error as Web3Error;
+use web3::{BatchTransport, Error as Web3Error};
 use web3::{RequestId, Transport};
+use crate::accountant::payable_dao::PayableAccount;
 
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
 
@@ -151,6 +153,14 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.retrieve_transactions_results.borrow_mut().remove(0)
     }
 
+    fn prepare_batched_transaction(&self, payments_to_be_paid: Vec<PayableAccount>) -> Result<Batch<Http>, BlockchainTransactionError> {
+        todo!()
+    }
+
+    fn send_batched_transaction(&self, prepared_batch: Batch<Http>) -> Result<Vec<(H256, SystemTime)>, BlockchainTransactionError> {
+        todo!()
+    }
+
     fn send_transaction<'b>(
         &self,
         inputs: SendTransactionInputs,
@@ -219,6 +229,18 @@ impl Transport for TestTransport {
             }
         }
     }
+}
+
+impl BatchTransport for TestTransport{
+    type Batch = web3::Result<Vec<Result<rpc::Value,web3::Error>>>;
+
+    fn send_batch<T>(&self, requests: T) -> Self::Batch where T: IntoIterator<Item=(RequestId, Call)> {
+        todo!()
+    }
+}
+
+struct TestBatch {
+
 }
 
 impl TestTransport {

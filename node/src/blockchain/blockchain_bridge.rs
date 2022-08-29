@@ -35,14 +35,15 @@ use masq_lib::utils::plus;
 use std::convert::TryFrom;
 use std::path::PathBuf;
 use std::time::SystemTime;
-use web3::transports::Http;
+use web3::Transport;
+use web3::transports::{Batch, Http};
 use web3::types::{TransactionReceipt, H256};
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
-pub struct BlockchainBridge {
+pub struct BlockchainBridge<T: Transport=Http> {
     consuming_wallet_opt: Option<Wallet>,
-    blockchain_interface: Box<dyn BlockchainInterface>,
+    blockchain_interface: Box<dyn BlockchainInterface<T>>,
     logger: Logger,
     persistent_config: Box<dyn PersistentConfiguration>,
     set_consuming_wallet_subs_opt: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
@@ -58,7 +59,7 @@ struct TransactionConfirmationTools {
     report_transaction_receipts_sub_opt: Option<Recipient<ReportTransactionReceipts>>,
 }
 
-impl Actor for BlockchainBridge {
+impl Actor for BlockchainBridge{
     type Context = Context<Self>;
 }
 
@@ -236,7 +237,7 @@ impl BlockchainBridge {
         creditors_msg: &ReportAccountsPayable,
     ) -> Result<(), String> {
         let skeleton = creditors_msg.response_skeleton_opt;
-        let processed_payments = self.handle_report_accounts_payable_inner(creditors_msg);
+        let processed_payments = self.preprocess_payments(creditors_msg);
         processed_payments.map(|payments| {
             self.sent_payable_subs_opt
                 .as_ref()
@@ -250,7 +251,7 @@ impl BlockchainBridge {
         })
     }
 
-    fn handle_report_accounts_payable_inner(
+    fn preprocess_payments(
         &self,
         creditors_msg: &ReportAccountsPayable,
     ) -> Result<Vec<BlockchainResult<Payable>>, String> {
@@ -379,19 +380,40 @@ impl BlockchainBridge {
         }
     }
 
+    //TODO this will become the main function
     fn process_payments(
         &self,
         creditors_msg: &ReportAccountsPayable,
         gas_price: u64,
         consuming_wallet: &Wallet,
     ) -> Vec<BlockchainResult<Payable>> {
-        creditors_msg
-            .accounts
-            .iter()
-            .map(|payable| self.process_payments_inner_body(payable, gas_price, consuming_wallet))
-            .collect::<Vec<BlockchainResult<Payable>>>()
+        //todo change to use of a question mark
+        let executable_payments = match self.check_our_capability_to_pay(&creditors_msg.accounts){
+            Ok(ok) => todo!(),
+            Err(e)=> todo!()
+        };
+        //todo change to use of a question mark
+        let batch = match self.blockchain_interface.prepare_batched_transaction(executable_payments){
+            Ok(ok) => todo!(),
+            Err(e) => todo!()
+        };
+        match self.blockchain_interface.send_batched_transaction(batch){
+            Ok(res) => todo!(),
+            Err(e) => todo!()
+        }
+        // creditors_msg
+        //     .accounts
+        //     .iter()
+        //     .map(|payable| self.process_payments_inner_body(payable, gas_price, consuming_wallet))
+        //     .collect::<Vec<BlockchainResult<Payable>>>()
     }
 
+    fn check_our_capability_to_pay(&self, creditor_accounts: &[PayableAccount]) ->Result<Vec<PayableAccount>, BlockchainError>{
+        //TODO: implement GH-554 and GH-555 at this place
+        todo!()
+    }
+
+    //TODO this will be called repeatedly (from tx count down to sign_raw_tx) and then as the final, them all will be processed with web3 transport methods as their params, in a single vector.
     fn process_payments_inner_body(
         &self,
         payable: &PayableAccount,
@@ -403,7 +425,7 @@ impl BlockchainBridge {
             .get_transaction_count(consuming_wallet)?;
         let unsigned_amount = u64::try_from(payable.balance)
             .expect("negative balance for qualified payable is nonsense");
-        let send_tools = self.blockchain_interface.send_transaction_tools(
+        let send_tx_tools = self.blockchain_interface.send_transaction_tools(
             self.payment_confirmation
                 .transaction_backup_subs_opt
                 .as_ref()
@@ -416,7 +438,7 @@ impl BlockchainBridge {
                 consuming_wallet,
                 nonce,
                 gas_price,
-                send_tools.as_ref(),
+                send_tx_tools.as_ref(),
             )?) {
             Ok((hash, timestamp)) => Ok(Payable::new(
                 payable.wallet.clone(),
@@ -581,7 +603,7 @@ mod tests {
         let backup_recipient = accountant.start().recipient();
         subject.payment_confirmation.transaction_backup_subs_opt = Some(backup_recipient);
 
-        let result = subject.handle_report_accounts_payable_inner(&request);
+        let result = subject.preprocess_payments(&request);
 
         assert_eq!(
             result,
@@ -614,7 +636,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.handle_report_accounts_payable_inner(&request);
+        let result = subject.preprocess_payments(&request);
 
         assert_eq!(result, Err("No consuming wallet specified".to_string()));
     }

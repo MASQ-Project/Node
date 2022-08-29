@@ -14,14 +14,15 @@ use masq_lib::logger::Logger;
 use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
+use std::ops::Deref;
 use std::time::SystemTime;
 use web3::contract::{Contract, Options};
-use web3::transports::EventLoopHandle;
+use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{
     Address, BlockNumber, Bytes, FilterBuilder, Log, SignedTransaction, TransactionParameters,
     TransactionReceipt, H160, H256, U256,
 };
-use web3::{Transport, Web3};
+use web3::{BatchTransport, helpers, Transport, Web3};
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
 
@@ -85,7 +86,7 @@ pub struct RetrievedBlockchainTransactions {
     pub transactions: Vec<BlockchainTransaction>,
 }
 
-pub trait BlockchainInterface {
+pub trait BlockchainInterface<T: Transport=Http> {
     fn contract_address(&self) -> Address;
 
     fn retrieve_transactions(
@@ -93,6 +94,10 @@ pub trait BlockchainInterface {
         start_block: u64,
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError>;
+
+    fn prepare_batched_transaction(&self, payments_to_be_paid: Vec<PayableAccount>)-> Result<Batch<T>,BlockchainTransactionError>;
+
+    fn send_batched_transaction(&self, prepared_batch: Batch<T>)->Result<Vec<(H256,SystemTime)>,BlockchainTransactionError>;
 
     fn send_transaction(
         &self,
@@ -156,6 +161,14 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         Err(BlockchainError::QueryFailed(msg))
     }
 
+    fn prepare_batched_transaction(&self, payments_to_be_paid: Vec<PayableAccount>) -> Result<Batch<Http>, BlockchainTransactionError> {
+        todo!()
+    }
+
+    fn send_batched_transaction(&self, prepared_batch: Batch<Http>) -> Result<Vec<(H256, SystemTime)>, BlockchainTransactionError> {
+        todo!()
+    }
+
     fn send_transaction<'a>(
         &self,
         _inputs: SendTransactionInputs,
@@ -188,7 +201,10 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         Ok(None)
     }
 
-    //TODO if it turns out that we don't need this method for the clandestine interface, we can create a supplemental trait to be implemented just for the version that needs it
+    //TODO if it turns out that we don't need this method for the clandestine interface,
+    // we can create a supplemental trait to be implemented just for the version that needs it
+    // but the better will be to bury this method and find a way to call it directly
+    // from within the struct (I might now know how to do that)
     fn send_transaction_tools<'a>(
         &'a self,
         _fingerprint_request_recipient: &'a Recipient<PendingPayableFingerprint>,
@@ -201,7 +217,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     }
 }
 
-pub struct BlockchainInterfaceNonClandestine<T: Transport + Debug> {
+pub struct BlockchainInterfaceNonClandestine<T: BatchTransport + Debug> {
     logger: Logger,
     chain: Chain,
     // This must not be dropped for Web3 requests to be completed
@@ -223,7 +239,7 @@ pub fn to_wei(gwub: u64) -> U256 {
 
 impl<T> BlockchainInterface for BlockchainInterfaceNonClandestine<T>
 where
-    T: Transport + Debug + 'static,
+    T: BatchTransport + Debug + 'static,
 {
     fn contract_address(&self) -> Address {
         self.chain.rec().contract
@@ -311,6 +327,15 @@ where
             .wait()
     }
 
+    fn prepare_batched_transaction(&self, payments_to_be_paid: Vec<PayableAccount>) -> Result<Batch<Http>, BlockchainTransactionError> {
+        //self.web3.transport().prepare("eth_sendRawTransaction", vec![helpers::serialize(&signed_transaction.raw_transaction)]);
+        todo!()
+    }
+
+    fn send_batched_transaction(&self, prepared_batch: Batch<Http>) -> Result<Vec<(H256, SystemTime)>, BlockchainTransactionError> {
+        todo!()
+    }
+
     fn send_transaction<'a>(
         &self,
         inputs: SendTransactionInputs,
@@ -382,9 +407,17 @@ where
     }
 }
 
+impl <T: BatchTransport> Deref for BlockchainInterfaceNonClandestine<T>{
+    type Target = T;
+
+    fn deref(&self) -> &Self::Target {
+        todo!()
+    }
+}
+
 impl<T> BlockchainInterfaceNonClandestine<T>
 where
-    T: Transport + Debug + 'static,
+    T: BatchTransport + Debug + 'static,
 {
     pub fn new(transport: T, event_loop_handle: EventLoopHandle, chain: Chain) -> Self {
         let web3 = Web3::new(transport);
@@ -1361,7 +1394,7 @@ mod tests {
         assert_gas_limit_is_between(subject, 55000, 65000)
     }
 
-    fn assert_gas_limit_is_between<T: Transport + Debug + 'static>(
+    fn assert_gas_limit_is_between<T: BatchTransport + Debug + 'static>(
         subject: BlockchainInterfaceNonClandestine<T>,
         not_under_this_value: u64,
         not_above_this_value: u64,
