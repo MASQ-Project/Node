@@ -70,7 +70,6 @@ fn masq_terminates_based_on_loss_of_connection_to_the_daemon_integration() {
     );
     let port = find_free_port();
     let daemon_handle = DaemonProcess::new().start(port);
-    thread::sleep(Duration::from_millis(300));
     let mut masq_handle = MasqProcess::new().start_interactive(port, true);
     let mut stdin_handle = masq_handle.create_stdin_handle();
     stdin_handle.type_command(&format!(
@@ -105,7 +104,6 @@ fn handles_startup_and_shutdown_integration() {
     );
     let port = find_free_port();
     let daemon_handle = DaemonProcess::new().start(port);
-    thread::sleep(Duration::from_millis(200));
 
     let masq_handle = MasqProcess::new().start_noninteractive(vec![
         "--ui-port",

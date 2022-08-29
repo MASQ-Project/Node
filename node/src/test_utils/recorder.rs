@@ -1,4 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+#![cfg(test)]
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables,
@@ -23,7 +24,6 @@ use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{HopperSubs, MessageType};
-use crate::sub_lib::neighborhood::NeighborhoodDotGraphRequest;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
@@ -31,6 +31,7 @@ use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
+use crate::sub_lib::neighborhood::{ConnectionProgressMessage, NeighborhoodDotGraphRequest};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::peer_actors::PeerActors;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
@@ -45,13 +46,17 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::test_utils::to_millis;
+use crate::test_utils::unshared_test_utils::SystemKillerActor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
+use actix::System;
 use actix::{Actor, Message};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use std::any::Any;
+use std::any::TypeId;
+use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -62,6 +67,7 @@ pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
     node_query_responses: Vec<Option<NodeQueryResponseMetadata>>,
     route_query_responses: Vec<Option<RouteQueryResponse>>,
+    expected_count_by_msg_type_opt: Option<HashMap<TypeId, usize>>,
 }
 
 #[derive(Default)]
@@ -84,6 +90,20 @@ macro_rules! recorder_message_handler {
 
             fn handle(&mut self, msg: $message_type, _ctx: &mut Self::Context) {
                 self.record(msg);
+                if let Some(expected_count_by_msg_type) = &mut self.expected_count_by_msg_type_opt {
+                    let type_id = TypeId::of::<$message_type>();
+                    let count = expected_count_by_msg_type.entry(type_id).or_insert(0);
+                    if *count == 0 {
+                        panic!(
+                            "Received a message, which we were not supposed to receive. {:?}",
+                            stringify!($message_type)
+                        );
+                    };
+                    *count -= 1;
+                    if !expected_count_by_msg_type.values().any(|&x| x > 0) {
+                        System::current().stop();
+                    }
+                }
             }
         }
     };
@@ -137,6 +157,7 @@ recorder_message_handler!(ReportTransactionReceipts);
 recorder_message_handler!(ReportAccountsPayable);
 recorder_message_handler!(ScanForReceivables);
 recorder_message_handler!(ScanForPayables);
+recorder_message_handler!(ConnectionProgressMessage);
 recorder_message_handler!(ScanForPendingPayables);
 
 impl Handler<NodeQueryMessage> for Recorder {
@@ -214,6 +235,22 @@ impl Recorder {
 
     pub fn route_query_response(mut self, response: Option<RouteQueryResponse>) -> Recorder {
         self.route_query_responses.push(response);
+        self
+    }
+
+    pub fn stop_condition(self, message_type_id: TypeId) -> Recorder {
+        let mut expected_count_by_messages: HashMap<TypeId, usize> = HashMap::new();
+        expected_count_by_messages.insert(message_type_id, 1);
+        self.stop_after_messages_and_start_system_killer(expected_count_by_messages)
+    }
+
+    pub fn stop_after_messages_and_start_system_killer(
+        mut self,
+        expected_count_by_messages: HashMap<TypeId, usize>,
+    ) -> Recorder {
+        let system_killer = SystemKillerActor::new(Duration::from_secs(15));
+        system_killer.start();
+        self.expected_count_by_msg_type_opt = Some(expected_count_by_messages);
         self
     }
 }
@@ -368,6 +405,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         set_consuming_wallet_sub: recipient!(addr, SetConsumingWalletMessage),
         from_ui_message_sub: recipient!(addr, NodeFromUiMessage),
         new_password_sub: recipient!(addr, NewPasswordMessage),
+        connection_progress_sub: recipient!(addr, ConnectionProgressMessage),
     }
 }
 
