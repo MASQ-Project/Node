@@ -1781,6 +1781,7 @@ mod tests {
         dest_db.resign_node(introducer_key);
         let (cpm_recipient, _) = make_cpm_recipient();
         let introducer_before_gossip = dest_db.node_by_key(introducer_key).unwrap().clone();
+        let before = time_t_timestamp();
 
         let qualifies_result = subject.qualifies(&dest_db, &agrs, gossip_source);
         let handle_result = subject.handle(
@@ -1791,14 +1792,17 @@ mod tests {
             &cpm_recipient,
         );
 
+        let after = time_t_timestamp();
         assert_eq!(qualifies_result, Qualification::Matched);
         assert_eq!(
             handle_result,
             GossipAcceptanceResult::Ban(format!("Introducer {} tried changing immutable characteristic: Updating a NodeRecord must not change its node_addr_opt: 4.5.6.7:4567 -> 2.3.4.5:2345", introducer_key)),
         );
-        assert_eq!(
-            dest_db.node_by_key(introducer_key).unwrap(),
+        assert_node_records_eq(
+            dest_db.node_by_key_mut(introducer_key).unwrap(),
             &introducer_before_gossip,
+            before,
+            after,
         );
     }
 
@@ -2501,9 +2505,11 @@ mod tests {
         let mut dest_db = db_from_node(&root_node);
         let (gossip, debut_node, gossip_source) = make_debut(2345, Mode::Standard);
         let subject = make_subject(&root_node_cryptde);
+        let before = time_t_timestamp();
 
         let result = subject.handle(&mut dest_db, gossip.try_into().unwrap(), gossip_source);
 
+        let after = time_t_timestamp();
         assert_eq!(GossipAcceptanceResult::Accepted, result);
         root_node
             .add_half_neighbor_key(debut_node.public_key().clone())
@@ -2511,9 +2517,11 @@ mod tests {
         root_node.increment_version();
         root_node.resign();
         assert_eq!(&root_node, dest_db.root());
-        assert_eq!(
+        assert_node_records_eq(
+            dest_db.node_by_key_mut(debut_node.public_key()).unwrap(),
             &debut_node,
-            dest_db.node_by_key(debut_node.public_key()).unwrap()
+            before,
+            after,
         );
     }
 
@@ -2531,9 +2539,11 @@ mod tests {
         dest_db.node_by_key_mut(existing_node_key).unwrap().resign();
         let (gossip, debut_node, gossip_source) = make_debut(2345, Mode::Standard);
         let subject = make_subject(&root_node_cryptde);
+        let before = time_t_timestamp();
 
         let result = subject.handle(&mut dest_db, gossip.try_into().unwrap(), gossip_source);
 
+        let after = time_t_timestamp();
         let expected_acceptance_gossip = GossipBuilder::new(&dest_db)
             .node(root_node.public_key(), true)
             .node(existing_node_key, true)
@@ -2555,10 +2565,12 @@ mod tests {
         root_node.increment_version();
         root_node.resign();
         assert_eq!(&root_node, dest_db.root());
-        assert_eq!(
+        assert_node_records_eq(
+            dest_db.node_by_key_mut(debut_node.public_key()).unwrap(),
             &debut_node,
-            dest_db.node_by_key(debut_node.public_key()).unwrap()
-        );
+            before,
+            after,
+        )
     }
 
     #[test]
@@ -2593,9 +2605,11 @@ mod tests {
 
         let (gossip, debut_node, gossip_source) = make_debut(2345, Mode::Standard);
         let subject = make_subject(&root_node_cryptde);
+        let before = time_t_timestamp();
 
         let result = subject.handle(&mut dest_db, gossip.try_into().unwrap(), gossip_source);
 
+        let after = time_t_timestamp();
         let expected_acceptance_gossip_1 = GossipBuilder::new(&dest_db)
             .node(root_node.public_key(), true)
             .node(existing_node_1_key, true)
@@ -2636,10 +2650,12 @@ mod tests {
         root_node.increment_version();
         root_node.resign();
         assert_eq!(&root_node, dest_db.root());
-        assert_eq!(
+        assert_node_records_eq(
+            dest_db.node_by_key_mut(debut_node.public_key()).unwrap(),
             &debut_node,
-            dest_db.node_by_key(debut_node.public_key()).unwrap()
-        );
+            before,
+            after,
+        )
     }
 
     #[test]
@@ -3174,6 +3190,7 @@ mod tests {
             .node(node_f.public_key(), true)
             .build();
         let subject = make_subject(main_cryptde());
+        let before = time_t_timestamp();
 
         let result = subject.handle(
             &mut dest_db,
@@ -3181,6 +3198,7 @@ mod tests {
             node_a.node_addr_opt().unwrap().into(),
         );
 
+        let after = time_t_timestamp();
         assert_eq!(GossipAcceptanceResult::Accepted, result);
         let mut expected_dest_db = src_db.clone();
         expected_dest_db.remove_arbitrary_half_neighbor(node_e.public_key(), node_a.public_key());
@@ -3192,27 +3210,37 @@ mod tests {
             &mut expected_dest_db,
             vec![&node_a, &node_b, &node_d, &node_e, &node_f],
         );
-        assert_eq!(
-            dest_db.node_by_key(root_node.public_key()).unwrap(),
+        assert_node_records_eq(
+            dest_db.node_by_key_mut(root_node.public_key()).unwrap(),
             expected_dest_db
                 .node_by_key(root_node.public_key())
                 .unwrap(),
+            before,
+            after,
         );
-        assert_eq!(
-            dest_db.node_by_key(node_a.public_key()).unwrap(),
+        assert_node_records_eq(
+            dest_db.node_by_key_mut(node_a.public_key()).unwrap(),
             expected_dest_db.node_by_key(node_a.public_key()).unwrap(),
+            before,
+            after,
         );
-        assert_eq!(
-            dest_db.node_by_key(node_b.public_key()).unwrap(),
+        assert_node_records_eq(
+            dest_db.node_by_key_mut(node_b.public_key()).unwrap(),
             expected_dest_db.node_by_key(node_b.public_key()).unwrap(),
+            before,
+            after,
         );
-        assert_eq!(
-            dest_db.node_by_key(node_c.public_key()).unwrap(),
+        assert_node_records_eq(
+            dest_db.node_by_key_mut(node_c.public_key()).unwrap(),
             expected_dest_db.node_by_key(node_c.public_key()).unwrap(),
+            before,
+            after,
         );
-        assert_eq!(
-            dest_db.node_by_key(node_d.public_key()).unwrap(),
+        assert_node_records_eq(
+            dest_db.node_by_key_mut(node_d.public_key()).unwrap(),
             expected_dest_db.node_by_key(node_d.public_key()).unwrap(),
+            before,
+            after,
         );
         assert_eq!(dest_db.node_by_key(node_e.public_key()), None);
         assert_eq!(dest_db.node_by_key(node_f.public_key()), None);
@@ -3257,6 +3285,7 @@ mod tests {
             .node(disconnected_node.public_key(), false)
             .build();
         let subject = make_subject(&dest_node_cryptde);
+        let before = time_t_timestamp();
 
         let result = subject.handle(
             &mut dest_db,
@@ -3264,6 +3293,7 @@ mod tests {
             src_node.node_addr_opt().unwrap().into(),
         );
 
+        let after = time_t_timestamp();
         let mut expected_dest_db = src_db.clone();
         expected_dest_db.add_arbitrary_half_neighbor(dest_node.public_key(), src_node.public_key());
         expected_dest_db
@@ -3283,28 +3313,38 @@ mod tests {
         dest_node_mut.increment_version();
         dest_node_mut.resign();
         assert_eq!(result, GossipAcceptanceResult::Accepted);
-        assert_eq!(
+        assert_node_records_eq(
+            dest_db.node_by_key_mut(third_node.public_key()).unwrap(),
             expected_dest_db
                 .node_by_key(third_node.public_key())
                 .unwrap(),
-            dest_db.node_by_key(third_node.public_key()).unwrap()
+            before,
+            after,
         );
-        assert_eq!(
+        assert_node_records_eq(
+            dest_db.node_by_key_mut(src_node.public_key()).unwrap(),
             expected_dest_db.node_by_key(src_node.public_key()).unwrap(),
-            dest_db.node_by_key(src_node.public_key()).unwrap()
+            before,
+            after,
         );
-        assert_eq!(
+        assert_node_records_eq(
+            dest_db.node_by_key_mut(dest_node.public_key()).unwrap(),
             expected_dest_db
                 .node_by_key(dest_node.public_key())
                 .unwrap(),
-            dest_db.node_by_key(dest_node.public_key()).unwrap()
+            before,
+            after,
         );
-        assert_eq!(
+        assert_node_records_eq(
+            dest_db
+                .node_by_key_mut(disconnected_node.public_key())
+                .unwrap(),
             expected_dest_db
                 .node_by_key(disconnected_node.public_key())
                 .unwrap(),
-            dest_db.node_by_key(disconnected_node.public_key()).unwrap()
-        )
+            before,
+            after,
+        );
     }
 
     #[test]
@@ -3339,6 +3379,7 @@ mod tests {
             .build();
         let subject = make_subject(main_cryptde());
         let original_dest_db = dest_db.clone();
+        let before = time_t_timestamp();
 
         let result = subject.handle(
             &mut dest_db,
@@ -3346,28 +3387,37 @@ mod tests {
             src_root.node_addr_opt().unwrap().into(),
         );
 
+        let after = time_t_timestamp();
         assert_eq!(result, GossipAcceptanceResult::Ignored);
-        assert_eq!(
+        assert_node_records_eq(
+            dest_db.node_by_key_mut(dest_root.public_key()).unwrap(),
             original_dest_db
                 .node_by_key(dest_root.public_key())
                 .unwrap(),
-            dest_db.node_by_key(dest_root.public_key()).unwrap()
+            before,
+            after,
         );
-        assert_eq!(
+        assert_node_records_eq(
+            dest_db.node_by_key_mut(src_root.public_key()).unwrap(),
             original_dest_db.node_by_key(src_root.public_key()).unwrap(),
-            dest_db.node_by_key(src_root.public_key()).unwrap()
+            before,
+            after,
         );
-        assert_eq!(
+        assert_node_records_eq(
+            dest_db.node_by_key_mut(current_node.public_key()).unwrap(),
             original_dest_db
                 .node_by_key(current_node.public_key())
                 .unwrap(),
-            dest_db.node_by_key(current_node.public_key()).unwrap()
+            before,
+            after,
         );
-        assert_eq!(
+        assert_node_records_eq(
+            dest_db.node_by_key_mut(obsolete_node.public_key()).unwrap(),
             original_dest_db
                 .node_by_key(obsolete_node.public_key())
                 .unwrap(),
-            dest_db.node_by_key(obsolete_node.public_key()).unwrap()
+            before,
+            after,
         );
     }
 
@@ -3696,5 +3746,27 @@ mod tests {
         let addr = neighborhood.start();
         let recipient = addr.recipient::<ConnectionProgressMessage>();
         GossipAcceptorReal::new(crypt_de, recipient)
+    }
+
+    fn assert_node_records_eq(
+        actual: &mut NodeRecord,
+        expected: &NodeRecord,
+        before: u32,
+        after: u32,
+    ) {
+        assert!(
+            actual.metadata.last_update >= before,
+            "Timestamp should have been at least {}, but was {}",
+            before,
+            actual.metadata.last_update
+        );
+        assert!(
+            actual.metadata.last_update <= after,
+            "Timestamp should not have been after {}, but was {}",
+            after,
+            actual.metadata.last_update
+        );
+        actual.metadata.last_update = expected.metadata.last_update;
+        assert_eq!(actual, expected);
     }
 }

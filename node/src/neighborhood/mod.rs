@@ -8,6 +8,7 @@ pub mod neighborhood_database;
 pub mod node_record;
 pub mod overall_connection_status;
 
+use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -30,7 +31,7 @@ use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::persistent_configuration::{
-    PersistentConfiguration, PersistentConfigurationReal,
+    PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::neighborhood::gossip::{DotGossipEndpoint, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::gossip_acceptor::GossipAcceptanceResult;
@@ -706,10 +707,10 @@ impl Neighborhood {
         let neighbor_keys_before = self.neighbor_keys();
         self.handle_agrs(agrs, gossip_source);
         let neighbor_keys_after = self.neighbor_keys();
-        self.handle_database_changes(&neighbor_keys_before, &neighbor_keys_after);
+        self.handle_database_changes(neighbor_keys_before, neighbor_keys_after);
     }
 
-    fn neighbor_keys(&self) -> Vec<PublicKey> {
+    fn neighbor_keys(&self) -> HashSet<PublicKey> {
         self.neighborhood_database
             .root()
             .full_neighbor_keys(&self.neighborhood_database)
@@ -748,8 +749,8 @@ impl Neighborhood {
 
     fn handle_database_changes(
         &mut self,
-        neighbor_keys_before: &[PublicKey],
-        neighbor_keys_after: &[PublicKey],
+        neighbor_keys_before: HashSet<PublicKey>,
+        neighbor_keys_after: HashSet<PublicKey>,
     ) {
         self.curate_past_neighbors(neighbor_keys_before, neighbor_keys_after);
         self.check_connectedness();
@@ -757,17 +758,14 @@ impl Neighborhood {
 
     fn curate_past_neighbors(
         &mut self,
-        neighbor_keys_before: &[PublicKey],
-        neighbor_keys_after: &[PublicKey],
+        neighbor_keys_before: HashSet<PublicKey>,
+        neighbor_keys_after: HashSet<PublicKey>,
     ) {
         if neighbor_keys_after != neighbor_keys_before {
             if let Some(db_password) = &self.db_password_opt {
-                let nds = self.to_node_descriptors(neighbor_keys_after);
-                let node_descriptors_opt = if nds.is_empty() {
-                    None
-                } else {
-                    Some(nds.into_iter().collect_vec())
-                };
+                let nds = self
+                    .to_node_descriptors(neighbor_keys_after.into_iter().collect_vec().as_slice());
+                let node_descriptors_opt = if nds.is_empty() { None } else { Some(nds) };
                 debug!(
                     self.logger,
                     "Saving neighbor list: {:?}", node_descriptors_opt
@@ -779,6 +777,14 @@ impl Neighborhood {
                     .set_past_neighbors(node_descriptors_opt, db_password)
                 {
                     Ok(_) => info!(self.logger, "Persisted neighbor changes for next run"),
+                    Err(PersistentConfigError::DatabaseError(msg))
+                        if &msg == "database is locked" =>
+                    {
+                        warning! (
+                        self.logger,
+                        "Could not persist immediate-neighbor changes: database locked - skipping"
+                    )
+                    }
                     Err(e) => error!(
                         self.logger,
                         "Could not persist immediate-neighbor changes: {:?}", e
@@ -3900,7 +3906,35 @@ mod tests {
     }
 
     #[test]
-    fn neighborhood_logs_error_when_past_neighbors_update_fails() {
+    fn neighborhood_warns_when_past_neighbors_update_fails_because_of_database_lock() {
+        init_test_logging();
+        let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
+        let old_neighbor = make_node_record(1111, true);
+        let new_neighbor = make_node_record(2222, true);
+        let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&old_neighbor));
+        subject
+            .neighborhood_database
+            .add_node(old_neighbor.clone())
+            .unwrap();
+        subject
+            .neighborhood_database
+            .add_arbitrary_full_neighbor(subject_node.public_key(), old_neighbor.public_key());
+        let gossip_acceptor = NeighborReplacementGossipAcceptor {
+            new_neighbors: vec![old_neighbor.clone(), new_neighbor.clone()],
+        };
+        let persistent_config = PersistentConfigurationMock::new().set_past_neighbors_result(Err(
+            PersistentConfigError::DatabaseError("database is locked".to_string()),
+        ));
+        subject.gossip_acceptor_opt = Some(Box::new(gossip_acceptor));
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
+
+        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap());
+
+        TestLogHandler::new().exists_log_containing("WARN: Neighborhood: Could not persist immediate-neighbor changes: database locked - skipping");
+    }
+
+    #[test]
+    fn neighborhood_logs_error_when_past_neighbors_update_fails_for_another_reason() {
         init_test_logging();
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let old_neighbor = make_node_record(1111, true);
@@ -5307,6 +5341,25 @@ mod tests {
         neighborhood.crashable = true;
 
         prove_that_crash_request_handler_is_hooked_up(neighborhood, CRASH_KEY);
+    }
+
+    #[test]
+    fn curate_past_neighbors_does_not_write_to_database_if_neighbors_are_same_but_order_has_changed(
+    ) {
+        let mut subject = make_standard_subject();
+        // This mock is completely unprepared: any call to it should cause a panic
+        let persistent_config = PersistentConfigurationMock::new();
+        subject.persistent_config_opt = Some(Box::new(persistent_config));
+        let neighbor_keys_before = vec![PublicKey::new(b"ABCDE"), PublicKey::new(b"FGHIJ")]
+            .into_iter()
+            .collect();
+        let neighbor_keys_after = vec![PublicKey::new(b"FGHIJ"), PublicKey::new(b"ABCDE")]
+            .into_iter()
+            .collect();
+
+        subject.curate_past_neighbors(neighbor_keys_before, neighbor_keys_after);
+
+        // No panic; therefore no attempt was made to persist: test passes!
     }
 
     fn make_standard_subject() -> Neighborhood {
