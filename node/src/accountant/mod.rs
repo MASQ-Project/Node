@@ -70,7 +70,7 @@ pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
 pub struct Accountant {
     accountant_config: AccountantConfig,
     consuming_wallet: Option<Wallet>,
-    earning_wallet: Wallet,
+    earning_wallet: Rc<Wallet>,
     payable_dao: Box<dyn PayableDao>,
     receivable_dao: Box<dyn ReceivableDao>,
     pending_payable_dao: Box<dyn PendingPayableDao>,
@@ -447,10 +447,11 @@ impl Accountant {
                 .take()
                 .expectv("Payment thresholds"),
         );
+        let earning_wallet = Rc::new(config.earning_wallet.clone());
         Accountant {
             accountant_config,
             consuming_wallet: config.consuming_wallet_opt.clone(),
-            earning_wallet: config.earning_wallet.clone(),
+            earning_wallet: Rc::clone(&earning_wallet),
             payable_dao: payable_dao_factory.make(),
             receivable_dao: receivable_dao_factory.make(),
             pending_payable_dao: pending_payable_dao_factory.make(),
@@ -461,6 +462,7 @@ impl Accountant {
                 pending_payable_dao_factory.make(),
                 receivable_dao_factory.make(),
                 Rc::clone(&payment_thresholds),
+                Rc::clone(&earning_wallet),
             ),
             tools: TransactionConfirmationTools::default(),
             notify_later: NotifyLaterForScanners::default(),
@@ -550,18 +552,18 @@ impl Accountant {
     }
 
     fn scan_for_receivables(&self, response_skeleton_opt: Option<ResponseSkeleton>) {
-        info!(
-            self.logger,
-            "Scanning for receivables to {}", self.earning_wallet
-        );
-        self.retrieve_transactions_sub
-            .as_ref()
-            .expect("BlockchainBridge is unbound")
-            .try_send(RetrieveTransactions {
-                recipient: self.earning_wallet.clone(),
-                response_skeleton_opt,
-            })
-            .expect("BlockchainBridge is dead");
+        // info!(
+        //     self.logger,
+        //     "Scanning for receivables to {}", self.earning_wallet
+        // );
+        // self.retrieve_transactions_sub
+        //     .as_ref()
+        //     .expect("BlockchainBridge is unbound")
+        //     .try_send(RetrieveTransactions {
+        //         recipient: self.earning_wallet.clone(),
+        //         response_skeleton_opt,
+        //     })
+        //     .expect("BlockchainBridge is dead");
     }
 
     fn scan_for_pending_payable(&self, response_skeleton_opt: Option<ResponseSkeleton>) {
@@ -667,29 +669,6 @@ impl Accountant {
             _ => wallet.address() == self.earning_wallet.address(),
         }
     }
-
-    // fn payables_debug_summary(&self, qualified_payables: &[PayableAccount]) -> String {
-    //     let now = SystemTime::now();
-    //     let list = qualified_payables
-    //         .iter()
-    //         .map(|payable| {
-    //             let p_age = now
-    //                 .duration_since(payable.last_paid_timestamp)
-    //                 .expect("Payable time is corrupt");
-    //             let threshold = self
-    //                 .payable_exceeded_threshold(payable)
-    //                 .expect("Threshold suddenly changed!");
-    //             format!(
-    //                 "{} owed for {}sec exceeds threshold: {}; creditor: {}",
-    //                 payable.balance,
-    //                 p_age.as_secs(),
-    //                 threshold,
-    //                 payable.wallet
-    //             )
-    //         })
-    //         .join("\n");
-    //     String::from("Paying qualified debts:\n").add(&list)
-    // }
 
     fn handle_bind_message(&mut self, msg: BindMessage) {
         self.report_accounts_payable_sub_opt =

@@ -16,6 +16,7 @@ pub(in crate::accountant) mod scanners {
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds};
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
+    use crate::sub_lib::wallet::Wallet;
     use actix::dev::SendError;
     use actix::{Context, Message, Recipient};
     use itertools::Itertools;
@@ -45,6 +46,7 @@ pub(in crate::accountant) mod scanners {
             pending_payable_dao: Box<dyn PendingPayableDao>,
             receivable_dao: Box<dyn ReceivableDao>,
             payment_thresholds: Rc<PaymentThresholds>,
+            earning_wallet: Rc<Wallet>,
         ) -> Self {
             Scanners {
                 payables: Box::new(PayableScanner::new(
@@ -58,6 +60,7 @@ pub(in crate::accountant) mod scanners {
                 receivables: Box::new(ReceivableScanner::new(
                     receivable_dao,
                     Rc::clone(&payment_thresholds),
+                    earning_wallet,
                 )),
             }
         }
@@ -221,23 +224,27 @@ pub(in crate::accountant) mod scanners {
     pub struct ReceivableScanner {
         common: ScannerCommon,
         dao: Box<dyn ReceivableDao>,
+        earning_wallet: Rc<Wallet>,
     }
 
-    impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for ReceivableScanner
-    where
-        BeginMessage: Message,
-        EndMessage: Message,
-    {
+    impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
         fn begin_scan(
             &mut self,
             timestamp: SystemTime,
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
-        ) -> Result<BeginMessage, Error> {
-            todo!()
+        ) -> Result<RetrieveTransactions, Error> {
+            info!(
+                logger,
+                "Scanning for receivables to {}", self.earning_wallet
+            );
+            Ok(RetrieveTransactions {
+                recipient: self.earning_wallet.as_ref().clone(),
+                response_skeleton_opt,
+            })
         }
 
-        fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error> {
+        fn scan_finished(&mut self, message: ReceivedPayments) -> Result<(), Error> {
             todo!()
         }
 
@@ -249,11 +256,20 @@ pub(in crate::accountant) mod scanners {
     }
 
     impl ReceivableScanner {
-        pub fn new(dao: Box<dyn ReceivableDao>, payment_thresholds: Rc<PaymentThresholds>) -> Self {
+        pub fn new(
+            dao: Box<dyn ReceivableDao>,
+            payment_thresholds: Rc<PaymentThresholds>,
+            earning_wallet: Rc<Wallet>,
+        ) -> Self {
             Self {
                 common: ScannerCommon::new(payment_thresholds),
+                earning_wallet,
                 dao,
             }
+        }
+
+        pub fn earning_wallet(&self) -> &Wallet {
+            &self.earning_wallet
         }
     }
 
@@ -376,7 +392,7 @@ mod tests {
         AccountantBuilder, PayableDaoMock, PendingPayableDaoMock, ReceivableDaoMock,
     };
     use crate::accountant::RequestTransactionReceipts;
-    use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
+    use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
     use crate::bootstrapper::BootstrapperConfig;
     use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::sub_lib::accountant::PaymentThresholds;
@@ -398,6 +414,7 @@ mod tests {
             Box::new(PendingPayableDaoMock::new()),
             Box::new(ReceivableDaoMock::new()),
             Rc::clone(&payment_thresholds),
+            Rc::new(make_wallet("earning")),
         );
 
         scanners
@@ -529,6 +546,35 @@ mod tests {
                 test_name
             ),
         ])
+    }
+
+    #[test]
+    fn receivable_scanner_can_initiate_a_scan() {
+        init_test_logging();
+        let test_name = "receivable_scanner_can_initiate_a_scan";
+        let receivable_dao = ReceivableDaoMock::new();
+        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let earning_wallet = make_wallet("earning");
+        let mut receivable_scanner = ReceivableScanner::new(
+            Box::new(receivable_dao),
+            Rc::new(payment_thresholds),
+            Rc::new(earning_wallet.clone()),
+        );
+
+        let result =
+            receivable_scanner.begin_scan(SystemTime::now(), None, &Logger::new(test_name));
+
+        assert_eq!(
+            result,
+            Ok(RetrieveTransactions {
+                recipient: earning_wallet.clone(),
+                response_skeleton_opt: None
+            })
+        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "INFO: {}: Scanning for receivables to {}",
+            test_name, earning_wallet
+        ));
     }
 
     fn make_payables(
