@@ -483,6 +483,7 @@ mod tests {
             amount: 1_000_000,
             process_error: None,
         }];
+        let no_of_pending_payables = fingerprints.len();
         let pending_payable_dao =
             PendingPayableDaoMock::new().return_all_fingerprints_result(fingerprints.clone());
         let payment_thresholds = make_payment_thresholds_with_defaults();
@@ -498,6 +499,13 @@ mod tests {
                 response_skeleton_opt: None
             })
         );
+        TestLogHandler::new().assert_logs_match_in_order(vec![
+            &format!("INFO: {}: Scanning for pending payable", test_name),
+            &format!(
+                "DEBUG: {}: Found {} pending payables to process",
+                test_name, no_of_pending_payables
+            ),
+        ])
     }
 
     #[test]
@@ -514,6 +522,13 @@ mod tests {
         let result = pending_payable_scanner.begin_scan(now, None, &Logger::new(test_name));
 
         assert_eq!(result, Err(String::from("No pending payable found.")));
+        TestLogHandler::new().assert_logs_match_in_order(vec![
+            &format!("INFO: {}: Scanning for pending payable", test_name),
+            &format!(
+                "DEBUG: {}: Pending payable scan ended. No pending payable found.",
+                test_name
+            ),
+        ])
     }
 
     fn make_payables(
