@@ -15,9 +15,11 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher;
 use crate::sub_lib::dispatcher::Endpoint;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
-use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
+use crate::sub_lib::neighborhood::{
+    ConnectionProgressEvent, ConnectionProgressMessage, NodeQueryMessage,
+};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, ZERO_RATE_PACK};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
@@ -101,10 +103,11 @@ impl Display for StreamWriterKey {
 
 pub struct StreamHandlerPool {
     stream_writers: HashMap<StreamWriterKey, Option<Box<dyn SenderWrapper<SequencedPacket>>>>,
-    dispatcher_subs: Option<DispatcherSubs>,
-    self_subs: Option<StreamHandlerPoolSubs>,
-    ask_neighborhood: Option<Recipient<DispatcherNodeQueryMessage>>,
-    tell_neighborhood: Option<Recipient<RemoveNeighborMessage>>,
+    dispatcher_subs_opt: Option<DispatcherSubs>,
+    self_subs_opt: Option<StreamHandlerPoolSubs>,
+    ask_neighborhood_opt: Option<Recipient<DispatcherNodeQueryMessage>>,
+    remove_neighbor_sub_opt: Option<Recipient<RemoveNeighborMessage>>,
+    connection_progress_sub_opt: Option<Recipient<ConnectionProgressMessage>>,
     logger: Logger,
     crashable: bool,
     stream_connector: Box<dyn StreamConnector>,
@@ -153,10 +156,11 @@ impl Handler<PoolBindMessage> for StreamHandlerPool {
 
     fn handle(&mut self, msg: PoolBindMessage, ctx: &mut Self::Context) {
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
-        self.dispatcher_subs = Some(msg.dispatcher_subs);
-        self.self_subs = Some(msg.stream_handler_pool_subs);
-        self.ask_neighborhood = Some(msg.neighborhood_subs.dispatcher_node_query);
-        self.tell_neighborhood = Some(msg.neighborhood_subs.remove_neighbor);
+        self.dispatcher_subs_opt = Some(msg.dispatcher_subs);
+        self.self_subs_opt = Some(msg.stream_handler_pool_subs);
+        self.ask_neighborhood_opt = Some(msg.neighborhood_subs.dispatcher_node_query);
+        self.remove_neighbor_sub_opt = Some(msg.neighborhood_subs.remove_neighbor);
+        self.connection_progress_sub_opt = Some(msg.neighborhood_subs.connection_progress_sub);
     }
 }
 
@@ -175,10 +179,11 @@ impl StreamHandlerPool {
     ) -> StreamHandlerPool {
         StreamHandlerPool {
             stream_writers: HashMap::new(),
-            dispatcher_subs: None,
-            self_subs: None,
-            ask_neighborhood: None,
-            tell_neighborhood: None,
+            dispatcher_subs_opt: None,
+            self_subs_opt: None,
+            ask_neighborhood_opt: None,
+            remove_neighbor_sub_opt: None,
+            connection_progress_sub_opt: None,
             logger: Logger::new("Dispatcher"),
             crashable,
             stream_connector: Box::new(StreamConnectorReal {}),
@@ -208,19 +213,19 @@ impl StreamHandlerPool {
         local_addr: SocketAddr,
     ) {
         let ibcd_sub: Recipient<dispatcher::InboundClientData> = self
-            .dispatcher_subs
+            .dispatcher_subs_opt
             .as_ref()
             .expect("Dispatcher is unbound")
             .ibcd_sub
             .clone();
         let remove_sub: Recipient<RemoveStreamMsg> = self
-            .self_subs
+            .self_subs_opt
             .as_ref()
             .expect("StreamHandlerPool is unbound")
             .remove_sub
             .clone();
         let stream_shutdown_sub: Recipient<StreamShutdownMsg> = self
-            .dispatcher_subs
+            .dispatcher_subs_opt
             .as_ref()
             .expect("Dispatcher is unbound")
             .stream_shutdown_sub
@@ -277,7 +282,7 @@ impl StreamHandlerPool {
             msg.endpoint
         );
         let node_query_response_recipient = self
-            .self_subs
+            .self_subs_opt
             .as_ref()
             .expect("StreamHandlerPool is unbound.")
             .node_query_response
@@ -293,7 +298,7 @@ impl StreamHandlerPool {
                     self.logger,
                     "Sending node query about {} to Neighborhood", key
                 );
-                self.ask_neighborhood
+                self.ask_neighborhood_opt
                     .as_ref()
                     .expect("StreamHandlerPool is unbound.")
                     .try_send(request)
@@ -466,7 +471,7 @@ impl StreamHandlerPool {
                     msg.context.data.len()
                 );
                 let recipient = self
-                    .self_subs
+                    .self_subs_opt
                     .as_ref()
                     .expect("StreamHandlerPool is unbound.")
                     .node_query_response
@@ -494,11 +499,25 @@ impl StreamHandlerPool {
                     "No existing stream keyed by {}: creating one to {}", sw_key, peer_addr
                 );
 
-                let subs = self.self_subs.clone().expect("Internal error");
+                let subs = self
+                    .self_subs_opt
+                    .clone()
+                    .expect("StreamHandlerPool Unbound");
                 let add_stream_sub = subs.add_sub;
                 let node_query_response_sub = subs.node_query_response;
-                let remove_sub = subs.remove_sub;
-                let tell_neighborhood = self.tell_neighborhood.clone().expect("Internal error");
+                let connection_progress_sub_ok = self
+                    .connection_progress_sub_opt
+                    .clone()
+                    .expect("Neighborhood Unbound");
+                let connection_progress_sub_err = self
+                    .connection_progress_sub_opt
+                    .clone()
+                    .expect("Neighborhood Unbound");
+                let remove_stream_sub = subs.remove_sub;
+                let remove_neighbor_sub = self
+                    .remove_neighbor_sub_opt
+                    .clone()
+                    .expect("Neighborhood Unbound");
 
                 self.stream_writers
                     .insert(StreamWriterKey::from(peer_addr), None);
@@ -514,7 +533,7 @@ impl StreamHandlerPool {
                     .map(|d| d.public_key)
                     .expect("Key magically disappeared");
                 let sub = self
-                    .dispatcher_subs
+                    .dispatcher_subs_opt
                     .as_ref()
                     .expect("Dispatcher is dead")
                     .stream_shutdown_sub
@@ -530,18 +549,28 @@ impl StreamHandlerPool {
                             port_configuration: PortConfiguration::new(clandestine_discriminator_factories, true),
                         }).expect("StreamHandlerPool is dead");
                         node_query_response_sub.try_send(msg).expect("StreamHandlerPool is dead");
+                        let connection_progress_message = ConnectionProgressMessage {
+                            peer_addr: peer_addr.ip(),
+                            event: ConnectionProgressEvent::TcpConnectionSuccessful
+                        };
+                        connection_progress_sub_ok.try_send(connection_progress_message).expect("Neighborhood is dead");
                     })
                     .map_err(move |err| { // connection was unsuccessful
                         error!(logger_me, "Stream to {} does not exist and could not be connected; discarding {} bytes: {}", peer_addr, msg_data_len, err);
-                        remove_sub.try_send(RemoveStreamMsg {
+                        remove_stream_sub.try_send(RemoveStreamMsg {
                             peer_addr: peer_addr_e,
                             local_addr: SocketAddr::new (localhost(), 0), // irrelevant; stream was never opened
                             stream_type: RemovedStreamType::Clandestine,
                             sub,
                         }).expect("StreamHandlerPool is dead");
 
-                        let remove_node_message = RemoveNeighborMessage { public_key: key };
-                        tell_neighborhood.try_send(remove_node_message).expect("Neighborhood is Dead");
+                        let remove_node_message = RemoveNeighborMessage { public_key: key.clone() };
+                        remove_neighbor_sub.try_send(remove_node_message).expect("Neighborhood is Dead");
+                        let connection_progress_message = ConnectionProgressMessage {
+                            peer_addr: peer_addr.ip(),
+                            event: ConnectionProgressEvent::TcpConnectionFailed
+                        };
+                        connection_progress_sub_err.try_send(connection_progress_message).expect("Neighborhood is dead");
                     });
 
                 debug!(self.logger, "Beginning connection attempt to {}", peer_addr);
@@ -574,7 +603,9 @@ mod tests {
     use crate::masquerader::Masquerader;
     use crate::node_test_utils::{check_timestamp, FailingMasquerader};
     use crate::sub_lib::dispatcher::InboundClientData;
-    use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
+    use crate::sub_lib::neighborhood::{
+        ConnectionProgressEvent, ConnectionProgressMessage, NodeQueryResponseMetadata,
+    };
     use crate::sub_lib::stream_connector::ConnectionInfo;
     use crate::test_utils::await_messages;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
@@ -845,7 +876,7 @@ mod tests {
                 })
                 .unwrap();
 
-            sub_tx.send(subject_subs).expect("Internal Error");
+            sub_tx.send(subject_subs).unwrap();
             system.run();
         });
 
@@ -1245,17 +1276,15 @@ mod tests {
             .unwrap();
 
         neighborhood_awaiter.await_message_count(1);
+        let target_ip_addr = IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5));
         let node_query_msg =
             Recording::get::<DispatcherNodeQueryMessage>(&neighborhood_recording_arc, 0);
         subject_subs
             .node_query_response
             .try_send(DispatcherNodeQueryResponse {
                 result: Some(NodeQueryResponseMetadata::new(
-                    public_key,
-                    Some(NodeAddr::new(
-                        &IpAddr::V4(Ipv4Addr::new(1, 2, 3, 5)),
-                        &[7000],
-                    )),
+                    public_key.clone(),
+                    Some(NodeAddr::new(&target_ip_addr, &[7000])),
                     rate_pack(100),
                 )),
                 context: node_query_msg.context,
@@ -1281,6 +1310,17 @@ mod tests {
                 is_clandestine: true,
                 sequence_number: None,
                 data: incoming_unmasked,
+            }
+        );
+
+        neighborhood_awaiter.await_message_count(2);
+        let connection_progress_message =
+            Recording::get::<ConnectionProgressMessage>(&neighborhood_recording_arc, 1);
+        assert_eq!(
+            connection_progress_message,
+            ConnectionProgressMessage {
+                peer_addr: target_ip_addr,
+                event: ConnectionProgressEvent::TcpConnectionSuccessful
             }
         );
     }
@@ -1580,7 +1620,7 @@ mod tests {
         init_test_logging();
         let cryptde = main_cryptde();
         let key = cryptde.public_key().clone();
-
+        let key_bg = key.clone();
         let peer_addr = SocketAddr::from_str("5.4.3.1:8000").unwrap();
         let peer_addr_a = peer_addr.clone();
         let msg = TransmitDataMsg {
@@ -1612,7 +1652,7 @@ mod tests {
             local_addr,
             peer_addr: peer_addr_a,
         };
-
+        let (neighborhood, neighborhood_awaiter, neighborhood_recording_arc) = make_recorder();
         let (tx, rx) = unbounded();
 
         thread::spawn(move || {
@@ -1627,7 +1667,7 @@ mod tests {
                 vec![Box::new(HttpRequestDiscriminatorFactory::new())];
             let subject_addr: Addr<StreamHandlerPool> = subject.start();
             let subject_subs = StreamHandlerPool::make_subs_from(&subject_addr);
-            let peer_actors = peer_actors_builder().build();
+            let peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
             subject_subs
                 .bind
                 .try_send(PoolBindMessage {
@@ -1641,7 +1681,7 @@ mod tests {
                 .node_query_response
                 .try_send(DispatcherNodeQueryResponse {
                     result: Some(NodeQueryResponseMetadata::new(
-                        key.clone(),
+                        key_bg,
                         Some(NodeAddr::new(&peer_addr.ip(), &[peer_addr.port()])),
                         rate_pack(100),
                     )),
@@ -1673,6 +1713,17 @@ mod tests {
 
         assert_eq!(poll_write_params[0], expected_data);
         assert_eq!(poll_write_params.len(), 1);
+
+        neighborhood_awaiter.await_message_count(1);
+        let connection_progress_message =
+            Recording::get::<ConnectionProgressMessage>(&neighborhood_recording_arc, 1);
+        assert_eq!(
+            connection_progress_message,
+            ConnectionProgressMessage {
+                peer_addr: peer_addr.ip(),
+                event: ConnectionProgressEvent::TcpConnectionFailed
+            }
+        );
     }
 
     #[test]

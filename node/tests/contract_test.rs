@@ -113,7 +113,12 @@ fn masq_erc20_contract_exists_on_polygon_mumbai_integration() {
 
 #[test]
 fn masq_erc20_contract_exists_on_polygon_mainnet_integration() {
-    let blockchain_urls = vec!["https://polygon-rpc.com/"];
+    let blockchain_urls = vec![
+        "https://polygon-rpc.com/",
+        "https://rpc-mainnet.maticvigil.com",
+        "https://rpc-mainnet.matic.network",
+        "https://rpc-mainnet.matic.quiknode.pro",
+    ];
     let chain = Chain::PolyMainnet;
 
     assert_contract(blockchain_urls, &chain, "MASQ (PoS)", 18)

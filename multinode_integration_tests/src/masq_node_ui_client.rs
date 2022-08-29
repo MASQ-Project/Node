@@ -3,7 +3,7 @@ use std::io::ErrorKind;
 use std::net::{SocketAddr, TcpStream};
 use std::ops::Add;
 use std::thread;
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, Instant, SystemTime};
 
 use websocket::sync::Client;
 use websocket::{ClientBuilder, OwnedMessage, WebSocketError};
@@ -57,8 +57,36 @@ impl MASQNodeUIClient {
         self.buffered_or_incoming(MessagePath::Conversation(context_id), timeout)
     }
 
-    pub fn wait_for_broadcast(&self, timeout: Duration) -> MessageBody {
+    pub fn wait_for_next_broadcast(&self, timeout: Duration) -> MessageBody {
         self.buffered_or_incoming(MessagePath::FireAndForget, timeout)
+    }
+
+    pub fn wait_for_specific_broadcast(
+        &self,
+        target_opcodes: Vec<&str>,
+        timeout: Duration,
+    ) -> MessageBody {
+        let qualifies =
+            |message_body: &MessageBody| target_opcodes.contains(&message_body.opcode.as_str());
+        if let Some(target) = self.check_for_buffered_message(MessagePath::FireAndForget) {
+            if qualifies(&target) {
+                return target;
+            }
+        }
+        let begin = Instant::now();
+        let iteration_timeout = Duration::from_millis(200);
+        loop {
+            match self.try_wait_for_message(MessagePath::FireAndForget, iteration_timeout) {
+                Some(message_body) if qualifies(&message_body) => return message_body,
+                _ => (),
+            }
+            if Instant::now().duration_since(begin).gt(&timeout) {
+                panic!(
+                    "Timeout waiting for UI broadcast from Node with one of these opcodes: {:?}",
+                    target_opcodes
+                );
+            }
+        }
     }
 
     fn buffered_or_incoming(&self, path: MessagePath, timeout: Duration) -> MessageBody {
@@ -69,28 +97,30 @@ impl MASQNodeUIClient {
     }
 
     fn wait_for_message(&self, path: MessagePath, timeout: Duration) -> MessageBody {
+        match self.try_wait_for_message(path, timeout) {
+            Some(message_body) => message_body,
+            None => panic!("Timeout waiting for UI message from Node: {:?}", path),
+        }
+    }
+
+    fn try_wait_for_message(&self, path: MessagePath, timeout: Duration) -> Option<MessageBody> {
         let mut inner = self.inner.borrow_mut();
-        let mut target_opt = None;
         let deadline = SystemTime::now().add(timeout);
         loop {
             match self.check_for_waiting_message(&mut inner) {
                 Some(message) => {
                     if message.path == path {
-                        target_opt = Some(message)
+                        return Some(message);
                     } else {
                         inner.buffer.push(message)
                     }
                 }
                 None => {
-                    if let Some(target) = target_opt {
-                        return target;
-                    } else {
-                        thread::sleep(Duration::from_millis(100));
-                    }
+                    thread::sleep(Duration::from_millis(100));
                 }
             }
             if SystemTime::now().ge(&deadline) {
-                panic!("Timeout waiting for UI message from Node: {:?}", path);
+                return None;
             }
         }
     }

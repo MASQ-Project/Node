@@ -152,8 +152,17 @@ where
     as_any_dcl!();
 }
 
+#[derive(Default)]
 pub struct NotifyLaterHandleReal<M> {
     phantom: PhantomData<M>,
+}
+
+impl<T> NotifyLaterHandleReal<T> {
+    pub fn new() -> Self {
+        Self {
+            phantom: PhantomData::default(),
+        }
+    }
 }
 
 impl<M, A> Default for Box<dyn NotifyLaterHandle<M, A>>
