@@ -15,11 +15,9 @@ use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 
 use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError, PayableDaoFactory};
 use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
-use crate::accountant::receivable_dao::{
-    ReceivableAccount, ReceivableDaoError, ReceivableDaoFactory,
-};
+use crate::accountant::receivable_dao::{ReceivableDaoError, ReceivableDaoFactory};
 use crate::accountant::scanners::scanners::{
-    NotifyLaterForScanners, Scanner, Scanners, TransactionConfirmationTools,
+    NotifyLaterForScanners, Scanners, TransactionConfirmationTools,
 };
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
@@ -54,13 +52,11 @@ use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{plus, ExpectValue};
 use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
-#[cfg(test)]
-use std::any::Any;
 use std::default::Default;
 use std::ops::Add;
 use std::path::Path;
 use std::rc::Rc;
-use std::time::{Duration, SystemTime};
+use std::time::SystemTime;
 use web3::types::{TransactionReceipt, H256};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
@@ -1163,7 +1159,7 @@ mod tests {
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
-    use crate::accountant::scanners::scanners::{Scanner, ScannerMock};
+    use crate::accountant::scanners::scanners::ScannerMock;
     use crate::accountant::test_utils::{
         bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_pending_payable_fingerprint,
         make_receivable_account, BannedDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock,

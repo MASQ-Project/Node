@@ -290,7 +290,6 @@ fn unreachable() -> ! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
     use crate::sub_lib::combined_parameters::CombinedParamsDataTypes::U128;
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::test_utils::unshared_test_utils::{

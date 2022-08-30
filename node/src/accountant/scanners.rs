@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub(in crate::accountant) mod scanners {
-    use crate::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoReal};
+    use crate::accountant::payable_dao::PayableDao;
     use crate::accountant::pending_payable_dao::PendingPayableDao;
     use crate::accountant::receivable_dao::ReceivableDao;
     use crate::accountant::tools::payable_scanner_tools::{
@@ -16,22 +16,17 @@ pub(in crate::accountant) mod scanners {
     };
     use crate::banned_dao::BannedDao;
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-    use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds};
+    use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
     use crate::sub_lib::wallet::Wallet;
-    use actix::dev::SendError;
-    use actix::{Context, Message, Recipient};
-    use itertools::Itertools;
-    use masq_lib::logger::{timestamp_as_string, Logger};
-    use masq_lib::messages::ScanType;
-    use masq_lib::messages::ScanType::PendingPayables;
+    use actix::{Message, Recipient};
+    use masq_lib::logger::Logger;
     use std::any::Any;
     use std::borrow::BorrowMut;
     use std::cell::RefCell;
-    use std::ops::Add;
     use std::rc::Rc;
     use std::sync::{Arc, Mutex};
-    use std::time::{Duration, SystemTime};
+    use std::time::SystemTime;
 
     type Error = String;
 
@@ -421,25 +416,22 @@ pub(in crate::accountant) mod scanners {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::accountant::payable_dao::{PayableAccount, PayableDaoReal};
+
+    use crate::accountant::payable_dao::PayableAccount;
     use crate::accountant::scanners::scanners::{
         PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner, Scanners,
     };
     use crate::accountant::test_utils::{
-        make_receivable_account, AccountantBuilder, BannedDaoMock, PayableDaoMock,
-        PendingPayableDaoMock, ReceivableDaoMock,
+        make_receivable_account, BannedDaoMock, PayableDaoMock, PendingPayableDaoMock,
+        ReceivableDaoMock,
     };
     use crate::accountant::RequestTransactionReceipts;
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
-    use crate::bootstrapper::BootstrapperConfig;
     use crate::database::dao_utils::{from_time_t, to_time_t};
-    use crate::sub_lib::accountant::{PaymentThresholds, DEFAULT_PAYMENT_THRESHOLDS};
+    use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::test_utils::make_wallet;
-    use crate::test_utils::unshared_test_utils::{
-        make_payment_thresholds_with_defaults, make_populated_accountant_config_with_defaults,
-    };
+    use crate::test_utils::unshared_test_utils::make_payment_thresholds_with_defaults;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::rc::Rc;

@@ -20,7 +20,7 @@ use crate::database::dao_utils;
 use crate::database::dao_utils::{from_time_t, to_time_t};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
-use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds, DEFAULT_PAYMENT_THRESHOLDS};
+use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::unshared_test_utils::{

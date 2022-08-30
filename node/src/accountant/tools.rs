@@ -3,7 +3,6 @@
 pub(crate) mod payable_scanner_tools {
     use crate::accountant::payable_dao::PayableAccount;
     use crate::sub_lib::accountant::PaymentThresholds;
-    use std::rc::Rc;
     use std::time::SystemTime;
 
     //for debugging only
@@ -174,15 +173,12 @@ mod tests {
         is_payable_qualified, payable_time_diff, qualified_payables_and_summary,
     };
     use crate::accountant::tools::receivable_scanner_tools::balance_and_age;
-    use crate::bootstrapper::BootstrapperConfig;
     use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
-    use crate::test_utils::unshared_test_utils::{
-        make_payment_thresholds_with_defaults, make_populated_accountant_config_with_defaults,
-    };
+    use crate::test_utils::unshared_test_utils::make_payment_thresholds_with_defaults;
     use std::rc::Rc;
-    use std::time::{Duration, SystemTime};
+    use std::time::SystemTime;
 
     fn make_custom_payment_thresholds() -> PaymentThresholds {
         PaymentThresholds {
