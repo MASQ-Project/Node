@@ -461,6 +461,7 @@ impl Accountant {
                 payable_dao_factory.make(),
                 pending_payable_dao_factory.make(),
                 receivable_dao_factory.make(),
+                banned_dao_factory.make(),
                 Rc::clone(&payment_thresholds),
                 Rc::clone(&earning_wallet),
             ),
@@ -589,14 +590,15 @@ impl Accountant {
         }
     }
 
-    fn balance_and_age(account: &ReceivableAccount) -> (String, Duration) {
-        let balance = format!("{}", (account.balance as f64) / 1_000_000_000.0);
-        let age = account
-            .last_received_timestamp
-            .elapsed()
-            .unwrap_or_else(|_| Duration::new(0, 0));
-        (balance, age)
-    }
+    // TODO: Remove after migration
+    // fn balance_and_age(account: &ReceivableAccount) -> (String, Duration) {
+    //     let balance = format!("{}", (account.balance as f64) / 1_000_000_000.0);
+    //     let age = account
+    //         .last_received_timestamp
+    //         .elapsed()
+    //         .unwrap_or_else(|_| Duration::new(0, 0));
+    //     (balance, age)
+    // }
 
     fn record_service_provided(
         &self,

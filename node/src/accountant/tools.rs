@@ -150,13 +150,31 @@ pub(crate) mod payable_scanner_tools {
     }
 }
 
+pub(crate) mod receivable_scanner_tools {
+    use crate::accountant::receivable_dao::ReceivableAccount;
+    use std::time::{Duration, SystemTime};
+
+    pub(crate) fn balance_and_age(
+        time: SystemTime,
+        account: &ReceivableAccount,
+    ) -> (String, Duration) {
+        let balance = format!("{}", (account.balance as f64) / 1_000_000_000.0);
+        let age = time
+            .duration_since(account.last_received_timestamp)
+            .unwrap_or_else(|_| Duration::new(0, 0));
+        (balance, age)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::accountant::payable_dao::PayableAccount;
+    use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::tools::payable_scanner_tools::{
         calculate_payout_threshold, exceeded_summary, investigate_debt_extremes,
         is_payable_qualified, payable_time_diff, qualified_payables_and_summary,
     };
+    use crate::accountant::tools::receivable_scanner_tools::balance_and_age;
     use crate::bootstrapper::BootstrapperConfig;
     use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::sub_lib::accountant::PaymentThresholds;
@@ -165,7 +183,7 @@ mod tests {
         make_payment_thresholds_with_defaults, make_populated_accountant_config_with_defaults,
     };
     use std::rc::Rc;
-    use std::time::SystemTime;
+    use std::time::{Duration, SystemTime};
 
     fn make_custom_payment_thresholds() -> PaymentThresholds {
         PaymentThresholds {
@@ -385,6 +403,22 @@ mod tests {
         let result = investigate_debt_extremes(payables);
 
         assert_eq!(result, "Payable scan found 4 debts; the biggest is 2000000 owed for 10000sec, the oldest is 330 owed for 30000sec")
+    }
+
+    #[test]
+    fn balance_and_age_is_calculated_as_expected() {
+        let now = SystemTime::now();
+        let offset = 1000;
+        let receivable_account = ReceivableAccount {
+            wallet: make_wallet("wallet0"),
+            balance: 10_000_000_000,
+            last_received_timestamp: from_time_t(to_time_t(now) - offset),
+        };
+
+        let (balance, age) = balance_and_age(now, &receivable_account);
+
+        assert_eq!(balance, "10");
+        assert_eq!(age.as_secs(), offset as u64);
     }
 
     // TODO: Either make this test work or write an alternative test in the desired file

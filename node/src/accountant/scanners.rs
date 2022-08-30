@@ -7,12 +7,14 @@ pub(in crate::accountant) mod scanners {
     use crate::accountant::tools::payable_scanner_tools::{
         investigate_debt_extremes, qualified_payables_and_summary,
     };
+    use crate::accountant::tools::receivable_scanner_tools::balance_and_age;
     use crate::accountant::ReportAccountsPayable;
     use crate::accountant::{
         Accountant, CancelFailedPendingTransaction, ConfirmPendingTransaction, ReceivedPayments,
         ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
         ScanForPendingPayables, ScanForReceivables, SentPayable,
     };
+    use crate::banned_dao::BannedDao;
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
     use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds};
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
@@ -45,6 +47,7 @@ pub(in crate::accountant) mod scanners {
             payable_dao: Box<dyn PayableDao>,
             pending_payable_dao: Box<dyn PendingPayableDao>,
             receivable_dao: Box<dyn ReceivableDao>,
+            banned_dao: Box<dyn BannedDao>,
             payment_thresholds: Rc<PaymentThresholds>,
             earning_wallet: Rc<Wallet>,
         ) -> Self {
@@ -59,6 +62,7 @@ pub(in crate::accountant) mod scanners {
                 )),
                 receivables: Box::new(ReceivableScanner::new(
                     receivable_dao,
+                    banned_dao,
                     Rc::clone(&payment_thresholds),
                     earning_wallet,
                 )),
@@ -224,6 +228,7 @@ pub(in crate::accountant) mod scanners {
     pub struct ReceivableScanner {
         common: ScannerCommon,
         dao: Box<dyn ReceivableDao>,
+        banned_dao: Box<dyn BannedDao>,
         earning_wallet: Rc<Wallet>,
     }
 
@@ -238,6 +243,37 @@ pub(in crate::accountant) mod scanners {
                 logger,
                 "Scanning for receivables to {}", self.earning_wallet
             );
+            info!(logger, "Scanning for delinquencies");
+            let now = SystemTime::now();
+            self.dao
+                .new_delinquencies(now, self.common.payment_thresholds.as_ref())
+                .into_iter()
+                .for_each(|account| {
+                    self.banned_dao.ban(&account.wallet);
+                    let (balance, age) = balance_and_age(now, &account);
+                    info!(
+                        logger,
+                        "Wallet {} (balance: {} MASQ, age: {} sec) banned for delinquency",
+                        account.wallet,
+                        balance,
+                        age.as_secs()
+                    )
+                });
+            self.dao
+                .paid_delinquencies(self.common.payment_thresholds.as_ref())
+                .into_iter()
+                .for_each(|account| {
+                    self.banned_dao.unban(&account.wallet);
+                    let (balance, age) = balance_and_age(now, &account);
+                    info!(
+                        logger,
+                        "Wallet {} (balance: {} MASQ, age: {} sec) is no longer delinquent: unbanned",
+                        account.wallet,
+                        balance,
+                        age.as_secs()
+                    )
+                });
+
             Ok(RetrieveTransactions {
                 recipient: self.earning_wallet.as_ref().clone(),
                 response_skeleton_opt,
@@ -258,6 +294,7 @@ pub(in crate::accountant) mod scanners {
     impl ReceivableScanner {
         pub fn new(
             dao: Box<dyn ReceivableDao>,
+            banned_dao: Box<dyn BannedDao>,
             payment_thresholds: Rc<PaymentThresholds>,
             earning_wallet: Rc<Wallet>,
         ) -> Self {
@@ -265,6 +302,7 @@ pub(in crate::accountant) mod scanners {
                 common: ScannerCommon::new(payment_thresholds),
                 earning_wallet,
                 dao,
+                banned_dao,
             }
         }
 
@@ -389,13 +427,14 @@ mod tests {
         PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner, Scanners,
     };
     use crate::accountant::test_utils::{
-        AccountantBuilder, PayableDaoMock, PendingPayableDaoMock, ReceivableDaoMock,
+        make_receivable_account, AccountantBuilder, BannedDaoMock, PayableDaoMock,
+        PendingPayableDaoMock, ReceivableDaoMock,
     };
     use crate::accountant::RequestTransactionReceipts;
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
     use crate::bootstrapper::BootstrapperConfig;
     use crate::database::dao_utils::{from_time_t, to_time_t};
-    use crate::sub_lib::accountant::PaymentThresholds;
+    use crate::sub_lib::accountant::{PaymentThresholds, DEFAULT_PAYMENT_THRESHOLDS};
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::test_utils::make_wallet;
     use crate::test_utils::unshared_test_utils::{
@@ -404,6 +443,7 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::rc::Rc;
+    use std::sync::{Arc, Mutex, MutexGuard};
     use std::time::SystemTime;
 
     #[test]
@@ -413,6 +453,7 @@ mod tests {
             Box::new(PayableDaoMock::new()),
             Box::new(PendingPayableDaoMock::new()),
             Box::new(ReceivableDaoMock::new()),
+            Box::new(BannedDaoMock::new()),
             Rc::clone(&payment_thresholds),
             Rc::new(make_wallet("earning")),
         );
@@ -557,6 +598,7 @@ mod tests {
         let earning_wallet = make_wallet("earning");
         let mut receivable_scanner = ReceivableScanner::new(
             Box::new(receivable_dao),
+            Box::new(BannedDaoMock::new()),
             Rc::new(payment_thresholds),
             Rc::new(earning_wallet.clone()),
         );
@@ -575,6 +617,65 @@ mod tests {
             "INFO: {}: Scanning for receivables to {}",
             test_name, earning_wallet
         ));
+    }
+
+    #[test]
+    fn receivable_scanner_scans_for_delinquencies() {
+        init_test_logging();
+        let test_name = "receivable_scanner_scans_for_deliquencies";
+        let newly_banned_1 = make_receivable_account(1234, true);
+        let newly_banned_2 = make_receivable_account(2345, true);
+        let newly_unbanned_1 = make_receivable_account(3456, false);
+        let newly_unbanned_2 = make_receivable_account(4567, false);
+        let new_delinquencies_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let paid_delinquencies_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let receivable_dao = ReceivableDaoMock::new()
+            .new_delinquencies_parameters(&new_delinquencies_parameters_arc)
+            .new_delinquencies_result(vec![newly_banned_1.clone(), newly_banned_2.clone()])
+            .paid_delinquencies_parameters(&paid_delinquencies_parameters_arc)
+            .paid_delinquencies_result(vec![newly_unbanned_1.clone(), newly_unbanned_2.clone()]);
+        let ban_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let unban_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let banned_dao = BannedDaoMock::new()
+            .ban_list_result(vec![])
+            .ban_parameters(&ban_parameters_arc)
+            .unban_parameters(&unban_parameters_arc);
+        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let mut receivable_scanner = ReceivableScanner::new(
+            Box::new(receivable_dao),
+            Box::new(banned_dao),
+            Rc::new(payment_thresholds.clone()),
+            Rc::new(make_wallet("earning")),
+        );
+
+        let result = receivable_scanner.begin_scan(
+            SystemTime::now(),
+            None,
+            &Logger::new("DELINQUENCY_TEST"),
+        );
+
+        let new_delinquencies_parameters: MutexGuard<Vec<(SystemTime, PaymentThresholds)>> =
+            new_delinquencies_parameters_arc.lock().unwrap();
+        assert_eq!(
+            payment_thresholds.clone(),
+            new_delinquencies_parameters[0].1
+        );
+        let paid_delinquencies_parameters: MutexGuard<Vec<PaymentThresholds>> =
+            paid_delinquencies_parameters_arc.lock().unwrap();
+        assert_eq!(payment_thresholds.clone(), paid_delinquencies_parameters[0]);
+        let ban_parameters = ban_parameters_arc.lock().unwrap();
+        assert!(ban_parameters.contains(&newly_banned_1.wallet));
+        assert!(ban_parameters.contains(&newly_banned_2.wallet));
+        assert_eq!(2, ban_parameters.len());
+        let unban_parameters = unban_parameters_arc.lock().unwrap();
+        assert!(unban_parameters.contains(&newly_unbanned_1.wallet));
+        assert!(unban_parameters.contains(&newly_unbanned_2.wallet));
+        assert_eq!(2, unban_parameters.len());
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_matching("INFO: DELINQUENCY_TEST: Wallet 0x00000000000000000077616c6c65743132333464 \\(balance: 1234 MASQ, age: \\d+ sec\\) banned for delinquency");
+        tlh.exists_log_matching("INFO: DELINQUENCY_TEST: Wallet 0x00000000000000000077616c6c65743233343564 \\(balance: 2345 MASQ, age: \\d+ sec\\) banned for delinquency");
+        tlh.exists_log_matching("INFO: DELINQUENCY_TEST: Wallet 0x00000000000000000077616c6c6574333435366e \\(balance: 3456 MASQ, age: \\d+ sec\\) is no longer delinquent: unbanned");
+        tlh.exists_log_matching("INFO: DELINQUENCY_TEST: Wallet 0x00000000000000000077616c6c6574343536376e \\(balance: 4567 MASQ, age: \\d+ sec\\) is no longer delinquent: unbanned");
     }
 
     fn make_payables(
