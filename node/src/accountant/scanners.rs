@@ -126,7 +126,7 @@ pub(in crate::accountant) mod scanners {
             );
             let (qualified_payables, summary) = qualified_payables_and_summary(
                 all_non_pending_payables,
-                self.common.payment_thresholds.clone(),
+                self.common.payment_thresholds.as_ref(),
             );
             info!(
                 logger,
@@ -593,12 +593,15 @@ mod tests {
     fn receivable_scanner_can_initiate_a_scan() {
         init_test_logging();
         let test_name = "receivable_scanner_can_initiate_a_scan";
-        let receivable_dao = ReceivableDaoMock::new();
+        let receivable_dao = ReceivableDaoMock::new()
+            .new_delinquencies_result(vec![make_receivable_account(1234, true)])
+            .paid_delinquencies_result(vec![make_receivable_account(4321, false)]);
+        let banned_dao = BannedDaoMock::new();
         let payment_thresholds = make_payment_thresholds_with_defaults();
         let earning_wallet = make_wallet("earning");
         let mut receivable_scanner = ReceivableScanner::new(
             Box::new(receivable_dao),
-            Box::new(BannedDaoMock::new()),
+            Box::new(banned_dao),
             Rc::new(payment_thresholds),
             Rc::new(earning_wallet.clone()),
         );

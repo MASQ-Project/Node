@@ -67,7 +67,7 @@ pub(crate) mod payable_scanner_tools {
     pub(crate) fn is_payable_qualified(
         time: SystemTime,
         payable: &PayableAccount,
-        payment_thresholds: Rc<PaymentThresholds>,
+        payment_thresholds: &PaymentThresholds,
     ) -> Option<u64> {
         // TODO: This calculation should be done in the database, if possible
         let maturity_time_limit = payment_thresholds.maturity_threshold_sec as u64;
@@ -99,7 +99,7 @@ pub(crate) mod payable_scanner_tools {
 
     pub(crate) fn calculate_payout_threshold(
         x: u64,
-        payment_thresholds: Rc<PaymentThresholds>,
+        payment_thresholds: &PaymentThresholds,
     ) -> f64 {
         let m = -((payment_thresholds.debt_threshold_gwei as f64
             - payment_thresholds.permanent_debt_allowed_gwei as f64)
@@ -126,15 +126,14 @@ pub(crate) mod payable_scanner_tools {
 
     pub(crate) fn qualified_payables_and_summary(
         non_pending_payables: Vec<PayableAccount>,
-        payment_thresholds: Rc<PaymentThresholds>,
+        payment_thresholds: &PaymentThresholds,
     ) -> (Vec<PayableAccount>, String) {
         let now = SystemTime::now();
         let mut qualified_summary = String::from("Paying qualified debts:\n");
         let mut qualified_payables: Vec<PayableAccount> = vec![];
 
         for payable in non_pending_payables {
-            if let Some(threshold) = is_payable_qualified(now, &payable, payment_thresholds.clone())
-            {
+            if let Some(threshold) = is_payable_qualified(now, &payable, payment_thresholds) {
                 let payable_summary = exceeded_summary(now, &payable, threshold);
                 qualified_summary.push_str(&payable_summary);
                 qualified_payables.push(payable);
@@ -209,11 +208,7 @@ mod tests {
             pending_payable_opt: None,
         };
 
-        let result = is_payable_qualified(
-            now,
-            &unqualified_payable_account,
-            Rc::new(payment_thresholds),
-        );
+        let result = is_payable_qualified(now, &unqualified_payable_account, &payment_thresholds);
 
         assert_eq!(result, None);
     }
@@ -231,11 +226,7 @@ mod tests {
             pending_payable_opt: None,
         };
 
-        let result = is_payable_qualified(
-            now,
-            &unqualified_payable_account,
-            Rc::new(payment_thresholds),
-        );
+        let result = is_payable_qualified(now, &unqualified_payable_account, &payment_thresholds);
 
         assert_eq!(result, None);
     }
@@ -253,11 +244,7 @@ mod tests {
             pending_payable_opt: None,
         };
 
-        let result = is_payable_qualified(
-            now,
-            &unqualified_payable_account,
-            Rc::new(payment_thresholds),
-        );
+        let result = is_payable_qualified(now, &unqualified_payable_account, &payment_thresholds);
 
         assert_eq!(result, None);
     }
@@ -277,12 +264,11 @@ mod tests {
         };
         let threshold = calculate_payout_threshold(
             payable_time_diff(now, &qualified_payable),
-            Rc::clone(&payment_thresholds_rc),
+            &payment_thresholds_rc,
         );
         eprintln!("Threshold: {}, Debt: {}", threshold, debt);
 
-        let result =
-            is_payable_qualified(now, &qualified_payable, Rc::clone(&payment_thresholds_rc));
+        let result = is_payable_qualified(now, &qualified_payable, &payment_thresholds_rc);
 
         assert_eq!(result, Some(threshold as u64));
     }
@@ -317,25 +303,20 @@ mod tests {
                 pending_payable_opt: None,
             },
         ];
-        let payment_thresholds_rc = Rc::new(payment_thresholds);
         let mut all_non_pending_payables = Vec::new();
         all_non_pending_payables.extend(qualified_payable_accounts.clone());
         all_non_pending_payables.extend(unqualified_payable_accounts.clone());
 
-        let (qualified_payables, summary) = qualified_payables_and_summary(
-            all_non_pending_payables,
-            Rc::clone(&payment_thresholds_rc),
-        );
+        let (qualified_payables, summary) =
+            qualified_payables_and_summary(all_non_pending_payables, &payment_thresholds);
 
         let mut expected_summary = String::from("Paying qualified debts:\n");
         for payable in qualified_payable_accounts.iter() {
             expected_summary.push_str(&exceeded_summary(
                 now,
                 &payable,
-                calculate_payout_threshold(
-                    payable_time_diff(now, &payable),
-                    payment_thresholds_rc.clone(),
-                ) as u64,
+                calculate_payout_threshold(payable_time_diff(now, &payable), &payment_thresholds)
+                    as u64,
             ))
         }
 
@@ -355,12 +336,9 @@ mod tests {
             ),
             pending_payable_opt: None,
         }];
-        let payment_thresholds_rc = Rc::new(payment_thresholds);
 
-        let (qualified_payables, summary) = qualified_payables_and_summary(
-            unqualified_payable_accounts,
-            Rc::clone(&payment_thresholds_rc),
-        );
+        let (qualified_payables, summary) =
+            qualified_payables_and_summary(unqualified_payable_accounts, &payment_thresholds);
 
         assert_eq!(qualified_payables, vec![]);
         assert_eq!(summary, String::from("No Qualified Payables found."));
