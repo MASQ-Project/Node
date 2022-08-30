@@ -124,16 +124,16 @@ pub(crate) mod payable_scanner_tools {
     }
 
     pub(crate) fn qualified_payables_and_summary(
+        time: SystemTime,
         non_pending_payables: Vec<PayableAccount>,
         payment_thresholds: &PaymentThresholds,
     ) -> (Vec<PayableAccount>, String) {
-        let now = SystemTime::now();
         let mut qualified_summary = String::from("Paying qualified debts:\n");
         let mut qualified_payables: Vec<PayableAccount> = vec![];
 
         for payable in non_pending_payables {
-            if let Some(threshold) = is_payable_qualified(now, &payable, payment_thresholds) {
-                let payable_summary = exceeded_summary(now, &payable, threshold);
+            if let Some(threshold) = is_payable_qualified(time, &payable, payment_thresholds) {
+                let payable_summary = exceeded_summary(time, &payable, threshold);
                 qualified_summary.push_str(&payable_summary);
                 qualified_payables.push(payable);
             }
@@ -304,7 +304,7 @@ mod tests {
         all_non_pending_payables.extend(unqualified_payable_accounts.clone());
 
         let (qualified_payables, summary) =
-            qualified_payables_and_summary(all_non_pending_payables, &payment_thresholds);
+            qualified_payables_and_summary(now, all_non_pending_payables, &payment_thresholds);
 
         let mut expected_summary = String::from("Paying qualified debts:\n");
         for payable in qualified_payable_accounts.iter() {
@@ -334,7 +334,7 @@ mod tests {
         }];
 
         let (qualified_payables, summary) =
-            qualified_payables_and_summary(unqualified_payable_accounts, &payment_thresholds);
+            qualified_payables_and_summary(now, unqualified_payable_accounts, &payment_thresholds);
 
         assert_eq!(qualified_payables, vec![]);
         assert_eq!(summary, String::from("No Qualified Payables found."));
