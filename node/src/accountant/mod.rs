@@ -1212,6 +1212,7 @@ mod tests {
         let payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
+        let banned_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_factory = PayableDaoFactoryMock::new()
             .make_params(&payable_dao_factory_params_arc)
             .make_result(PayableDaoMock::new())
@@ -1224,10 +1225,10 @@ mod tests {
             .make_params(&receivable_dao_factory_params_arc)
             .make_result(ReceivableDaoMock::new())
             .make_result(ReceivableDaoMock::new());
-        let banned_dao_factory_called = Rc::new(RefCell::new(false));
-        let banned_dao = BannedDaoMock::new();
-        let banned_dao_factory =
-            BannedDaoFactoryMock::new(banned_dao).called(&banned_dao_factory_called);
+        let banned_dao_factory = BannedDaoFactoryMock::new()
+            .make_params(&banned_dao_factory_params_arc)
+            .make_result(BannedDaoMock::new())
+            .make_result(BannedDaoMock::new());
 
         let _ = Accountant::new(
             &mut config,
@@ -1249,7 +1250,7 @@ mod tests {
             *receivable_dao_factory_params_arc.lock().unwrap(),
             vec![(), ()]
         );
-        assert_eq!(banned_dao_factory_called.as_ref(), &RefCell::new(true));
+        assert_eq!(*banned_dao_factory_params_arc.lock().unwrap(), vec![(), ()]);
     }
 
     #[test]
@@ -1279,7 +1280,11 @@ mod tests {
                 .make_result(ReceivableDaoMock::new()) // For Accountant
                 .make_result(ReceivableDaoMock::new()), // For Scanner
         );
-        let banned_dao_factory = Box::new(BannedDaoFactoryMock::new(BannedDaoMock::new()));
+        let banned_dao_factory = Box::new(
+            BannedDaoFactoryMock::new()
+                .make_result(BannedDaoMock::new())
+                .make_result(BannedDaoMock::new()),
+        );
 
         let result = Accountant::new(
             &mut bootstrapper_config,

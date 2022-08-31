@@ -75,7 +75,7 @@ pub struct AccountantBuilder {
     payable_dao_factory: Option<PayableDaoFactoryMock>,
     receivable_dao_factory: Option<ReceivableDaoFactoryMock>,
     pending_payable_dao_factory: Option<PendingPayableDaoFactoryMock>,
-    banned_dao_factory: Option<Box<dyn BannedDaoFactory>>,
+    banned_dao_factory: Option<BannedDaoFactoryMock>,
     config_dao_factory: Option<Box<dyn ConfigDaoFactory>>,
 }
 
@@ -140,7 +140,14 @@ impl AccountantBuilder {
     }
 
     pub fn banned_dao(mut self, banned_dao: BannedDaoMock) -> Self {
-        self.banned_dao_factory = Some(Box::new(BannedDaoFactoryMock::new(banned_dao)));
+        match self.banned_dao_factory {
+            None => {
+                self.banned_dao_factory = Some(BannedDaoFactoryMock::new().make_result(banned_dao))
+            }
+            Some(banned_dao_factory) => {
+                self.banned_dao_factory = Some(banned_dao_factory.make_result(banned_dao))
+            }
+        }
         self
     }
 
@@ -171,15 +178,17 @@ impl AccountantBuilder {
                 .make_result(PendingPayableDaoMock::new())
                 .make_result(PendingPayableDaoMock::new()),
         );
-        let banned_dao_factory = self
-            .banned_dao_factory
-            .unwrap_or(Box::new(BannedDaoFactoryMock::new(BannedDaoMock::new())));
+        let banned_dao_factory = self.banned_dao_factory.unwrap_or(
+            BannedDaoFactoryMock::new()
+                .make_result(BannedDaoMock::new())
+                .make_result(BannedDaoMock::new()),
+        );
         let accountant = Accountant::new(
             &mut config,
             Box::new(payable_dao_factory),
             Box::new(receivable_dao_factory),
             Box::new(pending_payable_dao_factory),
-            banned_dao_factory,
+            Box::new(banned_dao_factory),
         );
         accountant
     }
@@ -258,27 +267,37 @@ impl ReceivableDaoFactoryMock {
 }
 
 pub struct BannedDaoFactoryMock {
-    called: Rc<RefCell<bool>>,
-    mock: RefCell<Option<BannedDaoMock>>,
+    make_params: Arc<Mutex<Vec<()>>>,
+    make_results: RefCell<Vec<Box<dyn BannedDao>>>,
 }
 
 impl BannedDaoFactory for BannedDaoFactoryMock {
     fn make(&self) -> Box<dyn BannedDao> {
-        *self.called.borrow_mut() = true;
-        Box::new(self.mock.borrow_mut().take().unwrap())
+        if self.make_results.borrow().len() == 0 {
+            panic!(
+                "BannedDao Missing. This problem mostly occurs when ReceivableDao is only supplied for Accountant and not for the Scanner while building Accountant."
+            )
+        };
+        self.make_params.lock().unwrap().push(());
+        self.make_results.borrow_mut().remove(0)
     }
 }
 
 impl BannedDaoFactoryMock {
-    pub fn new(mock: BannedDaoMock) -> Self {
+    pub fn new() -> Self {
         Self {
-            called: Rc::new(RefCell::new(false)),
-            mock: RefCell::new(Some(mock)),
+            make_params: Arc::new(Mutex::new(vec![])),
+            make_results: RefCell::new(vec![]),
         }
     }
 
-    pub fn called(mut self, called: &Rc<RefCell<bool>>) -> Self {
-        self.called = called.clone();
+    pub fn make_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.make_params = params.clone();
+        self
+    }
+
+    pub fn make_result(self, result: BannedDaoMock) -> Self {
+        self.make_results.borrow_mut().push(Box::new(result));
         self
     }
 }
