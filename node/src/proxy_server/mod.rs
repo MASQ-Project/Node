@@ -83,7 +83,7 @@ pub struct ProxyServer {
     logger: Logger,
     route_ids_to_return_routes: TtlHashMap<u32, AddReturnRouteMessage>,
     browser_proxy_sequence_offset: bool,
-    inbound_client_data_helper: Box<dyn ICDHelperFactory>,
+    inbound_client_data_helper: Box<dyn IBCDHelperFactory>,
 }
 
 impl Actor for ProxyServer {
@@ -236,7 +236,7 @@ impl ProxyServer {
             logger: Logger::new("ProxyServer"),
             route_ids_to_return_routes: TtlHashMap::new(RETURN_ROUTE_TTL),
             browser_proxy_sequence_offset: false,
-            inbound_client_data_helper: Box::new(ICDHelperFactoryReal::new()),
+            inbound_client_data_helper: Box::new(IBCDHelperFactoryReal::new()),
         }
     }
 
@@ -669,7 +669,9 @@ impl ProxyServer {
         accountant_sub: &Recipient<ReportServicesConsumedMessage>,
         retire_stream_key_via: Option<&Recipient<StreamShutdownMsg>>,
     ) {
-        let destination_key_opt = if !expected_services.is_empty()
+        let destination_key_opt =
+
+            if !expected_services.is_empty()
             && expected_services
                 .iter()
                 .all(|expected_service| matches!(expected_service, ExpectedService::Nothing))
@@ -681,6 +683,11 @@ impl ProxyServer {
                 _ => None,
             })
         };
+        // let destination_key_opt =
+        //     expected_services.iter().find_map(|service| match service {
+        //         ExpectedService::Exit(public_key, _, _) => Some(public_key.clone()),
+        //         _ => None,
+        //     });
 
         match destination_key_opt {
             None => ProxyServer::handle_route_failure(payload, logger, source_addr, dispatcher),
@@ -855,26 +862,26 @@ impl ProxyServer {
     }
 }
 
-pub trait ICDHelperFactory {
-    fn make(&self) -> Box<dyn ICDHelper>;
+pub trait IBCDHelperFactory {
+    fn make(&self) -> Box<dyn IBCDHelper>;
 }
 
 #[derive(Default)]
-struct ICDHelperFactoryReal {}
+struct IBCDHelperFactoryReal {}
 
-impl ICDHelperFactoryReal {
+impl IBCDHelperFactoryReal {
     fn new() -> Self {
         Self::default()
     }
 }
 
-impl ICDHelperFactory for ICDHelperFactoryReal {
-    fn make(&self) -> Box<dyn ICDHelper> {
-        Box::new(ICDHelperReal {})
+impl IBCDHelperFactory for IBCDHelperFactoryReal {
+    fn make(&self) -> Box<dyn IBCDHelper> {
+        Box::new(IBCDHelperReal {})
     }
 }
 
-pub trait ICDHelper {
+pub trait IBCDHelper {
     fn help_to_handle_normal_client_data(
         &self,
         proxy_s: &mut ProxyServer,
@@ -883,9 +890,9 @@ pub trait ICDHelper {
     ) -> Result<(), String>;
 }
 
-struct ICDHelperReal {}
+struct IBCDHelperReal {}
 
-impl ICDHelper for ICDHelperReal {
+impl IBCDHelper for IBCDHelperReal {
     fn help_to_handle_normal_client_data(
         &self,
         proxy: &mut ProxyServer,
@@ -955,7 +962,7 @@ impl ICDHelper for ICDHelperReal {
     }
 }
 
-impl ICDHelperReal {
+impl IBCDHelperReal {
     fn handle_transmitting<F1, F2>(
         proxy: &ProxyServer,
         payload: ClientRequestPayload_0v1,
@@ -1198,18 +1205,18 @@ mod tests {
 
     #[derive(Default)]
     struct ICDHelperFactoryMock {
-        make_results: RefCell<Vec<Box<dyn ICDHelper>>>,
+        make_results: RefCell<Vec<Box<dyn IBCDHelper>>>,
     }
 
     impl ICDHelperFactoryMock {
-        fn make_result(self, result: Box<dyn ICDHelper>) -> Self {
+        fn make_result(self, result: Box<dyn IBCDHelper>) -> Self {
             self.make_results.borrow_mut().push(result);
             self
         }
     }
 
-    impl ICDHelperFactory for ICDHelperFactoryMock {
-        fn make(&self) -> Box<dyn ICDHelper> {
+    impl IBCDHelperFactory for ICDHelperFactoryMock {
+        fn make(&self) -> Box<dyn IBCDHelper> {
             self.make_results.borrow_mut().remove(0)
         }
     }
@@ -1220,7 +1227,7 @@ mod tests {
         help_to_handle_normal_client_data_results: RefCell<Vec<Result<(), String>>>,
     }
 
-    impl ICDHelper for ICDHelperMock {
+    impl IBCDHelper for ICDHelperMock {
         fn help_to_handle_normal_client_data(
             &self,
             _proxy_s: &mut ProxyServer,
@@ -4776,7 +4783,7 @@ mod tests {
             data: vec![],
         };
 
-        let result = ICDHelperReal {}.help_to_handle_normal_client_data(
+        let result = IBCDHelperReal {}.help_to_handle_normal_client_data(
             &mut proxy_server,
             inbound_client_data_msg,
             true,
@@ -4806,7 +4813,7 @@ mod tests {
             originator_public_key: alias_cryptde().public_key().clone(),
         };
 
-        ICDHelperReal::resolve_route_query_response(
+        IBCDHelperReal::resolve_route_query_response(
             Err(MailboxError::Timeout),
             payload,
             logger,
@@ -4864,7 +4871,7 @@ mod tests {
             data: vec![],
         };
 
-        let result = ICDHelperReal {}.help_to_handle_normal_client_data(
+        let result = IBCDHelperReal {}.help_to_handle_normal_client_data(
             &mut proxy_server,
             inbound_client_data_msg,
             true,
