@@ -197,8 +197,8 @@ impl Handler<ScanForPayables> for Accountant {
                 .expect("BlockchainBridge is unbound")
                 .try_send(message)
                 .expect("BlockchainBridge is dead"),
-            Err(e) if e.contains("Called from ScannerMock") => {
-                todo!("Make sure no code is executed after this")
+            Err(e) if e.contains("Called from NullScanner") => {
+                eprintln!("Payable scan is disabled.");
             }
             Err(e) => todo!("Use logger to print out the error message"),
         }
@@ -214,11 +214,19 @@ impl Handler<ScanForPendingPayables> for Accountant {
         //     msg.response_skeleton_opt,
         //     ctx,
         // )
-        self.scanners.pending_payables.begin_scan(
+        match self.scanners.pending_payables.begin_scan(
             SystemTime::now(),
             msg.response_skeleton_opt,
             &self.logger,
-        );
+        ) {
+            Ok(message) => {
+                todo!("send the message to blockchain bridge");
+            }
+            Err(e) if e.contains("Called from NullScanner") => {
+                eprintln!("Pending payable scan is disabled.")
+            }
+            Err(e) => todo!("Use logger to print out the error message"),
+        }
     }
 }
 
@@ -231,11 +239,19 @@ impl Handler<ScanForReceivables> for Accountant {
         //     msg.response_skeleton_opt,
         //     ctx,
         // );
-        self.scanners.receivables.begin_scan(
+        match self.scanners.receivables.begin_scan(
             SystemTime::now(),
             msg.response_skeleton_opt,
             &self.logger,
-        );
+        ) {
+            Ok(message) => {
+                todo!("send the message to blockchain bridge");
+            }
+            Err(e) if e.contains("Called from NullScanner") => {
+                eprintln!("Receivable scan is disabled.")
+            }
+            Err(e) => todo!("Use logger to print out the error message"),
+        };
     }
 }
 
@@ -1159,12 +1175,12 @@ mod tests {
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
-    use crate::accountant::scanners::scanners::ScannerMock;
+    use crate::accountant::scanners::scanners::{NullScanner, ScannerMock};
     use crate::accountant::test_utils::{
-        bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_pending_payable_fingerprint,
-        make_receivable_account, BannedDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock,
-        PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock,
-        ReceivableDaoMock,
+        bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_payables,
+        make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock,
+        PayableDaoFactoryMock, PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
+        ReceivableDaoFactoryMock, ReceivableDaoMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
@@ -1875,41 +1891,24 @@ mod tests {
     fn accountant_sends_report_accounts_payable_to_blockchain_bridge_when_qualified_payable_found()
     {
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
-        let accounts = vec![
-            PayableAccount {
-                wallet: make_wallet("blah"),
-                balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 55,
-                last_paid_timestamp: from_time_t(
-                    to_time_t(SystemTime::now())
-                        - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec
-                        - 5,
-                ),
-                pending_payable_opt: None,
-            },
-            PayableAccount {
-                wallet: make_wallet("foo"),
-                balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 66,
-                last_paid_timestamp: from_time_t(
-                    to_time_t(SystemTime::now())
-                        - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec
-                        - 500,
-                ),
-                pending_payable_opt: None,
-            },
-        ];
-        let payable_dao = PayableDaoMock::new().non_pending_payables_result(accounts.clone());
+        let now = SystemTime::now();
+        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let (qualified_payables, _, all_non_pending_payables) =
+            make_payables(now, &payment_thresholds);
+        let payable_dao =
+            PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
         let system = System::new("report_accounts_payable forwarded to blockchain_bridge");
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
                 make_populated_accountant_config_with_defaults(),
-                make_payment_thresholds_with_defaults(),
+                payment_thresholds,
                 make_wallet("some_wallet_address"),
             ))
-            .payable_dao(payable_dao) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Scanner
+            .payable_dao(PayableDaoMock::new()) // For Accountant
+            .payable_dao(payable_dao) // For Scanner
             .build();
-        subject.scanners.pending_payables = Box::new(ScannerMock::new());
-        subject.scanners.receivables = Box::new(ScannerMock::new());
+        subject.scanners.pending_payables = Box::new(NullScanner::new());
+        subject.scanners.receivables = Box::new(NullScanner::new());
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
         let peer_actors = peer_actors_builder()
@@ -1923,18 +1922,13 @@ mod tests {
         system.run();
         let blockchain_bridge_recorder = blockchain_bridge_recording_arc.lock().unwrap();
         assert_eq!(blockchain_bridge_recorder.len(), 1);
-        let report_accounts_payables_msgs: Vec<&ReportAccountsPayable> = (0
-            ..blockchain_bridge_recorder.len())
-            .flat_map(|index| {
-                blockchain_bridge_recorder.get_record_opt::<ReportAccountsPayable>(index)
-            })
-            .collect();
+        let message = blockchain_bridge_recorder.get_record::<ReportAccountsPayable>(0);
         assert_eq!(
-            report_accounts_payables_msgs,
-            vec![&ReportAccountsPayable {
-                accounts,
+            message,
+            &ReportAccountsPayable {
+                accounts: qualified_payables,
                 response_skeleton_opt: None,
-            }]
+            }
         );
     }
 

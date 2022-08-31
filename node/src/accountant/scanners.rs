@@ -307,33 +307,38 @@ pub(in crate::accountant) mod scanners {
         }
     }
 
-    // pub struct NullScanner {}
-    //
-    // impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for NullScanner
-    // where
-    //     BeginMessage: Message + Send + 'static,
-    //     BeginMessage::Result: Send,
-    //     EndMessage: Message,
-    // {
-    //     fn begin_scan(
-    //         &mut self,
-    //         timestamp: SystemTime,
-    //         response_skeleton_opt: Option<ResponseSkeleton>,
-    //         ctx: &mut Context<Accountant>,
-    //     ) -> Result<BeginMessage, Error> {
-    //         todo!("Implement NullScanner")
-    //     }
-    //
-    //     fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error> {
-    //         todo!()
-    //     }
-    //
-    //     fn scan_started_at(&self) -> Option<SystemTime> {
-    //         todo!()
-    //     }
-    //
-    //     as_any_impl!();
-    // }
+    pub struct NullScanner {}
+
+    impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for NullScanner
+    where
+        BeginMessage: Message,
+        EndMessage: Message,
+    {
+        fn begin_scan(
+            &mut self,
+            timestamp: SystemTime,
+            response_skeleton_opt: Option<ResponseSkeleton>,
+            logger: &Logger,
+        ) -> Result<BeginMessage, Error> {
+            Err(String::from("Called from NullScanner"))
+        }
+
+        fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error> {
+            todo!()
+        }
+
+        fn scan_started_at(&self) -> Option<SystemTime> {
+            todo!()
+        }
+
+        as_any_impl!();
+    }
+
+    impl NullScanner {
+        pub fn new() -> Self {
+            Self {}
+        }
+    }
 
     pub struct ScannerMock<BeginMessage, EndMessage> {
         begin_scan_params: RefCell<Vec<(SystemTime, Option<ResponseSkeleton>)>>,
@@ -423,8 +428,8 @@ mod tests {
         PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner, Scanners,
     };
     use crate::accountant::test_utils::{
-        make_receivable_account, BannedDaoMock, PayableDaoMock, PendingPayableDaoMock,
-        ReceivableDaoMock,
+        make_payables, make_receivable_account, BannedDaoMock, PayableDaoMock,
+        PendingPayableDaoMock, ReceivableDaoMock,
     };
     use crate::accountant::RequestTransactionReceipts;
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
@@ -475,7 +480,7 @@ mod tests {
         let now = SystemTime::now();
         let payment_thresholds = make_payment_thresholds_with_defaults();
         let (qualified_payable_accounts, _, all_non_pending_payables) =
-            make_payables(now, payment_thresholds.clone());
+            make_payables(now, &payment_thresholds);
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
 
@@ -505,7 +510,7 @@ mod tests {
         let test_name = "payable_scanner_throws_error_in_case_no_qualified_payable_is_found";
         let now = SystemTime::now();
         let payment_thresholds = make_payment_thresholds_with_defaults();
-        let (_, unqualified_payable_accounts, _) = make_payables(now, payment_thresholds.clone());
+        let (_, unqualified_payable_accounts, _) = make_payables(now, &payment_thresholds);
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(unqualified_payable_accounts);
 
@@ -672,51 +677,5 @@ mod tests {
         tlh.exists_log_matching("INFO: DELINQUENCY_TEST: Wallet 0x00000000000000000077616c6c65743233343564 \\(balance: 2345 MASQ, age: \\d+ sec\\) banned for delinquency");
         tlh.exists_log_matching("INFO: DELINQUENCY_TEST: Wallet 0x00000000000000000077616c6c6574333435366e \\(balance: 3456 MASQ, age: \\d+ sec\\) is no longer delinquent: unbanned");
         tlh.exists_log_matching("INFO: DELINQUENCY_TEST: Wallet 0x00000000000000000077616c6c6574343536376e \\(balance: 4567 MASQ, age: \\d+ sec\\) is no longer delinquent: unbanned");
-    }
-
-    fn make_payables(
-        now: SystemTime,
-        payment_thresholds: PaymentThresholds,
-    ) -> (
-        Vec<PayableAccount>,
-        Vec<PayableAccount>,
-        Vec<PayableAccount>,
-    ) {
-        let mut unqualified_payable_accounts = vec![PayableAccount {
-            wallet: make_wallet("wallet1"),
-            balance: payment_thresholds.permanent_debt_allowed_gwei + 1,
-            last_paid_timestamp: from_time_t(
-                to_time_t(now) - payment_thresholds.maturity_threshold_sec + 1,
-            ),
-            pending_payable_opt: None,
-        }];
-        let mut qualified_payable_accounts = vec![
-            PayableAccount {
-                wallet: make_wallet("wallet2"),
-                balance: payment_thresholds.permanent_debt_allowed_gwei + 1_000_000_000,
-                last_paid_timestamp: from_time_t(
-                    to_time_t(now) - payment_thresholds.maturity_threshold_sec - 1,
-                ),
-                pending_payable_opt: None,
-            },
-            PayableAccount {
-                wallet: make_wallet("wallet3"),
-                balance: payment_thresholds.permanent_debt_allowed_gwei + 1_200_000_000,
-                last_paid_timestamp: from_time_t(
-                    to_time_t(now) - payment_thresholds.maturity_threshold_sec - 100,
-                ),
-                pending_payable_opt: None,
-            },
-        ];
-
-        let mut all_non_pending_payables = Vec::new();
-        all_non_pending_payables.extend(qualified_payable_accounts.clone());
-        all_non_pending_payables.extend(unqualified_payable_accounts.clone());
-
-        (
-            qualified_payable_accounts,
-            unqualified_payable_accounts,
-            all_non_pending_payables,
-        )
     }
 }

@@ -912,6 +912,52 @@ pub fn make_pending_payable_fingerprint() -> PendingPayableFingerprint {
     }
 }
 
+pub fn make_payables(
+    now: SystemTime,
+    payment_thresholds: &PaymentThresholds,
+) -> (
+    Vec<PayableAccount>,
+    Vec<PayableAccount>,
+    Vec<PayableAccount>,
+) {
+    let mut unqualified_payable_accounts = vec![PayableAccount {
+        wallet: make_wallet("wallet1"),
+        balance: payment_thresholds.permanent_debt_allowed_gwei + 1,
+        last_paid_timestamp: from_time_t(
+            to_time_t(now) - payment_thresholds.maturity_threshold_sec + 1,
+        ),
+        pending_payable_opt: None,
+    }];
+    let mut qualified_payable_accounts = vec![
+        PayableAccount {
+            wallet: make_wallet("wallet2"),
+            balance: payment_thresholds.permanent_debt_allowed_gwei + 1_000_000_000,
+            last_paid_timestamp: from_time_t(
+                to_time_t(now) - payment_thresholds.maturity_threshold_sec - 1,
+            ),
+            pending_payable_opt: None,
+        },
+        PayableAccount {
+            wallet: make_wallet("wallet3"),
+            balance: payment_thresholds.permanent_debt_allowed_gwei + 1_200_000_000,
+            last_paid_timestamp: from_time_t(
+                to_time_t(now) - payment_thresholds.maturity_threshold_sec - 100,
+            ),
+            pending_payable_opt: None,
+        },
+    ];
+
+    let mut all_non_pending_payables = Vec::new();
+    all_non_pending_payables.extend(qualified_payable_accounts.clone());
+    all_non_pending_payables.extend(unqualified_payable_accounts.clone());
+
+    (
+        qualified_payable_accounts,
+        unqualified_payable_accounts,
+        all_non_pending_payables,
+    )
+}
+
 //warning: this test function will not tell you anything about the transaction record in the pending_payable table
 pub fn account_status(conn: &Connection, wallet: &Wallet) -> Option<PayableAccount> {
     let mut stmt = conn
