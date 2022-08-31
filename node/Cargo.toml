@@ -17,7 +17,7 @@ automap = { path = "../automap"}
 backtrace = "0.3.57"
 base64 = "0.13.0"
 bytes = "0.4.12"
-chrono = "0.4.19"
+time = {version = "0.3.11", features = [ "macros" ]}
 clap = "2.33.3"
 crossbeam-channel = "0.5.1"
 dirs = "4.0.0"
