@@ -198,9 +198,16 @@ impl Handler<ScanForPayables> for Accountant {
                 .try_send(message)
                 .expect("BlockchainBridge is dead"),
             Err(ScannerError::CalledFromNullScanner) => {
-                eprintln!("Payable scan is disabled.");
+                if cfg!(test) {
+                    eprintln!("Payable scan is disabled.");
+                } else {
+                    panic!("Null Scanner shouldn't be running inside production code.")
+                }
             }
-            Err(e) => todo!("Use logger to print out the error message"),
+            Err(ScannerError::NothingToProcess) => {
+                eprintln!("No payable found to process. The Scan was ended.");
+                // TODO: Do something better than just using eprintln
+            }
         }
     }
 }
@@ -221,9 +228,16 @@ impl Handler<ScanForPendingPayables> for Accountant {
                 .try_send(message)
                 .expect("BlockchainBridge is dead"),
             Err(ScannerError::CalledFromNullScanner) => {
-                eprintln!("Pending payable scan is disabled.")
+                if cfg!(test) {
+                    eprintln!("Pending payable scan is disabled.");
+                } else {
+                    panic!("Null Scanner shouldn't be running inside production code.")
+                }
             }
-            Err(e) => todo!("Use logger to print out the error message"),
+            Err(ScannerError::NothingToProcess) => {
+                eprintln!("No pending payable found to process. The Scan was ended.");
+                // TODO: Do something better than just using eprintln
+            }
         }
     }
 }
@@ -244,9 +258,16 @@ impl Handler<ScanForReceivables> for Accountant {
                 .try_send(message)
                 .expect("BlockchainBridge is dead"),
             Err(ScannerError::CalledFromNullScanner) => {
-                eprintln!("Receivable scan is disabled.")
+                if cfg!(test) {
+                    eprintln!("Receivable scan is disabled.");
+                } else {
+                    panic!("Null Scanner shouldn't be running inside production code.")
+                }
             }
-            Err(e) => todo!("Use logger to print out the error message"),
+            Err(ScannerError::NothingToProcess) => {
+                eprintln!("The Scan was ended.");
+                // TODO: Do something better than just using eprintln
+            }
         };
     }
 }
@@ -1953,46 +1974,38 @@ mod tests {
     #[test]
     fn accountant_scans_after_startup() {
         init_test_logging();
-        let return_all_fingerprints_params_arc = Arc::new(Mutex::new(vec![]));
-        let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
+        let pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
+        let payable_params_arc = Arc::new(Mutex::new(vec![]));
         let new_delinquencies_params_arc = Arc::new(Mutex::new(vec![]));
         let paid_delinquencies_params_arc = Arc::new(Mutex::new(vec![]));
         let (blockchain_bridge, _, _) = make_recorder();
+        let earning_wallet = make_wallet("earning");
         let system = System::new("accountant_scans_after_startup");
         let config = bc_from_ac_plus_wallets(
-            AccountantConfig {
-                scan_intervals: ScanIntervals {
-                    payable_scan_interval: Duration::from_secs(100), //making sure we cannot enter the first repeated scanning
-                    receivable_scan_interval: Duration::from_secs(100),
-                    pending_payable_scan_interval: Duration::from_millis(100), //except here, where we use it to stop the system
-                },
-                when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-                suppress_initial_scans: false,
-            },
+            make_populated_accountant_config_with_defaults(),
             make_payment_thresholds_with_defaults(),
             make_wallet("buy"),
-            make_wallet("hi"),
+            earning_wallet.clone(),
         );
+        let payable_dao = PayableDaoMock::new()
+            .non_pending_payables_params(&payable_params_arc)
+            .non_pending_payables_result(vec![]);
         let mut pending_payable_dao = PendingPayableDaoMock::default()
-            .return_all_fingerprints_params(&return_all_fingerprints_params_arc)
+            .return_all_fingerprints_params(&pending_payable_params_arc)
             .return_all_fingerprints_result(vec![]);
-        pending_payable_dao.have_return_all_fingerprints_shut_down_the_system = true;
         let receivable_dao = ReceivableDaoMock::new()
             .new_delinquencies_parameters(&new_delinquencies_params_arc)
             .new_delinquencies_result(vec![])
             .paid_delinquencies_parameters(&paid_delinquencies_params_arc)
             .paid_delinquencies_result(vec![]);
-        let payable_dao = PayableDaoMock::new()
-            .non_pending_payables_params(&non_pending_payables_params_arc)
-            .non_pending_payables_result(vec![]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_dao(payable_dao) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Scanner
-            .pending_payable_dao(pending_payable_dao) // For Accountant
-            .pending_payable_dao(PendingPayableDaoMock::new()) // For Scanner
-            .receivable_dao(receivable_dao) // For Accountant
-            .receivable_dao(ReceivableDaoMock::new()) // For Scanner
+            .payable_dao(PayableDaoMock::new()) // For Accountant
+            .payable_dao(payable_dao) // For Scanner
+            .pending_payable_dao(PendingPayableDaoMock::new()) // For Accountant
+            .pending_payable_dao(pending_payable_dao) // For Scanner
+            .receivable_dao(ReceivableDaoMock::new()) // For Accountant
+            .receivable_dao(receivable_dao) // For Scanner
             .build();
         let peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
@@ -2003,33 +2016,30 @@ mod tests {
 
         send_start_message!(subject_subs);
 
+        System::current().stop();
         system.run();
         let tlh = TestLogHandler::new();
-        tlh.await_log_containing("INFO: Accountant: Scanning for payables", 1000);
+        tlh.exists_log_containing("INFO: Accountant: Scanning for payables");
+        tlh.exists_log_containing("INFO: Accountant: Scanning for pending payable");
         tlh.exists_log_containing(&format!(
             "INFO: Accountant: Scanning for receivables to {}",
-            make_wallet("hi")
+            earning_wallet
         ));
         tlh.exists_log_containing("INFO: Accountant: Scanning for delinquencies");
-        tlh.exists_log_containing("INFO: Accountant: Scanning for pending payable");
-        //some more weak proofs but still good enough
-        //proof of calling a piece of scan_for_pending_payable
-        let return_all_fingerprints_params = return_all_fingerprints_params_arc.lock().unwrap();
-        //the last ends this test calling System::current.stop()
-        assert_eq!(*return_all_fingerprints_params, vec![(), ()]);
-        //proof of calling a piece of scan_for_payable()
-        let non_pending_payables_params = non_pending_payables_params_arc.lock().unwrap();
-        assert_eq!(*non_pending_payables_params, vec![()]);
+        let payable_params = payable_params_arc.lock().unwrap();
+        let pending_payable_params = pending_payable_params_arc.lock().unwrap();
         //proof of calling pieces of scan_for_delinquencies()
         let mut new_delinquencies_params = new_delinquencies_params_arc.lock().unwrap();
         let (captured_timestamp, captured_curves) = new_delinquencies_params.remove(0);
+        let paid_delinquencies_params = paid_delinquencies_params_arc.lock().unwrap();
+        assert_eq!(*payable_params, vec![()]);
+        assert_eq!(*pending_payable_params, vec![()]);
         assert!(new_delinquencies_params.is_empty());
         assert!(
             captured_timestamp < SystemTime::now()
                 && captured_timestamp >= from_time_t(to_time_t(SystemTime::now()) - 5)
         );
         assert_eq!(captured_curves, make_payment_thresholds_with_defaults());
-        let paid_delinquencies_params = paid_delinquencies_params_arc.lock().unwrap();
         assert_eq!(paid_delinquencies_params.len(), 1);
         assert_eq!(
             paid_delinquencies_params[0],
