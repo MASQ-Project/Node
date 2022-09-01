@@ -2950,7 +2950,7 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: Accountant: Not recording service provided for our wallet {}",
+            "INFO: Accountant: Declining to charge our wallet {} for service we provided",
             consuming_wallet,
         ));
     }
@@ -2998,7 +2998,7 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: Accountant: Not recording service provided for our wallet {}",
+            "INFO: Accountant: Declining to charge our wallet {} for service we provided",
             earning_wallet,
         ));
     }
@@ -3097,7 +3097,7 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: Accountant: Not recording service provided for our wallet {}",
+            "INFO: Accountant: Declining to charge our wallet {} for service we provided",
             consuming_wallet
         ));
     }
@@ -3143,7 +3143,7 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: Accountant: Not recording service provided for our wallet {}",
+            "INFO: Accountant: Declining to charge our wallet {} for service we provided",
             earning_wallet,
         ));
     }
@@ -3240,7 +3240,7 @@ mod tests {
         ));
     }
 
-    fn do_we_ignore_own_wallets_when_recording_consumed_services(
+    fn assert_that_we_do_not_charge_our_own_wallet_for_consumed_services(
         config: BootstrapperConfig,
         message: ReportServicesConsumedMessage,
     ) -> Arc<Mutex<Vec<(SystemTime, Wallet, u64)>>> {
@@ -3269,7 +3269,7 @@ mod tests {
     }
 
     #[test]
-    fn report_routing_service_consumed_message_is_received_for_our_consuming_wallet() {
+    fn routing_service_consumed_is_reported_for_our_consuming_wallet() {
         init_test_logging();
         let consuming_wallet = make_wallet("the consuming wallet");
         let config = bc_from_ac_plus_wallets(
@@ -3296,7 +3296,10 @@ mod tests {
         };
 
         let more_money_payable_params_arc =
-            do_we_ignore_own_wallets_when_recording_consumed_services(config, report_message);
+            assert_that_we_do_not_charge_our_own_wallet_for_consumed_services(
+                config,
+                report_message,
+            );
 
         let more_money_payable_params = more_money_payable_params_arc.lock().unwrap();
         assert_eq!(
@@ -3305,17 +3308,16 @@ mod tests {
             vec![(timestamp, foreign_wallet, (45 + 10 * 1234))]
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: Accountant: Not recording service consumed to our wallet {}",
+            "INFO: Accountant: Declining to charge our wallet {} for service we provided",
             consuming_wallet
         ));
     }
 
     #[test]
-    fn report_routing_service_consumed_message_is_received_for_our_earning_wallet() {
+    fn routing_service_consumed_is_reported_for_our_earning_wallet() {
         init_test_logging();
-        let earning_wallet = make_wallet(
-            "report_routing_service_consumed_message_is_received_for_our_earning_wallet",
-        );
+        let earning_wallet =
+            make_wallet("routing_service_consumed_is_reported_for_our_earning_wallet");
         let foreign_wallet = make_wallet("exit wallet");
         let config = bc_from_ac_plus_earning_wallet(
             make_populated_accountant_config_with_defaults(),
@@ -3339,7 +3341,10 @@ mod tests {
         };
 
         let more_money_payable_params_arc =
-            do_we_ignore_own_wallets_when_recording_consumed_services(config, report_message);
+            assert_that_we_do_not_charge_our_own_wallet_for_consumed_services(
+                config,
+                report_message,
+            );
 
         let more_money_payable_params = more_money_payable_params_arc.lock().unwrap();
         assert_eq!(
@@ -3348,17 +3353,16 @@ mod tests {
             vec![(timestamp, foreign_wallet, (45 + 10 * 1234))]
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: Accountant: Not recording service consumed to our wallet {}",
+            "INFO: Accountant: Declining to charge our wallet {} for service we provided",
             earning_wallet
         ));
     }
 
     #[test]
-    fn report_exit_service_consumed_message_is_received_for_our_consuming_wallet() {
+    fn exit_service_consumed_is_reported_for_our_consuming_wallet() {
         init_test_logging();
-        let consuming_wallet = make_wallet(
-            "report_exit_service_consumed_message_is_received_for_our_consuming_wallet",
-        );
+        let consuming_wallet =
+            make_wallet("exit_service_consumed_is_reported_for_our_consuming_wallet");
         let config = bc_from_ac_plus_wallets(
             make_accountant_config_null(),
             consuming_wallet.clone(),
@@ -3377,17 +3381,20 @@ mod tests {
         };
 
         let more_money_payable_params_arc =
-            do_we_ignore_own_wallets_when_recording_consumed_services(config, report_message);
+            assert_that_we_do_not_charge_our_own_wallet_for_consumed_services(
+                config,
+                report_message,
+            );
 
         assert!(more_money_payable_params_arc.lock().unwrap().is_empty());
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: Accountant: Not recording service consumed to our wallet {}",
+            "INFO: Accountant: Declining to charge our wallet {} for service we provided",
             consuming_wallet
         ));
     }
 
     #[test]
-    fn report_exit_service_consumed_message_is_received_for_our_earning_wallet() {
+    fn exit_service_consumed_is_reported_for_our_earning_wallet() {
         init_test_logging();
         let earning_wallet = make_wallet("own earning wallet");
         let config =
@@ -3405,11 +3412,14 @@ mod tests {
         };
 
         let more_money_payable_params_arc =
-            do_we_ignore_own_wallets_when_recording_consumed_services(config, report_message);
+            assert_that_we_do_not_charge_our_own_wallet_for_consumed_services(
+                config,
+                report_message,
+            );
 
         assert!(more_money_payable_params_arc.lock().unwrap().is_empty());
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: Accountant: Not recording service consumed to our wallet {}",
+            "INFO: Accountant: Declining to charge our wallet {} for service we provided",
             earning_wallet
         ));
     }

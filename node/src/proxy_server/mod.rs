@@ -584,11 +584,11 @@ impl ProxyServer {
         logger: &Logger,
     ) -> Vec<RoutingServiceConsumed> {
         let report_of_routing_services: Vec<RoutingServiceConsumed> = expected_services
-            .iter()
+            .into_iter()
             .filter_map(|service| match service {
                 ExpectedService::Routing(_, earning_wallet, rate_pack) => {
                     Some(RoutingServiceConsumed {
-                        earning_wallet: earning_wallet.clone(),
+                        earning_wallet,
                         service_rate: rate_pack.routing_service_rate,
                         byte_rate: rate_pack.routing_byte_rate,
                     })
@@ -634,7 +634,7 @@ impl ProxyServer {
             },
             None => {
                 panic!(
-                    "Exit service must go in each route while missing here: {:?}",
+                    "Each route must demand an exit service, but this route has no such demand: {:?}",
                     expected_services
                 )
             }
@@ -2624,7 +2624,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Exit service must go in each route while missing here: [Routing(cm91dGluZ19rZXlfMQ, \
+        expected = "Each route must demand an exit service, but this route has no such demand: [Routing(cm91dGluZ19rZXlfMQ, \
     Wallet { kind: Address(0x00000000726f7574696e675f77616c6c65745f31) }, RatePack { routing_byte_rate: 9, \
     routing_service_rate: 10, exit_byte_rate: 11, exit_service_rate: 12 })]"
     )]
@@ -3443,7 +3443,7 @@ mod tests {
                 Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1234),
                 first_client_response_payload.into(),
-                77,
+                0,
             );
         let routing_size = first_expired_cores_package.payload_len;
         let second_client_response_payload = ClientResponsePayload_0v1 {
@@ -3461,7 +3461,7 @@ mod tests {
                 Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1235),
                 second_client_response_payload.into(),
-                99,
+                0,
             );
         let mut peer_actors = peer_actors_builder()
             .dispatcher(dispatcher_mock)
