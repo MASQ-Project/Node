@@ -28,7 +28,13 @@ pub(in crate::accountant) mod scanners {
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
 
-    type Error = String;
+    #[derive(Debug, PartialEq, Eq)]
+    pub enum ScannerError {
+        NothingToProcess,
+        CalledFromNullScanner, // Exclusive for tests
+    }
+
+    type Error = ScannerError;
 
     pub struct Scanners {
         pub payables: Box<dyn Scanner<ReportAccountsPayable, SentPayable>>,
@@ -131,7 +137,7 @@ pub(in crate::accountant) mod scanners {
             );
             debug!(logger, "{}", summary);
             match qualified_payables.is_empty() {
-                true => Err(summary),
+                true => Err(ScannerError::NothingToProcess),
                 false => Ok(ReportAccountsPayable {
                     accounts: qualified_payables,
                     response_skeleton_opt,
@@ -182,7 +188,7 @@ pub(in crate::accountant) mod scanners {
                         logger,
                         "Pending payable scan ended. No pending payable found."
                     );
-                    Err(String::from("No pending payable found."))
+                    Err(ScannerError::NothingToProcess)
                 }
                 false => {
                     debug!(
@@ -320,7 +326,7 @@ pub(in crate::accountant) mod scanners {
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
         ) -> Result<BeginMessage, Error> {
-            Err(String::from("Called from NullScanner"))
+            Err(ScannerError::CalledFromNullScanner)
         }
 
         fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error> {
@@ -359,10 +365,7 @@ pub(in crate::accountant) mod scanners {
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
         ) -> Result<BeginMessage, Error> {
-            self.begin_scan_params
-                .borrow_mut()
-                .push((timestamp, response_skeleton_opt));
-            Err(String::from("Called from ScannerMock"))
+            todo!()
         }
 
         fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error> {
@@ -424,7 +427,7 @@ mod tests {
 
     use crate::accountant::payable_dao::PayableAccount;
     use crate::accountant::scanners::scanners::{
-        PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner, Scanners,
+        PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner, ScannerError, Scanners,
     };
     use crate::accountant::test_utils::{
         make_payables, make_receivable_account, BannedDaoMock, PayableDaoMock,
@@ -518,7 +521,7 @@ mod tests {
 
         let result = payable_scanner.begin_scan(now, None, &Logger::new(test_name));
 
-        assert_eq!(result, Err(String::from("No Qualified Payables found.")));
+        assert_eq!(result, Err(ScannerError::NothingToProcess));
         TestLogHandler::new().assert_logs_match_in_order(vec![
             &format!("INFO: {}: Scanning for payables", test_name),
             "Chose 0 qualified debts to pay",
@@ -576,7 +579,7 @@ mod tests {
 
         let result = pending_payable_scanner.begin_scan(now, None, &Logger::new(test_name));
 
-        assert_eq!(result, Err(String::from("No pending payable found.")));
+        assert_eq!(result, Err(ScannerError::NothingToProcess));
         TestLogHandler::new().assert_logs_match_in_order(vec![
             &format!("INFO: {}: Scanning for pending payable", test_name),
             &format!(

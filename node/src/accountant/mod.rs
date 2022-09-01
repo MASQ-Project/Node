@@ -17,7 +17,7 @@ use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError, P
 use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
 use crate::accountant::receivable_dao::{ReceivableDaoError, ReceivableDaoFactory};
 use crate::accountant::scanners::scanners::{
-    NotifyLaterForScanners, Scanners, TransactionConfirmationTools,
+    NotifyLaterForScanners, ScannerError, Scanners, TransactionConfirmationTools,
 };
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
@@ -197,7 +197,7 @@ impl Handler<ScanForPayables> for Accountant {
                 .expect("BlockchainBridge is unbound")
                 .try_send(message)
                 .expect("BlockchainBridge is dead"),
-            Err(e) if e.contains("Called from NullScanner") => {
+            Err(ScannerError::CalledFromNullScanner) => {
                 eprintln!("Payable scan is disabled.");
             }
             Err(e) => todo!("Use logger to print out the error message"),
@@ -220,7 +220,7 @@ impl Handler<ScanForPendingPayables> for Accountant {
                 .expect("BlockchainBridge is unbound")
                 .try_send(message)
                 .expect("BlockchainBridge is dead"),
-            Err(e) if e.contains("Called from NullScanner") => {
+            Err(ScannerError::CalledFromNullScanner) => {
                 eprintln!("Pending payable scan is disabled.")
             }
             Err(e) => todo!("Use logger to print out the error message"),
@@ -243,7 +243,7 @@ impl Handler<ScanForReceivables> for Accountant {
                 .expect("BlockchainBridge is unbound")
                 .try_send(message)
                 .expect("BlockchainBridge is dead"),
-            Err(e) if e.contains("Called from NullScanner") => {
+            Err(ScannerError::CalledFromNullScanner) => {
                 eprintln!("Receivable scan is disabled.")
             }
             Err(e) => todo!("Use logger to print out the error message"),
