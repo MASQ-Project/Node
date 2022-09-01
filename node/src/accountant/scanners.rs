@@ -365,7 +365,7 @@ pub(in crate::accountant) mod scanners {
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
         ) -> Result<BeginMessage, Error> {
-            todo!()
+            todo!("Implement ScannerMock")
         }
 
         fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error> {

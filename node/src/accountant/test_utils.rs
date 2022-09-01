@@ -275,7 +275,7 @@ impl BannedDaoFactory for BannedDaoFactoryMock {
     fn make(&self) -> Box<dyn BannedDao> {
         if self.make_results.borrow().len() == 0 {
             panic!(
-                "BannedDao Missing. This problem mostly occurs when ReceivableDao is only supplied for Accountant and not for the Scanner while building Accountant."
+                "BannedDao Missing. This problem mostly occurs when BannedDao is only supplied for Accountant and not for the Scanner while building Accountant."
             )
         };
         self.make_params.lock().unwrap().push(());

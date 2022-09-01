@@ -192,12 +192,12 @@ impl Handler<ScanForPayables> for Accountant {
             &self.logger,
         ) {
             Ok(message) => {
-                // todo!("message was returned");
+                eprintln!("Message was sent to the blockchain bridge, {:?}", message);
                 self.report_accounts_payable_sub_opt
                     .as_ref()
                     .expect("BlockchainBridge is unbound")
                     .try_send(message)
-                    .expect("BlockchainBridge is dead")
+                    .expect("BlockchainBridge is dead");
             }
             Err(ScannerError::CalledFromNullScanner) => {
                 if cfg!(test) {
@@ -1173,6 +1173,7 @@ mod tests {
     fn new_calls_factories_properly() {
         let mut config = BootstrapperConfig::new();
         config.accountant_config_opt = Some(make_accountant_config_null());
+        config.payment_thresholds_opt = Some(make_payment_thresholds_with_defaults());
         let payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2092,10 +2093,11 @@ mod tests {
             .bootstrapper_config(config)
             .receivable_dao(receivable_dao)
             .receivable_dao(ReceivableDaoMock::new())
+            .banned_dao(BannedDaoMock::new())
             .banned_dao(banned_dao)
             .build();
-        subject.scanners.pending_payables = Box::new(ScannerMock::new());
-        subject.scanners.payables = Box::new(ScannerMock::new());
+        subject.scanners.pending_payables = Box::new(NullScanner::new());
+        subject.scanners.payables = Box::new(NullScanner::new());
         subject.notify_later.scan_for_receivable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_receivable_params_arc)
@@ -2313,8 +2315,8 @@ mod tests {
             .payable_dao(payable_dao) // For Accountant
             .payable_dao(PayableDaoMock::new()) // For Scanner
             .build();
-        subject.scanners.pending_payables = Box::new(ScannerMock::new()); //skipping
-        subject.scanners.receivables = Box::new(ScannerMock::new()); //skipping
+        subject.scanners.pending_payables = Box::new(NullScanner::new()); //skipping
+        subject.scanners.receivables = Box::new(NullScanner::new()); //skipping
         subject.notify_later.scan_for_payable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_payables_params_arc)
@@ -2521,9 +2523,8 @@ mod tests {
                 pending_payable_opt: None,
             },
         ];
-        let mut payable_dao = PayableDaoMock::default()
-            .non_pending_payables_result(accounts.clone())
-            .non_pending_payables_result(vec![]);
+        let mut payable_dao =
+            PayableDaoMock::default().non_pending_payables_result(accounts.clone());
         // payable_dao.have_non_pending_payables_shut_down_the_system = true;
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
         let system =
@@ -2547,8 +2548,9 @@ mod tests {
         System::current().stop();
         system.run();
         let blockchain_bridge_recordings = blockchain_bridge_recordings_arc.lock().unwrap();
+        let message = blockchain_bridge_recordings.get_record::<ReportAccountsPayable>(0);
         assert_eq!(
-            blockchain_bridge_recordings.get_record::<ReportAccountsPayable>(0),
+            message,
             &ReportAccountsPayable {
                 accounts,
                 response_skeleton_opt: None,
@@ -3688,6 +3690,7 @@ mod tests {
     )]
     fn accountant_can_be_crashed_properly_but_not_improperly() {
         let mut config = BootstrapperConfig::default();
+        config.payment_thresholds_opt = Some(make_payment_thresholds_with_defaults());
         config.crash_point = CrashPoint::Message;
         config.accountant_config_opt = Some(make_accountant_config_null());
         let accountant = AccountantBuilder::default()
