@@ -416,7 +416,6 @@ pub(in crate::accountant) mod scanners {
             Box<dyn NotifyHandle<ConfirmPendingTransaction, Accountant>>,
         pub notify_cancel_failed_transaction:
             Box<dyn NotifyHandle<CancelFailedPendingTransaction, Accountant>>,
-        pub request_transaction_receipts_subs_opt: Option<Recipient<RequestTransactionReceipts>>,
     }
 }
 

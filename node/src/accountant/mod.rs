@@ -78,6 +78,7 @@ pub struct Accountant {
     financial_statistics: FinancialStatistics,
     report_accounts_payable_sub_opt: Option<Recipient<ReportAccountsPayable>>,
     retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
+    request_transaction_receipts_subs_opt: Option<Recipient<RequestTransactionReceipts>>,
     report_new_payments_sub: Option<Recipient<ReceivedPayments>>,
     report_sent_payments_sub: Option<Recipient<SentPayable>>,
     ui_message_sub: Option<Recipient<NodeToUiMessage>>,
@@ -213,9 +214,12 @@ impl Handler<ScanForPendingPayables> for Accountant {
             msg.response_skeleton_opt,
             &self.logger,
         ) {
-            Ok(message) => {
-                todo!("send the message to blockchain bridge");
-            }
+            Ok(message) => self
+                .request_transaction_receipts_subs_opt
+                .as_ref()
+                .expect("BlockchainBridge is unbound")
+                .try_send(message)
+                .expect("BlockchainBridge is dead"),
             Err(e) if e.contains("Called from NullScanner") => {
                 eprintln!("Pending payable scan is disabled.")
             }
@@ -474,6 +478,7 @@ impl Accountant {
             financial_statistics: FinancialStatistics::default(),
             report_accounts_payable_sub_opt: None,
             retrieve_transactions_sub: None,
+            request_transaction_receipts_subs_opt: None,
             report_new_payments_sub: None,
             report_sent_payments_sub: None,
             ui_message_sub: None,
@@ -572,26 +577,27 @@ impl Accountant {
     }
 
     fn scan_for_pending_payable(&self, response_skeleton_opt: Option<ResponseSkeleton>) {
-        info!(self.logger, "Scanning for pending payable");
-        let filtered_pending_payable = self.pending_payable_dao.return_all_fingerprints();
-        if filtered_pending_payable.is_empty() {
-            debug!(self.logger, "No pending payable found during last scan")
-        } else {
-            debug!(
-                self.logger,
-                "Found {} pending payables to process",
-                filtered_pending_payable.len()
-            );
-            self.tools
-                .request_transaction_receipts_subs_opt
-                .as_ref()
-                .expect("BlockchainBridge is unbound")
-                .try_send(RequestTransactionReceipts {
-                    pending_payable: filtered_pending_payable,
-                    response_skeleton_opt,
-                })
-                .expect("BlockchainBridge is dead");
-        }
+        todo!("remove this fn");
+        // info!(self.logger, "Scanning for pending payable");
+        // let filtered_pending_payable = self.pending_payable_dao.return_all_fingerprints();
+        // if filtered_pending_payable.is_empty() {
+        //     debug!(self.logger, "No pending payable found during last scan")
+        // } else {
+        //     debug!(
+        //         self.logger,
+        //         "Found {} pending payables to process",
+        //         filtered_pending_payable.len()
+        //     );
+        //     self.tools
+        //         .request_transaction_receipts_subs_opt
+        //         .as_ref()
+        //         .expect("BlockchainBridge is unbound")
+        //         .try_send(RequestTransactionReceipts {
+        //             pending_payable: filtered_pending_payable,
+        //             response_skeleton_opt,
+        //         })
+        //         .expect("BlockchainBridge is dead");
+        // }
     }
 
     fn record_service_provided(
@@ -674,7 +680,7 @@ impl Accountant {
         self.report_new_payments_sub = Some(msg.peer_actors.accountant.report_new_payments);
         self.report_sent_payments_sub = Some(msg.peer_actors.accountant.report_sent_payments);
         self.ui_message_sub = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
-        self.tools.request_transaction_receipts_subs_opt = Some(
+        self.request_transaction_receipts_subs_opt = Some(
             msg.peer_actors
                 .blockchain_bridge
                 .request_transaction_receipts,
@@ -2842,13 +2848,12 @@ mod tests {
         );
         let system = System::new("pending payable scan");
         let mut subject = AccountantBuilder::default()
-            .pending_payable_dao(pending_payable_dao) // For Accountant
-            .pending_payable_dao(PendingPayableDaoMock::new()) // For Scanner
+            .pending_payable_dao(PendingPayableDaoMock::new()) // For Accountant
+            .pending_payable_dao(pending_payable_dao) // For Scanner
             .bootstrapper_config(config)
             .build();
         let blockchain_bridge_addr = blockchain_bridge.start();
-        subject.tools.request_transaction_receipts_subs_opt =
-            Some(blockchain_bridge_addr.recipient());
+        subject.request_transaction_receipts_subs_opt = Some(blockchain_bridge_addr.recipient());
         let account_addr = subject.start();
 
         let _ = account_addr
