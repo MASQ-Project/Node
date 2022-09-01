@@ -20,7 +20,7 @@ pub(in crate::proxy_server) mod local {
         pub dispatcher_sub: &'a Recipient<TransmitDataMsg>,
         pub accountant_sub: &'a Recipient<ReportServicesConsumedMessage>,
         pub add_return_route_sub: &'a Recipient<AddReturnRouteMessage>,
-        pub retire_stream_key_via: Option<&'a Recipient<StreamShutdownMsg>>,
+        pub retire_stream_key_via_opt: Option<&'a Recipient<StreamShutdownMsg>>,
     }
 
     pub struct TTHArgsMovable {
@@ -49,7 +49,7 @@ pub(in crate::proxy_server) mod local {
                 dispatcher_sub: args.dispatcher_sub.clone(),
                 accountant_sub: args.accountant_sub.clone(),
                 add_return_route_sub: args.add_return_route_sub.clone(),
-                retire_stream_key_via: args.retire_stream_key_via.cloned(),
+                retire_stream_key_via: args.retire_stream_key_via_opt.cloned(),
             }
         }
     }
@@ -63,7 +63,7 @@ pub(in crate::proxy_server) mod local {
                 dispatcher_sub: &args.dispatcher_sub,
                 accountant_sub: &args.accountant_sub,
                 add_return_route_sub: &args.add_return_route_sub,
-                retire_stream_key_via: args.retire_stream_key_via.as_ref(),
+                retire_stream_key_via_opt: args.retire_stream_key_via.as_ref(),
             }
         }
     }

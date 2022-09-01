@@ -578,10 +578,10 @@ mod tests {
             response_skeleton_opt: None,
         };
         let (accountant, _, _) = make_recorder();
-        let backup_recipient = accountant.start().recipient();
+        let fingerprint_recipient = accountant.start().recipient();
         subject
             .payment_confirmation
-            .transaction_fingerprint_subs_opt = Some(backup_recipient);
+            .transaction_fingerprint_subs_opt = Some(fingerprint_recipient);
 
         let result = subject.handle_report_accounts_payable_inner(&request);
 

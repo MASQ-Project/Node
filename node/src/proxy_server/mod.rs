@@ -572,7 +572,7 @@ impl ProxyServer {
                     args.common.source_addr,
                     args.dispatcher_sub,
                     args.accountant_sub,
-                    args.retire_stream_key_via,
+                    args.retire_stream_key_via_opt,
                 );
             }
             _ => panic!("Expected RoundTrip ExpectedServices but got OneWay"),
@@ -931,7 +931,7 @@ impl IBCDHelper for IBCDHelperReal {
             dispatcher_sub: &proxy.out_subs("Dispatcher").dispatcher,
             accountant_sub: &proxy.out_subs("Accountant").accountant,
             add_return_route_sub: &proxy.out_subs("ProxyServer").add_return_route,
-            retire_stream_key_via: if retire_stream_key {
+            retire_stream_key_via_opt: if retire_stream_key {
                 Some(&proxy.out_subs("ProxyServer").stream_shutdown_sub)
             } else {
                 None
@@ -1083,7 +1083,6 @@ mod tests {
     use crate::sub_lib::sequence_buffer::SequencedPacket;
     use crate::sub_lib::ttl_hashmap::TtlHashMap;
     use crate::sub_lib::versioned_data::VersionedData;
-    use crate::test_utils::main_cryptde;
     use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
@@ -1093,6 +1092,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::zero_hop_route_response;
     use crate::test_utils::{alias_cryptde, rate_pack};
+    use crate::test_utils::{main_cryptde, make_meaningless_route};
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
@@ -2356,206 +2356,210 @@ mod tests {
         assert_eq!(record, &expected_pkg);
     }
 
-    // #[test]
-    // fn proxy_server_sends_message_to_accountant_about_all_services_consumed_on_the_route_over() {
-    //     let cryptde = main_cryptde();
-    //     let now = SystemTime::now();
-    //     let exit_earning_wallet = make_wallet("exit earning wallet");
-    //     let route_1_earning_wallet = make_wallet("route 1 earning wallet");
-    //     let route_2_earning_wallet = make_wallet("route 2 earning wallet");
-    //     let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
-    //     let (accountant_mock, _, accountant_recording_arc) = make_recorder();
-    //     let (hopper_mock, _, hopper_recording_arc) = make_recorder();
-    //     let (proxy_server_mock, _, proxy_server_recording_arc) = make_recorder();
-    //     let routing_node_1_rate_pack = rate_pack(101);
-    //     let routing_node_2_rate_pack = rate_pack(102);
-    //     let exit_node_rate_pack = rate_pack(103);
-    //     let route_query_response = RouteQueryResponse {
-    //         route: make_meaningless_route(),
-    //         expected_services: ExpectedServices::RoundTrip(
-    //             vec![
-    //                 ExpectedService::Nothing,
-    //                 ExpectedService::Routing(
-    //                     PublicKey::new(&[1]),
-    //                     route_1_earning_wallet.clone(),
-    //                     routing_node_1_rate_pack,
-    //                 ),
-    //                 ExpectedService::Routing(
-    //                     PublicKey::new(&[2]),
-    //                     route_2_earning_wallet.clone(),
-    //                     routing_node_2_rate_pack,
-    //                 ),
-    //                 ExpectedService::Exit(
-    //                     PublicKey::new(&[3]),
-    //                     exit_earning_wallet.clone(),
-    //                     exit_node_rate_pack,
-    //                 ),
-    //             ],
-    //             vec![
-    //                 ExpectedService::Exit(
-    //                     PublicKey::new(&[3]),
-    //                     make_wallet("some wallet 1"),
-    //                     rate_pack(104),
-    //                 ),
-    //                 ExpectedService::Routing(
-    //                     PublicKey::new(&[2]),
-    //                     make_wallet("some wallet 2"),
-    //                     rate_pack(105),
-    //                 ),
-    //                 ExpectedService::Routing(
-    //                     PublicKey::new(&[1]),
-    //                     make_wallet("some wallet 3"),
-    //                     rate_pack(106),
-    //                 ),
-    //                 ExpectedService::Nothing,
-    //             ],
-    //             0,
-    //         ),
-    //     };
-    //     let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-    //     let stream_key = make_meaningless_stream_key();
-    //     let expected_data = http_request.to_vec();
-    //     let system =
-    //         System::new("proxy_server_sends_message_to_accountant_for_all_services_consumed");
-    //     let peer_actors = peer_actors_builder()
-    //         .accountant(accountant_mock)
-    //         .hopper(hopper_mock)
-    //         .proxy_server(proxy_server_mock)
-    //         .build();
-    //     let exit_payload_size = expected_data.len();
-    //     let payload = ClientRequestPayload_0v1 {
-    //         stream_key,
-    //         sequenced_packet: SequencedPacket::new(expected_data, 0, false),
-    //         target_hostname: Some("nowhere.com".to_string()),
-    //         target_port: HTTP_PORT,
-    //         protocol: ProxyProtocol::HTTP,
-    //         originator_public_key: PublicKey::new(b"originator_public_key"),
-    //     };
-    //     let logger = Logger::new("test");
-    //
-    //     ProxyServer::try_transmit_to_hopper(
-    //         cryptde.dup(),
-    //         &peer_actors.hopper.from_hopper_client,
-    //         now,
-    //         route_query_response,
-    //         payload.clone(),
-    //         &logger,
-    //         socket_addr,
-    //         &peer_actors.dispatcher.from_dispatcher_client,
-    //         &peer_actors.accountant.report_services_consumed,
-    //         &peer_actors.proxy_server.add_return_route,
-    //         None,
-    //     );
-    //
-    //     System::current().stop();
-    //     system.run();
-    //     let recording = hopper_recording_arc.lock().unwrap();
-    //     let record = recording.get_record::<IncipientCoresPackage>(0);
-    //     let payload_enc_length = record.payload.len();
-    //     let recording = accountant_recording_arc.lock().unwrap();
-    //     let record = recording.get_record::<ReportServicesConsumedMessage>(0);
-    //     assert_eq!(recording.len(), 1);
-    //     assert_eq!(
-    //         record,
-    //         &ReportServicesConsumedMessage {
-    //             timestamp: now,
-    //             exit: ExitServiceConsumed {
-    //                 earning_wallet: exit_earning_wallet,
-    //                 payload_size: exit_payload_size,
-    //                 service_rate: exit_node_rate_pack.exit_service_rate,
-    //                 byte_rate: exit_node_rate_pack.exit_byte_rate
-    //             },
-    //             routing_payload_size: payload_enc_length,
-    //             routing: vec![
-    //                 RoutingServiceConsumed {
-    //                     earning_wallet: route_1_earning_wallet,
-    //                     service_rate: routing_node_1_rate_pack.routing_service_rate,
-    //                     byte_rate: routing_node_1_rate_pack.routing_byte_rate,
-    //                 },
-    //                 RoutingServiceConsumed {
-    //                     earning_wallet: route_2_earning_wallet,
-    //                     service_rate: routing_node_2_rate_pack.routing_service_rate,
-    //                     byte_rate: routing_node_2_rate_pack.routing_byte_rate,
-    //                 }
-    //             ]
-    //         }
-    //     );
-    //     let recording = proxy_server_recording_arc.lock().unwrap();
-    //     let _ = recording.get_record::<AddReturnRouteMessage>(0); // don't care about this, other than type
-    //     assert_eq!(recording.len(), 1); // No StreamShutdownMsg: that's the important thing
-    // }
+    #[test]
+    fn proxy_server_sends_message_to_accountant_about_all_services_consumed_on_the_route_over() {
+        let cryptde = main_cryptde();
+        let now = SystemTime::now();
+        let exit_earning_wallet = make_wallet("exit earning wallet");
+        let route_1_earning_wallet = make_wallet("route 1 earning wallet");
+        let route_2_earning_wallet = make_wallet("route 2 earning wallet");
+        let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
+        let (accountant_mock, _, accountant_recording_arc) = make_recorder();
+        let (hopper_mock, _, hopper_recording_arc) = make_recorder();
+        let (proxy_server_mock, _, proxy_server_recording_arc) = make_recorder();
+        let routing_node_1_rate_pack = rate_pack(101);
+        let routing_node_2_rate_pack = rate_pack(102);
+        let exit_node_rate_pack = rate_pack(103);
+        let route_query_response = RouteQueryResponse {
+            route: make_meaningless_route(),
+            expected_services: ExpectedServices::RoundTrip(
+                vec![
+                    ExpectedService::Nothing,
+                    ExpectedService::Routing(
+                        PublicKey::new(&[1]),
+                        route_1_earning_wallet.clone(),
+                        routing_node_1_rate_pack,
+                    ),
+                    ExpectedService::Routing(
+                        PublicKey::new(&[2]),
+                        route_2_earning_wallet.clone(),
+                        routing_node_2_rate_pack,
+                    ),
+                    ExpectedService::Exit(
+                        PublicKey::new(&[3]),
+                        exit_earning_wallet.clone(),
+                        exit_node_rate_pack,
+                    ),
+                ],
+                vec![
+                    ExpectedService::Exit(
+                        PublicKey::new(&[3]),
+                        make_wallet("some wallet 1"),
+                        rate_pack(104),
+                    ),
+                    ExpectedService::Routing(
+                        PublicKey::new(&[2]),
+                        make_wallet("some wallet 2"),
+                        rate_pack(105),
+                    ),
+                    ExpectedService::Routing(
+                        PublicKey::new(&[1]),
+                        make_wallet("some wallet 3"),
+                        rate_pack(106),
+                    ),
+                    ExpectedService::Nothing,
+                ],
+                0,
+            ),
+        };
+        let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let stream_key = make_meaningless_stream_key();
+        let expected_data = http_request.to_vec();
+        let system =
+            System::new("proxy_server_sends_message_to_accountant_for_all_services_consumed");
+        let peer_actors = peer_actors_builder()
+            .accountant(accountant_mock)
+            .hopper(hopper_mock)
+            .proxy_server(proxy_server_mock)
+            .build();
+        let exit_payload_size = expected_data.len();
+        let payload = ClientRequestPayload_0v1 {
+            stream_key,
+            sequenced_packet: SequencedPacket::new(expected_data, 0, false),
+            target_hostname: Some("nowhere.com".to_string()),
+            target_port: HTTP_PORT,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: PublicKey::new(b"originator_public_key"),
+        };
+        let logger = Logger::new("test");
+        let local_tth_args = TTHArgsLocal {
+            common: TTHArgsCommon {
+                cryptde,
+                payload,
+                source_addr,
+                timestamp: now,
+            },
+            logger: &logger,
+            hopper_sub: &peer_actors.hopper.from_hopper_client,
+            dispatcher_sub: &peer_actors.dispatcher.from_dispatcher_client,
+            accountant_sub: &peer_actors.accountant.report_services_consumed,
+            add_return_route_sub: &peer_actors.proxy_server.add_return_route,
+            retire_stream_key_via_opt: None,
+        };
 
-    // #[test]
-    // fn try_transmit_to_hopper_orders_stream_shutdown_if_directed_to_do_so() {
-    //     let cryptde = main_cryptde();
-    //     let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
-    //     let (proxy_server_mock, _, proxy_server_recording_arc) = make_recorder();
-    //     let route_query_response = RouteQueryResponse {
-    //         route: make_meaningless_route(),
-    //         expected_services: ExpectedServices::RoundTrip(
-    //             vec![ExpectedService::Nothing],
-    //             vec![ExpectedService::Nothing],
-    //             0,
-    //         ),
-    //     };
-    //     let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-    //     let stream_key = make_meaningless_stream_key();
-    //     let expected_data = http_request.to_vec();
-    //     let system =
-    //         System::new("proxy_server_sends_message_to_accountant_for_routing_service_consumed");
-    //     let peer_actors = peer_actors_builder()
-    //         .proxy_server(proxy_server_mock)
-    //         .build();
-    //     let payload = ClientRequestPayload_0v1 {
-    //         stream_key,
-    //         sequenced_packet: SequencedPacket::new(expected_data, 0, false),
-    //         target_hostname: Some("nowhere.com".to_string()),
-    //         target_port: HTTP_PORT,
-    //         protocol: ProxyProtocol::HTTP,
-    //         originator_public_key: PublicKey::new(b"originator_public_key"),
-    //     };
-    //     let logger = Logger::new("test");
-    //
-    //     ProxyServer::try_transmit_to_hopper(
-    //         cryptde.dup(),
-    //         &peer_actors.hopper.from_hopper_client,
-    //         SystemTime::now(),
-    //         route_query_response,
-    //         payload.clone(),
-    //         &logger,
-    //         socket_addr,
-    //         &peer_actors.dispatcher.from_dispatcher_client,
-    //         &peer_actors.accountant.report_services_consumed,
-    //         &peer_actors.proxy_server.add_return_route,
-    //         Some(&peer_actors.proxy_server.stream_shutdown_sub),
-    //     );
-    //
-    //     System::current().stop();
-    //     system.run();
-    //     let recording = proxy_server_recording_arc.lock().unwrap();
-    //     let record = recording.get_record::<AddReturnRouteMessage>(0);
-    //     assert_eq!(
-    //         record,
-    //         &AddReturnRouteMessage {
-    //             return_route_id: 0,
-    //             expected_services: vec![ExpectedService::Nothing],
-    //             protocol: ProxyProtocol::HTTP,
-    //             server_name: Some("nowhere.com".to_string())
-    //         }
-    //     );
-    //     let record = recording.get_record::<StreamShutdownMsg>(1);
-    //     assert_eq!(
-    //         record,
-    //         &StreamShutdownMsg {
-    //             peer_addr: socket_addr,
-    //             stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
-    //                 reception_port: 0,
-    //                 sequence_number: 0,
-    //             }),
-    //             report_to_counterpart: false
-    //         }
-    //     );
-    // }
+        ProxyServer::try_transmit_to_hopper(local_tth_args, route_query_response);
+
+        System::current().stop();
+        system.run();
+        let recording = hopper_recording_arc.lock().unwrap();
+        let record = recording.get_record::<IncipientCoresPackage>(0);
+        let payload_enc_length = record.payload.len();
+        let recording = accountant_recording_arc.lock().unwrap();
+        let record = recording.get_record::<ReportServicesConsumedMessage>(0);
+        assert_eq!(recording.len(), 1);
+        assert_eq!(
+            record,
+            &ReportServicesConsumedMessage {
+                timestamp: now,
+                exit: ExitServiceConsumed {
+                    earning_wallet: exit_earning_wallet,
+                    payload_size: exit_payload_size,
+                    service_rate: exit_node_rate_pack.exit_service_rate,
+                    byte_rate: exit_node_rate_pack.exit_byte_rate
+                },
+                routing_payload_size: payload_enc_length,
+                routing: vec![
+                    RoutingServiceConsumed {
+                        earning_wallet: route_1_earning_wallet,
+                        service_rate: routing_node_1_rate_pack.routing_service_rate,
+                        byte_rate: routing_node_1_rate_pack.routing_byte_rate,
+                    },
+                    RoutingServiceConsumed {
+                        earning_wallet: route_2_earning_wallet,
+                        service_rate: routing_node_2_rate_pack.routing_service_rate,
+                        byte_rate: routing_node_2_rate_pack.routing_byte_rate,
+                    }
+                ]
+            }
+        );
+        let recording = proxy_server_recording_arc.lock().unwrap();
+        let _ = recording.get_record::<AddReturnRouteMessage>(0); // don't care about this, other than type
+        assert_eq!(recording.len(), 1); // No StreamShutdownMsg: that's the important thing
+    }
+
+    #[test]
+    fn try_transmit_to_hopper_orders_stream_shutdown_if_directed_to_do_so() {
+        let cryptde = main_cryptde();
+        let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
+        let (proxy_server_mock, _, proxy_server_recording_arc) = make_recorder();
+        let route_query_response = RouteQueryResponse {
+            route: make_meaningless_route(),
+            expected_services: ExpectedServices::RoundTrip(
+                vec![ExpectedService::Nothing],
+                vec![ExpectedService::Nothing],
+                0,
+            ),
+        };
+        let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let stream_key = make_meaningless_stream_key();
+        let expected_data = http_request.to_vec();
+        let system =
+            System::new("proxy_server_sends_message_to_accountant_for_routing_service_consumed");
+        let peer_actors = peer_actors_builder()
+            .proxy_server(proxy_server_mock)
+            .build();
+        let payload = ClientRequestPayload_0v1 {
+            stream_key,
+            sequenced_packet: SequencedPacket::new(expected_data, 0, false),
+            target_hostname: Some("nowhere.com".to_string()),
+            target_port: HTTP_PORT,
+            protocol: ProxyProtocol::HTTP,
+            originator_public_key: PublicKey::new(b"originator_public_key"),
+        };
+        let logger = Logger::new("test");
+        let local_tth_args = TTHArgsLocal {
+            common: TTHArgsCommon {
+                cryptde,
+                payload,
+                source_addr,
+                timestamp: SystemTime::now(),
+            },
+            logger: &logger,
+            hopper_sub: &peer_actors.hopper.from_hopper_client,
+            dispatcher_sub: &peer_actors.dispatcher.from_dispatcher_client,
+            accountant_sub: &peer_actors.accountant.report_services_consumed,
+            add_return_route_sub: &peer_actors.proxy_server.add_return_route,
+            retire_stream_key_via_opt: Some(&peer_actors.proxy_server.stream_shutdown_sub),
+        };
+
+        ProxyServer::try_transmit_to_hopper(local_tth_args, route_query_response);
+
+        System::current().stop();
+        system.run();
+        let recording = proxy_server_recording_arc.lock().unwrap();
+        let record = recording.get_record::<AddReturnRouteMessage>(0);
+        assert_eq!(
+            record,
+            &AddReturnRouteMessage {
+                return_route_id: 0,
+                expected_services: vec![ExpectedService::Nothing],
+                protocol: ProxyProtocol::HTTP,
+                server_name: Some("nowhere.com".to_string())
+            }
+        );
+        let record = recording.get_record::<StreamShutdownMsg>(1);
+        assert_eq!(
+            record,
+            &StreamShutdownMsg {
+                peer_addr: source_addr,
+                stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
+                    reception_port: 0,
+                    sequence_number: 0,
+                }),
+                report_to_counterpart: false
+            }
+        );
+    }
 
     #[test]
     fn proxy_server_logs_messages_when_routing_services_are_not_requested() {
@@ -2722,63 +2726,65 @@ mod tests {
             .exists_log_containing("ERROR: ProxyServer: Failed to find route to nowhere.com");
     }
 
-    // #[test]
-    // #[should_panic(expected = "Expected RoundTrip ExpectedServices but got OneWay")]
-    // fn proxy_server_panics_if_it_receives_a_one_way_route_from_a_request_for_a_round_trip_route() {
-    //     let _system = System::new("proxy_server_panics_if_it_receives_a_one_way_route_from_a_request_for_a_round_trip_route");
-    //     let peer_actors = peer_actors_builder().build();
-    //
-    //     let cryptde = main_cryptde();
-    //     let route_result = RouteQueryResponse {
-    //         route: make_meaningless_route(),
-    //         expected_services: ExpectedServices::OneWay(vec![
-    //             ExpectedService::Nothing,
-    //             ExpectedService::Routing(
-    //                 PublicKey::new(&[1]),
-    //                 make_wallet("earning wallet 1"),
-    //                 rate_pack(101),
-    //             ),
-    //             ExpectedService::Routing(
-    //                 PublicKey::new(&[2]),
-    //                 make_wallet("earning wallet 2"),
-    //                 rate_pack(102),
-    //             ),
-    //             ExpectedService::Exit(
-    //                 PublicKey::new(&[3]),
-    //                 make_wallet("exit earning wallet"),
-    //                 rate_pack(103),
-    //             ),
-    //         ]),
-    //     };
-    //     let payload = ClientRequestPayload_0v1 {
-    //         stream_key: make_meaningless_stream_key(),
-    //         sequenced_packet: SequencedPacket {
-    //             data: vec![],
-    //             sequence_number: 0,
-    //             last_data: false,
-    //         },
-    //         target_hostname: None,
-    //         target_port: 0,
-    //         protocol: ProxyProtocol::TLS,
-    //         originator_public_key: cryptde.public_key().clone(),
-    //     };
-    //     let logger = Logger::new("ProxyServer");
-    //     let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-    //
-    //     ProxyServer::try_transmit_to_hopper(
-    //         cryptde.dup(),
-    //         &peer_actors.hopper.from_hopper_client,
-    //         SystemTime::now(),
-    //         route_result,
-    //         payload,
-    //         &logger,
-    //         source_addr,
-    //         &peer_actors.dispatcher.from_dispatcher_client,
-    //         &peer_actors.accountant.report_services_consumed,
-    //         &peer_actors.proxy_server.add_return_route,
-    //         None,
-    //     );
-    // }
+    #[test]
+    #[should_panic(expected = "Expected RoundTrip ExpectedServices but got OneWay")]
+    fn proxy_server_panics_if_it_receives_a_one_way_route_from_a_request_for_a_round_trip_route() {
+        let _system = System::new("proxy_server_panics_if_it_receives_a_one_way_route_from_a_request_for_a_round_trip_route");
+        let peer_actors = peer_actors_builder().build();
+
+        let cryptde = main_cryptde();
+        let route_result = RouteQueryResponse {
+            route: make_meaningless_route(),
+            expected_services: ExpectedServices::OneWay(vec![
+                ExpectedService::Nothing,
+                ExpectedService::Routing(
+                    PublicKey::new(&[1]),
+                    make_wallet("earning wallet 1"),
+                    rate_pack(101),
+                ),
+                ExpectedService::Routing(
+                    PublicKey::new(&[2]),
+                    make_wallet("earning wallet 2"),
+                    rate_pack(102),
+                ),
+                ExpectedService::Exit(
+                    PublicKey::new(&[3]),
+                    make_wallet("exit earning wallet"),
+                    rate_pack(103),
+                ),
+            ]),
+        };
+        let payload = ClientRequestPayload_0v1 {
+            stream_key: make_meaningless_stream_key(),
+            sequenced_packet: SequencedPacket {
+                data: vec![],
+                sequence_number: 0,
+                last_data: false,
+            },
+            target_hostname: None,
+            target_port: 0,
+            protocol: ProxyProtocol::TLS,
+            originator_public_key: cryptde.public_key().clone(),
+        };
+        let logger = Logger::new("ProxyServer");
+        let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let local_tth_args = TTHArgsLocal {
+            common: TTHArgsCommon {
+                cryptde,
+                payload,
+                source_addr,
+                timestamp: SystemTime::now(),
+            },
+            logger: &logger,
+            hopper_sub: &peer_actors.hopper.from_hopper_client,
+            dispatcher_sub: &peer_actors.dispatcher.from_dispatcher_client,
+            accountant_sub: &peer_actors.accountant.report_services_consumed,
+            add_return_route_sub: &peer_actors.proxy_server.add_return_route,
+            retire_stream_key_via_opt: None,
+        };
+
+        ProxyServer::try_transmit_to_hopper(local_tth_args, route_result);
+    }
 
     #[test]
     #[should_panic(expected = "Return route has to begin with an exit service if not zero hop")]
@@ -4765,36 +4771,32 @@ mod tests {
             Err("No origin port specified with 0-byte non-clandestine packet: []".to_string())
         );
     }
-    //
-    // #[test]
-    // fn resolve_route_query_response_handles_error() {
-    //     init_test_logging();
-    //     let recorder = Recorder::new();
-    //     let addr = recorder.start();
-    //     let add_route_msg_sub = recipient!(&addr, AddRouteMessage);
-    //     let socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
-    //     let stream_key = StreamKey::new(main_cryptde().public_key().clone(), socket_addr);
-    //     let logger = Logger::new("resolve_route_query_response_handles_error");
-    //     let payload = ClientRequestPayload_0v1 {
-    //         stream_key,
-    //         sequenced_packet: SequencedPacket::new(vec![], 1234, true),
-    //         target_hostname: Some(String::from("tunneled.com")),
-    //         target_port: 443,
-    //         protocol: ProxyProtocol::TLS,
-    //         originator_public_key: alias_cryptde().public_key().clone(),
-    //     };
-    //
-    //     IBCDHelperReal::resolve_route_query_response(
-    //         Err(MailboxError::Timeout),
-    //         payload,
-    //         &logger,
-    //         (recipient!(&addr, TransmitDataMsg),recipient!(&addr, ReportServicesConsumedMessage),recipient!(&addr, AddReturnRouteMessage),recipient!(&addr, IncipientCoresPackage),recipient!(&addr, StreamShutdownMsg),recipient!(&addr, AddRouteMessage)),
-    //         |_, _, _,_,_,_,_,_| {},
-    //         |_, _,_| {},
-    //     );
-    //
-    //     TestLogHandler::new().exists_log_containing("ERROR: resolve_route_query_response_handles_error: Neighborhood refused to answer route request: MailboxError(Message delivery timed out)");
-    // }
+
+    #[test]
+    fn resolve_route_query_response_handles_error() {
+        init_test_logging();
+        let recorder = Recorder::new();
+        let addr = recorder.start();
+        let add_route_msg_sub = recipient!(&addr, AddRouteMessage);
+        let logger = Logger::new("resolve_route_query_response_handles_error");
+        let movable_tth_args = TTHArgsMovable {
+            common_opt: None,
+            logger,
+            hopper_sub: recipient!(&addr, IncipientCoresPackage),
+            dispatcher_sub: recipient!(&addr, TransmitDataMsg),
+            accountant_sub: recipient!(&addr, ReportServicesConsumedMessage),
+            add_return_route_sub: recipient!(&addr, AddReturnRouteMessage),
+            retire_stream_key_via: None,
+        };
+
+        IBCDHelperReal::resolve_route_query_response(
+            movable_tth_args,
+            add_route_msg_sub,
+            Err(MailboxError::Timeout),
+        );
+
+        TestLogHandler::new().exists_log_containing("ERROR: resolve_route_query_response_handles_error: Neighborhood refused to answer route request: MailboxError(Message delivery timed out)");
+    }
 
     #[derive(Default)]
     struct ClientRequestPayloadFactoryMock {
