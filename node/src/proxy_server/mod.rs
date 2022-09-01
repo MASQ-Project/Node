@@ -41,7 +41,7 @@ use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::ttl_hashmap::TtlHashMap;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
-use actix::Addr;
+use actix::{Addr, Message};
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
@@ -83,7 +83,7 @@ pub struct ProxyServer {
     logger: Logger,
     route_ids_to_return_routes: TtlHashMap<u32, AddReturnRouteMessage>,
     browser_proxy_sequence_offset: bool,
-    inbound_client_data_helper: Box<dyn IBCDHelperFactory>,
+    inbound_client_data_helper_opt: Option<Box<dyn IBCDHelper>>,
 }
 
 impl Actor for ProxyServer {
@@ -130,10 +130,8 @@ impl Handler<InboundClientData> for ProxyServer {
         if msg.is_connect() {
             self.tls_connect(&msg);
             self.browser_proxy_sequence_offset = true;
-        } else if let Err(e) = self
-            .inbound_client_data_helper
-            .make()
-            .help_to_handle_normal_client_data(self, msg, false)
+        } else if let Err(e) =
+            self.help(|helper, proxy| helper.handle_normal_client_data(proxy, msg, false))
         {
             error!(self.logger, "{}", e)
         }
@@ -236,7 +234,7 @@ impl ProxyServer {
             logger: Logger::new("ProxyServer"),
             route_ids_to_return_routes: TtlHashMap::new(RETURN_ROUTE_TTL),
             browser_proxy_sequence_offset: false,
-            inbound_client_data_helper: Box::new(IBCDHelperFactoryReal::new()),
+            inbound_client_data_helper_opt: Some(Box::new(IBCDHelperReal {})),
         }
     }
 
@@ -469,10 +467,8 @@ impl ProxyServer {
                 sequence_number: Some(nca.sequence_number),
                 data: vec![],
             };
-            if let Err(e) = self
-                .inbound_client_data_helper
-                .make()
-                .help_to_handle_normal_client_data(self, ibcd, true)
+            if let Err(e) =
+                self.help(|helper, proxy| helper.handle_normal_client_data(proxy, ibcd, true))
             {
                 error!(self.logger, "{}", e)
             };
@@ -549,13 +545,13 @@ impl ProxyServer {
     #[allow(clippy::too_many_arguments)]
     fn try_transmit_to_hopper(
         cryptde: Box<dyn CryptDE>,
-        hopper: &Recipient<IncipientCoresPackage>,
+        hopper_sub: &Recipient<IncipientCoresPackage>,
         timestamp: SystemTime,
         route_query_response: RouteQueryResponse,
         payload: ClientRequestPayload_0v1,
-        logger: Logger,
+        logger: &Logger,
         source_addr: SocketAddr,
-        dispatcher: &Recipient<TransmitDataMsg>,
+        dispatcher_sub: &Recipient<TransmitDataMsg>,
         accountant_sub: &Recipient<ReportServicesConsumedMessage>,
         add_return_route_sub: &Recipient<AddReturnRouteMessage>,
         retire_stream_key_via: Option<&Recipient<StreamShutdownMsg>>,
@@ -577,14 +573,14 @@ impl ProxyServer {
                     .expect("ProxyServer is dead");
                 ProxyServer::transmit_to_hopper(
                     cryptde,
-                    hopper,
+                    hopper_sub,
                     timestamp,
                     payload,
                     &route_query_response.route,
                     over,
-                    &logger,
+                    logger,
                     source_addr,
-                    dispatcher,
+                    dispatcher_sub,
                     accountant_sub,
                     retire_stream_key_via,
                 );
@@ -669,9 +665,7 @@ impl ProxyServer {
         accountant_sub: &Recipient<ReportServicesConsumedMessage>,
         retire_stream_key_via: Option<&Recipient<StreamShutdownMsg>>,
     ) {
-        let destination_key_opt =
-
-            if !expected_services.is_empty()
+        let destination_key_opt = if !expected_services.is_empty()
             && expected_services
                 .iter()
                 .all(|expected_service| matches!(expected_service, ExpectedService::Nothing))
@@ -862,27 +856,35 @@ impl ProxyServer {
     }
 }
 
-pub trait IBCDHelperFactory {
-    fn make(&self) -> Box<dyn IBCDHelper>;
-}
+trait ConflictHelper<T>
+where
+    T: 'static,
+{
+    type Result;
 
-#[derive(Default)]
-struct IBCDHelperFactoryReal {}
-
-impl IBCDHelperFactoryReal {
-    fn new() -> Self {
-        Self::default()
+    fn help<F>(&mut self, closure: F) -> Self::Result
+    where
+        F: FnOnce(&T, &mut Self) -> Self::Result,
+    {
+        let helper = self.helper_access().take().unwrap();
+        let result = closure(&helper, self);
+        self.helper_access().replace(helper);
+        result
     }
+
+    fn helper_access(&mut self) -> &mut Option<T>;
 }
 
-impl IBCDHelperFactory for IBCDHelperFactoryReal {
-    fn make(&self) -> Box<dyn IBCDHelper> {
-        Box::new(IBCDHelperReal {})
+impl ConflictHelper<Box<dyn IBCDHelper>> for ProxyServer {
+    type Result = Result<(), String>;
+
+    fn helper_access(&mut self) -> &mut Option<Box<dyn IBCDHelper>> {
+        &mut self.inbound_client_data_helper_opt
     }
 }
 
 pub trait IBCDHelper {
-    fn help_to_handle_normal_client_data(
+    fn handle_normal_client_data(
         &self,
         proxy_s: &mut ProxyServer,
         msg: InboundClientData,
@@ -892,8 +894,11 @@ pub trait IBCDHelper {
 
 struct IBCDHelperReal {}
 
+
+
+
 impl IBCDHelper for IBCDHelperReal {
-    fn help_to_handle_normal_client_data(
+    fn handle_normal_client_data(
         &self,
         proxy: &mut ProxyServer,
         msg: InboundClientData,
@@ -928,120 +933,208 @@ impl IBCDHelper for IBCDHelperReal {
             Err(e) => return Err(e),
         };
         let cryptde = proxy.main_cryptde.dup();
-        let hopper = proxy.out_subs("Hopper").hopper.clone();
-        let dispatcher = proxy.out_subs("Dispatcher").dispatcher.clone();
-        let accountant_sub = proxy.out_subs("Accountant").accountant.clone();
-        let add_return_route_sub = proxy.out_subs("ProxyServer").add_return_route.clone();
-        let stream_shutdown_sub = proxy.out_subs("ProxyServer").stream_shutdown_sub.clone();
-        let try_transmit_to_hopper = {
-            let dispatcher = dispatcher.clone();
-            move |route_query_response, payload, logger| {
-                ProxyServer::try_transmit_to_hopper(
-                    cryptde,
-                    &hopper,
-                    timestamp,
-                    route_query_response,
-                    payload,
-                    logger,
-                    source_addr,
-                    &dispatcher,
-                    &accountant_sub,
-                    &add_return_route_sub,
-                    if retire_stream_key {
-                        Some(&stream_shutdown_sub)
-                    } else {
-                        None
-                    },
-                )
-            }
+        let hopper_sub = &proxy.out_subs("Hopper").hopper;
+        let dispatcher_sub = &proxy.out_subs("Dispatcher").dispatcher;
+        let accountant_sub = &proxy.out_subs("Accountant").accountant;
+        let add_return_route_sub = &proxy.out_subs("ProxyServer").add_return_route;
+        let stream_shutdown_sub = &proxy.out_subs("ProxyServer").stream_shutdown_sub;
+
+        let try_transmit_to_hopper_referenced = |route_query_response,
+                                                      payload,
+                                                      logger,
+                                                      dispatcher_sub,
+                                                      accountant_sub,
+                                                      add_return_route_sub,
+                                                      hopper_sub,
+                                                      stream_shutdown_sub| {
+            ProxyServer::try_transmit_to_hopper(
+                cryptde,
+                hopper_sub,
+                timestamp,
+                route_query_response,
+                payload,
+                logger,
+                source_addr,
+                dispatcher_sub,
+                accountant_sub,
+                add_return_route_sub,
+                if retire_stream_key {
+                    Some(stream_shutdown_sub)
+                } else {
+                    None
+                },
+            )
         };
-        let handle_route_failure = move |payload, logger| {
-            ProxyServer::handle_route_failure(payload, &logger, source_addr, &dispatcher)
-        };
-        Self::handle_transmitting(proxy, payload, try_transmit_to_hopper, handle_route_failure)
+
+        let try_transmit_to_hopper_owned =
+            move |route_query_response,
+             payload,
+             logger,
+             dispatcher_sub,
+             accountant_sub,
+             add_return_route_sub,
+             hopper_sub,
+             stream_shutdown_sub| {try_transmit_to_hopper_referenced(route_query_response,
+                                                                     payload,
+                                                                     logger,
+                                                                     dispatcher_sub,
+                                                                     accountant_sub,
+                                                                     add_return_route_sub,
+                                                                     hopper_sub,
+                                                                     stream_shutdown_sub)};
+
+        if let Some(route_query_response) = proxy.stream_key_routes.get(&payload.stream_key) {
+            debug!(
+                proxy.logger,
+                "Transmitting down existing stream {}: sequence {}, length {}",
+                payload.stream_key,
+                payload.sequenced_packet.sequence_number,
+                payload.sequenced_packet.data.len()
+            );
+            let logger = proxy.logger.clone();
+            let route_query_response = route_query_response.clone();
+            try_transmit_to_hopper_referenced(
+                route_query_response,
+                payload,
+                &logger,
+                dispatcher_sub,
+                accountant_sub,
+                add_return_route_sub,
+                hopper_sub,
+                stream_shutdown_sub,
+            );
+            Ok(())
+        } else {
+            let try_transmit_to_hopper_owned =
+                move |route_query_response,
+                      payload,
+                      logger,
+                      dispatcher_sub,
+                      accountant_sub,
+                      add_return_route_sub,
+                      hopper_sub,
+                      stream_shutdown_sub| {try_transmit_to_hopper_referenced(route_query_response,
+                                                                              payload,
+                                                                              logger,
+                                                                              dispatcher_sub,
+                                                                              accountant_sub,
+                                                                              add_return_route_sub,
+                                                                              hopper_sub,
+                                                                              stream_shutdown_sub)};
+            let handle_route_failure = move |payload,logger, dispatcher_sub|{
+                ProxyServer::handle_route_failure(payload,logger,source_addr,dispatcher_sub)
+            };
+            Self::handle_route_query_and_transmitting(
+                proxy,
+                payload,
+                (dispatcher_sub.clone(), accountant_sub.clone(), add_return_route_sub.clone(), hopper_sub.clone(), stream_shutdown_sub.clone(),proxy.out_subs("ProxyServer").add_route.clone()),
+                try_transmit_to_hopper_owned,
+                handle_route_failure
+            )
+        }
     }
 }
 
+type ClusterOfRecipients = (Recipient<TransmitDataMsg>,
+                   Recipient<ReportServicesConsumedMessage>,
+                   Recipient<AddReturnRouteMessage>,
+                   Recipient<IncipientCoresPackage>,
+                   Recipient<StreamShutdownMsg>,
+                    Recipient<AddRouteMessage>);
+
 impl IBCDHelperReal {
-    fn handle_transmitting<F1, F2>(
+    fn handle_route_query_and_transmitting<F1, F2>(
         proxy: &ProxyServer,
         payload: ClientRequestPayload_0v1,
+        subs: ClusterOfRecipients,
         try_transmit_to_hopper: F1,
         handle_route_failure: F2,
     ) -> Result<(), String>
     where
-        F1: FnOnce(RouteQueryResponse, ClientRequestPayload_0v1, Logger) + Send + 'static,
-        F2: FnOnce(ClientRequestPayload_0v1, Logger) + Send + 'static,
+        F1: FnOnce(
+                RouteQueryResponse,
+                ClientRequestPayload_0v1,
+                &Logger,
+                &Recipient<TransmitDataMsg>,
+                &Recipient<ReportServicesConsumedMessage>,
+                &Recipient<AddReturnRouteMessage>,
+                &Recipient<IncipientCoresPackage>,
+                &Recipient<StreamShutdownMsg>,
+            ) + Send
+            + 'static,
+        F2: FnOnce(ClientRequestPayload_0v1, &Logger, &Recipient<TransmitDataMsg>) + Send + 'static,
     {
         let logger = proxy.logger.clone();
-        match proxy.stream_key_routes.get(&payload.stream_key) {
-            Some(route_query_response) => {
-                debug!(
-                    logger,
-                    "Transmitting down existing stream {}: sequence {}, length {}",
-                    payload.stream_key,
-                    payload.sequenced_packet.sequence_number,
-                    payload.sequenced_packet.data.len()
-                );
-                try_transmit_to_hopper(route_query_response.clone(), payload, logger);
-                Ok(())
-            }
-            None => {
-                debug!(logger,
-                    "Getting route and opening new stream with key {} to transmit: sequence {}, length {}",
-                    payload.stream_key, payload.sequenced_packet.sequence_number, payload.sequenced_packet.data.len()
-                );
-                let add_route_sub = proxy.out_subs("ProxyServer").add_route.clone();
-                let route_source = proxy.out_subs("Neighborhood").route_source.clone();
-                tokio::spawn(
-                    route_source
-                        .send(RouteQueryMessage::data_indefinite_route_request(
-                            if proxy.is_decentralized {
-                                DEFAULT_MINIMUM_HOP_COUNT
-                            } else {
-                                0
-                            },
-                            payload.sequenced_packet.data.len(),
-                        ))
-                        .then(move |route_result| {
-                            Self::resolve_route_query_response(
-                                route_result,
-                                payload,
-                                logger,
-                                add_route_sub,
-                                try_transmit_to_hopper,
-                                handle_route_failure,
-                            );
-                            Ok(())
-                        }),
-                );
-                Ok(())
-            }
-        }
+        debug!(
+            logger,
+            "Getting route and opening new stream with key {} to transmit: sequence {}, length {}",
+            payload.stream_key,
+            payload.sequenced_packet.sequence_number,
+            payload.sequenced_packet.data.len()
+        );
+        // let hopper = proxy.out_subs("Hopper").hopper.clone();
+        // let dispatcher = proxy.out_subs("Dispatcher").dispatcher.clone();
+        // let accountant_sub = proxy.out_subs("Accountant").accountant.clone();
+        // let add_return_route_sub = proxy.out_subs("ProxyServer").add_return_route.clone();
+        // let stream_shutdown_sub = proxy.out_subs("ProxyServer").stream_shutdown_sub.clone();
+        // let ;
+        let route_source = proxy.out_subs("Neighborhood").route_source.clone();
+        tokio::spawn(
+            route_source
+                .send(RouteQueryMessage::data_indefinite_route_request(
+                    if proxy.is_decentralized {
+                        DEFAULT_MINIMUM_HOP_COUNT
+                    } else {
+                        0
+                    },
+                    payload.sequenced_packet.data.len(),
+                ))
+                .then(move |route_result| {
+                    Self::resolve_route_query_response(
+                        route_result,
+                        payload,
+                        &logger,
+                        subs,
+                        try_transmit_to_hopper,
+                        handle_route_failure,
+                    );
+                    Ok(())
+                }),
+        );
+        Ok(())
     }
 
     fn resolve_route_query_response<F1, F2>(
         route_result: Result<Option<RouteQueryResponse>, MailboxError>,
         payload: ClientRequestPayload_0v1,
-        logger: Logger,
-        add_route_sub: Recipient<AddRouteMessage>,
+        logger: &Logger,
+        subs: ClusterOfRecipients,
         try_transmit_to_hopper: F1,
         handle_route_failure: F2,
     ) where
-        F1: FnOnce(RouteQueryResponse, ClientRequestPayload_0v1, Logger) + Send + 'static,
-        F2: FnOnce(ClientRequestPayload_0v1, Logger) + Send + 'static,
+        F1: FnOnce(         RouteQueryResponse,
+            ClientRequestPayload_0v1,
+            &Logger,
+            &Recipient<TransmitDataMsg>,
+            &Recipient<ReportServicesConsumedMessage>,
+            &Recipient<AddReturnRouteMessage>,
+            &Recipient<IncipientCoresPackage>,
+            &Recipient<StreamShutdownMsg>) + Send + 'static,
+        F2: FnOnce(ClientRequestPayload_0v1, &Logger, &Recipient<TransmitDataMsg>) + Send + 'static,
     {
         match route_result {
+
             Ok(Some(route_query_response)) => {
-                add_route_sub
+                let (dispatcher_sub,accountant_sub,add_return_route_sub,hopper_sub,stream_shutdown_sub,add_route_sub) = subs;
+               add_route_sub
                     .try_send(AddRouteMessage {
                         stream_key: payload.stream_key,
                         route: route_query_response.clone(),
                     })
                     .expect("ProxyServer is dead");
-                try_transmit_to_hopper(route_query_response, payload, logger)
+                try_transmit_to_hopper(route_query_response, payload, logger,&dispatcher_sub,&accountant_sub,&add_return_route_sub,&hopper_sub, &stream_shutdown_sub)
             }
-            Ok(None) => handle_route_failure(payload, logger),
+            Ok(None) => handle_route_failure(payload,logger,&subs.0),
             Err(e) => {
                 error!(
                     logger,
@@ -1049,6 +1142,13 @@ impl IBCDHelperReal {
                 );
             }
         }
+    }
+
+    fn clone_subs<M>(subs_ref:      [&Recipient<M>;5]) ->  [Recipient<M>;5]
+        where M: Message + Send,
+              <M as actix::Message>::Result: Send
+    {
+        todo!()
     }
 }
 
@@ -1204,57 +1304,39 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct ICDHelperFactoryMock {
-        make_results: RefCell<Vec<Box<dyn IBCDHelper>>>,
-    }
-
-    impl ICDHelperFactoryMock {
-        fn make_result(self, result: Box<dyn IBCDHelper>) -> Self {
-            self.make_results.borrow_mut().push(result);
-            self
-        }
-    }
-
-    impl IBCDHelperFactory for ICDHelperFactoryMock {
-        fn make(&self) -> Box<dyn IBCDHelper> {
-            self.make_results.borrow_mut().remove(0)
-        }
-    }
-
-    #[derive(Default)]
     struct ICDHelperMock {
-        help_to_handle_normal_client_data_params: Arc<Mutex<Vec<(InboundClientData, bool)>>>,
-        help_to_handle_normal_client_data_results: RefCell<Vec<Result<(), String>>>,
+        handle_normal_client_data_params: Arc<Mutex<Vec<(InboundClientData, bool)>>>,
+        handle_normal_client_data_results: RefCell<Vec<Result<(), String>>>,
     }
 
     impl IBCDHelper for ICDHelperMock {
-        fn help_to_handle_normal_client_data(
+        fn handle_normal_client_data(
             &self,
             _proxy_s: &mut ProxyServer,
             msg: InboundClientData,
             retire_stream_key: bool,
         ) -> Result<(), String> {
-            self.help_to_handle_normal_client_data_params
+            self.handle_normal_client_data_params
                 .lock()
                 .unwrap()
                 .push((msg, retire_stream_key));
-            self.help_to_handle_normal_client_data_results
+            self.handle_normal_client_data_results
                 .borrow_mut()
                 .remove(0)
         }
     }
 
     impl ICDHelperMock {
-        fn help_to_handle_normal_client_data_params(
+        fn handle_normal_client_data_params(
             mut self,
             params: &Arc<Mutex<Vec<(InboundClientData, bool)>>>,
         ) -> Self {
-            self.help_to_handle_normal_client_data_params = params.clone();
+            self.handle_normal_client_data_params = params.clone();
             self
         }
 
-        fn help_to_handle_normal_client_data_result(self, result: Result<(), String>) -> Self {
-            self.help_to_handle_normal_client_data_results
+        fn handle_normal_client_data_result(self, result: Result<(), String>) -> Self {
+            self.handle_normal_client_data_results
                 .borrow_mut()
                 .push(result);
             self
@@ -2468,7 +2550,7 @@ mod tests {
             now,
             route_query_response,
             payload.clone(),
-            logger,
+            &logger,
             socket_addr,
             &peer_actors.dispatcher.from_dispatcher_client,
             &peer_actors.accountant.report_services_consumed,
@@ -2551,7 +2633,7 @@ mod tests {
             SystemTime::now(),
             route_query_response,
             payload.clone(),
-            logger,
+            &logger,
             socket_addr,
             &peer_actors.dispatcher.from_dispatcher_client,
             &peer_actors.accountant.report_services_consumed,
@@ -2800,7 +2882,7 @@ mod tests {
             SystemTime::now(),
             route_result,
             payload,
-            logger,
+            &logger,
             source_addr,
             &peer_actors.dispatcher.from_dispatcher_client,
             &peer_actors.accountant.report_services_consumed,
@@ -4702,9 +4784,9 @@ mod tests {
         init_test_logging();
         let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(), true, Some(0), false);
         let helper = ICDHelperMock::default()
-            .help_to_handle_normal_client_data_result(Err("Our help is not welcome".to_string()));
-        let helper_factory = ICDHelperFactoryMock::default().make_result(Box::new(helper));
-        subject.inbound_client_data_helper = Box::new(helper_factory);
+            .handle_normal_client_data_result(Err("Our help is not welcome".to_string()));
+        // let helper_factory = ICDHelperFactoryMock::default().make_result(Box::new(helper));
+        subject.inbound_client_data_helper_opt = Some(Box::new(helper));
         let socket_addr = SocketAddr::from_str("3.4.5.6:7777").unwrap();
         let stream_key = StreamKey::new(main_cryptde().public_key().clone(), socket_addr);
         subject.keys_and_addrs.insert(stream_key, socket_addr);
@@ -4727,10 +4809,10 @@ mod tests {
         let help_to_handle_normal_client_data_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(), true, Some(0), false);
         let icd_helper = ICDHelperMock::default()
-            .help_to_handle_normal_client_data_params(&help_to_handle_normal_client_data_params_arc)
-            .help_to_handle_normal_client_data_result(Ok(()));
-        let icd_helper_factory = ICDHelperFactoryMock::default().make_result(Box::new(icd_helper));
-        subject.inbound_client_data_helper = Box::new(icd_helper_factory);
+            .handle_normal_client_data_params(&help_to_handle_normal_client_data_params_arc)
+            .handle_normal_client_data_result(Ok(()));
+        //  let icd_helper_factory = ICDHelperFactoryMock::default().make_result(Box::new(icd_helper));
+        subject.inbound_client_data_helper_opt = Some(Box::new(icd_helper));
         let socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
         let stream_key = StreamKey::new(main_cryptde().public_key().clone(), socket_addr);
         subject.keys_and_addrs.insert(stream_key, socket_addr);
@@ -4783,7 +4865,7 @@ mod tests {
             data: vec![],
         };
 
-        let result = IBCDHelperReal {}.help_to_handle_normal_client_data(
+        let result = IBCDHelperReal {}.handle_normal_client_data(
             &mut proxy_server,
             inbound_client_data_msg,
             true,
@@ -4798,8 +4880,8 @@ mod tests {
     #[test]
     fn resolve_route_query_response_handles_error() {
         init_test_logging();
-        let (fake_proxy_server, _, _) = make_recorder();
-        let addr = fake_proxy_server.start();
+        let recorder = Recorder::new();
+        let addr = recorder.start();
         let add_route_msg_sub = recipient!(&addr, AddRouteMessage);
         let socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
         let stream_key = StreamKey::new(main_cryptde().public_key().clone(), socket_addr);
@@ -4816,10 +4898,10 @@ mod tests {
         IBCDHelperReal::resolve_route_query_response(
             Err(MailboxError::Timeout),
             payload,
-            logger,
-            add_route_msg_sub,
-            |_, _, _| {},
-            |_, _| {},
+            &logger,
+            (recipient!(&addr, TransmitDataMsg),recipient!(&addr, ReportServicesConsumedMessage),recipient!(&addr, AddReturnRouteMessage),recipient!(&addr, IncipientCoresPackage),recipient!(&addr, StreamShutdownMsg),recipient!(&addr, AddRouteMessage)),
+            |_, _, _,_,_,_,_,_| {},
+            |_, _,_| {},
         );
 
         TestLogHandler::new().exists_log_containing("ERROR: resolve_route_query_response_handles_error: Neighborhood refused to answer route request: MailboxError(Message delivery timed out)");
@@ -4871,7 +4953,7 @@ mod tests {
             data: vec![],
         };
 
-        let result = IBCDHelperReal {}.help_to_handle_normal_client_data(
+        let result = IBCDHelperReal {}.handle_normal_client_data(
             &mut proxy_server,
             inbound_client_data_msg,
             true,

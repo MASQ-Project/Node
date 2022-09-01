@@ -579,7 +579,9 @@ mod tests {
         };
         let (accountant, _, _) = make_recorder();
         let backup_recipient = accountant.start().recipient();
-        subject.payment_confirmation.transaction_fingerprint_subs_opt = Some(backup_recipient);
+        subject
+            .payment_confirmation
+            .transaction_fingerprint_subs_opt = Some(backup_recipient);
 
         let result = subject.handle_report_accounts_payable_inner(&request);
 
