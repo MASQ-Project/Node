@@ -185,7 +185,6 @@ impl Handler<ScanForPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
-        // self.handle_scan_message(&mut self.scanners.payables, msg.response_skeleton_opt, ctx)
         match self.scanners.payables.begin_scan(
             SystemTime::now(),
             msg.response_skeleton_opt,
@@ -209,11 +208,6 @@ impl Handler<ScanForPendingPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
-        // self.handle_scan_message(
-        //     &mut self.scanners.pending_payables,
-        //     msg.response_skeleton_opt,
-        //     ctx,
-        // )
         match self.scanners.pending_payables.begin_scan(
             SystemTime::now(),
             msg.response_skeleton_opt,
@@ -234,19 +228,17 @@ impl Handler<ScanForReceivables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
-        // self.handle_scan_message(
-        //     &mut self.scanners.receivables,
-        //     msg.response_skeleton_opt,
-        //     ctx,
-        // );
         match self.scanners.receivables.begin_scan(
             SystemTime::now(),
             msg.response_skeleton_opt,
             &self.logger,
         ) {
-            Ok(message) => {
-                todo!("send the message to blockchain bridge");
-            }
+            Ok(message) => self
+                .retrieve_transactions_sub
+                .as_ref()
+                .expect("BlockchainBridge is unbound")
+                .try_send(message)
+                .expect("BlockchainBridge is dead"),
             Err(e) if e.contains("Called from NullScanner") => {
                 eprintln!("Receivable scan is disabled.")
             }
@@ -1940,7 +1932,6 @@ mod tests {
         let system = System::new(
             "accountant_sends_a_request_to_blockchain_bridge_to_scan_for_received_payments",
         );
-        let payable_dao = PayableDaoMock::new().non_pending_payables_result(vec![]);
         let receivable_dao = ReceivableDaoMock::new()
             .new_delinquencies_result(vec![])
             .paid_delinquencies_result(vec![]);
@@ -1950,13 +1941,11 @@ mod tests {
                 make_payment_thresholds_with_defaults(),
                 earning_wallet.clone(),
             ))
-            .payable_dao(payable_dao) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Scanner
-            .receivable_dao(receivable_dao) // For Accountant
-            .receivable_dao(ReceivableDaoMock::new()) // For Scanner
+            .receivable_dao(ReceivableDaoMock::new()) // For Accountant
+            .receivable_dao(receivable_dao) // For Scanner
             .build();
-        subject.scanners.pending_payables = Box::new(ScannerMock::new());
-        subject.scanners.payables = Box::new(ScannerMock::new());
+        subject.scanners.pending_payables = Box::new(NullScanner::new());
+        subject.scanners.payables = Box::new(NullScanner::new());
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
         let peer_actors = peer_actors_builder()
