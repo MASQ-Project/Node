@@ -191,12 +191,14 @@ impl Handler<ScanForPayables> for Accountant {
             msg.response_skeleton_opt,
             &self.logger,
         ) {
-            Ok(message) => self
-                .report_accounts_payable_sub_opt
-                .as_ref()
-                .expect("BlockchainBridge is unbound")
-                .try_send(message)
-                .expect("BlockchainBridge is dead"),
+            Ok(message) => {
+                // todo!("message was returned");
+                self.report_accounts_payable_sub_opt
+                    .as_ref()
+                    .expect("BlockchainBridge is unbound")
+                    .try_send(message)
+                    .expect("BlockchainBridge is dead")
+            }
             Err(ScannerError::CalledFromNullScanner) => {
                 if cfg!(test) {
                     eprintln!("Payable scan is disabled.");
@@ -2466,8 +2468,8 @@ mod tests {
             blockchain_bridge_addr.recipient::<ReportAccountsPayable>();
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_dao(payable_dao) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Scanner
+            .payable_dao(PayableDaoMock::new()) // For Accountant
+            .payable_dao(payable_dao) // For Scanner
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
 
@@ -2522,7 +2524,7 @@ mod tests {
         let mut payable_dao = PayableDaoMock::default()
             .non_pending_payables_result(accounts.clone())
             .non_pending_payables_result(vec![]);
-        payable_dao.have_non_pending_payables_shut_down_the_system = true;
+        // payable_dao.have_non_pending_payables_shut_down_the_system = true;
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
         let system =
             System::new("scan_for_payable_message_triggers_payment_for_balances_over_the_curve");
@@ -2531,17 +2533,18 @@ mod tests {
             .build();
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_dao(payable_dao) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Scanner
+            .payable_dao(PayableDaoMock::new()) // For Accountant
+            .payable_dao(payable_dao) // For Scanner
             .build();
-        subject.scanners.pending_payables = Box::new(ScannerMock::new());
-        subject.scanners.receivables = Box::new(ScannerMock::new());
+        subject.scanners.pending_payables = Box::new(NullScanner::new());
+        subject.scanners.receivables = Box::new(NullScanner::new());
         let subject_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&subject_addr);
         send_bind_message!(accountant_subs, peer_actors);
 
         send_start_message!(accountant_subs);
 
+        System::current().stop();
         system.run();
         let blockchain_bridge_recordings = blockchain_bridge_recordings_arc.lock().unwrap();
         assert_eq!(
@@ -2735,6 +2738,7 @@ mod tests {
     fn report_routing_service_provided_message_is_received() {
         init_test_logging();
         let mut bootstrapper_config = BootstrapperConfig::default();
+        bootstrapper_config.payment_thresholds_opt = Some(make_payment_thresholds_with_defaults());
         bootstrapper_config.accountant_config_opt = Some(make_accountant_config_null());
         bootstrapper_config.earning_wallet = make_wallet("hi");
         let more_money_receivable_parameters_arc = Arc::new(Mutex::new(vec![]));
