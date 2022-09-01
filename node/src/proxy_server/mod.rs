@@ -6,12 +6,14 @@ pub mod protocol_pack;
 pub mod server_impersonator_http;
 pub mod server_impersonator_tls;
 pub mod tls_protocol_pack;
+pub mod utils;
 
 use crate::proxy_server::client_request_payload_factory::{
     ClientRequestPayloadFactory, ClientRequestPayloadFactoryReal,
 };
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::proxy_server::protocol_pack::{from_ibcd, from_protocol, ProtocolPack};
+use crate::proxy_server::utils::local::{TTHArgsCommon, TTHArgsLocal, TTHArgsMovable};
 use crate::proxy_server::ExitServiceSearch::{Definite, ZeroHop};
 use crate::stream_messages::NonClandestineAttributes;
 use crate::stream_messages::RemovedStreamType;
@@ -543,35 +545,34 @@ impl ProxyServer {
         }
     }
 
-    fn try_transmit_to_hopper(inputs: InputsSemiRef, route_query_response: RouteQueryResponse) {
+    fn try_transmit_to_hopper(args: TTHArgsLocal, route_query_response: RouteQueryResponse) {
         match route_query_response.expected_services {
             ExpectedServices::RoundTrip(over, back, return_route_id) => {
                 let return_route_info = AddReturnRouteMessage {
                     return_route_id,
                     expected_services: back,
-                    protocol: inputs.payload.protocol,
-                    server_name: inputs.payload.target_hostname.clone(),
+                    protocol: args.common.payload.protocol,
+                    server_name: args.common.payload.target_hostname.clone(),
                 };
                 debug!(
-                    inputs.logger,
+                    args.logger,
                     "Adding expectant return route info: {:?}", return_route_info
                 );
-                inputs
-                    .add_return_route_sub
+                args.add_return_route_sub
                     .try_send(return_route_info)
                     .expect("ProxyServer is dead");
                 ProxyServer::transmit_to_hopper(
-                    inputs.cryptde,
-                    inputs.hopper_sub,
-                    inputs.timestamp,
-                    inputs.payload,
+                    args.common.cryptde,
+                    args.hopper_sub,
+                    args.common.timestamp,
+                    args.common.payload,
                     &route_query_response.route,
                     over,
-                    inputs.logger,
-                    inputs.source_addr,
-                    inputs.dispatcher_sub,
-                    inputs.accountant_sub,
-                    inputs.retire_stream_key_via,
+                    args.logger,
+                    args.common.source_addr,
+                    args.dispatcher_sub,
+                    args.accountant_sub,
+                    args.retire_stream_key_via,
                 );
             }
             _ => panic!("Expected RoundTrip ExpectedServices but got OneWay"),
@@ -918,31 +919,25 @@ impl IBCDHelper for IBCDHelperReal {
             Ok(payload) => payload,
             Err(e) => return Err(e),
         };
-        let cryptde = &*proxy.main_cryptde;
-        let logger = &proxy.logger;
-        let hopper_sub = &proxy.out_subs("Hopper").hopper;
-        let dispatcher_sub = &proxy.out_subs("Dispatcher").dispatcher;
-        let accountant_sub = &proxy.out_subs("Accountant").accountant;
-        let add_return_route_sub = &proxy.out_subs("ProxyServer").add_return_route;
-        let stream_shutdown_sub = &proxy.out_subs("ProxyServer").stream_shutdown_sub;
-        let retire_stream_key_via = if retire_stream_key {
-            Some(stream_shutdown_sub)
-        } else {
-            None
+        let args_local = TTHArgsLocal {
+            common: TTHArgsCommon {
+                cryptde: &*proxy.main_cryptde,
+                payload,
+                source_addr,
+                timestamp,
+            },
+            hopper_sub: &proxy.out_subs("Hopper").hopper,
+            logger: &proxy.logger,
+            dispatcher_sub: &proxy.out_subs("Dispatcher").dispatcher,
+            accountant_sub: &proxy.out_subs("Accountant").accountant,
+            add_return_route_sub: &proxy.out_subs("ProxyServer").add_return_route,
+            retire_stream_key_via: if retire_stream_key {
+                Some(&proxy.out_subs("ProxyServer").stream_shutdown_sub)
+            } else {
+                None
+            },
         };
-        let ipts_semi_ref = InputsSemiRef {
-            cryptde,
-            hopper_sub,
-            timestamp,
-            payload,
-            logger,
-            source_addr,
-            dispatcher_sub,
-            accountant_sub,
-            add_return_route_sub,
-            retire_stream_key_via,
-        };
-        let payload = &ipts_semi_ref.payload;
+        let payload = &args_local.common.payload;
         if let Some(route_query_response) = proxy.stream_key_routes.get(&payload.stream_key) {
             debug!(
                 proxy.logger,
@@ -952,15 +947,15 @@ impl IBCDHelper for IBCDHelperReal {
                 payload.sequenced_packet.data.len()
             );
             let route_query_response = route_query_response.clone();
-            ProxyServer::try_transmit_to_hopper(ipts_semi_ref, route_query_response);
+            ProxyServer::try_transmit_to_hopper(args_local, route_query_response);
             Ok(())
         } else {
-            let ipts_owned = InputsOwned::from(ipts_semi_ref);
+            let args_movable = TTHArgsMovable::from(args_local);
             let route_source = proxy.out_subs("Neighborhood").route_source.clone();
             let add_route_sub = proxy.out_subs("ProxyServer").add_route.clone();
             let is_decentralized = proxy.is_decentralized;
             Self::request_route_and_transmit(
-                ipts_owned,
+                args_movable,
                 route_source,
                 add_route_sub,
                 is_decentralized,
@@ -971,20 +966,24 @@ impl IBCDHelper for IBCDHelperReal {
 
 impl IBCDHelperReal {
     fn request_route_and_transmit(
-        ipts_owned: InputsOwned,
+        args_movable: TTHArgsMovable,
         route_source: Recipient<RouteQueryMessage>,
         add_route_sub: Recipient<AddRouteMessage>,
         is_decentralized: bool,
     ) -> Result<(), String> {
-        let pld_ref = ipts_owned.payload_opt.as_ref().expectv("payload");
+        let pld = &args_movable
+            .common_opt
+            .as_ref()
+            .expectv("TTH common")
+            .payload;
         debug!(
-            ipts_owned.logger,
+            args_movable.logger,
             "Getting route and opening new stream with key {} to transmit: sequence {}, length {}",
-            pld_ref.stream_key,
-            pld_ref.sequenced_packet.sequence_number,
-            pld_ref.sequenced_packet.data.len()
+            pld.stream_key,
+            pld.sequenced_packet.sequence_number,
+            pld.sequenced_packet.data.len()
         );
-        let payload_size = pld_ref.sequenced_packet.data.len();
+        let payload_size = pld.sequenced_packet.data.len();
         tokio::spawn(
             route_source
                 .send(RouteQueryMessage::data_indefinite_route_request(
@@ -996,7 +995,7 @@ impl IBCDHelperReal {
                     payload_size,
                 ))
                 .then(move |route_result| {
-                    Self::resolve_route_query_response(ipts_owned, add_route_sub, route_result);
+                    Self::resolve_route_query_response(args_movable, add_route_sub, route_result);
                     Ok(())
                 }),
         );
@@ -1004,7 +1003,7 @@ impl IBCDHelperReal {
     }
 
     fn resolve_route_query_response(
-        mut inputs: InputsOwned,
+        mut args: TTHArgsMovable,
         add_route_sub: Recipient<AddRouteMessage>,
         route_result: Result<Option<RouteQueryResponse>, MailboxError>,
     ) {
@@ -1012,84 +1011,32 @@ impl IBCDHelperReal {
             Ok(Some(route_query_response)) => {
                 add_route_sub
                     .try_send(AddRouteMessage {
-                        stream_key: inputs.payload_opt.as_ref().expectv("payload").stream_key,
+                        stream_key: args
+                            .common_opt
+                            .as_ref()
+                            .expectv("TTH common")
+                            .payload
+                            .stream_key,
                         route: route_query_response.clone(),
                     })
                     .expect("ProxyServer is dead");
-                ProxyServer::try_transmit_to_hopper((&mut inputs).into(), route_query_response)
+                ProxyServer::try_transmit_to_hopper((&mut args).into(), route_query_response)
             }
-            Ok(None) => ProxyServer::handle_route_failure(
-                inputs.payload_opt.expectv("payload"),
-                &inputs.logger,
-                inputs.source_addr,
-                &inputs.dispatcher_sub,
-            ),
+            Ok(None) => {
+                let common_tth = args.common_opt.take().expectv("tth common");
+                ProxyServer::handle_route_failure(
+                    common_tth.payload,
+                    &args.logger,
+                    common_tth.source_addr,
+                    &args.dispatcher_sub,
+                )
+            }
             Err(e) => {
                 error!(
-                    inputs.logger,
+                    args.logger,
                     "Neighborhood refused to answer route request: {:?}", e
                 );
             }
-        }
-    }
-}
-
-struct InputsSemiRef<'a> {
-    cryptde: &'static dyn CryptDE,
-    hopper_sub: &'a Recipient<IncipientCoresPackage>,
-    timestamp: SystemTime,
-    payload: ClientRequestPayload_0v1,
-    logger: &'a Logger,
-    source_addr: SocketAddr,
-    dispatcher_sub: &'a Recipient<TransmitDataMsg>,
-    accountant_sub: &'a Recipient<ReportServicesConsumedMessage>,
-    add_return_route_sub: &'a Recipient<AddReturnRouteMessage>,
-    retire_stream_key_via: Option<&'a Recipient<StreamShutdownMsg>>,
-}
-
-struct InputsOwned {
-    cryptde: &'static dyn CryptDE,
-    hopper_sub: Recipient<IncipientCoresPackage>,
-    timestamp: SystemTime,
-    payload_opt: Option<ClientRequestPayload_0v1>,
-    logger: Logger,
-    source_addr: SocketAddr,
-    dispatcher_sub: Recipient<TransmitDataMsg>,
-    accountant_sub: Recipient<ReportServicesConsumedMessage>,
-    add_return_route_sub: Recipient<AddReturnRouteMessage>,
-    retire_stream_key_via: Option<Recipient<StreamShutdownMsg>>,
-}
-
-impl From<InputsSemiRef<'_>> for InputsOwned {
-    fn from(ipts: InputsSemiRef) -> Self {
-        Self {
-            cryptde: ipts.cryptde,
-            hopper_sub: ipts.hopper_sub.clone(),
-            timestamp: ipts.timestamp,
-            payload_opt: Some(ipts.payload),
-            logger: ipts.logger.clone(),
-            source_addr: ipts.source_addr.clone(),
-            dispatcher_sub: ipts.dispatcher_sub.clone(),
-            accountant_sub: ipts.accountant_sub.clone(),
-            add_return_route_sub: ipts.add_return_route_sub.clone(),
-            retire_stream_key_via: ipts.retire_stream_key_via.cloned(),
-        }
-    }
-}
-
-impl<'a> From<&'a mut InputsOwned> for InputsSemiRef<'a> {
-    fn from(ipts: &'a mut InputsOwned) -> InputsSemiRef<'a> {
-        Self {
-            cryptde: ipts.cryptde,
-            hopper_sub: &ipts.hopper_sub,
-            timestamp: ipts.timestamp,
-            payload: ipts.payload_opt.take().expectv("payload"),
-            logger: &ipts.logger,
-            source_addr: ipts.source_addr,
-            dispatcher_sub: &ipts.dispatcher_sub,
-            accountant_sub: &ipts.accountant_sub,
-            add_return_route_sub: &ipts.add_return_route_sub,
-            retire_stream_key_via: ipts.retire_stream_key_via.as_ref(),
         }
     }
 }
