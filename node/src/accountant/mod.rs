@@ -375,17 +375,14 @@ impl Handler<NodeFromUiMessage> for Accountant {
         if let Ok((_, context_id)) = UiFinancialsRequest::fmb(msg.body.clone()) {
             self.handle_financials(client_id, context_id);
         } else if let Ok((body, context_id)) = UiScanRequest::fmb(msg.body.clone()) {
-            if let Err(error) = self.handle_externally_triggered_scan(
+            self.handle_externally_triggered_scan(
                 ctx,
                 body.scan_type,
                 ResponseSkeleton {
                     client_id,
                     context_id,
                 },
-            ) {
-                // TODO: The above fn returns a result, should we send a NodeToUIMessaage (send an info log) in case scan is already running, i.e. when we receive an error?
-                info!(self.logger, "{}", error);
-            }
+            )
         } else {
             handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
         }
@@ -730,6 +727,50 @@ impl Accountant {
             .expect("UiGateway is dead");
     }
 
+    // TODO: Check if it's possible to refactor the handle() for different scan requests
+    // fn handle_scan_request(
+    //     &mut self,
+    //     scan_type: ScanType,
+    //     response_skeleton_opt: Option<ResponseSkeleton>,
+    // ) {
+    //     let (scanner, subscriber) = match scan_type {
+    //         ScanType::Payables => (
+    //             &mut self.scanners.payables,
+    //             &self.report_accounts_payable_sub_opt,
+    //         ),
+    //         ScanType::Receivables => (
+    //             &mut self.scanners.receivables,
+    //             &self.retrieve_transactions_sub,
+    //         ),
+    //         ScanType::PendingPayables => (
+    //             &mut self.scanners.pending_payables,
+    //             &self.request_transaction_receipts_subs_opt,
+    //         ),
+    //     };
+    //
+    //     match scanner.begin_scan(SystemTime::now(), response_skeleton_opt, &self.logger) {
+    //         Ok(message) => {
+    //             eprintln!("Message was sent to the blockchain bridge, {:?}", message);
+    //             subscriber
+    //                 .as_ref()
+    //                 .expect("BlockchainBridge is unbound")
+    //                 .try_send(message)
+    //                 .expect("BlockchainBridge is dead");
+    //         }
+    //         Err(ScannerError::CalledFromNullScanner) => {
+    //             if cfg!(test) {
+    //                 eprintln!("{:?} is disabled.", scan_type);
+    //             } else {
+    //                 panic!("Null Scanner shouldn't be running inside production code.")
+    //             }
+    //         }
+    //         Err(ScannerError::NothingToProcess) => {
+    //             eprintln!("No records found to process. The Scan was ended.");
+    //             // TODO: Do something better than just using eprintln
+    //         }
+    //     }
+    // }
+
     fn handle_scan_for_payable_request(&mut self, response_skeleton_opt: Option<ResponseSkeleton>) {
         match self.scanners.payables.begin_scan(
             SystemTime::now(),
@@ -817,23 +858,20 @@ impl Accountant {
     }
 
     fn handle_externally_triggered_scan(
-        &self,
+        &mut self,
         _ctx: &mut Context<Accountant>,
         scan_type: ScanType,
         response_skeleton: ResponseSkeleton,
-    ) -> Result<(), String> {
-        todo!("Implement for Externally Triggered Scan.")
-        // match scan_type {
-        //     ScanType::Payables => self.scanners.payables.scan(self, Some(response_skeleton)),
-        //     ScanType::Receivables => self
-        //         .scanners
-        //         .receivables
-        //         .scan(self, Some(response_skeleton)),
-        //     ScanType::PendingPayables => self
-        //         .scanners
-        //         .pending_payables
-        //         .scan(self, Some(response_skeleton)),
-        // }
+    ) {
+        match scan_type {
+            ScanType::Payables => self.handle_scan_for_payable_request(Some(response_skeleton)),
+            ScanType::PendingPayables => {
+                self.handle_scan_for_pending_payable_request(Some(response_skeleton));
+            }
+            ScanType::Receivables => {
+                self.handle_scan_for_receivables_request(Some(response_skeleton))
+            }
+        }
     }
 
     fn handle_cancel_pending_transaction(&self, msg: CancelFailedPendingTransaction) {
@@ -1332,8 +1370,8 @@ mod tests {
             .paid_delinquencies_result(vec![]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .receivable_dao(receivable_dao)
             .receivable_dao(ReceivableDaoMock::new())
+            .receivable_dao(receivable_dao)
             .build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -1439,8 +1477,8 @@ mod tests {
             PayableDaoMock::new().non_pending_payables_result(vec![payable_account.clone()]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_dao(payable_dao) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Scanner
+            .payable_dao(PayableDaoMock::new()) // For Accountant
+            .payable_dao(payable_dao) // For Scanner
             .build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -1546,8 +1584,8 @@ mod tests {
             .return_all_fingerprints_result(vec![fingerprint.clone()]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .pending_payable_dao(pending_payable_dao) // For Accountanr
-            .pending_payable_dao(PendingPayableDaoMock::new()) // For Scanner
+            .pending_payable_dao(PendingPayableDaoMock::new()) // For Accountanr
+            .pending_payable_dao(pending_payable_dao) // For Scanner
             .build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let subject_addr = subject.start();
