@@ -573,6 +573,7 @@ impl ProxyServer {
                     args.dispatcher_sub,
                     args.accountant_sub,
                     args.retire_stream_key_via_opt,
+                    args.common.is_decentralized,
                 );
             }
             _ => panic!("Expected RoundTrip ExpectedServices but got OneWay"),
@@ -654,25 +655,16 @@ impl ProxyServer {
         dispatcher: &Recipient<TransmitDataMsg>,
         accountant_sub: &Recipient<ReportServicesConsumedMessage>,
         retire_stream_key_via: Option<&Recipient<StreamShutdownMsg>>,
+        is_decentralized: bool,
     ) {
-        let destination_key_opt = if !expected_services.is_empty()
-            && expected_services
-                .iter()
-                .all(|expected_service| matches!(expected_service, ExpectedService::Nothing))
-        {
-            Some(payload.originator_public_key.clone())
-        } else {
+        let destination_key_opt = if is_decentralized {
             expected_services.iter().find_map(|service| match service {
                 ExpectedService::Exit(public_key, _, _) => Some(public_key.clone()),
                 _ => None,
             })
+        } else {
+            Some(payload.originator_public_key.clone())
         };
-        // let destination_key_opt =
-        //     expected_services.iter().find_map(|service| match service {
-        //         ExpectedService::Exit(public_key, _, _) => Some(public_key.clone()),
-        //         _ => None,
-        //     });
-
         match destination_key_opt {
             None => ProxyServer::handle_route_failure(payload, logger, source_addr, dispatcher),
             Some(payload_destination_key) => {
@@ -689,10 +681,7 @@ impl ProxyServer {
                     &payload_destination_key,
                 )
                 .expect("Key magically disappeared");
-                if !expected_services
-                    .iter()
-                    .all(|service| matches!(service, ExpectedService::Nothing))
-                {
+                if is_decentralized {
                     let exit =
                         ProxyServer::report_on_exit_service(&expected_services, payload_size);
                     let routing =
@@ -906,6 +895,7 @@ impl IBCDHelper for IBCDHelperReal {
                 payload,
                 source_addr,
                 timestamp,
+                is_decentralized: proxy.is_decentralized,
             },
             hopper_sub: &proxy.out_subs("Hopper").hopper,
             logger: &proxy.logger,
@@ -934,13 +924,7 @@ impl IBCDHelper for IBCDHelperReal {
             let args_movable = TTHArgsMovable::from(args_local);
             let route_source = proxy.out_subs("Neighborhood").route_source.clone();
             let add_route_sub = proxy.out_subs("ProxyServer").add_route.clone();
-            let is_decentralized = proxy.is_decentralized;
-            Self::request_route_and_transmit(
-                args_movable,
-                route_source,
-                add_route_sub,
-                is_decentralized,
-            )
+            Self::request_route_and_transmit(args_movable, route_source, add_route_sub)
         }
     }
 }
@@ -950,13 +934,9 @@ impl IBCDHelperReal {
         args_movable: TTHArgsMovable,
         route_source: Recipient<RouteQueryMessage>,
         add_route_sub: Recipient<AddRouteMessage>,
-        is_decentralized: bool,
     ) -> Result<(), String> {
-        let pld = &args_movable
-            .common_opt
-            .as_ref()
-            .expectv("TTH common")
-            .payload;
+        let common_args = args_movable.common_opt.as_ref().expectv("TTH common");
+        let pld = &common_args.payload;
         debug!(
             args_movable.logger,
             "Getting route and opening new stream with key {} to transmit: sequence {}, length {}",
@@ -968,7 +948,7 @@ impl IBCDHelperReal {
         tokio::spawn(
             route_source
                 .send(RouteQueryMessage::data_indefinite_route_request(
-                    if is_decentralized {
+                    if common_args.is_decentralized {
                         DEFAULT_MINIMUM_HOP_COUNT
                     } else {
                         0
@@ -2311,7 +2291,7 @@ mod tests {
             let mut subject = ProxyServer::new(
                 main_cryptde,
                 alias_cryptde,
-                true,
+                false,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
             );
@@ -2419,6 +2399,7 @@ mod tests {
                 payload,
                 source_addr,
                 timestamp: now,
+                is_decentralized: true,
             },
             logger: &logger,
             hopper_sub: &peer_actors.hopper.from_hopper_client,
@@ -2504,6 +2485,7 @@ mod tests {
                 payload,
                 source_addr,
                 timestamp: SystemTime::now(),
+                is_decentralized: false,
             },
             logger: &logger,
             hopper_sub: &peer_actors.hopper.from_hopper_client,
@@ -2755,6 +2737,7 @@ mod tests {
                 payload,
                 source_addr,
                 timestamp: SystemTime::now(),
+                is_decentralized: true,
             },
             logger: &logger,
             hopper_sub: &peer_actors.hopper.from_hopper_client,

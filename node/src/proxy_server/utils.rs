@@ -38,6 +38,7 @@ pub(in crate::proxy_server) mod local {
         pub payload: ClientRequestPayload_0v1,
         pub source_addr: SocketAddr,
         pub timestamp: SystemTime,
+        pub is_decentralized: bool,
     }
 
     impl From<TTHArgsLocal<'_>> for TTHArgsMovable {
