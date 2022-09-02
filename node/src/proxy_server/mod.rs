@@ -50,7 +50,7 @@ use actix::Recipient;
 use actix::{Actor, MailboxError};
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use masq_lib::utils::ExpectValue;
+use masq_lib::utils::{ExpectValue, MutabilityConflictHelper};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
@@ -846,26 +846,7 @@ impl ProxyServer {
     }
 }
 
-trait ConflictHelper<T>
-where
-    T: 'static,
-{
-    type Result;
-
-    fn help<F>(&mut self, closure: F) -> Self::Result
-    where
-        F: FnOnce(&T, &mut Self) -> Self::Result,
-    {
-        let helper = self.helper_access().take().unwrap();
-        let result = closure(&helper, self);
-        self.helper_access().replace(helper);
-        result
-    }
-
-    fn helper_access(&mut self) -> &mut Option<T>;
-}
-
-impl ConflictHelper<Box<dyn IBCDHelper>> for ProxyServer {
+impl MutabilityConflictHelper<Box<dyn IBCDHelper>> for ProxyServer {
     type Result = Result<(), String>;
 
     fn helper_access(&mut self) -> &mut Option<Box<dyn IBCDHelper>> {

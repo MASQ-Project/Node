@@ -337,6 +337,25 @@ pub fn type_name_of<T>(_examined: T) -> &'static str {
     std::any::type_name::<T>()
 }
 
+pub trait MutabilityConflictHelper<T>
+where
+    T: 'static,
+{
+    type Result;
+
+    fn help<F>(&mut self, closure: F) -> Self::Result
+    where
+        F: FnOnce(&T, &mut Self) -> Self::Result,
+    {
+        let helper = self.helper_access().take().unwrap();
+        let result = closure(&helper, self);
+        self.helper_access().replace(helper);
+        result
+    }
+
+    fn helper_access(&mut self) -> &mut Option<T>;
+}
+
 #[macro_export]
 macro_rules! short_writeln {
     ($dst:expr) => (
