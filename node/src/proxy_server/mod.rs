@@ -6,12 +6,14 @@ pub mod protocol_pack;
 pub mod server_impersonator_http;
 pub mod server_impersonator_tls;
 pub mod tls_protocol_pack;
+pub mod utils;
 
 use crate::proxy_server::client_request_payload_factory::{
     ClientRequestPayloadFactory, ClientRequestPayloadFactoryReal,
 };
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::proxy_server::protocol_pack::{from_ibcd, from_protocol, ProtocolPack};
+use crate::proxy_server::utils::local::{TTHArgsCommon, TTHArgsLocal, TTHArgsMovable};
 use crate::proxy_server::ExitServiceSearch::{Definite, ZeroHop};
 use crate::stream_messages::NonClandestineAttributes;
 use crate::stream_messages::RemovedStreamType;
@@ -48,6 +50,7 @@ use actix::Recipient;
 use actix::{Actor, MailboxError};
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
+use masq_lib::utils::{ExpectValue, MutabilityConflictHelper};
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::rc::Rc;
@@ -83,7 +86,7 @@ pub struct ProxyServer {
     logger: Logger,
     route_ids_to_return_routes: TtlHashMap<u32, AddReturnRouteMessage>,
     browser_proxy_sequence_offset: bool,
-    inbound_client_data_helper: Box<dyn ICDHelperFactory>,
+    inbound_client_data_helper_opt: Option<Box<dyn IBCDHelper>>,
 }
 
 impl Actor for ProxyServer {
@@ -130,10 +133,8 @@ impl Handler<InboundClientData> for ProxyServer {
         if msg.is_connect() {
             self.tls_connect(&msg);
             self.browser_proxy_sequence_offset = true;
-        } else if let Err(e) = self
-            .inbound_client_data_helper
-            .make()
-            .help_to_handle_normal_client_data(self, msg, false)
+        } else if let Err(e) =
+            self.help(|helper, proxy| helper.handle_normal_client_data(proxy, msg, false))
         {
             error!(self.logger, "{}", e)
         }
@@ -236,7 +237,7 @@ impl ProxyServer {
             logger: Logger::new("ProxyServer"),
             route_ids_to_return_routes: TtlHashMap::new(RETURN_ROUTE_TTL),
             browser_proxy_sequence_offset: false,
-            inbound_client_data_helper: Box::new(ICDHelperFactoryReal::new()),
+            inbound_client_data_helper_opt: Some(Box::new(IBCDHelperReal {})),
         }
     }
 
@@ -469,10 +470,8 @@ impl ProxyServer {
                 sequence_number: Some(nca.sequence_number),
                 data: vec![],
             };
-            if let Err(e) = self
-                .inbound_client_data_helper
-                .make()
-                .help_to_handle_normal_client_data(self, ibcd, true)
+            if let Err(e) =
+                self.help(|helper, proxy| helper.handle_normal_client_data(proxy, ibcd, true))
             {
                 error!(self.logger, "{}", e)
             };
@@ -546,47 +545,35 @@ impl ProxyServer {
         }
     }
 
-    #[allow(clippy::too_many_arguments)]
-    fn try_transmit_to_hopper(
-        cryptde: Box<dyn CryptDE>,
-        hopper: &Recipient<IncipientCoresPackage>,
-        timestamp: SystemTime,
-        route_query_response: RouteQueryResponse,
-        payload: ClientRequestPayload_0v1,
-        logger: Logger,
-        source_addr: SocketAddr,
-        dispatcher: &Recipient<TransmitDataMsg>,
-        accountant_sub: &Recipient<ReportServicesConsumedMessage>,
-        add_return_route_sub: &Recipient<AddReturnRouteMessage>,
-        retire_stream_key_via: Option<&Recipient<StreamShutdownMsg>>,
-    ) {
+    fn try_transmit_to_hopper(args: TTHArgsLocal, route_query_response: RouteQueryResponse) {
         match route_query_response.expected_services {
             ExpectedServices::RoundTrip(over, back, return_route_id) => {
                 let return_route_info = AddReturnRouteMessage {
                     return_route_id,
                     expected_services: back,
-                    protocol: payload.protocol,
-                    server_name: payload.target_hostname.clone(),
+                    protocol: args.common.payload.protocol,
+                    server_name: args.common.payload.target_hostname.clone(),
                 };
                 debug!(
-                    logger,
+                    args.logger,
                     "Adding expectant return route info: {:?}", return_route_info
                 );
-                add_return_route_sub
+                args.add_return_route_sub
                     .try_send(return_route_info)
                     .expect("ProxyServer is dead");
                 ProxyServer::transmit_to_hopper(
-                    cryptde,
-                    hopper,
-                    timestamp,
-                    payload,
+                    args.common.cryptde,
+                    args.hopper_sub,
+                    args.common.timestamp,
+                    args.common.payload,
                     &route_query_response.route,
                     over,
-                    &logger,
-                    source_addr,
-                    dispatcher,
-                    accountant_sub,
-                    retire_stream_key_via,
+                    args.logger,
+                    args.common.source_addr,
+                    args.dispatcher_sub,
+                    args.accountant_sub,
+                    args.retire_stream_key_sub_opt,
+                    args.common.is_decentralized,
                 );
             }
             _ => panic!("Expected RoundTrip ExpectedServices but got OneWay"),
@@ -598,11 +585,11 @@ impl ProxyServer {
         logger: &Logger,
     ) -> Vec<RoutingServiceConsumed> {
         let report_of_routing_services: Vec<RoutingServiceConsumed> = expected_services
-            .iter()
+            .into_iter()
             .filter_map(|service| match service {
                 ExpectedService::Routing(_, earning_wallet, rate_pack) => {
                     Some(RoutingServiceConsumed {
-                        earning_wallet: earning_wallet.clone(),
+                        earning_wallet,
                         service_rate: rate_pack.routing_service_rate,
                         byte_rate: rate_pack.routing_byte_rate,
                     })
@@ -648,7 +635,7 @@ impl ProxyServer {
             },
             None => {
                 panic!(
-                    "Exit service must go in each route while missing here: {:?}",
+                    "Each route must demand an exit service, but this route has no such demand: {:?}",
                     expected_services
                 )
             }
@@ -657,7 +644,7 @@ impl ProxyServer {
 
     #[allow(clippy::too_many_arguments)]
     fn transmit_to_hopper(
-        cryptde: Box<dyn CryptDE>,
+        cryptde: &'static dyn CryptDE,
         hopper: &Recipient<IncipientCoresPackage>,
         timestamp: SystemTime,
         payload: ClientRequestPayload_0v1,
@@ -668,20 +655,16 @@ impl ProxyServer {
         dispatcher: &Recipient<TransmitDataMsg>,
         accountant_sub: &Recipient<ReportServicesConsumedMessage>,
         retire_stream_key_via: Option<&Recipient<StreamShutdownMsg>>,
+        is_decentralized: bool,
     ) {
-        let destination_key_opt = if !expected_services.is_empty()
-            && expected_services
-                .iter()
-                .all(|expected_service| matches!(expected_service, ExpectedService::Nothing))
-        {
-            Some(payload.originator_public_key.clone())
-        } else {
+        let destination_key_opt = if is_decentralized {
             expected_services.iter().find_map(|service| match service {
                 ExpectedService::Exit(public_key, _, _) => Some(public_key.clone()),
                 _ => None,
             })
+        } else {
+            Some(payload.originator_public_key.clone())
         };
-
         match destination_key_opt {
             None => ProxyServer::handle_route_failure(payload, logger, source_addr, dispatcher),
             Some(payload_destination_key) => {
@@ -692,16 +675,13 @@ impl ProxyServer {
                 let payload_size = payload.sequenced_packet.data.len();
                 let stream_key = payload.stream_key;
                 let pkg = IncipientCoresPackage::new(
-                    cryptde.as_ref(),
+                    cryptde,
                     route.clone(),
                     payload.into(),
                     &payload_destination_key,
                 )
                 .expect("Key magically disappeared");
-                if !expected_services
-                    .iter()
-                    .all(|service| matches!(service, ExpectedService::Nothing))
-                {
+                if is_decentralized {
                     let exit =
                         ProxyServer::report_on_exit_service(&expected_services, payload_size);
                     let routing =
@@ -855,27 +835,16 @@ impl ProxyServer {
     }
 }
 
-pub trait ICDHelperFactory {
-    fn make(&self) -> Box<dyn ICDHelper>;
-}
+impl MutabilityConflictHelper<Box<dyn IBCDHelper>> for ProxyServer {
+    type Result = Result<(), String>;
 
-#[derive(Default)]
-struct ICDHelperFactoryReal {}
-
-impl ICDHelperFactoryReal {
-    fn new() -> Self {
-        Self::default()
+    fn helper_access(&mut self) -> &mut Option<Box<dyn IBCDHelper>> {
+        &mut self.inbound_client_data_helper_opt
     }
 }
 
-impl ICDHelperFactory for ICDHelperFactoryReal {
-    fn make(&self) -> Box<dyn ICDHelper> {
-        Box::new(ICDHelperReal {})
-    }
-}
-
-pub trait ICDHelper {
-    fn help_to_handle_normal_client_data(
+pub trait IBCDHelper {
+    fn handle_normal_client_data(
         &self,
         proxy_s: &mut ProxyServer,
         msg: InboundClientData,
@@ -883,10 +852,10 @@ pub trait ICDHelper {
     ) -> Result<(), String>;
 }
 
-struct ICDHelperReal {}
+struct IBCDHelperReal {}
 
-impl ICDHelper for ICDHelperReal {
-    fn help_to_handle_normal_client_data(
+impl IBCDHelper for IBCDHelperReal {
+    fn handle_normal_client_data(
         &self,
         proxy: &mut ProxyServer,
         msg: InboundClientData,
@@ -920,124 +889,112 @@ impl ICDHelper for ICDHelperReal {
             Ok(payload) => payload,
             Err(e) => return Err(e),
         };
-        let cryptde = proxy.main_cryptde.dup();
-        let hopper = proxy.out_subs("Hopper").hopper.clone();
-        let dispatcher = proxy.out_subs("Dispatcher").dispatcher.clone();
-        let accountant_sub = proxy.out_subs("Accountant").accountant.clone();
-        let add_return_route_sub = proxy.out_subs("ProxyServer").add_return_route.clone();
-        let stream_shutdown_sub = proxy.out_subs("ProxyServer").stream_shutdown_sub.clone();
-        let try_transmit_to_hopper = {
-            let dispatcher = dispatcher.clone();
-            move |route_query_response, payload, logger| {
-                ProxyServer::try_transmit_to_hopper(
-                    cryptde,
-                    &hopper,
-                    timestamp,
-                    route_query_response,
-                    payload,
-                    logger,
-                    source_addr,
-                    &dispatcher,
-                    &accountant_sub,
-                    &add_return_route_sub,
-                    if retire_stream_key {
-                        Some(&stream_shutdown_sub)
-                    } else {
-                        None
-                    },
-                )
-            }
+        let args_local = TTHArgsLocal {
+            common: TTHArgsCommon {
+                cryptde: proxy.main_cryptde,
+                payload,
+                source_addr,
+                timestamp,
+                is_decentralized: proxy.is_decentralized,
+            },
+            hopper_sub: &proxy.out_subs("Hopper").hopper,
+            logger: &proxy.logger,
+            dispatcher_sub: &proxy.out_subs("Dispatcher").dispatcher,
+            accountant_sub: &proxy.out_subs("Accountant").accountant,
+            add_return_route_sub: &proxy.out_subs("ProxyServer").add_return_route,
+            retire_stream_key_sub_opt: if retire_stream_key {
+                Some(&proxy.out_subs("ProxyServer").stream_shutdown_sub)
+            } else {
+                None
+            },
         };
-        let handle_route_failure = move |payload, logger| {
-            ProxyServer::handle_route_failure(payload, &logger, source_addr, &dispatcher)
-        };
-        Self::handle_transmitting(proxy, payload, try_transmit_to_hopper, handle_route_failure)
+        let payload = &args_local.common.payload;
+        if let Some(route_query_response) = proxy.stream_key_routes.get(&payload.stream_key) {
+            debug!(
+                proxy.logger,
+                "Transmitting down existing stream {}: sequence {}, length {}",
+                payload.stream_key,
+                payload.sequenced_packet.sequence_number,
+                payload.sequenced_packet.data.len()
+            );
+            let route_query_response = route_query_response.clone();
+            ProxyServer::try_transmit_to_hopper(args_local, route_query_response);
+            Ok(())
+        } else {
+            let args_movable = TTHArgsMovable::from(args_local);
+            let route_source = proxy.out_subs("Neighborhood").route_source.clone();
+            let add_route_sub = proxy.out_subs("ProxyServer").add_route.clone();
+            Self::request_route_and_transmit(args_movable, route_source, add_route_sub)
+        }
     }
 }
 
-impl ICDHelperReal {
-    fn handle_transmitting<F1, F2>(
-        proxy: &ProxyServer,
-        payload: ClientRequestPayload_0v1,
-        try_transmit_to_hopper: F1,
-        handle_route_failure: F2,
-    ) -> Result<(), String>
-    where
-        F1: FnOnce(RouteQueryResponse, ClientRequestPayload_0v1, Logger) + Send + 'static,
-        F2: FnOnce(ClientRequestPayload_0v1, Logger) + Send + 'static,
-    {
-        let logger = proxy.logger.clone();
-        match proxy.stream_key_routes.get(&payload.stream_key) {
-            Some(route_query_response) => {
-                debug!(
-                    logger,
-                    "Transmitting down existing stream {}: sequence {}, length {}",
-                    payload.stream_key,
-                    payload.sequenced_packet.sequence_number,
-                    payload.sequenced_packet.data.len()
-                );
-                try_transmit_to_hopper(route_query_response.clone(), payload, logger);
-                Ok(())
-            }
-            None => {
-                debug!(logger,
-                    "Getting route and opening new stream with key {} to transmit: sequence {}, length {}",
-                    payload.stream_key, payload.sequenced_packet.sequence_number, payload.sequenced_packet.data.len()
-                );
-                let add_route_sub = proxy.out_subs("ProxyServer").add_route.clone();
-                let route_source = proxy.out_subs("Neighborhood").route_source.clone();
-                tokio::spawn(
-                    route_source
-                        .send(RouteQueryMessage::data_indefinite_route_request(
-                            if proxy.is_decentralized {
-                                DEFAULT_MINIMUM_HOP_COUNT
-                            } else {
-                                0
-                            },
-                            payload.sequenced_packet.data.len(),
-                        ))
-                        .then(move |route_result| {
-                            Self::resolve_route_query_response(
-                                route_result,
-                                payload,
-                                logger,
-                                add_route_sub,
-                                try_transmit_to_hopper,
-                                handle_route_failure,
-                            );
-                            Ok(())
-                        }),
-                );
-                Ok(())
-            }
-        }
+impl IBCDHelperReal {
+    fn request_route_and_transmit(
+        args_movable: TTHArgsMovable,
+        route_source: Recipient<RouteQueryMessage>,
+        add_route_sub: Recipient<AddRouteMessage>,
+    ) -> Result<(), String> {
+        let common_args = args_movable.common_opt.as_ref().expectv("TTH common");
+        let pld = &common_args.payload;
+        debug!(
+            args_movable.logger,
+            "Getting route and opening new stream with key {} to transmit: sequence {}, length {}",
+            pld.stream_key,
+            pld.sequenced_packet.sequence_number,
+            pld.sequenced_packet.data.len()
+        );
+        let payload_size = pld.sequenced_packet.data.len();
+        tokio::spawn(
+            route_source
+                .send(RouteQueryMessage::data_indefinite_route_request(
+                    if common_args.is_decentralized {
+                        DEFAULT_MINIMUM_HOP_COUNT
+                    } else {
+                        0
+                    },
+                    payload_size,
+                ))
+                .then(move |route_result| {
+                    Self::resolve_route_query_response(args_movable, add_route_sub, route_result);
+                    Ok(())
+                }),
+        );
+        Ok(())
     }
 
-    fn resolve_route_query_response<F1, F2>(
-        route_result: Result<Option<RouteQueryResponse>, MailboxError>,
-        payload: ClientRequestPayload_0v1,
-        logger: Logger,
+    fn resolve_route_query_response(
+        mut args: TTHArgsMovable,
         add_route_sub: Recipient<AddRouteMessage>,
-        try_transmit_to_hopper: F1,
-        handle_route_failure: F2,
-    ) where
-        F1: FnOnce(RouteQueryResponse, ClientRequestPayload_0v1, Logger) + Send + 'static,
-        F2: FnOnce(ClientRequestPayload_0v1, Logger) + Send + 'static,
-    {
+        route_result: Result<Option<RouteQueryResponse>, MailboxError>,
+    ) {
         match route_result {
             Ok(Some(route_query_response)) => {
                 add_route_sub
                     .try_send(AddRouteMessage {
-                        stream_key: payload.stream_key,
+                        stream_key: args
+                            .common_opt
+                            .as_ref()
+                            .expectv("TTH common")
+                            .payload
+                            .stream_key,
                         route: route_query_response.clone(),
                     })
                     .expect("ProxyServer is dead");
-                try_transmit_to_hopper(route_query_response, payload, logger)
+                ProxyServer::try_transmit_to_hopper((&mut args).into(), route_query_response)
             }
-            Ok(None) => handle_route_failure(payload, logger),
+            Ok(None) => {
+                let common_tth = args.common_opt.take().expectv("tth common");
+                ProxyServer::handle_route_failure(
+                    common_tth.payload,
+                    &args.logger,
+                    common_tth.source_addr,
+                    &args.dispatcher_sub,
+                )
+            }
             Err(e) => {
                 error!(
-                    logger,
+                    args.logger,
                     "Neighborhood refused to answer route request: {:?}", e
                 );
             }
@@ -1087,7 +1044,7 @@ mod tests {
     use crate::sub_lib::sequence_buffer::SequencedPacket;
     use crate::sub_lib::ttl_hashmap::TtlHashMap;
     use crate::sub_lib::versioned_data::VersionedData;
-    use crate::test_utils::main_cryptde;
+    use crate::test_utils::make_meaningless_stream_key;
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
     use crate::test_utils::recorder::make_recorder;
@@ -1096,7 +1053,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::zero_hop_route_response;
     use crate::test_utils::{alias_cryptde, rate_pack};
-    use crate::test_utils::{make_meaningless_route, make_meaningless_stream_key};
+    use crate::test_utils::{main_cryptde, make_meaningless_route};
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
@@ -1197,57 +1154,39 @@ mod tests {
     }
 
     #[derive(Default)]
-    struct ICDHelperFactoryMock {
-        make_results: RefCell<Vec<Box<dyn ICDHelper>>>,
-    }
-
-    impl ICDHelperFactoryMock {
-        fn make_result(self, result: Box<dyn ICDHelper>) -> Self {
-            self.make_results.borrow_mut().push(result);
-            self
-        }
-    }
-
-    impl ICDHelperFactory for ICDHelperFactoryMock {
-        fn make(&self) -> Box<dyn ICDHelper> {
-            self.make_results.borrow_mut().remove(0)
-        }
-    }
-
-    #[derive(Default)]
     struct ICDHelperMock {
-        help_to_handle_normal_client_data_params: Arc<Mutex<Vec<(InboundClientData, bool)>>>,
-        help_to_handle_normal_client_data_results: RefCell<Vec<Result<(), String>>>,
+        handle_normal_client_data_params: Arc<Mutex<Vec<(InboundClientData, bool)>>>,
+        handle_normal_client_data_results: RefCell<Vec<Result<(), String>>>,
     }
 
-    impl ICDHelper for ICDHelperMock {
-        fn help_to_handle_normal_client_data(
+    impl IBCDHelper for ICDHelperMock {
+        fn handle_normal_client_data(
             &self,
             _proxy_s: &mut ProxyServer,
             msg: InboundClientData,
             retire_stream_key: bool,
         ) -> Result<(), String> {
-            self.help_to_handle_normal_client_data_params
+            self.handle_normal_client_data_params
                 .lock()
                 .unwrap()
                 .push((msg, retire_stream_key));
-            self.help_to_handle_normal_client_data_results
+            self.handle_normal_client_data_results
                 .borrow_mut()
                 .remove(0)
         }
     }
 
     impl ICDHelperMock {
-        fn help_to_handle_normal_client_data_params(
+        fn handle_normal_client_data_params(
             mut self,
             params: &Arc<Mutex<Vec<(InboundClientData, bool)>>>,
         ) -> Self {
-            self.help_to_handle_normal_client_data_params = params.clone();
+            self.handle_normal_client_data_params = params.clone();
             self
         }
 
-        fn help_to_handle_normal_client_data_result(self, result: Result<(), String>) -> Self {
-            self.help_to_handle_normal_client_data_results
+        fn handle_normal_client_data_result(self, result: Result<(), String>) -> Self {
+            self.handle_normal_client_data_results
                 .borrow_mut()
                 .push(result);
             self
@@ -2352,7 +2291,7 @@ mod tests {
             let mut subject = ProxyServer::new(
                 main_cryptde,
                 alias_cryptde,
-                true,
+                false,
                 Some(STANDARD_CONSUMING_WALLET_BALANCE),
                 false,
             );
@@ -2434,7 +2373,7 @@ mod tests {
                 0,
             ),
         };
-        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let system =
@@ -2454,20 +2393,23 @@ mod tests {
             originator_public_key: PublicKey::new(b"originator_public_key"),
         };
         let logger = Logger::new("test");
+        let local_tth_args = TTHArgsLocal {
+            common: TTHArgsCommon {
+                cryptde,
+                payload,
+                source_addr,
+                timestamp: now,
+                is_decentralized: true,
+            },
+            logger: &logger,
+            hopper_sub: &peer_actors.hopper.from_hopper_client,
+            dispatcher_sub: &peer_actors.dispatcher.from_dispatcher_client,
+            accountant_sub: &peer_actors.accountant.report_services_consumed,
+            add_return_route_sub: &peer_actors.proxy_server.add_return_route,
+            retire_stream_key_sub_opt: None,
+        };
 
-        ProxyServer::try_transmit_to_hopper(
-            cryptde.dup(),
-            &peer_actors.hopper.from_hopper_client,
-            now,
-            route_query_response,
-            payload.clone(),
-            logger,
-            socket_addr,
-            &peer_actors.dispatcher.from_dispatcher_client,
-            &peer_actors.accountant.report_services_consumed,
-            &peer_actors.proxy_server.add_return_route,
-            None,
-        );
+        ProxyServer::try_transmit_to_hopper(local_tth_args, route_query_response);
 
         System::current().stop();
         system.run();
@@ -2520,7 +2462,7 @@ mod tests {
                 0,
             ),
         };
-        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let stream_key = make_meaningless_stream_key();
         let expected_data = http_request.to_vec();
         let system =
@@ -2537,20 +2479,23 @@ mod tests {
             originator_public_key: PublicKey::new(b"originator_public_key"),
         };
         let logger = Logger::new("test");
+        let local_tth_args = TTHArgsLocal {
+            common: TTHArgsCommon {
+                cryptde,
+                payload,
+                source_addr,
+                timestamp: SystemTime::now(),
+                is_decentralized: false,
+            },
+            logger: &logger,
+            hopper_sub: &peer_actors.hopper.from_hopper_client,
+            dispatcher_sub: &peer_actors.dispatcher.from_dispatcher_client,
+            accountant_sub: &peer_actors.accountant.report_services_consumed,
+            add_return_route_sub: &peer_actors.proxy_server.add_return_route,
+            retire_stream_key_sub_opt: Some(&peer_actors.proxy_server.stream_shutdown_sub),
+        };
 
-        ProxyServer::try_transmit_to_hopper(
-            cryptde.dup(),
-            &peer_actors.hopper.from_hopper_client,
-            SystemTime::now(),
-            route_query_response,
-            payload.clone(),
-            logger,
-            socket_addr,
-            &peer_actors.dispatcher.from_dispatcher_client,
-            &peer_actors.accountant.report_services_consumed,
-            &peer_actors.proxy_server.add_return_route,
-            Some(&peer_actors.proxy_server.stream_shutdown_sub),
-        );
+        ProxyServer::try_transmit_to_hopper(local_tth_args, route_query_response);
 
         System::current().stop();
         system.run();
@@ -2569,7 +2514,7 @@ mod tests {
         assert_eq!(
             record,
             &StreamShutdownMsg {
-                peer_addr: socket_addr,
+                peer_addr: source_addr,
                 stream_type: RemovedStreamType::NonClandestine(NonClandestineAttributes {
                     reception_port: 0,
                     sequence_number: 0,
@@ -2642,7 +2587,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Exit service must go in each route while missing here: [Routing(cm91dGluZ19rZXlfMQ, \
+        expected = "Each route must demand an exit service, but this route has no such demand: [Routing(cm91dGluZ19rZXlfMQ, \
     Wallet { kind: Address(0x00000000726f7574696e675f77616c6c65745f31) }, RatePack { routing_byte_rate: 9, \
     routing_service_rate: 10, exit_byte_rate: 11, exit_service_rate: 12 })]"
     )]
@@ -2786,20 +2731,23 @@ mod tests {
         };
         let logger = Logger::new("ProxyServer");
         let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        let local_tth_args = TTHArgsLocal {
+            common: TTHArgsCommon {
+                cryptde,
+                payload,
+                source_addr,
+                timestamp: SystemTime::now(),
+                is_decentralized: true,
+            },
+            logger: &logger,
+            hopper_sub: &peer_actors.hopper.from_hopper_client,
+            dispatcher_sub: &peer_actors.dispatcher.from_dispatcher_client,
+            accountant_sub: &peer_actors.accountant.report_services_consumed,
+            add_return_route_sub: &peer_actors.proxy_server.add_return_route,
+            retire_stream_key_sub_opt: None,
+        };
 
-        ProxyServer::try_transmit_to_hopper(
-            cryptde.dup(),
-            &peer_actors.hopper.from_hopper_client,
-            SystemTime::now(),
-            route_result,
-            payload,
-            logger,
-            source_addr,
-            &peer_actors.dispatcher.from_dispatcher_client,
-            &peer_actors.accountant.report_services_consumed,
-            &peer_actors.proxy_server.add_return_route,
-            None,
-        );
+        ProxyServer::try_transmit_to_hopper(local_tth_args, route_result);
     }
 
     #[test]
@@ -3459,7 +3407,7 @@ mod tests {
                 Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1234),
                 first_client_response_payload.into(),
-                77,
+                0,
             );
         let routing_size = first_expired_cores_package.payload_len;
         let second_client_response_payload = ClientResponsePayload_0v1 {
@@ -3477,7 +3425,7 @@ mod tests {
                 Some(make_wallet("irrelevant")),
                 return_route_with_id(cryptde, 1235),
                 second_client_response_payload.into(),
-                99,
+                0,
             );
         let mut peer_actors = peer_actors_builder()
             .dispatcher(dispatcher_mock)
@@ -4695,9 +4643,9 @@ mod tests {
         init_test_logging();
         let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(), true, Some(0), false);
         let helper = ICDHelperMock::default()
-            .help_to_handle_normal_client_data_result(Err("Our help is not welcome".to_string()));
-        let helper_factory = ICDHelperFactoryMock::default().make_result(Box::new(helper));
-        subject.inbound_client_data_helper = Box::new(helper_factory);
+            .handle_normal_client_data_result(Err("Our help is not welcome".to_string()));
+        // let helper_factory = ICDHelperFactoryMock::default().make_result(Box::new(helper));
+        subject.inbound_client_data_helper_opt = Some(Box::new(helper));
         let socket_addr = SocketAddr::from_str("3.4.5.6:7777").unwrap();
         let stream_key = StreamKey::new(main_cryptde().public_key().clone(), socket_addr);
         subject.keys_and_addrs.insert(stream_key, socket_addr);
@@ -4720,10 +4668,10 @@ mod tests {
         let help_to_handle_normal_client_data_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = ProxyServer::new(main_cryptde(), alias_cryptde(), true, Some(0), false);
         let icd_helper = ICDHelperMock::default()
-            .help_to_handle_normal_client_data_params(&help_to_handle_normal_client_data_params_arc)
-            .help_to_handle_normal_client_data_result(Ok(()));
-        let icd_helper_factory = ICDHelperFactoryMock::default().make_result(Box::new(icd_helper));
-        subject.inbound_client_data_helper = Box::new(icd_helper_factory);
+            .handle_normal_client_data_params(&help_to_handle_normal_client_data_params_arc)
+            .handle_normal_client_data_result(Ok(()));
+        //  let icd_helper_factory = ICDHelperFactoryMock::default().make_result(Box::new(icd_helper));
+        subject.inbound_client_data_helper_opt = Some(Box::new(icd_helper));
         let socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
         let stream_key = StreamKey::new(main_cryptde().public_key().clone(), socket_addr);
         subject.keys_and_addrs.insert(stream_key, socket_addr);
@@ -4776,7 +4724,7 @@ mod tests {
             data: vec![],
         };
 
-        let result = ICDHelperReal {}.help_to_handle_normal_client_data(
+        let result = IBCDHelperReal {}.handle_normal_client_data(
             &mut proxy_server,
             inbound_client_data_msg,
             true,
@@ -4791,28 +4739,24 @@ mod tests {
     #[test]
     fn resolve_route_query_response_handles_error() {
         init_test_logging();
-        let (fake_proxy_server, _, _) = make_recorder();
-        let addr = fake_proxy_server.start();
+        let recorder = Recorder::new();
+        let addr = recorder.start();
         let add_route_msg_sub = recipient!(&addr, AddRouteMessage);
-        let socket_addr = SocketAddr::from_str("3.4.5.6:7890").unwrap();
-        let stream_key = StreamKey::new(main_cryptde().public_key().clone(), socket_addr);
         let logger = Logger::new("resolve_route_query_response_handles_error");
-        let payload = ClientRequestPayload_0v1 {
-            stream_key,
-            sequenced_packet: SequencedPacket::new(vec![], 1234, true),
-            target_hostname: Some(String::from("tunneled.com")),
-            target_port: 443,
-            protocol: ProxyProtocol::TLS,
-            originator_public_key: alias_cryptde().public_key().clone(),
+        let movable_tth_args = TTHArgsMovable {
+            common_opt: None,
+            logger,
+            hopper_sub: recipient!(&addr, IncipientCoresPackage),
+            dispatcher_sub: recipient!(&addr, TransmitDataMsg),
+            accountant_sub: recipient!(&addr, ReportServicesConsumedMessage),
+            add_return_route_sub: recipient!(&addr, AddReturnRouteMessage),
+            retire_stream_key_sub_opt: None,
         };
 
-        ICDHelperReal::resolve_route_query_response(
-            Err(MailboxError::Timeout),
-            payload,
-            logger,
+        IBCDHelperReal::resolve_route_query_response(
+            movable_tth_args,
             add_route_msg_sub,
-            |_, _, _| {},
-            |_, _| {},
+            Err(MailboxError::Timeout),
         );
 
         TestLogHandler::new().exists_log_containing("ERROR: resolve_route_query_response_handles_error: Neighborhood refused to answer route request: MailboxError(Message delivery timed out)");
@@ -4864,7 +4808,7 @@ mod tests {
             data: vec![],
         };
 
-        let result = ICDHelperReal {}.help_to_handle_normal_client_data(
+        let result = IBCDHelperReal {}.handle_normal_client_data(
             &mut proxy_server,
             inbound_client_data_msg,
             true,
