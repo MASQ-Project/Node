@@ -13,7 +13,7 @@ pub(in crate::proxy_server) mod local {
     use std::net::SocketAddr;
     use std::time::SystemTime;
 
-    pub struct TTHArgsCommon {
+    pub struct TTHCommonArgs {
         pub cryptde: &'static dyn CryptDE,
         pub payload: ClientRequestPayload_0v1,
         pub source_addr: SocketAddr,
@@ -21,8 +21,8 @@ pub(in crate::proxy_server) mod local {
         pub is_decentralized: bool,
     }
 
-    pub struct TTHArgsLocal<'a> {
-        pub common: TTHArgsCommon,
+    pub struct TTHLocalArgs<'a> {
+        pub common: TTHCommonArgs,
         pub logger: &'a Logger,
         pub retire_stream_key_sub_opt: Option<&'a Recipient<StreamShutdownMsg>>,
         pub hopper_sub: &'a Recipient<IncipientCoresPackage>,
@@ -31,8 +31,8 @@ pub(in crate::proxy_server) mod local {
         pub add_return_route_sub: &'a Recipient<AddReturnRouteMessage>,
     }
 
-    pub struct TTHArgsMovable {
-        pub common_opt: Option<TTHArgsCommon>,
+    pub struct TTHMovableArgs {
+        pub common_opt: Option<TTHCommonArgs>,
         pub logger: Logger,
         pub retire_stream_key_sub_opt: Option<Recipient<StreamShutdownMsg>>,
         pub hopper_sub: Recipient<IncipientCoresPackage>,
@@ -41,8 +41,8 @@ pub(in crate::proxy_server) mod local {
         pub add_return_route_sub: Recipient<AddReturnRouteMessage>,
     }
 
-    impl From<TTHArgsLocal<'_>> for TTHArgsMovable {
-        fn from(args: TTHArgsLocal) -> Self {
+    impl From<TTHLocalArgs<'_>> for TTHMovableArgs {
+        fn from(args: TTHLocalArgs) -> Self {
             Self {
                 common_opt: Some(args.common),
                 logger: args.logger.clone(),
@@ -55,8 +55,8 @@ pub(in crate::proxy_server) mod local {
         }
     }
 
-    impl<'a> From<&'a mut TTHArgsMovable> for TTHArgsLocal<'a> {
-        fn from(args: &'a mut TTHArgsMovable) -> TTHArgsLocal<'a> {
+    impl<'a> From<&'a mut TTHMovableArgs> for TTHLocalArgs<'a> {
+        fn from(args: &'a mut TTHMovableArgs) -> TTHLocalArgs<'a> {
             Self {
                 common: args.common_opt.take().expectv("common args"),
                 logger: &args.logger,

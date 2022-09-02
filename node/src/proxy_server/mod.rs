@@ -13,7 +13,7 @@ use crate::proxy_server::client_request_payload_factory::{
 };
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::proxy_server::protocol_pack::{from_ibcd, from_protocol, ProtocolPack};
-use crate::proxy_server::utils::local::{TTHArgsCommon, TTHArgsLocal, TTHArgsMovable};
+use crate::proxy_server::utils::local::{TTHCommonArgs, TTHLocalArgs, TTHMovableArgs};
 use crate::proxy_server::ExitServiceSearch::{Definite, ZeroHop};
 use crate::stream_messages::NonClandestineAttributes;
 use crate::stream_messages::RemovedStreamType;
@@ -546,7 +546,7 @@ impl ProxyServer {
         }
     }
 
-    fn try_transmit_to_hopper(args: TTHArgsLocal, route_query_response: RouteQueryResponse) {
+    fn try_transmit_to_hopper(args: TTHLocalArgs, route_query_response: RouteQueryResponse) {
         match route_query_response.expected_services {
             ExpectedServices::RoundTrip(over, back, return_route_id) => {
                 let return_route_info = AddReturnRouteMessage {
@@ -885,15 +885,13 @@ impl IBCDHelper for IBCDHelperReal {
             return Err("Browser request rejected due to missing consuming wallet".to_string());
         }
         let stream_key = proxy.make_stream_key(&msg);
-        eprintln!("stream key: {}", stream_key);
         let timestamp = msg.timestamp;
         let payload = match proxy.make_payload(msg, &stream_key) {
             Ok(payload) => payload,
             Err(e) => return Err(e),
         };
-        eprintln!("payload: {:?}", payload);
-        let args_local = TTHArgsLocal {
-            common: TTHArgsCommon {
+        let local_args = TTHLocalArgs {
+            common: TTHCommonArgs {
                 cryptde: proxy.main_cryptde,
                 payload,
                 source_addr,
@@ -911,7 +909,7 @@ impl IBCDHelper for IBCDHelperReal {
                 None
             },
         };
-        let pld = &args_local.common.payload;
+        let pld = &local_args.common.payload;
         if let Some(route_query_response) = proxy.stream_key_routes.get(&pld.stream_key) {
             debug!(
                 proxy.logger,
@@ -920,29 +918,28 @@ impl IBCDHelper for IBCDHelperReal {
                 pld.sequenced_packet.sequence_number,
                 pld.sequenced_packet.data.len()
             );
-            eprintln!("route query response: {:?}", route_query_response);
             let route_query_response = route_query_response.clone();
-            ProxyServer::try_transmit_to_hopper(args_local, route_query_response);
+            ProxyServer::try_transmit_to_hopper(local_args, route_query_response);
             Ok(())
         } else {
-            let args_movable = TTHArgsMovable::from(args_local);
+            let movable_args = TTHMovableArgs::from(local_args);
             let route_source = proxy.out_subs("Neighborhood").route_source.clone();
             let add_route_sub = proxy.out_subs("ProxyServer").add_route.clone();
-            Self::request_route_and_transmit(args_movable, route_source, add_route_sub)
+            Self::request_route_and_transmit(movable_args, route_source, add_route_sub)
         }
     }
 }
 
 impl IBCDHelperReal {
     fn request_route_and_transmit(
-        args_movable: TTHArgsMovable,
+        args: TTHMovableArgs,
         route_source: Recipient<RouteQueryMessage>,
         add_route_sub: Recipient<AddRouteMessage>,
     ) -> Result<(), String> {
-        let common_args = args_movable.common_opt.as_ref().expectv("TTH common");
+        let common_args = args.common_opt.as_ref().expectv("TTH common");
         let pld = &common_args.payload;
         debug!(
-            args_movable.logger,
+            args.logger,
             "Getting route and opening new stream with key {} to transmit: sequence {}, length {}",
             pld.stream_key,
             pld.sequenced_packet.sequence_number,
@@ -960,7 +957,7 @@ impl IBCDHelperReal {
                     payload_size,
                 ))
                 .then(move |route_result| {
-                    Self::resolve_route_query_response(args_movable, add_route_sub, route_result);
+                    Self::resolve_route_query_response(args, add_route_sub, route_result);
                     Ok(())
                 }),
         );
@@ -968,7 +965,7 @@ impl IBCDHelperReal {
     }
 
     fn resolve_route_query_response(
-        mut args: TTHArgsMovable,
+        mut args: TTHMovableArgs,
         add_route_sub: Recipient<AddRouteMessage>,
         route_result: Result<Option<RouteQueryResponse>, MailboxError>,
     ) {
@@ -988,11 +985,11 @@ impl IBCDHelperReal {
                 ProxyServer::try_transmit_to_hopper((&mut args).into(), route_query_response)
             }
             Ok(None) => {
-                let common_tth = args.common_opt.take().expectv("tth common");
+                let tth_common = args.common_opt.take().expectv("tth common");
                 ProxyServer::handle_route_failure(
-                    common_tth.payload,
+                    tth_common.payload,
                     &args.logger,
-                    common_tth.source_addr,
+                    tth_common.source_addr,
                     &args.dispatcher_sub,
                 )
             }
@@ -2419,8 +2416,8 @@ mod tests {
             originator_public_key: PublicKey::new(b"originator_public_key"),
         };
         let logger = Logger::new("test");
-        let local_tth_args = TTHArgsLocal {
-            common: TTHArgsCommon {
+        let local_tth_args = TTHLocalArgs {
+            common: TTHCommonArgs {
                 cryptde,
                 payload,
                 source_addr,
@@ -2505,8 +2502,8 @@ mod tests {
             originator_public_key: PublicKey::new(b"originator_public_key"),
         };
         let logger = Logger::new("test");
-        let local_tth_args = TTHArgsLocal {
-            common: TTHArgsCommon {
+        let local_tth_args = TTHLocalArgs {
+            common: TTHCommonArgs {
                 cryptde,
                 payload,
                 source_addr,
@@ -2757,8 +2754,8 @@ mod tests {
         };
         let logger = Logger::new("ProxyServer");
         let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
-        let local_tth_args = TTHArgsLocal {
-            common: TTHArgsCommon {
+        let local_tth_args = TTHLocalArgs {
+            common: TTHCommonArgs {
                 cryptde,
                 payload,
                 source_addr,
@@ -4150,7 +4147,13 @@ mod tests {
     fn panics_if_hopper_is_unbound() {
         let system = System::new("panics_if_hopper_is_unbound");
         let http_request = b"GET /index.html HTTP/1.1\r\nHost: nowhere.com\r\n\r\n";
-        let subject = ProxyServer::new(main_cryptde(), alias_cryptde(), true, Some(0), false);
+        let subject = ProxyServer::new(
+            main_cryptde(),
+            alias_cryptde(),
+            true,
+            Some(STANDARD_CONSUMING_WALLET_BALANCE),
+            false,
+        );
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let expected_data = http_request.to_vec();
         let msg_from_dispatcher = InboundClientData {
@@ -4783,7 +4786,7 @@ mod tests {
         let addr = recorder.start();
         let add_route_msg_sub = recipient!(&addr, AddRouteMessage);
         let logger = Logger::new("resolve_route_query_response_handles_error");
-        let movable_tth_args = TTHArgsMovable {
+        let movable_tth_args = TTHMovableArgs {
             common_opt: None,
             logger,
             hopper_sub: recipient!(&addr, IncipientCoresPackage),
