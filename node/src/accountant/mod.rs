@@ -630,7 +630,7 @@ impl Accountant {
         } else {
             warning!(
                 self.logger,
-                "Declining to charge our wallet {} for service we provided",
+                "Declining to record a receivable against our wallet {} for service we provided",
                 wallet
             );
         }
@@ -665,7 +665,7 @@ impl Accountant {
         } else {
             warning!(
                 self.logger,
-                "Declining to charge our wallet {} for service we provided",
+                "Declining to record a payable against our wallet {} for service we provided",
                 wallet
             );
         }
@@ -2961,7 +2961,7 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: Accountant: Declining to charge our wallet {} for service we provided",
+            "WARN: Accountant: Declining to record a receivable against our wallet {} for service we provided",
             consuming_wallet,
         ));
     }
@@ -3009,7 +3009,7 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: Accountant: Declining to charge our wallet {} for service we provided",
+            "WARN: Accountant: Declining to record a receivable against our wallet {} for service we provided",
             earning_wallet,
         ));
     }
@@ -3108,7 +3108,7 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: Accountant: Declining to charge our wallet {} for service we provided",
+            "WARN: Accountant: Declining to record a receivable against our wallet {} for service we provided",
             consuming_wallet
         ));
     }
@@ -3154,7 +3154,7 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: Accountant: Declining to charge our wallet {} for service we provided",
+            "WARN: Accountant: Declining to record a receivable against our wallet {} for service we provided",
             earning_wallet,
         ));
     }
@@ -3320,7 +3320,7 @@ mod tests {
             vec![(timestamp, foreign_wallet, (45 + 10 * 1234))]
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: Accountant: Declining to charge our wallet {} for service we provided",
+            "WARN: Accountant: Declining to record a payable against our wallet {} for service we provided",
             consuming_wallet
         ));
     }
@@ -3365,7 +3365,7 @@ mod tests {
             vec![(timestamp, foreign_wallet, (45 + 10 * 1234))]
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: Accountant: Declining to charge our wallet {} for service we provided",
+            "WARN: Accountant: Declining to record a payable against our wallet {} for service we provided",
             earning_wallet
         ));
     }
@@ -3400,7 +3400,7 @@ mod tests {
 
         assert!(more_money_payable_params_arc.lock().unwrap().is_empty());
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: Accountant: Declining to charge our wallet {} for service we provided",
+            "WARN: Accountant: Declining to record a payable against our wallet {} for service we provided",
             consuming_wallet
         ));
     }
@@ -3431,7 +3431,7 @@ mod tests {
 
         assert!(more_money_payable_params_arc.lock().unwrap().is_empty());
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: Accountant: Declining to charge our wallet {} for service we provided",
+            "WARN: Accountant: Declining to record a payable against our wallet {} for service we provided",
             earning_wallet
         ));
     }

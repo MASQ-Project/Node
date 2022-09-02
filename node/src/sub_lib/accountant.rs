@@ -12,7 +12,6 @@ use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
-use std::sync::Mutex;
 use std::time::{Duration, SystemTime};
 
 lazy_static! {
@@ -147,8 +146,6 @@ pub trait MessageIdGenerator {
     as_any_dcl!();
 }
 
-pub static MSG_ID_GENERATOR_TEST_GUARD: Mutex<()> = Mutex::new(());
-
 #[derive(Default)]
 pub struct MessageIdGeneratorReal {}
 
@@ -164,14 +161,17 @@ mod tests {
     use crate::sub_lib::accountant::{
         MessageIdGenerator, MessageIdGeneratorReal, PaymentThresholds, ScanIntervals,
         DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS,
-        MSG_ID_GENERATOR_TEST_GUARD, MSG_ID_INCREMENTER, TEMPORARY_CONSUMING_WALLET,
+        MSG_ID_INCREMENTER, TEMPORARY_CONSUMING_WALLET,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
     use actix::Actor;
     use std::str::FromStr;
     use std::sync::atomic::Ordering;
+    use std::sync::Mutex;
     use std::time::Duration;
+
+    static MSG_ID_GENERATOR_TEST_GUARD: Mutex<()> = Mutex::new(());
 
     #[test]
     fn constants_have_correct_values() {

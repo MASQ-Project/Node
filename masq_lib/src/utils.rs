@@ -343,11 +343,12 @@ where
 {
     type Result;
 
+    //note: you should not write your own impl of this defaulted method
     fn help<F>(&mut self, closure: F) -> Self::Result
     where
         F: FnOnce(&T, &mut Self) -> Self::Result,
     {
-        let helper = self.helper_access().take().unwrap();
+        let helper = self.helper_access().take().expectv("helper");
         let result = closure(&helper, self);
         self.helper_access().replace(helper);
         result
