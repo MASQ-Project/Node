@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 #[cfg(test)]
 mod local_test_utils;
@@ -27,7 +27,7 @@ use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
-use crate::sub_lib::utils::NODE_MAILBOX_CAPACITY;
+use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
@@ -36,9 +36,11 @@ use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use masq_lib::logger::Logger;
+use masq_lib::ui_gateway::NodeFromUiMessage;
 use pretty_hex::PrettyHex;
 use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::time::SystemTime;
 use trust_dns_resolver::config::NameServerConfig;
 use trust_dns_resolver::config::Protocol;
 use trust_dns_resolver::config::ResolverConfig;
@@ -57,6 +59,7 @@ pub struct ProxyClient {
     stream_contexts: HashMap<StreamKey, StreamContext>,
     exit_service_rate: u64,
     exit_byte_rate: u64,
+    crashable: bool,
     logger: Logger,
 }
 
@@ -208,6 +211,14 @@ impl Handler<DnsResolveFailure_0v1> for ProxyClient {
     }
 }
 
+impl Handler<NodeFromUiMessage> for ProxyClient {
+    type Result = ();
+
+    fn handle(&mut self, msg: NodeFromUiMessage, _ctx: &mut Self::Context) -> Self::Result {
+        handle_ui_crash_request(msg, &self.logger, self.crashable, CRASH_KEY)
+    }
+}
+
 impl ProxyClient {
     pub fn new(config: ProxyClientConfig) -> ProxyClient {
         if config.dns_servers.is_empty() {
@@ -224,18 +235,18 @@ impl ProxyClient {
             stream_contexts: HashMap::new(),
             exit_service_rate: config.exit_service_rate,
             exit_byte_rate: config.exit_byte_rate,
+            crashable: config.crashable,
             logger: Logger::new("ProxyClient"),
         }
     }
 
     pub fn make_subs_from(addr: &Addr<ProxyClient>) -> ProxyClientSubs {
         ProxyClientSubs {
-            bind: addr.clone().recipient::<BindMessage>(),
-            from_hopper: addr
-                .clone()
-                .recipient::<ExpiredCoresPackage<ClientRequestPayload_0v1>>(),
-            inbound_server_data: addr.clone().recipient::<InboundServerData>(),
-            dns_resolve_failed: addr.clone().recipient::<DnsResolveFailure_0v1>(),
+            bind: recipient!(addr, BindMessage),
+            from_hopper: recipient!(addr, ExpiredCoresPackage<ClientRequestPayload_0v1>),
+            inbound_server_data: recipient!(addr, InboundServerData),
+            dns_resolve_failed: recipient!(addr, DnsResolveFailure_0v1),
+            node_from_ui: recipient!(addr, NodeFromUiMessage),
         }
     }
 
@@ -293,6 +304,7 @@ impl ProxyClient {
     ) {
         if let Some(paying_wallet) = stream_context.paying_wallet.clone() {
             let exit_report = ReportExitServiceProvidedMessage {
+                timestamp: SystemTime::now(),
                 paying_wallet,
                 payload_size: msg_data_len,
                 service_rate: self.exit_service_rate,
@@ -321,7 +333,7 @@ struct StreamContext {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::ROPSTEN_TESTNET_CONTRACT_ADDRESS;
+    use crate::node_test_utils::check_timestamp;
     use crate::proxy_client::local_test_utils::ResolverWrapperFactoryMock;
     use crate::proxy_client::local_test_utils::ResolverWrapperMock;
     use crate::proxy_client::resolver_wrapper::ResolverWrapper;
@@ -343,17 +355,24 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
     use crate::test_utils::*;
     use actix::System;
-    use masq_lib::test_utils::logging::init_test_logging;
-    use masq_lib::test_utils::logging::TestLogHandler;
+    use masq_lib::blockchains::chains::Chain;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::cell::RefCell;
-    use std::net::IpAddr;
     use std::net::SocketAddr;
+    use std::net::{IpAddr, SocketAddrV4};
     use std::str::FromStr;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::thread;
+    use std::time::SystemTime;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRASH_KEY, "PROXYCLIENT");
+    }
 
     fn dnss() -> Vec<SocketAddr> {
         vec![SocketAddr::from_str("8.8.8.8:53").unwrap()]
@@ -468,6 +487,24 @@ mod tests {
 
     #[test]
     #[should_panic(
+        expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
+    )]
+    fn proxy_client_can_be_crashed_properly_but_not_improperly() {
+        let proxy_client = ProxyClient::new(ProxyClientConfig {
+            cryptde: main_cryptde(),
+            dns_servers: vec![SocketAddr::V4(
+                SocketAddrV4::from_str("1.2.3.4:4560").unwrap(),
+            )],
+            exit_service_rate: 100,
+            exit_byte_rate: 200,
+            crashable: true,
+        });
+
+        prove_that_crash_request_handler_is_hooked_up(proxy_client, CRASH_KEY);
+    }
+
+    #[test]
+    #[should_panic(
         expected = "ProxyClient requires at least one DNS server IP address after the --dns-servers parameter"
     )]
     fn at_least_one_dns_server_must_be_provided() {
@@ -476,6 +513,7 @@ mod tests {
             dns_servers: vec![],
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            crashable: false,
         });
     }
 
@@ -503,6 +541,7 @@ mod tests {
             ],
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            crashable: false,
         });
         subject.resolver_wrapper_factory = Box::new(resolver_wrapper_factory);
         subject.stream_handler_pool_factory = Box::new(pool_factory);
@@ -566,6 +605,7 @@ mod tests {
             dns_servers: dnss(),
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            crashable: false,
         });
         let subject_addr: Addr<ProxyClient> = subject.start();
 
@@ -588,6 +628,7 @@ mod tests {
                 dns_servers: vec![SocketAddr::from_str("1.1.1.1:53").unwrap()],
                 exit_service_rate: 0,
                 exit_byte_rate: 0,
+                crashable: false,
             });
             let subject_addr = subject.start();
             let subject_subs = ProxyClient::make_subs_from(&subject_addr);
@@ -627,6 +668,7 @@ mod tests {
                 dns_servers: vec![SocketAddr::from_str("1.1.1.1:53").unwrap()],
                 exit_service_rate: 0,
                 exit_byte_rate: 0,
+                crashable: false,
             });
             subject.stream_contexts.insert(
                 stream_key_inner,
@@ -714,6 +756,7 @@ mod tests {
             dns_servers: dnss(),
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            crashable: false,
         });
         subject.resolver_wrapper_factory = Box::new(resolver_factory);
         subject.stream_handler_pool_factory = Box::new(pool_factory);
@@ -769,6 +812,7 @@ mod tests {
             dns_servers: dnss(),
             exit_service_rate: rate_pack_exit(100),
             exit_byte_rate: rate_pack_exit_byte(100),
+            crashable: false,
         });
         subject.resolver_wrapper_factory = Box::new(resolver_factory);
         subject.stream_handler_pool_factory = Box::new(pool_factory);
@@ -806,7 +850,7 @@ mod tests {
             ),
             main_cryptde,
             None,
-            Some(ROPSTEN_TESTNET_CONTRACT_ADDRESS),
+            Some(Chain::EthRopsten.rec().contract),
         )
         .unwrap();
         let package = ExpiredCoresPackage::new(
@@ -834,6 +878,7 @@ mod tests {
             dns_servers: dnss(),
             exit_service_rate: rate_pack_exit(100),
             exit_byte_rate: rate_pack_exit_byte(100),
+            crashable: false,
         });
         subject.resolver_wrapper_factory = Box::new(resolver_factory);
         subject.stream_handler_pool_factory = Box::new(pool_factory);
@@ -861,6 +906,7 @@ mod tests {
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            crashable: false,
         });
         subject.stream_contexts.insert(
             stream_key.clone(),
@@ -875,8 +921,8 @@ mod tests {
             .hopper(hopper)
             .accountant(accountant)
             .build();
-
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        let before = SystemTime::now();
 
         subject_addr
             .try_send(InboundServerData {
@@ -917,6 +963,7 @@ mod tests {
 
         System::current().stop_with_code(0);
         system.run();
+        let after = SystemTime::now();
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         assert_eq!(
             hopper_recording.get_record::<IncipientCoresPackage>(0),
@@ -961,18 +1008,26 @@ mod tests {
         assert_eq!(hopper_recording.len(), 2);
 
         let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let accountant_record =
+            accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0);
+        check_timestamp(before, accountant_record.timestamp, after);
         assert_eq!(
-            accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0),
+            accountant_record,
             &ReportExitServiceProvidedMessage {
+                timestamp: accountant_record.timestamp,
                 paying_wallet: make_wallet("paying"),
                 payload_size: data.len(),
                 service_rate: 100,
                 byte_rate: 200,
             }
         );
+        let accountant_record =
+            accountant_recording.get_record::<ReportExitServiceProvidedMessage>(1);
+        check_timestamp(before, accountant_record.timestamp, after);
         assert_eq!(
-            accountant_recording.get_record::<ReportExitServiceProvidedMessage>(1),
+            accountant_record,
             &ReportExitServiceProvidedMessage {
+                timestamp: accountant_record.timestamp,
                 paying_wallet: make_wallet("paying"),
                 payload_size: data.len(),
                 service_rate: 100,
@@ -997,6 +1052,7 @@ mod tests {
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            crashable: false,
         });
         subject.stream_contexts.insert(
             stream_key.clone(),
@@ -1047,6 +1103,7 @@ mod tests {
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            crashable: false,
         });
         subject.stream_contexts.insert(
             stream_key.clone(),
@@ -1095,6 +1152,7 @@ mod tests {
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            crashable: false,
         });
         let mut process_package_params_arc = Arc::new(Mutex::new(vec![]));
         let pool = StreamHandlerPoolMock::new()
@@ -1132,6 +1190,7 @@ mod tests {
             protocol: ProxyProtocol::HTTP,
             originator_public_key: originator_public_key.clone(),
         };
+        let before = SystemTime::now();
 
         subject_addr
             .try_send(ExpiredCoresPackage::new(
@@ -1154,6 +1213,7 @@ mod tests {
             .unwrap();
         System::current().stop_with_code(0);
         system.run();
+        let after = SystemTime::now();
         let mut process_package_params = process_package_params_arc.lock().unwrap();
         let (actual_payload, paying_wallet_opt) = process_package_params.remove(0);
         assert_eq!(actual_payload, payload);
@@ -1182,9 +1242,13 @@ mod tests {
             &expected_icp.clone()
         );
         let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let accountant_record =
+            accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0);
+        check_timestamp(before, accountant_record.timestamp, after);
         assert_eq!(
-            accountant_recording.get_record::<ReportExitServiceProvidedMessage>(0),
+            accountant_record,
             &ReportExitServiceProvidedMessage {
+                timestamp: accountant_record.timestamp,
                 paying_wallet: make_wallet("gnimusnoc"),
                 payload_size: data.len(),
                 service_rate: 100,

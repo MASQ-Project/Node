@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod big_data_server;
 pub mod blockchain;
@@ -11,7 +11,9 @@ pub mod masq_node;
 pub mod masq_node_client;
 pub mod masq_node_cluster;
 pub mod masq_node_server;
+pub mod masq_node_ui_client;
 pub mod masq_real_node;
+pub mod mock_blockchain_client_server;
 pub mod multinode_gossip;
 pub mod neighborhood_constructor;
 pub mod utils;

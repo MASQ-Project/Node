@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
 use crate::command_factory::{CommandFactory, CommandFactoryReal};
@@ -45,7 +45,7 @@ impl Main {
             .zip(one_item_shifted_forth)
             .enumerate()
             .find(|(_index, (left, right))| Self::both_do_not_start_with_two_dashes(left, right))
-            .map(|(index, _)| args.to_owned().into_iter().skip(index + 1).collect())
+            .map(|(index, _)| args.iter().skip(index + 1).cloned().collect())
     }
 
     fn both_do_not_start_with_two_dashes(

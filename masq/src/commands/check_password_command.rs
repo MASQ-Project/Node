@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
@@ -11,19 +11,25 @@ use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct CheckPasswordCommand {
     pub db_password_opt: Option<String>,
 }
 
+const CHECK_PASSWORD_ABOUT: &str =
+    "Checks whether the supplied db-password (if any) is the correct password for the Node's database";
+const DB_PASSWORD_ARG_HELP: &str =
+    "Password to check--leave it out if you think the database doesn't have a password yet";
+
 pub fn check_password_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("check-password")
-        .about("Checks whether the supplied db-password (if any) is the correct password for the Node's database")
-        .arg(Arg::with_name ("db-password")
-            .help ("Password to check--leave it out if you think the database doesn't have a password yet")
-            .index (1)
-            .required (false)
-            .case_insensitive(false)
+        .about(CHECK_PASSWORD_ABOUT)
+        .arg(
+            Arg::with_name("db-password")
+                .help(DB_PASSWORD_ARG_HELP)
+                .index(1)
+                .required(false)
+                .case_insensitive(false),
         )
 }
 
@@ -70,6 +76,18 @@ mod tests {
     use crate::test_utils::mocks::CommandContextMock;
     use masq_lib::messages::{ToMessageBody, UiCheckPasswordRequest, UiCheckPasswordResponse};
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(
+            CHECK_PASSWORD_ABOUT,
+            "Checks whether the supplied db-password (if any) is the correct password for the Node's database"
+        );
+        assert_eq!(
+            DB_PASSWORD_ARG_HELP,
+            "Password to check--leave it out if you think the database doesn't have a password yet"
+        );
+    }
 
     #[test]
     fn testing_command_factory_with_good_command() {

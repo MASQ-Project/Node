@@ -1,8 +1,9 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::dns_modifier::DnsModifier;
 use crate::ipconfig_wrapper::{IpconfigWrapper, IpconfigWrapperReal};
 use crate::netsh::{Netsh, NetshCommand, NetshError};
+use masq_lib::utils::plus;
 use std::collections::HashSet;
 use std::fmt::Debug;
 use std::io;
@@ -396,13 +397,6 @@ impl WinDnsModifier {
     }
 }
 
-pub fn plus<T>(mut source: Vec<T>, item: T) -> Vec<T> {
-    let mut result = vec![];
-    result.append(&mut source);
-    result.push(item);
-    result
-}
-
 pub trait RegKeyTrait: Debug {
     fn path(&self) -> &str;
     fn enum_keys(&self) -> Vec<io::Result<String>>;
@@ -472,6 +466,13 @@ mod tests {
     use std::collections::HashMap;
     use std::io::Error;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(NOT_FOUND, 2);
+        assert_eq!(PERMISSION_DENIED, 5);
+        assert_eq!(PERMISSION_DENIED_STR, "Permission denied");
+    }
 
     #[test]
     fn is_subverted_says_no_if_masq_dns_appears_too_late() {

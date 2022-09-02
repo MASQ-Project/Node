@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use std::process;
 use std::process::Output;
@@ -40,13 +40,32 @@ impl Command {
     pub fn stdout_or_stderr(&mut self) -> Result<String, String> {
         match self.wait_for_exit() {
             0 => Ok(self.stdout_as_string()),
-            _ => Err(self.stderr_as_string()),
+            _ => Err(self.diagnosis()),
         }
     }
 
     pub fn stdout_and_stderr(&mut self) -> String {
-        self.wait_for_exit();
-        self.stdout_as_string() + self.stderr_as_string().as_str()
+        let exit_code = self.wait_for_exit();
+        self.combine_exit_code_stdout_and_stderr(exit_code)
+    }
+
+    fn combine_exit_code_stdout_and_stderr(&self, exit_code: i32) -> String {
+        format!(
+            "EXIT CODE: {}\nSTDOUT:\n{}\n\nSTDERR:\n{}\n\n",
+            exit_code,
+            self.stdout_as_string(),
+            self.stderr_as_string()
+        )
+    }
+
+    fn diagnosis(&self) -> String {
+        let stdout = self.stdout_as_string();
+        let stderr = self.stderr_as_string();
+        if stdout.len() > stderr.len() {
+            format!("{} (stdout: '{}')", stderr, stdout)
+        } else {
+            stderr
+        }
     }
 
     pub fn stdout_as_string(&self) -> String {

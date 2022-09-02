@@ -1,36 +1,40 @@
 [package]
 name = "multinode_integration_tests"
-version = "1.0.0"
-authors = ["Substratum Developer <substratum@substratum.net>", "MASQ"]
+version = "0.6.1"
+authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 license = "GPL-3.0-only"
-copyright = "Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved."
+copyright = "Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved."
 description = ""
-edition = "2018"
+edition = "2021"
 workspace = "../node"
 
 [dependencies]
-base64 = "0.10.1"
-crossbeam-channel = "0.5.0"
-ethereum-types = "0.6.0"
+base64 = "0.13.0"
+crossbeam-channel = "0.5.1"
+ethereum-types = "0.9.0"
 ethsign-crypto = "0.2.1"
-futures = "0.1.28"
-itertools = "0.8.0"
+futures = "0.1.31"
+itertools = "0.10.1"
+lazy_static = "1.4.0"
+log = "0.4.14"
 masq_lib = { path = "../masq_lib" }
-pretty-hex = "0.1.0"
-primitive-types = {version = "0.5.0", default-features = false, features = ["default", "rlp", "serde"] }
-regex = "1.2.1"
-rusqlite = {version = "0.20.0", features = ["bundled"]}
-rustc-hex = "2.0.1"
-serde = "1.0.99"
-serde_derive = "1.0.99"
-serde_cbor = "0.10.1"
-sha1 = "0.6.0"
-tiny-bip39 = "0.6.2"
-tiny-hderive = "0.2.1"
-native-tls = "0.2.3"
+native-tls = "0.2.8"
 node = { path = "../node", features = [ "expose_test_privates" ] }
-uint = "0.8.1"
-web3 = {version = "0.8.0", default-features = false, features = ["http", "tls"]}
+pretty-hex = "0.2.1"
+primitive-types = {version = "0.5.0", default-features = false, features = ["default", "rlp", "serde"] }
+regex = "1.5.4"
+rusqlite = {version = "0.26.1", features = ["bundled"]}
+rustc-hex = "2.1.0"
+serde = "1.0.130"
+serde_cbor = "0.11.2"
+serde_derive = "1.0.130"
+serde_json = "1.0"
+sha1 = "0.6.0"
+tiny-bip39 = "0.8.2"
+tiny-hderive = "0.3.0"
+uint = "0.9.1"
+web3 = {version = "0.11.0", default-features = false, features = ["http", "tls"]}
+websocket = {version = "0.26.2", default-features = false, features = ["sync"]}
 
 [lib]
 name = "multinode_integration_tests_lib"
@@ -41,4 +45,4 @@ name = "mock_node"
 path = "src/main.rs"
 
 [dev-dependencies]
-reqwest = "0.9.19"
+reqwest = "0.11.6"

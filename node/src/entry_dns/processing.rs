@@ -1,10 +1,11 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use super::packet_facade::PacketFacade;
 use super::packet_facade::Query;
 use super::packet_facade::ResourceRecord;
 use masq_lib::logger::Logger;
 use std::convert::From;
 use std::convert::TryFrom;
+use std::fmt::Write as _;
 use std::net::SocketAddr;
 use std::net::{Ipv4Addr, Ipv6Addr};
 use std::time::Instant;
@@ -36,7 +37,7 @@ pub fn process(buf: &mut [u8], length: usize, addr: &SocketAddr, logger: &Logger
     response_size
 }
 
-fn make_response(mut facade: &mut PacketFacade) -> usize {
+fn make_response(facade: &mut PacketFacade) -> usize {
     match facade.get_opcode() {
         None => return make_format_error(facade),
         Some(opcode) if opcode == u8::from(OpCode::Query) => (),
@@ -76,7 +77,7 @@ fn make_response(mut facade: &mut PacketFacade) -> usize {
                 3600,
                 &Ipv6Addr::LOCALHOST.octets(),
             ),
-            _ => return make_not_implemented_error(&mut facade),
+            _ => return make_not_implemented_error(facade),
         };
     }
     facade.get_length()
@@ -124,7 +125,8 @@ fn write_log(from: &RequestRecord, to: &ResponseRecord, addr: &SocketAddr, logge
                 Ok(c) => <&'static str>::from(c),
                 Err(_) => UNKNOWN,
             };
-            query_list += &format!(
+            let _ = write!(
+                query_list,
                 "{}/{}/{}",
                 RecordType::from(query.get_query_type()),
                 class_string,
@@ -187,6 +189,12 @@ mod tests {
     use std::net::SocketAddr;
     use std::net::SocketAddrV4;
     use std::time::Instant;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(HEADER_BYTES, 12);
+        assert_eq!(UNKNOWN, "<unknown>");
+    }
 
     #[test]
     fn returns_format_error_if_queries_overrun() {

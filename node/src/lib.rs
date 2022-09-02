@@ -1,11 +1,8 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![recursion_limit = "128"]
 
 #[macro_use]
 pub mod sub_lib;
-
-#[cfg_attr(test, macro_use)]
-extern crate clap;
 
 #[macro_use]
 extern crate masq_lib;
@@ -47,6 +44,6 @@ mod stream_messages;
 mod stream_reader;
 mod stream_writer_sorted;
 mod stream_writer_unsorted;
-pub mod test_utils; //TODO we should take collections of testing utils and make them test contingent.
+pub mod test_utils; //TODO we should make some effort for collections of testing utils to be really test conditioned.
 pub mod tls_discriminator_factory;
 pub mod ui_gateway;

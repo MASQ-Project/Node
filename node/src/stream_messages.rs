@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::bootstrapper::PortConfiguration;
 use crate::stream_handler_pool::StreamHandlerPoolSubs;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
@@ -31,19 +31,19 @@ impl AddStreamMsg {
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub struct NonClandestineAttributes {
     pub reception_port: u16,
     pub sequence_number: u64,
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum RemovedStreamType {
     Clandestine,
     NonClandestine(NonClandestineAttributes),
 }
 
-#[derive(PartialEq, Message)]
+#[derive(PartialEq, Eq, Message)]
 pub struct RemoveStreamMsg {
     pub local_addr: SocketAddr,
     pub peer_addr: SocketAddr,

@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::daemon::dns_inspector::dns_inspector::DnsInspector;
 use crate::daemon::dns_inspector::DnsInspectionError;
@@ -22,7 +22,7 @@ impl DnsInspector for WinDnsInspector {
         let dns_server_list_csv = self.find_dns_server_list(interfaces)?;
         let ip_vec: Vec<_> = dns_server_list_csv
             .split(',')
-            .flat_map(|ip_str| IpAddr::from_str(ip_str))
+            .flat_map(IpAddr::from_str)
             .collect();
         Ok(ip_vec)
     }
@@ -241,6 +241,11 @@ mod tests {
     use std::collections::HashMap;
     use std::io::Error;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(NOT_FOUND, 2);
+    }
 
     #[test]
     fn get_default_gateway_sees_dhcp_if_both_are_specified() {

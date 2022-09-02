@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 pub mod utils;
 use node_lib::entry_dns::packet_facade::PacketFacade;
 use serial_test_derive::serial;
@@ -14,6 +14,9 @@ fn handles_two_consecutive_ipv4_dns_requests_integration() {
         "handles_two_consecutive_ipv4_dns_requests_integration",
         None,
         true,
+        true,
+        false,
+        true,
     );
 
     perform_ipv4_query();
@@ -26,6 +29,9 @@ fn handles_consecutive_heterogeneous_dns_requests_integration() {
     let _node = utils::MASQNode::start_standard(
         "handles_consecutive_heterogeneous_dns_requests_integration",
         None,
+        true,
+        true,
+        false,
         true,
     );
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::configurator::ConfiguratorSubs;
@@ -38,10 +38,17 @@ pub struct BindMessage {
     pub peer_actors: PeerActors,
 }
 
-#[derive(Message, Clone)]
+// This message is used for two unrelated purposes.
+// First, after the ActorSystemFactory has finished binding all the Actors with BindMessages,
+// it sends a StartMessage to the Neighborhood so that it can start trying to connect the new Node
+// to the Network.
+// Second, after the Neighborhood is successfully connected to the Network well enough to begin
+// routing messages, the Neighborhood sends another StartMessage to the Accountant, which uses
+// the StartMessage as a signal to begin running its regular scans.
+#[derive(Debug, Message, Clone)]
 pub struct StartMessage {}
 
-#[derive(Message, Clone, PartialEq, Debug)]
+#[derive(Message, Clone, PartialEq, Eq, Debug)]
 pub struct NewPublicIp {
     pub new_ip: IpAddr,
 }

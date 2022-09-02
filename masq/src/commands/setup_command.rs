@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{transaction, Command, CommandError};
@@ -19,12 +19,14 @@ use std::io::Write;
 
 pub const SETUP_COMMAND_TIMEOUT_MILLIS: u64 = 30000;
 
+const SETUP_COMMAND_ABOUT: &str =
+    "Establishes (if Node is not already running) and displays startup parameters for MASQNode.";
+
 pub fn setup_subcommand() -> App<'static, 'static> {
-    shared_app(SubCommand::with_name("setup")
-        .about("Establishes (if Node is not already running) and displays startup parameters for MASQNode."))
+    shared_app(SubCommand::with_name("setup").about(SETUP_COMMAND_ABOUT))
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct SetupCommand {
     pub values: Vec<UiSetupRequestValue>,
 }
@@ -104,14 +106,11 @@ impl SetupCommand {
                 .partial_cmp(&b.name)
                 .expect("String comparison failed")
         });
-        short_writeln!(
-            stdout,
-            "NAME                   VALUE                                                            STATUS"
-        );
+        short_writeln!(stdout, "{:29} {:64} {}", "NAME", "VALUE", "STATUS");
         inner.values.into_iter().for_each(|value| {
             short_writeln!(
                 stdout,
-                "{:23}{:65}{:?}",
+                "{:29} {:64} {:?}",
                 value.name,
                 value.value,
                 value.status
@@ -121,7 +120,7 @@ impl SetupCommand {
         if !inner.errors.is_empty() {
             short_writeln!(stdout, "ERRORS:");
             inner.errors.into_iter().for_each(|(parameter, reason)| {
-                short_writeln!(stdout, "{:23}{}", parameter, reason)
+                short_writeln!(stdout, "{:29} {}", parameter, reason)
             });
             short_writeln!(stdout);
         }
@@ -140,11 +139,21 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::communications::broadcast_handler::StreamFactory;
     use crate::test_utils::mocks::{CommandContextMock, TerminalPassiveMock, TestStreamFactory};
+    use masq_lib::constants::ETH_ROPSTEN_FULL_IDENTIFIER;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Default, Set};
     use masq_lib::messages::{UiSetupRequest, UiSetupResponse, UiSetupResponseValue};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(SETUP_COMMAND_TIMEOUT_MILLIS, 30000);
+        assert_eq!(
+            SETUP_COMMAND_ABOUT,
+            "Establishes (if Node is not already running) and displays startup parameters for MASQNode."
+         );
+    }
 
     #[test]
     fn setup_command_with_syntax_error() {
@@ -170,8 +179,15 @@ mod tests {
             .transact_result(Ok(UiSetupResponse {
                 running: false,
                 values: vec![
-                    UiSetupResponseValue::new("chain", "ropsten", Configured),
+                    UiSetupResponseValue::new("chain", "eth-ropsten", Configured),
                     UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
+                    UiSetupResponseValue::new(
+                        "neighbors",
+                        "masq://eth-mainnet:95VjByq5tEUUpDcczA__zXWGE6-7YFEvzN4CDVoPbWw@13.23.13.23:4545",
+                        Set,
+                    ),
+                    UiSetupResponseValue::new("scans", "off", Set),
+                    UiSetupResponseValue::new("scan-intervals","123|111|228",Set)
                 ],
                 errors: vec![],
             }
@@ -186,7 +202,11 @@ mod tests {
                 "zero-hop".to_string(),
                 "--log-level".to_string(),
                 "--chain".to_string(),
-                "ropsten".to_string(),
+                "eth-ropsten".to_string(),
+                "--scan-intervals".to_string(),
+                "123|111|228".to_string(),
+                "--scans".to_string(),
+                "off".to_string(),
             ])
             .unwrap();
 
@@ -199,9 +219,14 @@ mod tests {
             vec![(
                 UiSetupRequest {
                     values: vec![
-                        UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN_NAME),
+                        UiSetupRequestValue::new(
+                            "chain",
+                            TEST_DEFAULT_CHAIN.rec().literal_identifier
+                        ),
                         UiSetupRequestValue::clear("log-level"),
                         UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
+                        UiSetupRequestValue::new("scan-intervals", "123|111|228"),
+                        UiSetupRequestValue::new("scans", "off"),
                     ]
                 }
                 .tmb(0),
@@ -209,9 +234,12 @@ mod tests {
             )]
         );
         assert_eq! (stdout_arc.lock().unwrap().get_string(),
-"NAME                   VALUE                                                            STATUS\n\
-chain                  ropsten                                                          Configured\n\
-neighborhood-mode      zero-hop                                                         Set\n\
+"NAME                          VALUE                                                            STATUS\n\
+chain                         eth-ropsten                                                      Configured\n\
+neighborhood-mode             zero-hop                                                         Set\n\
+neighbors                     masq://eth-mainnet:95VjByq5tEUUpDcczA__zXWGE6-7YFEvzN4CDVoPbWw@13.23.13.23:4545 Set\n\
+scan-intervals                123|111|228                                                      Set\n\
+scans                         off                                                              Set\n\
 \n");
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
@@ -224,7 +252,7 @@ neighborhood-mode      zero-hop                                                 
             .transact_result(Ok(UiSetupResponse {
                 running: true,
                 values: vec![
-                    UiSetupResponseValue::new("chain", "ropsten", Set),
+                    UiSetupResponseValue::new("chain", ETH_ROPSTEN_FULL_IDENTIFIER, Set),
                     UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Configured),
                     UiSetupResponseValue::new("clandestine-port", "8534", Default),
                 ],
@@ -240,7 +268,7 @@ neighborhood-mode      zero-hop                                                 
                 "--neighborhood-mode".to_string(),
                 "zero-hop".to_string(),
                 "--chain".to_string(),
-                "ropsten".to_string(),
+                "eth-ropsten".to_string(),
                 "--clandestine-port".to_string(),
                 "8534".to_string(),
                 "--log-level".to_string(),
@@ -256,7 +284,7 @@ neighborhood-mode      zero-hop                                                 
             vec![(
                 UiSetupRequest {
                     values: vec![
-                        UiSetupRequestValue::new("chain", "ropsten"),
+                        UiSetupRequestValue::new("chain", "eth-ropsten"),
                         UiSetupRequestValue::new("clandestine-port", "8534"),
                         UiSetupRequestValue::clear("log-level"),
                         UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
@@ -267,13 +295,13 @@ neighborhood-mode      zero-hop                                                 
             )]
         );
         assert_eq! (stdout_arc.lock().unwrap().get_string(),
-"NAME                   VALUE                                                            STATUS\n\
-chain                  ropsten                                                          Set\n\
-clandestine-port       8534                                                             Default\n\
-neighborhood-mode      zero-hop                                                         Configured\n\
+"NAME                          VALUE                                                            STATUS\n\
+chain                         eth-ropsten                                                      Set\n\
+clandestine-port              8534                                                             Default\n\
+neighborhood-mode             zero-hop                                                         Configured\n\
 \n\
 ERRORS:
-ip                     Nosir, I don't like it.\n\
+ip                            Nosir, I don't like it.\n\
 \n\
 NOTE: no changes were made to the setup because the Node is currently running.\n\
 \n");
@@ -285,7 +313,7 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
         let message = UiSetupBroadcast {
             running: false,
             values: vec![
-                UiSetupResponseValue::new("chain", "ropsten", Set),
+                UiSetupResponseValue::new("chain", "eth-ropsten", Set),
                 UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Configured),
                 UiSetupResponseValue::new("clandestine-port", "8534", Default),
             ],
@@ -301,13 +329,13 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
 "\n\
 Daemon setup has changed:\n\
 \n\
-NAME                   VALUE                                                            STATUS\n\
-chain                  ropsten                                                          Set\n\
-clandestine-port       8534                                                             Default\n\
-neighborhood-mode      zero-hop                                                         Configured\n\
+NAME                          VALUE                                                            STATUS\n\
+chain                         eth-ropsten                                                      Set\n\
+clandestine-port              8534                                                             Default\n\
+neighborhood-mode             zero-hop                                                         Configured\n\
 \n\
 ERRORS:
-ip                     No sir, I don't like it.\n\
+ip                            No sir, I don't like it.\n\
 \n");
     }
 }

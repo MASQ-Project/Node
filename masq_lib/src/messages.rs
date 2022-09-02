@@ -1,45 +1,66 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::messages::UiMessageError::{DeserializationError, PayloadError, UnexpectedMessage};
 use crate::shared_schema::ConfiguratorError;
+use crate::ui_gateway::MessageBody;
 use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
-use crate::ui_gateway::{MessageBody, MessagePath};
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
-use std::fmt::{Debug, Error, Formatter};
+use std::fmt::{Debug};
+use std::str::FromStr;
 
 pub const NODE_UI_PROTOCOL: &str = "MASQNode-UIv2";
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UiMessageError {
-    UnexpectedMessage(String, MessagePath),
-    PayloadError(u64, String),
-    DeserializationError(String),
+    UnexpectedMessage(MessageBody),
+    PayloadError(MessageBody),
+    DeserializationError(String, MessageBody),
 }
 
 impl fmt::Display for UiMessageError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
         match self {
-            UnexpectedMessage(opcode, FireAndForget) => {
-                write!(f, "Unexpected one-way message with opcode '{}'", opcode)
+            UnexpectedMessage(message_body) if message_body.path == FireAndForget => {
+                write!(f, "Unexpected one-way message with opcode '{}'\n{:?}", message_body.opcode,
+                    message_body.payload)
             }
-            UnexpectedMessage(opcode, Conversation(context_id)) => write!(
+            UnexpectedMessage(message_body) => {
+                let context_id = if let Conversation(context_id) = message_body.path {
+                    context_id
+                }
+                else {
+                    panic! ("MessageBody::Path suddenly switched from Conversation to FireAndForget")
+                };
+                write!(
+                    f,
+                    "Unexpected two-way message from context {} with opcode '{}'\n{:?}",
+                    context_id, message_body.opcode, message_body.payload
+                )
+            },
+            PayloadError(message_body) => {
+                match &message_body.payload {
+                    Ok (json) => write! (
+                        f,
+                        "Daemon or Node is acting erratically: PayloadError received for '{}' message with path '{:?}', but payload contained no error\n{}",
+                        message_body.opcode,
+                        message_body.path,
+                        json
+                    ),
+                    Err ((code, message)) => write!(
+                        f,
+                        "Daemon or Node complained about your command with opcode '{}'. Error code {}: {}",
+                        message_body.opcode, code, message
+                    ),
+                }
+            },
+            DeserializationError(message, message_body) => write!(
                 f,
-                "Unexpected two-way message from context {} with opcode '{}'",
-                context_id, opcode
-            ),
-            PayloadError(code, message) => write!(
-                f,
-                "Daemon or Node complained about your command. Error code {}: {}",
-                code, message
-            ),
-            DeserializationError(message) => write!(
-                f,
-                "Could not deserialize message from Daemon or Node: {}",
-                message
+                "Could not deserialize message from Daemon or Node: {}\n{:?}",
+                message, message_body.payload
             ),
         }
     }
@@ -79,17 +100,17 @@ macro_rules! fire_and_forget_message {
         impl FromMessageBody for $message_type {
             fn fmb(body: MessageBody) -> Result<(Self, u64), UiMessageError> {
                 if body.opcode != $opcode {
-                    return Err(UiMessageError::UnexpectedMessage(body.opcode, body.path));
+                    return Err(UiMessageError::UnexpectedMessage(body));
                 };
-                let payload = match body.payload {
-                    Ok(json) => match serde_json::from_str::<Self>(&json) {
+                let payload = match &body.payload {
+                    Ok(json) => match serde_json::from_str::<Self>(json) {
                         Ok(item) => item,
-                        Err(e) => return Err(DeserializationError(format!("{:?}", e))),
+                        Err(e) => return Err(DeserializationError(format!("{:?}", e), body)),
                     },
-                    Err((code, message)) => return Err(PayloadError(code, message)),
+                    Err(_) => return Err(PayloadError(body)),
                 };
-                if let Conversation(_) = body.path {
-                    return Err(UiMessageError::UnexpectedMessage(body.opcode, body.path));
+                if let Conversation(_) = &body.path {
+                    return Err(UiMessageError::UnexpectedMessage(body));
                 }
                 Ok((payload, 0))
             }
@@ -131,22 +152,20 @@ macro_rules! conversation_message {
         impl FromMessageBody for $message_type {
             fn fmb(body: MessageBody) -> Result<(Self, u64), UiMessageError> {
                 if body.opcode != $opcode {
-                    return Err(UiMessageError::UnexpectedMessage(body.opcode, body.path));
+                    return Err(UiMessageError::UnexpectedMessage(body));
                 };
-                let payload = match body.payload {
-                    Ok(json) => match serde_json::from_str::<Self>(&json) {
+                let payload = match &body.payload {
+                    Ok(json) => match serde_json::from_str::<Self>(json) {
                         Ok(item) => item,
-                        Err(e) => return Err(DeserializationError(format!("{:?}", e))),
+                        Err(e) => return Err(DeserializationError(format!("{:?}", e), body)),
                     },
-                    Err((code, message)) => return Err(PayloadError(code, message)),
+                    Err(_) => return Err(PayloadError(body)),
                 };
-                let context_id = match body.path {
+                let context_id = match &body.path {
                     Conversation(context_id) => context_id,
-                    FireAndForget => {
-                        return Err(UiMessageError::UnexpectedMessage(body.opcode, body.path))
-                    }
+                    FireAndForget => return Err(UiMessageError::UnexpectedMessage(body)),
                 };
-                Ok((payload, context_id))
+                Ok((payload, *context_id))
             }
         }
 
@@ -167,13 +186,13 @@ macro_rules! conversation_message {
 ///////////////////////////////////////////////////////////////////////
 
 // if a fire-and-forget message for the Node was detected but the Node is down
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiUndeliveredFireAndForget {
     pub opcode: String,
 }
 fire_and_forget_message!(UiUndeliveredFireAndForget, "undelivered");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiCrashRequest {
     pub actor: String,
     #[serde(rename = "panicMessage")]
@@ -190,7 +209,7 @@ impl UiCrashRequest {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiSetupRequestValue {
     pub name: String,
     pub value: Option<String>,
@@ -212,7 +231,7 @@ impl UiSetupRequestValue {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiSetupRequest {
     pub values: Vec<UiSetupRequestValue>,
 }
@@ -232,7 +251,7 @@ impl UiSetupRequest {
     }
 }
 
-#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Copy, Clone, Debug, PartialEq, Eq)]
 pub enum UiSetupResponseValueStatus {
     Default,
     Configured,
@@ -253,7 +272,7 @@ impl UiSetupResponseValueStatus {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiSetupResponseValue {
     pub name: String,
     pub value: String,
@@ -274,7 +293,7 @@ impl UiSetupResponseValue {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiSetupResponse {
     pub running: bool,
     pub values: Vec<UiSetupResponseValue>,
@@ -303,7 +322,7 @@ impl UiSetupResponse {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiSetupBroadcast {
     pub running: bool,
     pub values: Vec<UiSetupResponseValue>,
@@ -332,7 +351,7 @@ impl UiSetupBroadcast {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct UiSetupInner {
     pub running: bool,
     pub values: Vec<UiSetupResponseValue>,
@@ -359,11 +378,11 @@ impl From<UiSetupBroadcast> for UiSetupInner {
     }
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct UiStartOrder {}
 conversation_message!(UiStartOrder, "start");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct UiStartResponse {
     #[serde(rename = "newProcessId")]
     pub new_process_id: u32,
@@ -372,7 +391,7 @@ pub struct UiStartResponse {
 }
 conversation_message!(UiStartResponse, "start");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub enum CrashReason {
     ChildWaitFailure(String),
     NoInformation,
@@ -380,7 +399,7 @@ pub enum CrashReason {
     DaemonCrashed,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiNodeCrashedBroadcast {
     #[serde(rename = "processId")]
     pub process_id: u32,
@@ -389,7 +408,7 @@ pub struct UiNodeCrashedBroadcast {
 }
 fire_and_forget_message!(UiNodeCrashedBroadcast, "crashed");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct UiRedirect {
     pub port: u16,
     pub opcode: String,
@@ -403,7 +422,7 @@ fire_and_forget_message!(UiRedirect, "redirect");
 // These messages are sent to or by both the Daemon and the Node
 ///////////////////////////////////////////////////////////////////
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiUnmarshalError {
     pub message: String,
     #[serde(rename = "badData")]
@@ -415,7 +434,7 @@ fire_and_forget_message!(UiUnmarshalError, "unmarshalError");
 // These messages are sent to or by the Node only
 ///////////////////////////////////////////////////////////////////
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiChangePasswordRequest {
     #[serde(rename = "oldPasswordOpt")]
     pub old_password_opt: Option<String>,
@@ -424,182 +443,319 @@ pub struct UiChangePasswordRequest {
 }
 conversation_message!(UiChangePasswordRequest, "changePassword");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiChangePasswordResponse {}
 conversation_message!(UiChangePasswordResponse, "changePassword");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiCheckPasswordRequest {
     #[serde(rename = "dbPasswordOpt")]
     pub db_password_opt: Option<String>,
 }
 conversation_message!(UiCheckPasswordRequest, "checkPassword");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiCheckPasswordResponse {
     pub matches: bool,
 }
 conversation_message!(UiCheckPasswordResponse, "checkPassword");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiConfigurationChangedBroadcast {}
 fire_and_forget_message!(UiConfigurationChangedBroadcast, "configurationChanged");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiConfigurationRequest {
     #[serde(rename = "dbPasswordOpt")]
     pub db_password_opt: Option<String>,
 }
 conversation_message!(UiConfigurationRequest, "configuration");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiConfigurationResponse {
-    #[serde(rename = "currentSchemaVersion")]
-    pub current_schema_version: String,
+    #[serde(rename = "blockchainServiceUrlOpt")]
+    pub blockchain_service_url_opt: Option<String>,
+    #[serde(rename = "chainName")]
+    pub chain_name: String,
     #[serde(rename = "clandestinePort")]
     pub clandestine_port: u16,
-    #[serde(rename = "gasPrice")]
-    pub gas_price: u64,
-    #[serde(rename = "mnemonicSeedOpt")]
-    pub mnemonic_seed_opt: Option<String>,
-    #[serde(rename = "consumingWalletDerivationPathOpt")]
-    pub consuming_wallet_derivation_path_opt: Option<String>,
+    #[serde(rename = "currentSchemaVersion")]
+    pub current_schema_version: String,
     #[serde(rename = "earningWalletAddressOpt")]
     pub earning_wallet_address_opt: Option<String>,
+    #[serde(rename = "gasPrice")]
+    pub gas_price: u64,
+    #[serde(rename = "neighborhoodMode")]
+    pub neighborhood_mode: String,
     #[serde(rename = "portMappingProtocol")]
     pub port_mapping_protocol_opt: Option<String>,
     #[serde(rename = "pastNeighbors")]
     pub past_neighbors: Vec<String>,
     #[serde(rename = "startBlock")]
     pub start_block: u64,
+    #[serde(rename = "consumingWalletPrivateKeyOpt")]
+    pub consuming_wallet_private_key_opt: Option<String>,
+    // This item is calculated from the private key, not stored in the database, so that
+    // the UI doesn't need the code to derive address from private key.
+    #[serde(rename = "consumingWalletAddressOpt")]
+    pub consuming_wallet_address_opt: Option<String>,
+    #[serde(rename = "paymentThresholds")]
+    pub payment_thresholds: UiPaymentThresholds,
+    #[serde(rename = "ratePack")]
+    pub rate_pack: UiRatePack,
+    #[serde(rename = "scanIntervals")]
+    pub scan_intervals: UiScanIntervals,
 }
+
 conversation_message!(UiConfigurationResponse, "configuration");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct UiRatePack {
+    #[serde(rename = "routingByteRate")]
+    pub routing_byte_rate: u64,
+    #[serde(rename = "routingServiceRate")]
+    pub routing_service_rate: u64,
+    #[serde(rename = "exitByteRate")]
+    pub exit_byte_rate: u64,
+    #[serde(rename = "exitServiceRate")]
+    pub exit_service_rate: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct UiScanIntervals {
+    #[serde(rename = "pendingPayableSec")]
+    pub pending_payable_sec: u64,
+    #[serde(rename = "payableSec")]
+    pub payable_sec: u64,
+    #[serde(rename = "receivableSec")]
+    pub receivable_sec: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct UiPaymentThresholds {
+    #[serde(rename = "thresholdIntervalSec")]
+    pub threshold_interval_sec: i64,
+    #[serde(rename = "debtThresholdGwei")]
+    pub debt_threshold_gwei: i64,
+    #[serde(rename = "paymentGracePeriodSec")]
+    pub payment_grace_period_sec: i64,
+    #[serde(rename = "maturityThresholdSec")]
+    pub maturity_threshold_sec: i64,
+    #[serde(rename = "permanentDebtAllowedGwei")]
+    pub permanent_debt_allowed_gwei: i64,
+    #[serde(rename = "unbanBelowGwei")]
+    pub unban_below_gwei: i64,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub enum UiConnectionStage {
+    NotConnected,
+    ConnectedToNeighbor,
+    ThreeHopsRouteFound,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct UiConnectionChangeBroadcast {
+    pub stage: UiConnectionStage,
+}
+fire_and_forget_message!(UiConnectionChangeBroadcast, "connectionChange");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct UiConnectionStatusRequest {}
+
+conversation_message!(UiConnectionStatusRequest, "connectionStatus");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct UiConnectionStatusResponse {
+    pub stage: UiConnectionStage,
+}
+
+conversation_message!(UiConnectionStatusResponse, "connectionStatus");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiDescriptorRequest {}
 conversation_message!(UiDescriptorRequest, "descriptor");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiDescriptorResponse {
-    #[serde(rename = "nodeDescriptor")]
-    pub node_descriptor: String,
+    #[serde(rename = "nodeDescriptorOpt")]
+    pub node_descriptor_opt: Option<String>,
 }
 conversation_message!(UiDescriptorResponse, "descriptor");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct UiPayableAccount {
     pub wallet: String,
     pub age: u64,
     pub amount: u64,
-    #[serde(rename = "pendingTransaction")]
-    pub pending_transaction: Option<String>,
+    #[serde(rename = "pendingPayableHashOpt")]
+    pub pending_payable_hash_opt: Option<String>,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct UiReceivableAccount {
     pub wallet: String,
     pub age: u64,
     pub amount: u64,
 }
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-pub struct UiFinancialsRequest {
-    #[serde(rename = "payableMinimumAmount")]
-    pub payable_minimum_amount: u64,
-    #[serde(rename = "payableMaximumAge")]
-    pub payable_maximum_age: u64,
-    #[serde(rename = "receivableMinimumAmount")]
-    pub receivable_minimum_amount: u64,
-    #[serde(rename = "receivableMaximumAge")]
-    pub receivable_maximum_age: u64,
-}
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct UiFinancialsRequest {}
 conversation_message!(UiFinancialsRequest, "financials");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct UiFinancialsResponse {
-    pub payables: Vec<UiPayableAccount>,
-    #[serde(rename = "totalPayable")]
-    pub total_payable: u64,
-    pub receivables: Vec<UiReceivableAccount>,
-    #[serde(rename = "totalReceivable")]
-    pub total_receivable: u64,
+    #[serde(rename = "totalUnpaidAndPendingPayable")]
+    pub total_unpaid_and_pending_payable: u64,
+    #[serde(rename = "totalPaidPayable")]
+    pub total_paid_payable: u64,
+    #[serde(rename = "totalUnpaidReceivable")]
+    pub total_unpaid_receivable: i64,
+    #[serde(rename = "totalPaidReceivable")]
+    pub total_paid_receivable: u64,
 }
 conversation_message!(UiFinancialsResponse, "financials");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct UiGenerateSeedSpec {
+    #[serde(rename = "mnemonicPhraseSizeOpt")]
+    pub mnemonic_phrase_size_opt: Option<usize>,
+    #[serde(rename = "mnemonicPhraseLanguageOpt")]
+    pub mnemonic_phrase_language_opt: Option<String>,
+    #[serde(rename = "mnemonicPassphraseOpt")]
+    pub mnemonic_passphrase_opt: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiGenerateWalletsRequest {
     #[serde(rename = "dbPassword")]
     pub db_password: String,
-    #[serde(rename = "mnemonicPhraseSize")]
-    pub mnemonic_phrase_size: usize,
-    #[serde(rename = "mnemonicPhraseLanguage")]
-    pub mnemonic_phrase_language: String,
-    #[serde(rename = "mnemonicPassphraseOpt")]
-    pub mnemonic_passphrase_opt: Option<String>,
-    #[serde(rename = "consumingDerivationPath")]
-    pub consuming_derivation_path: String,
-    #[serde(rename = "earningDerivationPath")]
-    pub earning_derivation_path: String,
+    #[serde(rename = "seedSpecOpt")]
+    pub seed_spec_opt: Option<UiGenerateSeedSpec>,
+    #[serde(rename = "consumingDerivationPathOpt")]
+    pub consuming_derivation_path_opt: Option<String>,
+    #[serde(rename = "earningDerivationPathOpt")]
+    pub earning_derivation_path_opt: Option<String>,
 }
 conversation_message!(UiGenerateWalletsRequest, "generateWallets");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiGenerateWalletsResponse {
-    #[serde(rename = "mnemonicPhrase")]
-    pub mnemonic_phrase: Vec<String>,
+    #[serde(rename = "mnemonicPhraseOpt")]
+    pub mnemonic_phrase_opt: Option<Vec<String>>,
     #[serde(rename = "consumingWalletAddress")]
     pub consuming_wallet_address: String,
+    #[serde(rename = "consumingWalletPrivateKey")]
+    pub consuming_wallet_private_key: String,
     #[serde(rename = "earningWalletAddress")]
     pub earning_wallet_address: String,
+    #[serde(rename = "earningWalletPrivateKey")]
+    pub earning_wallet_private_key: String,
 }
 conversation_message!(UiGenerateWalletsResponse, "generateWallets");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub struct UiLogBroadcast {
+    pub msg: String,
+    #[serde(rename = "logLevel")]
+    pub log_level: SerializableLogLevel,
+}
+fire_and_forget_message!(UiLogBroadcast, "logBroadcast");
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
+pub enum SerializableLogLevel {
+    Error,
+    Warn,
+    Info,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiNewPasswordBroadcast {}
 fire_and_forget_message!(UiNewPasswordBroadcast, "newPassword");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct UiRecoverSeedSpec {
+    #[serde(rename = "mnemonicPhrase")]
+    pub mnemonic_phrase: Vec<String>,
+    #[serde(rename = "mnemonicPhraseLanguageOpt")]
+    pub mnemonic_phrase_language_opt: Option<String>,
+    #[serde(rename = "mnemonicPassphraseOpt")]
+    pub mnemonic_passphrase_opt: Option<String>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiRecoverWalletsRequest {
     #[serde(rename = "dbPassword")]
     pub db_password: String,
-    #[serde(rename = "mnemonicPhrase")]
-    pub mnemonic_phrase: Vec<String>,
-    #[serde(rename = "mnemonicPassphraseOpt")]
-    pub mnemonic_passphrase_opt: Option<String>,
-    #[serde(rename = "mnemonicPhraseLanguage")]
-    pub mnemonic_phrase_language: String,
-    #[serde(rename = "consumingDerivationPath")]
-    pub consuming_derivation_path: String, // default to "m/44'/60'/0'/0/0"
-    #[serde(rename = "earningWallet")]
-    pub earning_wallet: String, // either derivation path (default to "m/44'/60'/0'/0/1") or address
+    #[serde(rename = "seedSpecOpt")]
+    pub seed_spec_opt: Option<UiRecoverSeedSpec>,
+    #[serde(rename = "consumingDerivationPathOpt")]
+    pub consuming_derivation_path_opt: Option<String>,
+    #[serde(rename = "consumingPrivateKeyOpt")]
+    pub consuming_private_key_opt: Option<String>,
+    #[serde(rename = "earningDerivationPathOpt")]
+    pub earning_derivation_path_opt: Option<String>,
+    #[serde(rename = "earningAddressOpt")]
+    pub earning_address_opt: Option<String>,
 }
 conversation_message!(UiRecoverWalletsRequest, "recoverWallets");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiRecoverWalletsResponse {}
 conversation_message!(UiRecoverWalletsResponse, "recoverWallets");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy)]
+pub enum ScanType {
+    Payables,
+    Receivables,
+    PendingPayables,
+}
+
+impl FromStr for ScanType {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            s if &s.to_lowercase() == "payables" => Ok(ScanType::Payables),
+            s if &s.to_lowercase() == "receivables" => Ok(ScanType::Receivables),
+            s if &s.to_lowercase() == "pendingpayables" => Ok(ScanType::PendingPayables),
+            s => Err(format!("Unrecognized ScanType: '{}'", s)),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct UiScanRequest {
+    #[serde(rename = "scanType")]
+    pub scan_type: ScanType,
+}
+conversation_message!(UiScanRequest, "scan");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct UiScanResponse {}
+conversation_message!(UiScanResponse, "scan");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiSetConfigurationRequest {
     pub name: String,
     pub value: String,
 }
 conversation_message!(UiSetConfigurationRequest, "setConfiguration");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiSetConfigurationResponse {}
 
 conversation_message!(UiSetConfigurationResponse, "setConfiguration");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiShutdownRequest {}
 conversation_message!(UiShutdownRequest, "shutdown");
 
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiShutdownResponse {}
 conversation_message!(UiShutdownResponse, "shutdown");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiWalletAddressesRequest {
     #[serde(rename = "dbPassword")]
     pub db_password: String,
@@ -607,7 +763,7 @@ pub struct UiWalletAddressesRequest {
 
 conversation_message!(UiWalletAddressesRequest, "walletAddresses");
 
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
 pub struct UiWalletAddressesResponse {
     #[serde(rename = "consumingWalletAddress")]
     pub consuming_wallet_address: String,
@@ -623,64 +779,79 @@ mod tests {
     use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
 
     #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(NODE_UI_PROTOCOL, "MASQNode-UIv2");
+    }
+
+    #[test]
     fn ui_message_errors_are_displayable() {
         assert_eq!(
-            UnexpectedMessage("opcode".to_string(), FireAndForget).to_string(),
-            "Unexpected one-way message with opcode 'opcode'".to_string()
+            UnexpectedMessage(MessageBody {
+                opcode: "opcode".to_string(),
+                path: FireAndForget,
+                payload: Ok("{\"name\": \"value\"}".to_string()),
+            }).to_string(),
+            "Unexpected one-way message with opcode 'opcode'\nOk(\"{\\\"name\\\": \\\"value\\\"}\")".to_string()
         );
         assert_eq!(
-            UnexpectedMessage("opcode".to_string(), Conversation(1234)).to_string(),
-            "Unexpected two-way message from context 1234 with opcode 'opcode'".to_string()
+            UnexpectedMessage(MessageBody {
+                opcode: "opcode".to_string(),
+                path: Conversation (1234),
+                payload: Ok("{\"name\": \"value\"}".to_string()),
+            }).to_string(),
+            "Unexpected two-way message from context 1234 with opcode 'opcode'\nOk(\"{\\\"name\\\": \\\"value\\\"}\")".to_string()
         );
         assert_eq!(
-            PayloadError(1234, "Booga booga".to_string()).to_string(),
-            "Daemon or Node complained about your command. Error code 1234: Booga booga"
+            PayloadError(MessageBody {
+                opcode: "opcode".to_string(),
+                path: Conversation (1234),
+                payload: Err((1234, "Booga booga".to_string())),
+            }).to_string(),
+            "Daemon or Node complained about your command with opcode 'opcode'. Error code 1234: Booga booga"
                 .to_string()
         );
         assert_eq!(
-            DeserializationError("Booga booga".to_string()).to_string(),
-            "Could not deserialize message from Daemon or Node: Booga booga".to_string()
+            PayloadError(MessageBody {
+                opcode: "opcode".to_string(),
+                path: Conversation (1234),
+                payload: Ok("Shouldn't ever be".to_string()),
+            }).to_string(),
+            "Daemon or Node is acting erratically: PayloadError received for 'opcode' message with path 'Conversation(1234)', but payload contained no error\nShouldn't ever be"
+                .to_string()
+        );
+        assert_eq!(
+            DeserializationError("Booga booga".to_string(), MessageBody {
+                opcode: "opcode".to_string(),
+                path: Conversation (1234),
+                payload: Ok("{\"name\": \"value\"}".to_string()),
+            }).to_string(),
+            "Could not deserialize message from Daemon or Node: Booga booga\nOk(\"{\\\"name\\\": \\\"value\\\"}\")".to_string()
         );
     }
 
     #[test]
-    fn ui_financials_methods_were_correctly_generated() {
-        let subject = UiFinancialsResponse {
-            payables: vec![],
-            total_payable: 0,
-            receivables: vec![],
-            total_receivable: 0,
+    fn ui_descriptor_methods_were_correctly_generated() {
+        let subject = UiDescriptorResponse {
+            node_descriptor_opt: Some("descriptor".to_string()),
         };
 
-        assert_eq!(subject.opcode(), "financials");
+        assert_eq!(subject.opcode(), "descriptor");
         assert_eq!(subject.is_conversational(), true);
     }
 
     #[test]
-    fn can_serialize_ui_financials_response() {
-        let subject = UiFinancialsResponse {
-            payables: vec![UiPayableAccount {
-                wallet: "wallet".to_string(),
-                age: 3456,
-                amount: 4567,
-                pending_transaction: Some("5678".to_string()),
-            }],
-            total_payable: 1234,
-            receivables: vec![UiReceivableAccount {
-                wallet: "tellaw".to_string(),
-                age: 6789,
-                amount: 7890,
-            }],
-            total_receivable: 2345,
+    fn can_serialize_ui_descriptor_response() {
+        let subject = UiDescriptorResponse {
+            node_descriptor_opt: None,
         };
         let subject_json = serde_json::to_string(&subject).unwrap();
 
-        let result: MessageBody = UiFinancialsResponse::tmb(subject, 1357);
+        let result: MessageBody = UiDescriptorResponse::tmb(subject, 1357);
 
         assert_eq!(
             result,
             MessageBody {
-                opcode: "financials".to_string(),
+                opcode: "descriptor".to_string(),
                 path: Conversation(1357),
                 payload: Ok(subject_json)
             }
@@ -688,13 +859,10 @@ mod tests {
     }
 
     #[test]
-    fn can_deserialize_ui_financials_response_with_bad_opcode() {
+    fn can_deserialize_ui_descriptor_response_with_bad_opcode() {
         let json = r#"
             {
-                "payables": [],
-                "totalPayable": 1234,
-                "receivables": [],
-                "totalReceivable": 2345
+                "nodeDescriptorOpt": "descriptor"
             }
         "#
         .to_string();
@@ -704,121 +872,89 @@ mod tests {
             payload: Ok(json),
         };
 
-        let result: Result<(UiFinancialsResponse, u64), UiMessageError> =
-            UiFinancialsResponse::fmb(message_body);
+        let result: Result<(UiDescriptorResponse, u64), UiMessageError> =
+            UiDescriptorResponse::fmb(message_body.clone());
 
-        assert_eq!(
-            result,
-            Err(UnexpectedMessage("booga".to_string(), Conversation(1234)))
-        )
+        assert_eq!(result, Err(UnexpectedMessage(message_body)))
     }
 
     #[test]
-    fn can_deserialize_ui_financials_response_with_bad_path() {
+    fn can_deserialize_ui_descriptor_response_with_bad_path() {
         let json = r#"
             {
-                "payables": [],
-                "totalPayable": 1234,
-                "receivables": [],
-                "totalReceivable": 2345
+                "nodeDescriptorOpt": "descriptor"
             }
         "#
         .to_string();
         let message_body = MessageBody {
-            opcode: "financials".to_string(),
+            opcode: "descriptor".to_string(),
             path: FireAndForget,
             payload: Ok(json),
         };
 
-        let result: Result<(UiFinancialsResponse, u64), UiMessageError> =
-            UiFinancialsResponse::fmb(message_body);
+        let result: Result<(UiDescriptorResponse, u64), UiMessageError> =
+            UiDescriptorResponse::fmb(message_body.clone());
 
-        assert_eq!(
-            result,
-            Err(UnexpectedMessage("financials".to_string(), FireAndForget))
-        )
+        assert_eq!(result, Err(UnexpectedMessage(message_body)))
     }
 
     #[test]
-    fn can_deserialize_ui_financials_response_with_bad_payload() {
+    fn can_deserialize_ui_descriptor_response_with_bad_payload() {
         let message_body = MessageBody {
-            opcode: "financials".to_string(),
+            opcode: "descriptor".to_string(),
             path: Conversation(1234),
             payload: Err((100, "error".to_string())),
         };
 
-        let result: Result<(UiFinancialsResponse, u64), UiMessageError> =
-            UiFinancialsResponse::fmb(message_body);
+        let result: Result<(UiDescriptorResponse, u64), UiMessageError> =
+            UiDescriptorResponse::fmb(message_body.clone());
 
-        assert_eq!(result, Err(PayloadError(100, "error".to_string())))
+        assert_eq!(result, Err(PayloadError(message_body)))
     }
 
     #[test]
-    fn can_deserialize_unparseable_ui_financials_response() {
+    fn can_deserialize_unparseable_ui_descriptor_response() {
         let json = "} - unparseable - {".to_string();
         let message_body = MessageBody {
-            opcode: "financials".to_string(),
+            opcode: "descriptor".to_string(),
             path: Conversation(1234),
             payload: Ok(json),
         };
 
-        let result: Result<(UiFinancialsResponse, u64), UiMessageError> =
-            UiFinancialsResponse::fmb(message_body);
+        let result: Result<(UiDescriptorResponse, u64), UiMessageError> =
+            UiDescriptorResponse::fmb(message_body.clone());
 
         assert_eq!(
             result,
             Err(DeserializationError(
-                "Error(\"expected value\", line: 1, column: 1)".to_string()
+                "Error(\"expected value\", line: 1, column: 1)".to_string(),
+                message_body
             ))
         )
     }
 
     #[test]
-    fn can_deserialize_ui_financials_response() {
+    fn can_deserialize_ui_descriptor_response() {
         let json = r#"
             {
-                "payables": [{
-                    "wallet": "wallet",
-                    "age": 3456,
-                    "amount": 4567,
-                    "pendingTransaction": "transaction"
-                }],
-                "totalPayable": 1234,
-                "receivables": [{
-                    "wallet": "tellaw",
-                    "age": 6789,
-                    "amount": 7890
-                }],
-                "totalReceivable": 2345
+                "nodeDescriptorOpt": "descriptor"
             }
         "#
         .to_string();
         let message_body = MessageBody {
-            opcode: "financials".to_string(),
+            opcode: "descriptor".to_string(),
             path: Conversation(4321),
             payload: Ok(json),
         };
 
-        let result: Result<(UiFinancialsResponse, u64), UiMessageError> =
-            UiFinancialsResponse::fmb(message_body);
+        let result: Result<(UiDescriptorResponse, u64), UiMessageError> =
+            UiDescriptorResponse::fmb(message_body);
 
         assert_eq!(
             result,
             Ok((
-                UiFinancialsResponse {
-                    payables: vec![UiPayableAccount {
-                        wallet: "wallet".to_string(),
-                        age: 3456,
-                        amount: 4567,
-                        pending_transaction: Some("transaction".to_string())
-                    }],
-                    total_payable: 1234,
-                    receivables: vec![UiReceivableAccount {
-                        wallet: "tellaw".to_string(),
-                        age: 6789,
-                        amount: 7890
-                    }],
-                    total_receivable: 2345
+                UiDescriptorResponse {
+                    node_descriptor_opt: Some("descriptor".to_string())
                 },
                 4321
             ))
@@ -866,12 +1002,9 @@ mod tests {
         };
 
         let result: Result<(UiUnmarshalError, u64), UiMessageError> =
-            UiUnmarshalError::fmb(message_body);
+            UiUnmarshalError::fmb(message_body.clone());
 
-        assert_eq!(
-            result,
-            Err(UnexpectedMessage("booga".to_string(), FireAndForget))
-        )
+        assert_eq!(result, Err(UnexpectedMessage(message_body)))
     }
 
     #[test]
@@ -884,15 +1017,9 @@ mod tests {
         };
 
         let result: Result<(UiUnmarshalError, u64), UiMessageError> =
-            UiUnmarshalError::fmb(message_body);
+            UiUnmarshalError::fmb(message_body.clone());
 
-        assert_eq!(
-            result,
-            Err(UnexpectedMessage(
-                "unmarshalError".to_string(),
-                Conversation(0)
-            ))
-        )
+        assert_eq!(result, Err(UnexpectedMessage(message_body)))
     }
 
     #[test]
@@ -904,9 +1031,9 @@ mod tests {
         };
 
         let result: Result<(UiUnmarshalError, u64), UiMessageError> =
-            UiUnmarshalError::fmb(message_body);
+            UiUnmarshalError::fmb(message_body.clone());
 
-        assert_eq!(result, Err(PayloadError(100, "error".to_string())))
+        assert_eq!(result, Err(PayloadError(message_body)))
     }
 
     #[test]
@@ -919,12 +1046,13 @@ mod tests {
         };
 
         let result: Result<(UiUnmarshalError, u64), UiMessageError> =
-            UiUnmarshalError::fmb(message_body);
+            UiUnmarshalError::fmb(message_body.clone());
 
         assert_eq!(
             result,
             Err(DeserializationError(
-                "Error(\"expected value\", line: 1, column: 1)".to_string()
+                "Error(\"expected value\", line: 1, column: 1)".to_string(),
+                message_body
             ))
         )
     }
@@ -950,6 +1078,43 @@ mod tests {
                 },
                 0
             ))
+        );
+    }
+
+    #[test]
+    fn scan_type_from_string_happy_path() {
+        let result: Vec<ScanType> = vec![
+            "Payables",
+            "pAYABLES",
+            "Receivables",
+            "rECEIVABLES",
+            "PendingPayables",
+            "pENDINGpAYABLES",
+        ]
+        .into_iter()
+        .map(|s| ScanType::from_str(s).unwrap())
+        .collect();
+
+        assert_eq!(
+            result,
+            vec![
+                ScanType::Payables,
+                ScanType::Payables,
+                ScanType::Receivables,
+                ScanType::Receivables,
+                ScanType::PendingPayables,
+                ScanType::PendingPayables,
+            ]
+        )
+    }
+
+    #[test]
+    fn scan_type_from_string_error() {
+        let result = ScanType::from_str("unrecognized");
+
+        assert_eq!(
+            result,
+            Err("Unrecognized ScanType: 'unrecognized'".to_string())
         );
     }
 }

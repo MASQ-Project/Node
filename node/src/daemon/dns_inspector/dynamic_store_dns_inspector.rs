@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(target_os = "macos")]
 use crate::daemon::dns_inspector::dns_inspector::DnsInspector;
 use regex::Regex;
@@ -255,6 +255,13 @@ mod tests {
     use std::cell::RefCell;
     use std::sync::Arc;
     use std::sync::Mutex;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(PRIMARY_SERVICE, "PrimaryService");
+        assert_eq!(SERVER_ADDRESSES, "ServerAddresses");
+        assert_eq!(SERVER_ADDRESSES_BAK, "ServerAddressesBak");
+    }
 
     struct StoreWrapperMock {
         get_dictionary_string_cfpl_parameters: Arc<Mutex<Vec<String>>>,

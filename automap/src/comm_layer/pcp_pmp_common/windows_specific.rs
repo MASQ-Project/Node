@@ -30,7 +30,7 @@ pub fn windows_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAd
                     (first_line_strs, second_addr_opt)
                 })
                 .filter(|(first_line_strs, _)| first_line_strs.len() > 2)
-                .map(
+                .flat_map(
                     |(first_elements, ip_addr_opt)| match (first_elements, ip_addr_opt) {
                         (_, Some(IpAddr::V4(ipv4_addr))) => Some(IpAddr::V4(ipv4_addr)),
                         (first_elements, _) => {
@@ -44,7 +44,6 @@ pub fn windows_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAd
                         }
                     },
                 )
-                .flatten()
                 .collect::<Vec<IpAddr>>();
             Ok(addresses)
         }

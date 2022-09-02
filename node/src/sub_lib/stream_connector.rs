@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapperReal;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
@@ -168,6 +168,11 @@ mod tests {
     use std::time::Duration;
     use tokio;
     use tokio::io::ErrorKind;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CONNECT_TIMEOUT_MS, 5000);
+    }
 
     #[test]
     fn stream_connector_can_fail_to_connect() {

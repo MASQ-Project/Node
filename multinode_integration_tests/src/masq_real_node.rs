@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::command::Command;
 use crate::masq_node::MASQNode;
 use crate::masq_node::MASQNodeUtils;
@@ -6,19 +6,21 @@ use crate::masq_node::NodeReference;
 use crate::masq_node::PortSelector;
 use crate::masq_node_client::MASQNodeClient;
 use crate::masq_node_server::MASQNodeServer;
+use crate::masq_node_ui_client::MASQNodeUIClient;
 use bip39::{Language, Mnemonic, Seed};
-use masq_lib::constants::CURRENT_LOGFILE_NAME;
-use masq_lib::test_utils::utils::{DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME};
+use log::Level;
+use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
+use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::localhost;
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
-use node_lib::blockchain::bip32::Bip32ECKeyPair;
-use node_lib::blockchain::blockchain_interface::chain_id_from_name;
-use node_lib::sub_lib::accountant::DEFAULT_EARNING_WALLET;
+use node_lib::blockchain::bip32::Bip32ECKeyProvider;
+use node_lib::sub_lib::accountant::{
+    PaymentThresholds, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
+};
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
-use node_lib::sub_lib::neighborhood::RatePack;
-use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
-use node_lib::sub_lib::neighborhood::ZERO_RATE_PACK;
+use node_lib::sub_lib::neighborhood::{RatePack, DEFAULT_RATE_PACK, ZERO_RATE_PACK};
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::wallet::Wallet;
 use regex::Regex;
@@ -35,12 +37,12 @@ use std::time::Duration;
 
 pub const DATA_DIRECTORY: &str = "/node_root/home";
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Firewall {
     ports_to_open: Vec<u16>,
 }
 
-#[derive(PartialEq, Clone, Debug, Copy)]
+#[derive(PartialEq, Eq, Clone, Debug, Copy)]
 pub enum LocalIpInfo {
     ZeroHop,
     DistributedUnknown,
@@ -51,7 +53,7 @@ pub const DEFAULT_MNEMONIC_PHRASE: &str =
     "lamp sadness busy twist illegal task neither survey copper object room project";
 pub const DEFAULT_MNEMONIC_PASSPHRASE: &str = "weenie";
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum EarningWalletInfo {
     None,
     Address(String), // wallet address in string form: "0x<40 hex chars>"
@@ -78,7 +80,7 @@ pub fn make_earning_wallet_info(token: &str) -> EarningWalletInfo {
     EarningWalletInfo::Address(address[0..42].to_string().to_lowercase())
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub enum ConsumingWalletInfo {
     None,
     PrivateKey(String), // private address in string form, 64 hex characters
@@ -107,7 +109,7 @@ pub fn make_consuming_wallet_info(token: &str) -> ConsumingWalletInfo {
     ConsumingWalletInfo::PrivateKey(address[0..64].to_string())
 }
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Eq, Clone, Debug)]
 pub struct NodeStartupConfig {
     pub neighborhood_mode: String,
     pub ip_info: LocalIpInfo,
@@ -119,12 +121,16 @@ pub struct NodeStartupConfig {
     pub earning_wallet_info: EarningWalletInfo,
     pub consuming_wallet_info: ConsumingWalletInfo,
     pub rate_pack: RatePack,
+    pub payment_thresholds: PaymentThresholds,
     pub firewall_opt: Option<Firewall>,
     pub memory_opt: Option<String>,
     pub fake_public_key_opt: Option<PublicKey>,
     pub blockchain_service_url_opt: Option<String>,
-    pub chain_opt: Option<String>,
+    pub chain: Chain,
     pub db_password_opt: Option<String>,
+    pub scans_opt: Option<bool>,
+    pub log_level_opt: Option<Level>,
+    pub ui_port_opt: Option<u16>,
 }
 
 impl Default for NodeStartupConfig {
@@ -146,12 +152,16 @@ impl NodeStartupConfig {
             earning_wallet_info: EarningWalletInfo::None,
             consuming_wallet_info: ConsumingWalletInfo::None,
             rate_pack: DEFAULT_RATE_PACK,
+            payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             firewall_opt: None,
             memory_opt: None,
             fake_public_key_opt: None,
             blockchain_service_url_opt: None,
-            chain_opt: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
+            chain: TEST_DEFAULT_MULTINODE_CHAIN,
             db_password_opt: Some("password".to_string()),
+            scans_opt: None,
+            log_level_opt: None,
+            ui_port_opt: None,
         }
     }
 
@@ -184,6 +194,10 @@ impl NodeStartupConfig {
         args.push("trace".to_string());
         args.push("--data-directory".to_string());
         args.push(DATA_DIRECTORY.to_string());
+        args.push("--rate-pack".to_string());
+        args.push(format!("\"{}\"", self.rate_pack));
+        args.push("--payment-thresholds".to_string());
+        args.push(format!("\"{}\"", self.payment_thresholds));
         if let EarningWalletInfo::Address(ref address) = self.earning_wallet_info {
             args.push("--earning-wallet".to_string());
             args.push(address.to_string());
@@ -200,13 +214,40 @@ impl NodeStartupConfig {
             args.push("--blockchain-service-url".to_string());
             args.push(blockchain_service_url.to_string());
         }
-        if let Some(ref chain) = self.chain_opt {
-            args.push("--chain".to_string());
-            args.push(chain.to_string());
-        }
+        args.push("--chain".to_string());
+        args.push(self.chain.rec().literal_identifier.to_string());
+
         if let Some(ref db_password) = self.db_password_opt {
             args.push("--db-password".to_string());
             args.push(db_password.to_string());
+        }
+
+        if let Some(ref scans) = self.scans_opt {
+            args.push("--scans".to_string());
+            args.push(if *scans {
+                "on".to_string()
+            } else {
+                "off".to_string()
+            });
+        }
+
+        if let Some(ref level) = self.log_level_opt {
+            args.push("--log-level".to_string());
+            args.push(
+                match level {
+                    Level::Error => "error",
+                    Level::Warn => "warn",
+                    Level::Info => "info",
+                    Level::Debug => "debug",
+                    Level::Trace => "trace",
+                }
+                .to_string(),
+            );
+        }
+
+        if let Some(ref ui_port) = self.ui_port_opt {
+            args.push("--ui-port".to_string());
+            args.push(ui_port.to_string());
         }
         args
     }
@@ -329,10 +370,10 @@ impl NodeStartupConfig {
             EarningWalletInfo::Address(address) => Wallet::from_str(address).unwrap(),
             EarningWalletInfo::DerivationPath(phrase, derivation_path) => {
                 let mnemonic = Mnemonic::from_phrase(phrase.as_str(), Language::English).unwrap();
-                let keypair = Bip32ECKeyPair::from_raw(
+                let keypair = Bip32ECKeyProvider::try_from((
                     Seed::new(&mnemonic, "passphrase").as_ref(),
-                    derivation_path,
-                )
+                    derivation_path.as_str(),
+                ))
                 .unwrap();
                 Wallet::from(keypair)
             }
@@ -344,16 +385,15 @@ impl NodeStartupConfig {
             ConsumingWalletInfo::None => None,
             ConsumingWalletInfo::PrivateKey(key) => {
                 let key_bytes = key.from_hex::<Vec<u8>>().unwrap();
-                let keypair = Bip32ECKeyPair::from_raw_secret(&key_bytes).unwrap();
+                let keypair = Bip32ECKeyProvider::from_raw_secret(&key_bytes).unwrap();
                 Some(Wallet::from(keypair))
             }
             ConsumingWalletInfo::DerivationPath(phrase, derivation_path) => {
-                let mnemonic =
-                    Mnemonic::from_phrase(phrase.to_string(), Language::English).unwrap();
-                let keypair = Bip32ECKeyPair::from_raw(
+                let mnemonic = Mnemonic::from_phrase(phrase, Language::English).unwrap();
+                let keypair = Bip32ECKeyProvider::try_from((
                     Seed::new(&mnemonic, "passphrase").as_ref(),
-                    derivation_path,
-                )
+                    derivation_path.as_str(),
+                ))
                 .unwrap();
                 Some(Wallet::from(keypair))
             }
@@ -372,84 +412,47 @@ pub struct NodeStartupConfigBuilder {
     earning_wallet_info: EarningWalletInfo,
     consuming_wallet_info: ConsumingWalletInfo,
     rate_pack: RatePack,
+    payment_thresholds: PaymentThresholds,
     firewall: Option<Firewall>,
     memory: Option<String>,
     fake_public_key: Option<PublicKey>,
     blockchain_service_url: Option<String>,
-    chain: Option<String>,
+    chain: Chain,
+    scans_opt: Option<bool>,
+    log_level_opt: Option<Level>,
+    ui_port_opt: Option<u16>,
     db_password: Option<String>,
 }
 
 impl NodeStartupConfigBuilder {
     pub fn zero_hop() -> Self {
-        Self {
-            neighborhood_mode: "zero-hop".to_string(),
-            ip_info: LocalIpInfo::ZeroHop,
-            dns_servers_opt: None,
-            neighbors: vec![],
-            clandestine_port_opt: None,
-            dns_target: localhost(),
-            dns_port: 53,
-            earning_wallet_info: EarningWalletInfo::None,
-            consuming_wallet_info: ConsumingWalletInfo::None,
-            rate_pack: ZERO_RATE_PACK.clone(),
-            firewall: None,
-            memory: None,
-            fake_public_key: None,
-            blockchain_service_url: None,
-            chain: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
-            db_password: None,
-        }
+        let mut builder = Self::standard();
+        builder.neighborhood_mode = "zero-hop".to_string();
+        builder.ip_info = LocalIpInfo::ZeroHop;
+        builder.rate_pack = ZERO_RATE_PACK;
+        builder
     }
 
     pub fn consume_only() -> Self {
-        Self {
-            neighborhood_mode: "consume-only".to_string(),
-            ip_info: LocalIpInfo::DistributedUnknown,
-            dns_servers_opt: None,
-            neighbors: vec![],
-            clandestine_port_opt: None,
-            dns_target: localhost(),
-            dns_port: 53,
-            earning_wallet_info: EarningWalletInfo::Address(
-                "0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string(),
-            ),
-            consuming_wallet_info: ConsumingWalletInfo::PrivateKey(
-                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".to_string(),
-            ),
-            rate_pack: ZERO_RATE_PACK.clone(),
-            firewall: None,
-            memory: None,
-            fake_public_key: None,
-            blockchain_service_url: None,
-            chain: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
-            db_password: Some("password".to_string()),
-        }
+        let mut builder = Self::standard();
+        builder.neighborhood_mode = "consume-only".to_string();
+        builder.earning_wallet_info =
+            EarningWalletInfo::Address("0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string());
+        builder.consuming_wallet_info = ConsumingWalletInfo::PrivateKey(
+            "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".to_string(),
+        );
+        builder
     }
 
     pub fn originate_only() -> Self {
-        Self {
-            neighborhood_mode: "originate-only".to_string(),
-            ip_info: LocalIpInfo::DistributedUnknown,
-            dns_servers_opt: None,
-            neighbors: vec![],
-            clandestine_port_opt: None,
-            dns_target: localhost(),
-            dns_port: 53,
-            earning_wallet_info: EarningWalletInfo::Address(
-                "0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string(),
-            ),
-            consuming_wallet_info: ConsumingWalletInfo::PrivateKey(
-                "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".to_string(),
-            ),
-            rate_pack: DEFAULT_RATE_PACK.clone(),
-            firewall: None,
-            memory: None,
-            fake_public_key: None,
-            blockchain_service_url: None,
-            chain: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
-            db_password: Some("password".to_string()),
-        }
+        let mut builder = Self::standard();
+        builder.neighborhood_mode = "originate-only".to_string();
+        builder.earning_wallet_info =
+            EarningWalletInfo::Address("0xEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEEE".to_string());
+        builder.consuming_wallet_info = ConsumingWalletInfo::PrivateKey(
+            "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC".to_string(),
+        );
+        builder
     }
 
     pub fn standard() -> Self {
@@ -463,12 +466,16 @@ impl NodeStartupConfigBuilder {
             dns_port: 53,
             earning_wallet_info: EarningWalletInfo::None,
             consuming_wallet_info: ConsumingWalletInfo::None,
-            rate_pack: DEFAULT_RATE_PACK.clone(),
+            rate_pack: DEFAULT_RATE_PACK,
+            payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
             firewall: None,
             memory: None,
             fake_public_key: None,
             blockchain_service_url: None,
-            chain: Some(TEST_DEFAULT_CHAIN_NAME.to_string()),
+            chain: TEST_DEFAULT_MULTINODE_CHAIN,
+            scans_opt: None,
+            log_level_opt: None,
+            ui_port_opt: None,
             db_password: Some("password".to_string()),
         }
     }
@@ -484,12 +491,16 @@ impl NodeStartupConfigBuilder {
             dns_port: config.dns_port,
             earning_wallet_info: config.earning_wallet_info.clone(),
             consuming_wallet_info: config.consuming_wallet_info.clone(),
-            rate_pack: config.rate_pack.clone(),
+            rate_pack: config.rate_pack,
+            payment_thresholds: config.payment_thresholds,
             firewall: config.firewall_opt.clone(),
             memory: config.memory_opt.clone(),
             fake_public_key: config.fake_public_key_opt.clone(),
             blockchain_service_url: config.blockchain_service_url_opt.clone(),
-            chain: config.chain_opt.clone(),
+            chain: config.chain,
+            scans_opt: config.scans_opt,
+            log_level_opt: config.log_level_opt,
+            ui_port_opt: config.ui_port_opt,
             db_password: config.db_password_opt.clone(),
         }
     }
@@ -565,6 +576,12 @@ impl NodeStartupConfigBuilder {
         self
     }
 
+    pub fn payment_thresholds(mut self, value: PaymentThresholds) -> Self {
+        self.payment_thresholds = value;
+        self
+    }
+
+    // This method is currently disabled. See multinode_integration_tests/docker/Dockerfile.
     pub fn open_firewall_port(mut self, port: u16) -> Self {
         if self.firewall.is_none() {
             self.firewall = Some(Firewall {
@@ -589,8 +606,23 @@ impl NodeStartupConfigBuilder {
         self
     }
 
-    pub fn chain(mut self, chain: &str) -> Self {
-        self.chain = Some(chain.into());
+    pub fn chain(mut self, chain: Chain) -> Self {
+        self.chain = chain;
+        self
+    }
+
+    pub fn scans(mut self, scans: bool) -> Self {
+        self.scans_opt = Some(scans);
+        self
+    }
+
+    pub fn log_level(mut self, level: Level) -> Self {
+        self.log_level_opt = Some(level);
+        self
+    }
+
+    pub fn ui_port(mut self, ui_port: u16) -> Self {
+        self.ui_port_opt = Some(ui_port);
         self
     }
 
@@ -611,12 +643,16 @@ impl NodeStartupConfigBuilder {
             earning_wallet_info: self.earning_wallet_info,
             consuming_wallet_info: self.consuming_wallet_info,
             rate_pack: self.rate_pack,
+            payment_thresholds: self.payment_thresholds,
             firewall_opt: self.firewall,
             memory_opt: self.memory,
             fake_public_key_opt: self.fake_public_key,
             blockchain_service_url_opt: self.blockchain_service_url,
-            chain_opt: self.chain,
+            chain: self.chain,
             db_password_opt: self.db_password,
+            scans_opt: self.scans_opt,
+            log_level_opt: self.log_level_opt,
+            ui_port_opt: self.ui_port_opt,
         }
     }
 }
@@ -688,11 +724,11 @@ impl MASQNode for MASQRealNode {
     }
 
     fn rate_pack(&self) -> RatePack {
-        self.guts.rate_pack.clone()
+        self.guts.rate_pack
     }
 
-    fn chain(&self) -> Option<String> {
-        self.guts.chain.clone()
+    fn chain(&self) -> Chain {
+        self.guts.chain
     }
 
     fn accepts_connections(&self) -> bool {
@@ -720,7 +756,7 @@ impl MASQRealNode {
     ) -> Self {
         let name = Self::make_name(index);
         Self::start_with(
-            name,
+            &name,
             startup_config,
             index,
             host_node_parent_dir,
@@ -729,7 +765,7 @@ impl MASQRealNode {
     }
 
     pub fn start_prepared(
-        name: String,
+        name: &str,
         startup_config: NodeStartupConfig,
         index: usize,
         host_node_parent_dir: Option<String>,
@@ -744,14 +780,14 @@ impl MASQRealNode {
     }
 
     pub fn start_with(
-        name: String,
+        name: &str,
         startup_config: NodeStartupConfig,
         index: usize,
         host_node_parent_dir: Option<String>,
-        docker_run_fn: Box<dyn Fn(&str, IpAddr, &str) -> Result<(), String>>,
+        docker_run_fn: RunDockerFn,
     ) -> Self {
         let ip_addr = IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8));
-        MASQNodeUtils::clean_up_existing_container(&name[..]);
+        MASQNodeUtils::clean_up_existing_container(name);
         let real_startup_config = match startup_config.ip_info {
             LocalIpInfo::ZeroHop => startup_config,
             LocalIpInfo::DistributedUnknown => NodeStartupConfigBuilder::copy(&startup_config)
@@ -767,56 +803,64 @@ impl MASQRealNode {
             None => MASQNodeUtils::find_project_root(),
         };
 
-        docker_run_fn(&root_dir, ip_addr, &name).expect("docker run");
+        docker_run_fn(&root_dir, ip_addr, name).expect("docker run");
 
+        let ui_port = real_startup_config.ui_port_opt.unwrap_or(DEFAULT_UI_PORT);
+        let ui_port_pair = format!("{}:{}", ui_port, ui_port);
         Self::exec_command_on_container_and_detach(
-            &name,
-            vec!["/usr/local/bin/port_exposer", "80:8080", "443:8443"],
+            name,
+            vec![
+                "/usr/local/bin/port_exposer",
+                "80:8080",
+                "443:8443",
+                &ui_port_pair,
+            ],
         )
         .expect("port_exposer wouldn't run");
         match &real_startup_config.firewall_opt {
             None => (),
             Some(firewall) => {
-                Self::create_impenetrable_firewall(&name);
+                Self::create_impenetrable_firewall(name);
                 firewall.ports_to_open.iter().for_each(|port| {
-                    Self::open_firewall_port(&name, *port)
+                    Self::open_firewall_port(name, *port)
                         .unwrap_or_else(|_| panic!("Can't open port {}", *port))
                 });
             }
         }
-        Self::establish_wallet_info(&name, &real_startup_config);
-        let chain_id = real_startup_config
-            .clone()
-            .chain_opt
-            .map(|chain_name| chain_id_from_name(chain_name.as_str()))
-            .unwrap_or(DEFAULT_CHAIN_ID);
+        Self::establish_wallet_info(name, &real_startup_config);
+        let chain = real_startup_config.chain;
         let cryptde_null_opt = real_startup_config
             .fake_public_key_opt
             .clone()
-            .map(|public_key| CryptDENull::from(&public_key, chain_id));
+            .map(|public_key| CryptDENull::from(&public_key, chain));
         let restart_startup_config = real_startup_config.clone();
         let guts = Rc::new(MASQRealNodeGuts {
             startup_config: real_startup_config.clone(),
-            name: name.clone(),
+            name: name.to_string(),
             container_ip: ip_addr,
-            node_reference: NodeReference::new(PublicKey::new(&[]), None, vec![]), // placeholder
+            node_reference: NodeReference::new(
+                PublicKey::new(&[]),
+                None,
+                vec![],
+                TEST_DEFAULT_MULTINODE_CHAIN,
+            ), // placeholder
             earning_wallet: real_startup_config.get_earning_wallet(),
             consuming_wallet_opt: real_startup_config.get_consuming_wallet(),
-            rate_pack: DEFAULT_RATE_PACK.clone(), // replace with this when rate packs are configurable: startup_config.rate_pack.clone()
+            rate_pack: real_startup_config.rate_pack,
             root_dir,
             cryptde_null_pair_opt: match cryptde_null_opt {
                 None => None,
                 Some(main_cdn) => {
                     let mut key = main_cdn.public_key().as_slice().to_vec();
                     key.reverse();
-                    let alias_cdn = CryptDENull::from(&PublicKey::new(&key), chain_id);
+                    let alias_cdn = CryptDENull::from(&PublicKey::new(&key), chain);
                     Some(CryptDENullPair {
                         main: main_cdn,
                         alias: alias_cdn,
                     })
                 }
             },
-            chain: real_startup_config.chain_opt,
+            chain: real_startup_config.chain,
             accepts_connections: vec!["standard"]
                 .contains(&real_startup_config.neighborhood_mode.as_str()),
             routes_data: vec!["standard", "originate-only"]
@@ -824,8 +868,7 @@ impl MASQRealNode {
         });
         let mut result = Self { guts };
         result.restart_node(restart_startup_config);
-        let node_reference =
-            Self::extract_node_reference(&name).expect("extracting node reference");
+        let node_reference = Self::extract_node_reference(name).expect("extracting node reference");
         Rc::get_mut(&mut result.guts).unwrap().node_reference = node_reference;
         result
     }
@@ -884,6 +927,10 @@ impl MASQRealNode {
 
     pub fn make_server(&self, port: u16) -> MASQNodeServer {
         MASQNodeServer::new(port)
+    }
+
+    pub fn make_ui(&self, port: u16) -> MASQNodeUIClient {
+        MASQNodeUIClient::new(SocketAddr::new(self.guts.container_ip, port))
     }
 
     fn establish_wallet_info(name: &str, startup_config: &NodeStartupConfig) {
@@ -953,7 +1000,6 @@ impl MASQRealNode {
         Ok(())
     }
 
-    #[allow(clippy::unnecessary_wraps)]
     fn do_prepare_for_docker_run(container_name_ref: &str) -> Result<(), String> {
         let container_name = container_name_ref.to_string();
         let test_runner_node_home_dir =
@@ -1093,9 +1139,13 @@ impl MASQRealNode {
         .expect("Can't add exception to allow input that is respondent to past output");
     }
 
+    fn descriptor_regex() -> Regex {
+        Regex::new(r"MASQ Node local descriptor: (masq://.+:.+@[\d.]*:[\d,]*)").unwrap()
+    }
+
     fn extract_node_reference(name: &str) -> Result<NodeReference, String> {
-        let regex = Regex::new(r"MASQ Node local descriptor: ([^:]+[:@][\d.]*:[\d,]*)").unwrap();
-        let mut retries_left = 10;
+        let regex = Self::descriptor_regex();
+        let mut retries_left = 25;
         loop {
             println!("Checking for {} startup", name);
             thread::sleep(Duration::from_millis(100));
@@ -1148,10 +1198,12 @@ struct MASQRealNodeGuts {
     rate_pack: RatePack,
     root_dir: String,
     cryptde_null_pair_opt: Option<CryptDENullPair>,
-    chain: Option<String>,
+    chain: Chain,
     accepts_connections: bool,
     routes_data: bool,
 }
+
+type RunDockerFn = Box<dyn Fn(&str, IpAddr, &str) -> Result<(), String>>;
 
 impl Drop for MASQRealNodeGuts {
     fn drop(&mut self) {
@@ -1163,7 +1215,7 @@ impl Drop for MASQRealNodeGuts {
 mod tests {
     use super::*;
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN_NAME;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
     use masq_lib::utils::localhost;
 
     #[test]
@@ -1244,11 +1296,13 @@ mod tests {
                 one_neighbor_key.clone(),
                 Some(one_neighbor_ip_addr.clone()),
                 one_neighbor_ports.clone(),
+                TEST_DEFAULT_MULTINODE_CHAIN,
             ),
             NodeReference::new(
                 another_neighbor_key.clone(),
                 Some(another_neighbor_ip_addr.clone()),
                 another_neighbor_ports.clone(),
+                TEST_DEFAULT_MULTINODE_CHAIN,
             ),
         ];
         let dns_target = IpAddr::from_str("8.9.10.11").unwrap();
@@ -1280,6 +1334,7 @@ mod tests {
                 PublicKey::new(&[255]),
                 Some(IpAddr::from_str("255.255.255.255").unwrap()),
                 vec![255],
+                TEST_DEFAULT_MULTINODE_CHAIN,
             )],
             clandestine_port_opt: Some(1234),
             dns_target: IpAddr::from_str("255.255.255.255").unwrap(),
@@ -1292,14 +1347,25 @@ mod tests {
                 exit_byte_rate: 30,
                 exit_service_rate: 40,
             },
+            payment_thresholds: PaymentThresholds {
+                debt_threshold_gwei: 20,
+                maturity_threshold_sec: 40,
+                payment_grace_period_sec: 30,
+                permanent_debt_allowed_gwei: 50,
+                threshold_interval_sec: 10,
+                unban_below_gwei: 60,
+            },
             firewall_opt: Some(Firewall {
                 ports_to_open: vec![HTTP_PORT, TLS_PORT],
             }),
             memory_opt: Some("32m".to_string()),
             fake_public_key_opt: Some(PublicKey::new(&[1, 2, 3, 4])),
             blockchain_service_url_opt: None,
-            chain_opt: None,
+            chain: TEST_DEFAULT_MULTINODE_CHAIN,
             db_password_opt: Some("booga".to_string()),
+            scans_opt: Some(false),
+            log_level_opt: Some(Level::Info),
+            ui_port_opt: Some(4321),
         };
         let neighborhood_mode = "standard".to_string();
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
@@ -1318,11 +1384,13 @@ mod tests {
                 one_neighbor_key.clone(),
                 Some(one_neighbor_ip_addr.clone()),
                 one_neighbor_ports.clone(),
+                TEST_DEFAULT_MULTINODE_CHAIN,
             ),
             NodeReference::new(
                 another_neighbor_key.clone(),
                 Some(another_neighbor_ip_addr.clone()),
                 another_neighbor_ports.clone(),
+                TEST_DEFAULT_MULTINODE_CHAIN,
             ),
         ];
         let dns_target = IpAddr::from_str("8.9.10.11").unwrap();
@@ -1356,7 +1424,21 @@ mod tests {
             result.fake_public_key_opt,
             Some(PublicKey::new(&[1, 2, 3, 4]))
         );
-        assert_eq!(result.db_password_opt, Some("booga".to_string()))
+        assert_eq!(result.db_password_opt, Some("booga".to_string()));
+        assert_eq!(result.scans_opt, Some(false));
+        assert_eq!(result.log_level_opt, Some(Level::Info));
+        assert_eq!(result.ui_port_opt, Some(4321));
+        assert_eq!(
+            result.payment_thresholds,
+            PaymentThresholds {
+                debt_threshold_gwei: 20,
+                maturity_threshold_sec: 40,
+                threshold_interval_sec: 10,
+                payment_grace_period_sec: 30,
+                permanent_debt_allowed_gwei: 50,
+                unban_below_gwei: 60
+            }
+        )
     }
 
     #[test]
@@ -1365,18 +1447,36 @@ mod tests {
             PublicKey::new(&[1, 2, 3, 4]),
             Some(IpAddr::from_str("4.5.6.7").unwrap()),
             vec![1234, 2345],
+            TEST_DEFAULT_MULTINODE_CHAIN,
         );
         let another_neighbor = NodeReference::new(
             PublicKey::new(&[2, 3, 4, 5]),
             Some(IpAddr::from_str("5.6.7.8").unwrap()),
             vec![3456, 4567],
+            TEST_DEFAULT_MULTINODE_CHAIN,
         );
+        let rate_pack = RatePack {
+            routing_byte_rate: 1,
+            routing_service_rate: 90,
+            exit_byte_rate: 3,
+            exit_service_rate: 250,
+        };
+        let payment_thresholds = PaymentThresholds {
+            debt_threshold_gwei: 10000000000,
+            maturity_threshold_sec: 1200,
+            permanent_debt_allowed_gwei: 490000000,
+            payment_grace_period_sec: 1200,
+            threshold_interval_sec: 2592000,
+            unban_below_gwei: 490000000,
+        };
 
         let subject = NodeStartupConfigBuilder::standard()
             .neighborhood_mode("consume-only")
             .ip(IpAddr::from_str("1.3.5.7").unwrap())
             .neighbor(one_neighbor.clone())
             .neighbor(another_neighbor.clone())
+            .rate_pack(rate_pack)
+            .payment_thresholds(payment_thresholds)
             .consuming_wallet_info(default_consuming_wallet_info())
             .build();
 
@@ -1395,13 +1495,31 @@ mod tests {
                 "trace",
                 "--data-directory",
                 DATA_DIRECTORY,
+                "--rate-pack",
+                "\"1|90|3|250\"",
+                "--payment-thresholds",
+                "\"10000000000|1200|1200|490000000|2592000|490000000\"",
                 "--consuming-private-key",
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
                 "--chain",
-                TEST_DEFAULT_CHAIN_NAME,
+                TEST_DEFAULT_MULTINODE_CHAIN.rec().literal_identifier,
                 "--db-password",
                 "password",
             ))
         );
+    }
+
+    #[test]
+    fn regex_captures_descriptor() {
+        let text = "scajcbakbcskjbcbackjbb MASQ Node local descriptor: masq://dev:BrrLUksswnE8GOQQMpwcAjk2hOX4HEmaTcBloBpPuE0@: jajca[cjscpajpojsc";
+        let regex = MASQRealNode::descriptor_regex();
+        let captured = regex.captures(text).unwrap();
+
+        let result = captured.get(1).unwrap();
+
+        assert_eq!(
+            result.as_str(),
+            "masq://dev:BrrLUksswnE8GOQQMpwcAjk2hOX4HEmaTcBloBpPuE0@:"
+        )
     }
 }

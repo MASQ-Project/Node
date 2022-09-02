@@ -1,8 +1,8 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::cryptde::PublicKey;
-use crate::sub_lib::peer_actors::BindMessage;
+use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp};
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use actix::Message;
 use actix::Recipient;
@@ -17,6 +17,7 @@ use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::net::SocketAddr;
+use std::time::SystemTime;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
 pub enum Component {
@@ -102,7 +103,7 @@ impl Component {
     }
 }
 
-#[derive(Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Hash, Ord, PartialEq, Eq, PartialOrd)]
 pub enum DispatcherError {
     IpAddressUnknown,
     StreamConnectError(String),
@@ -111,8 +112,9 @@ pub enum DispatcherError {
     NeighborhoodPanicked,
 }
 
-#[derive(PartialEq, Clone, Message)]
+#[derive(PartialEq, Eq, Clone, Message)]
 pub struct InboundClientData {
+    pub timestamp: SystemTime,
     pub peer_addr: SocketAddr,
     pub reception_port: Option<u16>,
     pub last_data: bool,
@@ -135,6 +137,7 @@ impl Debug for InboundClientData {
 impl InboundClientData {
     pub fn clone_but_data(&self) -> InboundClientData {
         InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: self.peer_addr,
             reception_port: self.reception_port,
             last_data: self.last_data,
@@ -149,7 +152,7 @@ impl InboundClientData {
     }
 }
 
-#[derive(PartialEq, Clone, Message, Debug)]
+#[derive(PartialEq, Eq, Clone, Message, Debug)]
 pub struct StreamShutdownMsg {
     pub peer_addr: SocketAddr,
     pub stream_type: RemovedStreamType,
@@ -162,6 +165,7 @@ pub struct DispatcherSubs {
     pub from_dispatcher_client: Recipient<TransmitDataMsg>,
     pub stream_shutdown_sub: Recipient<StreamShutdownMsg>,
     pub ui_sub: Recipient<NodeFromUiMessage>,
+    pub new_ip_sub: Recipient<NewPublicIp>,
 }
 
 impl Debug for DispatcherSubs {
@@ -178,6 +182,7 @@ impl Clone for DispatcherSubs {
             from_dispatcher_client: self.from_dispatcher_client.clone(),
             stream_shutdown_sub: self.stream_shutdown_sub.clone(),
             ui_sub: self.ui_sub.clone(),
+            new_ip_sub: self.new_ip_sub.clone(),
         }
     }
 }
@@ -200,6 +205,7 @@ mod tests {
             from_dispatcher_client: recipient!(addr, TransmitDataMsg),
             stream_shutdown_sub: recipient!(addr, StreamShutdownMsg),
             ui_sub: recipient!(addr, NodeFromUiMessage),
+            new_ip_sub: recipient!(addr, NewPublicIp),
         };
 
         assert_eq!(format!("{:?}", subject), "DispatcherSubs");
@@ -265,6 +271,7 @@ mod tests {
     #[test]
     fn inbound_client_data_is_identifiable_as_a_connect() {
         let subject = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
             reception_port: None,
             last_data: false,
@@ -279,6 +286,7 @@ mod tests {
     #[test]
     fn inbound_client_data_is_not_connect() {
         let subject = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
             reception_port: None,
             last_data: false,
@@ -293,6 +301,7 @@ mod tests {
     #[test]
     fn inbound_client_data_not_connect_if_no_space_after_method() {
         let subject = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.4.3.2:9999").unwrap(),
             reception_port: None,
             last_data: false,

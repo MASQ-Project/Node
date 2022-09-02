@@ -1,37 +1,45 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::apps::app_head;
-use crate::blockchain::blockchain_interface::{chain_id_from_name, chain_name_from_id};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::daemon::dns_inspector::dns_inspector_factory::{
     DnsInspectorFactory, DnsInspectorFactoryReal,
 };
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, InitializationError};
+use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao_null::ConfigDaoNull;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::node_configurator::node_configurator_standard::standard::{
-    privileged_parse_args, unprivileged_parse_args,
+use crate::node_configurator::node_configurator_standard::privileged_parse_args;
+use crate::node_configurator::unprivileged_parse_args_configuration::{
+    UnprivilegedParseArgsConfiguration, UnprivilegedParseArgsConfigurationDaoNull,
+    UnprivilegedParseArgsConfigurationDaoReal,
 };
 use crate::node_configurator::{
     data_directory_from_context, determine_config_file_path, DirsWrapper, DirsWrapperReal,
 };
-use crate::sub_lib::neighborhood::NeighborhoodMode as NeighborhoodModeEnum;
+use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
 use crate::sub_lib::neighborhood::NodeDescriptor;
+use crate::sub_lib::neighborhood::{NeighborhoodMode as NeighborhoodModeEnum, DEFAULT_RATE_PACK};
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::test_utils::main_cryptde;
 use clap::value_t;
 use itertools::Itertools;
-use masq_lib::constants::DEFAULT_CHAIN_NAME;
+use masq_lib::blockchains::chains::Chain as BlockChain;
+use masq_lib::constants::DEFAULT_CHAIN;
+use masq_lib::logger::Logger;
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Default, Required, Set};
 use masq_lib::messages::{UiSetupRequestValue, UiSetupResponseValue, UiSetupResponseValueStatus};
+use masq_lib::multi_config::make_arg_matches_accesible;
 use masq_lib::multi_config::{
     CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine,
 };
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
+use masq_lib::utils::ExpectValue;
 use std::collections::HashMap;
+use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
@@ -77,6 +85,9 @@ impl SetupReporter for SetupReporterReal {
                     blanked_out_former_values.insert(v.name.clone(), former_value);
                 };
             });
+        //TODO investigate this, not sure if the right way to solve the issue
+        //answers an attempt to blank out 'chain' behind an error resulting in chain different from data_dir
+        let _ = blanked_out_former_values.remove("chain");
         let mut incoming_setup = incoming_setup
             .into_iter()
             .filter(|v| v.value.is_some())
@@ -95,12 +106,12 @@ impl SetupReporter for SetupReporterReal {
         eprintln_setup("INCOMING", &incoming_setup);
         eprintln_setup("ALL BUT CONFIGURED", &all_but_configured);
         let mut error_so_far = ConfiguratorError::new(vec![]);
-        let (real_user_opt, data_directory_opt, chain_name) =
+        let (real_user_opt, data_directory_opt, chain) =
             match Self::calculate_fundamentals(self.dirs_wrapper.as_ref(), &all_but_configured) {
                 Ok(triple) => triple,
                 Err(error) => {
                     error_so_far.extend(error);
-                    (None, None, DEFAULT_CHAIN_NAME.to_string())
+                    (None, None, DEFAULT_CHAIN)
                 }
             };
         let real_user = real_user_opt.unwrap_or_else(|| {
@@ -113,7 +124,7 @@ impl SetupReporter for SetupReporterReal {
                 self.dirs_wrapper.as_ref(),
                 &real_user,
                 &data_directory_opt,
-                &chain_name,
+                chain,
             ),
         };
         let list_of_blanked_parameters = blanked_out_former_values
@@ -123,9 +134,7 @@ impl SetupReporter for SetupReporterReal {
         let (configured_setup, error_opt) = self.calculate_configured_setup(
             &all_but_configured,
             list_of_blanked_parameters,
-            &data_directory,
-            &chain_name,
-        );
+            &data_directory);
         if let Some(error) = error_opt {
             error_so_far.extend(error);
         }
@@ -202,10 +211,7 @@ impl SetupReporterReal {
                 let name = opt.b.name;
                 match opt.v.default_val {
                     Some(os_str) => {
-                        let value = match os_str.to_str() {
-                            Some(v) => v,
-                            None => unimplemented!(),
-                        };
+                        let value = os_str.to_str().expect("expected valid UTF-8");
                         Some((
                             name.to_string(),
                             UiSetupResponseValue::new(name, value, Default),
@@ -231,7 +237,7 @@ impl SetupReporterReal {
         (
             Option<crate::bootstrapper::RealUser>,
             Option<PathBuf>,
-            String,
+            BlockChain,
         ),
         ConfiguratorError,
     > {
@@ -252,11 +258,11 @@ impl SetupReporterReal {
             value_m!(multi_config, "chain", String),
             combined_setup.get("chain"),
         ) {
-            (Some(chain_str), None) => chain_str,
+            (Some(chain), None) => chain,
             (Some(_), Some(uisrv)) if uisrv.status == Set => uisrv.value.clone(),
             (Some(chain_str), Some(_)) => chain_str,
             (None, Some(uisrv)) => uisrv.value.clone(),
-            (None, None) => DEFAULT_CHAIN_NAME.to_string(),
+            (None, None) => DEFAULT_CHAIN.rec().literal_identifier.to_string(),
         };
         let data_directory_opt = match (
             value_m!(multi_config, "data-directory", String),
@@ -267,7 +273,11 @@ impl SetupReporterReal {
             (Some(ddir_str), Some(_)) => Some(PathBuf::from(&ddir_str)),
             _ => None,
         };
-        Ok((real_user_opt, data_directory_opt, chain_name))
+        Ok((
+            real_user_opt,
+            data_directory_opt,
+            BlockChain::from(chain_name.as_str()),
+        ))
     }
 
     fn calculate_configured_setup(
@@ -275,11 +285,10 @@ impl SetupReporterReal {
         combined_setup: &SetupCluster,
         blanked_out_parameters: Vec<String>,
         data_directory: &Path,
-        chain_name: &str,
     ) -> (SetupCluster, Option<ConfiguratorError>) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let db_password_opt = combined_setup.get("db-password").map(|v| v.value.clone());
-        let command_line = Self::make_command_line(combined_setup, blanked_out_parameters);
+        let command_line = Self::make_command_line(combined_setup);
         let multi_config = match Self::make_multi_config(
             self.dirs_wrapper.as_ref(),
             Some(command_line),
@@ -289,12 +298,8 @@ impl SetupReporterReal {
             Ok(mc) => mc,
             Err(ce) => return (HashMap::new(), Some(ce)),
         };
-        let ((bootstrapper_config, persistent_config_opt), error_opt) = self.run_configuration(
-            self.dirs_wrapper.as_ref(),
-            &multi_config,
-            data_directory,
-            chain_id_from_name(chain_name),
-        );
+        let ((bootstrapper_config, persistent_config), error_opt) =
+            self.run_configuration(&multi_config, data_directory);
         if let Some(error) = error_opt {
             error_so_far.extend(error);
         }
@@ -303,7 +308,7 @@ impl SetupReporterReal {
             .map(|r| {
                 let computed_default = r.computed_default_value(
                     &bootstrapper_config,
-                    &persistent_config_opt,
+                    persistent_config.as_ref(),
                     &db_password_opt,
                 );
                 let configured = match value_m!(multi_config, r.value_name(), String) {
@@ -401,61 +406,70 @@ impl SetupReporterReal {
     #[allow(clippy::type_complexity)]
     fn run_configuration(
         &self,
-        dirs_wrapper: &dyn DirsWrapper,
         multi_config: &MultiConfig,
         data_directory: &Path,
-        chain_id: u8,
     ) -> (
-        (BootstrapperConfig, Option<Box<dyn PersistentConfiguration>>),
+        (BootstrapperConfig, Box<dyn PersistentConfiguration>),
         Option<ConfiguratorError>,
     ) {
         let mut error_so_far = ConfiguratorError::new(vec![]);
         let mut bootstrapper_config = BootstrapperConfig::new();
         bootstrapper_config.data_directory = data_directory.to_path_buf();
-        match privileged_parse_args(dirs_wrapper, multi_config, &mut bootstrapper_config) {
+        match privileged_parse_args(
+            self.dirs_wrapper.as_ref(),
+            multi_config,
+            &mut bootstrapper_config,
+        ) {
             Ok(_) => (),
             Err(ce) => {
                 error_so_far.extend(ce);
             }
         };
         let initializer = DbInitializerReal::default();
-        match initializer.initialize(data_directory, chain_id, false) {
+        match initializer.initialize(
+            data_directory,
+            false,
+            MigratorConfig::migration_suppressed_with_error(),
+        ) {
             Ok(conn) => {
+                let parse_args_configuration = UnprivilegedParseArgsConfigurationDaoReal {};
                 let mut persistent_config = PersistentConfigurationReal::from(conn);
-                match unprivileged_parse_args(
+                match parse_args_configuration.unprivileged_parse_args(
                     multi_config,
                     &mut bootstrapper_config,
                     &mut persistent_config,
                     &self.logger,
                 ) {
-                    Ok(_) => (
-                        (bootstrapper_config, Some(Box::new(persistent_config))),
-                        None,
-                    ),
+                    Ok(_) => ((bootstrapper_config, Box::new(persistent_config)), None),
                     Err(ce) => {
                         error_so_far.extend(ce);
                         (
-                            (bootstrapper_config, Some(Box::new(persistent_config))),
+                            (bootstrapper_config, Box::new(persistent_config)),
                             Some(error_so_far),
                         )
                     }
                 }
             }
-            Err(InitializationError::Nonexistent) => {
+            Err(InitializationError::Nonexistent | InitializationError::SuppressedMigration) => {
                 // When the Daemon runs for the first time, the database will not yet have been
-                // created.
+                // created. If the database is old, it should not be used by the Daemon.
+                let parse_args_configuration = UnprivilegedParseArgsConfigurationDaoNull {};
                 let mut persistent_config =
                     PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()));
-                match unprivileged_parse_args(
+                match parse_args_configuration.unprivileged_parse_args(
                     multi_config,
                     &mut bootstrapper_config,
                     &mut persistent_config,
                     &self.logger,
                 ) {
-                    Ok(_) => ((bootstrapper_config, None), None),
+                    Ok(_) => ((bootstrapper_config, Box::new(persistent_config)), None),
                     Err(ce) => {
                         error_so_far.extend(ce);
-                        ((bootstrapper_config, None), Some(error_so_far))
+
+                        (
+                            (bootstrapper_config, Box::new(persistent_config)),
+                            Some(error_so_far),
+                        )
                     }
                 }
             }
@@ -470,7 +484,7 @@ trait ValueRetriever {
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         None
@@ -479,10 +493,10 @@ trait ValueRetriever {
     fn computed_default_value(
         &self,
         bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        persistent_config: &dyn PersistentConfiguration,
         db_password_opt: &Option<String>,
     ) -> UiSetupResponseValue {
-        match self.computed_default(bootstrapper_config, persistent_config_opt, db_password_opt) {
+        match self.computed_default(bootstrapper_config, persistent_config, db_password_opt) {
             Some((value, status)) => UiSetupResponseValue::new(self.value_name(), &value, status),
             None => UiSetupResponseValue::new(self.value_name(), "", Blank),
         }
@@ -521,10 +535,10 @@ impl ValueRetriever for Chain {
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        Some((DEFAULT_CHAIN_NAME.to_string(), Default))
+        Some((DEFAULT_CHAIN.rec().literal_identifier.to_string(), Default))
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
@@ -541,16 +555,12 @@ impl ValueRetriever for ClandestinePort {
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        if let Some(persistent_config) = persistent_config_opt {
-            match persistent_config.clandestine_port() {
-                Ok(clandestine_port) => Some((clandestine_port.to_string(), Default)),
-                Err(_) => None,
-            }
-        } else {
-            None
+        match persistent_config.clandestine_port() {
+            Ok(clandestine_port) => Some((clandestine_port.to_string(), Configured)),
+            Err(_) => None,
         }
     }
 
@@ -591,18 +601,18 @@ impl ValueRetriever for DataDirectory {
     fn computed_default(
         &self,
         bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         let real_user = &bootstrapper_config.real_user;
-        let chain_name = chain_name_from_id(bootstrapper_config.blockchain_bridge_config.chain_id);
+        let chain = bootstrapper_config.blockchain_bridge_config.chain;
         let data_directory_opt = None;
         Some((
             data_directory_from_context(
                 self.dirs_wrapper.as_ref(),
                 real_user,
                 &data_directory_opt,
-                chain_name,
+                chain,
             )
             .to_string_lossy()
             .to_string(),
@@ -658,7 +668,7 @@ impl ValueRetriever for DnsServers {
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         let inspector = self.factory.make()?;
@@ -704,7 +714,7 @@ impl ValueRetriever for GasPrice {
     fn computed_default(
         &self,
         bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         Some((
@@ -730,7 +740,7 @@ impl ValueRetriever for Ip {
     fn computed_default(
         &self,
         bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         let neighborhood_mode = &bootstrapper_config.neighborhood_config.mode;
@@ -762,7 +772,7 @@ impl ValueRetriever for LogLevel {
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         Some(("warn".to_string(), Default))
@@ -818,7 +828,7 @@ impl ValueRetriever for NeighborhoodMode {
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         Some(("standard".to_string(), Default))
@@ -846,15 +856,15 @@ impl ValueRetriever for Neighbors {
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        persistent_config: &dyn PersistentConfiguration,
         db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        match (persistent_config_opt, db_password_opt) {
-            (Some(pc), Some(pw)) => match pc.past_neighbors(pw) {
+        match db_password_opt {
+            Some(pw) => match persistent_config.past_neighbors(pw) {
                 Ok(Some(pns)) => Some((node_descriptors_to_neighbors(pns), Configured)),
                 _ => None,
             },
-            _ => None,
+            None => None,
         }
     }
 
@@ -864,6 +874,92 @@ impl ValueRetriever for Neighbors {
             Some(nhm) if &nhm.value == "zero-hop" => false,
             _ => true,
         }
+    }
+}
+
+struct PaymentThresholds {}
+impl ValueRetriever for PaymentThresholds {
+    fn value_name(&self) -> &'static str {
+        "payment-thresholds"
+    }
+
+    fn computed_default(
+        &self,
+        _bootstrapper_config: &BootstrapperConfig,
+        pc: &dyn PersistentConfiguration,
+        _db_password_opt: &Option<String>,
+    ) -> Option<(String, UiSetupResponseValueStatus)> {
+        let pc_value = pc.payment_thresholds().expectv("payment-thresholds");
+        payment_thresholds_rate_pack_and_scan_intervals(pc_value, *DEFAULT_PAYMENT_THRESHOLDS)
+    }
+
+    fn is_required(&self, _params: &SetupCluster) -> bool {
+        true
+    }
+}
+
+struct RatePack {}
+impl ValueRetriever for RatePack {
+    fn value_name(&self) -> &'static str {
+        "rate-pack"
+    }
+
+    fn computed_default(
+        &self,
+        bootstrapper_config: &BootstrapperConfig,
+        pc: &dyn PersistentConfiguration,
+        _db_password_opt: &Option<String>,
+    ) -> Option<(String, UiSetupResponseValueStatus)> {
+        match &bootstrapper_config.neighborhood_config.mode {
+            NeighborhoodModeEnum::Standard(_, _, _) | NeighborhoodModeEnum::OriginateOnly(_, _) => {
+            }
+            _ => return None,
+        }
+        let pc_value = pc.rate_pack().expectv("rate-pack");
+        payment_thresholds_rate_pack_and_scan_intervals(pc_value, DEFAULT_RATE_PACK)
+    }
+
+    fn is_required(&self, params: &SetupCluster) -> bool {
+        match params.get("neighborhood-mode") {
+            Some(nhm) if &nhm.value == "standard" => true,
+            Some(nhm) if &nhm.value == "originate-only" => true,
+            _ => false,
+        }
+    }
+}
+
+struct ScanIntervals {}
+impl ValueRetriever for ScanIntervals {
+    fn value_name(&self) -> &'static str {
+        "scan-intervals"
+    }
+
+    fn computed_default(
+        &self,
+        _bootstrapper_config: &BootstrapperConfig,
+        pc: &dyn PersistentConfiguration,
+        _db_password_opt: &Option<String>,
+    ) -> Option<(String, UiSetupResponseValueStatus)> {
+        let pc_value = pc.scan_intervals().expectv("scan-intervals");
+        payment_thresholds_rate_pack_and_scan_intervals(pc_value, *DEFAULT_SCAN_INTERVALS)
+    }
+
+    fn is_required(&self, _params: &SetupCluster) -> bool {
+        true
+    }
+}
+
+fn payment_thresholds_rate_pack_and_scan_intervals<T>(
+    persistent_config_value: T,
+    default: T,
+) -> Option<(String, UiSetupResponseValueStatus)>
+where
+    T: PartialEq + Display + Copy,
+{
+    if persistent_config_value == default {
+        Some((default.to_string(), Default))
+    } else {
+        Some((persistent_config_value.to_string(), Configured))
     }
 }
 
@@ -879,7 +975,7 @@ impl ValueRetriever for RealUser {
     fn computed_default(
         &self,
         _bootstrapper_config: &BootstrapperConfig,
-        _persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         #[cfg(target_os = "windows")]
@@ -910,6 +1006,26 @@ impl RealUser {
     }
 }
 
+struct Scans {}
+impl ValueRetriever for Scans {
+    fn value_name(&self) -> &'static str {
+        "scans"
+    }
+
+    fn computed_default(
+        &self,
+        _bootstrapper_config: &BootstrapperConfig,
+        _persistent_config: &dyn PersistentConfiguration,
+        _db_password_opt: &Option<String>,
+    ) -> Option<(String, UiSetupResponseValueStatus)> {
+        Some(("on".to_string(), Default))
+    }
+
+    fn is_required(&self, _params: &SetupCluster) -> bool {
+        false
+    }
+}
+
 fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetriever>> {
     vec![
         Box::new(BlockchainServiceUrl {}),
@@ -928,45 +1044,65 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
         Box::new(MappingProtocol {}),
         Box::new(NeighborhoodMode {}),
         Box::new(Neighbors {}),
+        Box::new(PaymentThresholds {}),
+        Box::new(RatePack {}),
+        Box::new(ScanIntervals {}),
         #[cfg(not(target_os = "windows"))]
         Box::new(RealUser::new(dirs_wrapper)),
+        Box::new(Scans {}),
     ]
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::chain_id_from_name;
     use crate::bootstrapper::RealUser;
     use crate::daemon::dns_inspector::dns_inspector::DnsInspector;
     use crate::daemon::dns_inspector::DnsInspectionError;
-    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+    use crate::daemon::setup_reporter;
+    use crate::database::connection_wrapper::ConnectionWrapperReal;
+    use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
+    use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
     };
     use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::sub_lib::cryptde::{PlainData, PublicKey};
+    use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::assert_string_contains;
+    use crate::sub_lib::{accountant, neighborhood};
+    use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::unshared_test_utils::{
+        make_persistent_config_real_with_config_dao_null,
+        make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
+    };
+    use crate::test_utils::{assert_string_contains, rate_pack};
+    use masq_lib::blockchains::chains::Chain as Blockchain;
+    use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::test_utils::utils::{
-        ensure_node_home_directory_exists, DEFAULT_CHAIN_ID, TEST_DEFAULT_CHAIN_NAME,
-    };
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::AutomapProtocol;
     use std::cell::RefCell;
+    use std::convert::TryFrom;
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
     use std::fs::File;
     use std::io::Write;
     use std::net::IpAddr;
+    use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CONSOLE_DIAGNOSTICS, false);
+    }
 
     pub struct DnsInspectorMock {
         inspect_results: RefCell<Vec<Result<Vec<IpAddr>, DnsInspectionError>>>,
@@ -1047,18 +1183,14 @@ mod tests {
         );
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&home_dir, chain_id_from_name(DEFAULT_CHAIN_NAME), true)
+            .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         let mut config = PersistentConfigurationReal::from(conn);
         config.change_password(None, "password").unwrap();
         config.set_clandestine_port(1234).unwrap();
         config
             .set_wallet_info(
-                &PlainData::new(
-                    b"0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF0123456789ABCDEF",
-                )
-                .as_ref(),
-                "m/44'/60'/1'/2/3",
+                "1111111111111111111111111111111111111111111111111111111111111111",
                 "0x0000000000000000000000000000000000000000",
                 "password",
             )
@@ -1066,7 +1198,7 @@ mod tests {
         config.set_gas_price(1234567890).unwrap();
         let neighbor1 = NodeDescriptor {
             encryption_public_key: PublicKey::new(b"ABCD"),
-            mainnet: true,
+            blockchain: Blockchain::EthMainnet,
             node_addr_opt: Some(NodeAddr::new(
                 &IpAddr::from_str("1.2.3.4").unwrap(),
                 &[1234],
@@ -1074,7 +1206,7 @@ mod tests {
         };
         let neighbor2 = NodeDescriptor {
             encryption_public_key: PublicKey::new(b"EFGH"),
-            mainnet: true,
+            blockchain: Blockchain::EthMainnet,
             node_addr_opt: Some(NodeAddr::new(
                 &IpAddr::from_str("5.6.7.8").unwrap(),
                 &[5678],
@@ -1083,8 +1215,8 @@ mod tests {
         config
             .set_past_neighbors(Some(vec![neighbor1, neighbor2]), "password")
             .unwrap();
-
         let incoming_setup = vec![
+            ("blockchain-service-url", "https://well-known-provider.com"),
             ("data-directory", home_dir.to_str().unwrap()),
             ("db-password", "password"),
             ("ip", "4.3.2.1"),
@@ -1099,15 +1231,22 @@ mod tests {
             .get_modified_setup(HashMap::new(), incoming_setup)
             .unwrap();
 
-        let (dns_servers_str, dns_servers_status) =
-            match DnsServers::new().computed_default(&BootstrapperConfig::new(), &None, &None) {
-                Some((dss, _)) => (dss, Default),
-                None => ("".to_string(), Required),
-            };
+        let (dns_servers_str, dns_servers_status) = match DnsServers::new().computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        ) {
+            Some((dss, _)) => (dss, Default),
+            None => ("".to_string(), Required),
+        };
         let expected_result = vec![
-            ("blockchain-service-url", "", Required),
-            ("chain", DEFAULT_CHAIN_NAME, Default),
-            ("clandestine-port", "1234", Default),
+            (
+                "blockchain-service-url",
+                "https://well-known-provider.com",
+                Set,
+            ),
+            ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
+            ("clandestine-port", "1234", Configured),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "", Blank),
             ("crash-point", "", Blank),
@@ -1122,9 +1261,15 @@ mod tests {
             ("neighborhood-mode", "standard", Default),
             (
                 "neighbors",
-                "QUJDRA@1.2.3.4:1234,RUZHSA@5.6.7.8:5678",
+                "masq://eth-mainnet:QUJDRA@1.2.3.4:1234,masq://eth-mainnet:RUZHSA@5.6.7.8:5678",
                 Configured,
             ),
+            (
+                "payment-thresholds",
+                &DEFAULT_PAYMENT_THRESHOLDS.to_string(),
+                Default,
+            ),
+            ("rate-pack", &DEFAULT_RATE_PACK.to_string(), Default),
             #[cfg(not(target_os = "windows"))]
             (
                 "real-user",
@@ -1133,6 +1278,12 @@ mod tests {
                     .to_string(),
                 Default,
             ),
+            (
+                "scan-intervals",
+                &DEFAULT_SCAN_INTERVALS.to_string(),
+                Default,
+            ),
+            ("scans", "on", Default),
         ]
         .into_iter()
         .map(|(name, value, status)| {
@@ -1157,32 +1308,8 @@ mod tests {
             "get_modified_setup_database_nonexistent_everything_preexistent",
         );
         let existing_setup = setup_cluster_from(vec![
-            ("blockchain-service-url", "https://example.com", Set),
-            ("chain", TEST_DEFAULT_CHAIN_NAME, Set),
-            ("clandestine-port", "1234", Set),
-            ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
-            ("crash-point", "Message", Set),
-            ("data-directory", home_dir.to_str().unwrap(), Set),
-            ("db-password", "password", Set),
-            ("dns-servers", "8.8.8.8", Set),
-            ("earning-wallet", "0x0123456789012345678901234567890123456789", Set),
-            ("gas-price", "50", Set),
-            ("ip", "4.3.2.1", Set),
-            ("log-level", "error", Set),
-            ("mapping-protocol", "pmp", Set),
-            ("neighborhood-mode", "originate-only", Set),
-            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Set),
-            #[cfg(not(target_os = "windows"))]
-            ("real-user", "9999:9999:booga", Set),
-        ]);
-        let dirs_wrapper = Box::new(DirsWrapperReal);
-        let subject = SetupReporterReal::new(dirs_wrapper);
-
-        let result = subject.get_modified_setup(existing_setup, vec![]).unwrap();
-
-        let expected_result = vec![
-            ("blockchain-service-url", "https://example.com", Set),
-            ("chain", TEST_DEFAULT_CHAIN_NAME, Set),
+            ("blockchain-service-url", "https://example1.com", Set),
+            ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
             ("clandestine-port", "1234", Set),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
@@ -1196,9 +1323,42 @@ mod tests {
             ("log-level", "error", Set),
             ("mapping-protocol", "pmp", Set),
             ("neighborhood-mode", "originate-only", Set),
-            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Set),
+            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
+            ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
+            ("scan-intervals","150|150|150",Set),
+            ("scans", "off", Set),
+        ]);
+        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let subject = SetupReporterReal::new(dirs_wrapper);
+
+        let result = subject.get_modified_setup(existing_setup, vec![]).unwrap();
+
+        let expected_result = vec![
+            ("blockchain-service-url", "https://example1.com", Set),
+            ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
+            ("clandestine-port", "1234", Set),
+            ("config-file", "config.toml", Default),
+            ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
+            ("crash-point", "Message", Set),
+            ("data-directory", home_dir.to_str().unwrap(), Set),
+            ("db-password", "password", Set),
+            ("dns-servers", "8.8.8.8", Set),
+            ("earning-wallet", "0x0123456789012345678901234567890123456789", Set),
+            ("gas-price", "50", Set),
+            ("ip", "4.3.2.1", Set),
+            ("log-level", "error", Set),
+            ("mapping-protocol", "pmp", Set),
+            ("neighborhood-mode", "originate-only", Set),
+            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
+            ("rate-pack","1|3|3|8",Set),
+            #[cfg(not(target_os = "windows"))]
+            ("real-user", "9999:9999:booga", Set),
+            ("scan-intervals","150|150|150",Set),
+            ("scans", "off", Set),
         ].into_iter()
             .map (|(name, value, status)| (name.to_string(), UiSetupResponseValue::new(name, value, status)))
             .collect_vec();
@@ -1217,8 +1377,8 @@ mod tests {
             "get_modified_setup_database_nonexistent_everything_set",
         );
         let incoming_setup = vec![
-            ("blockchain-service-url", "https://example.com"),
-            ("chain", TEST_DEFAULT_CHAIN_NAME),
+            ("blockchain-service-url", "https://example2.com"),
+            ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier),
             ("clandestine-port", "1234"),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677"),
             ("crash-point", "Message"),
@@ -1231,9 +1391,13 @@ mod tests {
             ("log-level", "error"),
             ("mapping-protocol", "igdp"),
             ("neighborhood-mode", "originate-only"),
-            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678"),
+            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("payment-thresholds","1234|50000|1000|1000|15000|15000"),
+            ("rate-pack","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga"),
+            ("scan-intervals","140|130|150"),
+            ("scans", "off"),
         ].into_iter()
             .map (|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
@@ -1245,8 +1409,8 @@ mod tests {
             .unwrap();
 
         let expected_result = vec![
-            ("blockchain-service-url", "https://example.com", Set),
-            ("chain", TEST_DEFAULT_CHAIN_NAME, Set),
+            ("blockchain-service-url", "https://example2.com", Set),
+            ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
             ("clandestine-port", "1234", Set),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Set),
@@ -1260,9 +1424,13 @@ mod tests {
             ("log-level", "error", Set),
             ("mapping-protocol", "igdp", Set),
             ("neighborhood-mode", "originate-only", Set),
-            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Set),
+            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("payment-thresholds","1234|50000|1000|1000|15000|15000",Set),
+            ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Set),
+            ("scan-intervals","140|130|150",Set),
+            ("scans", "off", Set),
         ].into_iter()
             .map (|(name, value, status)| (name.to_string(), UiSetupResponseValue::new(name, value, status)))
             .collect_vec();
@@ -1282,8 +1450,8 @@ mod tests {
             "get_modified_setup_database_nonexistent_nothing_set_everything_in_environment",
         );
         vec![
-            ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example.com"),
-            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN_NAME),
+            ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example3.com"),
+            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
             ("MASQ_CLANDESTINE_PORT", "1234"),
             ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
             ("MASQ_CRASH_POINT", "Error"),
@@ -1296,9 +1464,13 @@ mod tests {
             ("MASQ_LOG_LEVEL", "error"),
             ("MASQ_MAPPING_PROTOCOL", "pmp"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
-            ("MASQ_NEIGHBORS", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678"),
+            ("MASQ_NEIGHBORS", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("MASQ_PAYMENT_THRESHOLDS","1234|50000|1000|1234|19000|20000"),
+            ("MASQ_RATE_PACK","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
+            ("MASQ_SCANS", "off"),
+            ("MASQ_SCAN_INTERVALS","133|133|111")
         ].into_iter()
             .for_each (|(name, value)| std::env::set_var (name, value));
         let dirs_wrapper = Box::new(DirsWrapperReal);
@@ -1308,8 +1480,8 @@ mod tests {
         let result = subject.get_modified_setup(HashMap::new(), params).unwrap();
 
         let expected_result = vec![
-            ("blockchain-service-url", "https://example.com", Configured),
-            ("chain", TEST_DEFAULT_CHAIN_NAME, Configured),
+            ("blockchain-service-url", "https://example3.com", Configured),
+            ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Configured),
             ("clandestine-port", "1234", Configured),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Configured),
@@ -1323,9 +1495,13 @@ mod tests {
             ("log-level", "error", Configured),
             ("mapping-protocol", "pmp", Configured),
             ("neighborhood-mode", "originate-only", Configured),
-            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Configured),
+            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
+            ("payment-thresholds","1234|50000|1000|1234|19000|20000",Configured),
+            ("rate-pack","1|3|3|8",Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
+            ("scan-intervals","133|133|111",Configured),
+            ("scans", "off", Configured),
         ].into_iter()
             .map (|(name, value, status)| (name.to_string(), UiSetupResponseValue::new(name, value, status)))
             .collect_vec();
@@ -1337,6 +1513,10 @@ mod tests {
     }
 
     #[test]
+    // NOTE: This test achieves what it's designed for--to demonstrate that loading a different
+    // config file changes the setup in the database properly--but the scenario it's built on is
+    // misleading. You can't change a database from one chain to another, because in so doing all
+    // its wallet addresses, balance amounts, and transaction numbers would be invalidated.
     fn switching_config_files_changes_setup() {
         let _ = EnvironmentGuard::new();
         let home_dir = ensure_node_home_directory_exists(
@@ -1344,7 +1524,9 @@ mod tests {
             "switching_config_files_changes_setup",
         );
         let data_root = home_dir.join("data_root");
-        let mainnet_dir = data_root.join("MASQ").join(DEFAULT_CHAIN_NAME);
+        let mainnet_dir = data_root
+            .join("MASQ")
+            .join(DEFAULT_CHAIN.rec().literal_identifier);
         {
             std::fs::create_dir_all(mainnet_dir.clone()).unwrap();
             let mut config_file = File::create(mainnet_dir.join("config.toml")).unwrap();
@@ -1368,10 +1550,23 @@ mod tests {
                 .write_all(b"mapping-protocol = \"pcp\"\n")
                 .unwrap();
             config_file
+                .write_all(b"mapping-protocol = \"pcp\"\n")
+                .unwrap();
+            config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
+            config_file.write_all(b"scans = \"off\"\n").unwrap();
+            config_file.write_all(b"rate-pack = \"2|2|2|2\"\n").unwrap();
+            config_file
+                .write_all(b"payment-thresholds = \"33|55|33|646|999|999\"\n")
+                .unwrap();
+            config_file
+                .write_all(b"scan-intervals = \"111|100|99\"\n")
+                .unwrap()
         }
-        let ropsten_dir = data_root.join("MASQ").join(TEST_DEFAULT_CHAIN_NAME);
+        let ropsten_dir = data_root
+            .join("MASQ")
+            .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
         {
             std::fs::create_dir_all(ropsten_dir.clone()).unwrap();
             let mut config_file = File::create(ropsten_dir.join("config.toml")).unwrap();
@@ -1381,11 +1576,16 @@ mod tests {
             config_file
                 .write_all(b"clandestine-port = \"8877\"\n")
                 .unwrap();
+            // NOTE: You can't really change consuming-private-key without starting a new database
             config_file.write_all(b"consuming-private-key = \"FFEEDDCCBBAA99887766554433221100FFEEDDCCBBAA99887766554433221100\"\n").unwrap();
             config_file.write_all(b"crash-point = \"None\"\n").unwrap();
             config_file
+                .write_all(b"db-password = \"ropstenPassword\"\n")
+                .unwrap();
+            config_file
                 .write_all(b"dns-servers = \"8.7.6.5\"\n")
                 .unwrap();
+            // NOTE: You can't really change consuming-private-key without starting a new database
             config_file
                 .write_all(b"earning-wallet = \"0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\"\n")
                 .unwrap();
@@ -1397,17 +1597,31 @@ mod tests {
             config_file
                 .write_all(b"neighborhood-mode = \"zero-hop\"\n")
                 .unwrap();
+            config_file.write_all(b"scans = \"off\"\n").unwrap();
+            config_file
+                .write_all(b"rate-pack = \"55|50|60|61\"\n")
+                .unwrap();
+            config_file
+                .write_all(b"payment-thresholds = \"1000|1000|3000|3333|10000|20000\"\n")
+                .unwrap();
+            config_file
+                .write_all(b"scan-intervals = \"555|555|555\"\n")
+                .unwrap()
         }
-        let dirs_wrapper = Box::new(DirsWrapperReal);
-        let mut subject = SetupReporterReal::new(dirs_wrapper);
-        subject.dirs_wrapper = Box::new(
+        let subject = SetupReporterReal::new(Box::new(
             DirsWrapperMock::new()
                 .home_dir_result(Some(home_dir.clone()))
                 .data_dir_result(Some(data_root.clone())),
-        );
-        let params = vec![UiSetupRequestValue::new("chain", DEFAULT_CHAIN_NAME)];
+        ));
+        let params = vec![UiSetupRequestValue::new(
+            "chain",
+            DEFAULT_CHAIN.rec().literal_identifier,
+        )];
         let existing_setup = subject.get_modified_setup(HashMap::new(), params).unwrap();
-        let params = vec![UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN_NAME)];
+        let params = vec![UiSetupRequestValue::new(
+            "chain",
+            TEST_DEFAULT_CHAIN.rec().literal_identifier,
+        )];
 
         let result = subject.get_modified_setup(existing_setup, params).unwrap();
 
@@ -1417,7 +1631,7 @@ mod tests {
                 "https://www.ropsten.com",
                 Configured,
             ),
-            ("chain", TEST_DEFAULT_CHAIN_NAME, Set),
+            ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
             ("clandestine-port", "8877", Configured),
             ("config-file", "config.toml", Default),
             (
@@ -1431,7 +1645,7 @@ mod tests {
                 &ropsten_dir.to_string_lossy().to_string(),
                 Default,
             ),
-            ("db-password", "", Blank),
+            ("db-password", "ropstenPassword", Configured),
             ("dns-servers", "8.7.6.5", Configured),
             (
                 "earning-wallet",
@@ -1444,6 +1658,12 @@ mod tests {
             ("mapping-protocol", "pmp", Configured),
             ("neighborhood-mode", "zero-hop", Configured),
             ("neighbors", "", Blank),
+            (
+                "payment-thresholds",
+                "1000|1000|3000|3333|10000|20000",
+                Configured,
+            ),
+            ("rate-pack", "55|50|60|61", Configured),
             #[cfg(not(target_os = "windows"))]
             (
                 "real-user",
@@ -1452,6 +1672,8 @@ mod tests {
                     .to_string(),
                 Default,
             ),
+            ("scan-intervals", "555|555|555", Configured),
+            ("scans", "off", Configured),
         ]
         .into_iter()
         .map(|(name, value, status)| {
@@ -1476,23 +1698,24 @@ mod tests {
             "get_modified_setup_database_nonexistent_all_but_requireds_cleared",
         );
         vec![
-            ("MASQ_BLOCKCHAIN_SERVICE_URL", "https://example.com"),
-            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN_NAME),
+            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
             ("MASQ_CLANDESTINE_PORT", "1234"),
             ("MASQ_CONSUMING_PRIVATE_KEY", "0011223344556677001122334455667700112233445566770011223344556677"),
             ("MASQ_CRASH_POINT", "Panic"),
             ("MASQ_DATA_DIRECTORY", home_dir.to_str().unwrap()),
-            ("MASQ_DB_PASSWORD", "password"),
             ("MASQ_DNS_SERVERS", "8.8.8.8"),
             ("MASQ_EARNING_WALLET", "0x0123456789012345678901234567890123456789"),
             ("MASQ_GAS_PRICE", "50"),
-            ("MASQ_IP", "4.3.2.1"),
             ("MASQ_LOG_LEVEL", "error"),
             ("MASQ_MAPPING_PROTOCOL", "pcp"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
-            ("MASQ_NEIGHBORS", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678"),
+            ("MASQ_NEIGHBORS", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("MASQ_PAYMENT_THRESHOLDS","1234|50000|1000|1000|20000|20000"),
+            ("MASQ_RATE_PACK","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
+            ("MASQ_SCANS", "off"),
+            ("MASQ_SCAN_INTERVALS","150|150|155"),
         ].into_iter()
             .for_each (|(name, value)| std::env::set_var (name, value));
         let params = vec![
@@ -1511,13 +1734,18 @@ mod tests {
             "mapping-protocol",
             "neighborhood-mode",
             "neighbors",
+            "payment-thresholds",
+            "rate-pack",
             #[cfg(not(target_os = "windows"))]
             "real-user",
+            "scan-intervals",
+            "scans",
         ]
         .into_iter()
         .map(|name| UiSetupRequestValue::clear(name))
         .collect_vec();
-        let existing_setup = setup_cluster_from(vec![
+        let existing_setup =
+            setup_cluster_from(vec![
             ("blockchain-service-url", "https://booga.com", Set),
             ("clandestine-port", "4321", Set),
             (
@@ -1541,26 +1769,30 @@ mod tests {
             ("neighborhood-mode", "consume-only", Set),
             (
                 "neighbors",
-                "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:9.10.11.12:9101",
+                "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@9.10.11.12:9101",
                 Set,
             ),
+            ("payment-thresholds", "4321|66666|777|987|123456|124444", Set),
+            ("rate-pack", "10|30|13|28", Set),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "6666:6666:agoob", Set),
-        ]);
+            ("scan-intervals", "111|111|111", Set),
+            ("scans", "off", Set),
+            ]);
         let dirs_wrapper = Box::new(DirsWrapperReal);
         let subject = SetupReporterReal::new(dirs_wrapper);
 
         let result = subject.get_modified_setup(existing_setup, params).unwrap();
 
         let expected_result = vec![
-            ("blockchain-service-url", "https://example.com", Configured),
-            ("chain", TEST_DEFAULT_CHAIN_NAME, Configured),
+            ("blockchain-service-url", "", Required),
+            ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Configured),
             ("clandestine-port", "1234", Configured),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "0011223344556677001122334455667700112233445566770011223344556677", Configured),
             ("crash-point", "Panic", Configured),
             ("data-directory", home_dir.to_str().unwrap(), Configured),
-            ("db-password", "password", Configured),
+            ("db-password", "",Required),
             ("dns-servers", "8.8.8.8", Configured),
             (
                 "earning-wallet",
@@ -1568,13 +1800,17 @@ mod tests {
                 Configured,
             ),
             ("gas-price", "50", Configured),
-            ("ip", "4.3.2.1", Configured),
+            ("ip","", Blank),
             ("log-level", "error", Configured),
             ("mapping-protocol", "pcp", Configured),
             ("neighborhood-mode", "originate-only", Configured),
-            ("neighbors", "MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:1.2.3.4:1234,MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI:5.6.7.8:5678", Configured),
+            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
+            ("payment-thresholds","1234|50000|1000|1000|20000|20000",Configured),
+            ("rate-pack","1|3|3|8",Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
+            ("scan-intervals","150|150|155",Configured),
+            ("scans", "off", Configured),
         ]
         .into_iter()
         .map(|(name, value, status)| {
@@ -1598,10 +1834,12 @@ mod tests {
             "setup_reporter",
             "get_modified_setup_data_directory_depends_on_new_chain_on_success",
         );
-        let current_data_dir = base_dir.join("MASQ").join(DEFAULT_CHAIN_NAME);
+        let current_data_dir = base_dir
+            .join("MASQ")
+            .join(DEFAULT_CHAIN.rec().literal_identifier);
         let existing_setup = setup_cluster_from(vec![
             ("neighborhood-mode", "zero-hop", Set),
-            ("chain", DEFAULT_CHAIN_NAME, Default),
+            ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
             (
                 "data-directory",
                 &current_data_dir.to_string_lossy().to_string(),
@@ -1615,12 +1853,14 @@ mod tests {
                 Default,
             ),
         ]);
-        let incoming_setup = vec![("chain", TEST_DEFAULT_CHAIN_NAME)]
+        let incoming_setup = vec![("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier)]
             .into_iter()
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
         let base_data_dir = base_dir.join("data_dir");
-        let expected_data_directory = base_data_dir.join("MASQ").join(TEST_DEFAULT_CHAIN_NAME);
+        let expected_data_directory = base_data_dir
+            .join("MASQ")
+            .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
         let dirs_wrapper = Box::new(
             DirsWrapperMock::new()
                 .data_dir_result(Some(base_data_dir))
@@ -1643,10 +1883,12 @@ mod tests {
             "setup_reporter",
             "get_modified_setup_data_directory_depends_on_new_chain_on_error",
         );
-        let current_data_dir = base_dir.join("MASQ").join(DEFAULT_CHAIN_NAME);
+        let current_data_dir = base_dir
+            .join("MASQ")
+            .join(DEFAULT_CHAIN.rec().literal_identifier);
         let existing_setup = setup_cluster_from(vec![
             ("blockchain-service-url", "", Required),
-            ("chain", DEFAULT_CHAIN_NAME, Default),
+            ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
             ("clandestine-port", "7788", Default),
             ("config-file", "config.toml", Default),
             ("consuming-private-key", "", Blank),
@@ -1674,13 +1916,16 @@ mod tests {
                     .to_string(),
                 Default,
             ),
+            ("scans", "", Blank),
         ]);
-        let incoming_setup = vec![("chain", TEST_DEFAULT_CHAIN_NAME)]
+        let incoming_setup = vec![("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier)]
             .into_iter()
             .map(|(name, value)| UiSetupRequestValue::new(name, value))
             .collect_vec();
         let base_data_dir = base_dir.join("data_dir");
-        let expected_data_directory = base_data_dir.join("MASQ").join(TEST_DEFAULT_CHAIN_NAME);
+        let expected_data_directory = base_data_dir
+            .join("MASQ")
+            .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
         let dirs_wrapper = Box::new(
             DirsWrapperMock::new()
                 .data_dir_result(Some(base_data_dir))
@@ -1699,10 +1944,237 @@ mod tests {
     }
 
     #[test]
+    fn get_modified_setup_data_directory_trying_to_blank_chain_out_on_error() {
+        let _guard = EnvironmentGuard::new();
+        let base_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "get_modified_setup_data_directory_trying_to_blank_chain_out_on_error",
+        );
+        let current_data_dir = base_dir
+            .join("MASQ")
+            .join(BlockChain::PolyMumbai.rec().literal_identifier); //not a default
+        let existing_setup = setup_cluster_from(vec![
+            ("blockchain-service-url", "", Required),
+            (
+                "chain",
+                BlockChain::PolyMumbai.rec().literal_identifier,
+                Set,
+            ),
+            ("clandestine-port", "7788", Default),
+            ("config-file", "config.toml", Default),
+            ("consuming-private-key", "", Blank),
+            (
+                "data-directory",
+                &current_data_dir.to_string_lossy().to_string(),
+                Default,
+            ),
+            ("db-password", "", Required),
+            ("dns-servers", "1.1.1.1", Default),
+            (
+                "earning-wallet",
+                "0x47fb8671db83008d382c2e6ea67fa377378c0cea",
+                Default,
+            ),
+            ("gas-price", "1", Default),
+            ("ip", "1.2.3.4", Set),
+            ("log-level", "warn", Default),
+            ("neighborhood-mode", "originate-only", Set),
+            ("neighbors", "", Blank),
+            (
+                "real-user",
+                &crate::bootstrapper::RealUser::new(None, None, None)
+                    .populate(&DirsWrapperReal {})
+                    .to_string(),
+                Default,
+            ),
+            ("scans", "on", Default),
+        ]);
+        let incoming_setup = vec![UiSetupRequestValue::clear("chain")];
+        let base_data_dir = base_dir.join("data_dir");
+        let expected_chain = DEFAULT_CHAIN.rec().literal_identifier;
+        let expected_data_directory = base_data_dir
+            .join("MASQ")
+            .join(DEFAULT_CHAIN.rec().literal_identifier);
+        let dirs_wrapper = Box::new(
+            DirsWrapperMock::new()
+                .data_dir_result(Some(base_data_dir))
+                .home_dir_result(Some(base_dir)),
+        );
+        let subject = SetupReporterReal::new(dirs_wrapper);
+
+        let result = subject
+            .get_modified_setup(existing_setup, incoming_setup)
+            .err()
+            .unwrap()
+            .0;
+
+        let actual_chain = &result.get("chain").unwrap().value;
+        assert_eq!(actual_chain, expected_chain);
+        let actual_data_directory = PathBuf::from(&result.get("data-directory").unwrap().value);
+        assert_eq!(actual_data_directory, expected_data_directory);
+    }
+
+    #[test]
+    fn get_modified_setup_does_not_support_database_migration() {
+        let data_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "get_modified_setup_does_not_support_database_migration",
+        );
+        let conn = bring_db_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
+        let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
+        assert_eq!(schema_version_before, "0");
+        let existing_setup = setup_cluster_from(vec![
+            ("chain", DEFAULT_CHAIN.rec().literal_identifier, Default),
+            (
+                "data-directory",
+                &data_dir.to_string_lossy().to_string(),
+                Set,
+            ),
+            (
+                "real-user",
+                &crate::bootstrapper::RealUser::new(None, None, None)
+                    .populate(&DirsWrapperReal {})
+                    .to_string(),
+                Default,
+            ),
+        ]);
+        let incoming_setup = vec![("ip", "1.2.3.4")]
+            .into_iter()
+            .map(|(name, value)| UiSetupRequestValue::new(name, value))
+            .collect_vec();
+        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let subject = SetupReporterReal::new(dirs_wrapper);
+
+        let _ = subject
+            .get_modified_setup(existing_setup, incoming_setup)
+            .unwrap();
+
+        let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
+        assert_eq!(schema_version_before, schema_version_after)
+    }
+
+    #[test]
+    fn get_modified_blanking_something_that_should_not_be_blanked_fails_properly() {
+        let _guard = EnvironmentGuard::new();
+        let home_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "get_modified_blanking_something_that_shouldnt_be_blanked_fails_properly",
+        );
+        let existing_setup = setup_cluster_from(vec![
+            ("data-directory", home_dir.to_str().unwrap(), Set),
+            ("neighborhood-mode", "originate-only", Set),
+            (
+                "neighbors",
+                "masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542",
+                Set,
+            ),
+        ]);
+        let incoming_setup = vec![UiSetupRequestValue::clear("neighbors")];
+        let dirs_wrapper = Box::new(DirsWrapperReal);
+        let subject = SetupReporterReal::new(dirs_wrapper);
+
+        let result = subject
+            .get_modified_setup(existing_setup, incoming_setup)
+            .err()
+            .unwrap();
+
+        assert_eq!(
+            result.0.get("neighbors").unwrap().clone(),
+            UiSetupResponseValue::new(
+                "neighbors",
+                "masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542",
+                Set
+            )
+        );
+    }
+
+    #[test]
+    fn run_configuration_without_existing_database_implies_config_dao_null_to_use() {
+        let _guard = EnvironmentGuard::new();
+        let home_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "run_configuration_without_existing_database_implies_config_dao_null_to_use",
+        );
+        let current_default_gas_price = DEFAULT_GAS_PRICE;
+        let gas_price_for_set_attempt = current_default_gas_price + 78;
+        let multi_config =
+            make_simplified_multi_config(["--data-directory", home_dir.to_str().unwrap()]);
+        let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
+        let subject = SetupReporterReal::new(Box::new(dirs_wrapper));
+
+        let ((bootstrapper_config, mut persistent_config), _) =
+            subject.run_configuration(&multi_config, &home_dir);
+
+        let error = DbInitializerReal::default()
+            .initialize(&home_dir, false, MigratorConfig::test_default())
+            .unwrap_err();
+        assert_eq!(error, InitializationError::Nonexistent);
+        assert_eq!(
+            bootstrapper_config.blockchain_bridge_config.gas_price,
+            current_default_gas_price
+        );
+        persistent_config
+            .set_gas_price(gas_price_for_set_attempt)
+            .unwrap();
+        //if this had contained ConfigDaoReal the setting would've worked
+        let gas_price = persistent_config.gas_price().unwrap();
+        //asserting negation
+        assert_ne!(gas_price, gas_price_for_set_attempt);
+    }
+
+    #[test]
+    fn run_configuration_suppresses_db_migration_which_implies_just_use_of_config_dao_null() {
+        let data_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "run_configuration_suppresses_db_migration_which_implies_just_use_of_config_dao_null",
+        );
+        let current_default_gas_price = DEFAULT_GAS_PRICE;
+        let gas_price_to_be_in_the_real_db = current_default_gas_price + 55;
+        let gas_price_for_set_attempt = current_default_gas_price + 66;
+        let conn = bring_db_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        conn.execute(
+            "update config set value = ? where name = 'gas_price'",
+            [&gas_price_to_be_in_the_real_db],
+        )
+        .unwrap();
+        let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
+        let updated_gas_price = dao.get("gas_price").unwrap().value_opt.unwrap();
+        assert_eq!(
+            updated_gas_price,
+            gas_price_to_be_in_the_real_db.to_string()
+        );
+        let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
+        assert_eq!(schema_version_before, "0");
+        let multi_config =
+            make_simplified_multi_config(["--data-directory", data_dir.to_str().unwrap()]);
+        let dirs_wrapper = make_pre_populated_mocked_directory_wrapper();
+        let subject = SetupReporterReal::new(Box::new(dirs_wrapper));
+
+        let ((bootstrapper_config, mut persistent_config), _) =
+            subject.run_configuration(&multi_config, &data_dir);
+
+        let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
+        assert_eq!(schema_version_before, schema_version_after);
+        //asserting negation
+        assert_ne!(
+            bootstrapper_config.blockchain_bridge_config.gas_price,
+            gas_price_to_be_in_the_real_db
+        );
+        persistent_config
+            .set_gas_price(gas_price_for_set_attempt)
+            .unwrap();
+        //if this had contained ConfigDaoReal the setting would've worked
+        let gas_price = persistent_config.gas_price().unwrap();
+        //asserting negation
+        assert_ne!(gas_price, gas_price_for_set_attempt);
+    }
+
+    #[test]
     fn calculate_fundamentals_with_only_environment() {
         let _guard = EnvironmentGuard::new();
         vec![
-            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN_NAME),
+            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
             ("MASQ_DATA_DIRECTORY", "env_dir"),
             ("MASQ_REAL_USER", "9999:9999:booga"),
         ]
@@ -1710,7 +2182,7 @@ mod tests {
         .for_each(|(name, value)| std::env::set_var(name, value));
         let setup = setup_cluster_from(vec![]);
 
-        let (real_user_opt, data_directory_opt, chain_name) =
+        let (real_user_opt, data_directory_opt, chain) =
             SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
@@ -1722,14 +2194,14 @@ mod tests {
             ))
         );
         assert_eq!(data_directory_opt, Some(PathBuf::from("env_dir")));
-        assert_eq!(chain_name, TEST_DEFAULT_CHAIN_NAME.to_string());
+        assert_eq!(chain, TEST_DEFAULT_CHAIN);
     }
 
     #[test]
     fn calculate_fundamentals_with_environment_and_obsolete_setup() {
         let _guard = EnvironmentGuard::new();
         vec![
-            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN_NAME),
+            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
             ("MASQ_DATA_DIRECTORY", "env_dir"),
             ("MASQ_REAL_USER", "9999:9999:booga"),
         ]
@@ -1741,7 +2213,7 @@ mod tests {
             ("real-user", "1111:1111:agoob", Configured),
         ]);
 
-        let (real_user_opt, data_directory_opt, chain_name) =
+        let (real_user_opt, data_directory_opt, chain) =
             SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
@@ -1753,14 +2225,14 @@ mod tests {
             ))
         );
         assert_eq!(data_directory_opt, Some(PathBuf::from("env_dir")));
-        assert_eq!(chain_name, TEST_DEFAULT_CHAIN_NAME.to_string());
+        assert_eq!(chain, TEST_DEFAULT_CHAIN);
     }
 
     #[test]
     fn calculate_fundamentals_with_environment_and_overriding_setup() {
         let _guard = EnvironmentGuard::new();
         vec![
-            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN_NAME),
+            ("MASQ_CHAIN", TEST_DEFAULT_CHAIN.rec().literal_identifier),
             ("MASQ_DATA_DIRECTORY", "env_dir"),
             ("MASQ_REAL_USER", "9999:9999:booga"),
         ]
@@ -1772,7 +2244,7 @@ mod tests {
             ("real-user", "1111:1111:agoob", Set),
         ]);
 
-        let (real_user_opt, data_directory_opt, chain_name) =
+        let (real_user_opt, data_directory_opt, chain) =
             SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
@@ -1784,7 +2256,7 @@ mod tests {
             ))
         );
         assert_eq!(data_directory_opt, Some(PathBuf::from("setup_dir")));
-        assert_eq!(chain_name, "dev".to_string());
+        assert_eq!(chain, Blockchain::from("dev"));
     }
 
     #[test]
@@ -1799,7 +2271,7 @@ mod tests {
             ("real-user", "1111:1111:agoob", Configured),
         ]);
 
-        let (real_user_opt, data_directory_opt, chain_name) =
+        let (real_user_opt, data_directory_opt, chain) =
             SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
@@ -1811,7 +2283,7 @@ mod tests {
             ))
         );
         assert_eq!(data_directory_opt, None);
-        assert_eq!(chain_name, "dev".to_string());
+        assert_eq!(chain, Blockchain::from("dev"));
     }
 
     #[test]
@@ -1822,7 +2294,7 @@ mod tests {
             .for_each(|(name, value): (&str, &str)| std::env::set_var(name, value));
         let setup = setup_cluster_from(vec![]);
 
-        let (real_user_opt, data_directory_opt, chain_name) =
+        let (real_user_opt, data_directory_opt, chain) =
             SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
 
         assert_eq!(
@@ -1832,7 +2304,7 @@ mod tests {
             )
         );
         assert_eq!(data_directory_opt, None);
-        assert_eq!(chain_name, DEFAULT_CHAIN_NAME.to_string());
+        assert_eq!(chain, DEFAULT_CHAIN);
     }
 
     #[test]
@@ -1862,7 +2334,7 @@ mod tests {
         let actual_chain = result.get("chain").unwrap();
         assert_eq!(
             actual_chain,
-            &UiSetupResponseValue::new("chain", DEFAULT_CHAIN_NAME, Default)
+            &UiSetupResponseValue::new("chain", DEFAULT_CHAIN.rec().literal_identifier, Default)
         );
     }
 
@@ -1914,9 +2386,10 @@ mod tests {
         .into_iter()
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
+        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
 
-        let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
-            .calculate_configured_setup(&setup, vec![], &data_directory, "irrelevant")
+        let result = subject
+            .calculate_configured_setup(&setup, &data_directory)
             .0;
 
         assert_eq!(
@@ -1926,7 +2399,11 @@ mod tests {
         assert_eq!(
             result.get("gas-price").unwrap().value,
             GasPrice {}
-                .computed_default(&BootstrapperConfig::new(), &None, &None)
+                .computed_default(
+                    &BootstrapperConfig::new(),
+                    &make_persistent_config_real_with_config_dao_null(),
+                    &None
+                )
                 .unwrap()
                 .0
         );
@@ -2030,9 +2507,10 @@ mod tests {
         .into_iter()
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
+        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
 
-        let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
-            .calculate_configured_setup(&setup, vec![], &data_directory, "irrelevant")
+        let result = subject
+            .calculate_configured_setup(&setup, &data_directory)
             .0;
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
@@ -2057,9 +2535,10 @@ mod tests {
         .into_iter()
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
+        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
 
-        let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
-            .calculate_configured_setup(&setup, vec![], &data_directory, "irrelevant")
+        let result = subject
+            .calculate_configured_setup(&setup, &data_directory)
             .1
             .unwrap();
 
@@ -2094,10 +2573,9 @@ mod tests {
         .into_iter()
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
+        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
 
-        let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
-            .calculate_configured_setup(&setup, vec![], &data_dir, "irrelevant")
-            .0;
+        let result = subject.calculate_configured_setup(&setup, &data_dir).0;
 
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
@@ -2115,7 +2593,7 @@ mod tests {
             .data_dir()
             .unwrap()
             .join("MASQ")
-            .join(DEFAULT_CHAIN_NAME);
+            .join(DEFAULT_CHAIN.rec().literal_identifier);
         let setup = vec![
             // no config-file setting
             UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
@@ -2128,9 +2606,10 @@ mod tests {
         .into_iter()
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
+        let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
 
-        let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
-            .calculate_configured_setup(&setup, vec![], &data_directory, "irrelevant")
+        let result = subject
+            .calculate_configured_setup(&setup, &data_directory)
             .1
             .unwrap();
 
@@ -2142,9 +2621,16 @@ mod tests {
     fn chain_computed_default() {
         let subject = Chain {};
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
-        assert_eq!(result, Some((DEFAULT_CHAIN_NAME.to_string(), Default)));
+        assert_eq!(
+            result,
+            Some((DEFAULT_CHAIN.rec().literal_identifier.to_string(), Default))
+        );
     }
 
     #[test]
@@ -2153,22 +2639,10 @@ mod tests {
             PersistentConfigurationMock::new().clandestine_port_result(Ok(1234));
         let subject = ClandestinePort {};
 
-        let result = subject.computed_default(
-            &BootstrapperConfig::new(),
-            &Some(Box::new(persistent_config)),
-            &None,
-        );
+        let result =
+            subject.computed_default(&BootstrapperConfig::new(), &persistent_config, &None);
 
-        assert_eq!(result, Some(("1234".to_string(), Default)))
-    }
-
-    #[test]
-    fn clandestine_port_computed_default_absent() {
-        let subject = ClandestinePort {};
-
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
-
-        assert_eq!(result, None)
+        assert_eq!(result, Some(("1234".to_string(), Configured)))
     }
 
     #[test]
@@ -2177,11 +2651,8 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .clandestine_port_result(Err(PersistentConfigError::NotPresent));
 
-        let result = subject.computed_default(
-            &BootstrapperConfig::new(),
-            &Some(Box::new(persistent_config)),
-            &None,
-        );
+        let result =
+            subject.computed_default(&BootstrapperConfig::new(), &persistent_config, &None);
 
         assert_eq!(result, None)
     }
@@ -2189,16 +2660,25 @@ mod tests {
     #[test]
     fn data_directory_computed_default() {
         let real_user = RealUser::new(None, None, None).populate(&DirsWrapperReal {});
-        let expected = data_directory_from_context(&DirsWrapperReal {}, &real_user, &None, "dev")
-            .to_string_lossy()
-            .to_string();
+        let expected = data_directory_from_context(
+            &DirsWrapperReal {},
+            &real_user,
+            &None,
+            Blockchain::EthMainnet,
+        )
+        .to_string_lossy()
+        .to_string();
         let mut config = BootstrapperConfig::new();
         config.real_user = real_user;
-        config.blockchain_bridge_config.chain_id = chain_id_from_name("dev");
+        config.blockchain_bridge_config.chain = Blockchain::from("eth-mainnet");
 
         let subject = DataDirectory::default();
 
-        let result = subject.computed_default(&config, &None, &None);
+        let result = subject.computed_default(
+            &config,
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, Some((expected, Default)))
     }
@@ -2209,7 +2689,11 @@ mod tests {
         let mut subject = DnsServers::new();
         subject.factory = Box::new(factory);
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, None)
     }
@@ -2222,7 +2706,11 @@ mod tests {
         let mut subject = DnsServers::new();
         subject.factory = Box::new(factory);
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, None)
     }
@@ -2236,7 +2724,11 @@ mod tests {
         let mut subject = DnsServers::new();
         subject.factory = Box::new(factory);
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, None);
         TestLogHandler::new().exists_log_containing("WARN: DnsServers: Error inspecting DNS settings: This system does not appear to be connected to a network");
@@ -2249,7 +2741,11 @@ mod tests {
         let mut subject = DnsServers::new();
         subject.factory = Box::new(factory);
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, None)
     }
@@ -2264,7 +2760,11 @@ mod tests {
         let mut subject = DnsServers::new();
         subject.factory = Box::new(factory);
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, Some(("192.168.0.1,8.8.8.8".to_string(), Default)))
     }
@@ -2273,13 +2773,11 @@ mod tests {
     fn earning_wallet_computed_default_with_everything_configured_is_still_none() {
         let mut config = BootstrapperConfig::new();
         config.earning_wallet = Wallet::new("command-line address");
-        let persistent_config_opt: Option<Box<dyn PersistentConfiguration>> = Some(Box::new(
-            PersistentConfigurationMock::new()
-                .earning_wallet_address_result(Ok(Some("persistent address".to_string()))),
-        ));
+        let persistent_config = PersistentConfigurationMock::new()
+            .earning_wallet_address_result(Ok(Some("persistent address".to_string())));
         let subject = EarningWallet {};
 
-        let result = subject.computed_default(&config, &persistent_config_opt, &None);
+        let result = subject.computed_default(&config, &persistent_config, &None);
 
         assert_eq!(result, None)
     }
@@ -2289,7 +2787,11 @@ mod tests {
         let config = BootstrapperConfig::new();
         let subject = EarningWallet {};
 
-        let result = subject.computed_default(&config, &None, &None);
+        let result = subject.computed_default(
+            &config,
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, None)
     }
@@ -2300,7 +2802,11 @@ mod tests {
         bootstrapper_config.blockchain_bridge_config.gas_price = 57;
         let subject = GasPrice {};
 
-        let result = subject.computed_default(&bootstrapper_config, &None, &None);
+        let result = subject.computed_default(
+            &bootstrapper_config,
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, Some(("57".to_string(), Default)))
     }
@@ -2309,7 +2815,11 @@ mod tests {
     fn gas_price_computed_default_absent() {
         let subject = GasPrice {};
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, Some(("1".to_string(), Default)))
     }
@@ -2320,7 +2830,11 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config.mode = crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
 
-        let result = subject.computed_default(&config, &None, &None);
+        let result = subject.computed_default(
+            &config,
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, Some(("".to_string(), Blank)));
     }
@@ -2335,7 +2849,11 @@ mod tests {
             DEFAULT_RATE_PACK,
         );
 
-        let result = subject.computed_default(&config, &None, &None);
+        let result = subject.computed_default(
+            &config,
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, Some(("5.6.7.8".to_string(), Set)));
     }
@@ -2346,7 +2864,11 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config.mode = crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
 
-        let result = subject.computed_default(&config, &None, &None);
+        let result = subject.computed_default(
+            &config,
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, Some(("".to_string(), Blank)));
     }
@@ -2355,38 +2877,35 @@ mod tests {
     fn log_level_computed_default() {
         let subject = LogLevel {};
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, Some(("warn".to_string(), Default)))
     }
 
     #[test]
-    fn mapping_protocol_is_just_blank_if_no_data_in_database_and_unspecified_on_command_line() {
+    fn mapping_protocol_is_just_blank_if_no_data_in_database() {
         let subject = MappingProtocol {};
         let persistent_config =
             PersistentConfigurationMock::default().mapping_protocol_result(Ok(None));
 
-        let result = subject.computed_default(
-            &BootstrapperConfig::new(),
-            &Some(Box::new(persistent_config)),
-            &None,
-        );
+        let result =
+            subject.computed_default(&BootstrapperConfig::new(), &persistent_config, &None);
 
         assert_eq!(result, None)
     }
 
     #[test]
-    fn mapping_protocol_is_configured_if_data_in_database_and_no_command_line() {
+    fn mapping_protocol_is_configured_if_data_in_database() {
         let subject = MappingProtocol {};
         let persistent_config = PersistentConfigurationMock::default()
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)));
         let bootstrapper_config = BootstrapperConfig::new();
 
-        let result = subject.computed_default(
-            &bootstrapper_config,
-            &Some(Box::new(persistent_config)),
-            &None,
-        );
+        let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
 
         assert_eq!(result, Some(("pmp".to_string(), Configured)))
     }
@@ -2412,43 +2931,66 @@ mod tests {
     fn neighborhood_mode_computed_default() {
         let subject = NeighborhoodMode {};
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, Some(("standard".to_string(), Default)))
     }
 
     #[test]
-    fn neighbors_computed_default_present_present_present_ok() {
+    fn neighbors_computed_default_persistent_config_present_password_present_values_present() {
         let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .past_neighbors_params(&past_neighbors_params_arc)
             .past_neighbors_result(Ok(Some(vec![
-                NodeDescriptor::from_str(
+                NodeDescriptor::try_from((
                     main_cryptde(),
-                    "MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg@1.2.3.4:1234",
-                )
+                    "masq://eth-mainnet:MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg@1.2.3.4:1234",
+                ))
                 .unwrap(),
-                NodeDescriptor::from_str(
+                NodeDescriptor::try_from((
                     main_cryptde(),
-                    "ODg3NzY2NTU0NDMzMjIxMTg4Nzc2NjU1NDQzMzIyMTE@4.3.2.1:4321",
-                )
+                    "masq://eth-mainnet:ODg3NzY2NTU0NDMzMjIxMTg4Nzc2NjU1NDQzMzIyMTE@4.3.2.1:4321",
+                ))
                 .unwrap(),
             ])));
         let subject = Neighbors {};
 
         let result = subject.computed_default(
             &BootstrapperConfig::new(),
-            &Some(Box::new(persistent_config)),
+            &persistent_config,
             &Some("password".to_string()),
         );
 
-        assert_eq! (result, Some (("MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg@1.2.3.4:1234,ODg3NzY2NTU0NDMzMjIxMTg4Nzc2NjU1NDQzMzIyMTE@4.3.2.1:4321".to_string(), Configured)));
+        assert_eq! (result, Some (("masq://eth-mainnet:MTEyMjMzNDQ1NTY2Nzc4ODExMjIzMzQ0NTU2Njc3ODg@1.2.3.4:1234,masq://eth-mainnet:ODg3NzY2NTU0NDMzMjIxMTg4Nzc2NjU1NDQzMzIyMTE@4.3.2.1:4321".to_string(), Configured)));
         let past_neighbors_params = past_neighbors_params_arc.lock().unwrap();
         assert_eq!(*past_neighbors_params, vec!["password".to_string()])
     }
 
     #[test]
-    fn neighbors_computed_default_present_present_err() {
+    fn neighbors_computed_default_persistent_config_present_password_present_values_absent() {
+        let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .past_neighbors_params(&past_neighbors_params_arc)
+            .past_neighbors_result(Ok(None));
+        let subject = Neighbors {};
+
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &persistent_config,
+            &Some("password".to_string()),
+        );
+
+        assert_eq!(result, None);
+        let past_neighbors_params = past_neighbors_params_arc.lock().unwrap();
+        assert_eq!(*past_neighbors_params, vec!["password".to_string()])
+    }
+
+    #[test]
+    fn neighbors_computed_default_persistent_config_present_password_present_but_with_err() {
         let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .past_neighbors_params(&past_neighbors_params_arc)
@@ -2457,7 +2999,7 @@ mod tests {
 
         let result = subject.computed_default(
             &BootstrapperConfig::new(),
-            &Some(Box::new(persistent_config)),
+            &persistent_config,
             &Some("password".to_string()),
         );
 
@@ -2467,16 +3009,13 @@ mod tests {
     }
 
     #[test]
-    fn neighbors_computed_default_present_absent() {
+    fn neighbors_computed_default_persistent_config_present_password_absent() {
         // absence of configured result will cause panic if past_neighbors is called
         let persistent_config = PersistentConfigurationMock::new();
         let subject = Neighbors {};
 
-        let result = subject.computed_default(
-            &BootstrapperConfig::new(),
-            &Some(Box::new(persistent_config)),
-            &None,
-        );
+        let result =
+            subject.computed_default(&BootstrapperConfig::new(), &persistent_config, &None);
 
         assert_eq!(result, None);
     }
@@ -2485,7 +3024,11 @@ mod tests {
     fn neighbors_computed_default_absent() {
         let subject = Neighbors {};
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, None);
     }
@@ -2495,7 +3038,11 @@ mod tests {
     fn real_user_computed_default() {
         let subject = crate::daemon::setup_reporter::RealUser::default();
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(
             result,
@@ -2513,9 +3060,200 @@ mod tests {
     fn real_user_computed_default() {
         let subject = crate::daemon::setup_reporter::RealUser::default();
 
-        let result = subject.computed_default(&BootstrapperConfig::new(), &None, &None);
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &make_persistent_config_real_with_config_dao_null(),
+            &None,
+        );
 
         assert_eq!(result, None);
+    }
+
+    fn assert_rate_pack_computed_default_advanced_evaluation_regarding_specific_neighborhood(
+        neighborhood_mode: fn(rate_pack: neighborhood::RatePack) -> NeighborhoodModeEnum,
+    ) {
+        let subject = RatePack {};
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        bootstrapper_config.neighborhood_config.mode = neighborhood_mode(DEFAULT_RATE_PACK);
+        let persistent_config =
+            PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()));
+
+        let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
+
+        assert_eq!(result, Some((DEFAULT_RATE_PACK.to_string(), Default)))
+    }
+
+    #[test]
+    fn rate_pack_computed_default_when_persistent_config_like_default() {
+        assert_computed_default_when_persistent_config_like_default(
+            &RatePack {},
+            DEFAULT_RATE_PACK.to_string(),
+        )
+    }
+
+    #[test]
+    fn rate_pack_computed_default_persistent_config_unequal_to_default() {
+        let mut rate_pack = DEFAULT_RATE_PACK;
+        rate_pack.routing_byte_rate += 5;
+        rate_pack.exit_service_rate += 6;
+
+        assert_computed_default_when_persistent_config_unequal_to_default(
+            &RatePack {},
+            rate_pack,
+            &|p_c: PersistentConfigurationMock, value: neighborhood::RatePack| {
+                p_c.rate_pack_result(Ok(value))
+            },
+        )
+    }
+
+    #[test]
+    fn rate_pack_computed_default_neighborhood_mode_diff_from_standard_or_originate_only_returns_none(
+    ) {
+        let subject = &RatePack {};
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        let consume_only = NeighborhoodModeEnum::ConsumeOnly(vec![]);
+        bootstrapper_config.neighborhood_config.mode = consume_only;
+        let persistent_config =
+            PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()));
+
+        let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
+
+        assert_eq!(result, None);
+        let zero_hop = NeighborhoodModeEnum::ZeroHop;
+        bootstrapper_config.neighborhood_config.mode = zero_hop;
+        let persistent_config =
+            PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()));
+
+        let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
+
+        assert_eq!(result, None);
+    }
+
+    #[test]
+    fn scans_computed_default() {
+        let subject = Scans {};
+
+        let result = subject.computed_default(
+            &BootstrapperConfig::new(),
+            &PersistentConfigurationMock::new(),
+            &None,
+        );
+
+        assert_eq!(result, Some(("on".to_string(), Default)));
+    }
+
+    #[test]
+    fn rate_pack_standard_mode_goes_on_with_further_evaluation() {
+        assert_rate_pack_computed_default_advanced_evaluation_regarding_specific_neighborhood(
+            |rate_pack: neighborhood::RatePack| {
+                NeighborhoodModeEnum::Standard(
+                    NodeAddr::new(&IpAddr::from_str("4.5.6.7").unwrap(), &[44444]),
+                    vec![],
+                    rate_pack,
+                )
+            },
+        );
+    }
+
+    #[test]
+    fn rate_pack_originate_only_mode_goes_on_with_further_evaluation() {
+        assert_rate_pack_computed_default_advanced_evaluation_regarding_specific_neighborhood(
+            |rate_pack: neighborhood::RatePack| {
+                NeighborhoodModeEnum::OriginateOnly(vec![], rate_pack)
+            },
+        );
+    }
+
+    #[test]
+    fn scan_intervals_computed_default_when_persistent_config_like_default() {
+        assert_computed_default_when_persistent_config_like_default(
+            &ScanIntervals {},
+            *DEFAULT_SCAN_INTERVALS,
+        )
+    }
+
+    #[test]
+    fn scan_intervals_computed_default_persistent_config_unequal_to_default() {
+        let mut scan_intervals = *DEFAULT_SCAN_INTERVALS;
+        scan_intervals.pending_payable_scan_interval = scan_intervals
+            .pending_payable_scan_interval
+            .add(Duration::from_secs(15));
+        scan_intervals.pending_payable_scan_interval = scan_intervals
+            .receivable_scan_interval
+            .sub(Duration::from_secs(33));
+
+        assert_computed_default_when_persistent_config_unequal_to_default(
+            &ScanIntervals {},
+            scan_intervals,
+            &|p_c: PersistentConfigurationMock, value: accountant::ScanIntervals| {
+                p_c.scan_intervals_result(Ok(value))
+            },
+        )
+    }
+
+    #[test]
+    fn payment_thresholds_computed_default_when_persistent_config_like_default() {
+        assert_computed_default_when_persistent_config_like_default(
+            &PaymentThresholds {},
+            DEFAULT_PAYMENT_THRESHOLDS.to_string(),
+        )
+    }
+
+    #[test]
+    fn payment_thresholds_computed_default_persistent_config_unequal_to_default() {
+        let mut payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
+        payment_thresholds.maturity_threshold_sec += 12;
+        payment_thresholds.unban_below_gwei -= 11;
+        payment_thresholds.debt_threshold_gwei += 1111;
+
+        assert_computed_default_when_persistent_config_unequal_to_default(
+            &PaymentThresholds {},
+            payment_thresholds,
+            &|p_c: PersistentConfigurationMock, value: accountant::PaymentThresholds| {
+                p_c.payment_thresholds_result(Ok(value))
+            },
+        )
+    }
+
+    fn assert_computed_default_when_persistent_config_like_default<T>(
+        subject: &dyn ValueRetriever,
+        default: T,
+    ) where
+        T: Display + PartialEq,
+    {
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        //the rate_pack within the mode setting does not determine the result, so I just set a nonsense
+        bootstrapper_config.neighborhood_config.mode =
+            NeighborhoodModeEnum::OriginateOnly(vec![], rate_pack(0));
+        let persistent_config =
+            PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()));
+
+        let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
+
+        assert_eq!(result, Some((default.to_string(), Default)))
+    }
+
+    fn assert_computed_default_when_persistent_config_unequal_to_default<T, C>(
+        subject: &dyn ValueRetriever,
+        persistent_config_value: T,
+        pc_method_result_setter: &C,
+    ) where
+        C: Fn(PersistentConfigurationMock, T) -> PersistentConfigurationMock,
+        T: Display + PartialEq + Copy,
+    {
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        //the rate_pack within the mode setting does not determine the result, so I just set a nonsense
+        bootstrapper_config.neighborhood_config.mode =
+            NeighborhoodModeEnum::OriginateOnly(vec![], rate_pack(0));
+        let persistent_config =
+            pc_method_result_setter(PersistentConfigurationMock::new(), persistent_config_value);
+
+        let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
+
+        assert_eq!(
+            result,
+            Some((persistent_config_value.to_string(), Configured))
+        )
     }
 
     fn verify_requirements(
@@ -2602,6 +3340,20 @@ mod tests {
     }
 
     #[test]
+    fn routing_byte_rate_requirements() {
+        verify_requirements(
+            &setup_reporter::RatePack {},
+            "neighborhood-mode",
+            vec![
+                ("standard", true),
+                ("zero-hop", false),
+                ("originate-only", true),
+                ("consume-only", false),
+            ],
+        );
+    }
+
+    #[test]
     fn dumb_requirements() {
         let params = HashMap::new();
         assert_eq!(BlockchainServiceUrl {}.is_required(&params), true);
@@ -2620,9 +3372,48 @@ mod tests {
         assert_eq!(NeighborhoodMode {}.is_required(&params), true);
         assert_eq!(Neighbors {}.is_required(&params), true);
         assert_eq!(
+            setup_reporter::PaymentThresholds {}.is_required(&params),
+            true
+        );
+        assert_eq!(ScanIntervals {}.is_required(&params), true);
+        assert_eq!(
             crate::daemon::setup_reporter::RealUser::default().is_required(&params),
             false
         );
+        assert_eq!(Scans {}.is_required(&params), false);
+    }
+
+    #[test]
+    fn value_retrievers_know_their_names() {
+        assert_eq!(
+            BlockchainServiceUrl {}.value_name(),
+            "blockchain-service-url"
+        );
+        assert_eq!(Chain {}.value_name(), "chain");
+        assert_eq!(ClandestinePort {}.value_name(), "clandestine-port");
+        assert_eq!(ConfigFile {}.value_name(), "config-file");
+        assert_eq!(ConsumingPrivateKey {}.value_name(), "consuming-private-key");
+        assert_eq!(DataDirectory::default().value_name(), "data-directory");
+        assert_eq!(DbPassword {}.value_name(), "db-password");
+        assert_eq!(DnsServers::new().value_name(), "dns-servers");
+        assert_eq!(EarningWallet {}.value_name(), "earning-wallet");
+        assert_eq!(GasPrice {}.value_name(), "gas-price");
+        assert_eq!(Ip {}.value_name(), "ip");
+        assert_eq!(LogLevel {}.value_name(), "log-level");
+        assert_eq!(MappingProtocol {}.value_name(), "mapping-protocol");
+        assert_eq!(NeighborhoodMode {}.value_name(), "neighborhood-mode");
+        assert_eq!(Neighbors {}.value_name(), "neighbors");
+        assert_eq!(
+            setup_reporter::PaymentThresholds {}.value_name(),
+            "payment-thresholds"
+        );
+        assert_eq!(setup_reporter::RatePack {}.value_name(), "rate-pack");
+        assert_eq!(ScanIntervals {}.value_name(), "scan-intervals");
+        assert_eq!(
+            crate::daemon::setup_reporter::RealUser::default().value_name(),
+            "real-user"
+        );
+        assert_eq!(Scans {}.value_name(), "scans");
     }
 
     #[test]

@@ -1,5 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::blockchain::blockchain_interface::chain_id_from_name;
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::bootstrapper::BootstrapperConfig;
 use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
@@ -12,7 +11,9 @@ use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDes
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::*;
-use masq_lib::constants::DEFAULT_CHAIN_NAME;
+use ethereum_types::H160;
+use masq_lib::blockchains::chains::Chain;
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use std::convert::TryFrom;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
@@ -73,7 +74,7 @@ pub fn db_from_node(node: &NodeRecord) -> NeighborhoodDatabase {
         node.public_key(),
         node.into(),
         node.earning_wallet(),
-        &CryptDENull::from(node.public_key(), DEFAULT_CHAIN_ID),
+        &CryptDENull::from(node.public_key(), TEST_DEFAULT_CHAIN),
     )
 }
 
@@ -91,12 +92,8 @@ pub fn neighborhood_from_nodes(
         Some(neighbor) => NeighborhoodConfig {
             mode: NeighborhoodMode::Standard(
                 root.node_addr_opt().unwrap(),
-                vec![NodeDescriptor::from((
-                    neighbor,
-                    DEFAULT_CHAIN_ID == chain_id_from_name(DEFAULT_CHAIN_NAME),
-                    cryptde,
-                ))],
-                root.rate_pack().clone(),
+                vec![NodeDescriptor::from((neighbor, Chain::EthRopsten, cryptde))],
+                *root.rate_pack(),
             ),
         },
         None => NeighborhoodConfig {
@@ -118,9 +115,9 @@ impl From<&NodeRecord> for NeighborhoodMode {
             node.routes_data(),
         ) {
             (Some(node_addr), true, true) => {
-                NeighborhoodMode::Standard(node_addr, vec![], node.rate_pack().clone())
+                NeighborhoodMode::Standard(node_addr, vec![], *node.rate_pack())
             }
-            (_, false, true) => NeighborhoodMode::OriginateOnly(vec![], node.rate_pack().clone()),
+            (_, false, true) => NeighborhoodMode::OriginateOnly(vec![], *node.rate_pack()),
             (_, false, false) => NeighborhoodMode::ConsumeOnly(vec![]),
             (node_addr_opt, accepts_connections, routes_data) => panic!(
                 "Cannot determine NeighborhoodMode from triple: ({:?}, {}, {})",
@@ -143,9 +140,7 @@ impl NodeRecord {
         let key_slice = public_key.as_slice();
         data[64 - key_slice.len()..].copy_from_slice(key_slice);
         match ethsign::PublicKey::from_slice(&data) {
-            Ok(public) => Some(Wallet::from(web3::types::Address {
-                0: *public.address(),
-            })),
+            Ok(public) => Some(Wallet::from(H160(*public.address()))),
             Err(_) => None,
         }
     }
@@ -164,26 +159,26 @@ impl NodeRecord {
             accepts_connections,
             routes_data,
             0,
-            &CryptDENull::from(public_key, DEFAULT_CHAIN_ID),
+            &CryptDENull::from(public_key, TEST_DEFAULT_CHAIN),
         );
         if let Some(node_addr) = node_addr_opt {
             node_record.set_node_addr(node_addr).unwrap();
         }
         node_record.signed_gossip =
             PlainData::from(serde_cbor::ser::to_vec(&node_record.inner).unwrap());
-        node_record.regenerate_signed_gossip(&CryptDENull::from(public_key, DEFAULT_CHAIN_ID));
+        node_record.regenerate_signed_gossip(&CryptDENull::from(public_key, TEST_DEFAULT_CHAIN));
         node_record
     }
 
     pub fn resign(&mut self) {
-        let cryptde = CryptDENull::from(self.public_key(), DEFAULT_CHAIN_ID);
+        let cryptde = CryptDENull::from(self.public_key(), TEST_DEFAULT_CHAIN);
         self.regenerate_signed_gossip(&cryptde);
     }
 }
 
 impl AccessibleGossipRecord {
     pub fn resign(&mut self) {
-        let cryptde = CryptDENull::from(&self.inner.public_key, DEFAULT_CHAIN_ID);
+        let cryptde = CryptDENull::from(&self.inner.public_key, TEST_DEFAULT_CHAIN);
         self.regenerate_signed_gossip(&cryptde);
     }
 }
@@ -278,4 +273,23 @@ impl From<&NodeRecord> for AccessibleGossipRecord {
             inner: node_record.inner.clone(),
         }
     }
+}
+
+pub fn make_ip(nonce: u8) -> IpAddr {
+    Ipv4Addr::new(1, 1, 1, nonce).into()
+}
+
+pub fn make_node_descriptor(ip_addr: IpAddr) -> NodeDescriptor {
+    NodeDescriptor {
+        blockchain: Chain::EthRopsten,
+        encryption_public_key: PublicKey::from(&b"bitcoin is real money"[..]),
+        node_addr_opt: Some(NodeAddr::new(&ip_addr, &[1, 2, 3])),
+    }
+}
+
+pub fn make_node(nonce: u8) -> (IpAddr, NodeDescriptor) {
+    let ip_addr = make_ip(nonce);
+    let node_descriptor = make_node_descriptor(ip_addr);
+
+    (ip_addr, node_descriptor)
 }

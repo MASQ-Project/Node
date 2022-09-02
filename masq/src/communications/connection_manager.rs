@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::communications::broadcast_handler::{
     BroadcastHandle, BroadcastHandler, StreamFactory, StreamFactoryReal,
@@ -27,21 +27,21 @@ pub const COMPONENT_RESPONSE_TIMEOUT_MILLIS: u64 = 100;
 pub const REDIRECT_TIMEOUT_MILLIS: u64 = 500;
 pub const FALLBACK_TIMEOUT_MILLIS: u64 = 5000; //used to be 1000; but we have suspicion that Actions doesn't make it and needs more
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum OutgoingMessageType {
     ConversationMessage(MessageBody),
     FireAndForgetMessage(MessageBody, u64),
     SignOff(u64),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 enum Demand {
     Conversation,
     ActivePort,
     Close,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RedirectOrder {
     port: u16,
     context_id: u64,
@@ -168,7 +168,7 @@ fn make_client_listener(
     };
     let client = match result {
         Ok(c) => c,
-        Err(_) => return Err(ClientListenerError::Broken),
+        Err(e) => return Err(ClientListenerError::Broken(format!("{:?}", e))),
     };
     let (listener_half, talker_half) = client.split().unwrap();
     let client_listener = ClientListener::new();
@@ -176,7 +176,7 @@ fn make_client_listener(
     Ok(talker_half)
 }
 
-//hack a time-out around connection attempt to the Node or Daemon. Leak a thread if the attempt times out
+//hack a time-out around connection attempt to the Node or Daemon. Leaks a thread if the attempt times out
 fn connect_insecure_timeout(
     mut builder: ClientBuilder<'static>,
     timeout_millis: u64,
@@ -382,10 +382,10 @@ impl ConnectionManagerThread {
             redirect_order.timeout_millis,
         ) {
             Ok(th) => th,
-            Err(_) => {
+            Err(e) => {
                 let _ = inner
                     .redirect_response_tx
-                    .send(Err(ClientListenerError::Broken));
+                    .send(Err(ClientListenerError::Broken(format!("{:?}", e))));
                 return inner;
             }
         };
@@ -393,6 +393,7 @@ impl ConnectionManagerThread {
         inner.active_port = Some(redirect_order.port);
         inner.listener_to_manager_rx = listener_to_manager_rx;
         inner.talker_half = talker_half;
+        //TODO this is a working solution for conversations; know that a redirected fire-and-forget is just ignored and it does not resend if it's the absolutely first message: GH-487
         inner.conversations_waiting.iter().for_each(|context_id| {
             let error = if *context_id == redirect_order.context_id {
                 NodeConversationTermination::Resend
@@ -570,6 +571,13 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(COMPONENT_RESPONSE_TIMEOUT_MILLIS, 100);
+        assert_eq!(REDIRECT_TIMEOUT_MILLIS, 500);
+        assert_eq!(FALLBACK_TIMEOUT_MILLIS, 5000);
+    }
 
     struct BroadcastHandleMock {
         send_params: Arc<Mutex<Vec<MessageBody>>>,
@@ -973,7 +981,13 @@ mod tests {
         );
 
         let response = redirect_response_rx.try_recv().unwrap();
-        assert_eq!(response, Err(ClientListenerError::Broken));
+        match response {
+            Err(ClientListenerError::Broken(_)) => (), //the string pasted in is OS-dependent
+            x => panic!(
+                "we expected ClientListenerError::Broken but got this: {:?}",
+                x
+            ),
+        }
     }
 
     #[test]
@@ -1065,7 +1079,7 @@ mod tests {
 
         let inner = ConnectionManagerThread::handle_incoming_message_body(
             inner,
-            Ok(Err(ClientListenerError::Broken)),
+            Ok(Err(ClientListenerError::Broken("Booga".to_string()))),
         );
 
         let disconnect_notification = conversation_rx.try_recv().unwrap();
@@ -1156,10 +1170,10 @@ mod tests {
         let node_port = find_free_port();
         let node_server = MockWebSocketsServer::new(node_port).queue_response(
             UiFinancialsResponse {
-                payables: vec![],
-                total_payable: 21,
-                receivables: vec![],
-                total_receivable: 32,
+                total_unpaid_and_pending_payable: 10,
+                total_paid_payable: 22,
+                total_unpaid_receivable: 29,
+                total_paid_receivable: 32,
             }
             .tmb(1),
         );
@@ -1173,13 +1187,7 @@ mod tests {
                 payload: r#"{"payableMinimumAmount":12,"payableMaximumAge":23,"receivableMinimumAmount":34,"receivableMaximumAge":45}"#.to_string()
             }.tmb(0));
         let daemon_stop_handle = daemon_server.start();
-        let request = UiFinancialsRequest {
-            payable_minimum_amount: 12,
-            payable_maximum_age: 23,
-            receivable_minimum_amount: 34,
-            receivable_maximum_age: 45,
-        }
-        .tmb(1);
+        let request = UiFinancialsRequest {}.tmb(1);
         let send_params_arc = Arc::new(Mutex::new(vec![]));
         let broadcast_handler = BroadcastHandleMock::new().send_params(&send_params_arc);
         let mut subject = ConnectionManager::new();
@@ -1191,23 +1199,15 @@ mod tests {
         let result = conversation.transact(request, 1000).unwrap();
 
         let request_body = node_stop_handle.stop()[0].clone().unwrap();
-        assert_eq!(
-            UiFinancialsRequest::fmb(request_body).unwrap().0,
-            UiFinancialsRequest {
-                payable_minimum_amount: 12,
-                payable_maximum_age: 23,
-                receivable_minimum_amount: 34,
-                receivable_maximum_age: 45,
-            }
-        );
+        UiFinancialsRequest::fmb(request_body).unwrap();
         let (response, context_id) = UiFinancialsResponse::fmb(result).unwrap();
         assert_eq!(
             response,
             UiFinancialsResponse {
-                payables: vec![],
-                total_payable: 21,
-                receivables: vec![],
-                total_receivable: 32
+                total_unpaid_and_pending_payable: 10,
+                total_paid_payable: 22,
+                total_unpaid_receivable: 29,
+                total_paid_receivable: 32
             }
         );
         assert_eq!(context_id, 1);

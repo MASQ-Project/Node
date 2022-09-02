@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod utils;
 
@@ -15,15 +15,22 @@ use std::time::Duration;
 
 #[test]
 fn tls_through_node_integration() {
-    let _node = utils::MASQNode::start_standard("tls_through_node_integration", None, true);
+    let _node = utils::MASQNode::start_standard(
+        "tls_through_node_integration",
+        None,
+        true,
+        true,
+        false,
+        true,
+    );
 
     let mut tls_stream = {
         let mut tls_stream: Option<TlsStream<TcpStream>> = None;
         let stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:443").unwrap())
             .expect("Could not connect to 127.0.0.1:443");
         stream
-            .set_read_timeout(Some(Duration::from_millis(200)))
-            .expect("Could not set read timeout to 200ms");
+            .set_read_timeout(Some(Duration::from_millis(1000)))
+            .expect("Could not set read timeout to 1000ms");
         let connector = TlsConnector::new().expect("Could not build TlsConnector");
         match connector.connect(
             "example.com",

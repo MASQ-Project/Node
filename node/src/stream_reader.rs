@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::discriminator::Discriminator;
 use crate::discriminator::DiscriminatorFactory;
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
@@ -11,6 +11,7 @@ use crate::sub_lib::utils::indicates_dead_stream;
 use actix::Recipient;
 use masq_lib::logger::Logger;
 use std::net::SocketAddr;
+use std::time::SystemTime;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 
@@ -159,6 +160,7 @@ impl StreamReaderReal {
                         ),
                     };
                     let msg = dispatcher::InboundClientData {
+                        timestamp: SystemTime::now(),
                         peer_addr: self.peer_addr,
                         reception_port: self.reception_port,
                         last_data: false,
@@ -211,7 +213,7 @@ mod tests {
     use crate::json_discriminator_factory::JsonDiscriminatorFactory;
     use crate::json_masquerader::JsonMasquerader;
     use crate::masquerader::Masquerader;
-    use crate::node_test_utils::make_stream_handler_pool_subs_from;
+    use crate::node_test_utils::{check_timestamp, make_stream_handler_pool_subs_from};
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::RemovedStreamType::NonClandestine;
     use crate::sub_lib::dispatcher::DispatcherSubs;
@@ -232,6 +234,7 @@ mod tests {
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
+    use std::time::SystemTime;
 
     fn stream_handler_pool_stuff() -> (Arc<Mutex<Recording>>, StreamHandlerPoolSubs) {
         let (shp, _, recording) = make_recorder();
@@ -489,16 +492,21 @@ mod tests {
             peer_addr,
             local_addr,
         );
+        let before = SystemTime::now();
 
         subject.poll().err();
 
         System::current().stop_with_code(0);
         system.run();
 
+        let after = SystemTime::now();
         let d_recording = d_recording_arc.lock().unwrap();
+        let d_record = d_recording.get_record::<dispatcher::InboundClientData>(0);
+        check_timestamp(before, d_record.timestamp, after);
         assert_eq!(
-            d_recording.get_record::<dispatcher::InboundClientData>(0),
+            d_record,
             &dispatcher::InboundClientData {
+                timestamp: d_record.timestamp,
                 peer_addr,
                 reception_port: Some(1234 as u16),
                 last_data: false,
@@ -604,6 +612,7 @@ mod tests {
             peer_addr,
             local_addr,
         );
+        let before = SystemTime::now();
 
         let _result = subject.poll();
         let _result = subject.poll();
@@ -611,10 +620,14 @@ mod tests {
         System::current().stop_with_code(0);
         system.run();
 
+        let after = SystemTime::now();
         let d_recording = d_recording_arc.lock().unwrap();
+        let d_record = d_recording.get_record::<dispatcher::InboundClientData>(0);
+        check_timestamp(before, d_record.timestamp, after);
         assert_eq!(
-            d_recording.get_record::<dispatcher::InboundClientData>(0),
+            d_record,
             &dispatcher::InboundClientData {
+                timestamp: d_record.timestamp,
                 peer_addr: peer_addr,
                 reception_port: Some(1234 as u16),
                 last_data: false,
@@ -624,9 +637,12 @@ mod tests {
             }
         );
 
+        let d_record = d_recording.get_record::<dispatcher::InboundClientData>(1);
+        check_timestamp(before, d_record.timestamp, after);
         assert_eq!(
-            d_recording.get_record::<dispatcher::InboundClientData>(1),
+            d_record,
             &dispatcher::InboundClientData {
+                timestamp: d_record.timestamp,
                 peer_addr: peer_addr,
                 reception_port: Some(1234 as u16),
                 last_data: false,
@@ -671,16 +687,21 @@ mod tests {
             peer_addr,
             local_addr,
         );
+        let before = SystemTime::now();
 
         let _result = subject.poll();
 
         System::current().stop_with_code(0);
         system.run();
 
+        let after = SystemTime::now();
         let d_recording = d_recording_arc.lock().unwrap();
+        let d_record = d_recording.get_record::<dispatcher::InboundClientData>(0);
+        check_timestamp(before, d_record.timestamp, after);
         assert_eq!(
-            d_recording.get_record::<dispatcher::InboundClientData>(0),
+            d_record,
             &dispatcher::InboundClientData {
+                timestamp: d_record.timestamp,
                 peer_addr,
                 reception_port: Some(1234 as u16),
                 last_data: false,

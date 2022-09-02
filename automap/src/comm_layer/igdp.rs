@@ -494,7 +494,7 @@ impl IgdpTransactor {
                 // if the mapping isn't permanent
                 if let Err(e) = Self::remap_port(
                     inner.mapping_adder.as_ref(),
-                    inner.gateway_opt.as_ref().expect_v("gateway_opt").as_ref(),
+                    inner.gateway_opt.as_ref().expectv("gateway_opt").as_ref(),
                     mapping_config.hole_port,
                     mapping_config.remap_interval,
                     &inner.logger,
@@ -543,7 +543,12 @@ impl IgdpTransactor {
         requested_lifetime: Duration,
         logger: &Logger,
     ) -> Result<u32, AutomapError> {
-        info!(logger, "Remapping port {}", hole_port);
+        info!(
+            logger,
+            "Remapping port {} for {} seconds",
+            hole_port,
+            requested_lifetime.as_secs()
+        );
         let mut requested_lifetime_secs = requested_lifetime.as_secs() as u32;
         if requested_lifetime_secs < 1 {
             requested_lifetime_secs = 1;
@@ -645,6 +650,10 @@ mod tests {
     use igd::RequestError;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::utils::AutomapProtocol;
+    use crate::mocks::LocalIpFinderMock;
+    use core::ptr::addr_of;
+    use igd::RequestError;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::cell::RefCell;
     use std::net::Ipv6Addr;
     use std::ops::Sub;
@@ -1449,7 +1458,8 @@ mod tests {
         let (_, hole_port, lifetime) = add_mapping_params_arc.lock().unwrap().remove(0);
         assert_eq!(hole_port, 6689);
         assert_eq!(lifetime, 1);
-        TestLogHandler::new().exists_log_containing("INFO: timed_remap_test: Remapping port 6689");
+        TestLogHandler::new()
+            .exists_log_containing("INFO: timed_remap_test: Remapping port 6689 for 0 seconds");
     }
 
     #[test]
@@ -1601,12 +1611,18 @@ mod tests {
         init_test_logging();
         let gateway = GatewayWrapperMock::new()
             .get_external_ip_result(Err(GetExternalIpError::ActionNotAuthorized));
+        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
+        let mapping_adder = MappingAdderMock::new()
+            .add_mapping_params(&add_mapping_params_arc)
+            .add_mapping_result(Err(AutomapError::TemporaryMappingError(
+                "Booga".to_string(),
+            )));
         let inner_arc = Arc::new(Mutex::new(IgdpTransactorInner {
             gateway_opt: Some(Box::new(gateway)),
             housekeeping_commander_opt: None,
             public_ip_opt: Some(Ipv4Addr::from_str("1.2.3.4").unwrap()),
-            mapping_adder: Box::new(MappingAdderMock::new()),
-            logger: Logger::new("test"),
+            mapping_adder: Box::new(mapping_adder),
+            logger: Logger::new("thread_guts_iteration_reports_router_error_to_change_handler"),
         }));
         let change_log_arc = Arc::new(Mutex::new(vec![]));
         let change_log_inner = change_log_arc.clone();
@@ -1616,22 +1632,32 @@ mod tests {
         let result = IgdpTransactor::thread_guts_iteration(
             &change_handler,
             &inner_arc,
-            &mut Instant::now(),
-            &None,
+            &mut Instant::now().sub(Duration::from_secs(2000)),
+            &Some(MappingConfig {
+                hole_port: 7777,
+                next_lifetime: Duration::from_secs(1000),
+                remap_interval: Duration::from_secs(1000),
+            }),
         );
 
         assert!(result);
         let change_log = change_log_arc.lock().unwrap();
-        let err_msg = "ActionNotAuthorized";
         assert_eq!(
             *change_log,
-            vec![AutomapChange::Error(AutomapError::GetPublicIpError(
-                err_msg.to_string()
+            vec![AutomapChange::Error(AutomapError::TemporaryMappingError(
+                "Booga".to_string()
             ))]
         );
-        TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: test: Housekeeper could not get public IP from router: {}",
-            err_msg
+        let add_mapping_params = add_mapping_params_arc.lock().unwrap();
+        let add_mapping_params_call = (*add_mapping_params)[0];
+        assert_eq!(add_mapping_params_call.1, 7777);
+        assert_eq!(add_mapping_params_call.2, 1000);
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(&format!(
+            "ERROR: thread_guts_iteration_reports_router_error_to_change_handler: Remapping failure: TemporaryMappingError(\"Booga\")",
+        ));
+        tlh.exists_log_containing(&format!(
+            "ERROR: thread_guts_iteration_reports_router_error_to_change_handler: Remapping failure: TemporaryMappingError(\"Booga\")",
         ));
     }
 

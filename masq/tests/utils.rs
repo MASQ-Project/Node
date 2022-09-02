@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use masq_cli_lib::terminal::integration_test_utils::{
     MASQ_TEST_INTEGRATION_KEY, MASQ_TEST_INTEGRATION_VALUE,
@@ -6,6 +6,8 @@ use masq_cli_lib::terminal::integration_test_utils::{
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 #[allow(dead_code)]
 pub struct DaemonProcess {}
@@ -30,6 +32,26 @@ impl DaemonProcess {
         let mut command = Command::new(executable);
         let command = command.args(args);
         let child = child_from_command(command);
+        let interval = Duration::from_secs(5);
+        let start = Instant::now();
+        loop {
+            if Instant::now().duration_since(start) >= interval {
+                panic!("Daemon didn't start up successfully. Maybe try to run the tests again with privilege.");
+            }
+
+            let masq_handle = MasqProcess::new().start_noninteractive(vec![
+                "--ui-port",
+                format!("{}", port).as_str(),
+                "descriptor",
+            ]);
+
+            let (_stdout, stderr, _exit_code) = masq_handle.stop();
+            if stderr.contains("Cannot handle descriptor request: Node is not running") {
+                break;
+            }
+            thread::sleep(Duration::from_millis(40));
+        }
+
         StopHandle {
             name: "Daemon".to_string(),
             child,

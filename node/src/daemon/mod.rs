@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai). All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod crash_notification;
 pub mod daemon_initializer;
@@ -74,7 +74,7 @@ impl ChannelFactoryReal {
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct LaunchSuccess {
     pub new_process_id: u32,
     pub redirect_ui_port: u16,
@@ -88,7 +88,7 @@ pub trait Launcher {
     ) -> Result<Option<LaunchSuccess>, String>;
 }
 
-#[derive(Message, PartialEq, Clone)]
+#[derive(Message, PartialEq, Eq, Clone)]
 pub struct DaemonBindMessage {
     pub to_ui_message_recipient: Recipient<NodeToUiMessage>, // for everybody to send UI-bound messages to
     pub from_ui_message_recipient: Recipient<NodeFromUiMessage>, // for the WebsocketSupervisor to send inbound UI messages to the UiGateway
@@ -433,7 +433,8 @@ mod tests {
     use crate::daemon::mocks::VerifierToolsMock;
     use crate::daemon::setup_reporter::{setup_cluster_from, SetupCluster};
     use crate::daemon::LaunchSuccess;
-    use crate::test_utils::recorder::{make_recorder, Recorder};
+    use crate::test_utils::recorder::make_recorder;
+    use crate::test_utils::unshared_test_utils::make_daemon_bind_message;
     use actix::System;
     use masq_lib::constants::{
         NODE_ALREADY_RUNNING_ERROR, NODE_LAUNCH_ERROR, NODE_NOT_RUNNING_ERROR,
@@ -446,13 +447,27 @@ mod tests {
     };
     use masq_lib::shared_schema::ConfiguratorError;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN_NAME};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::MessageTarget::AllExcept;
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
     use std::cell::RefCell;
     use std::collections::HashSet;
     use std::iter::FromIterator;
     use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn constants_have_correct_values() {
+        let censorables_expected: HashMap<String, usize> = {
+            vec![
+                ("db-password".to_string(), 16),
+                ("consuming-private-key".to_string(), 64),
+            ]
+            .into_iter()
+            .collect()
+        };
+
+        assert_eq!(*CENSORABLES, censorables_expected);
+    }
 
     struct LauncherMock {
         launch_params: Arc<Mutex<Vec<(HashMap<String, String>, Recipient<CrashNotification>)>>>,
@@ -540,20 +555,6 @@ mod tests {
         }
     }
 
-    fn make_bind_message(ui_gateway: Recorder) -> DaemonBindMessage {
-        let (stub, _, _) = make_recorder();
-        let stub_sub = stub.start().recipient::<NodeFromUiMessage>();
-        let (daemon, _, _) = make_recorder();
-        let crash_notification_recipient = daemon.start().recipient();
-        let ui_gateway_sub = ui_gateway.start().recipient::<NodeToUiMessage>();
-        DaemonBindMessage {
-            to_ui_message_recipient: ui_gateway_sub,
-            from_ui_message_recipient: stub_sub,
-            from_ui_message_recipients: vec![],
-            crash_notification_recipient,
-        }
-    }
-
     fn make_setup_cluster(items: Vec<(&str, &str, UiSetupResponseValueStatus)>) -> SetupCluster {
         items
             .into_iter()
@@ -611,7 +612,7 @@ mod tests {
         subject.node_ui_port = Some(54321);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
 
         subject_addr
@@ -675,7 +676,7 @@ mod tests {
         subject.node_ui_port = None;
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
 
         subject_addr
@@ -739,7 +740,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
 
         subject_addr
@@ -752,7 +753,10 @@ mod tests {
                             "data-directory",
                             format!("{:?}", home_dir).as_str(),
                         ),
-                        UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN_NAME),
+                        UiSetupRequestValue::new(
+                            "chain",
+                            TEST_DEFAULT_CHAIN.rec().literal_identifier,
+                        ),
                         UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
                     ],
                 }
@@ -779,7 +783,11 @@ mod tests {
         assert_eq!(
             actual_pairs.contains(&(
                 "chain".to_string(),
-                UiSetupResponseValue::new("chain", TEST_DEFAULT_CHAIN_NAME, Set)
+                UiSetupResponseValue::new(
+                    "chain",
+                    TEST_DEFAULT_CHAIN.rec().literal_identifier,
+                    Set
+                )
             )),
             true
         );
@@ -801,14 +809,14 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
         let msg = NodeFromUiMessage {
             client_id: 1234,
             body: UiSetupRequest {
                 values: vec![
                     UiSetupRequestValue::new("data-directory", data_dir.to_str().unwrap()),
-                    UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN_NAME),
+                    UiSetupRequestValue::new("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier),
                     UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
                 ],
             }
@@ -826,20 +834,22 @@ mod tests {
                 .get_record::<NodeToUiMessage>(idx)
                 .clone()
         };
-        let check_payload = |running: bool,
-                             values: Vec<UiSetupResponseValue>,
-                             errors: Vec<(String, String)>| {
-            assert_eq!(running, false);
-            let actual_pairs: HashSet<(String, String)> = values
-                .into_iter()
-                .map(|value| (value.name, value.value))
-                .collect();
-            assert_eq!(
-                actual_pairs.contains(&("chain".to_string(), TEST_DEFAULT_CHAIN_NAME.to_string())),
-                true
-            );
-            assert_eq!(errors, vec![]);
-        };
+        let check_payload =
+            |running: bool, values: Vec<UiSetupResponseValue>, errors: Vec<(String, String)>| {
+                assert_eq!(running, false);
+                let actual_pairs: HashSet<(String, String)> = values
+                    .into_iter()
+                    .map(|value| (value.name, value.value))
+                    .collect();
+                assert_eq!(
+                    actual_pairs.contains(&(
+                        "chain".to_string(),
+                        TEST_DEFAULT_CHAIN.rec().literal_identifier.to_string()
+                    )),
+                    true
+                );
+                assert_eq!(errors, vec![]);
+            };
         let record = get_record(0);
         assert_eq!(record.target, ClientId(1234));
         let (payload, context_id): (UiSetupResponse, u64) =
@@ -1068,7 +1078,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
 
         subject_addr
@@ -1123,7 +1133,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
 
         subject_addr
@@ -1181,7 +1191,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
 
         subject_addr
@@ -1241,7 +1251,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
 
         subject_addr
@@ -1279,7 +1289,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
 
         subject_addr
@@ -1383,7 +1393,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
         let body: MessageBody = UiShutdownRequest {}.tmb(4321); // Context ID is irrelevant
 
@@ -1444,7 +1454,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
         let shutdown_body: MessageBody = UiShutdownRequest {}.tmb(4321);
 
@@ -1485,7 +1495,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
         let body = MessageBody {
             opcode: "uninventedMessage".to_string(),
@@ -1530,15 +1540,9 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
-        let body: MessageBody = UiFinancialsRequest {
-            payable_minimum_amount: 0,
-            payable_maximum_age: 0,
-            receivable_minimum_amount: 0,
-            receivable_maximum_age: 0,
-        }
-        .tmb(4321);
+        let body: MessageBody = UiFinancialsRequest {}.tmb(4321);
 
         subject_addr
             .try_send(NodeFromUiMessage {
@@ -1574,7 +1578,7 @@ mod tests {
         subject.verifier_tools = Box::new(verifier_tools);
         let subject_addr = subject.start();
         subject_addr
-            .try_send(make_bind_message(ui_gateway))
+            .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
         let message = CrashNotification {
             process_id: 54321,

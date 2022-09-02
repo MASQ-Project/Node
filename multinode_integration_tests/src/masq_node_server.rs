@@ -1,30 +1,30 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::masq_node_cluster::MASQNodeCluster;
+use crate::masq_node_cluster::DockerHostSocketAddr;
 use crate::utils;
 use std::io;
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::time::Duration;
 
 pub struct MASQNodeServer {
-    socket_addr: SocketAddr,
+    local_addr: SocketAddr,
     listener: TcpListener,
     stream_opt: Option<TcpStream>,
 }
 
 impl MASQNodeServer {
     pub fn new(port: u16) -> MASQNodeServer {
-        let socket_addr = SocketAddr::new(MASQNodeCluster::host_ip_addr(), port);
+        let socket_addr = DockerHostSocketAddr::new(port);
         let listener = TcpListener::bind(socket_addr).unwrap();
         MASQNodeServer {
-            socket_addr,
+            local_addr: listener.local_addr().unwrap(),
             listener,
             stream_opt: None,
         }
     }
 
-    pub fn socket_addr(&self) -> SocketAddr {
-        self.socket_addr
+    pub fn local_addr(&self) -> SocketAddr {
+        self.local_addr
     }
 
     pub fn send_chunk(&mut self, chunk: &[u8]) {

@@ -1,21 +1,24 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_factory::CommandFactoryError::{CommandSyntax, UnrecognizedSubcommand};
 use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::check_password_command::CheckPasswordCommand;
 use crate::commands::commands_common::Command;
 use crate::commands::configuration_command::ConfigurationCommand;
+use crate::commands::connection_status_command::ConnectionStatusCommand;
 use crate::commands::crash_command::CrashCommand;
 use crate::commands::descriptor_command::DescriptorCommand;
+use crate::commands::financials_command::FinancialsCommand;
 use crate::commands::generate_wallets_command::GenerateWalletsCommand;
 use crate::commands::recover_wallets_command::RecoverWalletsCommand;
+use crate::commands::scan_command::ScanCommand;
 use crate::commands::set_configuration_command::SetConfigurationCommand;
 use crate::commands::setup_command::SetupCommand;
 use crate::commands::shutdown_command::ShutdownCommand;
 use crate::commands::start_command::StartCommand;
 use crate::commands::wallet_addresses_command::WalletAddressesCommand;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum CommandFactoryError {
     UnrecognizedSubcommand(String),
     CommandSyntax(String),
@@ -43,16 +46,22 @@ impl CommandFactory for CommandFactoryReal {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
+            "connection-status" => Box::new(ConnectionStatusCommand::new()),
             "crash" => match CrashCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             "descriptor" => Box::new(DescriptorCommand::new()),
+            "financials" => Box::new(FinancialsCommand::new()),
             "generate-wallets" => match GenerateWalletsCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             "recover-wallets" => match RecoverWalletsCommand::new(pieces) {
+                Ok(command) => Box::new(command),
+                Err(msg) => return Err(CommandSyntax(msg)),
+            },
+            "scan" => match ScanCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
@@ -190,6 +199,19 @@ mod tests {
     }
 
     #[test]
+    fn connection_status_command_works() {
+        let subject = CommandFactoryReal::new();
+
+        let command = subject.make(&["connection-status".to_string()]).unwrap();
+
+        let connnection_status_command = command
+            .as_any()
+            .downcast_ref::<ConnectionStatusCommand>()
+            .unwrap();
+        assert_eq!(connnection_status_command, &ConnectionStatusCommand {});
+    }
+
+    #[test]
     fn factory_produces_set_password() {
         let subject = CommandFactoryReal::new();
 
@@ -300,6 +322,21 @@ mod tests {
             true,
             "{}",
             msg
+        );
+    }
+
+    #[test]
+    fn factory_produces_connection_status() {
+        let subject = CommandFactoryReal::new();
+
+        let command = subject.make(&["connection-status".to_string()]).unwrap();
+
+        assert_eq!(
+            command
+                .as_any()
+                .downcast_ref::<ConnectionStatusCommand>()
+                .unwrap(),
+            &ConnectionStatusCommand {}
         );
     }
 

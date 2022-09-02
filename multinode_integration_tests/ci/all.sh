@@ -1,5 +1,5 @@
 #!/bin/bash -xev
-# Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+# Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 
@@ -45,5 +45,6 @@ popd
 
 pushd "$CI_DIR/.."
 export RUSTFLAGS="-D warnings -Anon-snake-case"
+ci/lint.sh
 cargo test --release -- --nocapture --test-threads=1
 popd

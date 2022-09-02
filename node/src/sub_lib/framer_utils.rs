@@ -1,7 +1,7 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use masq_lib::utils::index_of;
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub struct ChunkOffsetLength {
     pub offset: usize,
     pub length: usize,
@@ -91,6 +91,11 @@ fn position_in_range(digit: u8, first: u8, last: u8) -> Option<u8> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(CRLF, b"\r\n");
+    }
 
     #[test]
     pub fn returns_none_if_no_crlf() {

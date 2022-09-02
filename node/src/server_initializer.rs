@@ -1,9 +1,9 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use super::bootstrapper::Bootstrapper;
 use super::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use crate::bootstrapper::RealUser;
 use crate::entry_dns::dns_socket_server::DnsSocketServer;
-use crate::node_configurator::node_configurator_standard::standard::server_initializer_collected_params;
+use crate::node_configurator::node_configurator_standard::server_initializer_collected_params;
 use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
 use crate::run_modes_factories::{RunModeResult, ServerInitializer};
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
@@ -14,14 +14,15 @@ use flexi_logger::{
 use futures::try_ready;
 use lazy_static::lazy_static;
 use masq_lib::command::StdStreams;
+use masq_lib::logger::real_format_function;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::test_utils::utils::real_format_function;
 use std::any::Any;
 use std::io;
 use std::panic::{Location, PanicInfo};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
+use time::OffsetDateTime;
 use tokio::prelude::{Async, Future};
 
 pub struct ServerInitializerReal {
@@ -135,7 +136,7 @@ lazy_static! {
     pub static ref LOGFILE_NAME: Mutex<PathBuf> = Mutex::new(PathBuf::from("uninitialized"));
 }
 
-pub trait LoggerInitializerWrapper: Send {
+pub trait LoggerInitializerWrapper {
     fn init(
         &mut self,
         file_path: PathBuf,
@@ -269,10 +270,10 @@ fn panic_hook(panic_info: AltPanicInfo) {
 // DeferredNow can't be constructed in a test; therefore this function is untestable.
 fn format_function(
     write: &mut dyn io::Write,
-    now: &mut DeferredNow,
+    _now: &mut DeferredNow,
     record: &Record,
 ) -> Result<(), io::Error> {
-    real_format_function(write, now.now(), record)
+    real_format_function(write, OffsetDateTime::now_utc(), record)
 }
 
 #[cfg(test)]
@@ -396,9 +397,10 @@ pub mod tests {
     use crate::node_test_utils::DirsWrapperMock;
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
     use crate::test_utils::logfile_name_guard::LogfileNameGuard;
-    use crate::test_utils::pure_test_utils::make_pre_populated_mocked_directory_wrapper;
+    use crate::test_utils::unshared_test_utils::make_pre_populated_mocked_directory_wrapper;
+    use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
-    use masq_lib::multi_config::MultiConfig;
+    use masq_lib::multi_config::{make_arg_matches_accesible, MultiConfig};
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::fake_stream_holder::{
         ByteArrayReader, ByteArrayWriter, FakeStreamHolder,
@@ -406,7 +408,7 @@ pub mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::utils::array_of_borrows_to_vec;
     use std::cell::RefCell;
-    use std::ops::{Deref, Not};
+    use std::ops::Not;
     use std::sync::{Arc, Mutex};
 
     impl<C: Send + 'static> ConfiguredByPrivilege for CrashTestDummy<C> {
@@ -544,7 +546,12 @@ pub mod tests {
         ) -> Self {
             self.arg_matches_requested_entries = required
                 .iter()
-                .map(|key| multi_config.deref().value_of(key).unwrap().to_string())
+                .map(|key| {
+                    make_arg_matches_accesible(multi_config)
+                        .value_of(key)
+                        .unwrap()
+                        .to_string()
+                })
                 .collect();
             self
         }
@@ -827,7 +834,10 @@ pub mod tests {
         assert_eq!(
             *chown_params,
             vec![(
-                PathBuf::from("/home/alice/mock_directory/MASQ/mainnet"),
+                PathBuf::from(format!(
+                    "/home/alice/mock_directory/MASQ/{}",
+                    DEFAULT_CHAIN.rec().literal_identifier
+                )),
                 real_user.clone()
             )]
         );

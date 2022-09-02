@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::apps::app_daemon;
 use crate::node_configurator::NodeConfigurator;
@@ -6,7 +6,7 @@ use crate::sub_lib::utils::make_new_multi_config;
 use masq_lib::multi_config::{CommandLineVcl, MultiConfig};
 use masq_lib::shared_schema::ConfiguratorError;
 
-#[derive(Default, Clone, PartialEq, Debug)]
+#[derive(Default, Clone, PartialEq, Eq, Debug)]
 pub struct InitializationConfig {
     pub ui_port: u16,
 }
@@ -39,6 +39,7 @@ mod initialization {
     use super::*;
     use clap::value_t;
     use masq_lib::constants::DEFAULT_UI_PORT;
+    use masq_lib::multi_config::make_arg_matches_accesible;
     use masq_lib::multi_config::MultiConfig;
 
     pub fn parse_args(multi_config: &MultiConfig, config: &mut InitializationConfig) {

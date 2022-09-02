@@ -1,12 +1,10 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::CommandError::{
     ConnectionProblem, Other, Payload, Transmission,
 };
-use crate::commands::commands_common::{
-    transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
-};
+use crate::commands::commands_common::{transaction, Command, CommandError};
 use clap::{App, SubCommand};
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
 use masq_lib::messages::{UiShutdownRequest, UiShutdownResponse};
@@ -20,6 +18,7 @@ use std::time::{Duration, Instant};
 
 const DEFAULT_SHUTDOWN_ATTEMPT_INTERVAL: u64 = 250; // milliseconds
 const DEFAULT_SHUTDOWN_ATTEMPT_LIMIT: u64 = 4;
+const SHUTDOWN_COMMAND_TIMEOUT_MILLIS: u64 = 60000;
 
 #[derive(Debug)]
 pub struct ShutdownCommand {
@@ -28,16 +27,18 @@ pub struct ShutdownCommand {
     attempt_limit: u64,
 }
 
+const SHUTDOWN_SUBCOMMAND_ABOUT: &str =
+    "Shuts down the running MASQNode. Only valid if Node is already running.";
+
 pub fn shutdown_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("shutdown")
-        .about("Shuts down the running MASQNode. Only valid if Node is already running.")
+    SubCommand::with_name("shutdown").about(SHUTDOWN_SUBCOMMAND_ABOUT)
 }
 
 impl Command for ShutdownCommand {
     fn execute(&self, context: &mut dyn CommandContext) -> Result<(), CommandError> {
         let input = UiShutdownRequest {};
         let output: Result<UiShutdownResponse, CommandError> =
-            transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
+            transaction(input, context, SHUTDOWN_COMMAND_TIMEOUT_MILLIS);
         match output {
             Ok(_) => (),
             Err(ConnectionProblem(_)) => {
@@ -152,6 +153,17 @@ mod tests {
     use std::thread;
     use std::time::Instant;
 
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(DEFAULT_SHUTDOWN_ATTEMPT_INTERVAL, 250);
+        assert_eq!(DEFAULT_SHUTDOWN_ATTEMPT_LIMIT, 4);
+        assert_eq!(SHUTDOWN_COMMAND_TIMEOUT_MILLIS, 60000);
+        assert_eq!(
+            SHUTDOWN_SUBCOMMAND_ABOUT,
+            "Shuts down the running MASQNode. Only valid if Node is already running."
+        );
+    }
+
     #[derive(Debug)]
     struct ShutdownAwaiterMock {
         wait_params: Arc<Mutex<Vec<(u16, u64, u64)>>>,
@@ -253,7 +265,7 @@ mod tests {
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
-            vec![(UiShutdownRequest {}.tmb(0), STANDARD_COMMAND_TIMEOUT_MILLIS)]
+            vec![(UiShutdownRequest {}.tmb(0), SHUTDOWN_COMMAND_TIMEOUT_MILLIS)]
         );
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
@@ -284,7 +296,7 @@ mod tests {
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
-            vec![(UiShutdownRequest {}.tmb(0), STANDARD_COMMAND_TIMEOUT_MILLIS)]
+            vec![(UiShutdownRequest {}.tmb(0), SHUTDOWN_COMMAND_TIMEOUT_MILLIS)]
         );
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
@@ -320,7 +332,7 @@ mod tests {
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
-            vec![(UiShutdownRequest {}.tmb(0), STANDARD_COMMAND_TIMEOUT_MILLIS)]
+            vec![(UiShutdownRequest {}.tmb(0), SHUTDOWN_COMMAND_TIMEOUT_MILLIS)]
         );
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
@@ -356,7 +368,7 @@ mod tests {
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
-            vec![(UiShutdownRequest {}.tmb(0), STANDARD_COMMAND_TIMEOUT_MILLIS)]
+            vec![(UiShutdownRequest {}.tmb(0), SHUTDOWN_COMMAND_TIMEOUT_MILLIS)]
         );
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
@@ -393,7 +405,7 @@ mod tests {
         let transact_params = transact_params_arc.lock().unwrap();
         assert_eq!(
             *transact_params,
-            vec![(UiShutdownRequest {}.tmb(0), STANDARD_COMMAND_TIMEOUT_MILLIS)]
+            vec![(UiShutdownRequest {}.tmb(0), SHUTDOWN_COMMAND_TIMEOUT_MILLIS)]
         );
         assert_eq!(stdout_arc.lock().unwrap().get_string(), String::new());
         assert_eq!(

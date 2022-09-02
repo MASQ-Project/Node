@@ -1,19 +1,20 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_dao::{PayableAccount, Payment};
+use crate::accountant::payable_dao::PayableAccount;
+use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
-use crate::blockchain::blockchain_interface::BlockchainResult;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
 use actix::Recipient;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
-#[derive(Clone, PartialEq, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct BlockchainBridgeConfig {
-    pub blockchain_service_url: Option<String>,
-    pub chain_id: u8,
+    pub blockchain_service_url_opt: Option<String>,
+    pub chain: Chain,
     pub gas_price: u64,
 }
 
@@ -23,6 +24,7 @@ pub struct BlockchainBridgeSubs {
     pub report_accounts_payable: Recipient<ReportAccountsPayable>,
     pub retrieve_transactions: Recipient<RetrieveTransactions>,
     pub ui_sub: Recipient<NodeFromUiMessage>,
+    pub request_transaction_receipts: Recipient<RequestTransactionReceipts>,
 }
 
 impl Debug for BlockchainBridgeSubs {
@@ -31,44 +33,40 @@ impl Debug for BlockchainBridgeSubs {
     }
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug, Message)]
 pub struct ReportAccountsPayable {
     pub accounts: Vec<PayableAccount>,
+    pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-#[derive(Clone, PartialEq, Debug, Message)]
+impl SkeletonOptHolder for ReportAccountsPayable {
+    fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
+        self.response_skeleton_opt
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Message)]
 pub struct SetDbPasswordMsg {
     pub client_id: u64,
     pub password: String,
 }
 
-#[derive(Clone, PartialEq, Debug, Message)]
+#[derive(Clone, PartialEq, Eq, Debug, Message)]
 pub struct SetGasPriceMsg {
     pub client_id: u64,
     pub gas_price: String,
 }
 
-impl Message for ReportAccountsPayable {
-    type Result = Result<Vec<BlockchainResult<Payment>>, String>;
-}
-
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::recorder::{make_blockchain_bridge_subs_from, Recorder};
     use actix::Actor;
-    use masq_lib::ui_gateway::NodeFromUiMessage;
 
     #[test]
     fn blockchain_bridge_subs_debug() {
         let recorder = Recorder::new().start();
 
-        let subject = BlockchainBridgeSubs {
-            bind: recipient!(recorder, BindMessage),
-            report_accounts_payable: recipient!(recorder, ReportAccountsPayable),
-            retrieve_transactions: recipient!(recorder, RetrieveTransactions),
-            ui_sub: recipient!(recorder, NodeFromUiMessage),
-        };
+        let subject = make_blockchain_bridge_subs_from(&recorder);
 
         assert_eq!(format!("{:?}", subject), "BlockchainBridgeSubs");
     }

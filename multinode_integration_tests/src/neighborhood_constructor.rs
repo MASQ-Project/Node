@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::masq_mock_node::MASQMockNode;
 use crate::masq_node::MASQNode;
@@ -6,7 +6,6 @@ use crate::masq_node_cluster::MASQNodeCluster;
 use crate::masq_real_node::MASQRealNode;
 use crate::masq_real_node::{make_consuming_wallet_info, NodeStartupConfigBuilder};
 use crate::multinode_gossip::{Standard, StandardBuilder};
-use node_lib::blockchain::blockchain_interface::chain_name_from_id;
 use node_lib::neighborhood::gossip::Gossip_0v1;
 use node_lib::neighborhood::gossip_producer::{GossipProducer, GossipProducerReal};
 use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
@@ -68,7 +67,7 @@ pub fn construct_neighborhood(
             .consuming_wallet_info(make_consuming_wallet_info(
                 model_db.root().public_key().to_string().as_str(),
             ))
-            .chain(chain_name_from_id(cluster.chain_id))
+            .chain(cluster.chain)
             .build(),
     );
     let (mock_node_map, adjacent_mock_node_keys) =
@@ -194,7 +193,7 @@ fn form_mock_node_skeleton(
             let standard_gossip = StandardBuilder::new()
                 .add_masq_node(&node, 1)
                 .half_neighbors(node.main_public_key(), real_node.main_public_key())
-                .chain_id(cluster.chain_id)
+                .chain_id(cluster.chain)
                 .build();
             node.transmit_multinode_gossip(real_node, &standard_gossip)
                 .unwrap();
@@ -214,7 +213,7 @@ fn modify_node(
         None => model_node.node_addr_opt(),
     };
     gossip_node.metadata.node_addr_opt = node_addr_opt;
-    gossip_node.inner.rate_pack = DEFAULT_RATE_PACK.clone();
+    gossip_node.inner.rate_pack = DEFAULT_RATE_PACK;
     gossip_node.inner.version = 2;
     gossip_node.inner.neighbors = model_node
         .half_neighbor_keys()
@@ -248,7 +247,7 @@ fn from_masq_node_to_node_record(masq_node: &dyn MASQNode) -> NodeRecord {
     NodeRecord {
         inner: agr.inner.clone(),
         metadata: NodeRecordMetadata {
-            desirable: true,
+            desirable_for_exit: true,
             last_update: time_t_timestamp(),
             node_addr_opt: agr.node_addr_opt.clone(),
         },

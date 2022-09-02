@@ -1,9 +1,9 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crossbeam_channel::{unbounded, Sender};
 use std::io::Read;
 use std::io::Write;
-use std::net::{SocketAddr, TcpListener};
+use std::net::{SocketAddr, TcpListener, ToSocketAddrs};
 use std::thread;
 use std::time::Duration;
 
@@ -11,6 +11,7 @@ const CHUNK_SIZE: usize = 131072;
 
 pub struct BigDataServer {
     tx: Sender<()>,
+    local_addr: SocketAddr,
 }
 
 impl Drop for BigDataServer {
@@ -20,8 +21,12 @@ impl Drop for BigDataServer {
 }
 
 impl BigDataServer {
-    pub fn start(socket_addr: SocketAddr, size: usize) -> BigDataServer {
+    pub fn start(
+        socket_addr: &dyn ToSocketAddrs<Iter = std::vec::IntoIter<SocketAddr>>,
+        size: usize,
+    ) -> BigDataServer {
         let listener = TcpListener::bind(socket_addr).unwrap();
+        let local_addr = listener.local_addr().unwrap();
         let (tx, rx) = unbounded();
         thread::spawn(move || {
             let mut buf = [0u8; CHUNK_SIZE];
@@ -83,7 +88,11 @@ impl BigDataServer {
             }
         });
         thread::sleep(Duration::from_secs(1));
-        BigDataServer { tx }
+        BigDataServer { tx, local_addr }
+    }
+
+    pub fn local_addr(&self) -> SocketAddr {
+        self.local_addr
     }
 
     fn make_header(size: usize) -> Vec<u8> {

@@ -1,23 +1,24 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use crate::blockchain::bip32::Bip32ECKeyPair;
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::payer::Payer;
 use crate::sub_lib::cryptde;
 use crate::sub_lib::cryptde::PublicKey as CryptdePublicKey;
+use ethereum_types::H160;
 use ethsign::{PublicKey, Signature};
 use rusqlite::types::{FromSql, FromSqlError, ToSqlOutput, Value, ValueRef};
 use rusqlite::ToSql;
 use rustc_hex::ToHex;
-use serde::{ser::SerializeStruct, Serialize, Serializer};
+use serde::{de, ser::SerializeStruct, Serialize, Serializer};
 use serde_json::{self, json};
 use std::convert::TryInto;
-use std::fmt;
 use std::fmt::{Display, Error, Formatter};
 use std::hash::{Hash, Hasher};
 use std::result::Result;
 use std::str::FromStr;
+use std::{fmt, marker};
 use web3::types::{Address, H256};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum WalletError {
     InvalidAddress,
     Signature(String),
@@ -37,7 +38,7 @@ impl Display for WalletError {
 #[derive(Debug)]
 pub enum WalletKind {
     Address(Address),
-    KeyPair(Bip32ECKeyPair),
+    SecretKey(Bip32ECKeyProvider),
     PublicKey(PublicKey),
     Uninitialized,
 }
@@ -45,10 +46,11 @@ pub enum WalletKind {
 impl Clone for WalletKind {
     fn clone(&self) -> Self {
         match self {
-            WalletKind::Address(address) => WalletKind::Address(Address { 0: address.0 }),
-            WalletKind::KeyPair(keypair) => {
-                WalletKind::KeyPair(Bip32ECKeyPair::from(keypair.clone_secret()))
-            }
+            WalletKind::Address(address) => WalletKind::Address(H160(address.0)),
+            WalletKind::SecretKey(keypair) => WalletKind::SecretKey(
+                Bip32ECKeyProvider::from_raw_secret(keypair.clone_secret().as_ref())
+                    .expect("failed to clone once checked secret"),
+            ),
             WalletKind::PublicKey(public) => WalletKind::PublicKey(
                 PublicKey::from_slice(public.bytes()).expect("Failed to clone from PublicKey"),
             ),
@@ -64,8 +66,8 @@ impl PartialEq<WalletKind> for WalletKind {
                 WalletKind::Address(self_address) => self_address == other_address,
                 _ => false,
             },
-            WalletKind::KeyPair(other_keypair) => match self {
-                WalletKind::KeyPair(self_keypair) => self_keypair == other_keypair,
+            WalletKind::SecretKey(other_keypair) => match self {
+                WalletKind::SecretKey(self_keypair) => self_keypair == other_keypair,
                 _ => false,
             },
             WalletKind::PublicKey(other_public) => match self {
@@ -89,7 +91,7 @@ impl Hash for WalletKind {
                 1.hash(state);
                 address.hash(state)
             }
-            WalletKind::KeyPair(keypair) => {
+            WalletKind::SecretKey(keypair) => {
                 2.hash(state);
                 keypair.hash(state)
             }
@@ -123,11 +125,9 @@ impl Wallet {
 
     pub fn address(&self) -> Address {
         match &self.kind {
-            WalletKind::Address(address) => Address { 0: address.0 },
-            WalletKind::PublicKey(public) => Address {
-                0: *public.address(),
-            },
-            WalletKind::KeyPair(key_pair) => key_pair.address(),
+            WalletKind::Address(address) => H160(address.0),
+            WalletKind::PublicKey(public) => H160(*public.address()),
+            WalletKind::SecretKey(key_provider) => key_provider.address(),
             WalletKind::Uninitialized => panic!("No address for an uninitialized wallet!"),
         }
     }
@@ -138,7 +138,7 @@ impl Wallet {
 
     pub fn sign(&self, msg: &dyn AsRef<[u8]>) -> Result<Signature, WalletError> {
         match self.kind {
-            WalletKind::KeyPair(ref key_pair) => key_pair
+            WalletKind::SecretKey(ref key_provider) => key_provider
                 .sign(msg.as_ref())
                 .map_err(|e| WalletError::Signature(format!("{:?}", e))),
             _ => Err(WalletError::Signature(format!(
@@ -148,12 +148,26 @@ impl Wallet {
         }
     }
 
+    pub fn prepare_secp256k1_secret(
+        &self,
+    ) -> Result<secp256k1secrets::key::SecretKey, WalletError> {
+        match self.kind {
+            WalletKind::SecretKey(ref key_provider) => Ok(key_provider.into()),
+            _ => Err(WalletError::Signature(format!(
+                "Cannot sign with non-keypair wallet: {:?}.",
+                self.kind
+            ))),
+        }
+    }
+
     pub fn verify(&self, signature: &Signature, msg: &dyn AsRef<[u8]>) -> bool {
         match self.kind {
-            WalletKind::KeyPair(ref key_pair) => match &key_pair.verify(signature, msg.as_ref()) {
-                Ok(result) => *result,
-                Err(_log_this) => false,
-            },
+            WalletKind::SecretKey(ref key_provider) => {
+                match &key_provider.verify(signature, msg.as_ref()) {
+                    Ok(result) => *result,
+                    Err(_log_this) => false,
+                }
+            }
             _ => panic!("Keypair wallet required"),
         }
     }
@@ -199,7 +213,7 @@ impl From<H256> for Wallet {
         let mut addr = [0u8; 20];
         addr.copy_from_slice(&address.0[12..32]);
         Self {
-            kind: WalletKind::Address(Address { 0: addr }),
+            kind: WalletKind::Address(H160(addr)),
         }
     }
 }
@@ -219,10 +233,10 @@ impl From<PublicKey> for Wallet {
     }
 }
 
-impl From<Bip32ECKeyPair> for Wallet {
-    fn from(keypair: Bip32ECKeyPair) -> Self {
+impl From<Bip32ECKeyProvider> for Wallet {
+    fn from(keypair: Bip32ECKeyProvider) -> Self {
         Self {
-            kind: WalletKind::KeyPair(keypair),
+            kind: WalletKind::SecretKey(keypair),
         }
     }
 }
@@ -251,19 +265,19 @@ impl FromSql for Wallet {
     }
 }
 
-impl TryInto<Bip32ECKeyPair> for Wallet {
+impl TryInto<Bip32ECKeyProvider> for Wallet {
     type Error = String;
 
-    fn try_into(self) -> Result<Bip32ECKeyPair, Self::Error> {
+    fn try_into(self) -> Result<Bip32ECKeyProvider, Self::Error> {
         match self.kind {
-            WalletKind::KeyPair(keypair) => Ok(keypair),
+            WalletKind::SecretKey(keypair) => Ok(keypair),
             _ => Err("Wallet contains no secret key: can't convert to Bip32KeyPair".to_string()),
         }
     }
 }
 
 impl<'de> serde::Deserialize<'de> for Wallet {
-    fn deserialize<D>(deserializer: D) -> serde::export::Result<Self, D::Error>
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
@@ -274,46 +288,43 @@ impl<'de> serde::Deserialize<'de> for Wallet {
         struct WalletFieldVisitor;
         impl<'de> serde::de::Visitor<'de> for WalletFieldVisitor {
             type Value = WalletField;
-            fn expecting(
-                &self,
-                formatter: &mut serde::export::Formatter,
-            ) -> serde::export::fmt::Result {
-                serde::export::Formatter::write_str(formatter, "field identifier")
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                fmt::Formatter::write_str(formatter, "field identifier")
             }
-            fn visit_u64<E>(self, value: u64) -> serde::export::Result<Self::Value, E>
+            fn visit_u64<E>(self, value: u64) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
                 match value {
-                    0u64 => serde::export::Ok(WalletField::Address),
-                    _ => serde::export::Err(serde::de::Error::invalid_value(
+                    0u64 => Ok(WalletField::Address),
+                    _ => Err(serde::de::Error::invalid_value(
                         serde::de::Unexpected::Unsigned(value),
                         &"field index 0 <= i < 1",
                     )),
                 }
             }
-            fn visit_str<E>(self, value: &str) -> serde::export::Result<Self::Value, E>
+            fn visit_str<E>(self, value: &str) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
                 match value {
-                    "address" => serde::export::Ok(WalletField::Address),
-                    _ => serde::export::Ok(WalletField::__Ignore),
+                    "address" => Ok(WalletField::Address),
+                    _ => Ok(WalletField::__Ignore),
                 }
             }
-            fn visit_bytes<E>(self, value: &[u8]) -> serde::export::Result<Self::Value, E>
+            fn visit_bytes<E>(self, value: &[u8]) -> Result<Self::Value, E>
             where
                 E: serde::de::Error,
             {
                 match value {
-                    b"address" => serde::export::Ok(WalletField::Address),
-                    _ => serde::export::Ok(WalletField::__Ignore),
+                    b"address" => Ok(WalletField::Address),
+                    _ => Ok(WalletField::__Ignore),
                 }
             }
         }
         impl<'de> serde::Deserialize<'de> for WalletField {
             #[inline]
-            fn deserialize<D>(deserializer: D) -> serde::export::Result<Self, D::Error>
+            fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
             where
                 D: serde::Deserializer<'de>,
             {
@@ -321,64 +332,55 @@ impl<'de> serde::Deserialize<'de> for Wallet {
             }
         }
         struct WalletVisitor<'de> {
-            marker: serde::export::PhantomData<Wallet>,
-            lifetime: serde::export::PhantomData<&'de ()>,
+            marker: marker::PhantomData<Wallet>,
+            lifetime: marker::PhantomData<&'de ()>,
             human_readable: bool,
         }
         impl<'de> serde::de::Visitor<'de> for WalletVisitor<'de> {
             type Value = Wallet;
-            fn expecting(
-                &self,
-                formatter: &mut serde::export::Formatter,
-            ) -> serde::export::fmt::Result {
-                serde::export::Formatter::write_str(formatter, "struct Wallet")
+            fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
+                fmt::Formatter::write_str(formatter, "struct Wallet")
             }
             #[inline]
-            fn visit_seq<A>(self, mut seq: A) -> serde::export::Result<Self::Value, A::Error>
+            fn visit_seq<A>(self, mut seq: A) -> Result<Self::Value, A::Error>
             where
                 A: serde::de::SeqAccess<'de>,
             {
                 let address = match serde::de::SeqAccess::next_element::<Address>(&mut seq)? {
-                    serde::export::Some(address) => address,
-                    serde::export::None => {
-                        return serde::export::Err(serde::de::Error::invalid_length(
+                    Some(address) => address,
+                    None => {
+                        return Err(serde::de::Error::invalid_length(
                             0usize,
                             &"struct Wallet with 1 element",
                         ));
                     }
                 };
-                serde::export::Ok(Wallet {
+                Ok(Wallet {
                     kind: WalletKind::Address(address),
                 })
             }
             #[inline]
-            fn visit_map<A>(self, mut map: A) -> serde::export::Result<Self::Value, A::Error>
+            fn visit_map<A>(self, mut map: A) -> Result<Self::Value, A::Error>
             where
                 A: serde::de::MapAccess<'de>,
             {
-                let mut possible_address: serde::export::Option<Address> = serde::export::None;
-                while let serde::export::Some(key) =
-                    serde::de::MapAccess::next_key::<WalletField>(&mut map)?
-                {
+                let mut possible_address: Option<Address> = None;
+                while let Some(key) = serde::de::MapAccess::next_key::<WalletField>(&mut map)? {
                     match key {
                         WalletField::Address => {
-                            if serde::export::Option::is_some(&possible_address) {
-                                return serde::export::Err(
-                                    <A::Error as serde::de::Error>::duplicate_field("address"),
-                                );
+                            if Option::is_some(&possible_address) {
+                                return Err(<A::Error as de::Error>::duplicate_field("address"));
                             }
                             possible_address = match &self.human_readable {
                                 true => {
-                                    serde::export::Some(
-                                        serde::de::MapAccess::next_value::<Address>(&mut map)?,
-                                    )
+                                    Some(serde::de::MapAccess::next_value::<Address>(&mut map)?)
                                 }
                                 false => {
                                     let bytes =
                                         serde::de::MapAccess::next_value::<Vec<u8>>(&mut map)?;
                                     let mut address = [0u8; 20];
                                     address.copy_from_slice(bytes.as_slice());
-                                    serde::export::Some(Address { 0: address })
+                                    Some(Address::from(address))
                                 }
                             }
                         }
@@ -390,23 +392,23 @@ impl<'de> serde::Deserialize<'de> for Wallet {
                     }
                 }
                 let address = match possible_address {
-                    serde::export::Some(address) => address,
-                    serde::export::None => serde::private::de::missing_field("address")?,
+                    Some(address) => address,
+                    None => return Err(<A::Error as de::Error>::missing_field("address")),
                 };
-                serde::export::Ok(Wallet {
+                Ok(Wallet {
                     kind: WalletKind::Address(address),
                 })
             }
         }
-        const FIELDS: &[&str] = &["address"];
+
         let human_readable = deserializer.is_human_readable();
         serde::Deserializer::deserialize_struct(
             deserializer,
             "Wallet",
-            FIELDS,
+            &["address"],
             WalletVisitor {
-                marker: serde::export::PhantomData::<Wallet>,
-                lifetime: serde::export::PhantomData,
+                marker: marker::PhantomData::<Wallet>,
+                lifetime: marker::PhantomData,
                 human_readable,
             },
         )
@@ -433,13 +435,12 @@ impl Serialize for Wallet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::blockchain::blockchain_interface::contract_address;
     use crate::blockchain::test_utils::make_meaningless_seed;
     use crate::masq_lib::utils::DEFAULT_CONSUMING_DERIVATION_PATH;
     use crate::test_utils::make_paying_wallet;
     use crate::test_utils::make_wallet;
     use bip39::{Language, Mnemonic, Seed};
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::derivation_path;
     use rusqlite::Connection;
     use rustc_hex::FromHex;
@@ -492,12 +493,13 @@ mod tests {
         let derivation_path = derivation_path(0, 5);
         let expected_seed = make_meaningless_seed();
         let wallet = Wallet::from(
-            Bip32ECKeyPair::from_raw(expected_seed.as_bytes(), &derivation_path).unwrap(),
+            Bip32ECKeyProvider::try_from((expected_seed.as_bytes(), derivation_path.as_str()))
+                .unwrap(),
         );
 
         let result = wallet.string_address_from_keypair();
 
-        assert_eq!(result, "0x30ff09882f583e76e965f21f1893ad9cdf03f02d")
+        assert_eq!(result, "0x28330c4b886fc83bd6e3409a9eae776c19403c2e")
     }
 
     #[test]
@@ -527,9 +529,11 @@ mod tests {
         )
         .unwrap();
         let seed = Seed::new(&mnemonic, "Test123!");
-        let keypair =
-            Bip32ECKeyPair::try_from((seed.as_ref(), DEFAULT_CONSUMING_DERIVATION_PATH.as_str()))
-                .unwrap();
+        let keypair = Bip32ECKeyProvider::try_from((
+            seed.as_ref(),
+            DEFAULT_CONSUMING_DERIVATION_PATH.as_str(),
+        ))
+        .unwrap();
 
         let expected = Wallet::from(keypair);
         let serialized = serde_cbor::to_vec(&expected).unwrap();
@@ -548,9 +552,11 @@ mod tests {
         )
         .unwrap();
         let seed = Seed::new(&mnemonic, "Test123!");
-        let keypair =
-            Bip32ECKeyPair::try_from((seed.as_ref(), DEFAULT_CONSUMING_DERIVATION_PATH.as_str()))
-                .unwrap();
+        let keypair = Bip32ECKeyProvider::try_from((
+            seed.as_ref(),
+            DEFAULT_CONSUMING_DERIVATION_PATH.as_str(),
+        ))
+        .unwrap();
 
         let expected = Wallet::from(keypair);
         let result = serde_json::to_string(&expected).unwrap();
@@ -642,14 +648,14 @@ mod tests {
     fn can_convert_to_keypair_if_came_from_keypair() {
         let secret_key_text = "0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc";
         let keypair =
-            Bip32ECKeyPair::from_raw_secret(&secret_key_text.from_hex::<Vec<u8>>().unwrap())
+            Bip32ECKeyProvider::from_raw_secret(&secret_key_text.from_hex::<Vec<u8>>().unwrap())
                 .unwrap();
         let expected_keypair =
-            Bip32ECKeyPair::from_raw_secret(&secret_key_text.from_hex::<Vec<u8>>().unwrap())
+            Bip32ECKeyProvider::from_raw_secret(&secret_key_text.from_hex::<Vec<u8>>().unwrap())
                 .unwrap();
         let subject = Wallet::from(keypair);
 
-        let result: Bip32ECKeyPair = subject.try_into().unwrap();
+        let result: Bip32ECKeyProvider = subject.try_into().unwrap();
 
         assert_eq!(result, expected_keypair);
     }
@@ -658,7 +664,7 @@ mod tests {
     fn cant_convert_to_keypair_if_didnt_come_from_keypair() {
         let subject = Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
 
-        let result: Result<Bip32ECKeyPair, String> = subject.try_into();
+        let result: Result<Bip32ECKeyProvider, String> = subject.try_into();
 
         assert_eq!(
             result,
@@ -673,7 +679,7 @@ mod tests {
     fn sign_with_uninitialized_wallets_panic() {
         Wallet::new("").as_payer(
             &CryptdePublicKey::new(&[1, 2, 3]),
-            &contract_address(DEFAULT_CHAIN_ID),
+            &TEST_DEFAULT_CHAIN.rec().contract,
         );
     }
 
@@ -692,14 +698,14 @@ mod tests {
         }
     }
 
-    fn keypair_a() -> Bip32ECKeyPair {
+    fn keypair_a() -> Bip32ECKeyProvider {
         let numbers = (0u8..32u8).collect::<Vec<u8>>();
-        Bip32ECKeyPair::from_raw_secret(&numbers).unwrap()
+        Bip32ECKeyProvider::from_raw_secret(&numbers).unwrap()
     }
 
-    fn keypair_b() -> Bip32ECKeyPair {
+    fn keypair_b() -> Bip32ECKeyProvider {
         let numbers = (1u8..33u8).collect::<Vec<u8>>();
-        Bip32ECKeyPair::from_raw_secret(&numbers).unwrap()
+        Bip32ECKeyProvider::from_raw_secret(&numbers).unwrap()
     }
 
     fn hash(wallet: &Wallet) -> u64 {
@@ -718,22 +724,22 @@ mod tests {
         };
         let address_b1 = make_wallet("address");
         let keypair_a1 = Wallet {
-            kind: WalletKind::KeyPair(keypair_a()),
+            kind: WalletKind::SecretKey(keypair_a()),
         };
         let keypair_a2 = Wallet {
-            kind: WalletKind::KeyPair(keypair_a()),
+            kind: WalletKind::SecretKey(keypair_a()),
         };
         let keypair_b1 = Wallet {
-            kind: WalletKind::KeyPair(keypair_b()),
+            kind: WalletKind::SecretKey(keypair_b()),
         };
         let public_key_a1 = Wallet {
-            kind: WalletKind::PublicKey(keypair_a().secret().public()),
+            kind: WalletKind::PublicKey(keypair_a().public_key()),
         };
         let public_key_a2 = Wallet {
-            kind: WalletKind::PublicKey(keypair_a().secret().public()),
+            kind: WalletKind::PublicKey(keypair_a().public_key()),
         };
         let public_key_b1 = Wallet {
-            kind: WalletKind::PublicKey(keypair_b().secret().public()),
+            kind: WalletKind::PublicKey(keypair_b().public_key()),
         };
         let uninitialized_a1 = Wallet {
             kind: WalletKind::Uninitialized,
@@ -771,22 +777,22 @@ mod tests {
         };
         let address_b1 = make_wallet("address");
         let keypair_a1 = Wallet {
-            kind: WalletKind::KeyPair(keypair_a()),
+            kind: WalletKind::SecretKey(keypair_a()),
         };
         let keypair_a2 = Wallet {
-            kind: WalletKind::KeyPair(keypair_a()),
+            kind: WalletKind::SecretKey(keypair_a()),
         };
         let keypair_b1 = Wallet {
-            kind: WalletKind::KeyPair(keypair_b()),
+            kind: WalletKind::SecretKey(keypair_b()),
         };
         let public_key_a1 = Wallet {
-            kind: WalletKind::PublicKey(keypair_a().secret().public()),
+            kind: WalletKind::PublicKey(keypair_a().public_key()),
         };
         let public_key_a2 = Wallet {
-            kind: WalletKind::PublicKey(keypair_a().secret().public()),
+            kind: WalletKind::PublicKey(keypair_a().public_key()),
         };
         let public_key_b1 = Wallet {
-            kind: WalletKind::PublicKey(keypair_b().secret().public()),
+            kind: WalletKind::PublicKey(keypair_b().public_key()),
         };
         let uninitialized_a1 = Wallet {
             kind: WalletKind::Uninitialized,
@@ -837,22 +843,22 @@ mod tests {
         };
         let address_b1 = make_wallet("address");
         let keypair_a1 = Wallet {
-            kind: WalletKind::KeyPair(keypair_a()),
+            kind: WalletKind::SecretKey(keypair_a()),
         };
         let keypair_a2 = Wallet {
-            kind: WalletKind::KeyPair(keypair_a()),
+            kind: WalletKind::SecretKey(keypair_a()),
         };
         let keypair_b1 = Wallet {
-            kind: WalletKind::KeyPair(keypair_b()),
+            kind: WalletKind::SecretKey(keypair_b()),
         };
         let public_key_a1 = Wallet {
-            kind: WalletKind::PublicKey(keypair_a().secret().public()),
+            kind: WalletKind::PublicKey(keypair_a().public_key()),
         };
         let public_key_a2 = Wallet {
-            kind: WalletKind::PublicKey(keypair_a().secret().public()),
+            kind: WalletKind::PublicKey(keypair_a().public_key()),
         };
         let public_key_b1 = Wallet {
-            kind: WalletKind::PublicKey(keypair_b().secret().public()),
+            kind: WalletKind::PublicKey(keypair_b().public_key()),
         };
         let uninitialized_a1 = Wallet {
             kind: WalletKind::Uninitialized,

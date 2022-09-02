@@ -1,12 +1,19 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::command::Command;
 use crate::masq_node::MASQNodeUtils;
+use crate::utils::UrlHolder;
 use node_lib::test_utils;
 use std::net::{IpAddr, Ipv4Addr};
 
 pub struct BlockchainServer<'a> {
     pub name: &'a str,
+}
+
+impl<'a> UrlHolder for BlockchainServer<'a> {
+    fn url(&self) -> String {
+        format!("http://{}:18545", self.ip().unwrap().trim())
+    }
 }
 
 impl<'a> BlockchainServer<'a> {
@@ -40,10 +47,6 @@ impl<'a> BlockchainServer<'a> {
         ];
         let mut command = Command::new("docker", Command::strings(args));
         command.stdout_or_stderr()
-    }
-
-    pub fn service_url(&self) -> String {
-        format!("http://{}:18545", self.ip().unwrap().trim())
     }
 
     pub fn wait_until_ready(&self) {

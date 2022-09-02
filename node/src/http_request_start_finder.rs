@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::discriminator::Discriminator;
 use crate::discriminator::DiscriminatorFactory;
 use crate::null_masquerader::NullMasquerader;
@@ -77,6 +77,16 @@ mod tests {
     use crate::sub_lib::http_packet_framer::ChunkExistenceState;
     use crate::sub_lib::http_packet_framer::ChunkProgressState;
     use crate::sub_lib::http_packet_framer::PacketProgressState;
+
+    #[test]
+    fn constants_have_correct_values() {
+        let methods_expected: &[&[u8]] = &[
+            b"GET", b"HEAD", b"POST", b"PUT", b"DELETE", b"CONNECT", b"OPTIONS", b"TRACE", b"PATCH",
+        ];
+
+        assert_eq!(METHODS, methods_expected);
+        assert_eq!(LONGEST_METHOD_LEN, 7);
+    }
 
     #[test]
     fn discriminator_factory_duplicate_works() {

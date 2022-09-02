@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 // These must be before the rest of the modules
 // in order to be able to use the macros.
@@ -11,10 +11,9 @@ pub mod messages;
 #[macro_use]
 pub mod utils;
 
-#[macro_use]
-pub mod logger;
-
+pub mod blockchains;
 pub mod command;
+#[macro_use]
 pub mod constants;
 pub mod crash_point;
 pub mod shared_schema;

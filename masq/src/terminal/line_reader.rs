@@ -1,4 +1,4 @@
-// Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::terminal::secondary_infrastructure::{InterfaceWrapper, MasqTerminal, WriterLock};
 use linefeed::{ReadResult, Signal};
@@ -10,7 +10,7 @@ use std::fmt::Debug;
 use std::io::Write;
 
 //most of the events depend on the default linefeed signal handlers which ignore them unless you explicitly set the opposite
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum TerminalEvent {
     CommandLine(Vec<String>),
     Error(Option<String>), //'None' when already processed by printing out

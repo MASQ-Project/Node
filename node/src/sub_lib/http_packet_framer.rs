@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::framer::FramedChunk;
 use crate::sub_lib::framer::Framer;
 use crate::sub_lib::framer_utils;
@@ -12,21 +12,21 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::usize;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum PacketProgressState {
     SeekingPacketStart,
     SeekingBodyStart,
     SeekingBodyEnd,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum ChunkExistenceState {
     Standard,
     ChunkedResponse,
     Chunk,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub enum ChunkProgressState {
     None,
     SeekingLengthHeader,
@@ -34,7 +34,7 @@ pub enum ChunkProgressState {
     SeekingEndOfFinalChunk,
 }
 
-#[derive(PartialEq)]
+#[derive(PartialEq, Eq)]
 pub struct HttpFramerState {
     pub data_so_far: Vec<u8>,
     pub packet_progress_state: PacketProgressState,
@@ -384,6 +384,13 @@ mod framer_tests {
     use crate::sub_lib::http_response_start_finder::HttpResponseStartFinder;
     use crate::sub_lib::utils::to_string;
     use crate::sub_lib::utils::to_string_s;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(BYTES_TO_PRESERVE, 9);
+        assert_eq!(CRLF, b"\r\n");
+        assert_eq!(DOUBLE_CRLF, b"\r\n\r\n");
+    }
 
     const GOOD_FIRST_LINE: [u8; 15] = *b"GOOD_FIRST_LINE";
 

@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 #[cfg(test)]
 pub mod utils;
@@ -13,10 +13,17 @@ use std::time::Duration;
 // 'node' below must not be named '_' alone or disappear, or the MASQNode will be immediately reclaimed.
 #[test]
 fn http_through_node_integration() {
-    let _node = utils::MASQNode::start_standard("http_through_node_integration", None, true);
+    let _node = utils::MASQNode::start_standard(
+        "http_through_node_integration",
+        None,
+        true,
+        true,
+        false,
+        true,
+    );
     let mut stream = TcpStream::connect(SocketAddr::from_str("127.0.0.1:80").unwrap()).unwrap();
     stream
-        .set_read_timeout(Some(Duration::from_millis(100)))
+        .set_read_timeout(Some(Duration::from_millis(1000)))
         .unwrap();
     let request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes();
 

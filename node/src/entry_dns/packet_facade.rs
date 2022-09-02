@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use std::cmp::max;
 use std::ops::Add;
 use std::str::from_utf8;
@@ -477,10 +477,10 @@ impl<'a> PacketFacade<'a> {
     }
 
     pub fn clear(&mut self) {
-        PacketFacade::u16_to(0x0000, &mut self.buf, 4);
-        PacketFacade::u16_to(0x0000, &mut self.buf, 6);
-        PacketFacade::u16_to(0x0000, &mut self.buf, 8);
-        PacketFacade::u16_to(0x0000, &mut self.buf, 10);
+        PacketFacade::u16_to(0x0000, self.buf, 4);
+        PacketFacade::u16_to(0x0000, self.buf, 6);
+        PacketFacade::u16_to(0x0000, self.buf, 8);
+        PacketFacade::u16_to(0x0000, self.buf, 10);
         self.length = 12
     }
 

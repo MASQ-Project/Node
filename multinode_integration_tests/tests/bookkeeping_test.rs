@@ -1,17 +1,17 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils, NodeReference};
+use std::collections::HashMap;
+use std::thread;
+use std::time::Duration;
+
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use multinode_integration_tests_lib::masq_node::{MASQNode, NodeReference};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
     make_consuming_wallet_info, make_earning_wallet_info, MASQRealNode, NodeStartupConfigBuilder,
 };
-use node_lib::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoReal};
-use node_lib::accountant::receivable_dao::{ReceivableAccount, ReceivableDao, ReceivableDaoReal};
-use node_lib::blockchain::blockchain_interface::chain_name_from_id;
-use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
+use multinode_integration_tests_lib::utils::{payable_dao, receivable_dao};
+use node_lib::accountant::payable_dao::PayableAccount;
+use node_lib::accountant::receivable_dao::ReceivableAccount;
 use node_lib::sub_lib::wallet::Wallet;
-use std::collections::HashMap;
-use std::thread;
-use std::time::Duration;
 
 #[test]
 fn provided_and_consumed_services_are_recorded_in_databases() {
@@ -23,7 +23,7 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
         .map(|_| start_real_node(&mut cluster, originating_node.node_reference()))
         .collect::<Vec<MASQRealNode>>();
 
-    thread::sleep(Duration::from_millis(2000));
+    thread::sleep(Duration::from_millis(10_000));
 
     let mut client = originating_node.make_client(8080);
     let request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes();
@@ -37,13 +37,13 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
     );
 
     // get all payables from originating node
-    let payables = non_pending_payables(&originating_node, cluster.chain_id);
+    let payables = non_pending_payables(&originating_node);
 
     // get all receivables from all other nodes
     let receivable_balances = non_originating_nodes
         .iter()
         .flat_map(|node| {
-            receivables(node, cluster.chain_id)
+            receivables(node)
                 .into_iter()
                 .map(move |receivable_account| (node.earning_wallet(), receivable_account.balance))
         })
@@ -71,37 +71,13 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
     });
 }
 
-fn non_pending_payables(node: &MASQRealNode, chain_id: u8) -> Vec<PayableAccount> {
-    let db_initializer = DbInitializerReal::default();
-    let payable_dao = PayableDaoReal::new(
-        db_initializer
-            .initialize(
-                &std::path::PathBuf::from(MASQRealNode::node_home_dir(
-                    &MASQNodeUtils::find_project_root(),
-                    &node.name().to_string(),
-                )),
-                chain_id,
-                true,
-            )
-            .unwrap(),
-    );
+fn non_pending_payables(node: &MASQRealNode) -> Vec<PayableAccount> {
+    let payable_dao = payable_dao(node.name());
     payable_dao.non_pending_payables()
 }
 
-fn receivables(node: &MASQRealNode, chain_id: u8) -> Vec<ReceivableAccount> {
-    let db_initializer = DbInitializerReal::default();
-    let receivable_dao = ReceivableDaoReal::new(
-        db_initializer
-            .initialize(
-                &std::path::PathBuf::from(MASQRealNode::node_home_dir(
-                    &MASQNodeUtils::find_project_root(),
-                    &node.name().to_string(),
-                )),
-                chain_id,
-                true,
-            )
-            .unwrap(),
-    );
+fn receivables(node: &MASQRealNode) -> Vec<ReceivableAccount> {
+    let receivable_dao = receivable_dao(node.name());
     receivable_dao.receivables()
 }
 
@@ -111,7 +87,7 @@ pub fn start_lonely_real_node(cluster: &mut MASQNodeCluster) -> MASQRealNode {
         NodeStartupConfigBuilder::standard()
             .earning_wallet_info(make_earning_wallet_info(&index.to_string()))
             .consuming_wallet_info(make_consuming_wallet_info(&index.to_string()))
-            .chain(chain_name_from_id(cluster.chain_id))
+            .chain(cluster.chain)
             .build(),
     )
 }
@@ -122,7 +98,7 @@ pub fn start_real_node(cluster: &mut MASQNodeCluster, neighbor: NodeReference) -
         NodeStartupConfigBuilder::standard()
             .neighbor(neighbor)
             .earning_wallet_info(make_earning_wallet_info(&index.to_string()))
-            .chain(chain_name_from_id(cluster.chain_id))
+            .chain(cluster.chain)
             .build(),
     )
 }

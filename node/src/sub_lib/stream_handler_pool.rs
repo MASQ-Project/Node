@@ -1,9 +1,9 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::dispatcher::Endpoint;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use actix::Message;
 
-#[derive(PartialEq, Debug, Message, Clone)]
+#[derive(PartialEq, Eq, Debug, Message, Clone)]
 pub struct TransmitDataMsg {
     pub endpoint: Endpoint,
     pub last_data: bool,

@@ -1,4 +1,4 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use super::neighborhood_database::NeighborhoodDatabaseError::NodeKeyNotFound;
 use crate::neighborhood::dot_graph::{
     render_dot_graph, DotRenderable, EdgeRenderable, NodeRenderable, NodeRenderableInner,
@@ -53,7 +53,7 @@ impl NeighborhoodDatabase {
         let mut node_record = NodeRecord::new(
             public_key,
             earning_wallet,
-            neighborhood_mode.rate_pack().clone(),
+            *neighborhood_mode.rate_pack(),
             neighborhood_mode.accepts_connections(),
             neighborhood_mode.routes_data(),
             0,
@@ -347,7 +347,7 @@ impl NeighborhoodDatabase {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum NeighborhoodDatabaseError {
     NodeKeyNotFound(PublicKey),
     NodeKeyCollision(PublicKey),
@@ -363,9 +363,15 @@ mod tests {
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::assert_string_contains;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
-    use masq_lib::test_utils::utils::DEFAULT_CHAIN_ID;
+    use masq_lib::constants::DEFAULT_CHAIN;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::iter::FromIterator;
     use std::str::FromStr;
+
+    #[test]
+    fn constants_have_correct_values() {
+        assert_eq!(ISOLATED_NODE_GRACE_PERIOD_SECS, 30);
+    }
 
     #[test]
     fn a_brand_new_database_has_the_expected_contents() {
@@ -403,7 +409,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             this_node.earning_wallet(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
 
         assert_eq!(subject.this_node, this_node.public_key().clone());
@@ -471,7 +477,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0").unwrap(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
 
         subject.add_node(one_node.clone()).unwrap();
@@ -525,7 +531,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000001234").unwrap(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
         subject.add_node(one_node.clone()).unwrap();
         subject.add_node(another_node.clone()).unwrap();
@@ -653,7 +659,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000001234").unwrap(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
         subject.add_node(other_node.clone()).unwrap();
 
@@ -798,7 +804,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000000123").unwrap(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
         let nonexistent_key = &PublicKey::new(b"nonexistent");
 
@@ -844,7 +850,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             Wallet::from_str("0x0000000000000000000000000000000000000123").unwrap(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
         let neighborless_node = make_node_record(2345, true);
         subject.add_node(neighborless_node.clone()).unwrap();

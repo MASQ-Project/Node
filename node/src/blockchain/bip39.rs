@@ -1,11 +1,12 @@
-// Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+use std::num::NonZeroU32;
+// Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::cryptde::PlainData;
 use bip39::{Language, Mnemonic, MnemonicType, Seed};
 use ethsign::keyfile::Crypto;
 use ethsign::Protected;
 use rustc_hex::{FromHex, ToHex};
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Bip39Error {
     ConversionError(String),
     EncryptionFailure(String),
@@ -32,7 +33,7 @@ impl Bip39 {
         match Crypto::encrypt(
             seed.as_ref(),
             &Protected::new(db_password.as_bytes()),
-            10240,
+            u32::from(NonZeroU32::new(10240).expect("Internal error")),
         ) {
             Ok(crypto) => match serde_cbor::to_vec(&crypto) {
                 Ok(cipher_seed) => Ok(cipher_seed.to_hex()),
