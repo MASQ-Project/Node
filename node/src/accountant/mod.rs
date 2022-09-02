@@ -186,31 +186,7 @@ impl Handler<ScanForPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
-        match self.scanners.payables.begin_scan(
-            SystemTime::now(),
-            msg.response_skeleton_opt,
-            &self.logger,
-        ) {
-            Ok(message) => {
-                eprintln!("Message was sent to the blockchain bridge, {:?}", message);
-                self.report_accounts_payable_sub_opt
-                    .as_ref()
-                    .expect("BlockchainBridge is unbound")
-                    .try_send(message)
-                    .expect("BlockchainBridge is dead");
-            }
-            Err(ScannerError::CalledFromNullScanner) => {
-                if cfg!(test) {
-                    eprintln!("Payable scan is disabled.");
-                } else {
-                    panic!("Null Scanner shouldn't be running inside production code.")
-                }
-            }
-            Err(ScannerError::NothingToProcess) => {
-                eprintln!("No payable found to process. The Scan was ended.");
-                // TODO: Do something better than just using eprintln
-            }
-        }
+        self.handle_scan_for_payable_request(msg.response_skeleton_opt);
     }
 }
 
@@ -218,29 +194,7 @@ impl Handler<ScanForPendingPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
-        match self.scanners.pending_payables.begin_scan(
-            SystemTime::now(),
-            msg.response_skeleton_opt,
-            &self.logger,
-        ) {
-            Ok(message) => self
-                .request_transaction_receipts_subs_opt
-                .as_ref()
-                .expect("BlockchainBridge is unbound")
-                .try_send(message)
-                .expect("BlockchainBridge is dead"),
-            Err(ScannerError::CalledFromNullScanner) => {
-                if cfg!(test) {
-                    eprintln!("Pending payable scan is disabled.");
-                } else {
-                    panic!("Null Scanner shouldn't be running inside production code.")
-                }
-            }
-            Err(ScannerError::NothingToProcess) => {
-                eprintln!("No pending payable found to process. The Scan was ended.");
-                // TODO: Do something better than just using eprintln
-            }
-        }
+        self.handle_scan_for_pending_payable_request(msg.response_skeleton_opt);
     }
 }
 
@@ -248,29 +202,7 @@ impl Handler<ScanForReceivables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
-        match self.scanners.receivables.begin_scan(
-            SystemTime::now(),
-            msg.response_skeleton_opt,
-            &self.logger,
-        ) {
-            Ok(message) => self
-                .retrieve_transactions_sub
-                .as_ref()
-                .expect("BlockchainBridge is unbound")
-                .try_send(message)
-                .expect("BlockchainBridge is dead"),
-            Err(ScannerError::CalledFromNullScanner) => {
-                if cfg!(test) {
-                    eprintln!("Receivable scan is disabled.");
-                } else {
-                    panic!("Null Scanner shouldn't be running inside production code.")
-                }
-            }
-            Err(ScannerError::NothingToProcess) => {
-                eprintln!("The Scan was ended.");
-                // TODO: Do something better than just using eprintln
-            }
-        };
+        self.handle_scan_for_receivables_request(msg.response_skeleton_opt);
     }
 }
 
@@ -796,6 +728,92 @@ impl Accountant {
                 body,
             })
             .expect("UiGateway is dead");
+    }
+
+    fn handle_scan_for_payable_request(&mut self, response_skeleton_opt: Option<ResponseSkeleton>) {
+        match self.scanners.payables.begin_scan(
+            SystemTime::now(),
+            response_skeleton_opt,
+            &self.logger,
+        ) {
+            Ok(message) => {
+                eprintln!("Message was sent to the blockchain bridge, {:?}", message);
+                self.report_accounts_payable_sub_opt
+                    .as_ref()
+                    .expect("BlockchainBridge is unbound")
+                    .try_send(message)
+                    .expect("BlockchainBridge is dead");
+            }
+            Err(ScannerError::CalledFromNullScanner) => {
+                if cfg!(test) {
+                    eprintln!("Payable scan is disabled.");
+                } else {
+                    panic!("Null Scanner shouldn't be running inside production code.")
+                }
+            }
+            Err(ScannerError::NothingToProcess) => {
+                eprintln!("No payable found to process. The Scan was ended.");
+                // TODO: Do something better than just using eprintln
+            }
+        }
+    }
+
+    fn handle_scan_for_pending_payable_request(
+        &mut self,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+    ) {
+        match self.scanners.pending_payables.begin_scan(
+            SystemTime::now(),
+            response_skeleton_opt,
+            &self.logger,
+        ) {
+            Ok(message) => self
+                .request_transaction_receipts_subs_opt
+                .as_ref()
+                .expect("BlockchainBridge is unbound")
+                .try_send(message)
+                .expect("BlockchainBridge is dead"),
+            Err(ScannerError::CalledFromNullScanner) => {
+                if cfg!(test) {
+                    eprintln!("Pending payable scan is disabled.");
+                } else {
+                    panic!("Null Scanner shouldn't be running inside production code.")
+                }
+            }
+            Err(ScannerError::NothingToProcess) => {
+                eprintln!("No pending payable found to process. The Scan was ended.");
+                // TODO: Do something better than just using eprintln
+            }
+        }
+    }
+
+    fn handle_scan_for_receivables_request(
+        &mut self,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+    ) {
+        match self.scanners.receivables.begin_scan(
+            SystemTime::now(),
+            response_skeleton_opt,
+            &self.logger,
+        ) {
+            Ok(message) => self
+                .retrieve_transactions_sub
+                .as_ref()
+                .expect("BlockchainBridge is unbound")
+                .try_send(message)
+                .expect("BlockchainBridge is dead"),
+            Err(ScannerError::CalledFromNullScanner) => {
+                if cfg!(test) {
+                    eprintln!("Receivable scan is disabled.");
+                } else {
+                    panic!("Null Scanner shouldn't be running inside production code.")
+                }
+            }
+            Err(ScannerError::NothingToProcess) => {
+                eprintln!("The Scan was ended.");
+                // TODO: Do something better than just using eprintln
+            }
+        };
     }
 
     fn handle_externally_triggered_scan(
