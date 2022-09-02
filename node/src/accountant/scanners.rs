@@ -117,7 +117,6 @@ pub(in crate::accountant) mod scanners {
             // let start_message = BeginScanAMessage {};
             // // Use the DAO, if necessary, to populate start_message
             // Ok(start_message)
-            let now = SystemTime::now();
             info!(logger, "Scanning for payables");
             let all_non_pending_payables = self.dao.non_pending_payables();
             debug!(
@@ -126,7 +125,7 @@ pub(in crate::accountant) mod scanners {
                 investigate_debt_extremes(&all_non_pending_payables)
             );
             let (qualified_payables, summary) = qualified_payables_and_summary(
-                now,
+                timestamp,
                 all_non_pending_payables,
                 self.common.payment_thresholds.as_ref(),
             );
@@ -241,18 +240,17 @@ pub(in crate::accountant) mod scanners {
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
         ) -> Result<RetrieveTransactions, Error> {
-            let now = SystemTime::now();
             info!(
                 logger,
                 "Scanning for receivables to {}", self.earning_wallet
             );
             info!(logger, "Scanning for delinquencies");
             self.dao
-                .new_delinquencies(now, self.common.payment_thresholds.as_ref())
+                .new_delinquencies(timestamp, self.common.payment_thresholds.as_ref())
                 .into_iter()
                 .for_each(|account| {
                     self.banned_dao.ban(&account.wallet);
-                    let (balance, age) = balance_and_age(now, &account);
+                    let (balance, age) = balance_and_age(timestamp, &account);
                     info!(
                         logger,
                         "Wallet {} (balance: {} MASQ, age: {} sec) banned for delinquency",
@@ -266,7 +264,7 @@ pub(in crate::accountant) mod scanners {
                 .into_iter()
                 .for_each(|account| {
                     self.banned_dao.unban(&account.wallet);
-                    let (balance, age) = balance_and_age(now, &account);
+                    let (balance, age) = balance_and_age(timestamp, &account);
                     info!(
                         logger,
                         "Wallet {} (balance: {} MASQ, age: {} sec) is no longer delinquent: unbanned",
