@@ -7,6 +7,7 @@ use actix::Message;
 use actix::Recipient;
 use lazy_static::lazy_static;
 use masq_lib::ui_gateway::NodeFromUiMessage;
+#[cfg(test)]
 use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;

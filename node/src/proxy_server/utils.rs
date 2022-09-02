@@ -13,26 +13,6 @@ pub(in crate::proxy_server) mod local {
     use std::net::SocketAddr;
     use std::time::SystemTime;
 
-    pub struct TTHArgsLocal<'a> {
-        pub common: TTHArgsCommon,
-        pub logger: &'a Logger,
-        pub hopper_sub: &'a Recipient<IncipientCoresPackage>,
-        pub dispatcher_sub: &'a Recipient<TransmitDataMsg>,
-        pub accountant_sub: &'a Recipient<ReportServicesConsumedMessage>,
-        pub add_return_route_sub: &'a Recipient<AddReturnRouteMessage>,
-        pub retire_stream_key_via_opt: Option<&'a Recipient<StreamShutdownMsg>>,
-    }
-
-    pub struct TTHArgsMovable {
-        pub common_opt: Option<TTHArgsCommon>,
-        pub logger: Logger,
-        pub hopper_sub: Recipient<IncipientCoresPackage>,
-        pub dispatcher_sub: Recipient<TransmitDataMsg>,
-        pub accountant_sub: Recipient<ReportServicesConsumedMessage>,
-        pub add_return_route_sub: Recipient<AddReturnRouteMessage>,
-        pub retire_stream_key_via: Option<Recipient<StreamShutdownMsg>>,
-    }
-
     pub struct TTHArgsCommon {
         pub cryptde: &'static dyn CryptDE,
         pub payload: ClientRequestPayload_0v1,
@@ -41,16 +21,36 @@ pub(in crate::proxy_server) mod local {
         pub is_decentralized: bool,
     }
 
+    pub struct TTHArgsLocal<'a> {
+        pub common: TTHArgsCommon,
+        pub logger: &'a Logger,
+        pub retire_stream_key_sub_opt: Option<&'a Recipient<StreamShutdownMsg>>,
+        pub hopper_sub: &'a Recipient<IncipientCoresPackage>,
+        pub dispatcher_sub: &'a Recipient<TransmitDataMsg>,
+        pub accountant_sub: &'a Recipient<ReportServicesConsumedMessage>,
+        pub add_return_route_sub: &'a Recipient<AddReturnRouteMessage>,
+    }
+
+    pub struct TTHArgsMovable {
+        pub common_opt: Option<TTHArgsCommon>,
+        pub logger: Logger,
+        pub retire_stream_key_sub_opt: Option<Recipient<StreamShutdownMsg>>,
+        pub hopper_sub: Recipient<IncipientCoresPackage>,
+        pub dispatcher_sub: Recipient<TransmitDataMsg>,
+        pub accountant_sub: Recipient<ReportServicesConsumedMessage>,
+        pub add_return_route_sub: Recipient<AddReturnRouteMessage>,
+    }
+
     impl From<TTHArgsLocal<'_>> for TTHArgsMovable {
         fn from(args: TTHArgsLocal) -> Self {
             Self {
                 common_opt: Some(args.common),
                 logger: args.logger.clone(),
-                hopper_sub: args.hopper_sub.clone(),
-                dispatcher_sub: args.dispatcher_sub.clone(),
-                accountant_sub: args.accountant_sub.clone(),
-                add_return_route_sub: args.add_return_route_sub.clone(),
-                retire_stream_key_via: args.retire_stream_key_via_opt.cloned(),
+                retire_stream_key_sub_opt: args.retire_stream_key_sub_opt.cloned(),
+                hopper_sub: (*args.hopper_sub).clone(),
+                dispatcher_sub: (*args.dispatcher_sub).clone(),
+                accountant_sub: (*args.accountant_sub).clone(),
+                add_return_route_sub: (*args.add_return_route_sub).clone(),
             }
         }
     }
@@ -60,11 +60,11 @@ pub(in crate::proxy_server) mod local {
             Self {
                 common: args.common_opt.take().expectv("common args"),
                 logger: &args.logger,
+                retire_stream_key_sub_opt: args.retire_stream_key_sub_opt.as_ref(),
                 hopper_sub: &args.hopper_sub,
                 dispatcher_sub: &args.dispatcher_sub,
                 accountant_sub: &args.accountant_sub,
                 add_return_route_sub: &args.add_return_route_sub,
-                retire_stream_key_via_opt: args.retire_stream_key_via.as_ref(),
             }
         }
     }

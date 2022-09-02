@@ -572,7 +572,7 @@ impl ProxyServer {
                     args.common.source_addr,
                     args.dispatcher_sub,
                     args.accountant_sub,
-                    args.retire_stream_key_via_opt,
+                    args.retire_stream_key_sub_opt,
                     args.common.is_decentralized,
                 );
             }
@@ -891,7 +891,7 @@ impl IBCDHelper for IBCDHelperReal {
         };
         let args_local = TTHArgsLocal {
             common: TTHArgsCommon {
-                cryptde: &*proxy.main_cryptde,
+                cryptde: proxy.main_cryptde,
                 payload,
                 source_addr,
                 timestamp,
@@ -902,7 +902,7 @@ impl IBCDHelper for IBCDHelperReal {
             dispatcher_sub: &proxy.out_subs("Dispatcher").dispatcher,
             accountant_sub: &proxy.out_subs("Accountant").accountant,
             add_return_route_sub: &proxy.out_subs("ProxyServer").add_return_route,
-            retire_stream_key_via_opt: if retire_stream_key {
+            retire_stream_key_sub_opt: if retire_stream_key {
                 Some(&proxy.out_subs("ProxyServer").stream_shutdown_sub)
             } else {
                 None
@@ -2406,7 +2406,7 @@ mod tests {
             dispatcher_sub: &peer_actors.dispatcher.from_dispatcher_client,
             accountant_sub: &peer_actors.accountant.report_services_consumed,
             add_return_route_sub: &peer_actors.proxy_server.add_return_route,
-            retire_stream_key_via_opt: None,
+            retire_stream_key_sub_opt: None,
         };
 
         ProxyServer::try_transmit_to_hopper(local_tth_args, route_query_response);
@@ -2492,7 +2492,7 @@ mod tests {
             dispatcher_sub: &peer_actors.dispatcher.from_dispatcher_client,
             accountant_sub: &peer_actors.accountant.report_services_consumed,
             add_return_route_sub: &peer_actors.proxy_server.add_return_route,
-            retire_stream_key_via_opt: Some(&peer_actors.proxy_server.stream_shutdown_sub),
+            retire_stream_key_sub_opt: Some(&peer_actors.proxy_server.stream_shutdown_sub),
         };
 
         ProxyServer::try_transmit_to_hopper(local_tth_args, route_query_response);
@@ -2744,7 +2744,7 @@ mod tests {
             dispatcher_sub: &peer_actors.dispatcher.from_dispatcher_client,
             accountant_sub: &peer_actors.accountant.report_services_consumed,
             add_return_route_sub: &peer_actors.proxy_server.add_return_route,
-            retire_stream_key_via_opt: None,
+            retire_stream_key_sub_opt: None,
         };
 
         ProxyServer::try_transmit_to_hopper(local_tth_args, route_result);
@@ -4750,7 +4750,7 @@ mod tests {
             dispatcher_sub: recipient!(&addr, TransmitDataMsg),
             accountant_sub: recipient!(&addr, ReportServicesConsumedMessage),
             add_return_route_sub: recipient!(&addr, AddReturnRouteMessage),
-            retire_stream_key_via: None,
+            retire_stream_key_sub_opt: None,
         };
 
         IBCDHelperReal::resolve_route_query_response(
