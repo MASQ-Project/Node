@@ -1123,7 +1123,7 @@ mod tests {
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
-    use crate::accountant::scanners::scanners::{NullScanner, ScannerMock};
+    use crate::accountant::scanners::scanners::NullScanner;
     use crate::accountant::test_utils::{
         bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_payables,
         make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock,
@@ -1158,10 +1158,6 @@ mod tests {
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use masq_lib::logger::timestamp_as_string;
     use web3::types::{TransactionReceipt, H256};
-
-    // fn Box::new(ScannerMock::new()) -> Scanner {
-    //     Scanner::new(ScanType::Payables, Box::new(|_, _| {}), Box::new(|_, _| {}))
-    // }
 
     #[test]
     fn constants_have_correct_values() {
@@ -2213,8 +2209,8 @@ mod tests {
             .pending_payable_dao(pending_payable_dao) // For Accountant
             .pending_payable_dao(PendingPayableDaoMock::new()) // For Scanner
             .build();
-        subject.scanners.receivables = Box::new(ScannerMock::new()); //skipping
-        subject.scanners.payables = Box::new(ScannerMock::new()); //skipping
+        subject.scanners.receivables = Box::new(NullScanner::new()); //skipping
+        subject.scanners.payables = Box::new(NullScanner::new()); //skipping
         subject.notify_later.scan_for_pending_payable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_pending_payable_params_arc)
@@ -3885,12 +3881,12 @@ mod tests {
             .start(move |_| {
                 let mut subject = AccountantBuilder::default()
                     .bootstrapper_config(bootstrapper_config)
-                    .payable_dao(payable_dao) // For Accountant
-                    .payable_dao(PayableDaoMock::new()) // For Scanner
-                    .pending_payable_dao(pending_payable_dao) // For Accountant
-                    .pending_payable_dao(PendingPayableDaoMock::new()) // For Scanner
+                    .payable_dao(PayableDaoMock::new())
+                    .payable_dao(payable_dao)
+                    .pending_payable_dao(PendingPayableDaoMock::new())
+                    .pending_payable_dao(pending_payable_dao)
                     .build();
-                subject.scanners.receivables = Box::new(ScannerMock::new());
+                subject.scanners.receivables = Box::new(NullScanner::new());
                 let notify_later_half_mock = NotifyLaterHandleMock::default()
                     .notify_later_params(&notify_later_scan_for_pending_payable_arc_cloned)
                     .permit_to_send_out();
