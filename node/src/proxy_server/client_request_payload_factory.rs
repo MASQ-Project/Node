@@ -8,22 +8,28 @@ use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use masq_lib::logger::Logger;
 
+pub trait ClientRequestPayloadFactory {
+    fn make(
+        &self,
+        ibcd: &InboundClientData,
+        stream_key: StreamKey,
+        cryptde: &dyn CryptDE,
+        logger: &Logger,
+    ) -> Option<ClientRequestPayload_0v1>;
+}
+
 #[derive(Default)]
-pub struct ClientRequestPayloadFactory {}
+pub struct ClientRequestPayloadFactoryReal {}
 
-impl ClientRequestPayloadFactory {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn make(
+impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
+    fn make(
         &self,
         ibcd: &InboundClientData,
         stream_key: StreamKey,
         cryptde: &dyn CryptDE,
         logger: &Logger,
     ) -> Option<ClientRequestPayload_0v1> {
-        let protocol_pack = from_ibcd(ibcd, logger)?;
+        let protocol_pack = from_ibcd(ibcd).map_err(|e| error!(logger, "{}", e)).ok()?;
         let sequence_number = match ibcd.sequence_number {
             Some(sequence_number) => sequence_number,
             None => {
@@ -59,6 +65,12 @@ impl ClientRequestPayloadFactory {
     }
 }
 
+impl ClientRequestPayloadFactoryReal {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -85,7 +97,7 @@ mod tests {
         };
         let cryptde = main_cryptde();
         let logger = Logger::new("test");
-        let subject = ClientRequestPayloadFactory::new();
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
         let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
@@ -120,7 +132,7 @@ mod tests {
         };
         let cryptde = main_cryptde();
         let logger = Logger::new("test");
-        let subject = ClientRequestPayloadFactory::new();
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
         let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
@@ -174,7 +186,7 @@ mod tests {
         };
         let cryptde = main_cryptde();
         let logger = Logger::new("test");
-        let subject = ClientRequestPayloadFactory::new();
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
         let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
@@ -222,7 +234,7 @@ mod tests {
         };
         let cryptde = main_cryptde();
         let logger = Logger::new("test");
-        let subject = ClientRequestPayloadFactory::new();
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
         let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
@@ -257,7 +269,7 @@ mod tests {
         };
         let cryptde = main_cryptde();
         let logger = Logger::new("test");
-        let subject = ClientRequestPayloadFactory::new();
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
         let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
@@ -281,7 +293,7 @@ mod tests {
         };
         let cryptde = main_cryptde();
         let logger = Logger::new("test");
-        let subject = ClientRequestPayloadFactory::new();
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
         let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
@@ -302,8 +314,7 @@ mod tests {
         };
         let cryptde = main_cryptde();
         let logger = Logger::new("test");
-
-        let subject = ClientRequestPayloadFactory::new();
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
         let result = subject
             .make(&ibcd, make_meaningless_stream_key(), cryptde, &logger)
@@ -326,13 +337,11 @@ mod tests {
         };
         let cryptde = main_cryptde();
         let logger = Logger::new("test");
-
-        let subject = ClientRequestPayloadFactory::new();
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
         let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
         assert_eq!(result, None);
-
         TestLogHandler::new().exists_log_containing(
             "ERROR: test: internal error: got IBCD with no sequence number and 4 bytes",
         );

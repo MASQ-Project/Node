@@ -24,12 +24,12 @@ use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransac
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_migrations::MigratorConfig;
-use crate::sub_lib::accountant::AccountantSubs;
-use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
-use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
-use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::{AccountantConfig, FinancialStatistics, PaymentThresholds};
+use crate::sub_lib::accountant::{AccountantSubs, ReportServicesConsumedMessage};
+use crate::sub_lib::accountant::{
+    MessageIdGenerator, MessageIdGeneratorReal, ReportExitServiceProvidedMessage,
+};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
@@ -73,7 +73,7 @@ pub struct Accountant {
     banned_dao: Box<dyn BannedDao>,
     crashable: bool,
     scanners: Scanners,
-    tools: TransactionConfirmationTools,
+    confirmation_tools: TransactionConfirmationTools,
     financial_statistics: FinancialStatistics,
     report_accounts_payable_sub: Option<Recipient<ReportAccountsPayable>>,
     retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
@@ -81,6 +81,7 @@ pub struct Accountant {
     report_sent_payments_sub: Option<Recipient<SentPayable>>,
     ui_message_sub: Option<Recipient<NodeToUiMessage>>,
     payable_threshold_tools: Box<dyn PayableExceedThresholdTools>,
+    message_id_generator: Box<dyn MessageIdGenerator>,
     logger: Logger,
 }
 
@@ -270,27 +271,15 @@ impl Handler<ReportExitServiceProvidedMessage> for Accountant {
     }
 }
 
-impl Handler<ReportRoutingServiceConsumedMessage> for Accountant {
+impl Handler<ReportServicesConsumedMessage> for Accountant {
     type Result = ();
 
     fn handle(
         &mut self,
-        msg: ReportRoutingServiceConsumedMessage,
+        msg: ReportServicesConsumedMessage,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        self.handle_report_routing_service_consumed_message(msg);
-    }
-}
-
-impl Handler<ReportExitServiceConsumedMessage> for Accountant {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        msg: ReportExitServiceConsumedMessage,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        self.handle_report_exit_service_consumed_message(msg);
+        self.handle_report_services_consumed_message(msg);
     }
 }
 
@@ -420,13 +409,14 @@ impl Accountant {
             banned_dao: banned_dao_factory.make(),
             crashable: config.crash_point == CrashPoint::Message,
             scanners: Scanners::default(),
-            tools: TransactionConfirmationTools::default(),
             financial_statistics: FinancialStatistics::default(),
             report_accounts_payable_sub: None,
             retrieve_transactions_sub: None,
             report_new_payments_sub: None,
             report_sent_payments_sub: None,
             ui_message_sub: None,
+            confirmation_tools: TransactionConfirmationTools::default(),
+            message_id_generator: Box::new(MessageIdGeneratorReal::default()),
             payable_threshold_tools: Box::new(PayableExceedThresholdToolsReal::default()),
             logger: Logger::new("Accountant"),
         }
@@ -438,8 +428,7 @@ impl Accountant {
             start: recipient!(addr, StartMessage),
             report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
             report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
-            report_routing_service_consumed: recipient!(addr, ReportRoutingServiceConsumedMessage),
-            report_exit_service_consumed: recipient!(addr, ReportExitServiceConsumedMessage),
+            report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
             report_new_payments: recipient!(addr, ReceivedPayments),
             pending_payable_fingerprint: recipient!(addr, PendingPayableFingerprint),
             report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
@@ -557,7 +546,7 @@ impl Accountant {
                 "Found {} pending payables to process",
                 filtered_pending_payable.len()
             );
-            self.tools
+            self.confirmation_tools
                 .request_transaction_receipts_subs_opt
                 .as_ref()
                 .expect("BlockchainBridge is unbound")
@@ -639,9 +628,10 @@ impl Accountant {
                 Err(e)=> panic!("Recording services provided for {} but has hit fatal database error: {:?}", wallet, e)
             };
         } else {
-            info!(
+            warning!(
                 self.logger,
-                "Not recording service provided for our wallet {}", wallet
+                "Declining to record a receivable against our wallet {} for service we provided",
+                wallet
             );
         }
     }
@@ -673,9 +663,10 @@ impl Accountant {
                 Err(e) => panic!("Recording services consumed from {} but has hit fatal database error: {:?}", wallet, e)
             };
         } else {
-            info!(
+            warning!(
                 self.logger,
-                "Not recording service consumed to our wallet {}", wallet
+                "Declining to record a payable against our wallet {} for service we provided",
+                wallet
             );
         }
     }
@@ -689,6 +680,7 @@ impl Accountant {
 
     //for debugging only
     fn investigate_debt_extremes(all_non_pending_payables: &[PayableAccount]) -> String {
+        let now = SystemTime::now();
         if all_non_pending_payables.is_empty() {
             "Payable scan found no debts".to_string()
         } else {
@@ -696,7 +688,6 @@ impl Accountant {
                 balance: i64,
                 age: Duration,
             }
-            let now = SystemTime::now();
             let init = (
                 PayableInfo {
                     balance: 0,
@@ -774,7 +765,8 @@ impl Accountant {
         self.report_new_payments_sub = Some(msg.peer_actors.accountant.report_new_payments);
         self.report_sent_payments_sub = Some(msg.peer_actors.accountant.report_sent_payments);
         self.ui_message_sub = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
-        self.tools.request_transaction_receipts_subs_opt = Some(
+        self.confirmation_tools
+            .request_transaction_receipts_subs_opt = Some(
             msg.peer_actors
                 .blockchain_bridge
                 .request_transaction_receipts,
@@ -883,42 +875,46 @@ impl Accountant {
         );
     }
 
-    fn handle_report_routing_service_consumed_message(
-        &mut self,
-        msg: ReportRoutingServiceConsumedMessage,
-    ) {
-        debug!(
-            self.logger,
-            "Accruing debt to wallet {} for consuming routing service {} bytes",
-            msg.earning_wallet,
-            msg.payload_size
-        );
-        self.record_service_consumed(
-            msg.service_rate,
-            msg.byte_rate,
-            msg.timestamp,
-            msg.payload_size,
-            &msg.earning_wallet,
-        );
+    fn msg_id(&self) -> u32 {
+        if self.logger.debug_enabled() {
+            self.message_id_generator.id()
+        } else {
+            0
+        }
     }
 
-    fn handle_report_exit_service_consumed_message(
-        &mut self,
-        msg: ReportExitServiceConsumedMessage,
-    ) {
+    fn handle_report_services_consumed_message(&mut self, msg: ReportServicesConsumedMessage) {
+        let msg_id = self.msg_id();
         debug!(
             self.logger,
-            "Accruing debt to wallet {} for consuming exit service {} bytes",
-            msg.earning_wallet,
-            msg.payload_size
+            "MsgId {}: Accruing debt to {} for consuming {} exited bytes",
+            msg_id,
+            msg.exit.earning_wallet,
+            msg.exit.payload_size
         );
         self.record_service_consumed(
-            msg.service_rate,
-            msg.byte_rate,
+            msg.exit.service_rate,
+            msg.exit.byte_rate,
             msg.timestamp,
-            msg.payload_size,
-            &msg.earning_wallet,
+            msg.exit.payload_size,
+            &msg.exit.earning_wallet,
         );
+        msg.routing.iter().for_each(|routing_service| {
+            debug!(
+                self.logger,
+                "MsgId {}: Accruing debt to {} for consuming {} routed bytes",
+                msg_id,
+                routing_service.earning_wallet,
+                msg.routing_payload_size
+            );
+            self.record_service_consumed(
+                routing_service.service_rate,
+                routing_service.byte_rate,
+                msg.timestamp,
+                msg.routing_payload_size,
+                &routing_service.earning_wallet,
+            );
+        })
     }
 
     fn handle_financials(&mut self, client_id: u64, context_id: u64) {
@@ -1168,7 +1164,7 @@ impl Accountant {
         transaction_id: PendingPayableId,
         ctx: &mut Context<Self>,
     ) {
-        self.tools
+        self.confirmation_tools
             .notify_cancel_failed_transaction
             .notify(CancelFailedPendingTransaction { id: transaction_id }, ctx)
     }
@@ -1178,7 +1174,7 @@ impl Accountant {
         pending_payable_fingerprint: PendingPayableFingerprint,
         ctx: &mut Context<Self>,
     ) {
-        self.tools.notify_confirm_transaction.notify(
+        self.confirmation_tools.notify_confirm_transaction.notify(
             ConfirmPendingTransaction {
                 pending_payable_fingerprint,
             },
@@ -1286,6 +1282,7 @@ mod tests {
     use actix::{Arbiter, System};
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
+    use log::Level;
     use masq_lib::constants::SCAN_ERROR;
     use web3::types::U256;
 
@@ -1299,9 +1296,9 @@ mod tests {
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::test_utils::{
         bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_pending_payable_fingerprint,
-        make_receivable_account, BannedDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock,
-        PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock,
-        ReceivableDaoMock,
+        make_receivable_account, BannedDaoFactoryMock, MessageIdGeneratorMock,
+        PayableDaoFactoryMock, PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
+        ReceivableDaoFactoryMock, ReceivableDaoMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::tools::accountant_tools::{NullScanner, ReceivablesScanner};
@@ -1315,7 +1312,7 @@ mod tests {
     use crate::database::dao_utils::from_time_t;
     use crate::database::dao_utils::to_time_t;
     use crate::sub_lib::accountant::{
-        ReportRoutingServiceConsumedMessage, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
+        ExitServiceConsumed, RoutingServiceConsumed, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::sub_lib::utils::{NotifyHandleReal, NotifyLaterHandleReal};
@@ -1471,7 +1468,7 @@ mod tests {
             banned_dao_factory,
         );
 
-        let transaction_confirmation_tools = result.tools;
+        let transaction_confirmation_tools = result.confirmation_tools;
         transaction_confirmation_tools
             .notify_confirm_transaction
             .as_any()
@@ -1512,6 +1509,11 @@ mod tests {
         assert_eq!(result.crashable, false);
         assert_eq!(result.financial_statistics.total_paid_receivable, 0);
         assert_eq!(result.financial_statistics.total_paid_payable, 0);
+        result
+            .message_id_generator
+            .as_any()
+            .downcast_ref::<MessageIdGeneratorReal>()
+            .unwrap();
     }
 
     #[test]
@@ -2277,7 +2279,7 @@ mod tests {
             .build();
         subject.scanners.pending_payables = Box::new(NullScanner);
         subject.scanners.payables = Box::new(NullScanner);
-        subject.tools.notify_later_scan_for_receivable = Box::new(
+        subject.confirmation_tools.notify_later_scan_for_receivable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_receivable_params_arc)
                 .permit_to_send_out(),
@@ -2393,7 +2395,9 @@ mod tests {
             .build();
         subject.scanners.receivables = Box::new(NullScanner); //skipping
         subject.scanners.payables = Box::new(NullScanner); //skipping
-        subject.tools.notify_later_scan_for_pending_payable = Box::new(
+        subject
+            .confirmation_tools
+            .notify_later_scan_for_pending_payable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_pending_payable_params_arc)
                 .permit_to_send_out(),
@@ -2494,7 +2498,7 @@ mod tests {
             .build();
         subject.scanners.pending_payables = Box::new(NullScanner); //skipping
         subject.scanners.receivables = Box::new(NullScanner); //skipping
-        subject.tools.notify_later_scan_for_payable = Box::new(
+        subject.confirmation_tools.notify_later_scan_for_payable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_payables_params_arc)
                 .permit_to_send_out(),
@@ -2836,8 +2840,9 @@ mod tests {
             .bootstrapper_config(config)
             .build();
         let blockchain_bridge_addr = blockchain_bridge.start();
-        subject.tools.request_transaction_receipts_subs_opt =
-            Some(blockchain_bridge_addr.recipient());
+        subject
+            .confirmation_tools
+            .request_transaction_receipts_subs_opt = Some(blockchain_bridge_addr.recipient());
         let account_addr = subject.start();
 
         let _ = account_addr
@@ -2956,7 +2961,7 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: Accountant: Not recording service provided for our wallet {}",
+            "WARN: Accountant: Declining to record a receivable against our wallet {} for service we provided",
             consuming_wallet,
         ));
     }
@@ -3004,144 +3009,8 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: Accountant: Not recording service provided for our wallet {}",
+            "WARN: Accountant: Declining to record a receivable against our wallet {} for service we provided",
             earning_wallet,
-        ));
-    }
-
-    #[test]
-    fn report_routing_service_consumed_message_is_received() {
-        init_test_logging();
-        let now = SystemTime::now();
-        let config = bc_from_ac_plus_earning_wallet(
-            make_populated_accountant_config_with_defaults(),
-            make_wallet("hi"),
-        );
-        let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let payable_dao_mock = PayableDaoMock::new()
-            .non_pending_payables_result(vec![])
-            .more_money_payable_parameters(more_money_payable_parameters_arc.clone())
-            .more_money_payable_result(Ok(()));
-        let subject = AccountantBuilder::default()
-            .bootstrapper_config(config)
-            .payable_dao(payable_dao_mock)
-            .build();
-        let system = System::new("report_routing_service_consumed_message_is_received");
-        let subject_addr: Addr<Accountant> = subject.start();
-        subject_addr
-            .try_send(BindMessage {
-                peer_actors: peer_actors_builder().build(),
-            })
-            .unwrap();
-
-        let earning_wallet = make_wallet("booga");
-        subject_addr
-            .try_send(ReportRoutingServiceConsumedMessage {
-                timestamp: now,
-                earning_wallet: earning_wallet.clone(),
-                payload_size: 1234,
-                service_rate: 42,
-                byte_rate: 24,
-            })
-            .unwrap();
-
-        System::current().stop_with_code(0);
-        system.run();
-        let more_money_payable_parameters = more_money_payable_parameters_arc.lock().unwrap();
-        assert_eq!(
-            more_money_payable_parameters[0],
-            (now, make_wallet("booga"), (1 * 42) + (1234 * 24))
-        );
-        TestLogHandler::new().exists_log_containing(
-            &format!("DEBUG: Accountant: Accruing debt to wallet {} for consuming routing service 1234 bytes", earning_wallet),
-        );
-    }
-
-    #[test]
-    fn report_routing_service_consumed_message_is_received_for_our_consuming_wallet() {
-        init_test_logging();
-        let consuming_wallet = make_wallet("the consuming wallet");
-        let config = bc_from_ac_plus_wallets(
-            make_populated_accountant_config_with_defaults(),
-            consuming_wallet.clone(),
-            make_wallet("the earning wallet"),
-        );
-        let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let payable_dao_mock = PayableDaoMock::new()
-            .non_pending_payables_result(vec![])
-            .more_money_payable_parameters(more_money_payable_parameters_arc.clone());
-        let subject = AccountantBuilder::default()
-            .bootstrapper_config(config)
-            .payable_dao(payable_dao_mock)
-            .build();
-        let system = System::new("report_routing_service_consumed_message_is_received");
-        let subject_addr: Addr<Accountant> = subject.start();
-        subject_addr
-            .try_send(BindMessage {
-                peer_actors: peer_actors_builder().build(),
-            })
-            .unwrap();
-
-        subject_addr
-            .try_send(ReportRoutingServiceConsumedMessage {
-                timestamp: SystemTime::now(),
-                earning_wallet: consuming_wallet.clone(),
-                payload_size: 1234,
-                service_rate: 42,
-                byte_rate: 24,
-            })
-            .unwrap();
-
-        System::current().stop_with_code(0);
-        system.run();
-        assert!(more_money_payable_parameters_arc.lock().unwrap().is_empty());
-
-        TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: Accountant: Not recording service consumed to our wallet {}",
-            consuming_wallet,
-        ));
-    }
-
-    #[test]
-    fn report_routing_service_consumed_message_is_received_for_our_earning_wallet() {
-        init_test_logging();
-        let earning_wallet = make_wallet("the earning wallet");
-        let config = bc_from_ac_plus_earning_wallet(
-            make_populated_accountant_config_with_defaults(),
-            earning_wallet.clone(),
-        );
-        let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let payable_dao_mock = PayableDaoMock::new()
-            .non_pending_payables_result(vec![])
-            .more_money_payable_parameters(more_money_payable_parameters_arc.clone());
-        let subject = AccountantBuilder::default()
-            .bootstrapper_config(config)
-            .payable_dao(payable_dao_mock)
-            .build();
-        let system = System::new("report_routing_service_consumed_message_is_received");
-        let subject_addr: Addr<Accountant> = subject.start();
-        subject_addr
-            .try_send(BindMessage {
-                peer_actors: peer_actors_builder().build(),
-            })
-            .unwrap();
-
-        subject_addr
-            .try_send(ReportRoutingServiceConsumedMessage {
-                timestamp: SystemTime::now(),
-                earning_wallet: earning_wallet.clone(),
-                payload_size: 1234,
-                service_rate: 42,
-                byte_rate: 24,
-            })
-            .unwrap();
-
-        System::current().stop_with_code(0);
-        system.run();
-        assert!(more_money_payable_parameters_arc.lock().unwrap().is_empty());
-        TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: Accountant: Not recording service consumed to our wallet {}",
-            earning_wallet
         ));
     }
 
@@ -3239,7 +3108,7 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: Accountant: Not recording service provided for our wallet {}",
+            "WARN: Accountant: Declining to record a receivable against our wallet {} for service we provided",
             consuming_wallet
         ));
     }
@@ -3285,76 +3154,118 @@ mod tests {
             .is_empty());
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: Accountant: Not recording service provided for our wallet {}",
+            "WARN: Accountant: Declining to record a receivable against our wallet {} for service we provided",
             earning_wallet,
         ));
     }
 
     #[test]
-    fn report_exit_service_consumed_message_is_received() {
+    fn report_services_consumed_message_is_received() {
         init_test_logging();
-        let now = SystemTime::now();
-        let config =
-            bc_from_ac_plus_earning_wallet(make_accountant_config_null(), make_wallet("hi"));
-        let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
+        let config = bc_from_ac_plus_earning_wallet(
+            make_populated_accountant_config_with_defaults(),
+            make_wallet("hi"),
+        );
+        let more_money_payable_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new()
-            .non_pending_payables_result(vec![])
-            .more_money_payable_parameters(more_money_payable_parameters_arc.clone())
+            .more_money_payable_params(more_money_payable_params_arc.clone())
+            .more_money_payable_result(Ok(()))
+            .more_money_payable_result(Ok(()))
             .more_money_payable_result(Ok(()));
-        let subject = AccountantBuilder::default()
+        let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .payable_dao(payable_dao_mock)
             .build();
-        let system = System::new("report_exit_service_consumed_message_is_received");
+        subject.message_id_generator = Box::new(MessageIdGeneratorMock::default().id_result(123));
+        let system = System::new("report_services_consumed_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
             .try_send(BindMessage {
                 peer_actors: peer_actors_builder().build(),
             })
             .unwrap();
+        let earning_wallet_exit = make_wallet("exit");
+        let earning_wallet_routing_1 = make_wallet("routing 1");
+        let earning_wallet_routing_2 = make_wallet("routing 2");
+        let timestamp = SystemTime::now();
 
-        let earning_wallet = make_wallet("booga");
         subject_addr
-            .try_send(ReportExitServiceConsumedMessage {
-                timestamp: now,
-                earning_wallet: earning_wallet.clone(),
-                payload_size: 1234,
-                service_rate: 42,
-                byte_rate: 24,
+            .try_send(ReportServicesConsumedMessage {
+                timestamp,
+                exit: ExitServiceConsumed {
+                    earning_wallet: earning_wallet_exit.clone(),
+                    payload_size: 1200,
+                    service_rate: 120,
+                    byte_rate: 30,
+                },
+                routing_payload_size: 3456,
+                routing: vec![
+                    RoutingServiceConsumed {
+                        earning_wallet: earning_wallet_routing_1.clone(),
+                        service_rate: 42,
+                        byte_rate: 24,
+                    },
+                    RoutingServiceConsumed {
+                        earning_wallet: earning_wallet_routing_2.clone(),
+                        service_rate: 52,
+                        byte_rate: 33,
+                    },
+                ],
             })
             .unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
-        let more_money_payable_parameters = more_money_payable_parameters_arc.lock().unwrap();
+        let more_money_payable_params = more_money_payable_params_arc.lock().unwrap();
         assert_eq!(
-            more_money_payable_parameters[0],
-            (now, make_wallet("booga"), (1 * 42) + (1234 * 24))
+            more_money_payable_params
+                .iter()
+                .map(|(timestamp, wallet, amount)| (timestamp, wallet, amount))
+                .collect::<Vec<_>>(),
+            vec![
+                (&timestamp, &earning_wallet_exit, &((1 * 120) + (1200 * 30))),
+                (
+                    &timestamp,
+                    &earning_wallet_routing_1,
+                    &((1 * 42) + (3456 * 24))
+                ),
+                (
+                    &timestamp,
+                    &earning_wallet_routing_2,
+                    &((1 * 52) + (3456 * 33))
+                )
+            ]
         );
-        TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: Accountant: Accruing debt to wallet {} for consuming exit service 1234 bytes",
-            earning_wallet
+        let test_log_handler = TestLogHandler::new();
+
+        test_log_handler.exists_log_containing(&format!(
+            "DEBUG: Accountant: MsgId 123: Accruing debt to {} for consuming 1200 exited bytes",
+            earning_wallet_exit
+        ));
+        test_log_handler.exists_log_containing(&format!(
+            "DEBUG: Accountant: MsgId 123: Accruing debt to {} for consuming 3456 routed bytes",
+            earning_wallet_routing_1
+        ));
+        test_log_handler.exists_log_containing(&format!(
+            "DEBUG: Accountant: MsgId 123: Accruing debt to {} for consuming 3456 routed bytes",
+            earning_wallet_routing_2
         ));
     }
 
-    #[test]
-    fn report_exit_service_consumed_message_is_received_for_our_consuming_wallet() {
-        init_test_logging();
-        let consuming_wallet = make_wallet("own consuming wallet");
-        let config = bc_from_ac_plus_wallets(
-            make_accountant_config_null(),
-            consuming_wallet.clone(),
-            make_wallet("own earning wallet"),
-        );
+    fn assert_that_we_do_not_charge_our_own_wallet_for_consumed_services(
+        config: BootstrapperConfig,
+        message: ReportServicesConsumedMessage,
+    ) -> Arc<Mutex<Vec<(SystemTime, Wallet, u64)>>> {
         let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_mock = PayableDaoMock::new()
             .non_pending_payables_result(vec![])
-            .more_money_payable_parameters(more_money_payable_parameters_arc.clone());
+            .more_money_payable_result(Ok(()))
+            .more_money_payable_params(more_money_payable_parameters_arc.clone());
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .payable_dao(payable_dao_mock)
             .build();
-        let system = System::new("report_exit_service_consumed_message_is_received");
+        let system = System::new("test");
         let subject_addr: Addr<Accountant> = subject.start();
         subject_addr
             .try_send(BindMessage {
@@ -3362,64 +3273,165 @@ mod tests {
             })
             .unwrap();
 
-        subject_addr
-            .try_send(ReportExitServiceConsumedMessage {
-                timestamp: SystemTime::now(),
-                earning_wallet: consuming_wallet.clone(),
-                payload_size: 1234,
-                service_rate: 42,
-                byte_rate: 24,
-            })
-            .unwrap();
+        subject_addr.try_send(message).unwrap();
 
-        System::current().stop_with_code(0);
+        System::current().stop();
         system.run();
-        assert!(more_money_payable_parameters_arc.lock().unwrap().is_empty());
+        more_money_payable_parameters_arc
+    }
 
+    #[test]
+    fn routing_service_consumed_is_reported_for_our_consuming_wallet() {
+        init_test_logging();
+        let consuming_wallet = make_wallet("the consuming wallet");
+        let config = bc_from_ac_plus_wallets(
+            make_populated_accountant_config_with_defaults(),
+            consuming_wallet.clone(),
+            make_wallet("the earning wallet"),
+        );
+        let foreign_wallet = make_wallet("exit wallet");
+        let timestamp = SystemTime::now();
+        let report_message = ReportServicesConsumedMessage {
+            timestamp,
+            exit: ExitServiceConsumed {
+                earning_wallet: foreign_wallet.clone(),
+                payload_size: 1234,
+                service_rate: 45,
+                byte_rate: 10,
+            },
+            routing_payload_size: 3333,
+            routing: vec![RoutingServiceConsumed {
+                earning_wallet: consuming_wallet.clone(),
+                service_rate: 42,
+                byte_rate: 6,
+            }],
+        };
+
+        let more_money_payable_params_arc =
+            assert_that_we_do_not_charge_our_own_wallet_for_consumed_services(
+                config,
+                report_message,
+            );
+
+        let more_money_payable_params = more_money_payable_params_arc.lock().unwrap();
+        assert_eq!(
+            *more_money_payable_params,
+            //except processing the exit service there was no change in payables
+            vec![(timestamp, foreign_wallet, (45 + 10 * 1234))]
+        );
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: Accountant: Not recording service consumed to our wallet {}",
+            "WARN: Accountant: Declining to record a payable against our wallet {} for service we provided",
             consuming_wallet
         ));
     }
 
     #[test]
-    fn report_exit_service_consumed_message_is_received_for_our_earning_wallet() {
+    fn routing_service_consumed_is_reported_for_our_earning_wallet() {
+        init_test_logging();
+        let earning_wallet =
+            make_wallet("routing_service_consumed_is_reported_for_our_earning_wallet");
+        let foreign_wallet = make_wallet("exit wallet");
+        let config = bc_from_ac_plus_earning_wallet(
+            make_populated_accountant_config_with_defaults(),
+            earning_wallet.clone(),
+        );
+        let timestamp = SystemTime::now();
+        let report_message = ReportServicesConsumedMessage {
+            timestamp,
+            exit: ExitServiceConsumed {
+                earning_wallet: foreign_wallet.clone(),
+                payload_size: 1234,
+                service_rate: 45,
+                byte_rate: 10,
+            },
+            routing_payload_size: 3333,
+            routing: vec![RoutingServiceConsumed {
+                earning_wallet: earning_wallet.clone(),
+                service_rate: 42,
+                byte_rate: 6,
+            }],
+        };
+
+        let more_money_payable_params_arc =
+            assert_that_we_do_not_charge_our_own_wallet_for_consumed_services(
+                config,
+                report_message,
+            );
+
+        let more_money_payable_params = more_money_payable_params_arc.lock().unwrap();
+        assert_eq!(
+            *more_money_payable_params,
+            //except processing the exit service there was no change in payables
+            vec![(timestamp, foreign_wallet, (45 + 10 * 1234))]
+        );
+        TestLogHandler::new().exists_log_containing(&format!(
+            "WARN: Accountant: Declining to record a payable against our wallet {} for service we provided",
+            earning_wallet
+        ));
+    }
+
+    #[test]
+    fn exit_service_consumed_is_reported_for_our_consuming_wallet() {
+        init_test_logging();
+        let consuming_wallet =
+            make_wallet("exit_service_consumed_is_reported_for_our_consuming_wallet");
+        let config = bc_from_ac_plus_wallets(
+            make_accountant_config_null(),
+            consuming_wallet.clone(),
+            make_wallet("own earning wallet"),
+        );
+        let report_message = ReportServicesConsumedMessage {
+            timestamp: SystemTime::now(),
+            exit: ExitServiceConsumed {
+                earning_wallet: consuming_wallet.clone(),
+                payload_size: 1234,
+                service_rate: 42,
+                byte_rate: 24,
+            },
+            routing_payload_size: 3333,
+            routing: vec![],
+        };
+
+        let more_money_payable_params_arc =
+            assert_that_we_do_not_charge_our_own_wallet_for_consumed_services(
+                config,
+                report_message,
+            );
+
+        assert!(more_money_payable_params_arc.lock().unwrap().is_empty());
+        TestLogHandler::new().exists_log_containing(&format!(
+            "WARN: Accountant: Declining to record a payable against our wallet {} for service we provided",
+            consuming_wallet
+        ));
+    }
+
+    #[test]
+    fn exit_service_consumed_is_reported_for_our_earning_wallet() {
         init_test_logging();
         let earning_wallet = make_wallet("own earning wallet");
         let config =
             bc_from_ac_plus_earning_wallet(make_accountant_config_null(), earning_wallet.clone());
-        let more_money_payable_parameters_arc = Arc::new(Mutex::new(vec![]));
-        let payable_dao_mock = PayableDaoMock::new()
-            .non_pending_payables_result(vec![])
-            .more_money_payable_parameters(more_money_payable_parameters_arc.clone());
-        let subject = AccountantBuilder::default()
-            .bootstrapper_config(config)
-            .payable_dao(payable_dao_mock)
-            .build();
-        let system = System::new("report_exit_service_consumed_message_is_received");
-        let subject_addr: Addr<Accountant> = subject.start();
-        subject_addr
-            .try_send(BindMessage {
-                peer_actors: peer_actors_builder().build(),
-            })
-            .unwrap();
-
-        subject_addr
-            .try_send(ReportExitServiceConsumedMessage {
-                timestamp: SystemTime::now(),
+        let report_message = ReportServicesConsumedMessage {
+            timestamp: SystemTime::now(),
+            exit: ExitServiceConsumed {
                 earning_wallet: earning_wallet.clone(),
                 payload_size: 1234,
                 service_rate: 42,
                 byte_rate: 24,
-            })
-            .unwrap();
+            },
+            routing_payload_size: 3333,
+            routing: vec![],
+        };
 
-        System::current().stop_with_code(0);
-        system.run();
-        assert!(more_money_payable_parameters_arc.lock().unwrap().is_empty());
+        let more_money_payable_params_arc =
+            assert_that_we_do_not_charge_our_own_wallet_for_consumed_services(
+                config,
+                report_message,
+            );
 
+        assert!(more_money_payable_params_arc.lock().unwrap().is_empty());
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: Accountant: Not recording service consumed to our wallet {}",
+            "WARN: Accountant: Declining to record a payable against our wallet {} for service we provided",
             earning_wallet
         ));
     }
@@ -4131,16 +4143,18 @@ mod tests {
                 let notify_later_half_mock = NotifyLaterHandleMock::default()
                     .notify_later_params(&notify_later_scan_for_pending_payable_arc_cloned)
                     .permit_to_send_out();
-                subject.tools.notify_later_scan_for_pending_payable =
-                    Box::new(notify_later_half_mock);
+                subject
+                    .confirmation_tools
+                    .notify_later_scan_for_pending_payable = Box::new(notify_later_half_mock);
                 let notify_half_mock = NotifyHandleMock::default()
                     .notify_params(&notify_cancel_failed_transaction_params_arc_cloned)
                     .permit_to_send_out();
-                subject.tools.notify_cancel_failed_transaction = Box::new(notify_half_mock);
+                subject.confirmation_tools.notify_cancel_failed_transaction =
+                    Box::new(notify_half_mock);
                 let notify_half_mock = NotifyHandleMock::default()
                     .notify_params(&notify_confirm_transaction_params_arc_cloned)
                     .permit_to_send_out();
-                subject.tools.notify_confirm_transaction = Box::new(notify_half_mock);
+                subject.confirmation_tools.notify_confirm_transaction = Box::new(notify_half_mock);
                 subject
             });
         let mut peer_actors = peer_actors_builder().build();
@@ -4282,7 +4296,7 @@ mod tests {
     fn accountant_receives_reported_transaction_receipts_and_processes_them_all() {
         let notify_handle_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = AccountantBuilder::default().build();
-        subject.tools.notify_confirm_transaction =
+        subject.confirmation_tools.notify_confirm_transaction =
             Box::new(NotifyHandleMock::default().notify_params(&notify_handle_params_arc));
         let subject_addr = subject.start();
         let transaction_hash_1 = H256::from_uint(&U256::from(4545));
@@ -4745,6 +4759,28 @@ mod tests {
         );
         let more_money_received_params = more_money_received_params_arc.lock().unwrap();
         assert_eq!(*more_money_received_params, vec![(now, receivables)]);
+    }
+
+    #[test]
+    #[cfg(not(feature = "no_test_share"))]
+    fn msg_id_generates_numbers_only_if_debug_log_enabled() {
+        let mut logger1 = Logger::new("msg_id_generator_off");
+        logger1.set_level_for_test(Level::Info);
+        let mut subject = AccountantBuilder::default().build();
+        let msg_id_generator = MessageIdGeneratorMock::default().id_result(789); //we prepared a result just for one call
+        subject.message_id_generator = Box::new(msg_id_generator);
+        subject.logger = logger1;
+
+        let id1 = subject.msg_id();
+
+        let mut logger2 = Logger::new("msg_id_generator_on");
+        logger2.set_level_for_test(Level::Debug);
+        subject.logger = logger2;
+
+        let id2 = subject.msg_id();
+
+        assert_eq!(id1, 0);
+        assert_eq!(id2, 789);
     }
 
     #[test]
