@@ -117,6 +117,7 @@ pub(in crate::accountant) mod scanners {
             // let start_message = BeginScanAMessage {};
             // // Use the DAO, if necessary, to populate start_message
             // Ok(start_message)
+            self.common.initiated_at_opt = Some(timestamp);
             info!(logger, "Scanning for payables");
             let all_non_pending_payables = self.dao.non_pending_payables();
             debug!(
@@ -151,8 +152,7 @@ pub(in crate::accountant) mod scanners {
         }
 
         fn scan_started_at(&self) -> Option<SystemTime> {
-            todo!()
-            // common::scan_started_at(&self.common)
+            self.common.initiated_at_opt
         }
 
         as_any_impl!();
@@ -179,6 +179,7 @@ pub(in crate::accountant) mod scanners {
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
         ) -> Result<RequestTransactionReceipts, Error> {
+            self.common.initiated_at_opt = Some(timestamp);
             info!(logger, "Scanning for pending payable");
             let filtered_pending_payable = self.dao.return_all_fingerprints();
             match filtered_pending_payable.is_empty() {
@@ -208,7 +209,7 @@ pub(in crate::accountant) mod scanners {
         }
 
         fn scan_started_at(&self) -> Option<SystemTime> {
-            todo!()
+            self.common.initiated_at_opt
         }
 
         as_any_impl!();
@@ -240,6 +241,7 @@ pub(in crate::accountant) mod scanners {
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
         ) -> Result<RetrieveTransactions, Error> {
+            self.common.initiated_at_opt = Some(timestamp);
             info!(
                 logger,
                 "Scanning for receivables to {}", self.earning_wallet
@@ -285,7 +287,7 @@ pub(in crate::accountant) mod scanners {
         }
 
         fn scan_started_at(&self) -> Option<SystemTime> {
-            todo!()
+            self.common.initiated_at_opt
         }
 
         as_any_impl!();
@@ -489,11 +491,13 @@ mod tests {
 
         let result = payable_scanner.begin_scan(now, None, &Logger::new(test_name));
 
+        let timestamp = payable_scanner.scan_started_at();
         let expected_message = ReportAccountsPayable {
             accounts: qualified_payable_accounts.clone(),
             response_skeleton_opt: None,
         };
         assert_eq!(result, Ok(expected_message));
+        assert_eq!(timestamp, Some(now));
         TestLogHandler::new().assert_logs_match_in_order(vec![
             &format!("INFO: {}: Scanning for payables", test_name),
             &format!(
@@ -548,6 +552,7 @@ mod tests {
 
         let result = pending_payable_scanner.begin_scan(now, None, &Logger::new(test_name));
 
+        let timestamp = pending_payable_scanner.scan_started_at();
         assert_eq!(
             result,
             Ok(RequestTransactionReceipts {
@@ -555,6 +560,7 @@ mod tests {
                 response_skeleton_opt: None
             })
         );
+        assert_eq!(timestamp, Some(now));
         TestLogHandler::new().assert_logs_match_in_order(vec![
             &format!("INFO: {}: Scanning for pending payable", test_name),
             &format!(
@@ -591,6 +597,7 @@ mod tests {
     fn receivable_scanner_can_initiate_a_scan() {
         init_test_logging();
         let test_name = "receivable_scanner_can_initiate_a_scan";
+        let now = SystemTime::now();
         let receivable_dao = ReceivableDaoMock::new()
             .new_delinquencies_result(vec![])
             .paid_delinquencies_result(vec![]);
@@ -604,9 +611,9 @@ mod tests {
             Rc::new(earning_wallet.clone()),
         );
 
-        let result =
-            receivable_scanner.begin_scan(SystemTime::now(), None, &Logger::new(test_name));
+        let result = receivable_scanner.begin_scan(now, None, &Logger::new(test_name));
 
+        let timestamp = receivable_scanner.scan_started_at();
         assert_eq!(
             result,
             Ok(RetrieveTransactions {
@@ -614,6 +621,7 @@ mod tests {
                 response_skeleton_opt: None
             })
         );
+        assert_eq!(timestamp, Some(now));
         TestLogHandler::new().exists_log_containing(&format!(
             "INFO: {}: Scanning for receivables to {}",
             test_name, earning_wallet
