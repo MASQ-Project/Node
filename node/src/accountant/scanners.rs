@@ -31,7 +31,7 @@ pub(in crate::accountant) mod scanners {
     #[derive(Debug, PartialEq, Eq)]
     pub enum ScannerError {
         NothingToProcess,
-        ScanAlreadyRunning,
+        ScanAlreadyRunning(SystemTime),
         CalledFromNullScanner, // Exclusive for tests
     }
 
@@ -114,8 +114,8 @@ pub(in crate::accountant) mod scanners {
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
         ) -> Result<ReportAccountsPayable, Error> {
-            if let Some(_timestamp) = self.scan_started_at() {
-                return Err(ScannerError::ScanAlreadyRunning);
+            if let Some(timestamp) = self.scan_started_at() {
+                return Err(ScannerError::ScanAlreadyRunning(timestamp));
             }
             self.common.initiated_at_opt = Some(timestamp);
             info!(logger, "Scanning for payables");
@@ -179,8 +179,8 @@ pub(in crate::accountant) mod scanners {
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
         ) -> Result<RequestTransactionReceipts, Error> {
-            if let Some(_timestamp) = self.scan_started_at() {
-                return Err(ScannerError::ScanAlreadyRunning);
+            if let Some(timestamp) = self.scan_started_at() {
+                return Err(ScannerError::ScanAlreadyRunning(timestamp));
             }
             self.common.initiated_at_opt = Some(timestamp);
             info!(logger, "Scanning for pending payable");
@@ -244,8 +244,8 @@ pub(in crate::accountant) mod scanners {
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
         ) -> Result<RetrieveTransactions, Error> {
-            if let Some(_timestamp) = self.scan_started_at() {
-                return Err(ScannerError::ScanAlreadyRunning);
+            if let Some(timestamp) = self.scan_started_at() {
+                return Err(ScannerError::ScanAlreadyRunning(timestamp));
             }
             self.common.initiated_at_opt = Some(timestamp);
             info!(
@@ -508,7 +508,7 @@ mod tests {
             })
         );
         assert_eq!(timestamp, Some(now));
-        assert_eq!(run_again_result, Err(ScannerError::ScanAlreadyRunning));
+        assert_eq!(run_again_result, Err(ScannerError::ScanAlreadyRunning(now)));
         TestLogHandler::new().assert_logs_match_in_order(vec![
             &format!("INFO: {}: Scanning for payables", test_name),
             &format!(
@@ -574,7 +574,7 @@ mod tests {
             })
         );
         assert_eq!(timestamp, Some(now));
-        assert_eq!(run_again_result, Err(ScannerError::ScanAlreadyRunning));
+        assert_eq!(run_again_result, Err(ScannerError::ScanAlreadyRunning(now)));
         TestLogHandler::new().assert_logs_match_in_order(vec![
             &format!("INFO: {}: Scanning for pending payable", test_name),
             &format!(
@@ -638,7 +638,7 @@ mod tests {
             })
         );
         assert_eq!(timestamp, Some(now));
-        assert_eq!(run_again_result, Err(ScannerError::ScanAlreadyRunning));
+        assert_eq!(run_again_result, Err(ScannerError::ScanAlreadyRunning(now)));
         TestLogHandler::new().exists_log_containing(&format!(
             "INFO: {}: Scanning for receivables to {}",
             test_name, earning_wallet

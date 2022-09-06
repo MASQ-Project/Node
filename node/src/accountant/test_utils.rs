@@ -30,6 +30,7 @@ use actix::System;
 use ethereum_types::{BigEndianHash, H256, U256};
 use rusqlite::{Connection, Error, OptionalExtension};
 use std::cell::RefCell;
+use std::io::Write;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -382,9 +383,14 @@ impl PayableDao for PayableDaoMock {
 
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
         self.non_pending_payables_params.lock().unwrap().push(());
+        eprintln!(
+            "Length of Non Pending Payable Results: {}",
+            self.non_pending_payables_results.borrow().len()
+        );
         if self.have_non_pending_payables_shut_down_the_system
             && self.non_pending_payables_results.borrow().is_empty()
         {
+            panic!("Stopping the system");
             System::current().stop();
             return vec![];
         }
