@@ -219,6 +219,15 @@ impl Handler<ScanForReceivables> for Accountant {
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_scan_for_receivables_request(msg.response_skeleton_opt);
+        let _ = self.notify_later.scan_for_receivable.notify_later(
+            ScanForReceivables {
+                response_skeleton_opt: None, // because scheduled scans don't respond
+            },
+            self.accountant_config
+                .scan_intervals
+                .receivable_scan_interval,
+            ctx,
+        );
     }
 }
 
@@ -2161,8 +2170,8 @@ mod tests {
         receivable_dao.have_new_delinquencies_shutdown_the_system = true;
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .receivable_dao(receivable_dao)
             .receivable_dao(ReceivableDaoMock::new())
+            .receivable_dao(receivable_dao)
             .banned_dao(BannedDaoMock::new())
             .banned_dao(banned_dao)
             .build();
