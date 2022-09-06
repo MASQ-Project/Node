@@ -821,6 +821,9 @@ impl Accountant {
                 eprintln!("No payable found to process. The Scan was ended.");
                 // TODO: Do something better than just using eprintln
             }
+            Err(ScannerError::ScanAlreadyRunning) => {
+                todo!("Log with severity INFO")
+            }
         }
     }
 
@@ -850,6 +853,9 @@ impl Accountant {
                 eprintln!("No pending payable found to process. The Scan was ended.");
                 // TODO: Do something better than just using eprintln
             }
+            Err(ScannerError::ScanAlreadyRunning) => {
+                todo!("Log with severity INFO")
+            }
         }
     }
 
@@ -878,6 +884,9 @@ impl Accountant {
             Err(ScannerError::NothingToProcess) => {
                 eprintln!("The Scan was ended.");
                 // TODO: Do something better than just using eprintln
+            }
+            Err(ScannerError::ScanAlreadyRunning) => {
+                todo!("Log with severity INFO")
             }
         };
     }
