@@ -443,7 +443,7 @@ impl IgdpTransactor {
             return false;
         };
         let (old_public_ip, current_public_ip) = match Self::retrieve_old_and_new_public_ips(
-            inner.gateway_opt.as_ref().expect_v("gateway_opt").as_ref(),
+            inner.gateway_opt.as_ref().expectv("gateway_opt").as_ref(),
             &inner,
             change_handler,
         ) {

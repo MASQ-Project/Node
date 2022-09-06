@@ -60,6 +60,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use masq_lib::test_utils::utils::to_millis;
+use crate::test_utils::to_millis;
 
 #[derive(Default)]
 pub struct Recorder {

@@ -39,7 +39,7 @@ use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+use masq_lib::test_utils::utils::{TEST_DEFAULT_CHAIN, to_millis};
 use regex::Regex;
 use rustc_hex::ToHex;
 use serde_derive::{Deserialize, Serialize};
@@ -140,10 +140,6 @@ pub fn assert_matches(string: &str, regex: &str) {
         string,
         regex
     );
-}
-
-pub fn to_millis(dur: &Duration) -> u64 {
-    dur.as_millis() as u64
 }
 
 pub fn signal() -> (Signaler, Waiter) {
@@ -545,7 +541,6 @@ pub mod unshared_test_utils {
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
     #[cfg(not(feature = "no_test_share"))]
-    use masq_lib::test_utils::utils::MutexIncrementInset;
     use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
     use masq_lib::utils::array_of_borrows_to_vec;
     use std::any::TypeId;

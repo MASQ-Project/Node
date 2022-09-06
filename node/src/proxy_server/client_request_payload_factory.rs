@@ -65,8 +65,7 @@ mod tests {
     use crate::sub_lib::proxy_server::ProxyProtocol;
     use crate::test_utils::{main_cryptde, make_meaningless_stream_key};
     use masq_lib::constants::HTTP_PORT;
-    use masq_lib::test_utils::logging::init_test_logging;
-    use masq_lib::test_utils::logging::TestLogHandler;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::net::SocketAddr;
     use std::str::FromStr;
     use std::time::SystemTime;

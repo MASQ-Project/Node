@@ -16,6 +16,7 @@ pub mod command;
 #[macro_use]
 pub mod constants;
 pub mod crash_point;
+pub mod logger;
 pub mod shared_schema;
 pub mod test_utils;
 pub mod ui_gateway;

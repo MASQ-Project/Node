@@ -13,7 +13,6 @@ use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::*;
 use ethereum_types::H160;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use std::convert::TryFrom;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;

@@ -519,25 +519,6 @@ impl Neighborhood {
         );
     }
 
-    fn handle_new_public_ip(&mut self, msg: NewPublicIp) {
-        let new_public_ip = msg.new_ip;
-        let old_public_ip = self
-            .neighborhood_database
-            .root()
-            .node_addr_opt()
-            .expect_v("Root node")
-            .ip_addr();
-        self.neighborhood_database.new_public_ip(new_public_ip);
-        info!(
-            self.logger,
-            "Changed public IP from {} to {}", old_public_ip, new_public_ip
-        );
-        exit_process(
-            1,
-            "The Node cannot currently tolerate IP changes from the ISP, so...down we go.",
-        )
-    }
-
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
         let msg_str = format!("{:?}", msg);
         let route_result = if msg.minimum_hop_count == 0 {
@@ -1966,7 +1947,7 @@ mod tests {
         init_test_logging();
         let (_known_ip, known_desc) = make_node(1);
         let (unknown_ip, unknown_desc) = make_node(2);
-        let subject = make_subject_from_node_descriptor(&known_desc, "it_doesn_t_cause_a_panic_if_neighborhood_receives_ask_about_debut_message_from_unknown_descriptor");
+        let subject = make_subject_from_node_descriptor(&known_desc, "neighborhood_logs_with_trace_if_it_receives_ask_about_debut_message_from_unknown_descriptor");
         let initial_ocs = subject.overall_connection_status.clone();
         let addr = subject.start();
         let recipient: Recipient<AskAboutDebutGossipMessage> = addr.clone().recipient();
@@ -2281,7 +2262,7 @@ mod tests {
     }
 
     #[test]
-    pub fn progress_in_the_stage_of_overall_connection_status_made_by_one_cpm_is_not_overriden_by_the_other(
+    pub fn progress_in_the_stage_of_overall_connection_status_made_by_one_cpm_is_not_overridden_by_the_other(
     ) {
         let peer_1 = make_ip(1);
         let peer_2 = make_ip(2);
@@ -2300,7 +2281,7 @@ mod tests {
                 neighborhood_config,
                 make_wallet("earning"),
                 None,
-                "progress_in_the_stage_of_overall_connection_status_made_by_one_cpm_is_not_overriden_by_the_other"),
+                "progress_in_the_stage_of_overall_connection_status_made_by_one_cpm_is_not_overridden_by_the_other"),
         );
         let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);

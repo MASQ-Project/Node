@@ -31,7 +31,7 @@ use crate::sub_lib::proxy_client::ProxyClientConfig;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
-use actix::Recipient;
+use actix::{Addr, Recipient};
 use actix::{Actor, Arbiter};
 use automap_lib::comm_layer::AutomapError;
 use automap_lib::control_layer::automap_control::{
@@ -50,6 +50,7 @@ use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, AutomapProtocol};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
+use masq_lib::test_utils::utils::prepare_log_recipient;
 
 pub trait ActorSystemFactory {
     fn make_and_start_actors(
@@ -82,7 +83,9 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
 
 impl ActorSystemFactoryReal {
     pub fn new(tools: Box<dyn ActorSystemFactoryTools>) -> Self {
-        Self { t: tools }
+        Self {
+            t: tools
+        }
     }
 }
 
@@ -208,7 +211,6 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
 
         self.start_automap(
             &config,
-            persistent_config,
             vec![
                 peer_actors.neighborhood.new_public_ip.clone(),
                 peer_actors.dispatcher.new_ip_sub.clone(),
@@ -249,26 +251,6 @@ impl ActorSystemFactoryToolsReal {
         }
     }
 
-    fn notify_of_public_ip_change(
-        new_ip_recipients: &[Recipient<NewPublicIp>],
-        new_public_ip: IpAddr,
-    ) {
-        new_ip_recipients.iter().for_each(|r| {
-            r.try_send(NewPublicIp {
-                new_ip: new_public_ip,
-            })
-            .expect("NewPublicIp recipient is dead")
-        });
-    }
-
-    fn handle_housekeeping_thread_error(error: AutomapError) {
-        Self::handle_automap_error("", error);
-    }
-
-    fn handle_automap_error(prefix: &str, error: AutomapError) {
-        exit_process(1, &format!("Automap failure: {}{:?}", prefix, error));
-    }
-
     fn maybe_save_usual_protocol(
         automap_control: &dyn AutomapControl,
         persistent_config: &mut dyn PersistentConfiguration,
@@ -297,7 +279,6 @@ impl ActorSystemFactoryToolsReal {
     fn start_automap(
         &self,
         config: &BootstrapperConfig,
-        mut persistent_config: Box<dyn PersistentConfiguration>,
         new_ip_recipients: Vec<Recipient<NewPublicIp>>,
     ) {
         if let NeighborhoodMode::Standard(node_addr, _, _) = &config.neighborhood_config.mode {
@@ -305,12 +286,10 @@ impl ActorSystemFactoryToolsReal {
             if node_addr.ip_addr() != IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
                 return;
             }
+            let inner_recipients = new_ip_recipients.clone();
             let change_handler = move |change: AutomapChange| match change {
                 AutomapChange::NewIp(new_public_ip) => {
-                    exit_process(
-                        1,
-                        format! ("IP change to {} reported from ISP. We can't handle that until GH-499. Going down...", new_public_ip).as_str()
-                    );
+                    Self::notify_of_public_ip_change(inner_recipients.as_slice(), new_public_ip)
                 }
                 AutomapChange::Error(e) => Self::handle_housekeeping_thread_error(e),
             };
@@ -324,11 +303,6 @@ impl ActorSystemFactoryToolsReal {
                     return; // never happens; handle_automap_error doesn't return.
                 }
             };
-            Self::maybe_save_usual_protocol(
-                automap_control.as_ref(),
-                persistent_config.as_mut(),
-                config.mapping_protocol_opt,
-            );
             Self::notify_of_public_ip_change(new_ip_recipients.as_slice(), public_ip);
             node_addr.ports().iter().for_each(|port| {
                 if let Err(e) = automap_control.add_mapping(*port) {
@@ -359,53 +333,6 @@ impl ActorSystemFactoryToolsReal {
 
     fn handle_automap_error(prefix: &str, error: AutomapError) {
         exit_process(1, &format!("Automap failure: {}{:?}", prefix, error));
-    }
-
-    fn start_automap(
-        &self,
-        config: &BootstrapperConfig,
-        new_ip_recipients: Vec<Recipient<NewPublicIp>>,
-    ) {
-        eprintln!("Neighborhood mode: {:?}", config.neighborhood_config.mode);
-        if let NeighborhoodMode::Standard(node_addr, _, _) = &config.neighborhood_config.mode {
-            // If we already know the IP address, no need for Automap
-            if node_addr.ip_addr() != IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)) {
-                return;
-            }
-            let inner_recipients = new_ip_recipients.clone();
-            let change_handler = move |change: AutomapChange| match change {
-                AutomapChange::NewIp(new_public_ip) => {
-                    Self::notify_of_public_ip_change(inner_recipients.as_slice(), new_public_ip)
-                }
-                AutomapChange::Error(e) => Self::handle_housekeeping_thread_error(e),
-            };
-            eprintln!("Manufacturing automap_control");
-            let mut automap_control = self
-                .automap_control_factory
-                .make(config.mapping_protocol_opt, Box::new(change_handler));
-            eprintln!("Seeking public IP");
-            let public_ip = match automap_control.get_public_ip() {
-                Ok(ip) => ip,
-                Err(e) => {
-                    Self::handle_automap_error("Can't get public IP - ", e);
-                    return; // never happens; handle_automap_error doesn't return.
-                }
-            };
-            eprintln!("Notifying actors: public IP is {}", public_ip);
-            Self::notify_of_public_ip_change(new_ip_recipients.as_slice(), public_ip);
-            eprintln!("Adding mapping for each port: {:?}", node_addr.ports());
-            node_addr.ports().iter().for_each(|port| {
-                eprintln!("Adding mapping for port {}", port);
-                if let Err(e) = automap_control.add_mapping(*port) {
-                    eprintln!("Error mapping port {}: {:?}", port, e);
-                    Self::handle_automap_error(
-                        &format!("Can't map port {} through the router - ", port),
-                        e,
-                    );
-                }
-                eprintln!("Port {} successfully mapped", port);
-            });
-        }
     }
 }
 
@@ -605,14 +532,6 @@ impl ActorFactory for ActorFactoryReal {
     }
 }
 
-impl ActorSystemFactoryReal {
-    pub fn new() -> Self {
-        Self {
-            automap_control_factory: Box::new(AutomapControlFactoryReal::new()),
-        }
-    }
-}
-
 pub trait AutomapControlFactory: Send {
     fn make(
         &self,
@@ -639,31 +558,9 @@ impl AutomapControlFactoryReal {
     }
 }
 
-pub struct AutomapControlFactoryNull {}
-
-impl AutomapControlFactory for AutomapControlFactoryNull {
-    fn make(
-        &self,
-        _usual_protocol_opt: Option<AutomapProtocol>,
-        _change_handler: ChangeHandler,
-    ) -> Box<dyn AutomapControl> {
-        panic!("Should never calll make() on an AutomapControlFactoryNull.");
-    }
-}
-
 fn is_crashable(config: &BootstrapperConfig) -> bool {
     config.crash_point == CrashPoint::Message
 }
-
-pub trait AutomapControlFactory {
-    fn make(
-        &self,
-        usual_protocol_opt: Option<AutomapProtocol>,
-        change_handler: ChangeHandler,
-    ) -> Box<dyn AutomapControl>;
-}
-
-pub struct AutomapControlFactoryReal {}
 
 impl AutomapControlFactory for AutomapControlFactoryReal {
     fn make(
@@ -1280,6 +1177,8 @@ mod tests {
             )),
         );
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut tools = ActorSystemFactoryToolsReal::new();
+        tools.automap_control_factory = automap_control_factory
         let mut subject = ActorSystemFactoryReal::new();
         subject.automap_control_factory = Box::new(
             AutomapControlFactoryMock::new().make_result(

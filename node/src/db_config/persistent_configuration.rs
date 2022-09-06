@@ -285,21 +285,6 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         Ok(writer.commit()?)
     }
 
-    fn gas_price(&self) -> Result<u64, PersistentConfigError> {
-        match decode_u64(self.dao.get("gas_price")?.value_opt) {
-            Ok(val) => {
-                Ok(val.expect("ever-supplied gas_price value missing; database is corrupt!"))
-            }
-            Err(e) => Err(PersistentConfigError::from(e)),
-        }
-    }
-
-    fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError> {
-        let mut writer = self.dao.start_transaction()?;
-        writer.set("gas_price", encode_u64(Some(gas_price))?)?;
-        Ok(writer.commit()?)
-    }
-
     fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError> {
         match self.earning_wallet_address()? {
             None => Ok(None),
@@ -318,7 +303,7 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn gas_price(&self) -> Result<u64, PersistentConfigError> {
-        match decode_u64(self.get("gas_price")?) {
+        match decode_u64(self.dao.get("gas_price")?.value_opt) {
             Ok(val) => {
                 Ok(val.expect("ever-supplied gas_price value missing; database is corrupt!"))
             }
@@ -329,6 +314,19 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError> {
         self.simple_set_method("gas_price", gas_price)
     }
+
+    // fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
+    //     let result = self
+    //         .dao
+    //         .get("mapping_protocol")?
+    //         .value_opt
+    //         .map(|val| AutomapProtocol::from_str(&val));
+    //     match result {
+    //         None => Ok(None),
+    //         Some(Ok(protocol)) => Ok(Some(protocol)),
+    //         Some(Err(msg)) => Err(PersistentConfigError::DatabaseError(msg)),
+    //     }
+    // }
 
     fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
         let result = self
@@ -409,28 +407,6 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
         self.simple_set_method("start_block", value)
-    }
-
-    fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
-        let result = self
-            .dao
-            .get("mapping_protocol")?
-            .value_opt
-            .map(|val| AutomapProtocol::from_str(&val));
-        match result {
-            None => Ok(None),
-            Some(Ok(protocol)) => Ok(Some(protocol)),
-            Some(Err(msg)) => Err(PersistentConfigError::DatabaseError(msg)),
-        }
-    }
-
-    fn set_mapping_protocol(
-        &mut self,
-        value: Option<AutomapProtocol>,
-    ) -> Result<(), PersistentConfigError> {
-        let mut writer = self.dao.start_transaction()?;
-        writer.set("mapping_protocol", value.map(|v| v.to_string()))?;
-        Ok(writer.commit()?)
     }
 
     fn set_wallet_info(

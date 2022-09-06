@@ -1,10 +1,16 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchains::chains::Chain;
-use log::Record;
+// use log::Record;
 use std::path::PathBuf;
 use std::time::Duration;
-use std::{fs, io, thread};
+use std::fs;
+use actix::Recipient;
+use lazy_static::lazy_static;
+use crate::ui_gateway::NodeToUiMessage;
+// use std::fs::{io, thread};
+// use time::format_description::parse;
+// use time::OffsetDateTime;
 
 pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthRopsten;
 pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;
@@ -36,29 +42,42 @@ pub fn is_running_under_github_actions() -> bool {
     }
 }
 
-pub fn real_format_function(
-    write: &mut dyn io::Write,
-    timestamp: &DateTime<Local>,
-    record: &Record,
-) -> Result<(), io::Error> {
-    let timestamp = timestamp.naive_local().format("%Y-%m-%dT%H:%M:%S%.3f");
-    let thread_id_str = format!("{:?}", thread::current().id());
-    let thread_id = &thread_id_str[9..(thread_id_str.len() - 1)];
-    let level = record.level();
-    let name = record.module_path().unwrap_or("<unnamed>");
-    write.write_fmt(format_args!(
-        "{} Thd{}: {}: {}: ",
-        timestamp, thread_id, level, name
-    ))?;
-    write.write_fmt(*record.args())
-}
-
+// pub fn real_format_function(
+//     write: &mut dyn io::Write,
+//     timestamp: OffsetDateTime,
+//     record: &Record,
+// ) -> Result<(), io::Error> {
+//     let timestamp = timestamp
+//         .format(&parse(TIME_FORMATTING_STRING).expect("Unable to parse the formatting type."))
+//         .expect("Unable to format date and time.");
+//     let thread_id_str = format!("{:?}", thread::current().id());
+//     let thread_id = &thread_id_str[9..(thread_id_str.len() - 1)];
+//     let level = record.level();
+//     let name = record.module_path().unwrap_or("<unnamed>");
+//     write.write_fmt(format_args!(
+//         "{} Thd{}: {}: {}: ",
+//         timestamp, thread_id, level, name
+//     ))?;
+//     write.write_fmt(*record.args())
+// }
+//
 pub fn to_millis(dur: &Duration) -> u64 {
     (dur.as_secs() * 1000) + (u64::from(dur.subsec_nanos()) / 1_000_000)
 }
 
 #[cfg(not(feature = "no_test_share"))]
 pub struct MutexIncrementInset(pub usize);
+
+#[cfg(feature = "log_recipient_test")]
+lazy_static! {
+    pub static ref INITIALIZATION_COUNTER: Mutex<MutexIncrementInset> =
+        Mutex::new(MutexIncrementInset(0));
+}
+
+#[cfg(feature = "log_recipient_test")]
+pub fn prepare_log_recipient(_recipient: Recipient<NodeToUiMessage>) {
+    INITIALIZATION_COUNTER.lock().unwrap().0 += 1;
+}
 
 #[cfg(test)]
 mod tests {

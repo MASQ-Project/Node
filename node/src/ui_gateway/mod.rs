@@ -201,11 +201,11 @@ mod tests {
     use actix::System;
     use crossbeam_channel::{unbounded, Sender};
     use masq_lib::messages::{ToMessageBody, UiChangePasswordRequest};
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::ui_gateway::MessagePath::FireAndForget;
     use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
     use masq_lib::utils::find_free_port;
     use std::sync::{Arc, Mutex};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     #[test]
     fn constants_have_correct_values() {

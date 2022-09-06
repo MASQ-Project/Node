@@ -288,13 +288,13 @@ mod tests {
         DumpConfigRunnerMock, ServerInitializerFactoryMock, ServerInitializerMock,
     };
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
-    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::utils::array_of_borrows_to_vec;
     use regex::Regex;
     use std::cell::RefCell;
     use std::ops::{Deref, Not};
     use std::sync::{Arc, Mutex};
     use time::OffsetDateTime;
+    use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
 
     pub struct RunnerMock {
         run_node_params: Arc<Mutex<Vec<Vec<String>>>>,

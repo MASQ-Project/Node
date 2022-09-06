@@ -227,8 +227,7 @@ mod tests {
     use actix::Addr;
     use actix::System;
     use masq_lib::constants::HTTP_PORT;
-    use masq_lib::test_utils::logging::init_test_logging;
-    use masq_lib::test_utils::logging::TestLogHandler;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::io;
     use std::io::ErrorKind;
     use std::net::SocketAddr;

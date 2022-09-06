@@ -29,7 +29,7 @@ pub const ANNOUNCEMENT_PORT: u16 = 5350; // from the PCP and PMP RFCs
 pub const ANNOUNCEMENT_MULTICAST_GROUP: u8 = 1;
 pub const ANNOUNCEMENT_READ_TIMEOUT_MILLIS: u64 = 1000;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MappingConfig {
     pub hole_port: u16,
     pub next_lifetime: Duration,
