@@ -202,6 +202,15 @@ impl Handler<ScanForPendingPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_scan_for_pending_payable_request(msg.response_skeleton_opt);
+        let _ = self.notify_later.scan_for_pending_payable.notify_later(
+            ScanForPendingPayables {
+                response_skeleton_opt: None, // because scheduled scans don't respond
+            },
+            self.accountant_config
+                .scan_intervals
+                .pending_payable_scan_interval,
+            ctx,
+        );
     }
 }
 
@@ -2271,8 +2280,8 @@ mod tests {
             .build();
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .pending_payable_dao(pending_payable_dao) // For Accountant
-            .pending_payable_dao(PendingPayableDaoMock::new()) // For Scanner
+            .pending_payable_dao(PendingPayableDaoMock::new()) // For Accountant
+            .pending_payable_dao(pending_payable_dao) // For Scanner
             .build();
         subject.scanners.receivables = Box::new(NullScanner::new()); //skipping
         subject.scanners.payables = Box::new(NullScanner::new()); //skipping
