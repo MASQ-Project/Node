@@ -187,6 +187,13 @@ impl Handler<ScanForPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_scan_for_payable_request(msg.response_skeleton_opt);
+        let _ = self.notify_later.scan_for_payable.notify_later(
+            ScanForPayables {
+                response_skeleton_opt: None,
+            },
+            self.accountant_config.scan_intervals.payable_scan_interval,
+            ctx,
+        );
     }
 }
 
@@ -1155,7 +1162,9 @@ impl From<&PendingPayableFingerprint> for PendingPayableId {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::any::TypeId;
     use std::cell::RefCell;
+    use std::collections::HashMap;
     use std::ops::Sub;
     use std::rc::Rc;
     use std::sync::Mutex;
@@ -2364,8 +2373,8 @@ mod tests {
             .build();
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_dao(payable_dao) // For Accountant
             .payable_dao(PayableDaoMock::new()) // For Scanner
+            .payable_dao(payable_dao) // For Accountant
             .build();
         subject.scanners.pending_payables = Box::new(NullScanner::new()); //skipping
         subject.scanners.receivables = Box::new(NullScanner::new()); //skipping
