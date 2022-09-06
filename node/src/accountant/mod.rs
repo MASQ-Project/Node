@@ -2638,59 +2638,6 @@ mod tests {
     }
 
     #[test]
-    fn accountant_starts_a_scan_in_case_it_receives_the_message_and_scan_is_not_running() {
-        let payable_dao = PayableDaoMock::default();
-        let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
-        let report_accounts_payable_sub = blockchain_bridge.start().recipient();
-        let now =
-            to_time_t(SystemTime::now()) - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec - 1;
-        let payable_account = PayableAccount {
-            wallet: make_wallet("scan_for_payables"),
-            balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1,
-            last_paid_timestamp: from_time_t(now),
-            pending_payable_opt: None,
-        };
-        let mut payable_dao =
-            payable_dao.non_pending_payables_result(vec![payable_account.clone()]);
-        payable_dao.have_non_pending_payables_shut_down_the_system = true;
-        let config = bc_from_ac_plus_earning_wallet(
-            make_populated_accountant_config_with_defaults(),
-            make_payment_thresholds_with_defaults(),
-            make_wallet("mine"),
-        );
-        let system = System::new(
-            "accountant_starts_a_scan_in_case_it_receives_the_message_and_scan_is_not_running",
-        );
-        let mut subject = AccountantBuilder::default()
-            .payable_dao(payable_dao) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Scanner
-            .bootstrapper_config(config)
-            .build();
-        subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
-        subject
-            .accountant_config
-            .scan_intervals
-            .payable_scan_interval = Duration::from_millis(10);
-        // let is_scan_running_initially = subject.scanners.payables.is_scan_running();
-        let addr = subject.start();
-
-        addr.try_send(ScanForPayables {
-            response_skeleton_opt: None,
-        })
-        .unwrap();
-
-        system.run();
-        let recording = blockchain_bridge_recording.lock().unwrap();
-        let message = recording.get_record::<ReportAccountsPayable>(0);
-        let expected_message = ReportAccountsPayable {
-            accounts: vec![payable_account],
-            response_skeleton_opt: None,
-        };
-        // assert_eq!(is_scan_running_initially, false);
-        assert_eq!(message, &expected_message);
-    }
-
-    #[test]
     fn accountant_doesn_t_starts_another_scan_in_case_it_receives_the_message_and_the_scanner_is_running(
     ) {
         init_test_logging();
