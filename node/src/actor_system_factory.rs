@@ -668,7 +668,7 @@ mod tests {
     #[cfg(feature = "log_recipient_test")]
     use masq_lib::logger::INITIALIZATION_COUNTER;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use masq_lib::test_utils::utils::{INITIALIZATION_COUNTER, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::utils::running_test;
     use masq_lib::utils::AutomapProtocol::Igdp;
@@ -1178,16 +1178,16 @@ mod tests {
         );
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mut tools = ActorSystemFactoryToolsReal::new();
-        tools.automap_control_factory = automap_control_factory
-        let mut subject = ActorSystemFactoryReal::new();
+        tools.automap_control_factory = automap_control_factory;
+        let mut subject = ActorSystemFactoryReal::new(Box::new (tools));
         subject.automap_control_factory = Box::new(
-            AutomapControlFactoryMock::new().make_result(
+            AutomapControlFactoryMock::new().make_result(Box::new (
                 AutomapControlMock::new()
                     .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
                     .add_mapping_params(&add_mapping_params_arc)
                     .add_mapping_result(Ok(()))
                     .add_mapping_result(Ok(())),
-            ),
+            )),
         );
 
         let _ = subject.prepare_initial_messages(
@@ -1452,6 +1452,7 @@ mod tests {
             &mut PersistentConfigurationMock::default(),
             config_entry,
         );
+    }
 
     #[cfg(feature = "log_recipient_test")]
     #[test]
@@ -1526,7 +1527,6 @@ mod tests {
 
         subject.start_automap(
             &config,
-            Box::new(PersistentConfigurationMock::new()),
             vec![new_ip_recipient],
         );
 
@@ -1560,7 +1560,7 @@ mod tests {
             DEFAULT_RATE_PACK,
         );
 
-        subject.start_automap(&config, Box::new(persistent_configuration), vec![]);
+        subject.start_automap(&config, vec![]);
 
         let make_params = make_params_arc.lock().unwrap();
         assert_eq!(make_params[0].0, None);
@@ -1594,7 +1594,6 @@ mod tests {
 
         subject.start_automap(
             &config,
-            Box::new(PersistentConfigurationMock::new()),
             vec![],
         );
 
@@ -1628,7 +1627,7 @@ mod tests {
             DEFAULT_RATE_PACK,
         );
 
-        subject.start_automap(&config, Box::new(persistent_config), vec![]);
+        subject.start_automap(&config, vec![]);
 
         let system = System::new("test");
         System::current().stop();
@@ -1657,7 +1656,6 @@ mod tests {
             clandestine_port_opt: None,
             consuming_wallet_opt: None,
             earning_wallet: make_wallet("earning"),
-            consuming_wallet_opt: None,
             data_directory: PathBuf::new(),
             main_cryptde_null_opt: None,
             alias_cryptde_null_opt: None,
@@ -1674,17 +1672,18 @@ mod tests {
         };
         let subject = make_subject_with_null_setter();
         let system = System::new("MASQNode");
-        let mut subject = ActorSystemFactoryReal::new();
-        let make_params_arc = Arc::new(Mutex::new(vec![]));
-        subject.automap_control_factory = Box::new(
+        let mut tools = ActorSystemFactoryToolsReal::new();
+        tools.automap_control_factory = Box::new(
             AutomapControlFactoryMock::new()
                 .make_params(&make_params_arc)
-                .make_result(
+                .make_result(Box::new (
                     AutomapControlMock::new()
                         .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
                         .add_mapping_result(Ok(())),
-                ),
+                )),
         );
+        let mut subject = ActorSystemFactoryReal::new(Box::new (tools));
+        let make_params_arc = Arc::new(Mutex::new(vec![]));
 
         let _ = subject.prepare_initial_messages(
             make_cryptde_pair(),
