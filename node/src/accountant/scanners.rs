@@ -120,7 +120,7 @@ pub(in crate::accountant) mod scanners {
             debug!(
                 logger,
                 "{}",
-                investigate_debt_extremes(&all_non_pending_payables)
+                investigate_debt_extremes(timestamp, &all_non_pending_payables)
             );
             let (qualified_payables, summary) = qualified_payables_and_summary(
                 timestamp,

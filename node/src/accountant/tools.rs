@@ -6,7 +6,10 @@ pub(crate) mod payable_scanner_tools {
     use std::time::SystemTime;
 
     //for debugging only
-    pub(crate) fn investigate_debt_extremes(all_non_pending_payables: &[PayableAccount]) -> String {
+    pub(crate) fn investigate_debt_extremes(
+        timestamp: SystemTime,
+        all_non_pending_payables: &[PayableAccount],
+    ) -> String {
         if all_non_pending_payables.is_empty() {
             return "Payable scan found no debts".to_string();
         }
@@ -42,13 +45,12 @@ pub(crate) mod payable_scanner_tools {
             }
         }
 
-        let now = SystemTime::now();
         let init = (PayableInfo::default(), PayableInfo::default());
         let (biggest, oldest) = all_non_pending_payables
             .iter()
             .map(|payable| PayableInfo {
                 balance: payable.balance,
-                age: payable_time_diff(now, payable),
+                age: payable_time_diff(timestamp, payable),
             })
             .fold(init, |so_far, payable| {
                 let (mut biggest, mut oldest) = so_far;
@@ -341,21 +343,22 @@ mod tests {
 
     #[test]
     fn investigate_debt_extremes_picks_the_most_relevant_records() {
-        let now = to_time_t(SystemTime::now());
+        let now = SystemTime::now();
+        let now_t = to_time_t(now);
         let same_amount_significance = 2_000_000;
-        let same_age_significance = from_time_t(now - 30000);
+        let same_age_significance = from_time_t(now_t - 30000);
         let payables = &[
             PayableAccount {
                 wallet: make_wallet("wallet0"),
                 balance: same_amount_significance,
-                last_paid_timestamp: from_time_t(now - 5000),
+                last_paid_timestamp: from_time_t(now_t - 5000),
                 pending_payable_opt: None,
             },
             //this debt is more significant because beside being high in amount it's also older, so should be prioritized and picked
             PayableAccount {
                 wallet: make_wallet("wallet1"),
                 balance: same_amount_significance,
-                last_paid_timestamp: from_time_t(now - 10000),
+                last_paid_timestamp: from_time_t(now_t - 10000),
                 pending_payable_opt: None,
             },
             //similarly these two wallets have debts equally old but the second has a bigger balance and should be chosen
@@ -373,7 +376,7 @@ mod tests {
             },
         ];
 
-        let result = investigate_debt_extremes(payables);
+        let result = investigate_debt_extremes(now, payables);
 
         assert_eq!(result, "Payable scan found 4 debts; the biggest is 2000000 owed for 10000sec, the oldest is 330 owed for 30000sec")
     }
