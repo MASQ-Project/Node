@@ -34,7 +34,7 @@ jobs:
             SOURCE_DIR: download
   deploy_to_latest_s3:
        if: startsWith(github.head_ref, 'v*') == true
-       runs-on: ubuntu-22.04
+       runs-on: ubuntu-latest
        steps:
         - uses: actions/checkout@v3
         - name: Download artifacts from PR
