@@ -752,50 +752,6 @@ impl Accountant {
             .expect("UiGateway is dead");
     }
 
-    // TODO: Check if it's possible to refactor the handle() for different scan requests
-    // fn handle_scan_request(
-    //     &mut self,
-    //     scan_type: ScanType,
-    //     response_skeleton_opt: Option<ResponseSkeleton>,
-    // ) {
-    //     let (scanner, subscriber) = match scan_type {
-    //         ScanType::Payables => (
-    //             &mut self.scanners.payables,
-    //             &self.report_accounts_payable_sub_opt,
-    //         ),
-    //         ScanType::Receivables => (
-    //             &mut self.scanners.receivables,
-    //             &self.retrieve_transactions_sub,
-    //         ),
-    //         ScanType::PendingPayables => (
-    //             &mut self.scanners.pending_payables,
-    //             &self.request_transaction_receipts_subs_opt,
-    //         ),
-    //     };
-    //
-    //     match scanner.begin_scan(SystemTime::now(), response_skeleton_opt, &self.logger) {
-    //         Ok(message) => {
-    //             eprintln!("Message was sent to the blockchain bridge, {:?}", message);
-    //             subscriber
-    //                 .as_ref()
-    //                 .expect("BlockchainBridge is unbound")
-    //                 .try_send(message)
-    //                 .expect("BlockchainBridge is dead");
-    //         }
-    //         Err(ScannerError::CalledFromNullScanner) => {
-    //             if cfg!(test) {
-    //                 eprintln!("{:?} is disabled.", scan_type);
-    //             } else {
-    //                 panic!("Null Scanner shouldn't be running inside production code.")
-    //             }
-    //         }
-    //         Err(ScannerError::NothingToProcess) => {
-    //             eprintln!("No records found to process. The Scan was ended.");
-    //             // TODO: Do something better than just using eprintln
-    //         }
-    //     }
-    // }
-
     fn handle_scan_for_payable_request(&mut self, response_skeleton_opt: Option<ResponseSkeleton>) {
         match self.scanners.payables.begin_scan(
             SystemTime::now(),
@@ -2392,7 +2348,7 @@ mod tests {
 
     #[test]
     #[ignore]
-    fn accountant_payable_scan_timer_triggers_periodical_scanning_for_payables() {
+    fn periodical_scanning_for_payable_works() {
         //in the very first round we scan without waiting but we cannot find any payable records
         init_test_logging();
         let test_name = "accountant_payable_scan_timer_triggers_periodical_scanning_for_payables";
