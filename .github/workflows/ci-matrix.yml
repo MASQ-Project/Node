@@ -2,7 +2,7 @@ name: ci-matrix
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, reopened, synchronize]
     branches:
       - master
 
@@ -13,7 +13,7 @@ jobs:
       matrix:
         target:
           - { name: linux, os: ubuntu-latest }
-          - { name: macos, os: macOS-latest }
+          - { name: macos, os: macos-latest }
           - { name: windows, os: windows-latest }
 
     name: Build node on ${{ matrix.target.os }}
@@ -25,8 +25,14 @@ jobs:
         env:
           cache-name: cache-node-modules
         with:
-          path: ~/.cargo/cache
-          key: ${{ runner.os }}-0001
+          path: |
+            ~/.cargo/cache/
+            ~/.cargo/bin/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
       - name: Build ${{ matrix.target.os }}
         run: |
           rustup check
