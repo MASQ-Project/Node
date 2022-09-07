@@ -6,7 +6,10 @@ pub(crate) mod payable_scanner_tools {
     use std::time::SystemTime;
 
     //for debugging only
-    pub(crate) fn investigate_debt_extremes(all_non_pending_payables: &[PayableAccount]) -> String {
+    pub(crate) fn investigate_debt_extremes(
+        timestamp: SystemTime,
+        all_non_pending_payables: &[PayableAccount],
+    ) -> String {
         if all_non_pending_payables.is_empty() {
             return "Payable scan found no debts".to_string();
         }
@@ -42,13 +45,12 @@ pub(crate) mod payable_scanner_tools {
             }
         }
 
-        let now = SystemTime::now();
         let init = (PayableInfo::default(), PayableInfo::default());
         let (biggest, oldest) = all_non_pending_payables
             .iter()
             .map(|payable| PayableInfo {
                 balance: payable.balance,
-                age: payable_time_diff(now, payable),
+                age: payable_time_diff(timestamp, payable),
             })
             .fold(init, |so_far, payable| {
                 let (mut biggest, mut oldest) = so_far;
@@ -174,22 +176,21 @@ mod tests {
     };
     use crate::accountant::tools::receivable_scanner_tools::balance_and_age;
     use crate::database::dao_utils::{from_time_t, to_time_t};
-    use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
     use crate::test_utils::unshared_test_utils::make_payment_thresholds_with_defaults;
     use std::rc::Rc;
     use std::time::SystemTime;
 
-    fn make_custom_payment_thresholds() -> PaymentThresholds {
-        PaymentThresholds {
-            threshold_interval_sec: 2_592_000,
-            debt_threshold_gwei: 1_000_000_000,
-            payment_grace_period_sec: 86_400,
-            maturity_threshold_sec: 86_400,
-            permanent_debt_allowed_gwei: 10_000_000,
-            unban_below_gwei: 10_000_000,
-        }
-    }
+    // fn make_custom_payment_thresholds() -> PaymentThresholds {
+    //     PaymentThresholds {
+    //         threshold_interval_sec: 2_592_000,
+    //         debt_threshold_gwei: 1_000_000_000,
+    //         payment_grace_period_sec: 86_400,
+    //         maturity_threshold_sec: 86_400,
+    //         permanent_debt_allowed_gwei: 10_000_000,
+    //         unban_below_gwei: 10_000_000,
+    //     }
+    // }
 
     #[test]
     fn payable_generated_before_maturity_time_limit_is_marked_unqualified() {
@@ -273,7 +274,7 @@ mod tests {
     fn qualified_payables_can_be_filtered_out_from_non_pending_payables_along_with_their_summary() {
         let now = SystemTime::now();
         let payment_thresholds = make_payment_thresholds_with_defaults();
-        let mut unqualified_payable_accounts = vec![PayableAccount {
+        let unqualified_payable_accounts = vec![PayableAccount {
             wallet: make_wallet("wallet1"),
             balance: payment_thresholds.permanent_debt_allowed_gwei + 1,
             last_paid_timestamp: from_time_t(
@@ -281,7 +282,7 @@ mod tests {
             ),
             pending_payable_opt: None,
         }];
-        let mut qualified_payable_accounts = vec![
+        let qualified_payable_accounts = vec![
             PayableAccount {
                 wallet: make_wallet("wallet2"),
                 balance: payment_thresholds.permanent_debt_allowed_gwei + 1_000_000_000,
@@ -324,7 +325,7 @@ mod tests {
     fn returns_empty_array_and_summary_when_no_qualified_payables_are_found() {
         let now = SystemTime::now();
         let payment_thresholds = make_payment_thresholds_with_defaults();
-        let mut unqualified_payable_accounts = vec![PayableAccount {
+        let unqualified_payable_accounts = vec![PayableAccount {
             wallet: make_wallet("wallet1"),
             balance: payment_thresholds.permanent_debt_allowed_gwei + 1,
             last_paid_timestamp: from_time_t(
@@ -342,21 +343,22 @@ mod tests {
 
     #[test]
     fn investigate_debt_extremes_picks_the_most_relevant_records() {
-        let now = to_time_t(SystemTime::now());
+        let now = SystemTime::now();
+        let now_t = to_time_t(now);
         let same_amount_significance = 2_000_000;
-        let same_age_significance = from_time_t(now - 30000);
+        let same_age_significance = from_time_t(now_t - 30000);
         let payables = &[
             PayableAccount {
                 wallet: make_wallet("wallet0"),
                 balance: same_amount_significance,
-                last_paid_timestamp: from_time_t(now - 5000),
+                last_paid_timestamp: from_time_t(now_t - 5000),
                 pending_payable_opt: None,
             },
             //this debt is more significant because beside being high in amount it's also older, so should be prioritized and picked
             PayableAccount {
                 wallet: make_wallet("wallet1"),
                 balance: same_amount_significance,
-                last_paid_timestamp: from_time_t(now - 10000),
+                last_paid_timestamp: from_time_t(now_t - 10000),
                 pending_payable_opt: None,
             },
             //similarly these two wallets have debts equally old but the second has a bigger balance and should be chosen
@@ -374,7 +376,7 @@ mod tests {
             },
         ];
 
-        let result = investigate_debt_extremes(payables);
+        let result = investigate_debt_extremes(now, payables);
 
         assert_eq!(result, "Payable scan found 4 debts; the biggest is 2000000 owed for 10000sec, the oldest is 330 owed for 30000sec")
     }

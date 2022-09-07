@@ -30,7 +30,6 @@ use actix::System;
 use ethereum_types::{BigEndianHash, H256, U256};
 use rusqlite::{Connection, Error, OptionalExtension};
 use std::cell::RefCell;
-use std::io::Write;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -383,14 +382,9 @@ impl PayableDao for PayableDaoMock {
 
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
         self.non_pending_payables_params.lock().unwrap().push(());
-        eprintln!(
-            "Length of Non Pending Payable Results: {}",
-            self.non_pending_payables_results.borrow().len()
-        );
         if self.have_non_pending_payables_shut_down_the_system
             && self.non_pending_payables_results.borrow().is_empty()
         {
-            panic!("Stopping the system");
             System::current().stop();
             return vec![];
         }
@@ -926,7 +920,7 @@ pub fn make_payables(
     Vec<PayableAccount>,
     Vec<PayableAccount>,
 ) {
-    let mut unqualified_payable_accounts = vec![PayableAccount {
+    let unqualified_payable_accounts = vec![PayableAccount {
         wallet: make_wallet("wallet1"),
         balance: payment_thresholds.permanent_debt_allowed_gwei + 1,
         last_paid_timestamp: from_time_t(
@@ -934,7 +928,7 @@ pub fn make_payables(
         ),
         pending_payable_opt: None,
     }];
-    let mut qualified_payable_accounts = vec![
+    let qualified_payable_accounts = vec![
         PayableAccount {
             wallet: make_wallet("wallet2"),
             balance: payment_thresholds.permanent_debt_allowed_gwei + 1_000_000_000,
