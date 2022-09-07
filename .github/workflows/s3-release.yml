@@ -32,6 +32,7 @@ jobs:
             AWS_REGION: 'us-west-2'
             DEST_DIR: 'Node/${{ github.head_ref }}'
             SOURCE_DIR: download
+            
   deploy_to_latest_s3:
        if: startsWith(github.head_ref, 'v*') == true
        runs-on: ubuntu-latest
