@@ -422,7 +422,7 @@ impl Accountant {
         pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
         banned_dao_factory: Box<dyn BannedDaoFactory>,
     ) -> Accountant {
-        let mut accountant_config = config
+        let accountant_config = config
             .accountant_config_opt
             .take()
             .expect("Accountant config");
@@ -1160,20 +1160,15 @@ impl From<&PendingPayableFingerprint> for PendingPayableId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::any::TypeId;
-    use std::cell::RefCell;
-    use std::collections::HashMap;
-    use std::ops::Sub;
-    use std::rc::Rc;
-    use std::sync::Mutex;
-    use std::sync::{Arc, MutexGuard};
-    use std::time::Duration;
-    use std::time::SystemTime;
-
     use actix::{Arbiter, System};
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
     use masq_lib::constants::SCAN_ERROR;
+    use std::ops::Sub;
+    use std::sync::Arc;
+    use std::sync::Mutex;
+    use std::time::Duration;
+    use std::time::SystemTime;
     use web3::types::U256;
 
     use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
@@ -1189,8 +1184,8 @@ mod tests {
     use crate::accountant::scanners::scanners::NullScanner;
     use crate::accountant::test_utils::{
         bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_payables,
-        make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock,
-        PayableDaoFactoryMock, PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
+        make_pending_payable_fingerprint, BannedDaoFactoryMock, PayableDaoFactoryMock,
+        PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
         ReceivableDaoFactoryMock, ReceivableDaoMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
@@ -1219,7 +1214,6 @@ mod tests {
         SystemKillerActor,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
-    use masq_lib::logger::timestamp_as_string;
     use web3::types::{TransactionReceipt, H256};
 
     #[test]
@@ -1659,7 +1653,6 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         subject.logger = Logger::new(test_name);
-        let now = SystemTime::now();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         let system = System::new("test");
@@ -2066,7 +2059,7 @@ mod tests {
         let payable_dao = PayableDaoMock::new()
             .non_pending_payables_params(&payable_params_arc)
             .non_pending_payables_result(vec![]);
-        let mut pending_payable_dao = PendingPayableDaoMock::default()
+        let pending_payable_dao = PendingPayableDaoMock::default()
             .return_all_fingerprints_params(&pending_payable_params_arc)
             .return_all_fingerprints_result(vec![]);
         let receivable_dao = ReceivableDaoMock::new()
@@ -2553,10 +2546,11 @@ mod tests {
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
 
-        let result = subject
-            .scanners
-            .payables
-            .begin_scan(SystemTime::now(), None, &subject.logger);
+        let _result =
+            subject
+                .scanners
+                .payables
+                .begin_scan(SystemTime::now(), None, &subject.logger);
 
         System::current().stop_with_code(0);
         system.run();
@@ -2601,8 +2595,7 @@ mod tests {
                 pending_payable_opt: None,
             },
         ];
-        let mut payable_dao =
-            PayableDaoMock::default().non_pending_payables_result(accounts.clone());
+        let payable_dao = PayableDaoMock::default().non_pending_payables_result(accounts.clone());
         // payable_dao.have_non_pending_payables_shut_down_the_system = true;
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
         let system =
@@ -2672,7 +2665,6 @@ mod tests {
             .scan_intervals
             .payable_scan_interval = Duration::from_millis(10);
         subject.logger = Logger::new(test_name);
-        let now = SystemTime::now();
         let addr = subject.start();
         addr.try_send(ScanForPayables {
             response_skeleton_opt: None,

@@ -19,13 +19,10 @@ pub(in crate::accountant) mod scanners {
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
     use crate::sub_lib::wallet::Wallet;
-    use actix::{Message, Recipient};
+    use actix::Message;
     use masq_lib::logger::Logger;
     use std::any::Any;
-    use std::borrow::BorrowMut;
-    use std::cell::RefCell;
     use std::rc::Rc;
-    use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
 
     #[derive(Debug, PartialEq, Eq)]
@@ -145,7 +142,7 @@ pub(in crate::accountant) mod scanners {
             }
         }
 
-        fn scan_finished(&mut self, message: SentPayable) -> Result<(), Error> {
+        fn scan_finished(&mut self, _message: SentPayable) -> Result<(), Error> {
             todo!()
             // Use the passed-in message and the internal DAO to finish the scan
             // Ok(())
@@ -207,7 +204,7 @@ pub(in crate::accountant) mod scanners {
             }
         }
 
-        fn scan_finished(&mut self, message: ReportTransactionReceipts) -> Result<(), Error> {
+        fn scan_finished(&mut self, _message: ReportTransactionReceipts) -> Result<(), Error> {
             todo!()
         }
 
@@ -288,7 +285,7 @@ pub(in crate::accountant) mod scanners {
             })
         }
 
-        fn scan_finished(&mut self, message: ReceivedPayments) -> Result<(), Error> {
+        fn scan_finished(&mut self, _message: ReceivedPayments) -> Result<(), Error> {
             todo!()
         }
 
@@ -313,10 +310,6 @@ pub(in crate::accountant) mod scanners {
                 banned_dao,
             }
         }
-
-        pub fn earning_wallet(&self) -> &Wallet {
-            &self.earning_wallet
-        }
     }
 
     pub struct NullScanner {}
@@ -328,14 +321,14 @@ pub(in crate::accountant) mod scanners {
     {
         fn begin_scan(
             &mut self,
-            timestamp: SystemTime,
-            response_skeleton_opt: Option<ResponseSkeleton>,
-            logger: &Logger,
+            _timestamp: SystemTime,
+            _response_skeleton_opt: Option<ResponseSkeleton>,
+            _logger: &Logger,
         ) -> Result<BeginMessage, Error> {
             Err(ScannerError::CalledFromNullScanner)
         }
 
-        fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error> {
+        fn scan_finished(&mut self, _message: EndMessage) -> Result<(), Error> {
             todo!()
         }
 
@@ -352,64 +345,64 @@ pub(in crate::accountant) mod scanners {
         }
     }
 
-    pub struct ScannerMock<BeginMessage, EndMessage> {
-        begin_scan_params: RefCell<Vec<(SystemTime, Option<ResponseSkeleton>)>>,
-        begin_scan_results: Arc<Mutex<Vec<Result<Box<BeginMessage>, Error>>>>,
-        end_scan_params: RefCell<Vec<EndMessage>>,
-        end_scan_results: Arc<Mutex<Vec<Result<(), Error>>>>,
-    }
-
-    impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage>
-        for ScannerMock<BeginMessage, EndMessage>
-    where
-        BeginMessage: Message,
-        EndMessage: Message,
-    {
-        fn begin_scan(
-            &mut self,
-            timestamp: SystemTime,
-            response_skeleton_opt: Option<ResponseSkeleton>,
-            logger: &Logger,
-        ) -> Result<BeginMessage, Error> {
-            todo!("Implement ScannerMock")
-        }
-
-        fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error> {
-            todo!()
-        }
-
-        fn scan_started_at(&self) -> Option<SystemTime> {
-            todo!()
-        }
-    }
-
-    impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
-        pub fn new() -> Self {
-            Self {
-                begin_scan_params: RefCell::new(vec![]),
-                begin_scan_results: Arc::new(Mutex::new(vec![])),
-                end_scan_params: RefCell::new(vec![]),
-                end_scan_results: Arc::new(Mutex::new(vec![])),
-            }
-        }
-
-        pub fn begin_scan_params(
-            mut self,
-            params: Vec<(SystemTime, Option<ResponseSkeleton>)>,
-        ) -> Self {
-            self.begin_scan_params = RefCell::new(params);
-            self
-        }
-
-        pub fn begin_scan_result(self, result: Result<Box<BeginMessage>, Error>) -> Self {
-            self.begin_scan_results
-                .lock()
-                .unwrap()
-                .borrow_mut()
-                .push(result);
-            self
-        }
-    }
+    // pub struct ScannerMock<BeginMessage, EndMessage> {
+    //     begin_scan_params: RefCell<Vec<(SystemTime, Option<ResponseSkeleton>)>>,
+    //     begin_scan_results: Arc<Mutex<Vec<Result<Box<BeginMessage>, Error>>>>,
+    //     end_scan_params: RefCell<Vec<EndMessage>>,
+    //     end_scan_results: Arc<Mutex<Vec<Result<(), Error>>>>,
+    // }
+    //
+    // impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage>
+    //     for ScannerMock<BeginMessage, EndMessage>
+    // where
+    //     BeginMessage: Message,
+    //     EndMessage: Message,
+    // {
+    //     fn begin_scan(
+    //         &mut self,
+    //         _timestamp: SystemTime,
+    //         _response_skeleton_opt: Option<ResponseSkeleton>,
+    //         _logger: &Logger,
+    //     ) -> Result<BeginMessage, Error> {
+    //         todo!("Implement ScannerMock")
+    //     }
+    //
+    //     fn scan_finished(&mut self, _message: EndMessage) -> Result<(), Error> {
+    //         todo!()
+    //     }
+    //
+    //     fn scan_started_at(&self) -> Option<SystemTime> {
+    //         todo!()
+    //     }
+    // }
+    //
+    // impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
+    //     pub fn new() -> Self {
+    //         Self {
+    //             begin_scan_params: RefCell::new(vec![]),
+    //             begin_scan_results: Arc::new(Mutex::new(vec![])),
+    //             end_scan_params: RefCell::new(vec![]),
+    //             end_scan_results: Arc::new(Mutex::new(vec![])),
+    //         }
+    //     }
+    //
+    //     pub fn begin_scan_params(
+    //         mut self,
+    //         params: Vec<(SystemTime, Option<ResponseSkeleton>)>,
+    //     ) -> Self {
+    //         self.begin_scan_params = RefCell::new(params);
+    //         self
+    //     }
+    //
+    //     pub fn begin_scan_result(self, result: Result<Box<BeginMessage>, Error>) -> Self {
+    //         self.begin_scan_results
+    //             .lock()
+    //             .unwrap()
+    //             .borrow_mut()
+    //             .push(result);
+    //         self
+    //     }
+    // }
 
     #[derive(Default)]
     pub struct NotifyLaterForScanners {
@@ -431,7 +424,6 @@ pub(in crate::accountant) mod scanners {
 #[cfg(test)]
 mod tests {
 
-    use crate::accountant::payable_dao::PayableAccount;
     use crate::accountant::scanners::scanners::{
         PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner, ScannerError, Scanners,
     };
@@ -441,7 +433,7 @@ mod tests {
     };
     use crate::accountant::RequestTransactionReceipts;
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
-    use crate::database::dao_utils::{from_time_t, to_time_t};
+
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::test_utils::make_wallet;
@@ -648,7 +640,6 @@ mod tests {
     #[test]
     fn receivable_scanner_scans_for_delinquencies() {
         init_test_logging();
-        let test_name = "receivable_scanner_scans_for_deliquencies";
         let newly_banned_1 = make_receivable_account(1234, true);
         let newly_banned_2 = make_receivable_account(2345, true);
         let newly_unbanned_1 = make_receivable_account(3456, false);
@@ -674,7 +665,7 @@ mod tests {
             Rc::new(make_wallet("earning")),
         );
 
-        let result = receivable_scanner.begin_scan(
+        let _result = receivable_scanner.begin_scan(
             SystemTime::now(),
             None,
             &Logger::new("DELINQUENCY_TEST"),

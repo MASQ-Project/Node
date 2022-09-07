@@ -174,22 +174,21 @@ mod tests {
     };
     use crate::accountant::tools::receivable_scanner_tools::balance_and_age;
     use crate::database::dao_utils::{from_time_t, to_time_t};
-    use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
     use crate::test_utils::unshared_test_utils::make_payment_thresholds_with_defaults;
     use std::rc::Rc;
     use std::time::SystemTime;
 
-    fn make_custom_payment_thresholds() -> PaymentThresholds {
-        PaymentThresholds {
-            threshold_interval_sec: 2_592_000,
-            debt_threshold_gwei: 1_000_000_000,
-            payment_grace_period_sec: 86_400,
-            maturity_threshold_sec: 86_400,
-            permanent_debt_allowed_gwei: 10_000_000,
-            unban_below_gwei: 10_000_000,
-        }
-    }
+    // fn make_custom_payment_thresholds() -> PaymentThresholds {
+    //     PaymentThresholds {
+    //         threshold_interval_sec: 2_592_000,
+    //         debt_threshold_gwei: 1_000_000_000,
+    //         payment_grace_period_sec: 86_400,
+    //         maturity_threshold_sec: 86_400,
+    //         permanent_debt_allowed_gwei: 10_000_000,
+    //         unban_below_gwei: 10_000_000,
+    //     }
+    // }
 
     #[test]
     fn payable_generated_before_maturity_time_limit_is_marked_unqualified() {
@@ -273,7 +272,7 @@ mod tests {
     fn qualified_payables_can_be_filtered_out_from_non_pending_payables_along_with_their_summary() {
         let now = SystemTime::now();
         let payment_thresholds = make_payment_thresholds_with_defaults();
-        let mut unqualified_payable_accounts = vec![PayableAccount {
+        let unqualified_payable_accounts = vec![PayableAccount {
             wallet: make_wallet("wallet1"),
             balance: payment_thresholds.permanent_debt_allowed_gwei + 1,
             last_paid_timestamp: from_time_t(
@@ -281,7 +280,7 @@ mod tests {
             ),
             pending_payable_opt: None,
         }];
-        let mut qualified_payable_accounts = vec![
+        let qualified_payable_accounts = vec![
             PayableAccount {
                 wallet: make_wallet("wallet2"),
                 balance: payment_thresholds.permanent_debt_allowed_gwei + 1_000_000_000,
@@ -324,7 +323,7 @@ mod tests {
     fn returns_empty_array_and_summary_when_no_qualified_payables_are_found() {
         let now = SystemTime::now();
         let payment_thresholds = make_payment_thresholds_with_defaults();
-        let mut unqualified_payable_accounts = vec![PayableAccount {
+        let unqualified_payable_accounts = vec![PayableAccount {
             wallet: make_wallet("wallet1"),
             balance: payment_thresholds.permanent_debt_allowed_gwei + 1,
             last_paid_timestamp: from_time_t(
