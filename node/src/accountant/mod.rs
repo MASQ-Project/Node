@@ -1160,26 +1160,16 @@ impl From<&PendingPayableFingerprint> for PendingPayableId {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::any::TypeId;
-    use std::cell::RefCell;
-    use std::collections::HashMap;
     use std::ops::Sub;
-    use std::rc::Rc;
+    use std::sync::Arc;
     use std::sync::Mutex;
-    use std::sync::{Arc, MutexGuard};
     use std::thread;
     use std::time::Duration;
-    use std::time::SystemTime;
 
     use actix::{Arbiter, System};
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
     use masq_lib::constants::SCAN_ERROR;
-    use std::ops::Sub;
-    use std::sync::Arc;
-    use std::sync::Mutex;
-    use std::time::Duration;
-    use std::time::SystemTime;
     use web3::types::U256;
 
     use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
@@ -2594,10 +2584,12 @@ mod tests {
             },
         ];
         let accounts_inner = accounts.clone();
-        let (blockchain_bridge, blockchain_bridge_awaiter, blockchain_bridge_recordings_arc) = make_recorder();
-        thread::spawn (move || {
-            let system =
-                System::new("scan_for_payable_message_triggers_payment_for_balances_over_the_curve");
+        let (blockchain_bridge, blockchain_bridge_awaiter, blockchain_bridge_recordings_arc) =
+            make_recorder();
+        thread::spawn(move || {
+            let system = System::new(
+                "scan_for_payable_message_triggers_payment_for_balances_over_the_curve",
+            );
             let config = bc_from_ac_plus_earning_wallet(
                 AccountantConfig {
                     scan_intervals: ScanIntervals {
@@ -2611,8 +2603,7 @@ mod tests {
                 make_payment_thresholds_with_defaults(),
                 make_wallet("mine"),
             );
-            let mut payable_dao =
-                PayableDaoMock::default().non_pending_payables_result(accounts_inner);
+            let payable_dao = PayableDaoMock::default().non_pending_payables_result(accounts_inner);
             // payable_dao.have_non_pending_payables_shut_down_the_system = true;
             let peer_actors = peer_actors_builder()
                 .blockchain_bridge(blockchain_bridge)
