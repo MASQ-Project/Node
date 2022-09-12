@@ -24,12 +24,13 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            "node"
-            "automap"
-            "dns_utility"
-            "masq_lib"
-            "masq"
-            "port_exposer"
+            node
+            automap
+            dns_utility
+            masq_lib
+            masq
+            port_exposer
+            multinode_integration_tests
       - name: Build ${{ matrix.target.os }}
         run: |
           rustup check
