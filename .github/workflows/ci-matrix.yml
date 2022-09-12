@@ -20,19 +20,17 @@ jobs:
     runs-on: ${{ matrix.target.os }}
     steps:
       - uses: actions/checkout@v3
-      - name: Cache sccache results
-        uses: actions/cache@v3
-        env:
-          cache-name: cache-node-modules
+      - uses: actions/cache@v3
         with:
           path: |
-            ~/.cargo/cache/
             ~/.cargo/bin/
+            ~/.cargo/cache/
             ~/.cargo/registry/index/
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
           key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.OS }}-cargo-
       - name: Build ${{ matrix.target.os }}
         run: |
           rustup check
