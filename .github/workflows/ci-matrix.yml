@@ -29,8 +29,6 @@ jobs:
             dns_utility
             masq_lib
             masq
-            port_exposer
-            multinode_integration_tests
       - name: Build ${{ matrix.target.os }}
         run: |
           rustup check
