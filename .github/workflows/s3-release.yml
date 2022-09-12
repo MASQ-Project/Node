@@ -21,7 +21,7 @@ jobs:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         - name: Display structure of downloaded files
           run: ls -R download
-        - name: S3 Sync
+        - name: Linux S3 Sync
           uses: jakejarvis/s3-sync-action@v0.5.1
           with:
            args: --acl private --follow-symlinks --delete
@@ -30,8 +30,38 @@ jobs:
             AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
             AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
             AWS_REGION: 'us-west-2'
-            DEST_DIR: 'Node/${{ github.head_ref }}'
-            SOURCE_DIR: download
+            DEST_DIR: 'Node/${{ github.event.workflow_run.head_branch }}/Node-linux'
+            SOURCE_DIR: 'download/Node-linux/generated/bin/'
+        - name: Windows S3 Sync
+          uses: jakejarvis/s3-sync-action@v0.5.1
+          with:
+           args: --acl private --follow-symlinks --delete
+          env:
+            AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            AWS_REGION: 'us-west-2'
+            DEST_DIR: 'Node/${{ github.event.workflow_run.head_branch }}/Node-windows'
+            SOURCE_DIR: 'download/Node-windows/generated/bin/'
+        - name: MacOS S3 Sync
+          uses: jakejarvis/s3-sync-action@v0.5.1
+          with:
+           args: --acl private --follow-symlinks --delete
+          env:
+            AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            AWS_REGION: 'us-west-2'
+            DEST_DIR: 'Node/${{ github.event.workflow_run.head_branch }}/Node-macos'
+            SOURCE_DIR: 'download/Node-macos/generated/bin/'
+        - name: Invalidate Binaries CloudFront
+          uses: chetan/invalidate-cloudfront-action@v2.3
+          env:
+            DISTRIBUTION: ${{ secrets.DISTRIBUTION }}
+            PATHS: "/Node*"
+            AWS_REGION: "us-west-2"
+            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
             
   deploy_to_latest_s3:
        if: startsWith(github.head_ref, 'v*') == true
@@ -47,7 +77,7 @@ jobs:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         - name: Display structure of downloaded files
           run: ls -R download
-        - name: S3 Sync
+        - name: Linux S3 Sync
           uses: jakejarvis/s3-sync-action@v0.5.1
           with:
            args: --acl private --follow-symlinks --delete
@@ -56,8 +86,30 @@ jobs:
             AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
             AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
             AWS_REGION: 'us-west-2'
-            DEST_DIR: 'Node/latest'
-            SOURCE_DIR: download
+            DEST_DIR: 'Node/latest/Node-linux'
+            SOURCE_DIR: 'download/Node-linux/generated/bin/'
+        - name: Windows S3 Sync
+          uses: jakejarvis/s3-sync-action@v0.5.1
+          with:
+           args: --acl private --follow-symlinks --delete
+          env:
+            AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            AWS_REGION: 'us-west-2'
+            DEST_DIR: 'Node/latest/Node-windows'
+            SOURCE_DIR: 'download/Node-windows/generated/bin/'
+        - name: MacOS S3 Sync
+          uses: jakejarvis/s3-sync-action@v0.5.1
+          with:
+           args: --acl private --follow-symlinks --delete
+          env:
+            AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            AWS_REGION: 'us-west-2'
+            DEST_DIR: 'Node/latest/Node-macos'
+            SOURCE_DIR: 'download/Node-macos/generated/bin/'
         - name: Invalidate Binaries CloudFront
           uses: chetan/invalidate-cloudfront-action@v2.3
           env:
@@ -65,4 +117,4 @@ jobs:
             PATHS: "/Node*"
             AWS_REGION: "us-west-2"
             AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}    
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
