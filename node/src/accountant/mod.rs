@@ -193,7 +193,7 @@ impl Handler<SentPayable> for Accountant {
                 }
             }
             Err(e) => {
-                todo!("do something in case you receive some");
+                panic!("{}", e);
             }
         }
     }
@@ -3404,44 +3404,11 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Was unable to create a mark in payables for a new pending payable '0x0000…007b' due to 'SignConversion(9999999999999)'"
-    )]
-    fn handle_sent_payable_fails_to_make_a_mark_in_payables_and_so_panics() {
-        let payable = Payable::new(
-            make_wallet("blah"),
-            6789,
-            H256::from_uint(&U256::from(123)),
-            SystemTime::now(),
-        );
-        let payable_dao = PayableDaoMock::new()
-            .mark_pending_payable_rowid_result(Err(PayableDaoError::SignConversion(9999999999999)));
-        let pending_payable_dao =
-            PendingPayableDaoMock::default().fingerprint_rowid_result(Some(7879));
-        let mut subject = AccountantBuilder::default()
-            .payable_dao(PayableDaoMock::new()) // For Accountant
-            .payable_dao(payable_dao) // For Scanner
-            .pending_payable_dao(PendingPayableDaoMock::new()) // For Accountant
-            .pending_payable_dao(pending_payable_dao) // For Payable Scanner
-            .pending_payable_dao(PendingPayableDaoMock::new()) // For PendingPayable Scanner
-            .build();
-        let sent_payable = SentPayable {
-            payable: vec![Ok(payable)],
-            response_skeleton_opt: None,
-        };
-
-        let _ = subject
-            .scanners
-            .payables
-            .scan_finished(sent_payable, &Logger::new("test"));
-    }
-
-    #[test]
-    #[should_panic(
         expected = "Database unmaintainable; payable fingerprint deletion for transaction 0x000000000000000000000000000000000000000000000000000000000000007b \
         has stayed undone due to RecordDeletion(\"we slept over, sorry\")"
     )]
-    fn handle_sent_payable_dealing_with_failed_payment_fails_to_delete_the_existing_pending_payable_fingerprint_and_panics(
-    ) {
+    fn accountant_panics_in_case_it_receives_an_error_from_scanner_while_handling_sent_payable_msg()
+    {
         let rowid = 4;
         let hash = H256::from_uint(&U256::from(123));
         let sent_payable = SentPayable {
@@ -3456,16 +3423,18 @@ mod tests {
             .delete_fingerprint_result(Err(PendingPayableDaoError::RecordDeletion(
                 "we slept over, sorry".to_string(),
             )));
+        let system = System::new("test");
         let mut subject = AccountantBuilder::default()
             .pending_payable_dao(PendingPayableDaoMock::new()) // For Accountant
             .pending_payable_dao(pending_payable_dao) // For Payable Scanner
             .pending_payable_dao(PendingPayableDaoMock::new()) // For PendingPayable Scanner
             .build();
+        let addr = subject.start();
 
-        let _ = subject
-            .scanners
-            .payables
-            .scan_finished(sent_payable, &Logger::new("test"));
+        let _ = addr.try_send(sent_payable);
+
+        System::current().stop();
+        assert_eq!(system.run(), 0);
     }
 
     #[test]
@@ -3498,7 +3467,7 @@ mod tests {
             .pending_payable_dao(PendingPayableDaoMock::new()) // For Scanner
             .build();
 
-        subject
+        let _result = subject
             .scanners
             .payables
             .scan_finished(sent_payable, &Logger::new("Accountant"));
@@ -3511,35 +3480,6 @@ mod tests {
         log_handler.exists_log_containing("WARN: Accountant: Encountered transaction error at this end: 'TransactionFailed { msg: \"closing hours, sorry\", hash_opt: None }'");
         log_handler.exists_log_containing("DEBUG: Accountant: Forgetting a transaction attempt that even did not reach the signing stage");
         // TODO: Assert subject.scan_for_payables_in_progress [No scan in progress]
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Payable fingerprint for 0x0000…0315 doesn't exist but should by now; system unreliable"
-    )]
-    fn handle_sent_payable_receives_proper_payment_but_fingerprint_not_found_so_it_panics() {
-        init_test_logging();
-        let now_system = SystemTime::now();
-        let payment_hash = H256::from_uint(&U256::from(789));
-        let payable = Payable::new(make_wallet("booga"), 6789, payment_hash, now_system);
-        let payable_dao = PayableDaoMock::new().mark_pending_payable_rowid_result(Ok(()));
-        let pending_payable_dao = PendingPayableDaoMock::default().fingerprint_rowid_result(None);
-        let mut subject = AccountantBuilder::default()
-            .payable_dao(PayableDaoMock::new()) // For Accountant
-            .payable_dao(payable_dao) // For Scanner
-            .pending_payable_dao(PendingPayableDaoMock::new()) // For Accountant
-            .pending_payable_dao(pending_payable_dao) // For Scanner
-            .pending_payable_dao(PendingPayableDaoMock::new()) // For Scanner
-            .build();
-        let sent_payable = SentPayable {
-            payable: vec![Ok(payable)],
-            response_skeleton_opt: None,
-        };
-
-        let _ = subject
-            .scanners
-            .payables
-            .scan_finished(sent_payable, &Logger::new("test"));
     }
 
     #[test]

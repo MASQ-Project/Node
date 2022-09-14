@@ -82,7 +82,7 @@ pub(in crate::accountant) mod scanners {
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
         ) -> Result<BeginMessage, Error>;
-        fn scan_finished(&mut self, message: EndMessage, logger: &Logger) -> Result<(), Error>;
+        fn scan_finished(&mut self, message: EndMessage, logger: &Logger) -> Result<(), String>;
         fn scan_started_at(&self) -> Option<SystemTime>;
         as_any_dcl!();
     }
@@ -145,40 +145,53 @@ pub(in crate::accountant) mod scanners {
             }
         }
 
-        fn scan_finished(&mut self, message: SentPayable, logger: &Logger) -> Result<(), Error> {
+        fn scan_finished(&mut self, message: SentPayable, logger: &Logger) -> Result<(), String> {
             // Use the passed-in message and the internal DAO to finish the scan
             // Ok(())
 
             let (sent_payables, blockchain_errors) = separate_early_errors(&message, logger);
             debug!(logger, "We gathered these errors at sending transactions for payable: {:?}, out of the total of {} attempts", blockchain_errors, sent_payables.len() + blockchain_errors.len());
 
-            sent_payables.into_iter()
-                .for_each(|payable| {
-                    let rowid = match self.pending_payable_dao.fingerprint_rowid(payable.tx_hash) {
-                        Some(rowid) => rowid,
-                        None => panic!("Payable fingerprint for {} doesn't exist but should by now; system unreliable", payable.tx_hash)
-                    };
-                    match self.dao.as_ref().mark_pending_payable_rowid(&payable.to, rowid) {
-                        Ok(()) => (),
-                        Err(e) => panic!("Was unable to create a mark in payables for a new pending payable '{}' due to '{:?}'", payable.tx_hash, e)
+            for payable in sent_payables {
+                if let Some(rowid) = self.pending_payable_dao.fingerprint_rowid(payable.tx_hash) {
+                    if let Err(e) = self
+                        .dao
+                        .as_ref()
+                        .mark_pending_payable_rowid(&payable.to, rowid)
+                    {
+                        return Err(format!("Was unable to create a mark in payables for a new pending payable '{}' due to '{:?}'", payable.tx_hash, e));
                     }
-                    debug!(logger, "Payable '{}' has been marked as pending in the payable table",payable.tx_hash)
-                });
+                } else {
+                    return Err(format!("Payable fingerprint for {} doesn't exist but should by now; system unreliable", payable.tx_hash));
+                };
 
-            if !blockchain_errors.is_empty() {
-                blockchain_errors.into_iter().for_each(|err|
-                    if let Some(hash) = err.carries_transaction_hash() {
-                        // self.discard_incomplete_transaction_with_a_failure(hash)
-                        if let Some(rowid) = self.pending_payable_dao.fingerprint_rowid(hash) {
-                            debug!(logger,"Deleting an existing backup for a failed transaction {}", hash);
-                            if let Err(e) = self.pending_payable_dao.delete_fingerprint(rowid) {
-                                panic!("Database unmaintainable; payable fingerprint deletion for transaction {:?} has stayed undone due to {:?}", hash, e)
-                            }
+                debug!(
+                    logger,
+                    "Payable '{}' has been marked as pending in the payable table", payable.tx_hash
+                )
+            }
+
+            for blockchain_error in blockchain_errors {
+                if let Some(hash) = blockchain_error.carries_transaction_hash() {
+                    if let Some(rowid) = self.pending_payable_dao.fingerprint_rowid(hash) {
+                        debug!(
+                            logger,
+                            "Deleting an existing backup for a failed transaction {}", hash
+                        );
+                        if let Err(e) = self.pending_payable_dao.delete_fingerprint(rowid) {
+                            return Err(format!("Database unmaintainable; payable fingerprint deletion for transaction {:?} has stayed undone due to {:?}", hash, e));
                         };
+                    };
 
-                        warning!(logger, "Failed transaction with a hash '{}' but without the record - thrown out", hash)
-                    } else { debug!(logger,"Forgetting a transaction attempt that even did not reach the signing stage") })
-            };
+                    warning!(
+                        logger,
+                        "Failed transaction with a hash '{}' but without the record - thrown out",
+                        hash
+                    )
+                } else {
+                    debug!(logger,"Forgetting a transaction attempt that even did not reach the signing stage")
+                };
+            }
 
             Ok(())
             // if let Some(response_skeleton) = &sent_payable.response_skeleton_opt {
@@ -258,7 +271,7 @@ pub(in crate::accountant) mod scanners {
             &mut self,
             _message: ReportTransactionReceipts,
             logger: &Logger,
-        ) -> Result<(), Error> {
+        ) -> Result<(), String> {
             todo!()
         }
 
@@ -343,7 +356,7 @@ pub(in crate::accountant) mod scanners {
             &mut self,
             _message: ReceivedPayments,
             logger: &Logger,
-        ) -> Result<(), Error> {
+        ) -> Result<(), String> {
             todo!()
         }
 
@@ -386,7 +399,7 @@ pub(in crate::accountant) mod scanners {
             Err(ScannerError::CalledFromNullScanner)
         }
 
-        fn scan_finished(&mut self, _message: EndMessage, logger: &Logger) -> Result<(), Error> {
+        fn scan_finished(&mut self, _message: EndMessage, logger: &Logger) -> Result<(), String> {
             todo!()
         }
 
@@ -489,18 +502,23 @@ mod tests {
         make_payables, make_receivable_account, BannedDaoMock, PayableDaoMock,
         PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoMock,
     };
-    use crate::accountant::RequestTransactionReceipts;
+    use crate::accountant::{RequestTransactionReceipts, SentPayable};
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 
+    use crate::accountant::payable_dao::{Payable, PayableDaoError};
+    use crate::accountant::pending_payable_dao::PendingPayableDaoError;
+    use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::test_utils::make_wallet;
     use crate::test_utils::unshared_test_utils::make_payment_thresholds_with_defaults;
+    use ethereum_types::BigEndianHash;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::rc::Rc;
     use std::sync::{Arc, Mutex, MutexGuard};
     use std::time::SystemTime;
+    use web3::types::{H256, U256};
 
     #[test]
     fn scanners_struct_can_be_constructed_with_the_respective_scanners() {
@@ -598,6 +616,99 @@ mod tests {
             &format!("INFO: {}: Scanning for payables", test_name),
             "Chose 0 qualified debts to pay",
         ]);
+    }
+
+    #[test]
+    fn payable_scanner_throws_error_when_fingerprint_is_not_found() {
+        init_test_logging();
+        let now_system = SystemTime::now();
+        let payment_hash = H256::from_uint(&U256::from(789));
+        let payable = Payable::new(make_wallet("booga"), 6789, payment_hash, now_system);
+        let payable_dao = PayableDaoMock::new().mark_pending_payable_rowid_result(Ok(()));
+        let pending_payable_dao = PendingPayableDaoMock::default().fingerprint_rowid_result(None);
+        let mut subject = PayableScanner::new(
+            Box::new(payable_dao),
+            Box::new(pending_payable_dao),
+            Rc::new(make_payment_thresholds_with_defaults()),
+        );
+        let sent_payable = SentPayable {
+            payable: vec![Ok(payable)],
+            response_skeleton_opt: None,
+        };
+
+        let result = subject.scan_finished(sent_payable, &Logger::new("test"));
+
+        assert_eq!(result, Err("Payable fingerprint for 0x0000…0315 doesn't exist but should by now; system unreliable".to_string()));
+    }
+
+    #[test]
+    fn payable_scanner_throws_error_when_dealing_with_failed_payment_fails_to_delete_the_existing_pending_payable_fingerprint(
+    ) {
+        let rowid = 4;
+        let hash = H256::from_uint(&U256::from(123));
+        let sent_payable = SentPayable {
+            payable: vec![Err(BlockchainError::TransactionFailed {
+                msg: "blah".to_string(),
+                hash_opt: Some(hash),
+            })],
+            response_skeleton_opt: None,
+        };
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .fingerprint_rowid_result(Some(rowid))
+            .delete_fingerprint_result(Err(PendingPayableDaoError::RecordDeletion(
+                "we slept over, sorry".to_string(),
+            )));
+        let mut subject = PayableScanner::new(
+            Box::new(PayableDaoMock::new()),
+            Box::new(pending_payable_dao),
+            Rc::new(make_payment_thresholds_with_defaults()),
+        );
+
+        let result = subject.scan_finished(sent_payable, &Logger::new("test"));
+
+        assert_eq!(
+            result,
+            Err(
+                "Database unmaintainable; payable fingerprint deletion for transaction \
+                0x000000000000000000000000000000000000000000000000000000000000007b has stayed \
+                undone due to RecordDeletion(\"we slept over, sorry\")"
+                    .to_string()
+            )
+        );
+    }
+
+    #[test]
+    fn payable_scanner_throws_error_when_it_fails_to_make_a_mark_in_payables() {
+        let payable = Payable::new(
+            make_wallet("blah"),
+            6789,
+            H256::from_uint(&U256::from(123)),
+            SystemTime::now(),
+        );
+        let payable_dao = PayableDaoMock::new()
+            .mark_pending_payable_rowid_result(Err(PayableDaoError::SignConversion(9999999999999)));
+        let pending_payable_dao =
+            PendingPayableDaoMock::default().fingerprint_rowid_result(Some(7879));
+        let mut subject = PayableScanner::new(
+            Box::new(payable_dao),
+            Box::new(pending_payable_dao),
+            Rc::new(make_payment_thresholds_with_defaults()),
+        );
+        let sent_payable = SentPayable {
+            payable: vec![Ok(payable)],
+            response_skeleton_opt: None,
+        };
+
+        let result = subject.scan_finished(sent_payable, &Logger::new("test"));
+
+        assert_eq!(
+            result,
+            Err(
+                "Was unable to create a mark in payables for a new pending payable '0x0000…007b' \
+                due to 'SignConversion(9999999999999)'"
+                    .to_string()
+            )
+        )
     }
 
     #[test]
