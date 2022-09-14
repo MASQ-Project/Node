@@ -900,28 +900,6 @@ impl Accountant {
         }
     }
 
-    fn separate_early_errors(
-        sent_payments: &SentPayable,
-        logger: &Logger,
-    ) -> (Vec<Payable>, Vec<BlockchainError>) {
-        todo!("migrate to tools.rs");
-        sent_payments
-            .payable
-            .iter()
-            .fold((vec![], vec![]), |so_far, payment| {
-                match payment {
-                    Ok(payment_sent) => (plus(so_far.0, payment_sent.clone()), so_far.1),
-                    Err(error) => {
-                        logger.warning(|| match &error {
-                            BlockchainError::TransactionFailed { .. } => format!("Encountered transaction error at this end: '{:?}'", error),
-                            x => format!("Outbound transaction failure due to '{:?}'. Please check your blockchain service URL configuration.", x)
-                        });
-                        (so_far.0, plus(so_far.1, error.clone()))
-                    }
-                }
-            })
-    }
-
     fn handle_pending_transaction_with_its_receipt(
         &self,
         msg: &ReportTransactionReceipts,
@@ -4260,26 +4238,6 @@ mod tests {
         );
         TestLogHandler::new().exists_log_containing("ERROR: Accountant: Failed to make a fingerprint for pending payable '0x0000…01c8' due to 'InsertionFailed(\"Crashed\")'");
     }
-
-    // #[test]
-    // fn separate_early_errors_works() {
-    //     let payable_ok = Payable {
-    //         to: make_wallet("blah"),
-    //         amount: 5555,
-    //         timestamp: SystemTime::now(),
-    //         tx_hash: Default::default(),
-    //     };
-    //     let error = BlockchainError::SignedValueConversion(666);
-    //     let sent_payable = SentPayable {
-    //         payable: vec![Ok(payable_ok.clone()), Err(error.clone())],
-    //         response_skeleton_opt: None,
-    //     };
-    //
-    //     let (ok, err) = Accountant::separate_early_errors(&sent_payable, &Logger::new("test"));
-    //
-    //     assert_eq!(ok, vec![payable_ok]);
-    //     assert_eq!(err, vec![error])
-    // }
 
     #[test]
     fn update_payable_fingerprint_happy_path() {
