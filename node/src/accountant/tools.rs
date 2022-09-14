@@ -1,8 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub(crate) mod payable_scanner_tools {
-    use crate::accountant::payable_dao::PayableAccount;
+    use crate::accountant::payable_dao::{Payable, PayableAccount};
+    use crate::accountant::SentPayable;
+    use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::sub_lib::accountant::PaymentThresholds;
+    use masq_lib::logger::Logger;
+    use masq_lib::utils::plus;
     use std::time::SystemTime;
 
     //for debugging only
@@ -148,6 +152,27 @@ pub(crate) mod payable_scanner_tools {
 
         (qualified_payables, summary)
     }
+
+    pub(crate) fn separate_early_errors(
+        sent_payments: &SentPayable,
+        logger: &Logger,
+    ) -> (Vec<Payable>, Vec<BlockchainError>) {
+        sent_payments
+            .payable
+            .iter()
+            .fold((vec![], vec![]), |so_far, payment| {
+                match payment {
+                    Ok(payment_sent) => (plus(so_far.0, payment_sent.clone()), so_far.1),
+                    Err(error) => {
+                        logger.warning(|| match &error {
+                            BlockchainError::TransactionFailed { .. } => format!("Encountered transaction error at this end: '{:?}'", error),
+                            x => format!("Outbound transaction failure due to '{:?}'. Please check your blockchain service URL configuration.", x)
+                        });
+                        (so_far.0, plus(so_far.1, error.clone()))
+                    }
+                }
+            })
+    }
 }
 
 pub(crate) mod receivable_scanner_tools {
@@ -168,16 +193,20 @@ pub(crate) mod receivable_scanner_tools {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::payable_dao::PayableAccount;
+    use crate::accountant::payable_dao::{Payable, PayableAccount};
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::tools::payable_scanner_tools::{
         calculate_payout_threshold, exceeded_summary, investigate_debt_extremes,
         is_payable_qualified, payable_time_diff, qualified_payables_and_summary,
+        separate_early_errors,
     };
     use crate::accountant::tools::receivable_scanner_tools::balance_and_age;
+    use crate::accountant::SentPayable;
+    use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::test_utils::make_wallet;
     use crate::test_utils::unshared_test_utils::make_payment_thresholds_with_defaults;
+    use masq_lib::logger::Logger;
     use std::rc::Rc;
     use std::time::SystemTime;
 
@@ -395,6 +424,26 @@ mod tests {
 
         assert_eq!(balance, "10");
         assert_eq!(age.as_secs(), offset as u64);
+    }
+
+    #[test]
+    fn separate_early_errors_works() {
+        let payable_ok = Payable {
+            to: make_wallet("blah"),
+            amount: 5555,
+            timestamp: SystemTime::now(),
+            tx_hash: Default::default(),
+        };
+        let error = BlockchainError::SignedValueConversion(666);
+        let sent_payable = SentPayable {
+            payable: vec![Ok(payable_ok.clone()), Err(error.clone())],
+            response_skeleton_opt: None,
+        };
+
+        let (ok, err) = separate_early_errors(&sent_payable, &Logger::new("test"));
+
+        assert_eq!(ok, vec![payable_ok]);
+        assert_eq!(err, vec![error])
     }
 
     // TODO: Either make this test work or write an alternative test in the desired file

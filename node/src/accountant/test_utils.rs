@@ -176,6 +176,7 @@ impl AccountantBuilder {
         let pending_payable_dao_factory = self.pending_payable_dao_factory.unwrap_or(
             PendingPayableDaoFactoryMock::new()
                 .make_result(PendingPayableDaoMock::new())
+                .make_result(PendingPayableDaoMock::new())
                 .make_result(PendingPayableDaoMock::new()),
         );
         let banned_dao_factory = self.banned_dao_factory.unwrap_or(

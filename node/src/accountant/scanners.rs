@@ -2,10 +2,10 @@
 
 pub(in crate::accountant) mod scanners {
     use crate::accountant::payable_dao::PayableDao;
-    use crate::accountant::pending_payable_dao::PendingPayableDao;
+    use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
     use crate::accountant::receivable_dao::ReceivableDao;
     use crate::accountant::tools::payable_scanner_tools::{
-        investigate_debt_extremes, qualified_payables_and_summary,
+        investigate_debt_extremes, qualified_payables_and_summary, separate_early_errors,
     };
     use crate::accountant::tools::receivable_scanner_tools::balance_and_age;
     use crate::accountant::ReportAccountsPayable;
@@ -22,6 +22,7 @@ pub(in crate::accountant) mod scanners {
     use actix::Message;
     use masq_lib::logger::Logger;
     use std::any::Any;
+    use std::borrow::Borrow;
     use std::rc::Rc;
     use std::time::SystemTime;
 
@@ -44,7 +45,7 @@ pub(in crate::accountant) mod scanners {
     impl Scanners {
         pub fn new(
             payable_dao: Box<dyn PayableDao>,
-            pending_payable_dao: Box<dyn PendingPayableDao>,
+            pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
             receivable_dao: Box<dyn ReceivableDao>,
             banned_dao: Box<dyn BannedDao>,
             payment_thresholds: Rc<PaymentThresholds>,
@@ -53,10 +54,11 @@ pub(in crate::accountant) mod scanners {
             Scanners {
                 payables: Box::new(PayableScanner::new(
                     payable_dao,
+                    pending_payable_dao_factory.make(),
                     Rc::clone(&payment_thresholds),
                 )),
                 pending_payables: Box::new(PendingPayableScanner::new(
-                    pending_payable_dao,
+                    pending_payable_dao_factory.make(),
                     Rc::clone(&payment_thresholds),
                 )),
                 receivables: Box::new(ReceivableScanner::new(
@@ -80,7 +82,7 @@ pub(in crate::accountant) mod scanners {
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
         ) -> Result<BeginMessage, Error>;
-        fn scan_finished(&mut self, message: EndMessage) -> Result<(), Error>;
+        fn scan_finished(&mut self, message: EndMessage, logger: &Logger) -> Result<(), Error>;
         fn scan_started_at(&self) -> Option<SystemTime>;
         as_any_dcl!();
     }
@@ -102,6 +104,7 @@ pub(in crate::accountant) mod scanners {
     pub struct PayableScanner {
         common: ScannerCommon,
         dao: Box<dyn PayableDao>,
+        pending_payable_dao: Box<dyn PendingPayableDao>,
     }
 
     impl Scanner<ReportAccountsPayable, SentPayable> for PayableScanner {
@@ -142,10 +145,52 @@ pub(in crate::accountant) mod scanners {
             }
         }
 
-        fn scan_finished(&mut self, _message: SentPayable) -> Result<(), Error> {
-            todo!()
+        fn scan_finished(&mut self, message: SentPayable, logger: &Logger) -> Result<(), Error> {
             // Use the passed-in message and the internal DAO to finish the scan
             // Ok(())
+
+            let (sent_payables, blockchain_errors) = separate_early_errors(&message, logger);
+            debug!(logger, "We gathered these errors at sending transactions for payable: {:?}, out of the total of {} attempts", blockchain_errors, sent_payables.len() + blockchain_errors.len());
+
+            sent_payables.into_iter()
+                .for_each(|payable| {
+                    let rowid = match self.pending_payable_dao.fingerprint_rowid(payable.tx_hash) {
+                        Some(rowid) => rowid,
+                        None => panic!("Payable fingerprint for {} doesn't exist but should by now; system unreliable", payable.tx_hash)
+                    };
+                    match self.dao.as_ref().mark_pending_payable_rowid(&payable.to, rowid) {
+                        Ok(()) => (),
+                        Err(e) => panic!("Was unable to create a mark in payables for a new pending payable '{}' due to '{:?}'", payable.tx_hash, e)
+                    }
+                    debug!(logger, "Payable '{}' has been marked as pending in the payable table",payable.tx_hash)
+                });
+
+            if !blockchain_errors.is_empty() {
+                blockchain_errors.into_iter().for_each(|err|
+                    if let Some(hash) = err.carries_transaction_hash() {
+                        // self.discard_incomplete_transaction_with_a_failure(hash)
+                        if let Some(rowid) = self.pending_payable_dao.fingerprint_rowid(hash) {
+                            debug!(logger,"Deleting an existing backup for a failed transaction {}", hash);
+                            if let Err(e) = self.pending_payable_dao.delete_fingerprint(rowid) {
+                                panic!("Database unmaintainable; payable fingerprint deletion for transaction {:?} has stayed undone due to {:?}", hash, e)
+                            }
+                        };
+
+                        warning!(logger, "Failed transaction with a hash '{}' but without the record - thrown out", hash)
+                    } else { debug!(logger,"Forgetting a transaction attempt that even did not reach the signing stage") })
+            };
+
+            Ok(())
+            // if let Some(response_skeleton) = &sent_payable.response_skeleton_opt {
+            //     self.ui_message_sub
+            //         .as_ref()
+            //         .expect("UIGateway is not bound")
+            //         .try_send(NodeToUiMessage {
+            //             target: MessageTarget::ClientId(response_skeleton.client_id),
+            //             body: UiScanResponse {}.tmb(response_skeleton.context_id),
+            //         })
+            //         .expect("UIGateway is dead");
+            // }
         }
 
         fn scan_started_at(&self) -> Option<SystemTime> {
@@ -156,10 +201,15 @@ pub(in crate::accountant) mod scanners {
     }
 
     impl PayableScanner {
-        pub fn new(dao: Box<dyn PayableDao>, payment_thresholds: Rc<PaymentThresholds>) -> Self {
+        pub fn new(
+            dao: Box<dyn PayableDao>,
+            pending_payable_dao: Box<dyn PendingPayableDao>,
+            payment_thresholds: Rc<PaymentThresholds>,
+        ) -> Self {
             Self {
                 common: ScannerCommon::new(payment_thresholds),
                 dao,
+                pending_payable_dao,
             }
         }
     }
@@ -204,7 +254,11 @@ pub(in crate::accountant) mod scanners {
             }
         }
 
-        fn scan_finished(&mut self, _message: ReportTransactionReceipts) -> Result<(), Error> {
+        fn scan_finished(
+            &mut self,
+            _message: ReportTransactionReceipts,
+            logger: &Logger,
+        ) -> Result<(), Error> {
             todo!()
         }
 
@@ -285,7 +339,11 @@ pub(in crate::accountant) mod scanners {
             })
         }
 
-        fn scan_finished(&mut self, _message: ReceivedPayments) -> Result<(), Error> {
+        fn scan_finished(
+            &mut self,
+            _message: ReceivedPayments,
+            logger: &Logger,
+        ) -> Result<(), Error> {
             todo!()
         }
 
@@ -328,7 +386,7 @@ pub(in crate::accountant) mod scanners {
             Err(ScannerError::CalledFromNullScanner)
         }
 
-        fn scan_finished(&mut self, _message: EndMessage) -> Result<(), Error> {
+        fn scan_finished(&mut self, _message: EndMessage, logger: &Logger) -> Result<(), Error> {
             todo!()
         }
 
@@ -429,7 +487,7 @@ mod tests {
     };
     use crate::accountant::test_utils::{
         make_payables, make_receivable_account, BannedDaoMock, PayableDaoMock,
-        PendingPayableDaoMock, ReceivableDaoMock,
+        PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoMock,
     };
     use crate::accountant::RequestTransactionReceipts;
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
@@ -449,7 +507,7 @@ mod tests {
         let payment_thresholds = Rc::new(make_payment_thresholds_with_defaults());
         let scanners = Scanners::new(
             Box::new(PayableDaoMock::new()),
-            Box::new(PendingPayableDaoMock::new()),
+            Box::new(PendingPayableDaoFactoryMock::new()),
             Box::new(ReceivableDaoMock::new()),
             Box::new(BannedDaoMock::new()),
             Rc::clone(&payment_thresholds),
@@ -484,8 +542,11 @@ mod tests {
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
 
-        let mut payable_scanner =
-            PayableScanner::new(Box::new(payable_dao), Rc::new(payment_thresholds));
+        let mut payable_scanner = PayableScanner::new(
+            Box::new(payable_dao),
+            Box::new(PendingPayableDaoMock::new()),
+            Rc::new(payment_thresholds),
+        );
 
         let result = payable_scanner.begin_scan(now, None, &Logger::new(test_name));
 
@@ -521,8 +582,11 @@ mod tests {
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(unqualified_payable_accounts);
 
-        let mut payable_scanner =
-            PayableScanner::new(Box::new(payable_dao), Rc::new(payment_thresholds));
+        let mut payable_scanner = PayableScanner::new(
+            Box::new(payable_dao),
+            Box::new(PendingPayableDaoMock::new()),
+            Rc::new(payment_thresholds),
+        );
 
         let result = payable_scanner.begin_scan(now, None, &Logger::new(test_name));
 
