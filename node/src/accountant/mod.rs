@@ -178,20 +178,19 @@ impl Handler<SentPayable> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: SentPayable, _ctx: &mut Self::Context) -> Self::Result {
-        // self.handle_sent_payable(msg);
+        let response_skeleton_opt = msg.response_skeleton_opt;
         match self.scanners.payables.scan_finished(msg, &self.logger) {
             Ok(()) => {
-                todo!("send message to the UI");
-                // if let Some(response_skeleton) = msg.response_skeleton_opt {
-                //     self.ui_message_sub
-                //         .as_ref()
-                //         .expect("UIGateway is not bound")
-                //         .try_send(NodeToUiMessage {
-                //             target: MessageTarget::ClientId(response_skeleton.client_id),
-                //             body: UiScanResponse {}.tmb(response_skeleton.context_id),
-                //         })
-                //         .expect("UIGateway is dead");
-                // }
+                if let Some(response_skeleton) = response_skeleton_opt {
+                    self.ui_message_sub
+                        .as_ref()
+                        .expect("UIGateway is not bound")
+                        .try_send(NodeToUiMessage {
+                            target: MessageTarget::ClientId(response_skeleton.client_id),
+                            body: UiScanResponse {}.tmb(response_skeleton.context_id),
+                        })
+                        .expect("UIGateway is dead");
+                }
             }
             Err(e) => {
                 todo!("do something in case you receive some");
@@ -636,49 +635,6 @@ impl Accountant {
         }
     }
 
-    fn handle_sent_payable(&self, sent_payable: SentPayable) {
-        todo!("migrate to scanners");
-        // self.scanners.payables.mark_as_ended();
-        let (ok, err) = Self::separate_early_errors(&sent_payable, &self.logger);
-        debug!(self.logger, "We gathered these errors at sending transactions for payable: {:?}, out of the total of {} attempts", err, ok.len() + err.len());
-        self.mark_pending_payable(ok);
-        if !err.is_empty() {
-            err.into_iter().for_each(|err|
-                if let Some(hash) = err.carries_transaction_hash() {
-                    self.discard_incomplete_transaction_with_a_failure(hash)
-                } else { debug!(self.logger,"Forgetting a transaction attempt that even did not reach the signing stage") })
-        }
-        if let Some(response_skeleton) = &sent_payable.response_skeleton_opt {
-            self.ui_message_sub
-                .as_ref()
-                .expect("UIGateway is not bound")
-                .try_send(NodeToUiMessage {
-                    target: MessageTarget::ClientId(response_skeleton.client_id),
-                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
-                })
-                .expect("UIGateway is dead");
-        }
-    }
-
-    fn discard_incomplete_transaction_with_a_failure(&self, hash: H256) {
-        todo!("migrate it to scanners");
-        if let Some(rowid) = self.pending_payable_dao.fingerprint_rowid(hash) {
-            debug!(
-                self.logger,
-                "Deleting an existing backup for a failed transaction {}", hash
-            );
-            if let Err(e) = self.pending_payable_dao.delete_fingerprint(rowid) {
-                panic!("Database unmaintainable; payable fingerprint deletion for transaction {:?} has stayed undone due to {:?}", hash, e)
-            }
-        };
-
-        warning!(
-            self.logger,
-            "Failed transaction with a hash '{}' but without the record - thrown out",
-            hash
-        )
-    }
-
     fn handle_report_routing_service_provided_message(
         &mut self,
         msg: ReportRoutingServiceProvidedMessage,
@@ -963,23 +919,6 @@ impl Accountant {
                         (so_far.0, plus(so_far.1, error.clone()))
                     }
                 }
-            })
-    }
-
-    fn mark_pending_payable(&self, sent_payments: Vec<Payable>) {
-        todo!("mark pending payable");
-        sent_payments
-            .into_iter()
-            .for_each(|payable| {
-                let rowid = match self.pending_payable_dao.fingerprint_rowid(payable.tx_hash) {
-                    Some(rowid) => rowid,
-                    None => panic!("Payable fingerprint for {} doesn't exist but should by now; system unreliable", payable.tx_hash)
-                };
-                match self.payable_dao.as_ref().mark_pending_payable_rowid(&payable.to, rowid) {
-                    Ok(()) => (),
-                    Err(e) => panic!("Was unable to create a mark in payables for a new pending payable '{}' due to '{:?}'", payable.tx_hash, e)
-                }
-                debug!(self.logger, "Payable '{}' has been marked as pending in the payable table",payable.tx_hash)
             })
     }
 

@@ -505,9 +505,12 @@ mod tests {
     #[test]
     fn scanners_struct_can_be_constructed_with_the_respective_scanners() {
         let payment_thresholds = Rc::new(make_payment_thresholds_with_defaults());
+        let pending_payable_dao_factory = PendingPayableDaoFactoryMock::new()
+            .make_result(PendingPayableDaoMock::new())
+            .make_result(PendingPayableDaoMock::new());
         let scanners = Scanners::new(
             Box::new(PayableDaoMock::new()),
-            Box::new(PendingPayableDaoFactoryMock::new()),
+            Box::new(pending_payable_dao_factory),
             Box::new(ReceivableDaoMock::new()),
             Box::new(BannedDaoMock::new()),
             Rc::clone(&payment_thresholds),
