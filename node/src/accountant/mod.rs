@@ -3478,15 +3478,22 @@ mod tests {
             .mark_pending_payable_rowid_result(Err(PayableDaoError::SignConversion(9999999999999)));
         let pending_payable_dao =
             PendingPayableDaoMock::default().fingerprint_rowid_result(Some(7879));
-        let subject = AccountantBuilder::default()
-            .payable_dao(payable_dao) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Scanner
-            .pending_payable_dao(pending_payable_dao) // For Accountant
-            .pending_payable_dao(PendingPayableDaoMock::new()) // For Payable Scanner
+        let mut subject = AccountantBuilder::default()
+            .payable_dao(PayableDaoMock::new()) // For Accountant
+            .payable_dao(payable_dao) // For Scanner
+            .pending_payable_dao(PendingPayableDaoMock::new()) // For Accountant
+            .pending_payable_dao(pending_payable_dao) // For Payable Scanner
             .pending_payable_dao(PendingPayableDaoMock::new()) // For PendingPayable Scanner
             .build();
+        let sent_payable = SentPayable {
+            payable: vec![Ok(payable)],
+            response_skeleton_opt: None,
+        };
 
-        let _ = subject.mark_pending_payable(vec![payable]);
+        let _ = subject
+            .scanners
+            .payables
+            .scan_finished(sent_payable, &Logger::new("test"));
     }
 
     #[test]
@@ -3510,13 +3517,16 @@ mod tests {
             .delete_fingerprint_result(Err(PendingPayableDaoError::RecordDeletion(
                 "we slept over, sorry".to_string(),
             )));
-        let subject = AccountantBuilder::default()
-            .pending_payable_dao(pending_payable_dao) // For Accountant
-            .pending_payable_dao(PendingPayableDaoMock::new()) // For Payable Scanner
+        let mut subject = AccountantBuilder::default()
+            .pending_payable_dao(PendingPayableDaoMock::new()) // For Accountant
+            .pending_payable_dao(pending_payable_dao) // For Payable Scanner
             .pending_payable_dao(PendingPayableDaoMock::new()) // For PendingPayable Scanner
             .build();
 
-        let _ = subject.handle_sent_payable(sent_payable);
+        let _ = subject
+            .scanners
+            .payables
+            .scan_finished(sent_payable, &Logger::new("test"));
     }
 
     #[test]
@@ -3537,18 +3547,22 @@ mod tests {
             payable: vec![payable_1, Ok(payable_2.clone()), payable_3],
             response_skeleton_opt: None,
         };
+        let payable_dao = PayableDaoMock::new().mark_pending_payable_rowid_result(Ok(()));
         let pending_payable_dao = PendingPayableDaoMock::default()
             .fingerprint_rowid_params(&fingerprint_rowid_params_arc)
             .fingerprint_rowid_result(Some(payable_2_rowid));
-        let subject = AccountantBuilder::default()
-            .payable_dao(PayableDaoMock::new().mark_pending_payable_rowid_result(Ok(()))) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Scanner
-            .pending_payable_dao(pending_payable_dao) // For Accountant
-            .pending_payable_dao(PendingPayableDaoMock::new()) // For Scanner
+        let mut subject = AccountantBuilder::default()
+            .payable_dao(PayableDaoMock::new()) // For Accountant
+            .payable_dao(payable_dao) // For Scanner
+            .pending_payable_dao(PendingPayableDaoMock::new()) // For Accountant
+            .pending_payable_dao(pending_payable_dao) // For Scanner
             .pending_payable_dao(PendingPayableDaoMock::new()) // For Scanner
             .build();
 
-        subject.handle_sent_payable(sent_payable);
+        subject
+            .scanners
+            .payables
+            .scan_finished(sent_payable, &Logger::new("Accountant"));
 
         let fingerprint_rowid_params = fingerprint_rowid_params_arc.lock().unwrap();
         assert_eq!(*fingerprint_rowid_params, vec![payable_hash_2]); //we know the other two errors are associated with an initiated transaction having a backup
@@ -3568,17 +3582,25 @@ mod tests {
         init_test_logging();
         let now_system = SystemTime::now();
         let payment_hash = H256::from_uint(&U256::from(789));
-        let payment = Payable::new(make_wallet("booga"), 6789, payment_hash, now_system);
+        let payable = Payable::new(make_wallet("booga"), 6789, payment_hash, now_system);
+        let payable_dao = PayableDaoMock::new().mark_pending_payable_rowid_result(Ok(()));
         let pending_payable_dao = PendingPayableDaoMock::default().fingerprint_rowid_result(None);
-        let subject = AccountantBuilder::default()
-            .payable_dao(PayableDaoMock::new().mark_pending_payable_rowid_result(Ok(()))) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Scanner
-            .pending_payable_dao(pending_payable_dao) // For Accountant
-            .pending_payable_dao(PendingPayableDaoMock::new()) // For Scanner
+        let mut subject = AccountantBuilder::default()
+            .payable_dao(PayableDaoMock::new()) // For Accountant
+            .payable_dao(payable_dao) // For Scanner
+            .pending_payable_dao(PendingPayableDaoMock::new()) // For Accountant
+            .pending_payable_dao(pending_payable_dao) // For Scanner
             .pending_payable_dao(PendingPayableDaoMock::new()) // For Scanner
             .build();
+        let sent_payable = SentPayable {
+            payable: vec![Ok(payable)],
+            response_skeleton_opt: None,
+        };
 
-        let _ = subject.mark_pending_payable(vec![payment]);
+        let _ = subject
+            .scanners
+            .payables
+            .scan_finished(sent_payable, &Logger::new("test"));
     }
 
     #[test]
