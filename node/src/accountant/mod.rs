@@ -449,7 +449,6 @@ impl Accountant {
                 .take()
                 .expectv("Payment thresholds"),
         );
-        // let pending_payable_factory_clone = pending_payable_dao_factory.clone();
         let earning_wallet = Rc::new(config.earning_wallet.clone());
         Accountant {
             accountant_config,
@@ -502,25 +501,6 @@ impl Accountant {
     pub fn dao_factory(data_directory: &Path) -> DaoFactoryReal {
         DaoFactoryReal::new(data_directory, false, MigratorConfig::panic_on_migration())
     }
-
-    // fn handle_scan_message<BeginMessage, EndMessage>(
-    //     &self,
-    //     scanner: &mut dyn Scanner<BeginMessage, EndMessage>,
-    //     response_skeleton_opt: Option<ResponseSkeleton>,
-    //     ctx: &mut Context<Accountant>,
-    // ) where
-    //     BeginMessage: Message,
-    //     EndMessage: Message,
-    // {
-    //
-    //     if let Err(error) = scanner.begin_scan(SystemTime::now(), response_skeleton_opt, ctx) {
-    //         warning!(self.logger, "{}", error);
-    //     } else {
-    //         // Received the message, send it to blockchain bridge
-    //         todo!()
-    //     }
-    //     // TODO: migrate the scanner.notify_later_assertable(self, ctx) to begin_scan()
-    // }
 
     fn record_service_provided(
         &self,
