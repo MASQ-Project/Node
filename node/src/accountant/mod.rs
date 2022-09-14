@@ -178,17 +178,13 @@ impl Handler<SentPayable> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: SentPayable, _ctx: &mut Self::Context) -> Self::Result {
-        let response_skeleton_opt = msg.response_skeleton_opt;
         match self.scanners.payables.scan_finished(msg, &self.logger) {
-            Ok(()) => {
-                if let Some(response_skeleton) = response_skeleton_opt {
+            Ok(message_opt) => {
+                if let Some(message) = message_opt {
                     self.ui_message_sub
                         .as_ref()
                         .expect("UIGateway is not bound")
-                        .try_send(NodeToUiMessage {
-                            target: MessageTarget::ClientId(response_skeleton.client_id),
-                            body: UiScanResponse {}.tmb(response_skeleton.context_id),
-                        })
+                        .try_send(message)
                         .expect("UIGateway is dead");
                 }
             }

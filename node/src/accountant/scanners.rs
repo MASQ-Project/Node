@@ -21,6 +21,8 @@ pub(in crate::accountant) mod scanners {
     use crate::sub_lib::wallet::Wallet;
     use actix::Message;
     use masq_lib::logger::Logger;
+    use masq_lib::messages::{ToMessageBody, UiScanResponse};
+    use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
     use std::any::Any;
     use std::borrow::Borrow;
     use std::rc::Rc;
@@ -82,7 +84,11 @@ pub(in crate::accountant) mod scanners {
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
         ) -> Result<BeginMessage, Error>;
-        fn scan_finished(&mut self, message: EndMessage, logger: &Logger) -> Result<(), String>;
+        fn scan_finished(
+            &mut self,
+            message: EndMessage,
+            logger: &Logger,
+        ) -> Result<Option<NodeToUiMessage>, String>;
         fn scan_started_at(&self) -> Option<SystemTime>;
         as_any_dcl!();
     }
@@ -145,7 +151,11 @@ pub(in crate::accountant) mod scanners {
             }
         }
 
-        fn scan_finished(&mut self, message: SentPayable, logger: &Logger) -> Result<(), String> {
+        fn scan_finished(
+            &mut self,
+            message: SentPayable,
+            logger: &Logger,
+        ) -> Result<Option<NodeToUiMessage>, String> {
             // Use the passed-in message and the internal DAO to finish the scan
             // Ok(())
 
@@ -193,17 +203,15 @@ pub(in crate::accountant) mod scanners {
                 };
             }
 
-            Ok(())
-            // if let Some(response_skeleton) = &sent_payable.response_skeleton_opt {
-            //     self.ui_message_sub
-            //         .as_ref()
-            //         .expect("UIGateway is not bound")
-            //         .try_send(NodeToUiMessage {
-            //             target: MessageTarget::ClientId(response_skeleton.client_id),
-            //             body: UiScanResponse {}.tmb(response_skeleton.context_id),
-            //         })
-            //         .expect("UIGateway is dead");
-            // }
+            let message_opt = match message.response_skeleton_opt {
+                Some(response_skeleton) => Some(NodeToUiMessage {
+                    target: MessageTarget::ClientId(response_skeleton.client_id),
+                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
+                }),
+                None => None,
+            };
+
+            Ok(message_opt)
         }
 
         fn scan_started_at(&self) -> Option<SystemTime> {
@@ -271,7 +279,7 @@ pub(in crate::accountant) mod scanners {
             &mut self,
             _message: ReportTransactionReceipts,
             logger: &Logger,
-        ) -> Result<(), String> {
+        ) -> Result<Option<NodeToUiMessage>, String> {
             todo!()
         }
 
@@ -356,7 +364,7 @@ pub(in crate::accountant) mod scanners {
             &mut self,
             _message: ReceivedPayments,
             logger: &Logger,
-        ) -> Result<(), String> {
+        ) -> Result<Option<NodeToUiMessage>, String> {
             todo!()
         }
 
@@ -399,7 +407,11 @@ pub(in crate::accountant) mod scanners {
             Err(ScannerError::CalledFromNullScanner)
         }
 
-        fn scan_finished(&mut self, _message: EndMessage, logger: &Logger) -> Result<(), String> {
+        fn scan_finished(
+            &mut self,
+            _message: EndMessage,
+            logger: &Logger,
+        ) -> Result<Option<NodeToUiMessage>, String> {
             todo!()
         }
 
