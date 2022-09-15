@@ -160,7 +160,13 @@ pub(in crate::accountant) mod scanners {
             // Ok(())
 
             let (sent_payables, blockchain_errors) = separate_early_errors(&message, logger);
-            debug!(logger, "We gathered these errors at sending transactions for payable: {:?}, out of the total of {} attempts", blockchain_errors, sent_payables.len() + blockchain_errors.len());
+            debug!(
+                logger,
+                "We gathered these errors at sending transactions for payable: {:?}, out of the \
+                total of {} attempts",
+                blockchain_errors,
+                sent_payables.len() + blockchain_errors.len()
+            );
 
             for payable in sent_payables {
                 if let Some(rowid) = self.pending_payable_dao.fingerprint_rowid(payable.tx_hash) {
@@ -169,10 +175,18 @@ pub(in crate::accountant) mod scanners {
                         .as_ref()
                         .mark_pending_payable_rowid(&payable.to, rowid)
                     {
-                        return Err(format!("Was unable to create a mark in payables for a new pending payable '{}' due to '{:?}'", payable.tx_hash, e));
+                        return Err(format!(
+                            "Was unable to create a mark in payables for a new pending payable \
+                            '{}' due to '{:?}'",
+                            payable.tx_hash, e
+                        ));
                     }
                 } else {
-                    return Err(format!("Payable fingerprint for {} doesn't exist but should by now; system unreliable", payable.tx_hash));
+                    return Err(format!(
+                        "Payable fingerprint for {} doesn't exist but should by now; \
+                        system unreliable",
+                        payable.tx_hash
+                    ));
                 };
 
                 debug!(
@@ -189,7 +203,11 @@ pub(in crate::accountant) mod scanners {
                             "Deleting an existing backup for a failed transaction {}", hash
                         );
                         if let Err(e) = self.pending_payable_dao.delete_fingerprint(rowid) {
-                            return Err(format!("Database unmaintainable; payable fingerprint deletion for transaction {:?} has stayed undone due to {:?}", hash, e));
+                            return Err(format!(
+                                "Database unmaintainable; payable fingerprint deletion for \
+                                transaction {:?} has stayed undone due to {:?}",
+                                hash, e
+                            ));
                         };
                     };
 
@@ -199,7 +217,10 @@ pub(in crate::accountant) mod scanners {
                         hash
                     )
                 } else {
-                    debug!(logger,"Forgetting a transaction attempt that even did not reach the signing stage")
+                    debug!(
+                        logger,
+                        "Forgetting a transaction attempt that even did not reach the signing stage"
+                    )
                 };
             }
 
