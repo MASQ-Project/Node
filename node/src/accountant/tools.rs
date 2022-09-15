@@ -175,6 +175,17 @@ pub(crate) mod payable_scanner_tools {
     }
 }
 
+pub(crate) mod pending_payable_scanner_tools {
+    use std::time::SystemTime;
+
+    pub fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
+        timestamp
+            .elapsed()
+            .expect("time calculation for elapsed failed")
+            .as_millis()
+    }
+}
+
 pub(crate) mod receivable_scanner_tools {
     use crate::accountant::receivable_dao::ReceivableAccount;
     use std::time::{Duration, SystemTime};

@@ -49,7 +49,7 @@ use masq_lib::messages::UiFinancialsResponse;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use masq_lib::utils::{plus, ExpectValue};
+use masq_lib::utils::ExpectValue;
 use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::default::Default;
@@ -346,7 +346,18 @@ impl Handler<ReportTransactionReceipts> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ReportTransactionReceipts, ctx: &mut Self::Context) -> Self::Result {
-        // TODO: PendingPayables scan ends here.
+        todo!("migration of this function is in progress");
+        // if let Some(response_skeleton) = &msg.response_skeleton_opt {
+        //     self.ui_message_sub
+        //         .as_ref()
+        //         .expect("UIGateway not bound")
+        //         .try_send(NodeToUiMessage {
+        //             target: MessageTarget::ClientId(response_skeleton.client_id),
+        //             body: UiScanResponse {}.tmb(response_skeleton.context_id),
+        //         })
+        //         .expect("UIGateway is dead");
+        // }
+
         // TODO: Make accountant to handle empty vector. Maybe log it as an error.
         debug!(
             self.logger,
@@ -439,6 +450,7 @@ impl Accountant {
             .accountant_config_opt
             .take()
             .expect("Accountant config");
+        let when_pending_too_long_sec = accountant_config.when_pending_too_long_sec;
         let payment_thresholds = Rc::new(
             config
                 .payment_thresholds_opt
@@ -462,6 +474,7 @@ impl Accountant {
                 banned_dao_factory.make(),
                 Rc::clone(&payment_thresholds),
                 Rc::clone(&earning_wallet),
+                when_pending_too_long_sec,
             ),
             tools: TransactionConfirmationTools::default(),
             notify_later: NotifyLaterForScanners::default(),
@@ -3378,7 +3391,7 @@ mod tests {
                 "we slept over, sorry".to_string(),
             )));
         let system = System::new("test");
-        let mut subject = AccountantBuilder::default()
+        let subject = AccountantBuilder::default()
             .pending_payable_dao(PendingPayableDaoMock::new()) // For Accountant
             .pending_payable_dao(pending_payable_dao) // For Payable Scanner
             .pending_payable_dao(PendingPayableDaoMock::new()) // For PendingPayable Scanner
@@ -3793,7 +3806,7 @@ mod tests {
             //this is used during confirmation of the successful one
             .delete_fingerprint_result(Ok(()));
         scanner_pending_payable_dao.have_return_all_fingerprints_shut_down_the_system = true;
-        let mut accountant_pending_payable_dao = PendingPayableDaoMock::default()
+        let accountant_pending_payable_dao = PendingPayableDaoMock::default()
             .fingerprint_rowid_result(Some(rowid_for_account_1))
             .fingerprint_rowid_result(Some(rowid_for_account_2));
         let accountant_addr = Arbiter::builder()

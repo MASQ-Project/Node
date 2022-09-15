@@ -7,15 +7,16 @@ pub(in crate::accountant) mod scanners {
     use crate::accountant::tools::payable_scanner_tools::{
         investigate_debt_extremes, qualified_payables_and_summary, separate_early_errors,
     };
+    use crate::accountant::tools::pending_payable_scanner_tools::elapsed_in_ms;
     use crate::accountant::tools::receivable_scanner_tools::balance_and_age;
-    use crate::accountant::ReportAccountsPayable;
     use crate::accountant::{
         Accountant, CancelFailedPendingTransaction, ConfirmPendingTransaction, ReceivedPayments,
         ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
         ScanForPendingPayables, ScanForReceivables, SentPayable,
     };
+    use crate::accountant::{PendingPayableId, PendingTransactionStatus, ReportAccountsPayable};
     use crate::banned_dao::BannedDao;
-    use crate::blockchain::blockchain_bridge::RetrieveTransactions;
+    use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
@@ -24,10 +25,11 @@ pub(in crate::accountant) mod scanners {
     use masq_lib::logger::Logger;
     use masq_lib::messages::{ToMessageBody, UiScanResponse};
     use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
+    use masq_lib::utils::ExpectValue;
     use std::any::Any;
-    use std::borrow::Borrow;
     use std::rc::Rc;
     use std::time::SystemTime;
+    use web3::types::TransactionReceipt;
 
     #[derive(Debug, PartialEq, Eq)]
     pub enum ScannerError {
@@ -53,6 +55,7 @@ pub(in crate::accountant) mod scanners {
             banned_dao: Box<dyn BannedDao>,
             payment_thresholds: Rc<PaymentThresholds>,
             earning_wallet: Rc<Wallet>,
+            when_pending_too_long_sec: u64,
         ) -> Self {
             Scanners {
                 payables: Box::new(PayableScanner::new(
@@ -63,6 +66,7 @@ pub(in crate::accountant) mod scanners {
                 pending_payables: Box::new(PendingPayableScanner::new(
                     pending_payable_dao_factory.make(),
                     Rc::clone(&payment_thresholds),
+                    when_pending_too_long_sec,
                 )),
                 receivables: Box::new(ReceivableScanner::new(
                     receivable_dao,
@@ -279,6 +283,7 @@ pub(in crate::accountant) mod scanners {
     pub struct PendingPayableScanner {
         common: ScannerCommon,
         dao: Box<dyn PendingPayableDao>,
+        when_pending_too_long_sec: u64,
     }
 
     impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingPayableScanner {
@@ -318,10 +323,27 @@ pub(in crate::accountant) mod scanners {
 
         fn scan_finished(
             &mut self,
-            _message: ReportTransactionReceipts,
+            message: ReportTransactionReceipts,
             logger: &Logger,
         ) -> Result<Option<NodeToUiMessage>, String> {
-            todo!()
+            // TODO: Make accountant to handle empty vector. Maybe log it as an error.
+            debug!(
+                logger,
+                "Processing receipts for {} transactions",
+                message.fingerprints_with_receipts.len()
+            );
+            let statuses = self.handle_pending_transaction_with_its_receipt(&message, logger);
+            // self.process_transaction_by_status(statuses, ctx);
+
+            let message_opt = match message.response_skeleton_opt {
+                Some(response_skeleton) => Some(NodeToUiMessage {
+                    target: MessageTarget::ClientId(response_skeleton.client_id),
+                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
+                }),
+                None => None,
+            };
+
+            Ok(message_opt)
         }
 
         fn scan_started_at(&self) -> Option<SystemTime> {
@@ -335,10 +357,100 @@ pub(in crate::accountant) mod scanners {
         pub fn new(
             dao: Box<dyn PendingPayableDao>,
             payment_thresholds: Rc<PaymentThresholds>,
+            when_pending_too_long_sec: u64,
         ) -> Self {
             Self {
                 common: ScannerCommon::new(payment_thresholds),
                 dao,
+                when_pending_too_long_sec,
+            }
+        }
+
+        fn handle_pending_transaction_with_its_receipt(
+            &self,
+            msg: &ReportTransactionReceipts,
+            logger: &Logger,
+        ) -> Vec<PendingTransactionStatus> {
+            fn handle_none_receipt(
+                payable: &PendingPayableFingerprint,
+                logger: &Logger,
+            ) -> PendingTransactionStatus {
+                debug!(logger,
+                "DEBUG: Accountant: Interpreting a receipt for transaction '{}' but none was given; attempt {}, {}ms since sending",
+                payable.hash, payable.attempt_opt.expectv("initialized attempt"), elapsed_in_ms(payable.timestamp)
+            );
+                PendingTransactionStatus::StillPending(PendingPayableId {
+                    hash: payable.hash,
+                    rowid: payable.rowid_opt.expectv("initialized rowid"),
+                })
+            }
+            msg.fingerprints_with_receipts
+                .iter()
+                .map(|(receipt_opt, fingerprint)| match receipt_opt {
+                    Some(receipt) => {
+                        self.interpret_transaction_receipt(receipt, fingerprint, logger)
+                    }
+                    None => handle_none_receipt(fingerprint, logger),
+                })
+                .collect()
+        }
+
+        fn interpret_transaction_receipt(
+            &self,
+            receipt: &TransactionReceipt,
+            fingerprint: &PendingPayableFingerprint,
+            logger: &Logger,
+        ) -> PendingTransactionStatus {
+            fn handle_none_status(
+                fingerprint: &PendingPayableFingerprint,
+                max_pending_interval: u64,
+                logger: &Logger,
+            ) -> PendingTransactionStatus {
+                info!(logger,"Pending transaction '{}' couldn't be confirmed at attempt {} at {}ms after its sending",fingerprint.hash, fingerprint.attempt_opt.expectv("initialized attempt"), elapsed_in_ms(fingerprint.timestamp));
+                let elapsed = fingerprint
+                    .timestamp
+                    .elapsed()
+                    .expect("we should be older now");
+                let transaction_id = PendingPayableId {
+                    hash: fingerprint.hash,
+                    rowid: fingerprint.rowid_opt.expectv("initialized rowid"),
+                };
+                if max_pending_interval <= elapsed.as_secs() {
+                    error!(logger,"Pending transaction '{}' has exceeded the maximum pending time ({}sec) and the confirmation process is going to be aborted now at the final attempt {}; \
+                 manual resolution is required from the user to complete the transaction.", fingerprint.hash, max_pending_interval, fingerprint.attempt_opt.expectv("initialized attempt"));
+                    PendingTransactionStatus::Failure(transaction_id)
+                } else {
+                    PendingTransactionStatus::StillPending(transaction_id)
+                }
+            }
+            fn handle_status_with_success(
+                fingerprint: &PendingPayableFingerprint,
+                logger: &Logger,
+            ) -> PendingTransactionStatus {
+                info!(
+                logger,
+                "Transaction '{}' has been added to the blockchain; detected locally at attempt {} at {}ms after its sending",
+                fingerprint.hash,
+                fingerprint.attempt_opt.expectv("initialized attempt"),
+                elapsed_in_ms(fingerprint.timestamp)
+            );
+                PendingTransactionStatus::Confirmed(fingerprint.clone())
+            }
+            fn handle_status_with_failure(
+                fingerprint: &PendingPayableFingerprint,
+                logger: &Logger,
+            ) -> PendingTransactionStatus {
+                error!(logger,"Pending transaction '{}' announced as a failure, interpreting attempt {} after {}ms from the sending",fingerprint.hash,fingerprint.attempt_opt.expectv("initialized attempt"),elapsed_in_ms(fingerprint.timestamp));
+                PendingTransactionStatus::Failure(fingerprint.into())
+            }
+            match receipt.status {
+                None => handle_none_status(fingerprint, self.when_pending_too_long_sec, logger),
+                Some(status_code) =>
+                    match status_code.as_u64() {
+                        0 => handle_status_with_failure(fingerprint, logger),
+                        1 => handle_status_with_success(fingerprint, logger),
+                        other => unreachable!("tx receipt for pending '{}' - tx status: code other than 0 or 1 shouldn't be possible, but was {}", fingerprint.hash, other)
+                    }
             }
         }
     }
@@ -404,7 +516,7 @@ pub(in crate::accountant) mod scanners {
         fn scan_finished(
             &mut self,
             _message: ReceivedPayments,
-            logger: &Logger,
+            _logger: &Logger,
         ) -> Result<Option<NodeToUiMessage>, String> {
             todo!()
         }
@@ -451,7 +563,7 @@ pub(in crate::accountant) mod scanners {
         fn scan_finished(
             &mut self,
             _message: EndMessage,
-            logger: &Logger,
+            _logger: &Logger,
         ) -> Result<Option<NodeToUiMessage>, String> {
             todo!()
         }
@@ -586,6 +698,7 @@ mod tests {
             Box::new(BannedDaoMock::new()),
             Rc::clone(&payment_thresholds),
             Rc::new(make_wallet("earning")),
+            0,
         );
 
         scanners
@@ -781,8 +894,11 @@ mod tests {
         let pending_payable_dao =
             PendingPayableDaoMock::new().return_all_fingerprints_result(fingerprints.clone());
         let payment_thresholds = make_payment_thresholds_with_defaults();
-        let mut pending_payable_scanner =
-            PendingPayableScanner::new(Box::new(pending_payable_dao), Rc::new(payment_thresholds));
+        let mut pending_payable_scanner = PendingPayableScanner::new(
+            Box::new(pending_payable_dao),
+            Rc::new(payment_thresholds),
+            0,
+        );
 
         let result = pending_payable_scanner.begin_scan(now, None, &Logger::new(test_name));
 
@@ -815,8 +931,11 @@ mod tests {
         let pending_payable_dao =
             PendingPayableDaoMock::new().return_all_fingerprints_result(vec![]);
         let payment_thresholds = make_payment_thresholds_with_defaults();
-        let mut pending_payable_scanner =
-            PendingPayableScanner::new(Box::new(pending_payable_dao), Rc::new(payment_thresholds));
+        let mut pending_payable_scanner = PendingPayableScanner::new(
+            Box::new(pending_payable_dao),
+            Rc::new(payment_thresholds),
+            0,
+        );
 
         let result = pending_payable_scanner.begin_scan(now, None, &Logger::new(test_name));
 
