@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub(in crate::accountant) mod scanners {
-    use crate::accountant::payable_dao::PayableDao;
+    use crate::accountant::payable_dao::{Payable, PayableDao};
     use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
     use crate::accountant::receivable_dao::ReceivableDao;
     use crate::accountant::tools::payable_scanner_tools::{
@@ -16,6 +16,7 @@ pub(in crate::accountant) mod scanners {
     };
     use crate::banned_dao::BannedDao;
     use crate::blockchain::blockchain_bridge::RetrieveTransactions;
+    use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
     use crate::sub_lib::wallet::Wallet;
@@ -168,61 +169,8 @@ pub(in crate::accountant) mod scanners {
                 sent_payables.len() + blockchain_errors.len()
             );
 
-            for payable in sent_payables {
-                if let Some(rowid) = self.pending_payable_dao.fingerprint_rowid(payable.tx_hash) {
-                    if let Err(e) = self
-                        .dao
-                        .as_ref()
-                        .mark_pending_payable_rowid(&payable.to, rowid)
-                    {
-                        return Err(format!(
-                            "Was unable to create a mark in payables for a new pending payable \
-                            '{}' due to '{:?}'",
-                            payable.tx_hash, e
-                        ));
-                    }
-                } else {
-                    return Err(format!(
-                        "Payable fingerprint for {} doesn't exist but should by now; \
-                        system unreliable",
-                        payable.tx_hash
-                    ));
-                };
-
-                debug!(
-                    logger,
-                    "Payable '{}' has been marked as pending in the payable table", payable.tx_hash
-                )
-            }
-
-            for blockchain_error in blockchain_errors {
-                if let Some(hash) = blockchain_error.carries_transaction_hash() {
-                    if let Some(rowid) = self.pending_payable_dao.fingerprint_rowid(hash) {
-                        debug!(
-                            logger,
-                            "Deleting an existing backup for a failed transaction {}", hash
-                        );
-                        if let Err(e) = self.pending_payable_dao.delete_fingerprint(rowid) {
-                            return Err(format!(
-                                "Database unmaintainable; payable fingerprint deletion for \
-                                transaction {:?} has stayed undone due to {:?}",
-                                hash, e
-                            ));
-                        };
-                    };
-
-                    warning!(
-                        logger,
-                        "Failed transaction with a hash '{}' but without the record - thrown out",
-                        hash
-                    )
-                } else {
-                    debug!(
-                        logger,
-                        "Forgetting a transaction attempt that even did not reach the signing stage"
-                    )
-                };
-            }
+            self.handle_sent_payables(sent_payables, logger)?;
+            self.handle_blockchain_errors(blockchain_errors, logger)?;
 
             let message_opt = match message.response_skeleton_opt {
                 Some(response_skeleton) => Some(NodeToUiMessage {
@@ -253,6 +201,78 @@ pub(in crate::accountant) mod scanners {
                 dao,
                 pending_payable_dao,
             }
+        }
+
+        fn handle_sent_payables(
+            &self,
+            sent_payables: Vec<Payable>,
+            logger: &Logger,
+        ) -> Result<(), String> {
+            for payable in sent_payables {
+                if let Some(rowid) = self.pending_payable_dao.fingerprint_rowid(payable.tx_hash) {
+                    if let Err(e) = self
+                        .dao
+                        .as_ref()
+                        .mark_pending_payable_rowid(&payable.to, rowid)
+                    {
+                        return Err(format!(
+                            "Was unable to create a mark in payables for a new pending payable \
+                            '{}' due to '{:?}'",
+                            payable.tx_hash, e
+                        ));
+                    }
+                } else {
+                    return Err(format!(
+                        "Payable fingerprint for {} doesn't exist but should by now; \
+                        system unreliable",
+                        payable.tx_hash
+                    ));
+                };
+
+                debug!(
+                    logger,
+                    "Payable '{}' has been marked as pending in the payable table", payable.tx_hash
+                )
+            }
+
+            Ok(())
+        }
+
+        fn handle_blockchain_errors(
+            &self,
+            blockchain_errors: Vec<BlockchainError>,
+            logger: &Logger,
+        ) -> Result<(), String> {
+            for blockchain_error in blockchain_errors {
+                if let Some(hash) = blockchain_error.carries_transaction_hash() {
+                    if let Some(rowid) = self.pending_payable_dao.fingerprint_rowid(hash) {
+                        debug!(
+                            logger,
+                            "Deleting an existing backup for a failed transaction {}", hash
+                        );
+                        if let Err(e) = self.pending_payable_dao.delete_fingerprint(rowid) {
+                            return Err(format!(
+                                "Database unmaintainable; payable fingerprint deletion for \
+                                transaction {:?} has stayed undone due to {:?}",
+                                hash, e
+                            ));
+                        };
+                    };
+
+                    warning!(
+                        logger,
+                        "Failed transaction with a hash '{}' but without the record - thrown out",
+                        hash
+                    )
+                } else {
+                    debug!(
+                        logger,
+                        "Forgetting a transaction attempt that even did not reach the signing stage"
+                    )
+                };
+            }
+
+            Ok(())
         }
     }
 
