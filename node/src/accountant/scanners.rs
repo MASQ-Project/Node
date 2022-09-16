@@ -333,7 +333,7 @@ pub(in crate::accountant) mod scanners {
                 message.fingerprints_with_receipts.len()
             );
             let statuses = self.handle_pending_transaction_with_its_receipt(&message, logger);
-            // self.process_transaction_by_status(statuses, ctx);
+            self.process_transaction_by_status(statuses, logger);
 
             let message_opt = match message.response_skeleton_opt {
                 Some(response_skeleton) => Some(NodeToUiMessage {
@@ -451,6 +451,90 @@ pub(in crate::accountant) mod scanners {
                         1 => handle_status_with_success(fingerprint, logger),
                         other => unreachable!("tx receipt for pending '{}' - tx status: code other than 0 or 1 shouldn't be possible, but was {}", fingerprint.hash, other)
                     }
+            }
+        }
+
+        fn process_transaction_by_status(
+            &mut self,
+            statuses: Vec<PendingTransactionStatus>,
+            logger: &Logger,
+        ) {
+            statuses.into_iter().for_each(|status| {
+                if let PendingTransactionStatus::StillPending(transaction_id) = status {
+                    self.update_payable_fingerprint(transaction_id, logger)
+                } else if let PendingTransactionStatus::Failure(transaction_id) = status {
+                    self.order_cancel_failed_transaction(transaction_id, logger)
+                } else if let PendingTransactionStatus::Confirmed(fingerprint) = status {
+                    self.order_confirm_transaction(fingerprint, logger)
+                }
+            });
+        }
+
+        fn update_payable_fingerprint(
+            &self,
+            pending_payable_id: PendingPayableId,
+            logger: &Logger,
+        ) {
+            match self.dao.update_fingerprint(pending_payable_id.rowid) {
+                Ok(_) => trace!(
+                    logger,
+                    "Updated record for rowid: {} ",
+                    pending_payable_id.rowid
+                ),
+                Err(e) => panic!(
+                    "Failure on updating payable fingerprint '{:?}' due to {:?}",
+                    pending_payable_id.hash, e
+                ),
+            }
+        }
+
+        fn order_cancel_failed_transaction(
+            &self,
+            transaction_id: PendingPayableId,
+            logger: &Logger,
+        ) {
+            match self
+                .dao
+                .mark_failure(transaction_id.rowid)
+            {
+                Ok(_) => warning!(
+                logger,
+                "Broken transaction {} left with an error mark; you should take over the care of this transaction to make sure your debts will be paid because there is no automated process that can fix this without you", msg.id.hash),
+                Err(e) => panic!("Unsuccessful attempt for transaction {} to mark fatal error at payable fingerprint due to {:?}; database unreliable", msg.id.hash, e),
+            }
+        }
+
+        fn order_confirm_transaction(
+            &mut self,
+            pending_payable_fingerprint: PendingPayableFingerprint,
+            logger: &Logger,
+        ) {
+            let hash = pending_payable_fingerprint.hash;
+            let amount = pending_payable_fingerprint.amount;
+            let rowid = pending_payable_fingerprint
+                .rowid_opt
+                .expectv("initialized rowid");
+
+            if let Err(e) = self.dao.transaction_confirmed(pending_payable_fingerprint) {
+                panic!(
+                    "Was unable to uncheck pending payable '{}' after confirmation due to '{:?}'",
+                    hash, e
+                )
+            } else {
+                self.financial_statistics.total_paid_payable += amount;
+                debug!(
+                    logger,
+                    "Confirmation of transaction {}; record for payable was modified", hash
+                );
+                if let Err(e) = self.dao.delete_fingerprint(rowid) {
+                    panic!("Was unable to delete payable fingerprint '{}' after successful transaction due to '{:?}'", msg.pending_payable_fingerprint.hash, e)
+                } else {
+                    info!(
+                    logger,
+                    "Transaction {:?} has gone through the whole confirmation process succeeding",
+                    hash
+                )
+                }
             }
         }
     }
