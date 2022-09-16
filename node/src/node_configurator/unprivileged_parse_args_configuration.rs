@@ -4,9 +4,7 @@ use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
-use crate::sub_lib::accountant::{
-    AccountantConfig, PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET,
-};
+use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET};
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
@@ -479,22 +477,7 @@ fn configure_accountant_config(
     config: &mut BootstrapperConfig,
     persist_config: &mut dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
-    let suppress_initial_scans =
-        value_m!(multi_config, "scans", String).unwrap_or_else(|| "on".to_string()) == *"off";
-
-    let accountant_config = AccountantConfig {
-        scan_intervals: process_combined_params(
-            "scan-intervals",
-            multi_config,
-            persist_config,
-            |str: &str| ScanIntervals::try_from(str),
-            |pc: &dyn PersistentConfiguration| pc.scan_intervals(),
-            |pc: &mut dyn PersistentConfiguration, intervals| pc.set_scan_intervals(intervals),
-        )?,
-        suppress_initial_scans,
-        when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-    };
-    let scanners_config = process_combined_params(
+    let payment_thresholds = process_combined_params(
         "payment-thresholds",
         multi_config,
         persist_config,
@@ -502,8 +485,21 @@ fn configure_accountant_config(
         |pc: &dyn PersistentConfiguration| pc.payment_thresholds(),
         |pc: &mut dyn PersistentConfiguration, curves| pc.set_payment_thresholds(curves),
     )?;
-    config.accountant_config_opt = Some(accountant_config);
-    config.payment_thresholds_opt = Some(scanners_config);
+    let scan_intervals = process_combined_params(
+        "scan-intervals",
+        multi_config,
+        persist_config,
+        |str: &str| ScanIntervals::try_from(str),
+        |pc: &dyn PersistentConfiguration| pc.scan_intervals(),
+        |pc: &mut dyn PersistentConfiguration, intervals| pc.set_scan_intervals(intervals),
+    )?;
+    let suppress_initial_scans =
+        value_m!(multi_config, "scans", String).unwrap_or_else(|| "on".to_string()) == *"off";
+    let when_pending_too_long = DEFAULT_PENDING_TOO_LONG_SEC;
+    config.payment_thresholds_opt = Some(payment_thresholds);
+    config.scan_intervals_opt = Some(scan_intervals);
+    config.suppress_initial_scans_opt = Some(suppress_initial_scans);
+    config.when_pending_too_long_opt = Some(when_pending_too_long);
     Ok(())
 }
 
@@ -1739,18 +1735,12 @@ mod tests {
             )
             .unwrap();
 
-        let actual_accountant_config = config.accountant_config_opt.unwrap();
-        let actual_scanners_config = config.payment_thresholds_opt.unwrap();
-        let expected_accountant_config = AccountantConfig {
-            scan_intervals: ScanIntervals {
-                pending_payable_scan_interval: Duration::from_secs(180),
-                payable_scan_interval: Duration::from_secs(150),
-                receivable_scan_interval: Duration::from_secs(130),
-            },
-            suppress_initial_scans: false,
-            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
+        let expected_scan_intervals = ScanIntervals {
+            pending_payable_scan_interval: Duration::from_secs(180),
+            payable_scan_interval: Duration::from_secs(150),
+            receivable_scan_interval: Duration::from_secs(130),
         };
-        let expected_scanners_config = PaymentThresholds {
+        let expected_payment_thresholds = PaymentThresholds {
             threshold_interval_sec: 1000,
             debt_threshold_gwei: 10000,
             payment_grace_period_sec: 1000,
@@ -1758,8 +1748,16 @@ mod tests {
             permanent_debt_allowed_gwei: 20000,
             unban_below_gwei: 20000,
         };
-        assert_eq!(actual_accountant_config, expected_accountant_config);
-        assert_eq!(actual_scanners_config, expected_scanners_config);
+        assert_eq!(
+            config.payment_thresholds_opt,
+            Some(expected_payment_thresholds)
+        );
+        assert_eq!(config.scan_intervals_opt, Some(expected_scan_intervals));
+        assert_eq!(config.suppress_initial_scans_opt, Some(false));
+        assert_eq!(
+            config.when_pending_too_long_opt,
+            Some(DEFAULT_PENDING_TOO_LONG_SEC)
+        );
         let set_scan_intervals_params = set_scan_intervals_params_arc.lock().unwrap();
         assert_eq!(*set_scan_intervals_params, vec!["180|150|130".to_string()]);
         let set_payment_thresholds_params = set_payment_thresholds_params_arc.lock().unwrap();
@@ -1809,18 +1807,7 @@ mod tests {
             )
             .unwrap();
 
-        let actual_accountant_config = config.accountant_config_opt.unwrap();
-        let actual_scanners_config = config.payment_thresholds_opt.unwrap();
-        let expected_accountant_config = AccountantConfig {
-            scan_intervals: ScanIntervals {
-                pending_payable_scan_interval: Duration::from_secs(180),
-                payable_scan_interval: Duration::from_secs(150),
-                receivable_scan_interval: Duration::from_secs(130),
-            },
-            suppress_initial_scans: false,
-            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-        };
-        let expected_scanners_config = PaymentThresholds {
+        let expected_payment_thresholds = PaymentThresholds {
             threshold_interval_sec: 1000,
             debt_threshold_gwei: 100000,
             payment_grace_period_sec: 1000,
@@ -1828,8 +1815,26 @@ mod tests {
             permanent_debt_allowed_gwei: 20000,
             unban_below_gwei: 20000,
         };
-        assert_eq!(actual_accountant_config, expected_accountant_config);
-        assert_eq!(actual_scanners_config, expected_scanners_config);
+        let expected_scan_intervals = ScanIntervals {
+            pending_payable_scan_interval: Duration::from_secs(180),
+            payable_scan_interval: Duration::from_secs(150),
+            receivable_scan_interval: Duration::from_secs(130),
+        };
+        let expected_suppress_initial_scans = false;
+        let expected_when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
+        assert_eq!(
+            config.payment_thresholds_opt,
+            Some(expected_payment_thresholds)
+        );
+        assert_eq!(config.scan_intervals_opt, Some(expected_scan_intervals));
+        assert_eq!(
+            config.suppress_initial_scans_opt,
+            Some(expected_suppress_initial_scans)
+        );
+        assert_eq!(
+            config.when_pending_too_long_opt,
+            Some(expected_when_pending_too_long_sec)
+        );
         //no prepared results for the setter methods, that is they were uncalled
     }
 
@@ -2361,13 +2366,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(
-            bootstrapper_config
-                .accountant_config_opt
-                .unwrap()
-                .suppress_initial_scans,
-            true
-        );
+        assert_eq!(bootstrapper_config.suppress_initial_scans_opt, Some(true));
     }
 
     #[test]
@@ -2388,13 +2387,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(
-            bootstrapper_config
-                .accountant_config_opt
-                .unwrap()
-                .suppress_initial_scans,
-            false
-        );
+        assert_eq!(bootstrapper_config.suppress_initial_scans_opt, Some(false));
     }
 
     #[test]
@@ -2415,13 +2408,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(
-            bootstrapper_config
-                .accountant_config_opt
-                .unwrap()
-                .suppress_initial_scans,
-            false
-        );
+        assert_eq!(bootstrapper_config.suppress_initial_scans_opt, Some(false));
     }
 
     fn make_persistent_config(

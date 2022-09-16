@@ -600,6 +600,7 @@ impl LogRecipientSetter for LogRecipientSetterReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::node_test_utils::{
@@ -628,7 +629,8 @@ mod tests {
     };
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::{
-        make_populated_accountant_config_with_defaults, ArbitraryIdStamp, SystemKillerActor,
+        make_payment_thresholds_with_defaults, make_scan_intervals_with_defaults, ArbitraryIdStamp,
+        SystemKillerActor,
     };
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
@@ -1027,7 +1029,8 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            accountant_config_opt: Some(make_populated_accountant_config_with_defaults()),
+            scan_intervals_opt: Some(make_scan_intervals_with_defaults()),
+            suppress_initial_scans_opt: Some(false),
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -1053,7 +1056,8 @@ mod tests {
                     rate_pack(100),
                 ),
             },
-            payment_thresholds_opt: Default::default(),
+            payment_thresholds_opt: Some(make_payment_thresholds_with_defaults()),
+            when_pending_too_long_opt: Some(DEFAULT_PENDING_TOO_LONG_SEC),
         };
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("eth-ropsten".to_string());
@@ -1098,7 +1102,8 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            accountant_config_opt: None,
+            scan_intervals_opt: None,
+            suppress_initial_scans_opt: None,
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -1125,6 +1130,7 @@ mod tests {
                 ),
             },
             payment_thresholds_opt: Default::default(),
+            when_pending_too_long_opt: None
         };
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = make_subject_with_null_setter();
@@ -1395,7 +1401,8 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            accountant_config_opt: None,
+            scan_intervals_opt: None,
+            suppress_initial_scans_opt: None,
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -1418,6 +1425,7 @@ mod tests {
                 mode: NeighborhoodMode::ConsumeOnly(vec![]),
             },
             payment_thresholds_opt: Default::default(),
+            when_pending_too_long_opt: None
         };
         let system = System::new("MASQNode");
         let mut subject = make_subject_with_null_setter();
@@ -1578,7 +1586,8 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            accountant_config_opt: None,
+            scan_intervals_opt: None,
+            suppress_initial_scans_opt: None,
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -1605,6 +1614,7 @@ mod tests {
             },
             node_descriptor: Default::default(),
             payment_thresholds_opt: Default::default(),
+            when_pending_too_long_opt: None,
         };
         let subject = make_subject_with_null_setter();
         let system = System::new("MASQNode");

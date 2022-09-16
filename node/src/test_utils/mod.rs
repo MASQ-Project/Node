@@ -513,6 +513,7 @@ pub struct TestRawTransaction {
 pub mod unshared_test_utils {
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::apps::app_node;
+    use crate::bootstrapper::BootstrapperConfig;
     use crate::daemon::{ChannelFactory, DaemonBindMessage};
     use crate::db_config::config_dao_null::ConfigDaoNull;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
@@ -602,11 +603,25 @@ pub mod unshared_test_utils {
     }
 
     pub fn make_populated_accountant_config_with_defaults() -> AccountantConfig {
+        todo!("replace it with configure_defaults_for_accountant");
         AccountantConfig {
             scan_intervals: make_scan_intervals_with_defaults(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
             suppress_initial_scans: false,
         }
+    }
+
+    pub fn configure_defaults_for_accountant(mut config: BootstrapperConfig) -> BootstrapperConfig {
+        config.payment_thresholds_opt = Some(make_payment_thresholds_with_defaults());
+        config.scan_intervals_opt = Some(make_scan_intervals_with_defaults());
+        config.suppress_initial_scans_opt = Some(false);
+        config.when_pending_too_long_opt = Some(DEFAULT_PENDING_TOO_LONG_SEC);
+        config
+    }
+
+    pub fn make_bc_with_defaults() -> BootstrapperConfig {
+        let config = BootstrapperConfig::new();
+        configure_defaults_for_accountant(config)
     }
 
     pub fn make_payment_thresholds_with_defaults() -> PaymentThresholds {
