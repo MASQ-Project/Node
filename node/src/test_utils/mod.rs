@@ -519,8 +519,7 @@ pub mod unshared_test_utils {
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::accountant::{
-        AccountantConfig, PaymentThresholds, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
-        DEFAULT_SCAN_INTERVALS,
+        PaymentThresholds, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS,
     };
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::sub_lib::utils::{
@@ -604,7 +603,6 @@ pub mod unshared_test_utils {
 
     pub fn make_bc_with_defaults() -> BootstrapperConfig {
         let mut config = BootstrapperConfig::new();
-        config.payment_thresholds_opt = Some(make_payment_thresholds_with_defaults());
         config.scan_intervals_opt = Some(make_scan_intervals_with_defaults());
         config.suppress_initial_scans_opt = Some(false);
         config.when_pending_too_long_opt = Some(DEFAULT_PENDING_TOO_LONG_SEC);
@@ -617,14 +615,6 @@ pub mod unshared_test_utils {
 
     pub fn make_scan_intervals_with_defaults() -> ScanIntervals {
         DEFAULT_SCAN_INTERVALS.clone()
-    }
-
-    pub fn make_accountant_config_null() -> AccountantConfig {
-        AccountantConfig {
-            scan_intervals: Default::default(),
-            when_pending_too_long_sec: Default::default(),
-            suppress_initial_scans: false,
-        }
     }
 
     pub fn make_daemon_bind_message(ui_gateway: Recorder) -> DaemonBindMessage {
