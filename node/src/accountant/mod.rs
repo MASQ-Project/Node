@@ -25,12 +25,12 @@ use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransac
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_migrations::MigratorConfig;
-use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceConsumedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::{AccountantConfig, FinancialStatistics, PaymentThresholds};
+use crate::sub_lib::accountant::{AccountantSubs, ScanIntervals};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
@@ -64,7 +64,8 @@ pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
 
 pub struct Accountant {
-    accountant_config: AccountantConfig,
+    scan_intervals: ScanIntervals,
+    suppress_initial_scans: Option<bool>,
     consuming_wallet: Option<Wallet>,
     earning_wallet: Rc<Wallet>,
     payable_dao: Box<dyn PayableDao>,
@@ -143,7 +144,11 @@ impl Handler<StartMessage> for Accountant {
     type Result = ();
 
     fn handle(&mut self, _msg: StartMessage, ctx: &mut Self::Context) -> Self::Result {
-        if self.accountant_config.suppress_initial_scans {
+        let suppress_initial_scans = self
+            .suppress_initial_scans
+            .take()
+            .expect("Can't process StartMessage for Accountant.");
+        if suppress_initial_scans {
             info!(
                 &self.logger,
                 "Started with --scans off; declining to begin database and blockchain scans"
@@ -204,7 +209,7 @@ impl Handler<ScanForPayables> for Accountant {
             ScanForPayables {
                 response_skeleton_opt: None,
             },
-            self.accountant_config.scan_intervals.payable_scan_interval,
+            self.scan_intervals.payable_scan_interval,
             ctx,
         );
     }
@@ -219,9 +224,7 @@ impl Handler<ScanForPendingPayables> for Accountant {
             ScanForPendingPayables {
                 response_skeleton_opt: None, // because scheduled scans don't respond
             },
-            self.accountant_config
-                .scan_intervals
-                .pending_payable_scan_interval,
+            self.scan_intervals.pending_payable_scan_interval,
             ctx,
         );
     }
@@ -236,9 +239,7 @@ impl Handler<ScanForReceivables> for Accountant {
             ScanForReceivables {
                 response_skeleton_opt: None, // because scheduled scans don't respond
             },
-            self.accountant_config
-                .scan_intervals
-                .receivable_scan_interval,
+            self.scan_intervals.receivable_scan_interval,
             ctx,
         );
     }
@@ -450,7 +451,6 @@ impl Accountant {
             .accountant_config_opt
             .take()
             .expect("Accountant config");
-        let when_pending_too_long_sec = accountant_config.when_pending_too_long_sec;
         let payment_thresholds = Rc::new(
             config
                 .payment_thresholds_opt
@@ -459,7 +459,8 @@ impl Accountant {
         );
         let earning_wallet = Rc::new(config.earning_wallet.clone());
         Accountant {
-            accountant_config,
+            scan_intervals: accountant_config.scan_intervals,
+            suppress_initial_scans: Some(accountant_config.suppress_initial_scans),
             consuming_wallet: config.consuming_wallet_opt.clone(),
             earning_wallet: Rc::clone(&earning_wallet),
             payable_dao: payable_dao_factory.make(),
@@ -474,7 +475,7 @@ impl Accountant {
                 banned_dao_factory.make(),
                 Rc::clone(&payment_thresholds),
                 Rc::clone(&earning_wallet),
-                when_pending_too_long_sec,
+                accountant_config.when_pending_too_long_sec,
             ),
             tools: TransactionConfirmationTools::default(),
             notify_later: NotifyLaterForScanners::default(),
@@ -966,7 +967,7 @@ impl Accountant {
             PendingTransactionStatus::Failure(fingerprint.into())
         }
         match receipt.status {
-            None => handle_none_status(fingerprint, self.accountant_config.when_pending_too_long_sec, logger),
+            None => todo!("code migration to scanners.rs in progress"),
             Some(status_code) =>
                 match status_code.as_u64() {
                     0 => handle_status_with_failure(fingerprint, logger),
@@ -2601,10 +2602,7 @@ mod tests {
             .bootstrapper_config(config)
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
-        subject
-            .accountant_config
-            .scan_intervals
-            .payable_scan_interval = Duration::from_millis(10);
+        subject.scan_intervals.payable_scan_interval = Duration::from_millis(10);
         subject.logger = Logger::new(test_name);
         let addr = subject.start();
         addr.try_send(ScanForPayables {
