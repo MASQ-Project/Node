@@ -650,10 +650,6 @@ mod tests {
     use igd::RequestError;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::utils::AutomapProtocol;
-    use crate::mocks::LocalIpFinderMock;
-    use core::ptr::addr_of;
-    use igd::RequestError;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::cell::RefCell;
     use std::net::Ipv6Addr;
     use std::ops::Sub;
@@ -1351,7 +1347,7 @@ mod tests {
         let mut subject = IgdpTransactor::new();
         let (tx, rx) = unbounded();
         subject.inner_arc.lock().unwrap().housekeeping_commander_opt = Some(tx);
-        std::mem::drop(rx);
+        drop(rx);
 
         let result = subject.stop_housekeeping_thread().err().unwrap();
 

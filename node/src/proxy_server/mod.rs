@@ -44,7 +44,6 @@ use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use masq_lib::logger::Logger;
-use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::collections::HashMap;
 use std::net::SocketAddr;

@@ -48,7 +48,7 @@ impl Opcode {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum ResultCode {
     Success,
     UnsuppVersion,

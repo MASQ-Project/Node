@@ -44,7 +44,6 @@ use actix::Recipient;
 use itertools::Itertools;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
-use masq_lib::logger::Logger;
 use masq_lib::messages::UiFinancialsResponse;
 use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
 use masq_lib::ui_gateway::MessageTarget::ClientId;

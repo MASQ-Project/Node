@@ -29,7 +29,6 @@ use actix::{Addr, Recipient};
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
-use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::plus;
@@ -467,8 +466,6 @@ mod tests {
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::init_test_logging;
-    use masq_lib::test_utils::logging::init_test_logging;
-    use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::test_utils::logging::TestLogHandler;
     use rustc_hex::FromHex;
     use std::sync::{Arc, Mutex};

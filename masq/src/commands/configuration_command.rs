@@ -198,13 +198,6 @@ impl ConfigurationCommand {
         });
         once(String::from("")).chain(iter_of_strings).collect()
     }
-
-    fn interpret_option(value_opt: &Option<String>) -> String {
-        match value_opt {
-            None => "[?]".to_string(),
-            Some(s) => s.clone(),
-        }
-    }
 }
 
 #[cfg(test)]
@@ -219,7 +212,6 @@ mod tests {
     use masq_lib::messages::{
         ToMessageBody, UiConfigurationResponse, UiPaymentThresholds, UiRatePack, UiScanIntervals,
     };
-    use masq_lib::utils::AutomapProtocol;
     use masq_lib::utils::AutomapProtocol;
     use std::sync::{Arc, Mutex};
 

@@ -12,7 +12,6 @@ use crate::sub_lib::utils::time_t_timestamp;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
 use masq_lib::logger::Logger;
-use masq_lib::utils::ExpectValue;
 use std::collections::HashSet;
 use std::collections::{BTreeSet, HashMap};
 use std::fmt::Debug;
@@ -256,7 +255,7 @@ impl NeighborhoodDatabase {
         let record = self.root_mut();
         let public_key = record.public_key().clone();
         let node_addr_opt = record.metadata.node_addr_opt.clone();
-        let old_node_addr = node_addr_opt.expect_v("Root node");
+        let old_node_addr = node_addr_opt.expect("Setting new public IP: root Node has no IP address");
         let new_node_addr = NodeAddr::new(&public_ip, &old_node_addr.ports());
         record.metadata.node_addr_opt = Some(new_node_addr);
         self.by_ip_addr.remove(&old_node_addr.ip_addr());
@@ -363,7 +362,6 @@ mod tests {
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::assert_string_contains;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
-    use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::iter::FromIterator;
     use std::str::FromStr;
@@ -780,7 +778,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             this_node.earning_wallet(),
-            &CryptDENull::from(this_node.public_key(), DEFAULT_CHAIN_ID),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN.rec.num_chain_id),
         );
         let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
 

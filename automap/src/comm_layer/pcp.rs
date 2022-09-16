@@ -2219,18 +2219,18 @@ mod tests {
         let multicast_address = SocketAddr::new (IpAddr::V4(multicast_ip), multicast_port);
         let make_socket = || {
             let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP)).unwrap();
-            socket.set_read_timeout(Some (Duration::from_secs(1)));
-            socket.set_reuse_port(true);
-            socket.set_reuse_address(true);
-            socket.join_multicast_v4(&multicast_ip, &Ipv4Addr::UNSPECIFIED);
+            socket.set_read_timeout(Some (Duration::from_secs(1))).unwrap();
+            socket.set_reuse_port(true).unwrap();
+            socket.set_reuse_address(true).unwrap();
+            socket.join_multicast_v4(&multicast_ip, &Ipv4Addr::UNSPECIFIED).unwrap();
             socket
         };
         let socket_sender = UdpSocket::bind (SocketAddr::new (localhost(), 0)).unwrap();
-        socket_sender.join_multicast_v4(&multicast_ip, &Ipv4Addr::UNSPECIFIED);
+        socket_sender.join_multicast_v4(&multicast_ip, &Ipv4Addr::UNSPECIFIED).unwrap();
         let socket_receiver_1 = make_socket();
         let socket_receiver_2 = make_socket();
         let message = b"Taxation is theft!";
-        socket_sender.send_to (message, multicast_address);
+        socket_sender.send_to (message, multicast_address).unwrap();
         let mut buf = [MaybeUninit::uninit(); 100];
         let (size, source) = socket_receiver_1.recv_from (&mut buf).unwrap();
         let bytes = buf.to_vec().into_iter().map (|muc| unsafe {muc.assume_init()}).collect::<Vec<u8>>();

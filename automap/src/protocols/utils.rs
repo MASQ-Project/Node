@@ -35,7 +35,7 @@ pub trait OpcodeData: Debug {
     fn as_any(&self) -> &dyn Any;
 }
 
-#[derive(PartialEq, Eq, Debug)]
+#[derive(PartialEq, Eq, Debug, Default)]
 pub struct UnrecognizedData {}
 
 impl OpcodeData for UnrecognizedData {
@@ -49,12 +49,6 @@ impl OpcodeData for UnrecognizedData {
 
     fn as_any(&self) -> &dyn Any {
         self
-    }
-}
-
-impl Default for UnrecognizedData {
-    fn default() -> Self {
-        UnrecognizedData {}
     }
 }
 

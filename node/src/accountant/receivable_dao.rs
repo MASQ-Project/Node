@@ -10,7 +10,6 @@ use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
 use masq_lib::logger::Logger;
-use masq_lib::logger::Logger;
 use rusqlite::types::{ToSql, Type};
 use rusqlite::{named_params, Error};
 use rusqlite::{OptionalExtension, Row};
@@ -387,7 +386,6 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_wallet;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 

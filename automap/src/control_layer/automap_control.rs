@@ -216,7 +216,7 @@ impl AutomapControlReal {
             self.transactors.borrow_mut()[inner.transactor_idx].as_mut(),
             inner.router_ip,
         )?;
-        let result = experiment(
+        let result: Result<T, AutomapError> = experiment(
             self.transactors.borrow_mut()[inner.transactor_idx].as_ref(),
             inner.router_ip,
         );
@@ -353,10 +353,8 @@ pub fn replace_transactor(
 mod tests {
     use super::*;
     use crate::comm_layer::Transactor;
-    use crate::mocks::{TransactorMock, PUBLIC_IP, ROUTER_IP};
+    use crate::mocks::{PUBLIC_IP, ROUTER_IP, TransactorMock};
     use crossbeam_channel::{unbounded, TryRecvError};
-    use lazy_static::lazy_static;
-    use std::any::Any;
     use std::cell::RefCell;
     use std::net::IpAddr;
     use std::ptr::addr_of;
@@ -489,16 +487,11 @@ mod tests {
     fn find_protocol_without_usual_protocol_traverses_available_protocols() {
         let mut subject = make_fully_populated_subject();
         subject.usual_protocol_opt = None;
-        let outer_protocol_log_arc = Arc::new(Mutex::new(vec![]));
-        let inner_protocol_log_arc = outer_protocol_log_arc.clone();
-        let experiment: TransactorExperiment<String> = Box::new(move |t, _router_ip| {
-            inner_protocol_log_arc.lock().unwrap().push(t.protocol());
-            if t.protocol() == AutomapProtocol::Pmp {
-                Ok("Success!".to_string())
-            } else {
-                Err(AutomapError::Unknown)
-            }
-        });
+        let protocol_log_arc = Arc::new(Mutex::new(vec![]));
+        let experiment = make_logging_experiment(
+            protocol_log_arc.clone(),
+            AutomapProtocol::Pmp
+        );
 
         let result = subject.choose_working_protocol(experiment);
 
@@ -509,7 +502,7 @@ mod tests {
                 router_ip: *ROUTER_IP
             })
         );
-        let protocol_log = outer_protocol_log_arc.lock().unwrap();
+        let protocol_log = protocol_log_arc.lock().unwrap();
         // Tried PCP, failed. Tried PMP, worked. Didn't bother with IGDP.
         assert_eq!(
             *protocol_log,
@@ -528,16 +521,11 @@ mod tests {
         );
         let mut subject = replace_transactor(subject, transactor);
         subject.usual_protocol_opt = Some(AutomapProtocol::Pmp);
-        let outer_protocol_log_arc = Arc::new(Mutex::new(vec![]));
-        let inner_protocol_log_arc = outer_protocol_log_arc.clone();
-        let experiment: TransactorExperiment<String> = Box::new(move |t, _router_ip| {
-            inner_protocol_log_arc.lock().unwrap().push(t.protocol());
-            if t.protocol() == AutomapProtocol::Pmp {
-                Ok("Success!".to_string())
-            } else {
-                Err(AutomapError::Unknown)
-            }
-        });
+        let protocol_log_arc = Arc::new(Mutex::new(vec![]));
+        let experiment = make_logging_experiment(
+            protocol_log_arc.clone(),
+            AutomapProtocol::Pmp
+        );
 
         let result = subject.choose_working_protocol(experiment);
 
@@ -548,7 +536,7 @@ mod tests {
                 router_ip: *ROUTER_IP
             })
         );
-        let protocol_log = outer_protocol_log_arc.lock().unwrap();
+        let protocol_log = protocol_log_arc.lock().unwrap();
         // Tried usual PMP first; succeeded.
         assert_eq!(*protocol_log, vec![AutomapProtocol::Pmp]);
     }
@@ -557,16 +545,11 @@ mod tests {
     fn find_protocol_with_failing_usual_protocol_tries_other_protocols() {
         let mut subject = make_fully_populated_subject();
         subject.usual_protocol_opt = Some(AutomapProtocol::Pmp);
-        let outer_protocol_log_arc = Arc::new(Mutex::new(vec![]));
-        let inner_protocol_log_arc = outer_protocol_log_arc.clone();
-        let experiment: TransactorExperiment<String> = Box::new(move |t, _router_ip| {
-            inner_protocol_log_arc.lock().unwrap().push(t.protocol());
-            if t.protocol() == AutomapProtocol::Igdp {
-                Ok("Success!".to_string())
-            } else {
-                Err(AutomapError::Unknown)
-            }
-        });
+        let protocol_log_arc = Arc::new(Mutex::new(vec![]));
+        let experiment = make_logging_experiment(
+            protocol_log_arc.clone(),
+            AutomapProtocol::Igdp
+        );
 
         let result = subject.choose_working_protocol(experiment);
 
@@ -577,7 +560,7 @@ mod tests {
                 router_ip: *ROUTER_IP
             })
         );
-        let protocol_log = outer_protocol_log_arc.lock().unwrap();
+        let protocol_log = protocol_log_arc.lock().unwrap();
         // Tried usual PMP; failed. Tried PCP, failed. Skipped PMP (already tried), tried IGDP; succeeded.
         assert_eq!(
             *protocol_log,
@@ -1389,19 +1372,19 @@ mod tests {
         subject
     }
 
-    /* Put this back in if it's necessary
-    fn replace_transactor(
-        subject: AutomapControlReal,
-        transactor: Box<dyn Transactor>,
-    ) -> AutomapControlReal {
-        let idx = AutomapControlReal::find_transactor_index(
-            subject.transactors.borrow_mut(),
-            transactor.protocol(),
-        );
-        subject.transactors.borrow_mut()[idx] = transactor;
-        subject
+    fn make_logging_experiment(
+        protocol_log_arc: Arc<Mutex<Vec<AutomapProtocol>>>,
+        expected_protocol: AutomapProtocol
+    ) -> TransactorExperiment<String> {
+        Box::new(move |t, _router_ip| {
+            protocol_log_arc.lock().unwrap().push(t.protocol());
+            if t.protocol() == expected_protocol {
+                Ok("Success!".to_string())
+            } else {
+                Err(AutomapError::Unknown)
+            }
+        })
     }
-    */
 
     fn assert_all_protocols_failed<T: Debug + PartialEq>(
         result: Result<T, AutomapError>,

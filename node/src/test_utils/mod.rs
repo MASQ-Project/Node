@@ -1,4 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+#![cfg(test)]
 
 #[macro_use]
 pub mod channel_wrapper_mocks;
@@ -34,7 +35,6 @@ use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
@@ -59,6 +59,7 @@ use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use web3::types::{Address, U256};
+use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
 lazy_static! {
     static ref MAIN_CRYPTDE_NULL: Box<dyn CryptDE + 'static> =
@@ -550,6 +551,7 @@ pub mod unshared_test_utils {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use masq_lib::test_utils::utils::MutexIncrementInset;
 
     #[derive(Message)]
     pub struct AssertionsMessage<A: Actor> {

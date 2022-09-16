@@ -7,5 +7,6 @@ pub mod logger;
 pub mod probe_researcher;
 pub mod protocols;
 
-#[cfg(test)]
+// #[cfg(test)] // Some of these mocks are used in node. It'd be nice to be able to do that
+// but leave them out of the production tree.
 pub mod mocks;

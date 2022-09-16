@@ -1046,8 +1046,8 @@ mod tests {
         );
         let updated_db_path_dir = &home_dir.join("updated");
         let from_scratch_db_path_dir = &home_dir.join("from_scratch");
-        std::fs::create_dir(updated_db_path_dir).unwrap();
-        std::fs::create_dir(from_scratch_db_path_dir).unwrap();
+        fs::create_dir(updated_db_path_dir).unwrap();
+        fs::create_dir(from_scratch_db_path_dir).unwrap();
         {
             bring_db_0_back_to_life_and_return_connection(&updated_db_path_dir.join(DATABASE_FILE));
         }

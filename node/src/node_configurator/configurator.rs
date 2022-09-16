@@ -26,12 +26,9 @@ use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::sub_lib::configurator::NewPasswordMessage;
-use crate::sub_lib::cryptde::PlainData;
-use crate::sub_lib::logger::Logger;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::utils::handle_ui_crash_request;
 use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::main_cryptde;
 use bip39::{Language, Mnemonic, MnemonicType, Seed};
 use masq_lib::constants::{
     BAD_PASSWORD_ERROR, CONFIGURATOR_READ_ERROR, CONFIGURATOR_WRITE_ERROR, DERIVATION_PATH_ERROR,
@@ -42,6 +39,7 @@ use masq_lib::logger::Logger;
 use masq_lib::utils::derivation_path;
 use rustc_hex::{FromHex, ToHex};
 use tiny_hderive::bip32::ExtendedPrivKey;
+use crate::bootstrapper::main_cryptde_ref;
 
 pub const CRASH_KEY: &str = "CONFIGURATOR";
 
@@ -580,7 +578,7 @@ impl Configurator {
                         None => vec![],
                         Some(pns) => pns
                             .into_iter()
-                            .map(|nd| nd.to_string(main_cryptde()))
+                            .map(|nd| nd.to_string(main_cryptde_ref()))
                             .collect::<Vec<String>>(),
                     };
                     (
@@ -845,6 +843,7 @@ mod tests {
     use masq_lib::utils::{derivation_path, AutomapProtocol, NeighborhoodModeLight};
     use rustc_hex::FromHex;
     use tiny_hderive::bip32::ExtendedPrivKey;
+    use crate::test_utils::main_cryptde;
 
     #[test]
     fn constants_have_correct_values() {
@@ -934,7 +933,7 @@ mod tests {
         assert_eq!(
             ui_gateway_recording.get_record::<NodeToUiMessage>(0),
             &NodeToUiMessage {
-                target: MessageTarget::ClientId(1234),
+                target: ClientId(1234),
                 body: UiCheckPasswordResponse { matches: false }.tmb(4321)
             }
         );
@@ -1011,7 +1010,7 @@ mod tests {
         assert_eq!(
             ui_gateway_recording.get_record::<NodeToUiMessage>(1),
             &NodeToUiMessage {
-                target: MessageTarget::ClientId(1234),
+                target: ClientId(1234),
                 body: UiChangePasswordResponse {}.tmb(4321)
             }
         );
@@ -1118,7 +1117,7 @@ mod tests {
         assert_eq!(
             ui_gateway_recording.get_record::<NodeToUiMessage>(0),
             &NodeToUiMessage {
-                target: MessageTarget::ClientId(1234),
+                target: ClientId(1234),
                 body: UiWalletAddressesResponse {
                     consuming_wallet_address: "0x1234567890123456789012345678901234567890"
                         .to_string(),

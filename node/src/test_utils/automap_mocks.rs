@@ -52,7 +52,7 @@ impl AutomapControlFactoryMock {
     }
 
     pub fn make_result(self, result: Box<dyn AutomapControl>) -> Self {
-        self.make_results.borrow_mut().push(result);
+        self.make_results.lock().unwrap().push(result);
         self
     }
 }

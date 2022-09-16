@@ -10,9 +10,7 @@ use crate::sub_lib::neighborhood::{
 };
 use crate::sub_lib::node_addr::NodeAddr;
 use masq_lib::logger::Logger;
-use std::collections::HashSet;
 use actix::Recipient;
-use masq_lib::logger::Logger;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};

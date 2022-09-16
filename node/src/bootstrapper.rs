@@ -1,5 +1,4 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::{DEFAULT_PAYABLE_SCAN_INTERVAL, DEFAULT_PAYMENT_RECEIVED_SCAN_INTERVAL};
 use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactory};
 use crate::actor_system_factory::{ActorSystemFactoryToolsReal};
@@ -61,7 +60,7 @@ use tokio::prelude::Stream;
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 
-fn main_cryptde_ref<'a>() -> &'a dyn CryptDE {
+pub fn main_cryptde_ref<'a>() -> &'a dyn CryptDE {
     unsafe {
         MAIN_CRYPTDE_BOX_OPT
             .as_ref()
@@ -70,7 +69,7 @@ fn main_cryptde_ref<'a>() -> &'a dyn CryptDE {
     }
 }
 
-fn alias_cryptde_ref<'a>() -> &'a dyn CryptDE {
+pub fn alias_cryptde_ref<'a>() -> &'a dyn CryptDE {
     unsafe {
         ALIAS_CRYPTDE_BOX_OPT
             .as_ref()
@@ -729,7 +728,7 @@ mod tests {
         make_populated_accountant_config_with_defaults, make_simplified_multi_config,
     };
     use crate::test_utils::{assert_contains, rate_pack};
-    use crate::test_utils::{main_cryptde, make_wallet};
+    use crate::test_utils::{make_wallet};
     use actix::Recipient;
     use actix::System;
     use crossbeam_channel::unbounded;
@@ -742,8 +741,6 @@ mod tests {
     use masq_lib::logger::TEST_LOG_RECIPIENT_GUARD;
     use masq_lib::test_utils::environment_guard::ClapGuard;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-    use masq_lib::test_utils::utils::{ DEFAULT_CHAIN_ID};
-    use regex::Regex;
     use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::find_free_port;

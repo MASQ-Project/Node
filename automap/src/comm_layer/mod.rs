@@ -33,6 +33,8 @@ pub enum AutomapErrorCause {
     Unknown(String),
 }
 
+// TODO: Maybe we need a kind of AutomapError that gives up and kills the system, _and_ a kind
+// of AutomapError that just makes the system log an angry message and keep going.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum AutomapError {
     Unknown,
@@ -46,17 +48,17 @@ pub enum AutomapError {
     SocketReceiveError(AutomapErrorCause),
     PacketParseError(ParseError),
     ProtocolError(String),
-    PermanentLeasesOnly,
-    TemporaryMappingError(String),
+    PermanentLeasesOnly, // possibly shouldn't kill the system; investigate
+    TemporaryMappingError(String), // possibly shouldn't kill the system; investigate
     PermanentMappingError(String),
-    ProbeServerConnectError(String),
+    ProbeServerConnectError(String), // Are these Probe errors still used anywhere?
     ProbeRequestError(AutomapErrorCause, String),
     ProbeReceiveError(String),
-    DeleteMappingError(String),
+    DeleteMappingError(String), // possibly shouldn't kill the system; investigate
     TransactionFailure(String),
     AllProtocolsFailed(Vec<(AutomapProtocol, AutomapError)>),
-    HousekeeperAlreadyRunning,
-    HousekeeperCrashed,
+    HousekeeperAlreadyRunning, // possibly shouldn't kill the system; investigate
+    HousekeeperCrashed, // possibly shouldn't kill the system; investigate
 }
 
 impl AutomapError {

@@ -1,6 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::raw_transaction::RawTransaction;
 use crate::accountant::payable_dao::PayableAccount;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::tool_wrappers::{
@@ -11,7 +10,6 @@ use actix::{Message, Recipient};
 use futures::{future, Future};
 use masq_lib::blockchains::chains::{Chain, ChainFamily};
 use masq_lib::constants::DEFAULT_CHAIN;
-use masq_lib::logger::Logger;
 use masq_lib::logger::Logger;
 use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
