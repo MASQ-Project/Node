@@ -23,9 +23,7 @@ use crate::db_config::mocks::ConfigDaoMock;
 use crate::sub_lib::accountant::PaymentThresholds;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
-use crate::test_utils::unshared_test_utils::{
-    configure_defaults_for_accountant, make_bc_with_defaults,
-};
+use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
 use actix::System;
 use ethereum_types::{BigEndianHash, H256, U256};
 use rusqlite::{Connection, Error, OptionalExtension};
@@ -699,15 +697,13 @@ impl BannedDaoMock {
 }
 
 pub fn bc_from_earning_wallet(earning_wallet: Wallet) -> BootstrapperConfig {
-    let mut bc = BootstrapperConfig::new();
-    bc = configure_defaults_for_accountant(bc);
+    let mut bc = make_bc_with_defaults();
     bc.earning_wallet = earning_wallet;
     bc
 }
 
 pub fn bc_from_wallets(consuming_wallet: Wallet, earning_wallet: Wallet) -> BootstrapperConfig {
-    let mut bc = BootstrapperConfig::new();
-    bc = configure_defaults_for_accountant(bc);
+    let mut bc = make_bc_with_defaults();
     bc.consuming_wallet_opt = Some(consuming_wallet);
     bc.earning_wallet = earning_wallet;
     bc
