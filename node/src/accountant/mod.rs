@@ -471,7 +471,7 @@ impl Accountant {
             banned_dao: banned_dao_factory.make(),
             crashable: config.crash_point == CrashPoint::Message,
             scanners: Scanners::new(
-                payable_dao_factory.make(),
+                payable_dao_factory,
                 pending_payable_dao_factory,
                 receivable_dao_factory.make(),
                 banned_dao_factory.make(),

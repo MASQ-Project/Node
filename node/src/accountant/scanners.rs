@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub(in crate::accountant) mod scanners {
-    use crate::accountant::payable_dao::{Payable, PayableDao};
+    use crate::accountant::payable_dao::{Payable, PayableDao, PayableDaoFactory};
     use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
     use crate::accountant::receivable_dao::ReceivableDao;
     use crate::accountant::tools::payable_scanner_tools::{
@@ -49,7 +49,7 @@ pub(in crate::accountant) mod scanners {
 
     impl Scanners {
         pub fn new(
-            payable_dao: Box<dyn PayableDao>,
+            payable_dao_factory: Box<dyn PayableDaoFactory>,
             pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
             receivable_dao: Box<dyn ReceivableDao>,
             banned_dao: Box<dyn BannedDao>,
@@ -59,11 +59,12 @@ pub(in crate::accountant) mod scanners {
         ) -> Self {
             Scanners {
                 payables: Box::new(PayableScanner::new(
-                    payable_dao,
+                    payable_dao_factory.make(),
                     pending_payable_dao_factory.make(),
                     Rc::clone(&payment_thresholds),
                 )),
                 pending_payables: Box::new(PendingPayableScanner::new(
+                    payable_dao_factory.make(),
                     pending_payable_dao_factory.make(),
                     Rc::clone(&payment_thresholds),
                     when_pending_too_long_sec,
@@ -196,13 +197,13 @@ pub(in crate::accountant) mod scanners {
 
     impl PayableScanner {
         pub fn new(
-            dao: Box<dyn PayableDao>,
+            payable_dao: Box<dyn PayableDao>,
             pending_payable_dao: Box<dyn PendingPayableDao>,
             payment_thresholds: Rc<PaymentThresholds>,
         ) -> Self {
             Self {
                 common: ScannerCommon::new(payment_thresholds),
-                payable_dao: dao,
+                payable_dao,
                 pending_payable_dao,
             }
         }
@@ -282,6 +283,7 @@ pub(in crate::accountant) mod scanners {
 
     pub struct PendingPayableScanner {
         common: ScannerCommon,
+        payable_dao: Box<dyn PayableDao>,
         pending_payable_dao: Box<dyn PendingPayableDao>,
         when_pending_too_long_sec: u64,
     }
@@ -355,13 +357,15 @@ pub(in crate::accountant) mod scanners {
 
     impl PendingPayableScanner {
         pub fn new(
-            dao: Box<dyn PendingPayableDao>,
+            payable_dao: Box<dyn PayableDao>,
+            pending_payable_dao: Box<dyn PendingPayableDao>,
             payment_thresholds: Rc<PaymentThresholds>,
             when_pending_too_long_sec: u64,
         ) -> Self {
             Self {
                 common: ScannerCommon::new(payment_thresholds),
-                pending_payable_dao: dao,
+                payable_dao,
+                pending_payable_dao,
                 when_pending_too_long_sec,
             }
         }
@@ -536,8 +540,8 @@ pub(in crate::accountant) mod scanners {
                 .expectv("initialized rowid");
 
             if let Err(e) = self
-                .pending_payable_dao
-                .transaction_confirmed(pending_payable_fingerprint)
+                .payable_dao
+                .transaction_confirmed(&pending_payable_fingerprint)
             {
                 Err(format!(
                     "Was unable to uncheck pending payable '{}' after confirmation due to '{:?}'",
@@ -776,13 +780,13 @@ mod tests {
         PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner, ScannerError, Scanners,
     };
     use crate::accountant::test_utils::{
-        make_payables, make_receivable_account, BannedDaoMock, PayableDaoMock,
-        PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoMock,
+        make_payables, make_receivable_account, BannedDaoMock, PayableDaoFactoryMock,
+        PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoMock,
     };
     use crate::accountant::{RequestTransactionReceipts, SentPayable};
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 
-    use crate::accountant::payable_dao::{Payable, PayableDaoError};
+    use crate::accountant::payable_dao::{Payable, PayableDaoError, PayableDaoFactory};
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::sub_lib::accountant::PaymentThresholds;
@@ -800,11 +804,14 @@ mod tests {
     #[test]
     fn scanners_struct_can_be_constructed_with_the_respective_scanners() {
         let payment_thresholds = Rc::new(make_payment_thresholds_with_defaults());
+        let payable_dao_factory = PayableDaoFactoryMock::new()
+            .make_result(PayableDaoMock::new())
+            .make_result(PayableDaoMock::new());
         let pending_payable_dao_factory = PendingPayableDaoFactoryMock::new()
             .make_result(PendingPayableDaoMock::new())
             .make_result(PendingPayableDaoMock::new());
         let scanners = Scanners::new(
-            Box::new(PayableDaoMock::new()),
+            Box::new(payable_dao_factory),
             Box::new(pending_payable_dao_factory),
             Box::new(ReceivableDaoMock::new()),
             Box::new(BannedDaoMock::new()),
@@ -1007,6 +1014,7 @@ mod tests {
             PendingPayableDaoMock::new().return_all_fingerprints_result(fingerprints.clone());
         let payment_thresholds = make_payment_thresholds_with_defaults();
         let mut pending_payable_scanner = PendingPayableScanner::new(
+            Box::new(PayableDaoMock::new()),
             Box::new(pending_payable_dao),
             Rc::new(payment_thresholds),
             0,
@@ -1044,6 +1052,7 @@ mod tests {
             PendingPayableDaoMock::new().return_all_fingerprints_result(vec![]);
         let payment_thresholds = make_payment_thresholds_with_defaults();
         let mut pending_payable_scanner = PendingPayableScanner::new(
+            Box::new(PayableDaoMock::new()),
             Box::new(pending_payable_dao),
             Rc::new(payment_thresholds),
             0,
