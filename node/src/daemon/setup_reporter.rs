@@ -788,31 +788,16 @@ impl ValueRetriever for MappingProtocol {
 
     fn computed_default(
         &self,
-        bootstrapper_config: &BootstrapperConfig,
-        persistent_config_opt: &Option<Box<dyn PersistentConfiguration>>,
+        _bootstrapper_config: &BootstrapperConfig,
+        persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        let persistent_mapping_protocol_opt = match persistent_config_opt {
-            Some(pc) => match pc.mapping_protocol() {
-                Ok(protocol_opt) => protocol_opt,
-                Err(_) => None,
-            },
-            None => None,
+        let persistent_config_value_opt = match persistent_config.mapping_protocol() {
+            Ok(protocol_opt) => protocol_opt,
+            Err(_) => None,
         };
-        let from_bootstrapper_opt = bootstrapper_config.mapping_protocol_opt;
-        match (persistent_mapping_protocol_opt, from_bootstrapper_opt) {
-            (Some(persistent), None) => Some((persistent.to_string().to_lowercase(), Configured)),
-            (None, Some(from_bootstrapper)) => {
-                Some((from_bootstrapper.to_string().to_lowercase(), Configured))
-            }
-            (Some(persistent), Some(from_bootstrapper)) if persistent != from_bootstrapper => {
-                Some((from_bootstrapper.to_string().to_lowercase(), Configured))
-            }
-            (Some(persistent), Some(_)) => {
-                Some((persistent.to_string().to_lowercase(), Configured))
-            }
-            _ => None,
-        }
+        persistent_config_value_opt
+            .map(|protocol| (protocol.to_string().to_lowercase(), Configured))
     }
 }
 
@@ -2915,7 +2900,7 @@ mod tests {
 
         let result = subject.computed_default(
             &bootstrapper_config,
-            &Some(Box::new(persistent_config)),
+            &persistent_config,
             &None,
         );
 

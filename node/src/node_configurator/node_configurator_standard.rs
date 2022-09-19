@@ -4,10 +4,6 @@ use crate::bootstrapper::BootstrapperConfig;
 use crate::node_configurator::DirsWrapperReal;
 use crate::node_configurator::{initialize_database, DirsWrapper, NodeConfigurator};
 use masq_lib::crash_point::CrashPoint;
-#[cfg(feature = "log_recipient_test")]
-use masq_lib::logger::log_broadcast_substitution_in_tests::prepare_log_recipient;
-#[cfg(not(feature = "log_recipient_test"))]
-use masq_lib::logger::prepare_log_recipient;
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
@@ -2162,7 +2158,6 @@ fn configure_database(
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_address_result(Ok(Some(earning_address.to_string())))
-            .consuming_wallet_derivation_path_result(Ok(None))
             .set_gas_price_result(Ok(()))
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
             .set_clandestine_port_result(Ok(()));

@@ -48,7 +48,6 @@ use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, AutomapProtocol};
 use std::net::{IpAddr, Ipv4Addr};
 use std::path::Path;
-use masq_lib::test_utils::utils::prepare_log_recipient;
 
 pub trait ActorSystemFactory {
     fn make_and_start_actors(
@@ -60,6 +59,7 @@ pub trait ActorSystemFactory {
 }
 
 pub struct ActorSystemFactoryReal {
+    // TODO: Rename me to 'tools'
     t: Box<dyn ActorSystemFactoryTools>,
 }
 
@@ -541,7 +541,7 @@ fn is_crashable(config: &BootstrapperConfig) -> bool {
     config.crash_point == CrashPoint::Message
 }
 
-pub trait AutomapControlFactory: Send {
+pub trait AutomapControlFactory {
     fn make(
         &self,
         usual_protocol_opt: Option<AutomapProtocol>,
@@ -1168,7 +1168,7 @@ mod tests {
         tools.automap_control_factory = automap_control_factory;
         let mut subject = ActorSystemFactoryReal::new(Box::new (tools));
 
-        let _ = subject.prepare_initial_messages(
+        let _ = subject.t.prepare_initial_messages(
             make_cryptde_pair(),
             config.clone(),
             Box::new(PersistentConfigurationMock::new()),
@@ -1557,7 +1557,7 @@ mod tests {
         );
         let mut subject = ActorSystemFactoryReal::new(Box::new (tools));
 
-        let _ = subject.prepare_initial_messages(
+        let _ = subject.t.prepare_initial_messages(
             make_cryptde_pair(),
             config.clone(),
             Box::new(PersistentConfigurationMock::new()),

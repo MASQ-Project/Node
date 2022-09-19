@@ -111,7 +111,7 @@ pub trait PersistentConfiguration {
     fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError>;
     // WARNING: Actors should get earning-wallet information from their startup config, not from here
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError>;
-fn gas_price(&self) -> Result<u64, PersistentConfigError>;
+    fn gas_price(&self) -> Result<u64, PersistentConfigError>;
     fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError>;
     fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError>;
     fn set_mapping_protocol(

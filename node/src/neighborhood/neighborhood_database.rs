@@ -778,7 +778,7 @@ mod tests {
             this_node.public_key(),
             (&this_node).into(),
             this_node.earning_wallet(),
-            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN.rec.num_chain_id),
+            &CryptDENull::from(this_node.public_key(), TEST_DEFAULT_CHAIN),
         );
         let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
 

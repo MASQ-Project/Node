@@ -210,10 +210,10 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
 
 pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
     PersistentConfigurationMock::new()
-        .earning_wallet_from_address_result(Ok(None))
-        .consuming_wallet_derivation_path_result(Ok(None))
-        .mnemonic_seed_result(Ok(None))
-        .mnemonic_seed_exists_result(Ok(false))
+        // .earning_wallet_from_address_result(Ok(None))
+        // .consuming_wallet_derivation_path_result(Ok(None))
+        // .mnemonic_seed_result(Ok(None))
+        // .mnemonic_seed_exists_result(Ok(false))
         .past_neighbors_result(Ok(None))
         .gas_price_result(Ok(1))
         .mapping_protocol_result(Ok(None))
