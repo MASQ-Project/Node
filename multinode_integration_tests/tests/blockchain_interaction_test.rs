@@ -75,12 +75,10 @@ fn debtors_are_credited_once_but_not_twice() {
         MASQRealNode::node_home_dir(&MASQNodeUtils::find_project_root(), &node_name);
     open_all_file_permissions(PathBuf::from(node_home_dir));
     {
-        let mut config_dao = config_dao(&node_name);
-        let mut config_xactn = config_dao.start_transaction().unwrap();
-        config_xactn
+        let config_dao = config_dao(&node_name);
+        config_dao
             .set("start_block", Some("1000".to_string()))
             .unwrap();
-        config_xactn.commit().unwrap();
     }
     {
         let receivable_dao = receivable_dao(&node_name);

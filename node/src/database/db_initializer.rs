@@ -737,7 +737,7 @@ pub mod test_utils {
 mod tests {
     use super::*;
     use crate::database::db_initializer::InitializationError::SqliteError;
-    use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
+    use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::test_utils::database_utils::{
         assert_create_table_stm_contains_all_parts,
         assert_index_stm_is_coupled_with_right_parameter, assert_no_index_exists_for_table,
@@ -1435,14 +1435,9 @@ mod tests {
             )
         );
         let mut migrate_database_params = migrate_database_params_arc.lock().unwrap();
-        let (mismatched_schema, target_version, connection_wrapper) =
-            migrate_database_params.remove(0);
+        let (mismatched_schema, target_version, _) = migrate_database_params.remove(0);
         assert_eq!(mismatched_schema, 0);
         assert_eq!(target_version, 5);
-        assert!(connection_wrapper
-            .as_any()
-            .downcast_ref::<ConnectionWrapperReal>()
-            .is_some());
         TestLogHandler::new().exists_log_containing(
             "WARN: DbInitializer: Database is incompatible and its updating is necessary",
         );

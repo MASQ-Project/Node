@@ -1,6 +1,6 @@
 [package]
 name = "masq_lib"
-version = "0.6.1"
+version = "0.6.2"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 license = "GPL-3.0-only"
 copyright = "Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved."
@@ -10,7 +10,7 @@ workspace = "../node"
 
 [dependencies]
 actix = "0.7.9"
-chrono = "0.4.7"
+time = {version = "0.3.11", features = [ "formatting" ]}
 clap = "2.33.3"
 const_format = "0.2.22"
 crossbeam-channel = "0.5.1"

@@ -53,7 +53,7 @@ pub struct BlockchainBridge {
 }
 
 struct TransactionConfirmationTools {
-    transaction_backup_subs_opt: Option<Recipient<PendingPayableFingerprint>>,
+    transaction_fingerprint_subs_opt: Option<Recipient<PendingPayableFingerprint>>,
     report_transaction_receipts_sub_opt: Option<Recipient<ReportTransactionReceipts>>,
 }
 
@@ -69,7 +69,7 @@ impl Handler<BindMessage> for BlockchainBridge {
             msg.peer_actors.neighborhood.set_consuming_wallet_sub,
             msg.peer_actors.proxy_server.set_consuming_wallet_sub,
         ]);
-        self.payment_confirmation.transaction_backup_subs_opt =
+        self.payment_confirmation.transaction_fingerprint_subs_opt =
             Some(msg.peer_actors.accountant.pending_payable_fingerprint);
         self.payment_confirmation
             .report_transaction_receipts_sub_opt =
@@ -178,7 +178,7 @@ impl BlockchainBridge {
             crashable,
             logger: Logger::new("BlockchainBridge"),
             payment_confirmation: TransactionConfirmationTools {
-                transaction_backup_subs_opt: None,
+                transaction_fingerprint_subs_opt: None,
                 report_transaction_receipts_sub_opt: None,
             },
         }
@@ -395,7 +395,7 @@ impl BlockchainBridge {
             .get_transaction_count(consuming_wallet)?;
         let send_tx_tools = self.blockchain_interface.send_transaction_tools(
             self.payment_confirmation
-                .transaction_backup_subs_opt
+                .transaction_fingerprint_subs_opt
                 .as_ref()
                 .expect("Accountant is unbound"),
         );
@@ -568,8 +568,10 @@ mod tests {
             response_skeleton_opt: None,
         };
         let (accountant, _, _) = make_recorder();
-        let backup_recipient = accountant.start().recipient();
-        subject.payment_confirmation.transaction_backup_subs_opt = Some(backup_recipient);
+        let fingerprint_recipient = accountant.start().recipient();
+        subject
+            .payment_confirmation
+            .transaction_fingerprint_subs_opt = Some(fingerprint_recipient);
 
         let result = subject.preprocess_payments(&request);
 

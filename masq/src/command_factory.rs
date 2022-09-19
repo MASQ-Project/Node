@@ -5,6 +5,7 @@ use crate::commands::change_password_command::ChangePasswordCommand;
 use crate::commands::check_password_command::CheckPasswordCommand;
 use crate::commands::commands_common::Command;
 use crate::commands::configuration_command::ConfigurationCommand;
+use crate::commands::connection_status_command::ConnectionStatusCommand;
 use crate::commands::crash_command::CrashCommand;
 use crate::commands::descriptor_command::DescriptorCommand;
 use crate::commands::financials_command::FinancialsCommand;
@@ -45,6 +46,7 @@ impl CommandFactory for CommandFactoryReal {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
+            "connection-status" => Box::new(ConnectionStatusCommand::new()),
             "crash" => match CrashCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
@@ -200,6 +202,19 @@ mod tests {
     }
 
     #[test]
+    fn connection_status_command_works() {
+        let subject = CommandFactoryReal::new();
+
+        let command = subject.make(&["connection-status".to_string()]).unwrap();
+
+        let connnection_status_command = command
+            .as_any()
+            .downcast_ref::<ConnectionStatusCommand>()
+            .unwrap();
+        assert_eq!(connnection_status_command, &ConnectionStatusCommand {});
+    }
+
+    #[test]
     fn factory_produces_set_password() {
         let subject = CommandFactoryReal::new();
 
@@ -310,6 +325,21 @@ mod tests {
             true,
             "{}",
             msg
+        );
+    }
+
+    #[test]
+    fn factory_produces_connection_status() {
+        let subject = CommandFactoryReal::new();
+
+        let command = subject.make(&["connection-status".to_string()]).unwrap();
+
+        assert_eq!(
+            command
+                .as_any()
+                .downcast_ref::<ConnectionStatusCommand>()
+                .unwrap(),
+            &ConnectionStatusCommand {}
         );
     }
 

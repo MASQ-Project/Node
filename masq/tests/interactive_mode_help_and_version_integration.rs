@@ -13,7 +13,6 @@ mod utils;
 fn interactive_mode_allows_a_help_call_integration() {
     let port = find_free_port();
     let daemon_handle = DaemonProcess::new().start(port);
-    thread::sleep(Duration::from_millis(200));
     let mut masq_handle = MasqProcess::new().start_interactive(port, true);
     let mut stdin_handle = masq_handle.create_stdin_handle();
 
@@ -55,7 +54,6 @@ masq is a command-line user interface to the MASQ Daemon and the MASQ Node
 fn interactive_mode_allows_a_version_call_integration() {
     let port = find_free_port();
     let daemon_handle = DaemonProcess::new().start(port);
-    thread::sleep(Duration::from_millis(200));
     let mut masq_handle = MasqProcess::new().start_interactive(port, true);
     let mut stdin_handle = masq_handle.create_stdin_handle();
 

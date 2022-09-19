@@ -2,6 +2,8 @@
 
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
+use crate::neighborhood::overall_connection_status::ConnectionProgress;
+use crate::neighborhood::Neighborhood;
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_real::CryptDEReal;
@@ -13,6 +15,7 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
@@ -29,6 +32,9 @@ use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
+use std::time::Duration;
+
+const ASK_ABOUT_GOSSIP_INTERVAL: Duration = Duration::from_secs(10);
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 172_300_000,
@@ -376,6 +382,7 @@ pub struct NeighborhoodSubs {
     pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
     pub from_ui_message_sub: Recipient<NodeFromUiMessage>,
     pub new_password_sub: Recipient<NewPasswordMessage>,
+    pub connection_progress_sub: Recipient<ConnectionProgressMessage>,
 }
 
 impl Debug for NeighborhoodSubs {
@@ -474,6 +481,28 @@ pub struct RemoveNeighborMessage {
     pub public_key: PublicKey,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConnectionProgressEvent {
+    TcpConnectionSuccessful,
+    TcpConnectionFailed,
+    NoGossipResponseReceived,
+    PassLoopFound,
+    StandardGossipReceived,
+    IntroductionGossipReceived(IpAddr),
+    PassGossipReceived(IpAddr),
+}
+
+#[derive(Clone, Debug, Message, PartialEq, Eq)]
+pub struct ConnectionProgressMessage {
+    pub peer_addr: IpAddr,
+    pub event: ConnectionProgressEvent,
+}
+
+#[derive(Clone, Debug, Message, PartialEq, Eq)]
+pub struct AskAboutDebutGossipMessage {
+    pub prev_connection_progress: ConnectionProgress,
+}
+
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
 pub enum NodeRecordMetadataMessage {
     Desirable(PublicKey, bool),
@@ -502,10 +531,26 @@ impl fmt::Display for GossipFailure_0v1 {
     }
 }
 
+pub struct NeighborhoodTools {
+    pub notify_later_ask_about_gossip:
+        Box<dyn NotifyLaterHandle<AskAboutDebutGossipMessage, Neighborhood>>,
+    pub ask_about_gossip_interval: Duration,
+}
+
+impl Default for NeighborhoodTools {
+    fn default() -> Self {
+        Self {
+            notify_later_ask_about_gossip: Box::new(NotifyLaterHandleReal::new()),
+            ask_about_gossip_interval: ASK_ABOUT_GOSSIP_INTERVAL,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::sub_lib::cryptde_real::CryptDEReal;
+    use crate::sub_lib::utils::NotifyLaterHandleReal;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::recorder::Recorder;
     use actix::Actor;
@@ -534,6 +579,7 @@ mod tests {
                 exit_service_rate: 0,
             }
         );
+        assert_eq!(ASK_ABOUT_GOSSIP_INTERVAL, Duration::from_secs(10));
     }
 
     pub fn rate_pack(base_rate: u64) -> RatePack {
@@ -564,6 +610,7 @@ mod tests {
             set_consuming_wallet_sub: recipient!(recorder, SetConsumingWalletMessage),
             from_ui_message_sub: recipient!(recorder, NodeFromUiMessage),
             new_password_sub: recipient!(recorder, NewPasswordMessage),
+            connection_progress_sub: recipient!(recorder, ConnectionProgressMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "NeighborhoodSubs");
@@ -1111,5 +1158,16 @@ mod tests {
 
     fn assert_make_light(heavy: NeighborhoodMode, expected_value: NeighborhoodModeLight) {
         assert_eq!(heavy.make_light(), expected_value)
+    }
+
+    #[test]
+    fn neighborhood_tools_default_is_set_properly() {
+        let subject = NeighborhoodTools::default();
+        subject
+            .notify_later_ask_about_gossip
+            .as_any()
+            .downcast_ref::<NotifyLaterHandleReal<AskAboutDebutGossipMessage>>()
+            .unwrap();
+        assert_eq!(subject.ask_about_gossip_interval, Duration::from_secs(10));
     }
 }

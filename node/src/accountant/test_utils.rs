@@ -19,7 +19,9 @@ use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
-use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds, WEIS_OF_GWEI};
+use crate::sub_lib::accountant::{
+    AccountantConfig, MessageIdGenerator, PaymentThresholds, WEIS_OF_GWEI,
+};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
@@ -346,7 +348,7 @@ impl PayableDaoMock {
         PayableDaoMock::default()
     }
 
-    pub fn more_money_payable_parameters(
+    pub fn more_money_payable_params(
         mut self,
         parameters: Arc<Mutex<Vec<(SystemTime, Wallet, u128)>>>,
     ) -> Self {
@@ -868,6 +870,24 @@ pub fn assert_on_sloped_segment_of_payment_thresholds_and_its_proper_alignment<F
         ideal_template_lower,
         lower_corner_point
     );
+}
+
+#[derive(Default)]
+pub struct MessageIdGeneratorMock {
+    ids: RefCell<Vec<u32>>,
+}
+
+impl MessageIdGenerator for MessageIdGeneratorMock {
+    fn id(&self) -> u32 {
+        self.ids.borrow_mut().remove(0)
+    }
+}
+
+impl MessageIdGeneratorMock {
+    pub fn id_result(self, id: u32) -> Self {
+        self.ids.borrow_mut().push(id);
+        self
+    }
 }
 
 pub fn assert_database_blows_up_on_an_unexpected_error<F, R>(tested_fn: F)

@@ -485,6 +485,37 @@ interested, you can send a `configuration` request and get the new info; or you 
 if you don't care. If you're caching the configuration information, this would be a good time to invalidate
 your cache.
 
+#### `connectionStatus`
+##### Direction: Request
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {}
+```
+##### Description:
+This message is used to check the connection status of the node with the MASQ Network.
+
+#### `connectionStatus`
+##### Direction: Response
+##### Correspondent: Node
+##### Layout:
+```
+"payload": {
+    "stage": <string>
+}
+```
+##### Description:
+If you send a `connectionStatus` request to the Node, it will respond back with a message containing the stage 
+of the connection status with the MASQ Network.
+
+There are following three connection stages:
+
+1. NotConnected: No external neighbor is connected to us.
+2. ConnectedToNeighbor: External node(s) are connected to us.
+3. ThreeHopsRouteFound: You can relay data over the network.
+
+The Node can only be on one of these connection stages during any moment of the Node's lifetime.
+
 #### `crash`
 ##### Direction: Request
 ##### Correspondent: Node

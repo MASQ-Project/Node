@@ -7,7 +7,7 @@ use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{
     DbInitializer, DbInitializerReal, InitializationError, DATABASE_FILE,
 };
-use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal, ConfigDaoRecord};
+use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal, ConfigDaoRecord};
 use crate::db_config::typed_config_layer::{decode_bytes, encode_bytes};
 use crate::node_configurator::DirsWrapperReal;
 use crate::node_configurator::{
@@ -159,6 +159,7 @@ mod tests {
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
     use crate::database::db_migrations::ExternalData;
+    use crate::db_config::config_dao::ConfigDao;
     use crate::db_config::persistent_configuration::{
         PersistentConfiguration, PersistentConfigurationReal,
     };

@@ -400,7 +400,7 @@ impl ActorFactory for ActorFactoryReal {
     ) -> ProxyServerSubs {
         let is_decentralized = config.neighborhood_config.mode.is_decentralized();
         let consuming_wallet_balance = if config.consuming_wallet_opt.is_some() {
-            Some(0)
+            Some(0) //TODO this is an old unfinished concept, repair or remove it...never used.
         } else {
             None
         };

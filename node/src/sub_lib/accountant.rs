@@ -10,8 +10,11 @@ use actix::Recipient;
 use actix::{Addr, Message};
 use lazy_static::lazy_static;
 use masq_lib::ui_gateway::NodeFromUiMessage;
+#[cfg(test)]
+use std::any::Any;
 use std::fmt::{Debug, Formatter};
 use std::str::FromStr;
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, SystemTime};
 
 pub const WEIS_OF_GWEI: i128 = 1_000_000_000;
@@ -21,9 +24,7 @@ lazy_static! {
     // TODO: The consuming wallet should never be defaulted; it should always come in from a
     // (possibly-complicated) command-line parameter, or the bidirectional GUI.
     pub static ref TEMPORARY_CONSUMING_WALLET: Wallet = Wallet::from_str("0xFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF").expect("Internal error");
-}
-
-lazy_static! {
+    pub static ref MSG_ID_INCREMENTER: AtomicU32 = AtomicU32::default();
     pub static ref DEFAULT_PAYMENT_THRESHOLDS: PaymentThresholds = PaymentThresholds {
         debt_threshold_gwei: 1_000_000_000,
         maturity_threshold_sec: 1200,
@@ -32,9 +33,6 @@ lazy_static! {
         threshold_interval_sec: 21600,
         unban_below_gwei: 500_000_000,
     };
-}
-
-lazy_static! {
     pub static ref DEFAULT_SCAN_INTERVALS: ScanIntervals = ScanIntervals {
         pending_payable_scan_interval: Duration::from_secs(600),
         payable_scan_interval: Duration::from_secs(600),
@@ -86,8 +84,7 @@ pub struct AccountantSubs {
     pub start: Recipient<StartMessage>,
     pub report_routing_service_provided: Recipient<ReportRoutingServiceProvidedMessage>,
     pub report_exit_service_provided: Recipient<ReportExitServiceProvidedMessage>,
-    pub report_routing_service_consumed: Recipient<ReportRoutingServiceConsumedMessage>,
-    pub report_exit_service_consumed: Recipient<ReportExitServiceConsumedMessage>,
+    pub report_services_consumed: Recipient<ReportServicesConsumedMessage>,
     pub report_new_payments: Recipient<ReceivedPayments>,
     pub pending_payable_fingerprint: Recipient<PendingPayableFingerprint>,
     pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,
@@ -134,17 +131,22 @@ pub struct ReportExitServiceProvidedMessage {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Message)]
-pub struct ReportRoutingServiceConsumedMessage {
+pub struct ReportServicesConsumedMessage {
     pub timestamp: SystemTime,
+    pub exit: ExitServiceConsumed,
+    pub routing_payload_size: usize,
+    pub routing: Vec<RoutingServiceConsumed>,
+}
+
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct RoutingServiceConsumed {
     pub earning_wallet: Wallet,
-    pub payload_size: usize,
     pub service_rate: u64,
     pub byte_rate: u64,
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Message)]
-pub struct ReportExitServiceConsumedMessage {
-    pub timestamp: SystemTime,
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub struct ExitServiceConsumed {
     pub earning_wallet: Wallet,
     pub payload_size: usize,
     pub service_rate: u64,
@@ -214,20 +216,40 @@ macro_rules! process_top_records_query {
     };
 }
 
+pub trait MessageIdGenerator {
+    fn id(&self) -> u32;
+    as_any_dcl!();
+}
+
+#[derive(Default)]
+pub struct MessageIdGeneratorReal {}
+
+impl MessageIdGenerator for MessageIdGeneratorReal {
+    fn id(&self) -> u32 {
+        MSG_ID_INCREMENTER.fetch_add(1, Ordering::Relaxed)
+    }
+    as_any_impl!();
+}
+
 #[cfg(test)]
 mod tests {
     use crate::accountant::test_utils::AccountantBuilder;
     use crate::accountant::Accountant;
     use crate::sub_lib::accountant::{
-        AccountantSubsFactory, AccountantSubsFactoryReal, PaymentThresholds, ScanIntervals,
-        DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS,
+        AccountantSubsFactory, AccountantSubsFactoryReal, MessageIdGenerator,
+        MessageIdGeneratorReal, PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET,
+        DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS, MSG_ID_INCREMENTER,
         TEMPORARY_CONSUMING_WALLET,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
     use actix::Actor;
     use std::str::FromStr;
+    use std::sync::atomic::Ordering;
+    use std::sync::Mutex;
     use std::time::Duration;
+
+    static MSG_ID_GENERATOR_TEST_GUARD: Mutex<()> = Mutex::new(());
 
     #[test]
     fn constants_have_correct_values() {
@@ -275,5 +297,30 @@ mod tests {
         let subs = subject.make(&addr);
 
         assert_eq!(subs, Accountant::make_subs_from(&addr))
+    }
+
+    #[test]
+    fn msg_id_generator_increments_by_one_with_every_call() {
+        let _guard = MSG_ID_GENERATOR_TEST_GUARD.lock().unwrap();
+        let subject = MessageIdGeneratorReal::default();
+
+        let id1 = subject.id();
+        let id2 = subject.id();
+        let id3 = subject.id();
+
+        assert_eq!(id2, id1 + 1);
+        assert_eq!(id3, id2 + 1)
+    }
+
+    #[test]
+    fn msg_id_generator_wraps_around_max_value() {
+        let _guard = MSG_ID_GENERATOR_TEST_GUARD.lock().unwrap();
+        MSG_ID_INCREMENTER.store(u32::MAX, Ordering::Relaxed);
+        let subject = MessageIdGeneratorReal::default();
+        subject.id(); //this returns the previous, not the newly incremented
+
+        let id = subject.id();
+
+        assert_eq!(id, 0)
     }
 }

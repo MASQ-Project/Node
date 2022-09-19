@@ -4,6 +4,7 @@ pub mod change_password_command;
 pub mod check_password_command;
 pub mod commands_common;
 pub mod configuration_command;
+pub mod connection_status_command;
 pub mod crash_command;
 pub mod descriptor_command;
 pub mod financials_command;
