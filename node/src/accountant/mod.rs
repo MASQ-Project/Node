@@ -9,6 +9,8 @@ pub mod tools;
 pub mod test_utils;
 
 use masq_lib::constants::SCAN_ERROR;
+use std::borrow::{Borrow, BorrowMut};
+use std::cell::RefCell;
 
 use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
 use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
@@ -76,7 +78,7 @@ pub struct Accountant {
     scanners: Scanners,
     tools: TransactionConfirmationTools,
     notify_later: NotifyLaterForScanners,
-    financial_statistics: FinancialStatistics,
+    financial_statistics: Rc<RefCell<FinancialStatistics>>,
     report_accounts_payable_sub_opt: Option<Recipient<ReportAccountsPayable>>,
     retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
     request_transaction_receipts_subs_opt: Option<Recipient<RequestTransactionReceipts>>,
@@ -460,6 +462,7 @@ impl Accountant {
             .expectv("When pending too long sec");
 
         let earning_wallet = Rc::new(config.earning_wallet.clone());
+        let financial_statistics = Rc::new(RefCell::new(FinancialStatistics::default()));
         Accountant {
             scan_intervals,
             suppress_initial_scans_opt: config.suppress_initial_scans_opt,
@@ -478,10 +481,11 @@ impl Accountant {
                 Rc::clone(&payment_thresholds),
                 Rc::clone(&earning_wallet),
                 when_pending_too_long_sec,
+                Rc::clone(&financial_statistics),
             ),
             tools: TransactionConfirmationTools::default(),
             notify_later: NotifyLaterForScanners::default(),
-            financial_statistics: FinancialStatistics::default(),
+            financial_statistics: Rc::clone(&financial_statistics),
             report_accounts_payable_sub_opt: None,
             retrieve_transactions_sub: None,
             request_transaction_receipts_subs_opt: None,
@@ -613,7 +617,9 @@ impl Accountant {
             self.receivable_dao
                 .as_mut()
                 .more_money_received(msg.payments);
-            self.financial_statistics.total_paid_receivable += total_newly_paid_receivable;
+            let mut financial_statistics = self.financial_statistics();
+            financial_statistics.total_paid_receivable += total_newly_paid_receivable;
+            self.financial_statistics.replace(financial_statistics);
         }
         if let Some(response_skeleton) = msg.response_skeleton_opt {
             self.ui_message_sub
@@ -700,10 +706,11 @@ impl Accountant {
     }
 
     fn handle_financials(&mut self, client_id: u64, context_id: u64) {
+        let financial_statistics = self.financial_statistics();
         let total_unpaid_and_pending_payable = self.payable_dao.total();
-        let total_paid_payable = self.financial_statistics.total_paid_payable;
+        let total_paid_payable = financial_statistics.total_paid_payable;
         let total_unpaid_receivable = self.receivable_dao.total();
-        let total_paid_receivable = self.financial_statistics.total_paid_receivable;
+        let total_paid_receivable = financial_statistics.total_paid_receivable;
         let body = UiFinancialsResponse {
             total_unpaid_and_pending_payable,
             total_paid_payable,
@@ -870,7 +877,9 @@ impl Accountant {
                 msg.pending_payable_fingerprint.hash, e
             )
         } else {
-            self.financial_statistics.total_paid_payable += msg.pending_payable_fingerprint.amount;
+            let mut financial_statistics = self.financial_statistics.as_ref().borrow().clone();
+            financial_statistics.total_paid_payable += msg.pending_payable_fingerprint.amount;
+            self.financial_statistics.replace(financial_statistics);
             debug!(
                 self.logger,
                 "Confirmation of transaction {}; record for payable was modified",
@@ -1049,6 +1058,10 @@ impl Accountant {
                 "Failed to make a fingerprint for pending payable '{}' due to '{:?}'", msg.hash, e
             ),
         }
+    }
+
+    fn financial_statistics(&self) -> FinancialStatistics {
+        self.financial_statistics.as_ref().borrow().clone()
     }
 }
 
@@ -1240,6 +1253,7 @@ mod tests {
             banned_dao_factory,
         );
 
+        let financial_statistics = result.financial_statistics();
         let transaction_confirmation_tools = result.tools;
         transaction_confirmation_tools
             .notify_confirm_transaction
@@ -1275,8 +1289,8 @@ mod tests {
         //     .downcast_ref::<PayableExceedThresholdToolsReal>()
         //     .unwrap();
         assert_eq!(result.crashable, false);
-        assert_eq!(result.financial_statistics.total_paid_receivable, 0);
-        assert_eq!(result.financial_statistics.total_paid_payable, 0);
+        assert_eq!(financial_statistics.total_paid_receivable, 0);
+        assert_eq!(financial_statistics.total_paid_payable, 0);
     }
 
     #[test]
@@ -4127,8 +4141,10 @@ mod tests {
             .receivable_dao(receivable_dao) // For Accountant
             .receivable_dao(ReceivableDaoMock::new()) // For Scanner
             .build();
-        subject.financial_statistics.total_paid_payable = 123456;
-        subject.financial_statistics.total_paid_receivable = 334455;
+        let mut financial_statistics = subject.financial_statistics();
+        financial_statistics.total_paid_payable = 123456;
+        financial_statistics.total_paid_receivable = 334455;
+        subject.financial_statistics.replace(financial_statistics);
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
@@ -4183,14 +4199,17 @@ mod tests {
             .pending_payable_dao(PendingPayableDaoMock::new())
             .pending_payable_dao(PendingPayableDaoMock::new())
             .build();
-        subject.financial_statistics.total_paid_payable += 1111;
+        let mut financial_statistics = subject.financial_statistics();
+        financial_statistics.total_paid_payable += 1111;
+        subject.financial_statistics.replace(financial_statistics);
         let msg = ConfirmPendingTransaction {
             pending_payable_fingerprint: fingerprint.clone(),
         };
 
         subject.handle_confirm_pending_transaction(msg);
 
-        assert_eq!(subject.financial_statistics.total_paid_payable, 1111 + 5478);
+        let total_paid_payable = subject.financial_statistics().total_paid_payable;
+        assert_eq!(total_paid_payable, 1111 + 5478);
         let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
         assert_eq!(*transaction_confirmed_params, vec![fingerprint])
     }
@@ -4205,7 +4224,9 @@ mod tests {
             .receivable_dao(receivable_dao)
             .receivable_dao(ReceivableDaoMock::new())
             .build();
-        subject.financial_statistics.total_paid_receivable += 2222;
+        let mut financial_statistics = subject.financial_statistics();
+        financial_statistics.total_paid_receivable += 2222;
+        subject.financial_statistics.replace(financial_statistics);
         let receivables = vec![
             BlockchainTransaction {
                 block_number: 4578910,
@@ -4224,10 +4245,8 @@ mod tests {
             response_skeleton_opt: None,
         });
 
-        assert_eq!(
-            subject.financial_statistics.total_paid_receivable,
-            2222 + 45780 + 33345
-        );
+        let total_paid_receivable = subject.financial_statistics().total_paid_receivable;
+        assert_eq!(total_paid_receivable, 2222 + 45780 + 33345);
         let more_money_received_params = more_money_received_params_arc.lock().unwrap();
         assert_eq!(*more_money_received_params, vec![receivables]);
     }

@@ -18,7 +18,7 @@ pub(in crate::accountant) mod scanners {
     use crate::banned_dao::BannedDao;
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::BlockchainError;
-    use crate::sub_lib::accountant::PaymentThresholds;
+    use crate::sub_lib::accountant::{FinancialStatistics, PaymentThresholds};
     use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
     use crate::sub_lib::wallet::Wallet;
     use actix::Message;
@@ -27,6 +27,8 @@ pub(in crate::accountant) mod scanners {
     use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
     use masq_lib::utils::ExpectValue;
     use std::any::Any;
+    use std::borrow::{Borrow, BorrowMut};
+    use std::cell::RefCell;
     use std::rc::Rc;
     use std::time::SystemTime;
     use web3::types::TransactionReceipt;
@@ -56,6 +58,7 @@ pub(in crate::accountant) mod scanners {
             payment_thresholds: Rc<PaymentThresholds>,
             earning_wallet: Rc<Wallet>,
             when_pending_too_long_sec: u64,
+            financial_statistics: Rc<RefCell<FinancialStatistics>>,
         ) -> Self {
             Scanners {
                 payables: Box::new(PayableScanner::new(
@@ -68,6 +71,7 @@ pub(in crate::accountant) mod scanners {
                     pending_payable_dao_factory.make(),
                     Rc::clone(&payment_thresholds),
                     when_pending_too_long_sec,
+                    financial_statistics,
                 )),
                 receivables: Box::new(ReceivableScanner::new(
                     receivable_dao,
@@ -286,6 +290,7 @@ pub(in crate::accountant) mod scanners {
         payable_dao: Box<dyn PayableDao>,
         pending_payable_dao: Box<dyn PendingPayableDao>,
         when_pending_too_long_sec: u64,
+        financial_statistics: Rc<RefCell<FinancialStatistics>>,
     }
 
     impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingPayableScanner {
@@ -361,12 +366,14 @@ pub(in crate::accountant) mod scanners {
             pending_payable_dao: Box<dyn PendingPayableDao>,
             payment_thresholds: Rc<PaymentThresholds>,
             when_pending_too_long_sec: u64,
+            financial_statistics: Rc<RefCell<FinancialStatistics>>,
         ) -> Self {
             Self {
                 common: ScannerCommon::new(payment_thresholds),
                 payable_dao,
                 pending_payable_dao,
                 when_pending_too_long_sec,
+                financial_statistics,
             }
         }
 
@@ -548,7 +555,9 @@ pub(in crate::accountant) mod scanners {
                     hash, e
                 ))
             } else {
-                self.financial_statistics.total_paid_payable += amount;
+                let mut financial_statistics = self.financial_statistics.as_ref().borrow().clone();
+                financial_statistics.total_paid_payable += amount;
+                self.financial_statistics.replace(financial_statistics);
                 debug!(
                     logger,
                     "Confirmation of transaction {}; record for payable was modified", hash
@@ -775,7 +784,6 @@ pub(in crate::accountant) mod scanners {
 
 #[cfg(test)]
 mod tests {
-
     use crate::accountant::scanners::scanners::{
         PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner, ScannerError, Scanners,
     };
@@ -785,11 +793,12 @@ mod tests {
     };
     use crate::accountant::{RequestTransactionReceipts, SentPayable};
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
+    use std::cell::RefCell;
 
     use crate::accountant::payable_dao::{Payable, PayableDaoError, PayableDaoFactory};
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::blockchain::blockchain_interface::BlockchainError;
-    use crate::sub_lib::accountant::PaymentThresholds;
+    use crate::sub_lib::accountant::{FinancialStatistics, PaymentThresholds};
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::test_utils::make_wallet;
     use crate::test_utils::unshared_test_utils::make_payment_thresholds_with_defaults;
@@ -818,6 +827,7 @@ mod tests {
             Rc::clone(&payment_thresholds),
             Rc::new(make_wallet("earning")),
             0,
+            Rc::new(RefCell::new(FinancialStatistics::default())),
         );
 
         scanners
@@ -1018,6 +1028,7 @@ mod tests {
             Box::new(pending_payable_dao),
             Rc::new(payment_thresholds),
             0,
+            Rc::new(RefCell::new(FinancialStatistics::default())),
         );
 
         let result = pending_payable_scanner.begin_scan(now, None, &Logger::new(test_name));
@@ -1056,6 +1067,7 @@ mod tests {
             Box::new(pending_payable_dao),
             Rc::new(payment_thresholds),
             0,
+            Rc::new(RefCell::new(FinancialStatistics::default())),
         );
 
         let result = pending_payable_scanner.begin_scan(now, None, &Logger::new(test_name));
