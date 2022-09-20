@@ -186,12 +186,12 @@ impl Handler<SentPayable> for Accountant {
 
     fn handle(&mut self, msg: SentPayable, _ctx: &mut Self::Context) -> Self::Result {
         match self.scanners.payables.scan_finished(msg, &self.logger) {
-            Ok(message_opt) => {
-                if let Some(message) = message_opt {
+            Ok(node_to_ui_msg_opt) => {
+                if let Some(node_to_ui_msg) = node_to_ui_msg_opt {
                     self.ui_message_sub
                         .as_ref()
                         .expect("UIGateway is not bound")
-                        .try_send(message)
+                        .try_send(node_to_ui_msg)
                         .expect("UIGateway is dead");
                 }
             }
@@ -349,35 +349,23 @@ impl Handler<ReportTransactionReceipts> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ReportTransactionReceipts, ctx: &mut Self::Context) -> Self::Result {
-        todo!("migration of this function is in progress");
-        // if let Some(response_skeleton) = &msg.response_skeleton_opt {
-        //     self.ui_message_sub
-        //         .as_ref()
-        //         .expect("UIGateway not bound")
-        //         .try_send(NodeToUiMessage {
-        //             target: MessageTarget::ClientId(response_skeleton.client_id),
-        //             body: UiScanResponse {}.tmb(response_skeleton.context_id),
-        //         })
-        //         .expect("UIGateway is dead");
-        // }
-
-        // TODO: Make accountant to handle empty vector. Maybe log it as an error.
-        debug!(
-            self.logger,
-            "Processing receipts for {} transactions",
-            msg.fingerprints_with_receipts.len()
-        );
-        let statuses = self.handle_pending_transaction_with_its_receipt(&msg);
-        self.process_transaction_by_status(statuses, ctx);
-        if let Some(response_skeleton) = &msg.response_skeleton_opt {
-            self.ui_message_sub
-                .as_ref()
-                .expect("UIGateway not bound")
-                .try_send(NodeToUiMessage {
-                    target: MessageTarget::ClientId(response_skeleton.client_id),
-                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
-                })
-                .expect("UIGateway is dead");
+        match self
+            .scanners
+            .pending_payables
+            .scan_finished(msg, &self.logger)
+        {
+            Ok(node_to_ui_msg_opt) => {
+                if let Some(node_to_ui_msg) = node_to_ui_msg_opt {
+                    self.ui_message_sub
+                        .as_ref()
+                        .expect("UIGateway is not bound")
+                        .try_send(node_to_ui_msg)
+                        .expect("UIGateway is dead");
+                }
+            }
+            Err(e) => {
+                panic!("{}", e);
+            }
         }
     }
 }

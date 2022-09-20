@@ -333,6 +333,7 @@ pub(in crate::accountant) mod scanners {
             message: ReportTransactionReceipts,
             logger: &Logger,
         ) -> Result<Option<NodeToUiMessage>, String> {
+            todo!("now we're testing from the Scanners");
             // TODO: Make accountant to handle empty vector. Maybe log it as an error.
             debug!(
                 logger,
