@@ -333,7 +333,6 @@ pub(in crate::accountant) mod scanners {
             message: ReportTransactionReceipts,
             logger: &Logger,
         ) -> Result<Option<NodeToUiMessage>, String> {
-            todo!("now we're testing from the Scanners");
             // TODO: Make accountant to handle empty vector. Maybe log it as an error.
             debug!(
                 logger,
@@ -789,8 +788,9 @@ mod tests {
         PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner, ScannerError, Scanners,
     };
     use crate::accountant::test_utils::{
-        make_payables, make_receivable_account, BannedDaoMock, PayableDaoFactoryMock,
-        PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoMock,
+        make_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoMock,
+        PayableDaoFactoryMock, PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
+        ReceivableDaoMock,
     };
     use crate::accountant::{
         PendingPayableId, PendingTransactionStatus, RequestTransactionReceipts, SentPayable,
@@ -807,7 +807,7 @@ mod tests {
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::test_utils::make_wallet;
     use crate::test_utils::unshared_test_utils::make_payment_thresholds_with_defaults;
-    use ethereum_types::BigEndianHash;
+    use ethereum_types::{BigEndianHash, U64};
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::rc::Rc;
@@ -1165,6 +1165,24 @@ mod tests {
         TestLogHandler::new().exists_log_containing(
             "INFO: none_within_waiting: Pending \
          transaction '0x0000…0237' couldn't be confirmed at attempt 1 at ",
+        );
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "tx receipt for pending '0x0000…007b' - tx status: code other than 0 or 1 shouldn't be possible, but was 456"
+    )]
+    fn interpret_transaction_receipt_panics_at_undefined_status_code() {
+        let mut tx_receipt = TransactionReceipt::default();
+        tx_receipt.status = Some(U64::from(456));
+        let mut fingerprint = make_pending_payable_fingerprint();
+        fingerprint.hash = H256::from_uint(&U256::from(123));
+        let subject = PendingPayableScanner::default();
+
+        let _ = subject.interpret_transaction_receipt(
+            &tx_receipt,
+            &fingerprint,
+            &Logger::new("receipt_check_logger"),
         );
     }
 

@@ -923,6 +923,7 @@ impl Accountant {
         fingerprint: &PendingPayableFingerprint,
         logger: &Logger,
     ) -> PendingTransactionStatus {
+        todo!("migration to scanners.rs in progress");
         fn handle_none_status(
             fingerprint: &PendingPayableFingerprint,
             max_pending_interval: u64,
@@ -3897,24 +3898,6 @@ mod tests {
         );
         TestLogHandler::new().exists_log_matching("ERROR: receipt_check_logger: Pending \
          transaction '0x0000…11d7' announced as a failure, interpreting attempt 5 after 1500\\d\\dms from the sending");
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "tx receipt for pending '0x0000…007b' - tx status: code other than 0 or 1 shouldn't be possible, but was 456"
-    )]
-    fn interpret_transaction_receipt_panics_at_undefined_status_code() {
-        let mut tx_receipt = TransactionReceipt::default();
-        tx_receipt.status = Some(U64::from(456));
-        let mut fingerprint = make_pending_payable_fingerprint();
-        fingerprint.hash = H256::from_uint(&U256::from(123));
-        let subject = AccountantBuilder::default().build();
-
-        let _ = subject.interpret_transaction_receipt(
-            &tx_receipt,
-            &fingerprint,
-            &Logger::new("receipt_check_logger"),
-        );
     }
 
     #[test]
