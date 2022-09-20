@@ -606,6 +606,7 @@ pub mod unshared_test_utils {
         config.scan_intervals_opt = Some(make_scan_intervals_with_defaults());
         config.suppress_initial_scans_opt = Some(false);
         config.when_pending_too_long_opt = Some(DEFAULT_PENDING_TOO_LONG_SEC);
+        config.payment_thresholds_opt = Some(make_payment_thresholds_with_defaults());
         config
     }
 
