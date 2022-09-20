@@ -43,10 +43,10 @@ pub(in crate::accountant) mod scanners {
     type Error = ScannerError;
 
     pub struct Scanners {
-        pub payables: Box<dyn Scanner<ReportAccountsPayable, SentPayable>>,
-        pub pending_payables:
+        pub payable: Box<dyn Scanner<ReportAccountsPayable, SentPayable>>,
+        pub pending_payable:
             Box<dyn Scanner<RequestTransactionReceipts, ReportTransactionReceipts>>,
-        pub receivables: Box<dyn Scanner<RetrieveTransactions, ReceivedPayments>>,
+        pub receivable: Box<dyn Scanner<RetrieveTransactions, ReceivedPayments>>,
     }
 
     impl Scanners {
@@ -61,19 +61,19 @@ pub(in crate::accountant) mod scanners {
             financial_statistics: Rc<RefCell<FinancialStatistics>>,
         ) -> Self {
             Scanners {
-                payables: Box::new(PayableScanner::new(
+                payable: Box::new(PayableScanner::new(
                     payable_dao_factory.make(),
                     pending_payable_dao_factory.make(),
                     Rc::clone(&payment_thresholds),
                 )),
-                pending_payables: Box::new(PendingPayableScanner::new(
+                pending_payable: Box::new(PendingPayableScanner::new(
                     payable_dao_factory.make(),
                     pending_payable_dao_factory.make(),
                     Rc::clone(&payment_thresholds),
                     when_pending_too_long_sec,
                     financial_statistics,
                 )),
-                receivables: Box::new(ReceivableScanner::new(
+                receivable: Box::new(ReceivableScanner::new(
                     receivable_dao,
                     banned_dao,
                     Rc::clone(&payment_thresholds),
@@ -832,17 +832,17 @@ mod tests {
         );
 
         scanners
-            .payables
+            .payable
             .as_any()
             .downcast_ref::<PayableScanner>()
             .unwrap();
         scanners
-            .pending_payables
+            .pending_payable
             .as_any()
             .downcast_ref::<PendingPayableScanner>()
             .unwrap();
         scanners
-            .receivables
+            .receivable
             .as_any()
             .downcast_ref::<ReceivableScanner>()
             .unwrap();

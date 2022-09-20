@@ -185,7 +185,7 @@ impl Handler<SentPayable> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: SentPayable, _ctx: &mut Self::Context) -> Self::Result {
-        match self.scanners.payables.scan_finished(msg, &self.logger) {
+        match self.scanners.payable.scan_finished(msg, &self.logger) {
             Ok(node_to_ui_msg_opt) => {
                 if let Some(node_to_ui_msg) = node_to_ui_msg_opt {
                     self.ui_message_sub
@@ -351,7 +351,7 @@ impl Handler<ReportTransactionReceipts> for Accountant {
     fn handle(&mut self, msg: ReportTransactionReceipts, ctx: &mut Self::Context) -> Self::Result {
         match self
             .scanners
-            .pending_payables
+            .pending_payable
             .scan_finished(msg, &self.logger)
         {
             Ok(node_to_ui_msg_opt) => {
@@ -717,7 +717,7 @@ impl Accountant {
     }
 
     fn handle_scan_for_payable_request(&mut self, response_skeleton_opt: Option<ResponseSkeleton>) {
-        match self.scanners.payables.begin_scan(
+        match self.scanners.payable.begin_scan(
             SystemTime::now(),
             response_skeleton_opt,
             &self.logger,
@@ -756,7 +756,7 @@ impl Accountant {
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
-        match self.scanners.pending_payables.begin_scan(
+        match self.scanners.pending_payable.begin_scan(
             SystemTime::now(),
             response_skeleton_opt,
             &self.logger,
@@ -793,7 +793,7 @@ impl Accountant {
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
-        match self.scanners.receivables.begin_scan(
+        match self.scanners.receivable.begin_scan(
             SystemTime::now(),
             response_skeleton_opt,
             &self.logger,
@@ -1799,8 +1799,8 @@ mod tests {
             .payable_dao(payable_dao) // For Payable Scanner
             .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .build();
-        subject.scanners.pending_payables = Box::new(NullScanner::new());
-        subject.scanners.receivables = Box::new(NullScanner::new());
+        subject.scanners.pending_payable = Box::new(NullScanner::new());
+        subject.scanners.receivable = Box::new(NullScanner::new());
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
         let peer_actors = peer_actors_builder()
@@ -1840,8 +1840,8 @@ mod tests {
             .receivable_dao(ReceivableDaoMock::new()) // For Accountant
             .receivable_dao(receivable_dao) // For Scanner
             .build();
-        subject.scanners.pending_payables = Box::new(NullScanner::new());
-        subject.scanners.payables = Box::new(NullScanner::new());
+        subject.scanners.pending_payable = Box::new(NullScanner::new());
+        subject.scanners.payable = Box::new(NullScanner::new());
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
         let peer_actors = peer_actors_builder()
@@ -2024,8 +2024,8 @@ mod tests {
             .banned_dao(BannedDaoMock::new())
             .banned_dao(banned_dao)
             .build();
-        subject.scanners.pending_payables = Box::new(NullScanner::new());
-        subject.scanners.payables = Box::new(NullScanner::new());
+        subject.scanners.pending_payable = Box::new(NullScanner::new());
+        subject.scanners.payable = Box::new(NullScanner::new());
         subject.notify_later.scan_for_receivable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_receivable_params_arc)
@@ -2135,8 +2135,8 @@ mod tests {
             .pending_payable_dao(PendingPayableDaoMock::new()) // For Accountant
             .pending_payable_dao(pending_payable_dao) // For Scanner
             .build();
-        subject.scanners.receivables = Box::new(NullScanner::new()); //skipping
-        subject.scanners.payables = Box::new(NullScanner::new()); //skipping
+        subject.scanners.receivable = Box::new(NullScanner::new()); //skipping
+        subject.scanners.payable = Box::new(NullScanner::new()); //skipping
         subject.notify_later.scan_for_pending_payable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_pending_payable_params_arc)
@@ -2233,8 +2233,8 @@ mod tests {
             .payable_dao(payable_dao) // For Accountant
             .build();
         subject.logger = Logger::new(test_name);
-        subject.scanners.pending_payables = Box::new(NullScanner::new()); //skipping
-        subject.scanners.receivables = Box::new(NullScanner::new()); //skipping
+        subject.scanners.pending_payable = Box::new(NullScanner::new()); //skipping
+        subject.scanners.receivable = Box::new(NullScanner::new()); //skipping
         subject.notify_later.scan_for_payable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_payables_params_arc)
@@ -2384,11 +2384,10 @@ mod tests {
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
 
-        let _result =
-            subject
-                .scanners
-                .payables
-                .begin_scan(SystemTime::now(), None, &subject.logger);
+        let _result = subject
+            .scanners
+            .payable
+            .begin_scan(SystemTime::now(), None, &subject.logger);
 
         System::current().stop_with_code(0);
         system.run();
@@ -2443,8 +2442,8 @@ mod tests {
             .payable_dao(payable_dao) // For Payable Scanner
             .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .build();
-        subject.scanners.pending_payables = Box::new(NullScanner::new());
-        subject.scanners.receivables = Box::new(NullScanner::new());
+        subject.scanners.pending_payable = Box::new(NullScanner::new());
+        subject.scanners.receivable = Box::new(NullScanner::new());
         let subject_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&subject_addr);
         send_bind_message!(accountant_subs, peer_actors);
@@ -3283,7 +3282,7 @@ mod tests {
 
         let _result = subject
             .scanners
-            .payables
+            .payable
             .scan_finished(sent_payable, &Logger::new("Accountant"));
 
         let fingerprint_rowid_params = fingerprint_rowid_params_arc.lock().unwrap();
@@ -3659,7 +3658,7 @@ mod tests {
                     .pending_payable_dao(accountant_pending_payable_dao)
                     .pending_payable_dao(scanner_pending_payable_dao)
                     .build();
-                subject.scanners.receivables = Box::new(NullScanner::new());
+                subject.scanners.receivable = Box::new(NullScanner::new());
                 let notify_later_half_mock = NotifyLaterHandleMock::default()
                     .notify_later_params(&notify_later_scan_for_pending_payable_arc_cloned)
                     .permit_to_send_out();
