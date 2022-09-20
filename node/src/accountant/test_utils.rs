@@ -159,6 +159,7 @@ impl AccountantBuilder {
         let payable_dao_factory = self.payable_dao_factory.unwrap_or(
             PayableDaoFactoryMock::new()
                 .make_result(PayableDaoMock::new())
+                .make_result(PayableDaoMock::new())
                 .make_result(PayableDaoMock::new()),
         );
         let receivable_dao_factory = self.receivable_dao_factory.unwrap_or(

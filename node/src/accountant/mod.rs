@@ -1176,6 +1176,7 @@ mod tests {
         let payable_dao_factory = PayableDaoFactoryMock::new()
             .make_params(&payable_dao_factory_params_arc)
             .make_result(PayableDaoMock::new())
+            .make_result(PayableDaoMock::new())
             .make_result(PayableDaoMock::new());
         let pending_payable_dao_factory = PendingPayableDaoFactoryMock::new()
             .make_params(&pending_payable_dao_factory_params_arc)
@@ -1201,7 +1202,7 @@ mod tests {
 
         assert_eq!(
             *payable_dao_factory_params_arc.lock().unwrap(),
-            vec![(), ()]
+            vec![(), (), ()]
         );
         assert_eq!(
             *pending_payable_dao_factory_params_arc.lock().unwrap(),
@@ -1226,7 +1227,8 @@ mod tests {
         let payable_dao_factory = Box::new(
             PayableDaoFactoryMock::new()
                 .make_result(PayableDaoMock::new()) // For Accountant
-                .make_result(PayableDaoMock::new()), // For Scanner
+                .make_result(PayableDaoMock::new()) // For Payable Scanner
+                .make_result(PayableDaoMock::new()), // For PendingPayable Scanner
         );
         let pending_payable_dao_factory = Box::new(
             PendingPayableDaoFactoryMock::new()
@@ -1396,7 +1398,8 @@ mod tests {
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .payable_dao(PayableDaoMock::new()) // For Accountant
-            .payable_dao(payable_dao) // For Scanner
+            .payable_dao(payable_dao) // For Payable Scanner
+            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -1640,7 +1643,8 @@ mod tests {
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
             .payable_dao(PayableDaoMock::new()) // For Accountant
-            .payable_dao(payable_dao) // For Scanner
+            .payable_dao(payable_dao) // For Payable Scanner
+            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .pending_payable_dao(PendingPayableDaoMock::new()) // For Accountant
             .pending_payable_dao(pending_payable_dao) // For Payable Scanner
             .pending_payable_dao(PendingPayableDaoMock::new()) // For PendingPayable Scanner
@@ -1734,7 +1738,8 @@ mod tests {
             .delete_fingerprint_result(Ok(()));
         let subject = AccountantBuilder::default()
             .payable_dao(PayableDaoMock::new()) // For Accountant
-            .payable_dao(payable_dao) // For Scanner
+            .payable_dao(payable_dao) // For Payable Scanner
+            .payable_dao(PayableDaoMock::new()) // For PendingPayable
             .pending_payable_dao(PendingPayableDaoMock::new()) // For Accountant
             .pending_payable_dao(pending_payable_dao) // For Payable Scanner
             .pending_payable_dao(PendingPayableDaoMock::new()) // For Scanner
@@ -1803,7 +1808,8 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
             .payable_dao(PayableDaoMock::new()) // For Accountant
-            .payable_dao(payable_dao) // For Scanner
+            .payable_dao(payable_dao) // For Payable Scanner
+            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .build();
         subject.scanners.pending_payables = Box::new(NullScanner::new());
         subject.scanners.receivables = Box::new(NullScanner::new());
@@ -1886,12 +1892,14 @@ mod tests {
             gwei_amount: 10000,
         };
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
+        let payable_dao = PayableDaoMock::new().non_pending_payables_result(vec![]);
         let receivable_dao = ReceivableDaoMock::new()
             .more_money_received_parameters(&more_money_received_params_arc)
             .more_money_received_result(Ok(()));
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(earning_wallet.clone()))
-            .payable_dao(PayableDaoMock::new().non_pending_payables_result(vec![]))
+            .payable_dao(payable_dao)
+            .payable_dao(PayableDaoMock::new())
             .payable_dao(PayableDaoMock::new())
             .receivable_dao(receivable_dao)
             .receivable_dao(ReceivableDaoMock::new())
@@ -1940,7 +1948,8 @@ mod tests {
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .payable_dao(PayableDaoMock::new()) // For Accountant
-            .payable_dao(payable_dao) // For Scanner
+            .payable_dao(payable_dao) // For Payable Scanner
+            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .pending_payable_dao(PendingPayableDaoMock::new()) // For Accountant
             .pending_payable_dao(PendingPayableDaoMock::new()) // For Payable Scanner
             .pending_payable_dao(pending_payable_dao) // For PendingPayable Scanner
@@ -2307,7 +2316,8 @@ mod tests {
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .payable_dao(payable_dao) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Scanner
+            .payable_dao(PayableDaoMock::new()) // For Payable Scanner
+            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .receivable_dao(receivable_dao) // For Accountant
             .receivable_dao(ReceivableDaoMock::new()) // For Scanner
             .build();
@@ -2381,7 +2391,8 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .payable_dao(PayableDaoMock::new()) // For Accountant
-            .payable_dao(payable_dao) // For Scanner
+            .payable_dao(payable_dao) // For Payable Scanner
+            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
 
@@ -2441,7 +2452,8 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .payable_dao(PayableDaoMock::new()) // For Accountant
-            .payable_dao(payable_dao) // For Scanner
+            .payable_dao(payable_dao) // For Payable Scanner
+            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .build();
         subject.scanners.pending_payables = Box::new(NullScanner::new());
         subject.scanners.receivables = Box::new(NullScanner::new());
@@ -2486,7 +2498,8 @@ mod tests {
         let system = System::new(test_name);
         let mut subject = AccountantBuilder::default()
             .payable_dao(PayableDaoMock::new()) // For Accountant
-            .payable_dao(payable_dao) // For Scanner
+            .payable_dao(payable_dao) // For Payable Scanner
+            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .bootstrapper_config(config)
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
@@ -2587,6 +2600,7 @@ mod tests {
             .bootstrapper_config(bootstrapper_config)
             .payable_dao(payable_dao_mock)
             .payable_dao(PayableDaoMock::new())
+            .payable_dao(PayableDaoMock::new())
             .receivable_dao(receivable_dao_mock)
             .receivable_dao(ReceivableDaoMock::new())
             .build();
@@ -2634,6 +2648,7 @@ mod tests {
             .bootstrapper_config(config)
             .payable_dao(payable_dao_mock)
             .payable_dao(PayableDaoMock::new())
+            .payable_dao(PayableDaoMock::new())
             .receivable_dao(receivable_dao_mock)
             .receivable_dao(ReceivableDaoMock::new())
             .build();
@@ -2680,6 +2695,7 @@ mod tests {
             .bootstrapper_config(config)
             .payable_dao(payable_dao_mock)
             .payable_dao(PayableDaoMock::new())
+            .payable_dao(PayableDaoMock::new())
             .receivable_dao(receivable_dao_mock)
             .receivable_dao(ReceivableDaoMock::new())
             .build();
@@ -2725,7 +2741,8 @@ mod tests {
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .payable_dao(payable_dao_mock) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Scanner
+            .payable_dao(PayableDaoMock::new()) // For Payable Scanner
+            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .build();
         let system = System::new("report_routing_service_consumed_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
@@ -2770,6 +2787,7 @@ mod tests {
             .bootstrapper_config(config)
             .payable_dao(payable_dao_mock)
             .payable_dao(PayableDaoMock::new())
+            .payable_dao(PayableDaoMock::new())
             .build();
         let system = System::new("report_routing_service_consumed_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
@@ -2810,7 +2828,8 @@ mod tests {
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .payable_dao(payable_dao_mock) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Scanner
+            .payable_dao(PayableDaoMock::new()) // For Payable Scanner
+            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .build();
         let system = System::new("report_routing_service_consumed_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
@@ -2850,6 +2869,7 @@ mod tests {
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .payable_dao(payable_dao_mock)
+            .payable_dao(PayableDaoMock::new())
             .payable_dao(PayableDaoMock::new())
             .receivable_dao(receivable_dao_mock)
             .receivable_dao(ReceivableDaoMock::new())
@@ -2898,6 +2918,7 @@ mod tests {
             .bootstrapper_config(config)
             .payable_dao(payable_dao_mock)
             .payable_dao(PayableDaoMock::new())
+            .payable_dao(PayableDaoMock::new())
             .receivable_dao(receivable_dao_mock)
             .receivable_dao(ReceivableDaoMock::new())
             .build();
@@ -2943,7 +2964,8 @@ mod tests {
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .payable_dao(payable_dao_mock) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Scanner
+            .payable_dao(PayableDaoMock::new()) // For Payable Scanner
+            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .receivable_dao(receivable_dao_mock) // For Accountant
             .receivable_dao(ReceivableDaoMock::new()) // For Scanner
             .build();
@@ -3004,6 +3026,7 @@ mod tests {
             .bootstrapper_config(config)
             .payable_dao(payable_dao_mock)
             .payable_dao(PayableDaoMock::new())
+            .payable_dao(PayableDaoMock::new())
             .build();
         let system = System::new("report_exit_service_consumed_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
@@ -3048,7 +3071,8 @@ mod tests {
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .payable_dao(payable_dao_mock) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Scanner
+            .payable_dao(PayableDaoMock::new()) // For Payable Scanner
+            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .build();
         let system = System::new("report_exit_service_consumed_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
@@ -3089,6 +3113,7 @@ mod tests {
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .payable_dao(payable_dao_mock)
+            .payable_dao(PayableDaoMock::new())
             .payable_dao(PayableDaoMock::new())
             .build();
         let system = System::new("report_exit_service_consumed_message_is_received");
@@ -3168,6 +3193,7 @@ mod tests {
         let subject = AccountantBuilder::default()
             .payable_dao(payable_dao)
             .payable_dao(PayableDaoMock::new())
+            .payable_dao(PayableDaoMock::new())
             .build();
         let service_rate = i64::MAX as u64;
 
@@ -3194,6 +3220,7 @@ mod tests {
         ));
         let subject = AccountantBuilder::default()
             .payable_dao(payable_dao)
+            .payable_dao(PayableDaoMock::new())
             .payable_dao(PayableDaoMock::new())
             .build();
 
@@ -3259,7 +3286,8 @@ mod tests {
             .fingerprint_rowid_result(Some(payable_2_rowid));
         let mut subject = AccountantBuilder::default()
             .payable_dao(PayableDaoMock::new()) // For Accountant
-            .payable_dao(payable_dao) // For Scanner
+            .payable_dao(payable_dao) // For Payable Scanner
+            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .pending_payable_dao(PendingPayableDaoMock::new()) // For Accountant
             .pending_payable_dao(pending_payable_dao) // For Scanner
             .pending_payable_dao(PendingPayableDaoMock::new()) // For Scanner
@@ -3293,7 +3321,8 @@ mod tests {
             .delete_fingerprint_result(Ok(()));
         let mut subject = AccountantBuilder::default()
             .payable_dao(payable_dao) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Scanner
+            .payable_dao(PayableDaoMock::new()) // For Payable Scanner
+            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .pending_payable_dao(pending_payable_dao) // For Accountant
             .pending_payable_dao(PendingPayableDaoMock::new()) // For Payable Scanner
             .pending_payable_dao(PendingPayableDaoMock::new()) // For PendingPayable Scanner
@@ -3344,6 +3373,7 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .payable_dao(payable_dao)
             .payable_dao(PayableDaoMock::new())
+            .payable_dao(PayableDaoMock::new())
             .build();
         let mut payment = make_pending_payable_fingerprint();
         payment.rowid_opt = Some(rowid);
@@ -3371,7 +3401,8 @@ mod tests {
         ));
         let mut subject = AccountantBuilder::default()
             .payable_dao(payable_dao) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Scanner
+            .payable_dao(PayableDaoMock::new()) // For Payable Scanner
+            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .pending_payable_dao(pending_payable_dao) // For Accountant
             .pending_payable_dao(PendingPayableDaoMock::new()) // For Payable Scanner
             .pending_payable_dao(PendingPayableDaoMock::new()) // For PendingPayable Scanner
@@ -3428,7 +3459,8 @@ mod tests {
         ));
         let subject = AccountantBuilder::default()
             .payable_dao(payable_dao) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Scanner
+            .payable_dao(PayableDaoMock::new()) // For Payable Scanner
+            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .pending_payable_dao(pending_payable_dao)
             .pending_payable_dao(PendingPayableDaoMock::new())
             .pending_payable_dao(PendingPayableDaoMock::new())
@@ -4137,7 +4169,8 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(make_bc_with_defaults())
             .payable_dao(payable_dao) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Scanner
+            .payable_dao(PayableDaoMock::new()) // For Payable Scanner
+            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .receivable_dao(receivable_dao) // For Accountant
             .receivable_dao(ReceivableDaoMock::new()) // For Scanner
             .build();
@@ -4194,6 +4227,7 @@ mod tests {
         pending_payable_dao.have_return_all_fingerprints_shut_down_the_system = true;
         let mut subject = AccountantBuilder::default()
             .payable_dao(payable_dao)
+            .payable_dao(PayableDaoMock::new())
             .payable_dao(PayableDaoMock::new())
             .pending_payable_dao(pending_payable_dao)
             .pending_payable_dao(PendingPayableDaoMock::new())
