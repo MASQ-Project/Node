@@ -407,7 +407,7 @@ pub(in crate::accountant) mod scanners {
                 .collect()
         }
 
-        fn interpret_transaction_receipt(
+        pub fn interpret_transaction_receipt(
             &self,
             receipt: &TransactionReceipt,
             fingerprint: &PendingPayableFingerprint,
@@ -792,9 +792,13 @@ mod tests {
         make_payables, make_receivable_account, BannedDaoMock, PayableDaoFactoryMock,
         PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoMock,
     };
-    use crate::accountant::{RequestTransactionReceipts, SentPayable};
+    use crate::accountant::{
+        PendingPayableId, PendingTransactionStatus, RequestTransactionReceipts, SentPayable,
+        DEFAULT_PENDING_TOO_LONG_SEC,
+    };
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
     use std::cell::RefCell;
+    use std::ops::Sub;
 
     use crate::accountant::payable_dao::{Payable, PayableDaoError, PayableDaoFactory};
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
@@ -808,8 +812,20 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::rc::Rc;
     use std::sync::{Arc, Mutex, MutexGuard};
-    use std::time::SystemTime;
-    use web3::types::{H256, U256};
+    use std::time::{Duration, SystemTime};
+    use web3::types::{TransactionReceipt, H256, U256};
+
+    impl Default for PendingPayableScanner {
+        fn default() -> Self {
+            PendingPayableScanner::new(
+                Box::new(PayableDaoMock::new()),
+                Box::new(PendingPayableDaoMock::new()),
+                Rc::new(make_payment_thresholds_with_defaults()),
+                DEFAULT_PENDING_TOO_LONG_SEC,
+                Rc::new(RefCell::new(FinancialStatistics::default())),
+            )
+        }
+    }
 
     #[test]
     fn scanners_struct_can_be_constructed_with_the_respective_scanners() {
@@ -1081,6 +1097,42 @@ mod tests {
                 test_name
             ),
         ])
+    }
+
+    #[test]
+    fn interpret_transaction_receipt_when_transaction_status_is_none_and_outside_waiting_interval()
+    {
+        init_test_logging();
+        let hash = H256::from_uint(&U256::from(567));
+        let rowid = 466;
+        let tx_receipt = TransactionReceipt::default(); //status defaulted to None
+        let when_sent =
+            SystemTime::now().sub(Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC + 5)); //old transaction
+        let subject = PendingPayableScanner::default();
+        let fingerprint = PendingPayableFingerprint {
+            rowid_opt: Some(rowid),
+            timestamp: when_sent,
+            hash,
+            attempt_opt: Some(10),
+            amount: 123,
+            process_error: None,
+        };
+
+        let result = subject.interpret_transaction_receipt(
+            &tx_receipt,
+            &fingerprint,
+            &Logger::new("receipt_check_logger"),
+        );
+
+        assert_eq!(
+            result,
+            PendingTransactionStatus::Failure(PendingPayableId { hash, rowid })
+        );
+        TestLogHandler::new().exists_log_containing(
+            "ERROR: receipt_check_logger: Pending transaction '0x0000…0237' has exceeded the maximum \
+             pending time (21600sec) and the confirmation process is going to be aborted now at the final attempt 10; manual resolution is required from the user to \
+               complete the transaction",
+        );
     }
 
     #[test]
