@@ -179,7 +179,7 @@ pub fn request_probe(
 
 fn generate_nonce() -> u16 {
     let mut rnd = thread_rng();
-    rnd.gen_range(1000, 9999)
+    rnd.gen_range(1000..=9999)
 }
 
 #[cfg(test)]

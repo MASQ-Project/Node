@@ -20,7 +20,7 @@ use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::utils::make_new_multi_config;
 use clap::value_t;
-use heck::MixedCase;
+use heck::ToLowerCamelCase;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::command::StdStreams;
 use masq_lib::multi_config::make_arg_matches_accesible;
@@ -66,7 +66,7 @@ fn configuration_to_json(
 ) -> String {
     let mut map = Map::new();
     configuration.into_iter().for_each(|record| {
-        let json_name = record.name.to_mixed_case();
+        let json_name = record.name.to_lower_camel_case();
         let value_opt = match (&record.value_opt, record.encrypted, &password_opt) {
             (None, _, _) => None,
             (Some(value), false, _) => Some(value.to_string()),

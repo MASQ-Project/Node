@@ -28,7 +28,7 @@ ethereum-types = "0.9.0"
 fdlimit = "0.2.1"
 flexi_logger = { version = "0.15.12", features = [ "ziplogs" ] }
 futures = "0.1.31"
-heck = "0.3.3"
+heck = "0.4.0"
 http = "0.2.5"
 indoc = "1.0.3"
 itertools = "0.10.1"
@@ -37,22 +37,22 @@ libc = "0.2.107"
 libsecp256k1 = "0.7.0"
 log = "0.4.14"
 masq_lib = { path = "../masq_lib"}
-pretty-hex = "0.2.1"
+pretty-hex = "0.3.0"
 primitive-types = {version = "0.5.0", default-features = false, features = ["default", "rlp", "serde"]}
 rand = {version = "0.8.4", features = ["getrandom", "small_rng"]}
 regex = "1.5.4"
-rlp = "0.4.6"
-rpassword = "5.0.1"
-rusqlite = {version = "0.26.1", features = ["bundled"]}
+rlp = "0.5.1"
+rpassword = "7.0.0"
+rusqlite = {version = "0.28.0", features = ["bundled"]}
 rustc-hex = "2.1.0"
 serde = "1.0.136"
 serde_derive = "1.0.136"
 serde_json = "1.0.79"
 serde_cbor = "0.11.2"
-sha1 = "0.6.0"
+sha1 = "0.6.1"
 sodiumoxide = "0.2.2"
 sysinfo = "0.21.1"
-tiny-bip39 = "0.8.2"
+tiny-bip39 = "1.0.0"
 tiny-hderive = "0.3.0"
 tokio = "0.1.22"
 tokio-core = "0.1.18"
@@ -66,25 +66,25 @@ secp256k1secrets = {package = "secp256k1", version = "0.17.2"}
 paste = "1.0.6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
-system-configuration = "0.4.0"
-core-foundation = "0.7.0"
+system-configuration = "0.5.0"
+core-foundation = "0.9.3"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
 daemonize = "0.4.1"
-nix = "0.23.0"
+nix = "0.25.0"
 openssl = {version = "0.10.38", features = ["vendored"]}
 
 [target.'cfg(target_os = "windows")'.dependencies]
 winreg = "0.10.1"
-ipconfig = "0.2.2"
+ipconfig = "0.3.0"
 
 [dev-dependencies]
 base58 = "0.2.0"
 jsonrpc-core = "14.0.0"
 native-tls = {version = "0.2.8", features = ["vendored"]}
 simple-server = "0.4.0"
-serial_test_derive = "0.5.1"
-serial_test = "0.5.1"
+serial_test_derive = "0.9.0"
+serial_test = "0.9.0"
 trust-dns-proto = "0.8.0"
 
 [[bin]]

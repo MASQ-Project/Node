@@ -14,7 +14,7 @@ workspace = "../node"
 time = {version = "0.3.11", features = [ "macros" ]}
 clap = "2.33.3"
 crossbeam-channel = "0.5.1"
-itertools = "0.8.0"
+itertools = "0.10.5"
 lazy_static = "1.4.0"
 linefeed = "0.6.0"
 masq_lib = { path = "../masq_lib" }
@@ -23,7 +23,7 @@ websocket = {version = "0.26.2", default-features = false, features = ["sync"]}
 ctrlc = "3.2.1"
 
 [target.'cfg(not(target_os = "windows"))'.dependencies]
-nix = "0.23.0"
+nix = "0.25.0"
 
 [lib]
 name = "masq_cli_lib"

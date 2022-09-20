@@ -8,7 +8,7 @@ description = "Does port-forwarding from meta-address 0.0.0.0 to the loopback in
 edition = "2021"
 
 [dependencies]
-default-net = "0.8.1"
+default-net = "0.11.0"
 
 [[bin]]
 name = "port_exposer"

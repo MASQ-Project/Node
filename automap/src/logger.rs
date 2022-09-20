@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use flexi_logger::{DeferredNow, LevelFilter, LogSpecBuilder, Logger, Record};
+use flexi_logger::{DeferredNow, FileSpec, LevelFilter, LogSpecBuilder, Logger, Record, WriteMode};
 use lazy_static::lazy_static;
 use std::env::current_dir;
 use std::path::PathBuf;
@@ -13,11 +13,14 @@ lazy_static! {
 
 pub fn initiate_logger() {
     let logger = Logger::with(LogSpecBuilder::new().default(LevelFilter::Info).build())
-        .log_to_file()
-        .directory(WORKING_PATH.as_path())
+        .log_to_file(
+            FileSpec::default()
+                .directory(WORKING_PATH.as_path())
+                .suppress_timestamp(),
+        )
+        .write_mode(WriteMode::BufferAndFlush)
         .format(brief_format)
-        .print_message()
-        .suppress_timestamp();
+        .print_message();
 
     logger.start().expect("Logging subsystem failed to start");
 }
