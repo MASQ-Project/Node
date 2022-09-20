@@ -24,7 +24,7 @@ dirs = "4.0.0"
 ethabi = "12.0.0"
 ethsign = {version = "0.7.3", default-features = false, features = ["pure-rust"]}
 ethsign-crypto = "0.2.1"
-ethereum-types = "0.9.0"
+ethereum-types = "0.9.2"
 fdlimit = "0.2.1"
 flexi_logger = "0.23.3"
 futures = "0.1.31"
@@ -38,7 +38,7 @@ libsecp256k1 = "0.7.0"
 log = "0.4.14"
 masq_lib = { path = "../masq_lib"}
 pretty-hex = "0.3.0"
-primitive-types = {version = "0.5.0", default-features = false, features = ["default", "rlp", "serde"]}
+primitive-types = {version = "0.12.0", default-features = false, features = ["default", "rlp", "serde"]}
 rand = {version = "0.8.4", features = ["getrandom", "small_rng"]}
 regex = "1.5.4"
 rlp = "0.5.1"
@@ -51,7 +51,7 @@ serde_json = "1.0.79"
 serde_cbor = "0.11.2"
 sha1 = "0.6.1"
 sodiumoxide = "0.2.2"
-sysinfo = "0.21.1"
+sysinfo = "0.26.2"
 tiny-bip39 = "1.0.0"
 tiny-hderive = "0.3.0"
 tokio = "0.1.22"

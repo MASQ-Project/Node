@@ -10,7 +10,7 @@ use std::cell::RefCell;
 use std::net::TcpStream;
 use std::thread;
 use std::time::Duration;
-use sysinfo::{ProcessExt, ProcessStatus, Signal, SystemExt};
+use sysinfo::{Pid, PidExt, ProcessExt, ProcessStatus, SystemExt};
 use websocket::client::ParseError;
 use websocket::sync::Client;
 use websocket::{ClientBuilder, OwnedMessage, WebSocketResult};
@@ -50,7 +50,7 @@ impl VerifierTools for VerifierToolsReal {
 
     fn process_is_running(&self, process_id: u32) -> bool {
         let system = Self::system();
-        let process_info_opt = system.process(Self::convert_pid(process_id));
+        let process_info_opt = system.process(Pid::from_u32(process_id));
         match process_info_opt {
             None => false,
             Some(process) => {
@@ -61,8 +61,8 @@ impl VerifierTools for VerifierToolsReal {
     }
 
     fn kill_process(&self, process_id: u32) {
-        if let Some(process) = Self::system().process(Self::convert_pid(process_id)) {
-            if !process.kill(Signal::Term) && !process.kill(Signal::Kill) {
+        if let Some(process) = Self::system().process(Pid::from_u32(process_id)) {
+            if !process.kill() {
                 error!(
                     self.logger,
                     "Process {} could be neither terminated nor killed", process_id
@@ -94,16 +94,6 @@ impl VerifierToolsReal {
         let mut system: sysinfo::System = sysinfo::System::new_all();
         system.refresh_processes();
         system
-    }
-
-    #[cfg(not(target_os = "windows"))]
-    fn convert_pid(process_id: u32) -> i32 {
-        process_id as i32
-    }
-
-    #[cfg(target_os = "windows")]
-    fn convert_pid(process_id: u32) -> usize {
-        process_id as usize
     }
 
     #[cfg(target_os = "linux")]
