@@ -194,7 +194,7 @@ name = "automap"
 version = "0.6.2"
 dependencies = [
  "crossbeam-channel 0.5.1",
- "flexi_logger 0.23.3",
+ "flexi_logger",
  "igd",
  "lazy_static",
  "local_ipaddress",
@@ -494,15 +494,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "95059428f66df56b63431fdb4e1947ed2190586af5c5a8a8b71122bdf5a7f469"
 dependencies = [
  "libc",
-]
-
-[[package]]
-name = "crc32fast"
-version = "1.2.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "ba125de2af0df55319f41944744ad91c71113bf74a4646efff39afe1f6842db1"
-dependencies = [
- "cfg-if 0.1.10",
 ]
 
 [[package]]
@@ -987,35 +978,6 @@ dependencies = [
  "rand 0.7.3",
  "rustc-hex",
  "static_assertions 1.1.0",
-]
-
-[[package]]
-name = "flate2"
-version = "1.0.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "da80be589a72651dcda34d8b35bcdc9b7254ad06325611074d9cc0fbb19f60ee"
-dependencies = [
- "cfg-if 0.1.10",
- "crc32fast",
- "libc",
- "miniz_oxide",
-]
-
-[[package]]
-name = "flexi_logger"
-version = "0.15.12"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "aaab3caedb4149800f91e8e4899f29cd9ddf3b569b04c365ca9334f92f7542bf"
-dependencies = [
- "atty",
- "chrono",
- "flate2",
- "glob",
- "lazy_static",
- "log 0.4.14",
- "regex",
- "thiserror",
- "yansi",
 ]
 
 [[package]]
@@ -2239,7 +2201,7 @@ dependencies = [
  "ethsign",
  "ethsign-crypto",
  "fdlimit",
- "flexi_logger 0.15.12",
+ "flexi_logger",
  "futures 0.1.31",
  "heck",
  "http 0.2.5",
@@ -4827,12 +4789,6 @@ checksum = "d7d8a75eaf6557bb84a65ace8609883db44a29951042ada9b393151532e41fcb"
 dependencies = [
  "xml-rs",
 ]
-
-[[package]]
-name = "yansi"
-version = "0.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9fc79f4a1e39857fc00c3f662cbf2651c771f00e9c15fe2abc341806bd46bd71"
 
 [[package]]
 name = "zeroize"

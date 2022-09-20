@@ -9,7 +9,8 @@ use crate::run_modes_factories::{RunModeResult, ServerInitializer};
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use backtrace::Backtrace;
 use flexi_logger::{
-    Cleanup, Criterion, DeferredNow, Duplicate, LevelFilter, LogSpecBuilder, Logger, Naming, Record,
+    Cleanup, Criterion, DeferredNow, Duplicate, FileSpec, LevelFilter, LogSpecBuilder, Logger,
+    Naming, Record, WriteMode,
 };
 use futures::try_ready;
 use lazy_static::lazy_static;
@@ -163,19 +164,27 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
                 .module("mio", LevelFilter::Off)
                 .build(),
         )
-        .log_to_file()
-        .directory(file_path.clone())
+        .log_to_file(
+            FileSpec::default()
+                .directory(file_path.clone())
+                .suppress_timestamp(),
+        )
+        .write_mode(WriteMode::BufferAndFlush)
         .print_message()
         .duplicate_to_stderr(Duplicate::Info)
-        .suppress_timestamp()
         .format(format_function)
         .rotate(
             Criterion::Size(100_000_000),
             Naming::Numbers,
-            Cleanup::KeepZipFiles(50),
+            Cleanup::KeepLogFiles(50),
         );
         if let Some(discriminant) = discriminant_opt {
-            logger = logger.discriminant(discriminant);
+            logger = logger.log_to_file(
+                FileSpec::default()
+                    .directory(file_path.clone())
+                    .discriminant(discriminant)
+                    .suppress_timestamp(),
+            );
         }
         logger.start().expect("Logging subsystem failed to start");
         let privilege_dropper = PrivilegeDropperReal::new();
