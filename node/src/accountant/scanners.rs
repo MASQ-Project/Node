@@ -1136,6 +1136,39 @@ mod tests {
     }
 
     #[test]
+    fn interpret_transaction_receipt_when_transaction_status_is_none_and_within_waiting_interval() {
+        init_test_logging();
+        let hash = H256::from_uint(&U256::from(567));
+        let rowid = 466;
+        let tx_receipt = TransactionReceipt::default(); //status defaulted to None
+        let when_sent = SystemTime::now().sub(Duration::from_millis(100));
+        let subject = PendingPayableScanner::default();
+        let fingerprint = PendingPayableFingerprint {
+            rowid_opt: Some(rowid),
+            timestamp: when_sent,
+            hash,
+            attempt_opt: Some(1),
+            amount: 123,
+            process_error: None,
+        };
+
+        let result = subject.interpret_transaction_receipt(
+            &tx_receipt,
+            &fingerprint,
+            &Logger::new("none_within_waiting"),
+        );
+
+        assert_eq!(
+            result,
+            PendingTransactionStatus::StillPending(PendingPayableId { hash, rowid })
+        );
+        TestLogHandler::new().exists_log_containing(
+            "INFO: none_within_waiting: Pending \
+         transaction '0x0000…0237' couldn't be confirmed at attempt 1 at ",
+        );
+    }
+
+    #[test]
     fn receivable_scanner_can_initiate_a_scan() {
         init_test_logging();
         let test_name = "receivable_scanner_can_initiate_a_scan";

@@ -3900,39 +3900,6 @@ mod tests {
     }
 
     #[test]
-    fn interpret_transaction_receipt_when_transaction_status_is_none_and_within_waiting_interval() {
-        init_test_logging();
-        let hash = H256::from_uint(&U256::from(567));
-        let rowid = 466;
-        let tx_receipt = TransactionReceipt::default(); //status defaulted to None
-        let when_sent = SystemTime::now().sub(Duration::from_millis(100));
-        let subject = AccountantBuilder::default().build();
-        let fingerprint = PendingPayableFingerprint {
-            rowid_opt: Some(rowid),
-            timestamp: when_sent,
-            hash,
-            attempt_opt: Some(1),
-            amount: 123,
-            process_error: None,
-        };
-
-        let result = subject.interpret_transaction_receipt(
-            &tx_receipt,
-            &fingerprint,
-            &Logger::new("none_within_waiting"),
-        );
-
-        assert_eq!(
-            result,
-            PendingTransactionStatus::StillPending(PendingPayableId { hash, rowid })
-        );
-        TestLogHandler::new().exists_log_containing(
-            "INFO: none_within_waiting: Pending \
-         transaction '0x0000…0237' couldn't be confirmed at attempt 1 at ",
-        );
-    }
-
-    #[test]
     #[should_panic(
         expected = "tx receipt for pending '0x0000…007b' - tx status: code other than 0 or 1 shouldn't be possible, but was 456"
     )]
