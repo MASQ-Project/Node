@@ -17,9 +17,7 @@ use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError, PayableDaoFactory};
 use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
 use crate::accountant::receivable_dao::{ReceivableDaoError, ReceivableDaoFactory};
-use crate::accountant::scanners::scanners::{
-    NotifyLaterForScanners, ScannerError, Scanners, TransactionConfirmationTools,
-};
+use crate::accountant::scanners::scanners::{NotifyLaterForScanners, ScannerError, Scanners};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
@@ -75,7 +73,6 @@ pub struct Accountant {
     banned_dao: Box<dyn BannedDao>,
     crashable: bool,
     scanners: Scanners,
-    tools: TransactionConfirmationTools,
     notify_later: NotifyLaterForScanners,
     financial_statistics: Rc<RefCell<FinancialStatistics>>,
     report_accounts_payable_sub_opt: Option<Recipient<ReportAccountsPayable>>,
@@ -365,19 +362,6 @@ impl SkeletonOptHolder for RequestTransactionReceipts {
     }
 }
 
-#[derive(Debug, PartialEq, Message, Clone)]
-pub struct ConfirmPendingTransaction {
-    pub pending_payable_fingerprint: PendingPayableFingerprint,
-}
-
-impl Handler<ConfirmPendingTransaction> for Accountant {
-    type Result = ();
-
-    fn handle(&mut self, msg: ConfirmPendingTransaction, _ctx: &mut Self::Context) -> Self::Result {
-        self.handle_confirm_pending_transaction(msg)
-    }
-}
-
 impl Handler<PendingPayableFingerprint> for Accountant {
     type Result = ();
     fn handle(&mut self, msg: PendingPayableFingerprint, _ctx: &mut Self::Context) -> Self::Result {
@@ -449,7 +433,6 @@ impl Accountant {
                 when_pending_too_long_sec,
                 Rc::clone(&financial_statistics),
             ),
-            tools: TransactionConfirmationTools::default(),
             notify_later: NotifyLaterForScanners::default(),
             financial_statistics: Rc::clone(&financial_statistics),
             report_accounts_payable_sub_opt: None,
@@ -821,41 +804,6 @@ impl Accountant {
         }
     }
 
-    fn handle_confirm_pending_transaction(&mut self, msg: ConfirmPendingTransaction) {
-        todo!("break some tests");
-        if let Err(e) = self
-            .payable_dao
-            .transaction_confirmed(&msg.pending_payable_fingerprint)
-        {
-            panic!(
-                "Was unable to uncheck pending payable '{}' after confirmation due to '{:?}'",
-                msg.pending_payable_fingerprint.hash, e
-            )
-        } else {
-            let mut financial_statistics = self.financial_statistics.as_ref().borrow().clone();
-            financial_statistics.total_paid_payable += msg.pending_payable_fingerprint.amount;
-            self.financial_statistics.replace(financial_statistics);
-            debug!(
-                self.logger,
-                "Confirmation of transaction {}; record for payable was modified",
-                msg.pending_payable_fingerprint.hash
-            );
-            if let Err(e) = self.pending_payable_dao.delete_fingerprint(
-                msg.pending_payable_fingerprint
-                    .rowid_opt
-                    .expectv("initialized rowid"),
-            ) {
-                panic!("Was unable to delete payable fingerprint '{}' after successful transaction due to '{:?}'", msg.pending_payable_fingerprint.hash, e)
-            } else {
-                info!(
-                    self.logger,
-                    "Transaction {:?} has gone through the whole confirmation process succeeding",
-                    msg.pending_payable_fingerprint.hash
-                )
-            }
-        }
-    }
-
     fn handle_new_pending_payable_fingerprint(&self, msg: PendingPayableFingerprint) {
         match self
             .pending_payable_dao
@@ -935,9 +883,9 @@ mod tests {
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::scanners::scanners::NullScanner;
     use crate::accountant::test_utils::{
-        bc_from_earning_wallet, bc_from_wallets, make_payables, make_pending_payable_fingerprint,
-        BannedDaoFactoryMock, PayableDaoFactoryMock, PayableDaoMock, PendingPayableDaoFactoryMock,
-        PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock,
+        bc_from_earning_wallet, bc_from_wallets, make_payables, BannedDaoFactoryMock,
+        PayableDaoFactoryMock, PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
+        ReceivableDaoFactoryMock, ReceivableDaoMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
@@ -952,15 +900,14 @@ mod tests {
         ReportRoutingServiceConsumedMessage, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-    use crate::sub_lib::utils::{NotifyHandleReal, NotifyLaterHandleReal};
+    use crate::sub_lib::utils::NotifyLaterHandleReal;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::unshared_test_utils::{
         make_bc_with_defaults, make_payment_thresholds_with_defaults,
-        prove_that_crash_request_handler_is_hooked_up, NotifyHandleMock, NotifyLaterHandleMock,
-        SystemKillerActor,
+        prove_that_crash_request_handler_is_hooked_up, NotifyLaterHandleMock, SystemKillerActor,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use web3::types::{TransactionReceipt, H256};
@@ -1061,12 +1008,6 @@ mod tests {
         );
 
         let financial_statistics = result.financial_statistics();
-        let transaction_confirmation_tools = result.tools;
-        transaction_confirmation_tools
-            .notify_confirm_transaction
-            .as_any()
-            .downcast_ref::<NotifyHandleReal<ConfirmPendingTransaction>>()
-            .unwrap();
         let notify_later = result.notify_later;
         notify_later
             .scan_for_pending_payable
@@ -3137,9 +3078,6 @@ mod tests {
         let notify_later_scan_for_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_later_scan_for_pending_payable_arc_cloned =
             notify_later_scan_for_pending_payable_params_arc.clone(); //because it moves into a closure
-        let notify_confirm_transaction_params_arc = Arc::new(Mutex::new(vec![]));
-        let notify_confirm_transaction_params_arc_cloned =
-            notify_confirm_transaction_params_arc.clone(); //because it moves into a closure
         let pending_tx_hash_1 = H256::from_uint(&U256::from(123));
         let pending_tx_hash_2 = H256::from_uint(&U256::from(567));
         let rowid_for_account_1 = 3;
@@ -3307,10 +3245,6 @@ mod tests {
                     .notify_later_params(&notify_later_scan_for_pending_payable_arc_cloned)
                     .permit_to_send_out();
                 subject.notify_later.scan_for_pending_payable = Box::new(notify_later_half_mock);
-                let notify_half_mock = NotifyHandleMock::default()
-                    .notify_params(&notify_confirm_transaction_params_arc_cloned)
-                    .permit_to_send_out();
-                subject.tools.notify_confirm_transaction = Box::new(notify_half_mock);
                 subject
             });
         let mut peer_actors = peer_actors_builder().build();
@@ -3399,15 +3333,6 @@ mod tests {
                 expected_scan_pending_payable_msg_and_interval,
             ]
         );
-        let mut notify_confirm_transaction_params =
-            notify_confirm_transaction_params_arc.lock().unwrap();
-        let actual_confirmed_payable: ConfirmPendingTransaction =
-            notify_confirm_transaction_params.remove(0);
-        assert!(notify_confirm_transaction_params.is_empty());
-        let expected_confirmed_payable = ConfirmPendingTransaction {
-            pending_payable_fingerprint: fingerprint_2_fourth_round,
-        };
-        assert_eq!(actual_confirmed_payable, expected_confirmed_payable);
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(
             "WARN: Accountant: Broken transaction 0x0000…007b left with an error mark; you should take over the care of this transaction to make sure your debts will be paid because there \

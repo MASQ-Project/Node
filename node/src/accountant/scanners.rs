@@ -12,16 +12,15 @@ pub(in crate::accountant) mod scanners {
     };
     use crate::accountant::tools::receivable_scanner_tools::balance_and_age;
     use crate::accountant::{
-        Accountant, ConfirmPendingTransaction, ReceivedPayments, ReportTransactionReceipts,
-        RequestTransactionReceipts, ResponseSkeleton, ScanForPayables, ScanForPendingPayables,
-        ScanForReceivables, SentPayable,
+        Accountant, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts,
+        ResponseSkeleton, ScanForPayables, ScanForPendingPayables, ScanForReceivables, SentPayable,
     };
     use crate::accountant::{PendingPayableId, PendingTransactionStatus, ReportAccountsPayable};
     use crate::banned_dao::BannedDao;
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::sub_lib::accountant::{FinancialStatistics, PaymentThresholds};
-    use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
+    use crate::sub_lib::utils::NotifyLaterHandle;
     use crate::sub_lib::wallet::Wallet;
     use actix::Message;
     use masq_lib::logger::Logger;
@@ -735,12 +734,6 @@ pub(in crate::accountant) mod scanners {
         pub scan_for_payable: Box<dyn NotifyLaterHandle<ScanForPayables, Accountant>>,
         pub scan_for_receivable: Box<dyn NotifyLaterHandle<ScanForReceivables, Accountant>>,
     }
-
-    #[derive(Default)]
-    pub struct TransactionConfirmationTools {
-        pub notify_confirm_transaction:
-            Box<dyn NotifyHandle<ConfirmPendingTransaction, Accountant>>,
-    }
 }
 
 #[cfg(test)]
@@ -1232,6 +1225,7 @@ mod tests {
         let result = subject.update_payable_fingerprint(transaction_id, &Logger::new(test_name));
 
         let update_after_cycle_params = update_after_cycle_params_arc.lock().unwrap();
+        assert_eq!(result, Ok(()));
         assert_eq!(*update_after_cycle_params, vec![rowid])
     }
 
