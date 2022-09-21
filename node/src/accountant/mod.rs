@@ -3775,64 +3775,6 @@ mod tests {
     }
 
     #[test]
-    fn accountant_receives_reported_transaction_receipts_and_processes_them_all() {
-        let notify_handle_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut subject = AccountantBuilder::default().build();
-        subject.tools.notify_confirm_transaction =
-            Box::new(NotifyHandleMock::default().notify_params(&notify_handle_params_arc));
-        let subject_addr = subject.start();
-        let transaction_hash_1 = H256::from_uint(&U256::from(4545));
-        let mut transaction_receipt_1 = TransactionReceipt::default();
-        transaction_receipt_1.transaction_hash = transaction_hash_1;
-        transaction_receipt_1.status = Some(U64::from(1)); //success
-        let fingerprint_1 = PendingPayableFingerprint {
-            rowid_opt: Some(5),
-            timestamp: from_time_t(200_000_000),
-            hash: transaction_hash_1,
-            attempt_opt: Some(2),
-            amount: 444,
-            process_error: None,
-        };
-        let transaction_hash_2 = H256::from_uint(&U256::from(3333333));
-        let mut transaction_receipt_2 = TransactionReceipt::default();
-        transaction_receipt_2.transaction_hash = transaction_hash_2;
-        transaction_receipt_2.status = Some(U64::from(1)); //success
-        let fingerprint_2 = PendingPayableFingerprint {
-            rowid_opt: Some(10),
-            timestamp: from_time_t(199_780_000),
-            hash: Default::default(),
-            attempt_opt: Some(15),
-            amount: 1212,
-            process_error: None,
-        };
-        let msg = ReportTransactionReceipts {
-            fingerprints_with_receipts: vec![
-                (Some(transaction_receipt_1), fingerprint_1.clone()),
-                (Some(transaction_receipt_2), fingerprint_2.clone()),
-            ],
-            response_skeleton_opt: None,
-        };
-
-        let _ = subject_addr.try_send(msg).unwrap();
-
-        let system = System::new("processing reported receipts");
-        System::current().stop();
-        system.run();
-        let notify_handle_params = notify_handle_params_arc.lock().unwrap();
-        assert_eq!(
-            *notify_handle_params,
-            vec![
-                ConfirmPendingTransaction {
-                    pending_payable_fingerprint: fingerprint_1
-                },
-                ConfirmPendingTransaction {
-                    pending_payable_fingerprint: fingerprint_2
-                },
-            ]
-        );
-    }
-
-    #[test]
     fn accountant_handles_pending_payable_fingerprint() {
         init_test_logging();
         let insert_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));

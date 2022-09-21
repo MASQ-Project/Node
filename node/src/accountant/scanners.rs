@@ -803,6 +803,7 @@ mod tests {
     use crate::accountant::payable_dao::{Payable, PayableDaoError, PayableDaoFactory};
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::blockchain::blockchain_interface::BlockchainError;
+    use crate::database::dao_utils::from_time_t;
     use crate::sub_lib::accountant::{FinancialStatistics, PaymentThresholds};
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::test_utils::make_wallet;
@@ -1251,6 +1252,77 @@ mod tests {
         );
         TestLogHandler::new()
             .exists_log_matching("DEBUG: Handle Pending Tx: Interpreting a receipt for transaction '0x0000…0913' but none was given; attempt 3, 100\\d\\dms since sending");
+    }
+
+    #[test]
+    fn pending_payable_scanner_handles_report_transaction_receipts_message() {
+        init_test_logging();
+        let test_name = "accountant_receives_reported_transaction_receipts_and_processes_them_all";
+        let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
+        let payable_dao = PayableDaoMock::new()
+            .transaction_confirmed_params(&transaction_confirmed_params_arc)
+            .transaction_confirmed_result(Ok(()))
+            .transaction_confirmed_result(Ok(()));
+        let pending_payable_dao = PendingPayableDaoMock::new()
+            .delete_fingerprint_result(Ok(()))
+            .delete_fingerprint_result(Ok(()));
+        let mut subject = PendingPayableScanner::new(
+            Box::new(payable_dao),
+            Box::new(pending_payable_dao),
+            Rc::new(make_payment_thresholds_with_defaults()),
+            DEFAULT_PENDING_TOO_LONG_SEC,
+            Rc::new(RefCell::new(FinancialStatistics::default())),
+        );
+        let transaction_hash_1 = H256::from_uint(&U256::from(4545));
+        let mut transaction_receipt_1 = TransactionReceipt::default();
+        transaction_receipt_1.transaction_hash = transaction_hash_1;
+        transaction_receipt_1.status = Some(U64::from(1)); //success
+        let fingerprint_1 = PendingPayableFingerprint {
+            rowid_opt: Some(5),
+            timestamp: from_time_t(200_000_000),
+            hash: transaction_hash_1,
+            attempt_opt: Some(2),
+            amount: 444,
+            process_error: None,
+        };
+        let transaction_hash_2 = H256::from_uint(&U256::from(1234));
+        let mut transaction_receipt_2 = TransactionReceipt::default();
+        transaction_receipt_2.transaction_hash = transaction_hash_2;
+        transaction_receipt_2.status = Some(U64::from(1)); //success
+        let fingerprint_2 = PendingPayableFingerprint {
+            rowid_opt: Some(10),
+            timestamp: from_time_t(199_780_000),
+            hash: transaction_hash_2,
+            attempt_opt: Some(15),
+            amount: 1212,
+            process_error: None,
+        };
+        let msg = ReportTransactionReceipts {
+            fingerprints_with_receipts: vec![
+                (Some(transaction_receipt_1), fingerprint_1.clone()),
+                (Some(transaction_receipt_2), fingerprint_2.clone()),
+            ],
+            response_skeleton_opt: None,
+        };
+
+        let result = subject.scan_finished(msg, &Logger::new(test_name));
+
+        let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
+        assert_eq!(result, Ok(None));
+        assert_eq!(
+            *transaction_confirmed_params,
+            vec![fingerprint_1, fingerprint_2]
+        );
+        TestLogHandler::new().assert_logs_match_in_order(vec![
+            &format!(
+                "INFO: {}: Transaction {:?} has gone through the whole confirmation process succeeding",
+                test_name, transaction_hash_1
+            ),
+            &format!(
+                "INFO: {}: Transaction {:?} has gone through the whole confirmation process succeeding",
+                test_name, transaction_hash_2
+            ),
+        ]);
     }
 
     #[test]
