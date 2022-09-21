@@ -291,7 +291,7 @@ pub(in crate::accountant) mod scanners {
         payable_dao: Box<dyn PayableDao>,
         pending_payable_dao: Box<dyn PendingPayableDao>,
         when_pending_too_long_sec: u64,
-        financial_statistics: Rc<RefCell<FinancialStatistics>>,
+        pub(crate) financial_statistics: Rc<RefCell<FinancialStatistics>>,
     }
 
     impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingPayableScanner {
@@ -494,7 +494,7 @@ pub(in crate::accountant) mod scanners {
             }
         }
 
-        fn order_confirm_transaction(
+        pub fn order_confirm_transaction(
             &mut self,
             pending_payable_fingerprint: PendingPayableFingerprint,
             logger: &Logger,
@@ -536,6 +536,10 @@ pub(in crate::accountant) mod scanners {
                     Ok(())
                 }
             }
+        }
+
+        pub fn financial_statistics(&self) -> FinancialStatistics {
+            self.financial_statistics.as_ref().borrow().clone()
         }
     }
 
@@ -1302,6 +1306,153 @@ mod tests {
             Err(
                 "Unsuccessful attempt for transaction 0x051a…8c19 to mark fatal error at payable \
                 fingerprint due to UpdateFailed(\"no no no\"); database unreliable"
+                    .to_string()
+            )
+        )
+    }
+
+    #[test]
+    fn handle_confirm_pending_transaction_throws_error_while_deleting_pending_payable_fingerprint()
+    {
+        init_test_logging();
+        let test_name = "handle_confirm_pending_transaction_throws_error_while_deleting_pending_payable_fingerprint";
+        let hash = H256::from_uint(&U256::from(789));
+        let rowid = 3;
+        let payable_dao = PayableDaoMock::new().transaction_confirmed_result(Ok(()));
+        let pending_payable_dao = PendingPayableDaoMock::default().delete_fingerprint_result(Err(
+            PendingPayableDaoError::RecordDeletion(
+                "the database is fooling around with us".to_string(),
+            ),
+        ));
+        let mut subject = make_pending_payable_scanner_from_daos(payable_dao, pending_payable_dao);
+        let mut pending_payable_fingerprint = make_pending_payable_fingerprint();
+        pending_payable_fingerprint.rowid_opt = Some(rowid);
+        pending_payable_fingerprint.hash = hash;
+
+        let result =
+            subject.order_confirm_transaction(pending_payable_fingerprint, &Logger::new(test_name));
+
+        assert_eq!(
+            result,
+            Err(
+                "Was unable to delete payable fingerprint '0x0000…0315' after successful \
+                transaction due to 'RecordDeletion(\"the database is fooling around with us\")'"
+                    .to_string()
+            )
+        )
+    }
+
+    #[test]
+    fn handle_confirm_transaction_works() {
+        init_test_logging();
+        let test_name = "handle_confirm_transaction_works";
+        let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
+        let delete_pending_payable_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
+        let payable_dao = PayableDaoMock::default()
+            .transaction_confirmed_params(&transaction_confirmed_params_arc)
+            .transaction_confirmed_result(Ok(()));
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .delete_fingerprint_params(&delete_pending_payable_fingerprint_params_arc)
+            .delete_fingerprint_result(Ok(()));
+        let mut subject = make_pending_payable_scanner_from_daos(payable_dao, pending_payable_dao);
+        let tx_hash = H256::from("sometransactionhash".keccak256());
+        let amount = 4567;
+        let timestamp_from_time_of_payment = from_time_t(200_000_000);
+        let rowid = 2;
+        let pending_payable_fingerprint = PendingPayableFingerprint {
+            rowid_opt: Some(rowid),
+            timestamp: timestamp_from_time_of_payment,
+            hash: tx_hash,
+            attempt_opt: Some(1),
+            amount,
+            process_error: None,
+        };
+
+        let result = subject.order_confirm_transaction(
+            pending_payable_fingerprint.clone(),
+            &Logger::new(test_name),
+        );
+
+        let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
+        let delete_pending_payable_fingerprint_params =
+            delete_pending_payable_fingerprint_params_arc
+                .lock()
+                .unwrap();
+        assert_eq!(result, Ok(()));
+        assert_eq!(
+            *transaction_confirmed_params,
+            vec![pending_payable_fingerprint]
+        );
+        assert_eq!(*delete_pending_payable_fingerprint_params, vec![rowid]);
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &format!(
+                "DEBUG: {test_name}: Confirmation of transaction 0x051a…8c19; \
+                    record for payable was modified"
+            ),
+            &format!(
+                "INFO: {test_name}: Transaction \
+                0x051aae12b9595ccaa43c2eabfd5b86347c37fa0988167165b0b17b23fcaa8c19 \
+                has gone through the whole confirmation process succeeding"
+            ),
+        ]);
+    }
+
+    #[test]
+    fn total_paid_payable_rises_with_each_bill_paid() {
+        let test_name = "total_paid_payable_rises_with_each_bill_paid";
+        let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
+        let fingerprint = PendingPayableFingerprint {
+            rowid_opt: Some(5),
+            timestamp: from_time_t(189_999_888),
+            hash: H256::from_uint(&U256::from(56789)),
+            attempt_opt: Some(1),
+            amount: 5478,
+            process_error: None,
+        };
+        let payable_dao = PayableDaoMock::default()
+            .transaction_confirmed_params(&transaction_confirmed_params_arc)
+            .transaction_confirmed_result(Ok(()))
+            .transaction_confirmed_result(Ok(()));
+        let mut pending_payable_dao =
+            PendingPayableDaoMock::default().delete_fingerprint_result(Ok(()));
+        pending_payable_dao.have_return_all_fingerprints_shut_down_the_system = true;
+        let mut subject = make_pending_payable_scanner_from_daos(payable_dao, pending_payable_dao);
+        let mut financial_statistics = subject.financial_statistics();
+        financial_statistics.total_paid_payable += 1111;
+        subject.financial_statistics.replace(financial_statistics);
+
+        let result =
+            subject.order_confirm_transaction(fingerprint.clone(), &Logger::new(test_name));
+
+        let total_paid_payable = subject.financial_statistics().total_paid_payable;
+        let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
+        assert_eq!(result, Ok(()));
+        assert_eq!(total_paid_payable, 1111 + 5478);
+        assert_eq!(*transaction_confirmed_params, vec![fingerprint])
+    }
+
+    #[test]
+    fn order_confirm_transaction_throws_error_on_unchecking_payable_table() {
+        init_test_logging();
+        let test_name = "order_confirm_transaction_throws_error_on_unchecking_payable_table";
+        let hash = H256::from_uint(&U256::from(789));
+        let rowid = 3;
+        let payable_dao = PayableDaoMock::new().transaction_confirmed_result(Err(
+            PayableDaoError::RusqliteError("record change not successful".to_string()),
+        ));
+        let mut subject =
+            make_pending_payable_scanner_from_daos(payable_dao, PendingPayableDaoMock::new());
+        let mut fingerprint = make_pending_payable_fingerprint();
+        fingerprint.rowid_opt = Some(rowid);
+        fingerprint.hash = hash;
+
+        let result = subject.order_confirm_transaction(fingerprint, &Logger::new(test_name));
+
+        assert_eq!(
+            result,
+            Err(
+                "Was unable to uncheck pending payable '0x0000…0315' after confirmation due to \
+                'RusqliteError(\"record change not successful\")'"
                     .to_string()
             )
         )
