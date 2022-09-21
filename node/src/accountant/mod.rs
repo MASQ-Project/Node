@@ -195,9 +195,7 @@ impl Handler<SentPayable> for Accountant {
                         .expect("UIGateway is dead");
                 }
             }
-            Err(e) => {
-                panic!("{}", e);
-            }
+            Err(e) => panic!("Payable Scanner: {}", e),
         }
     }
 }
@@ -363,9 +361,7 @@ impl Handler<ReportTransactionReceipts> for Accountant {
                         .expect("UIGateway is dead");
                 }
             }
-            Err(e) => {
-                panic!("{}", e);
-            }
+            Err(e) => panic!("PendingPayable Scanner: {}", e),
         }
     }
 }
