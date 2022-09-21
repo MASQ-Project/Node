@@ -12,9 +12,9 @@ pub(in crate::accountant) mod scanners {
     };
     use crate::accountant::tools::receivable_scanner_tools::balance_and_age;
     use crate::accountant::{
-        Accountant, CancelFailedPendingTransaction, ConfirmPendingTransaction, ReceivedPayments,
-        ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
-        ScanForPendingPayables, ScanForReceivables, SentPayable,
+        Accountant, ConfirmPendingTransaction, ReceivedPayments, ReportTransactionReceipts,
+        RequestTransactionReceipts, ResponseSkeleton, ScanForPayables, ScanForPendingPayables,
+        ScanForReceivables, SentPayable,
     };
     use crate::accountant::{PendingPayableId, PendingTransactionStatus, ReportAccountsPayable};
     use crate::banned_dao::BannedDao;
@@ -736,8 +736,6 @@ pub(in crate::accountant) mod scanners {
     pub struct TransactionConfirmationTools {
         pub notify_confirm_transaction:
             Box<dyn NotifyHandle<ConfirmPendingTransaction, Accountant>>,
-        pub notify_cancel_failed_transaction:
-            Box<dyn NotifyHandle<CancelFailedPendingTransaction, Accountant>>,
     }
 }
 

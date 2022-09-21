@@ -366,23 +366,6 @@ impl SkeletonOptHolder for RequestTransactionReceipts {
 }
 
 #[derive(Debug, PartialEq, Message, Clone)]
-pub struct CancelFailedPendingTransaction {
-    pub id: PendingPayableId,
-}
-
-impl Handler<CancelFailedPendingTransaction> for Accountant {
-    type Result = ();
-
-    fn handle(
-        &mut self,
-        msg: CancelFailedPendingTransaction,
-        _ctx: &mut Self::Context,
-    ) -> Self::Result {
-        self.handle_cancel_pending_transaction(msg)
-    }
-}
-
-#[derive(Debug, PartialEq, Message, Clone)]
 pub struct ConfirmPendingTransaction {
     pub pending_payable_fingerprint: PendingPayableFingerprint,
 }
@@ -838,19 +821,6 @@ impl Accountant {
         }
     }
 
-    fn handle_cancel_pending_transaction(&self, msg: CancelFailedPendingTransaction) {
-        todo!("break some tests");
-        match self
-            .pending_payable_dao
-            .mark_failure(msg.id.rowid)
-        {
-            Ok(_) => warning!(
-                self.logger,
-                "Broken transaction {} left with an error mark; you should take over the care of this transaction to make sure your debts will be paid because there is no automated process that can fix this without you", msg.id.hash),
-            Err(e) => panic!("Unsuccessful attempt for transaction {} to mark fatal error at payable fingerprint due to {:?}; database unreliable", msg.id.hash, e),
-        }
-    }
-
     fn handle_confirm_pending_transaction(&mut self, msg: ConfirmPendingTransaction) {
         if let Err(e) = self
             .payable_dao
@@ -1112,11 +1082,6 @@ mod tests {
             .notify_confirm_transaction
             .as_any()
             .downcast_ref::<NotifyHandleReal<ConfirmPendingTransaction>>()
-            .unwrap();
-        transaction_confirmation_tools
-            .notify_cancel_failed_transaction
-            .as_any()
-            .downcast_ref::<NotifyHandleReal<CancelFailedPendingTransaction>>()
             .unwrap();
         let notify_later = result.notify_later;
         notify_later
@@ -3297,9 +3262,6 @@ mod tests {
         let notify_later_scan_for_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_later_scan_for_pending_payable_arc_cloned =
             notify_later_scan_for_pending_payable_params_arc.clone(); //because it moves into a closure
-        let notify_cancel_failed_transaction_params_arc = Arc::new(Mutex::new(vec![]));
-        let notify_cancel_failed_transaction_params_arc_cloned =
-            notify_cancel_failed_transaction_params_arc.clone(); //because it moves into a closure
         let notify_confirm_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_confirm_transaction_params_arc_cloned =
             notify_confirm_transaction_params_arc.clone(); //because it moves into a closure
@@ -3470,10 +3432,6 @@ mod tests {
                     .notify_later_params(&notify_later_scan_for_pending_payable_arc_cloned)
                     .permit_to_send_out();
                 subject.notify_later.scan_for_pending_payable = Box::new(notify_later_half_mock);
-                let notify_half_mock = NotifyHandleMock::default()
-                    .notify_params(&notify_cancel_failed_transaction_params_arc_cloned)
-                    .permit_to_send_out();
-                subject.tools.notify_cancel_failed_transaction = Box::new(notify_half_mock);
                 let notify_half_mock = NotifyHandleMock::default()
                     .notify_params(&notify_confirm_transaction_params_arc_cloned)
                     .permit_to_send_out();
