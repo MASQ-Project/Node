@@ -1187,6 +1187,39 @@ mod tests {
     }
 
     #[test]
+    fn interpret_transaction_receipt_when_transaction_status_is_a_failure() {
+        init_test_logging();
+        let subject = PendingPayableScanner::default();
+        let mut tx_receipt = TransactionReceipt::default();
+        tx_receipt.status = Some(U64::from(0)); //failure
+        let hash = H256::from_uint(&U256::from(4567));
+        let fingerprint = PendingPayableFingerprint {
+            rowid_opt: Some(777777),
+            timestamp: SystemTime::now().sub(Duration::from_millis(150000)),
+            hash,
+            attempt_opt: Some(5),
+            amount: 2222,
+            process_error: None,
+        };
+
+        let result = subject.interpret_transaction_receipt(
+            &tx_receipt,
+            &fingerprint,
+            &Logger::new("receipt_check_logger"),
+        );
+
+        assert_eq!(
+            result,
+            PendingTransactionStatus::Failure(PendingPayableId {
+                hash,
+                rowid: 777777,
+            })
+        );
+        TestLogHandler::new().exists_log_matching("ERROR: receipt_check_logger: Pending \
+         transaction '0x0000…11d7' announced as a failure, interpreting attempt 5 after 1500\\d\\dms from the sending");
+    }
+
+    #[test]
     fn receivable_scanner_can_initiate_a_scan() {
         init_test_logging();
         let test_name = "receivable_scanner_can_initiate_a_scan";
