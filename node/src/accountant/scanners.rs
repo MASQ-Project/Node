@@ -27,7 +27,6 @@ pub(in crate::accountant) mod scanners {
     use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
     use masq_lib::utils::ExpectValue;
     use std::any::Any;
-    use std::borrow::{Borrow, BorrowMut};
     use std::cell::RefCell;
     use std::rc::Rc;
     use std::time::SystemTime;
@@ -800,7 +799,7 @@ mod tests {
     use std::cell::RefCell;
     use std::ops::Sub;
 
-    use crate::accountant::payable_dao::{Payable, PayableDaoError, PayableDaoFactory};
+    use crate::accountant::payable_dao::{Payable, PayableDaoError};
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::database::dao_utils::from_time_t;

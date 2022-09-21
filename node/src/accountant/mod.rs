@@ -9,7 +9,6 @@ pub mod tools;
 pub mod test_utils;
 
 use masq_lib::constants::SCAN_ERROR;
-use std::borrow::{Borrow, BorrowMut};
 use std::cell::RefCell;
 
 use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
@@ -346,7 +345,7 @@ pub struct ReportTransactionReceipts {
 impl Handler<ReportTransactionReceipts> for Accountant {
     type Result = ();
 
-    fn handle(&mut self, msg: ReportTransactionReceipts, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: ReportTransactionReceipts, _ctx: &mut Self::Context) -> Self::Result {
         match self
             .scanners
             .pending_payable
@@ -885,95 +884,6 @@ impl Accountant {
         }
     }
 
-    fn handle_pending_transaction_with_its_receipt(
-        &self,
-        msg: &ReportTransactionReceipts,
-    ) -> Vec<PendingTransactionStatus> {
-        todo!("migration to scanners.rs in progress");
-        fn handle_none_receipt(
-            payable: &PendingPayableFingerprint,
-            logger: &Logger,
-        ) -> PendingTransactionStatus {
-            debug!(logger,
-                "DEBUG: Accountant: Interpreting a receipt for transaction '{}' but none was given; attempt {}, {}ms since sending",
-                payable.hash, payable.attempt_opt.expectv("initialized attempt"),elapsed_in_ms(payable.timestamp)
-            );
-            PendingTransactionStatus::StillPending(PendingPayableId {
-                hash: payable.hash,
-                rowid: payable.rowid_opt.expectv("initialized rowid"),
-            })
-        }
-        msg.fingerprints_with_receipts
-            .iter()
-            .map(|(receipt_opt, fingerprint)| match receipt_opt {
-                Some(receipt) => {
-                    self.interpret_transaction_receipt(receipt, fingerprint, &self.logger)
-                }
-                None => handle_none_receipt(fingerprint, &self.logger),
-            })
-            .collect()
-    }
-
-    fn interpret_transaction_receipt(
-        &self,
-        receipt: &TransactionReceipt,
-        fingerprint: &PendingPayableFingerprint,
-        logger: &Logger,
-    ) -> PendingTransactionStatus {
-        todo!("migration to scanners.rs in progress");
-        fn handle_none_status(
-            fingerprint: &PendingPayableFingerprint,
-            max_pending_interval: u64,
-            logger: &Logger,
-        ) -> PendingTransactionStatus {
-            info!(logger,"Pending transaction '{}' couldn't be confirmed at attempt {} at {}ms after its sending",fingerprint.hash, fingerprint.attempt_opt.expectv("initialized attempt"), elapsed_in_ms(fingerprint.timestamp));
-            let elapsed = fingerprint
-                .timestamp
-                .elapsed()
-                .expect("we should be older now");
-            let transaction_id = PendingPayableId {
-                hash: fingerprint.hash,
-                rowid: fingerprint.rowid_opt.expectv("initialized rowid"),
-            };
-            if max_pending_interval <= elapsed.as_secs() {
-                error!(logger,"Pending transaction '{}' has exceeded the maximum pending time ({}sec) and the confirmation process is going to be aborted now at the final attempt {}; \
-                 manual resolution is required from the user to complete the transaction.", fingerprint.hash, max_pending_interval, fingerprint.attempt_opt.expectv("initialized attempt"));
-                PendingTransactionStatus::Failure(transaction_id)
-            } else {
-                PendingTransactionStatus::StillPending(transaction_id)
-            }
-        }
-        fn handle_status_with_success(
-            fingerprint: &PendingPayableFingerprint,
-            logger: &Logger,
-        ) -> PendingTransactionStatus {
-            info!(
-                logger,
-                "Transaction '{}' has been added to the blockchain; detected locally at attempt {} at {}ms after its sending",
-                fingerprint.hash,
-                fingerprint.attempt_opt.expectv("initialized attempt"),
-                elapsed_in_ms(fingerprint.timestamp)
-            );
-            PendingTransactionStatus::Confirmed(fingerprint.clone())
-        }
-        fn handle_status_with_failure(
-            fingerprint: &PendingPayableFingerprint,
-            logger: &Logger,
-        ) -> PendingTransactionStatus {
-            error!(logger,"Pending transaction '{}' announced as a failure, interpreting attempt {} after {}ms from the sending",fingerprint.hash,fingerprint.attempt_opt.expectv("initialized attempt"),elapsed_in_ms(fingerprint.timestamp));
-            PendingTransactionStatus::Failure(fingerprint.into())
-        }
-        match receipt.status {
-            None => todo!("code migration to scanners.rs in progress"),
-            Some(status_code) =>
-                match status_code.as_u64() {
-                    0 => handle_status_with_failure(fingerprint, logger),
-                    1 => handle_status_with_success(fingerprint, logger),
-                    other => unreachable!("tx receipt for pending '{}' - tx status: code other than 0 or 1 shouldn't be possible, but was {}", fingerprint.hash, other)
-                }
-        }
-    }
-
     fn update_payable_fingerprint(&self, pending_payable_id: PendingPayableId) {
         match self
             .pending_payable_dao
@@ -989,45 +899,6 @@ impl Accountant {
                 pending_payable_id.hash, e
             ),
         }
-    }
-
-    fn process_transaction_by_status(
-        &self,
-        statuses: Vec<PendingTransactionStatus>,
-        ctx: &mut Context<Self>,
-    ) {
-        statuses.into_iter().for_each(|status| {
-            if let PendingTransactionStatus::StillPending(transaction_id) = status {
-                self.update_payable_fingerprint(transaction_id)
-            } else if let PendingTransactionStatus::Failure(transaction_id) = status {
-                self.order_cancel_failed_transaction(transaction_id, ctx)
-            } else if let PendingTransactionStatus::Confirmed(fingerprint) = status {
-                self.order_confirm_transaction(fingerprint, ctx)
-            }
-        });
-    }
-
-    fn order_cancel_failed_transaction(
-        &self,
-        transaction_id: PendingPayableId,
-        ctx: &mut Context<Self>,
-    ) {
-        self.tools
-            .notify_cancel_failed_transaction
-            .notify(CancelFailedPendingTransaction { id: transaction_id }, ctx)
-    }
-
-    fn order_confirm_transaction(
-        &self,
-        pending_payable_fingerprint: PendingPayableFingerprint,
-        ctx: &mut Context<Self>,
-    ) {
-        self.tools.notify_confirm_transaction.notify(
-            ConfirmPendingTransaction {
-                pending_payable_fingerprint,
-            },
-            ctx,
-        );
     }
 
     fn handle_new_pending_payable_fingerprint(&self, msg: PendingPayableFingerprint) {
@@ -1053,13 +924,6 @@ impl Accountant {
 
 pub fn unsigned_to_signed(unsigned: u64) -> Result<i64, u64> {
     i64::try_from(unsigned).map_err(|_| unsigned)
-}
-
-fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
-    timestamp
-        .elapsed()
-        .expect("time calculation for elapsed failed")
-        .as_millis()
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -3941,7 +3805,7 @@ mod tests {
         let payable_dao = PayableDaoMock::new().total_result(23456789);
         let receivable_dao = ReceivableDaoMock::new().total_result(98765432);
         let system = System::new("test");
-        let mut subject = AccountantBuilder::default()
+        let subject = AccountantBuilder::default()
             .bootstrapper_config(make_bc_with_defaults())
             .payable_dao(payable_dao) // For Accountant
             .payable_dao(PayableDaoMock::new()) // For Payable Scanner
