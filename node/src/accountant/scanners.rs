@@ -377,7 +377,7 @@ pub(in crate::accountant) mod scanners {
             }
         }
 
-        fn handle_pending_transaction_with_its_receipt(
+        pub(crate) fn handle_pending_transaction_with_its_receipt(
             &self,
             msg: &ReportTransactionReceipts,
             logger: &Logger,
@@ -387,7 +387,7 @@ pub(in crate::accountant) mod scanners {
                 logger: &Logger,
             ) -> PendingTransactionStatus {
                 debug!(logger,
-                "DEBUG: Accountant: Interpreting a receipt for transaction '{}' but none was given; attempt {}, {}ms since sending",
+                "Interpreting a receipt for transaction '{}' but none was given; attempt {}, {}ms since sending",
                 payable.hash, payable.attempt_opt.expectv("initialized attempt"), elapsed_in_ms(payable.timestamp)
             );
                 PendingTransactionStatus::StillPending(PendingPayableId {
@@ -793,8 +793,8 @@ mod tests {
         ReceivableDaoMock,
     };
     use crate::accountant::{
-        PendingPayableId, PendingTransactionStatus, RequestTransactionReceipts, SentPayable,
-        DEFAULT_PENDING_TOO_LONG_SEC,
+        PendingPayableId, PendingTransactionStatus, ReportTransactionReceipts,
+        RequestTransactionReceipts, SentPayable, DEFAULT_PENDING_TOO_LONG_SEC,
     };
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
     use std::cell::RefCell;
@@ -1217,6 +1217,40 @@ mod tests {
         );
         TestLogHandler::new().exists_log_matching("ERROR: receipt_check_logger: Pending \
          transaction '0x0000…11d7' announced as a failure, interpreting attempt 5 after 1500\\d\\dms from the sending");
+    }
+
+    #[test]
+    fn handle_pending_tx_handles_none_returned_for_transaction_receipt() {
+        init_test_logging();
+        let subject = PendingPayableScanner::default();
+        let tx_receipt_opt = None;
+        let rowid = 455;
+        let hash = H256::from_uint(&U256::from(2323));
+        let fingerprint = PendingPayableFingerprint {
+            rowid_opt: Some(rowid),
+            timestamp: SystemTime::now().sub(Duration::from_millis(10000)),
+            hash,
+            attempt_opt: Some(3),
+            amount: 111,
+            process_error: None,
+        };
+        let msg = ReportTransactionReceipts {
+            fingerprints_with_receipts: vec![(tx_receipt_opt, fingerprint.clone())],
+            response_skeleton_opt: None,
+        };
+
+        let result = subject
+            .handle_pending_transaction_with_its_receipt(&msg, &Logger::new("Handle Pending Tx"));
+
+        assert_eq!(
+            result,
+            vec![PendingTransactionStatus::StillPending(PendingPayableId {
+                hash,
+                rowid,
+            })]
+        );
+        TestLogHandler::new()
+            .exists_log_matching("DEBUG: Handle Pending Tx: Interpreting a receipt for transaction '0x0000…0913' but none was given; attempt 3, 100\\d\\dms since sending");
     }
 
     #[test]

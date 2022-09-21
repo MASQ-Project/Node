@@ -889,6 +889,7 @@ impl Accountant {
         &self,
         msg: &ReportTransactionReceipts,
     ) -> Vec<PendingTransactionStatus> {
+        todo!("migration to scanners.rs in progress");
         fn handle_none_receipt(
             payable: &PendingPayableFingerprint,
             logger: &Logger,
@@ -3771,38 +3772,6 @@ mod tests {
              is no automated process that can fix this without you");
         log_handler.exists_log_matching("INFO: Accountant: Transaction '0x0000…0237' has been added to the blockchain; detected locally at attempt 4 at \\d{2,}ms after its sending");
         log_handler.exists_log_containing("INFO: Accountant: Transaction 0x0000000000000000000000000000000000000000000000000000000000000237 has gone through the whole confirmation process succeeding");
-    }
-
-    #[test]
-    fn handle_pending_tx_handles_none_returned_for_transaction_receipt() {
-        init_test_logging();
-        let subject = AccountantBuilder::default().build();
-        let tx_receipt_opt = None;
-        let rowid = 455;
-        let hash = H256::from_uint(&U256::from(2323));
-        let fingerprint = PendingPayableFingerprint {
-            rowid_opt: Some(rowid),
-            timestamp: SystemTime::now().sub(Duration::from_millis(10000)),
-            hash,
-            attempt_opt: Some(3),
-            amount: 111,
-            process_error: None,
-        };
-        let msg = ReportTransactionReceipts {
-            fingerprints_with_receipts: vec![(tx_receipt_opt, fingerprint.clone())],
-            response_skeleton_opt: None,
-        };
-
-        let result = subject.handle_pending_transaction_with_its_receipt(&msg);
-
-        assert_eq!(
-            result,
-            vec![PendingTransactionStatus::StillPending(PendingPayableId {
-                hash,
-                rowid,
-            })]
-        );
-        TestLogHandler::new().exists_log_matching("DEBUG: Accountant: Interpreting a receipt for transaction '0x0000…0913' but none was given; attempt 3, 100\\d\\dms since sending");
     }
 
     #[test]
