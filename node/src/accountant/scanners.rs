@@ -470,7 +470,7 @@ pub(in crate::accountant) mod scanners {
             }
         }
 
-        fn order_cancel_failed_transaction(
+        pub fn order_cancel_failed_transaction(
             &self,
             transaction_id: PendingPayableId,
             logger: &Logger,
@@ -768,6 +768,7 @@ mod tests {
     use crate::test_utils::make_wallet;
     use crate::test_utils::unshared_test_utils::make_payment_thresholds_with_defaults;
     use ethereum_types::{BigEndianHash, U64};
+    use ethsign_crypto::Keccak256;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::rc::Rc;
@@ -1214,6 +1215,59 @@ mod tests {
     }
 
     #[test]
+    fn order_cancel_pending_transaction_works() {
+        init_test_logging();
+        let mark_failure_params_arc = Arc::new(Mutex::new(vec![]));
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .mark_failure_params(&mark_failure_params_arc)
+            .mark_failure_result(Ok(()));
+        let subject =
+            make_pending_payable_scanner_from_daos(PayableDaoMock::new(), pending_payable_dao);
+        let tx_hash = H256::from("sometransactionhash".keccak256());
+        let rowid = 2;
+        let transaction_id = PendingPayableId {
+            hash: tx_hash,
+            rowid,
+        };
+
+        let result = subject
+            .order_cancel_failed_transaction(transaction_id, &Logger::new("CancelPendingTxOk"));
+
+        let mark_failure_params = mark_failure_params_arc.lock().unwrap();
+        assert_eq!(result, Ok(()));
+        assert_eq!(*mark_failure_params, vec![rowid]);
+        TestLogHandler::new().exists_log_containing(
+            "WARN: CancelPendingTxOk: Broken transaction 0x051a…8c19 left with an error \
+            mark; you should take over the care of this transaction to make sure your debts will \
+            be paid because there is no automated process that can fix this without you",
+        );
+    }
+
+    #[test]
+    fn order_cancel_pending_transaction_throws_error_when_it_fails_to_mark_failure() {
+        let payable_dao = PayableDaoMock::default().transaction_canceled_result(Ok(()));
+        let pending_payable_dao = PendingPayableDaoMock::default().mark_failure_result(Err(
+            PendingPayableDaoError::UpdateFailed("no no no".to_string()),
+        ));
+        let subject = make_pending_payable_scanner_from_daos(payable_dao, pending_payable_dao);
+        let rowid = 2;
+        let hash = H256::from("sometransactionhash".keccak256());
+        let transaction_id = PendingPayableId { hash, rowid };
+
+        let result = subject
+            .order_cancel_failed_transaction(transaction_id, &Logger::new("CancelPendingTxOk"));
+
+        assert_eq!(
+            result,
+            Err(
+                "Unsuccessful attempt for transaction 0x051a…8c19 to mark fatal error at payable \
+                fingerprint due to UpdateFailed(\"no no no\"); database unreliable"
+                    .to_string()
+            )
+        )
+    }
+
+    #[test]
     fn pending_payable_scanner_handles_report_transaction_receipts_message() {
         init_test_logging();
         let test_name = "accountant_receives_reported_transaction_receipts_and_processes_them_all";
@@ -1378,5 +1432,18 @@ mod tests {
         tlh.exists_log_matching("INFO: DELINQUENCY_TEST: Wallet 0x00000000000000000077616c6c65743233343564 \\(balance: 2345 MASQ, age: \\d+ sec\\) banned for delinquency");
         tlh.exists_log_matching("INFO: DELINQUENCY_TEST: Wallet 0x00000000000000000077616c6c6574333435366e \\(balance: 3456 MASQ, age: \\d+ sec\\) is no longer delinquent: unbanned");
         tlh.exists_log_matching("INFO: DELINQUENCY_TEST: Wallet 0x00000000000000000077616c6c6574343536376e \\(balance: 4567 MASQ, age: \\d+ sec\\) is no longer delinquent: unbanned");
+    }
+
+    fn make_pending_payable_scanner_from_daos(
+        payable_dao: PayableDaoMock,
+        pending_payable_dao: PendingPayableDaoMock,
+    ) -> PendingPayableScanner {
+        PendingPayableScanner::new(
+            Box::new(payable_dao),
+            Box::new(pending_payable_dao),
+            Rc::new(make_payment_thresholds_with_defaults()),
+            DEFAULT_PENDING_TOO_LONG_SEC,
+            Rc::new(RefCell::new(FinancialStatistics::default())),
+        )
     }
 }
