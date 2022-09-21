@@ -7,7 +7,9 @@ pub(in crate::accountant) mod scanners {
     use crate::accountant::tools::payable_scanner_tools::{
         investigate_debt_extremes, qualified_payables_and_summary, separate_early_errors,
     };
-    use crate::accountant::tools::pending_payable_scanner_tools::elapsed_in_ms;
+    use crate::accountant::tools::pending_payable_scanner_tools::{
+        elapsed_in_ms, handle_none_status, handle_status_with_failure, handle_status_with_success,
+    };
     use crate::accountant::tools::receivable_scanner_tools::balance_and_age;
     use crate::accountant::{
         Accountant, CancelFailedPendingTransaction, ConfirmPendingTransaction, ReceivedPayments,
@@ -381,26 +383,26 @@ pub(in crate::accountant) mod scanners {
             msg: &ReportTransactionReceipts,
             logger: &Logger,
         ) -> Vec<PendingTransactionStatus> {
-            fn handle_none_receipt(
-                payable: &PendingPayableFingerprint,
-                logger: &Logger,
-            ) -> PendingTransactionStatus {
-                debug!(logger,
-                "Interpreting a receipt for transaction '{}' but none was given; attempt {}, {}ms since sending",
-                payable.hash, payable.attempt_opt.expectv("initialized attempt"), elapsed_in_ms(payable.timestamp)
-            );
-                PendingTransactionStatus::StillPending(PendingPayableId {
-                    hash: payable.hash,
-                    rowid: payable.rowid_opt.expectv("initialized rowid"),
-                })
-            }
             msg.fingerprints_with_receipts
                 .iter()
                 .map(|(receipt_opt, fingerprint)| match receipt_opt {
                     Some(receipt) => {
                         self.interpret_transaction_receipt(receipt, fingerprint, logger)
                     }
-                    None => handle_none_receipt(fingerprint, logger),
+                    None => {
+                        debug!(
+                            logger,
+                            "Interpreting a receipt for transaction '{}' but none was given; \
+                            attempt {}, {}ms since sending",
+                            fingerprint.hash,
+                            fingerprint.attempt_opt.expectv("initialized attempt"),
+                            elapsed_in_ms(fingerprint.timestamp)
+                        );
+                        PendingTransactionStatus::StillPending(PendingPayableId {
+                            hash: fingerprint.hash,
+                            rowid: fingerprint.rowid_opt.expectv("initialized rowid"),
+                        })
+                    }
                 })
                 .collect()
         }
@@ -411,48 +413,6 @@ pub(in crate::accountant) mod scanners {
             fingerprint: &PendingPayableFingerprint,
             logger: &Logger,
         ) -> PendingTransactionStatus {
-            fn handle_none_status(
-                fingerprint: &PendingPayableFingerprint,
-                max_pending_interval: u64,
-                logger: &Logger,
-            ) -> PendingTransactionStatus {
-                info!(logger,"Pending transaction '{}' couldn't be confirmed at attempt {} at {}ms after its sending",fingerprint.hash, fingerprint.attempt_opt.expectv("initialized attempt"), elapsed_in_ms(fingerprint.timestamp));
-                let elapsed = fingerprint
-                    .timestamp
-                    .elapsed()
-                    .expect("we should be older now");
-                let transaction_id = PendingPayableId {
-                    hash: fingerprint.hash,
-                    rowid: fingerprint.rowid_opt.expectv("initialized rowid"),
-                };
-                if max_pending_interval <= elapsed.as_secs() {
-                    error!(logger,"Pending transaction '{}' has exceeded the maximum pending time ({}sec) and the confirmation process is going to be aborted now at the final attempt {}; \
-                 manual resolution is required from the user to complete the transaction.", fingerprint.hash, max_pending_interval, fingerprint.attempt_opt.expectv("initialized attempt"));
-                    PendingTransactionStatus::Failure(transaction_id)
-                } else {
-                    PendingTransactionStatus::StillPending(transaction_id)
-                }
-            }
-            fn handle_status_with_success(
-                fingerprint: &PendingPayableFingerprint,
-                logger: &Logger,
-            ) -> PendingTransactionStatus {
-                info!(
-                logger,
-                "Transaction '{}' has been added to the blockchain; detected locally at attempt {} at {}ms after its sending",
-                fingerprint.hash,
-                fingerprint.attempt_opt.expectv("initialized attempt"),
-                elapsed_in_ms(fingerprint.timestamp)
-            );
-                PendingTransactionStatus::Confirmed(fingerprint.clone())
-            }
-            fn handle_status_with_failure(
-                fingerprint: &PendingPayableFingerprint,
-                logger: &Logger,
-            ) -> PendingTransactionStatus {
-                error!(logger,"Pending transaction '{}' announced as a failure, interpreting attempt {} after {}ms from the sending",fingerprint.hash,fingerprint.attempt_opt.expectv("initialized attempt"),elapsed_in_ms(fingerprint.timestamp));
-                PendingTransactionStatus::Failure(fingerprint.into())
-            }
             match receipt.status {
                 None => handle_none_status(fingerprint, self.when_pending_too_long_sec, logger),
                 Some(status_code) =>
