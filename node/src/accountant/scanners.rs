@@ -446,7 +446,7 @@ pub(in crate::accountant) mod scanners {
             Ok(())
         }
 
-        fn update_payable_fingerprint(
+        pub(crate) fn update_payable_fingerprint(
             &self,
             pending_payable_id: PendingPayableId,
             logger: &Logger,
@@ -1210,6 +1210,48 @@ mod tests {
         );
         TestLogHandler::new()
             .exists_log_matching("DEBUG: Handle Pending Tx: Interpreting a receipt for transaction '0x0000…0913' but none was given; attempt 3, 100\\d\\dms since sending");
+    }
+
+    #[test]
+    fn update_payable_fingerprint_happy_path() {
+        let test_name = "update_payable_fingerprint_happy_path";
+        let update_after_cycle_params_arc = Arc::new(Mutex::new(vec![]));
+        let hash = H256::from_uint(&U256::from(444888));
+        let rowid = 3456;
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .update_fingerprint_params(&update_after_cycle_params_arc)
+            .update_fingerprint_results(Ok(()));
+        let subject =
+            make_pending_payable_scanner_from_daos(PayableDaoMock::new(), pending_payable_dao);
+        let transaction_id = PendingPayableId { hash, rowid };
+
+        let result = subject.update_payable_fingerprint(transaction_id, &Logger::new(test_name));
+
+        let update_after_cycle_params = update_after_cycle_params_arc.lock().unwrap();
+        assert_eq!(*update_after_cycle_params, vec![rowid])
+    }
+
+    #[test]
+    fn update_payable_fingerprint_sad_path() {
+        let test_name = "update_payable_fingerprint_sad_path";
+        let hash = H256::from_uint(&U256::from(444888));
+        let rowid = 3456;
+        let pending_payable_dao = PendingPayableDaoMock::default().update_fingerprint_results(Err(
+            PendingPayableDaoError::UpdateFailed("yeah, bad".to_string()),
+        ));
+        let subject =
+            make_pending_payable_scanner_from_daos(PayableDaoMock::new(), pending_payable_dao);
+        let transaction_id = PendingPayableId { hash, rowid };
+
+        let result = subject.update_payable_fingerprint(transaction_id, &Logger::new(test_name));
+
+        assert_eq!(
+            result,
+            Err("Failure on updating payable fingerprint \
+                '0x000000000000000000000000000000000000000000000000000000000006c9d8' \
+                due to UpdateFailed(\"yeah, bad\")"
+                .to_string())
+        )
     }
 
     #[test]

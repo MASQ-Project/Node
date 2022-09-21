@@ -855,23 +855,6 @@ impl Accountant {
         }
     }
 
-    fn update_payable_fingerprint(&self, pending_payable_id: PendingPayableId) {
-        match self
-            .pending_payable_dao
-            .update_fingerprint(pending_payable_id.rowid)
-        {
-            Ok(_) => trace!(
-                self.logger,
-                "Updated record for rowid: {} ",
-                pending_payable_id.rowid
-            ),
-            Err(e) => panic!(
-                "Failure on updating payable fingerprint '{:?}' due to {:?}",
-                pending_payable_id.hash, e
-            ),
-        }
-    }
-
     fn handle_new_pending_payable_fingerprint(&self, msg: PendingPayableFingerprint) {
         match self
             .pending_payable_dao
@@ -3620,48 +3603,6 @@ mod tests {
             vec![(transaction_hash, amount, from_time_t(timestamp_secs))]
         );
         TestLogHandler::new().exists_log_containing("ERROR: Accountant: Failed to make a fingerprint for pending payable '0x0000…01c8' due to 'InsertionFailed(\"Crashed\")'");
-    }
-
-    #[test]
-    fn update_payable_fingerprint_happy_path() {
-        let update_after_cycle_params_arc = Arc::new(Mutex::new(vec![]));
-        let hash = H256::from_uint(&U256::from(444888));
-        let rowid = 3456;
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .update_fingerprint_params(&update_after_cycle_params_arc)
-            .update_fingerprint_results(Ok(()));
-        let subject = AccountantBuilder::default()
-            .pending_payable_dao(pending_payable_dao)
-            .pending_payable_dao(PendingPayableDaoMock::new())
-            .pending_payable_dao(PendingPayableDaoMock::new())
-            .build();
-        let transaction_id = PendingPayableId { hash, rowid };
-
-        let _ = subject.update_payable_fingerprint(transaction_id);
-
-        let update_after_cycle_params = update_after_cycle_params_arc.lock().unwrap();
-        assert_eq!(*update_after_cycle_params, vec![rowid])
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Failure on updating payable fingerprint '0x000000000000000000000000000000000000000000000000000000000006c9d8' \
-         due to UpdateFailed(\"yeah, bad\")"
-    )]
-    fn update_payable_fingerprint_sad_path() {
-        let hash = H256::from_uint(&U256::from(444888));
-        let rowid = 3456;
-        let pending_payable_dao = PendingPayableDaoMock::default().update_fingerprint_results(Err(
-            PendingPayableDaoError::UpdateFailed("yeah, bad".to_string()),
-        ));
-        let subject = AccountantBuilder::default()
-            .pending_payable_dao(pending_payable_dao)
-            .pending_payable_dao(PendingPayableDaoMock::new())
-            .pending_payable_dao(PendingPayableDaoMock::new())
-            .build();
-        let transaction_id = PendingPayableId { hash, rowid };
-
-        let _ = subject.update_payable_fingerprint(transaction_id);
     }
 
     #[test]
