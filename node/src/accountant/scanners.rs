@@ -71,13 +71,14 @@ pub(in crate::accountant) mod scanners {
                     pending_payable_dao_factory.make(),
                     Rc::clone(&payment_thresholds),
                     when_pending_too_long_sec,
-                    financial_statistics,
+                    Rc::clone(&financial_statistics),
                 )),
                 receivable: Box::new(ReceivableScanner::new(
                     receivable_dao,
                     banned_dao,
                     Rc::clone(&payment_thresholds),
                     earning_wallet,
+                    financial_statistics,
                 )),
             }
         }
@@ -547,6 +548,7 @@ pub(in crate::accountant) mod scanners {
         dao: Box<dyn ReceivableDao>,
         banned_dao: Box<dyn BannedDao>,
         earning_wallet: Rc<Wallet>,
+        pub(crate) financial_statistics: Rc<RefCell<FinancialStatistics>>,
     }
 
     impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
@@ -602,10 +604,35 @@ pub(in crate::accountant) mod scanners {
 
         fn scan_finished(
             &mut self,
-            _message: ReceivedPayments,
-            _logger: &Logger,
+            message: ReceivedPayments,
+            logger: &Logger,
         ) -> Result<Option<NodeToUiMessage>, String> {
-            todo!()
+            if message.payments.is_empty() {
+                warning!(
+                    logger,
+                    "Handling received payments we got zero payments but expected some, \
+                    skipping database operations"
+                )
+            } else {
+                let total_newly_paid_receivable = message
+                    .payments
+                    .iter()
+                    .fold(0, |so_far, now| so_far + now.gwei_amount);
+                self.dao.as_mut().more_money_received(message.payments);
+                let mut financial_statistics = self.financial_statistics();
+                financial_statistics.total_paid_receivable += total_newly_paid_receivable;
+                self.financial_statistics.replace(financial_statistics);
+            }
+
+            let node_to_ui_message_opt = match message.response_skeleton_opt {
+                None => None,
+                Some(response_skeleton) => Some(NodeToUiMessage {
+                    target: MessageTarget::ClientId(response_skeleton.client_id),
+                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
+                }),
+            };
+
+            Ok(node_to_ui_message_opt)
         }
 
         fn scan_started_at(&self) -> Option<SystemTime> {
@@ -621,13 +648,19 @@ pub(in crate::accountant) mod scanners {
             banned_dao: Box<dyn BannedDao>,
             payment_thresholds: Rc<PaymentThresholds>,
             earning_wallet: Rc<Wallet>,
+            financial_statistics: Rc<RefCell<FinancialStatistics>>,
         ) -> Self {
             Self {
                 common: ScannerCommon::new(payment_thresholds),
                 earning_wallet,
                 dao,
                 banned_dao,
+                financial_statistics,
             }
+        }
+
+        pub fn financial_statistics(&self) -> FinancialStatistics {
+            self.financial_statistics.as_ref().borrow().clone()
         }
     }
 
@@ -747,7 +780,7 @@ mod tests {
         ReceivableDaoMock,
     };
     use crate::accountant::{
-        PendingPayableId, PendingTransactionStatus, ReportTransactionReceipts,
+        PendingPayableId, PendingTransactionStatus, ReceivedPayments, ReportTransactionReceipts,
         RequestTransactionReceipts, SentPayable, DEFAULT_PENDING_TOO_LONG_SEC,
     };
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
@@ -756,7 +789,7 @@ mod tests {
 
     use crate::accountant::payable_dao::{Payable, PayableDaoError};
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
-    use crate::blockchain::blockchain_interface::BlockchainError;
+    use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
     use crate::database::dao_utils::from_time_t;
     use crate::sub_lib::accountant::{FinancialStatistics, PaymentThresholds};
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
@@ -1539,6 +1572,7 @@ mod tests {
             Box::new(banned_dao),
             Rc::new(payment_thresholds),
             Rc::new(earning_wallet.clone()),
+            Rc::new(RefCell::new(FinancialStatistics::default())),
         );
 
         let result = receivable_scanner.begin_scan(now, None, &Logger::new(test_name));
@@ -1587,6 +1621,7 @@ mod tests {
             Box::new(banned_dao),
             Rc::new(payment_thresholds.clone()),
             Rc::new(make_wallet("earning")),
+            Rc::new(RefCell::new(FinancialStatistics::default())),
         );
 
         let _result = receivable_scanner.begin_scan(
@@ -1619,6 +1654,63 @@ mod tests {
         tlh.exists_log_matching("INFO: DELINQUENCY_TEST: Wallet 0x00000000000000000077616c6c6574343536376e \\(balance: 4567 MASQ, age: \\d+ sec\\) is no longer delinquent: unbanned");
     }
 
+    #[test]
+    fn receivable_scanner_aborts_scan_if_no_payments_were_supplied() {
+        init_test_logging();
+        let test_name = "receivable_scanner_aborts_scan_if_no_payments_were_supplied";
+        let mut subject =
+            make_receivable_scanner_from_daos(ReceivableDaoMock::new(), BannedDaoMock::new());
+        let msg = ReceivedPayments {
+            payments: vec![],
+            response_skeleton_opt: None,
+        };
+
+        let result = subject.scan_finished(msg, &Logger::new(test_name));
+
+        assert_eq!(result, Ok(None));
+        TestLogHandler::new().exists_log_containing(&format!(
+            "WARN: {test_name}: Handling received payments we got zero payments but \
+            expected some, skipping database operations"
+        ));
+    }
+
+    #[test]
+    fn total_paid_receivable_rises_with_each_bill_paid() {
+        let test_name = "total_paid_receivable_rises_with_each_bill_paid";
+        let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
+        let receivable_dao = ReceivableDaoMock::new()
+            .more_money_received_parameters(&more_money_received_params_arc)
+            .more_money_receivable_result(Ok(()));
+        let mut subject = make_receivable_scanner_from_daos(receivable_dao, BannedDaoMock::new());
+        let mut financial_statistics = subject.financial_statistics();
+        financial_statistics.total_paid_receivable += 2222;
+        subject.financial_statistics.replace(financial_statistics);
+        let receivables = vec![
+            BlockchainTransaction {
+                block_number: 4578910,
+                from: make_wallet("wallet_1"),
+                gwei_amount: 45780,
+            },
+            BlockchainTransaction {
+                block_number: 4569898,
+                from: make_wallet("wallet_2"),
+                gwei_amount: 33345,
+            },
+        ];
+        let msg = ReceivedPayments {
+            payments: receivables.clone(),
+            response_skeleton_opt: None,
+        };
+
+        let result = subject.scan_finished(msg, &Logger::new(test_name));
+
+        let total_paid_receivable = subject.financial_statistics().total_paid_receivable;
+        let more_money_received_params = more_money_received_params_arc.lock().unwrap();
+        assert_eq!(result, Ok(None));
+        assert_eq!(total_paid_receivable, 2222 + 45780 + 33345);
+        assert_eq!(*more_money_received_params, vec![receivables]);
+    }
+
     fn make_pending_payable_scanner_from_daos(
         payable_dao: PayableDaoMock,
         pending_payable_dao: PendingPayableDaoMock,
@@ -1628,6 +1720,19 @@ mod tests {
             Box::new(pending_payable_dao),
             Rc::new(make_payment_thresholds_with_defaults()),
             DEFAULT_PENDING_TOO_LONG_SEC,
+            Rc::new(RefCell::new(FinancialStatistics::default())),
+        )
+    }
+
+    fn make_receivable_scanner_from_daos(
+        receivable_dao: ReceivableDaoMock,
+        banned_dao: BannedDaoMock,
+    ) -> ReceivableScanner {
+        ReceivableScanner::new(
+            Box::new(receivable_dao),
+            Box::new(banned_dao),
+            Rc::new(make_payment_thresholds_with_defaults()),
+            Rc::new(make_wallet("earning")),
             Rc::new(RefCell::new(FinancialStatistics::default())),
         )
     }

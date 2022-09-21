@@ -11,7 +11,7 @@ pub mod test_utils;
 use masq_lib::constants::SCAN_ERROR;
 use std::cell::RefCell;
 
-use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
+use masq_lib::messages::{ScanType, UiScanRequest};
 use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 
 use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError, PayableDaoFactory};
@@ -221,7 +221,18 @@ impl Handler<ReceivedPayments> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ReceivedPayments, _ctx: &mut Self::Context) -> Self::Result {
-        self.handle_received_payments(msg);
+        match self.scanners.receivable.scan_finished(msg, &self.logger) {
+            Ok(node_to_ui_msg_opt) => {
+                if let Some(node_to_ui_msg) = node_to_ui_msg_opt {
+                    self.ui_message_sub
+                        .as_ref()
+                        .expect("UIGateway is not bound")
+                        .try_send(node_to_ui_msg)
+                        .expect("UIGateway is dead");
+                }
+            }
+            Err(e) => panic!("Receivable Scanner: {}", e),
+        }
     }
 }
 
@@ -553,33 +564,6 @@ impl Accountant {
                 .request_transaction_receipts,
         );
         info!(self.logger, "Accountant bound");
-    }
-
-    fn handle_received_payments(&mut self, msg: ReceivedPayments) {
-        if msg.payments.is_empty() {
-            warning!(self.logger, "Handling received payments we got zero payments but expected some, skipping database operations")
-        } else {
-            let total_newly_paid_receivable = msg
-                .payments
-                .iter()
-                .fold(0, |so_far, now| so_far + now.gwei_amount);
-            self.receivable_dao
-                .as_mut()
-                .more_money_received(msg.payments);
-            let mut financial_statistics = self.financial_statistics();
-            financial_statistics.total_paid_receivable += total_newly_paid_receivable;
-            self.financial_statistics.replace(financial_statistics);
-        }
-        if let Some(response_skeleton) = msg.response_skeleton_opt {
-            self.ui_message_sub
-                .as_ref()
-                .expect("UIGateway is not bound")
-                .try_send(NodeToUiMessage {
-                    target: MessageTarget::ClientId(response_skeleton.client_id),
-                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
-                })
-                .expect("UIGateway is dead");
-        }
     }
 
     fn handle_report_routing_service_provided_message(
@@ -1642,8 +1626,8 @@ mod tests {
             .payable_dao(payable_dao)
             .payable_dao(PayableDaoMock::new())
             .payable_dao(PayableDaoMock::new())
-            .receivable_dao(receivable_dao)
             .receivable_dao(ReceivableDaoMock::new())
+            .receivable_dao(receivable_dao)
             .build();
         let system = System::new("accountant_receives_new_payments_to_the_receivables_dao");
         let subject = accountant.start();
@@ -2740,20 +2724,6 @@ mod tests {
     }
 
     #[test]
-    fn handle_received_payments_aborts_if_no_payments_supplied() {
-        init_test_logging();
-        let mut subject = AccountantBuilder::default().build();
-        let msg = ReceivedPayments {
-            payments: vec![],
-            response_skeleton_opt: None,
-        };
-
-        let _ = subject.handle_received_payments(msg);
-
-        TestLogHandler::new().exists_log_containing("WARN: Accountant: Handling received payments we got zero payments but expected some, skipping database operations");
-    }
-
-    #[test]
     fn report_exit_service_consumed_message_is_received() {
         init_test_logging();
         let config = make_bc_with_defaults();
@@ -3505,43 +3475,6 @@ mod tests {
                 total_paid_receivable: 334455,
             }
         );
-    }
-
-    #[test]
-    fn total_paid_receivable_rises_with_each_bill_paid() {
-        let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
-        let receivable_dao = ReceivableDaoMock::new()
-            .more_money_received_parameters(&more_money_received_params_arc)
-            .more_money_receivable_result(Ok(()));
-        let mut subject = AccountantBuilder::default()
-            .receivable_dao(receivable_dao)
-            .receivable_dao(ReceivableDaoMock::new())
-            .build();
-        let mut financial_statistics = subject.financial_statistics();
-        financial_statistics.total_paid_receivable += 2222;
-        subject.financial_statistics.replace(financial_statistics);
-        let receivables = vec![
-            BlockchainTransaction {
-                block_number: 4578910,
-                from: make_wallet("wallet_1"),
-                gwei_amount: 45780,
-            },
-            BlockchainTransaction {
-                block_number: 4569898,
-                from: make_wallet("wallet_2"),
-                gwei_amount: 33345,
-            },
-        ];
-
-        subject.handle_received_payments(ReceivedPayments {
-            payments: receivables.clone(),
-            response_skeleton_opt: None,
-        });
-
-        let total_paid_receivable = subject.financial_statistics().total_paid_receivable;
-        assert_eq!(total_paid_receivable, 2222 + 45780 + 33345);
-        let more_money_received_params = more_money_received_params_arc.lock().unwrap();
-        assert_eq!(*more_money_received_params, vec![receivables]);
     }
 
     #[test]
