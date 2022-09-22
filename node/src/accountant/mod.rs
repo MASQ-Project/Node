@@ -17,7 +17,7 @@ use masq_lib::ui_gateway::{MessageBody, MessagePath, MessageTarget};
 use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError, PayableDaoFactory};
 use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
 use crate::accountant::receivable_dao::{ReceivableDaoError, ReceivableDaoFactory};
-use crate::accountant::scanners::scanners::{NotifyLaterForScanners, ScannerError, Scanners};
+use crate::accountant::scanners::scanners::{BeginScanError, NotifyLaterForScanners, Scanners};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
@@ -675,18 +675,18 @@ impl Accountant {
                     .expect("BlockchainBridge is dead");
                 eprintln!("Message was sent to the blockchain bridge, {:?}", message);
             }
-            Err(ScannerError::CalledFromNullScanner) => {
+            Err(BeginScanError::CalledFromNullScanner) => {
                 if cfg!(test) {
                     eprintln!("Payable scan is disabled.");
                 } else {
                     panic!("Null Scanner shouldn't be running inside production code.")
                 }
             }
-            Err(ScannerError::NothingToProcess) => {
+            Err(BeginScanError::NothingToProcess) => {
                 eprintln!("No payable found to process. The Scan was ended.");
                 // TODO: Do something better than just using eprintln
             }
-            Err(ScannerError::ScanAlreadyRunning(timestamp)) => {
+            Err(BeginScanError::ScanAlreadyRunning(timestamp)) => {
                 info!(
                     &self.logger,
                     "Payable scan was already initiated at {}. \
@@ -712,18 +712,18 @@ impl Accountant {
                 .expect("BlockchainBridge is unbound")
                 .try_send(message)
                 .expect("BlockchainBridge is dead"),
-            Err(ScannerError::CalledFromNullScanner) => {
+            Err(BeginScanError::CalledFromNullScanner) => {
                 if cfg!(test) {
                     eprintln!("Pending payable scan is disabled.");
                 } else {
                     panic!("Null Scanner shouldn't be running inside production code.")
                 }
             }
-            Err(ScannerError::NothingToProcess) => {
+            Err(BeginScanError::NothingToProcess) => {
                 eprintln!("No pending payable found to process. The Scan was ended.");
                 // TODO: Do something better than just using eprintln
             }
-            Err(ScannerError::ScanAlreadyRunning(timestamp)) => {
+            Err(BeginScanError::ScanAlreadyRunning(timestamp)) => {
                 info!(
                     &self.logger,
                     "Pending Payable scan was already initiated at {}. \
@@ -749,18 +749,18 @@ impl Accountant {
                 .expect("BlockchainBridge is unbound")
                 .try_send(message)
                 .expect("BlockchainBridge is dead"),
-            Err(ScannerError::CalledFromNullScanner) => {
+            Err(BeginScanError::CalledFromNullScanner) => {
                 if cfg!(test) {
                     eprintln!("Receivable scan is disabled.");
                 } else {
                     panic!("Null Scanner shouldn't be running inside production code.")
                 }
             }
-            Err(ScannerError::NothingToProcess) => {
+            Err(BeginScanError::NothingToProcess) => {
                 eprintln!("The Scan was ended.");
                 // TODO: Do something better than just using eprintln
             }
-            Err(ScannerError::ScanAlreadyRunning(timestamp)) => {
+            Err(BeginScanError::ScanAlreadyRunning(timestamp)) => {
                 info!(
                     &self.logger,
                     "Receivable scan was already initiated at {}. \
