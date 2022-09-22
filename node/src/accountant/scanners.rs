@@ -100,7 +100,7 @@ pub(in crate::accountant) mod scanners {
         ) -> Option<NodeToUiMessage>;
         fn scan_started_at(&self) -> Option<SystemTime>;
         fn mark_as_started(&mut self, timestamp: SystemTime);
-        fn mark_as_ended(&mut self);
+        fn mark_as_ended(&mut self, logger: &Logger);
         as_any_dcl!();
     }
 
@@ -179,7 +179,7 @@ pub(in crate::accountant) mod scanners {
             self.handle_sent_payables(sent_payables, logger);
             self.handle_blockchain_errors(blockchain_errors, logger);
 
-            self.mark_as_ended();
+            self.mark_as_ended(logger);
             match message.response_skeleton_opt {
                 Some(response_skeleton) => Some(NodeToUiMessage {
                     target: MessageTarget::ClientId(response_skeleton.client_id),
@@ -197,8 +197,18 @@ pub(in crate::accountant) mod scanners {
             self.common.initiated_at_opt = Some(timestamp);
         }
 
-        fn mark_as_ended(&mut self) {
-            self.common.initiated_at_opt = None;
+        fn mark_as_ended(&mut self, logger: &Logger) {
+            match self.scan_started_at() {
+                Some(timestamp) => {
+                    let elapsed_time = SystemTime::now()
+                        .duration_since(timestamp)
+                        .expect("Unable to calculate elapsed time for the scan.")
+                        .as_millis();
+                    info!(logger, "The Payable scan ended in {elapsed_time}ms.");
+                    self.common.initiated_at_opt = None;
+                }
+                None => error!(logger, "The scan_finished() was called for Payable scanner but timestamp was not found"),
+            };
         }
 
         as_any_impl!();
@@ -339,7 +349,7 @@ pub(in crate::accountant) mod scanners {
             let statuses = self.handle_pending_transaction_with_its_receipt(&message, logger);
             self.process_transaction_by_status(statuses, logger);
 
-            self.mark_as_ended();
+            self.mark_as_ended(logger);
             match message.response_skeleton_opt {
                 Some(response_skeleton) => Some(NodeToUiMessage {
                     target: MessageTarget::ClientId(response_skeleton.client_id),
@@ -357,8 +367,21 @@ pub(in crate::accountant) mod scanners {
             self.common.initiated_at_opt = Some(timestamp);
         }
 
-        fn mark_as_ended(&mut self) {
-            self.common.initiated_at_opt = None;
+        fn mark_as_ended(&mut self, logger: &Logger) {
+            match self.scan_started_at() {
+                Some(timestamp) => {
+                    let elapsed_time = SystemTime::now()
+                        .duration_since(timestamp)
+                        .expect("Unable to calculate elapsed time for the scan.")
+                        .as_millis();
+                    info!(
+                        logger,
+                        "The Pending Payable scan ended in {elapsed_time}ms."
+                    );
+                    self.common.initiated_at_opt = None;
+                }
+                None => error!(logger, "The scan_finished() was called for Pending Payable scanner but timestamp was not found"),
+            };
         }
 
         as_any_impl!();
@@ -618,7 +641,7 @@ pub(in crate::accountant) mod scanners {
                 self.financial_statistics.replace(financial_statistics);
             }
 
-            self.mark_as_ended();
+            self.mark_as_ended(logger);
             match message.response_skeleton_opt {
                 None => None,
                 Some(response_skeleton) => Some(NodeToUiMessage {
@@ -636,8 +659,18 @@ pub(in crate::accountant) mod scanners {
             self.common.initiated_at_opt = Some(timestamp);
         }
 
-        fn mark_as_ended(&mut self) {
-            self.common.initiated_at_opt = None;
+        fn mark_as_ended(&mut self, logger: &Logger) {
+            match self.scan_started_at() {
+                Some(timestamp) => {
+                    let elapsed_time = SystemTime::now()
+                        .duration_since(timestamp)
+                        .expect("Unable to calculate elapsed time for the scan.")
+                        .as_millis();
+                    info!(logger, "The Receivable scan ended in {elapsed_time}ms.");
+                    self.common.initiated_at_opt = None;
+                }
+                None => error!(logger, "The scan_finished() was called for Receivable scanner but timestamp was not found"),
+            };
         }
 
         as_any_impl!();
@@ -697,7 +730,7 @@ pub(in crate::accountant) mod scanners {
             panic!("Called from NullScanner");
         }
 
-        fn mark_as_ended(&mut self) {
+        fn mark_as_ended(&mut self, _logger: &Logger) {
             panic!("Called from NullScanner");
         }
 
@@ -1019,6 +1052,7 @@ mod tests {
     fn payable_scanner_handles_sent_payable_message() {
         //the two failures differ in the logged messages
         init_test_logging();
+        let elapsed_time = 10;
         let fingerprint_rowid_params_arc = Arc::new(Mutex::new(vec![]));
         let now_system = SystemTime::now();
         let payable_1 = Err(BlockchainError::InvalidResponse);
@@ -1042,7 +1076,7 @@ mod tests {
             Box::new(pending_payable_dao),
             Rc::new(make_payment_thresholds_with_defaults()),
         );
-        subject.mark_as_started(SystemTime::now());
+        subject.mark_as_started(SystemTime::now().sub(Duration::from_millis(elapsed_time)));
 
         let message_opt =
             subject.scan_finished(sent_payable, &Logger::new("PayableScannerScanFinished"));
@@ -1056,6 +1090,8 @@ mod tests {
         log_handler.exists_log_containing("DEBUG: PayableScannerScanFinished: Payable '0x0000…00a6' has been marked as pending in the payable table");
         log_handler.exists_log_containing("WARN: PayableScannerScanFinished: Encountered transaction error at this end: 'TransactionFailed { msg: \"closing hours, sorry\", hash_opt: None }'");
         log_handler.exists_log_containing("DEBUG: PayableScannerScanFinished: Forgetting a transaction attempt that even did not reach the signing stage");
+        log_handler
+            .exists_log_containing("INFO: PayableScannerScanFinished: The Payable scan ended");
     }
 
     #[test]
@@ -1567,7 +1603,7 @@ mod tests {
             vec![fingerprint_1, fingerprint_2]
         );
         assert_eq!(subject.scan_started_at(), None);
-        TestLogHandler::new().assert_logs_match_in_order(vec![
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
             &format!(
                 "INFO: {}: Transaction {:?} has gone through the whole confirmation process succeeding",
                 test_name, transaction_hash_1
@@ -1575,6 +1611,10 @@ mod tests {
             &format!(
                 "INFO: {}: Transaction {:?} has gone through the whole confirmation process succeeding",
                 test_name, transaction_hash_2
+            ),
+            &format!(
+                "INFO: {}: The Pending Payable scan ended",
+                test_name
             ),
         ]);
     }
@@ -1702,6 +1742,7 @@ mod tests {
 
     #[test]
     fn receivable_scanner_handles_received_payments_message() {
+        init_test_logging();
         let test_name = "total_paid_receivable_rises_with_each_bill_paid";
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_dao = ReceivableDaoMock::new()
@@ -1737,6 +1778,8 @@ mod tests {
         assert_eq!(subject.scan_started_at(), None);
         assert_eq!(total_paid_receivable, 2222 + 45780 + 33345);
         assert_eq!(*more_money_received_params, vec![receivables]);
+        TestLogHandler::new()
+            .exists_log_containing(&format!("INFO: {}: The Receivable scan ended", test_name));
     }
 
     // #[test]
