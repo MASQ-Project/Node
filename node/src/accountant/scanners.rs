@@ -20,7 +20,7 @@ pub(in crate::accountant) mod scanners {
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::sub_lib::accountant::{FinancialStatistics, PaymentThresholds};
-    use crate::sub_lib::utils::NotifyLaterHandle;
+    use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
     use crate::sub_lib::wallet::Wallet;
     use actix::Message;
     use masq_lib::logger::Logger;
@@ -154,7 +154,10 @@ pub(in crate::accountant) mod scanners {
             );
             debug!(logger, "{}", summary);
             match qualified_payables.is_empty() {
-                true => Err(BeginScanError::NothingToProcess),
+                true => {
+                    self.mark_as_ended(logger);
+                    Err(BeginScanError::NothingToProcess)
+                }
                 false => Ok(ReportAccountsPayable {
                     accounts: qualified_payables,
                     response_skeleton_opt,

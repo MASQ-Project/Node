@@ -1916,43 +1916,30 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn periodical_scanning_for_payable_works() {
         //in the very first round we scan without waiting but we cannot find any payable records
         init_test_logging();
         let test_name = "accountant_payable_scan_timer_triggers_periodical_scanning_for_payables";
         let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_later_payables_params_arc = Arc::new(Mutex::new(vec![]));
-        let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let system = System::new(test_name);
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_millis(97),
-            receivable_scan_interval: Duration::from_secs(100),
-            pending_payable_scan_interval: Duration::from_secs(100),
+            receivable_scan_interval: Duration::from_secs(100), // We'll never run this scanner
+            pending_payable_scan_interval: Duration::from_secs(100), // We'll never run this scanner
         });
-        let now = to_time_t(SystemTime::now());
-        // slightly above minimum balance, to the right of the curve (time intersection)
-        let account = PayableAccount {
-            wallet: make_wallet("wallet"),
-            balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 5,
-            last_paid_timestamp: from_time_t(
-                now - DEFAULT_PAYMENT_THRESHOLDS.threshold_interval_sec - 10,
-            ),
-            pending_payable_opt: None,
-        };
         let mut payable_dao = PayableDaoMock::new()
             .non_pending_payables_params(&non_pending_payables_params_arc)
-            .non_pending_payables_result(vec![])
-            .non_pending_payables_result(vec![account.clone()]);
+            .non_pending_payables_result(vec![]);
         payable_dao.have_non_pending_payables_shut_down_the_system = true;
-        let peer_actors = peer_actors_builder()
-            .blockchain_bridge(blockchain_bridge)
-            .build();
+        let peer_actors = peer_actors_builder().build();
+        SystemKillerActor::new(Duration::from_secs(10)).start();
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_dao(PayableDaoMock::new()) // For Scanner
-            .payable_dao(payable_dao) // For Accountant
+            .payable_dao(PayableDaoMock::new()) // For Accountant
+            .payable_dao(payable_dao) // For Payable Scanner
+            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .build();
         subject.logger = Logger::new(test_name);
         subject.scanners.pending_payable = Box::new(NullScanner::new()); //skipping
@@ -1970,29 +1957,12 @@ mod tests {
 
         system.run();
         let non_pending_payables_params = non_pending_payables_params_arc.lock().unwrap();
-        //the third attempt is the one where the queue is empty and System::current.stop() ends the cycle
-        assert_eq!(*non_pending_payables_params, vec![(), (), ()]);
-        let blockchain_bridge_recorder = blockchain_bridge_recording_arc.lock().unwrap();
-        assert_eq!(blockchain_bridge_recorder.len(), 1);
-        let report_accounts_payables_msg =
-            blockchain_bridge_recorder.get_record::<ReportAccountsPayable>(0);
-        assert_eq!(
-            report_accounts_payables_msg,
-            &ReportAccountsPayable {
-                accounts: vec![account],
-                response_skeleton_opt: None,
-            }
-        );
+        //the second attempt is the one where the queue is empty and System::current.stop() ends the cycle
+        assert_eq!(*non_pending_payables_params, vec![(), ()]);
         let notify_later_payables_params = notify_later_payables_params_arc.lock().unwrap();
         assert_eq!(
             *notify_later_payables_params,
             vec![
-                (
-                    ScanForPayables {
-                        response_skeleton_opt: None
-                    },
-                    Duration::from_millis(97)
-                ),
                 (
                     ScanForPayables {
                         response_skeleton_opt: None
