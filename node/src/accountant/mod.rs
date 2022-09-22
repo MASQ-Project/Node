@@ -179,17 +179,12 @@ impl Handler<SentPayable> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: SentPayable, _ctx: &mut Self::Context) -> Self::Result {
-        match self.scanners.payable.scan_finished(msg, &self.logger) {
-            Ok(node_to_ui_msg_opt) => {
-                if let Some(node_to_ui_msg) = node_to_ui_msg_opt {
-                    self.ui_message_sub
-                        .as_ref()
-                        .expect("UIGateway is not bound")
-                        .try_send(node_to_ui_msg)
-                        .expect("UIGateway is dead");
-                }
-            }
-            Err(e) => panic!("Payable Scanner: {}", e),
+        if let Some(node_to_ui_msg) = self.scanners.payable.scan_finished(msg, &self.logger) {
+            self.ui_message_sub
+                .as_ref()
+                .expect("UIGateway is not bound")
+                .try_send(node_to_ui_msg)
+                .expect("UIGateway is dead");
         }
     }
 }
@@ -198,21 +193,16 @@ impl Handler<ReportTransactionReceipts> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ReportTransactionReceipts, _ctx: &mut Self::Context) -> Self::Result {
-        match self
+        if let Some(node_to_ui_msg) = self
             .scanners
             .pending_payable
             .scan_finished(msg, &self.logger)
         {
-            Ok(node_to_ui_msg_opt) => {
-                if let Some(node_to_ui_msg) = node_to_ui_msg_opt {
-                    self.ui_message_sub
-                        .as_ref()
-                        .expect("UIGateway is not bound")
-                        .try_send(node_to_ui_msg)
-                        .expect("UIGateway is dead");
-                }
-            }
-            Err(e) => panic!("PendingPayable Scanner: {}", e),
+            self.ui_message_sub
+                .as_ref()
+                .expect("UIGateway is not bound")
+                .try_send(node_to_ui_msg)
+                .expect("UIGateway is dead");
         }
     }
 }
@@ -221,17 +211,12 @@ impl Handler<ReceivedPayments> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ReceivedPayments, _ctx: &mut Self::Context) -> Self::Result {
-        match self.scanners.receivable.scan_finished(msg, &self.logger) {
-            Ok(node_to_ui_msg_opt) => {
-                if let Some(node_to_ui_msg) = node_to_ui_msg_opt {
-                    self.ui_message_sub
-                        .as_ref()
-                        .expect("UIGateway is not bound")
-                        .try_send(node_to_ui_msg)
-                        .expect("UIGateway is dead");
-                }
-            }
-            Err(e) => panic!("Receivable Scanner: {}", e),
+        if let Some(node_to_ui_msg) = self.scanners.receivable.scan_finished(msg, &self.logger) {
+            self.ui_message_sub
+                .as_ref()
+                .expect("UIGateway is not bound")
+                .try_send(node_to_ui_msg)
+                .expect("UIGateway is dead");
         }
     }
 }

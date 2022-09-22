@@ -97,7 +97,7 @@ pub(in crate::accountant) mod scanners {
             &mut self,
             message: EndMessage,
             logger: &Logger,
-        ) -> Result<Option<NodeToUiMessage>, String>;
+        ) -> Option<NodeToUiMessage>;
         fn scan_started_at(&self) -> Option<SystemTime>;
         fn mark_as_started(&mut self, timestamp: SystemTime);
         fn mark_as_ended(&mut self);
@@ -166,7 +166,7 @@ pub(in crate::accountant) mod scanners {
             &mut self,
             message: SentPayable,
             logger: &Logger,
-        ) -> Result<Option<NodeToUiMessage>, String> {
+        ) -> Option<NodeToUiMessage> {
             let (sent_payables, blockchain_errors) = separate_early_errors(&message, logger);
             debug!(
                 logger,
@@ -176,18 +176,16 @@ pub(in crate::accountant) mod scanners {
                 sent_payables.len() + blockchain_errors.len()
             );
 
-            self.handle_sent_payables(sent_payables, logger)?;
-            self.handle_blockchain_errors(blockchain_errors, logger)?;
+            self.handle_sent_payables(sent_payables, logger);
+            self.handle_blockchain_errors(blockchain_errors, logger);
 
-            let message_opt = match message.response_skeleton_opt {
+            match message.response_skeleton_opt {
                 Some(response_skeleton) => Some(NodeToUiMessage {
                     target: MessageTarget::ClientId(response_skeleton.client_id),
                     body: UiScanResponse {}.tmb(response_skeleton.context_id),
                 }),
                 None => None,
-            };
-
-            Ok(message_opt)
+            }
         }
 
         fn scan_started_at(&self) -> Option<SystemTime> {
@@ -218,11 +216,7 @@ pub(in crate::accountant) mod scanners {
             }
         }
 
-        fn handle_sent_payables(
-            &self,
-            sent_payables: Vec<Payable>,
-            logger: &Logger,
-        ) -> Result<(), String> {
+        fn handle_sent_payables(&self, sent_payables: Vec<Payable>, logger: &Logger) {
             for payable in sent_payables {
                 if let Some(rowid) = self.pending_payable_dao.fingerprint_rowid(payable.tx_hash) {
                     if let Err(e) = self
@@ -230,18 +224,18 @@ pub(in crate::accountant) mod scanners {
                         .as_ref()
                         .mark_pending_payable_rowid(&payable.to, rowid)
                     {
-                        return Err(format!(
+                        panic!(
                             "Was unable to create a mark in payables for a new pending payable \
                             '{}' due to '{:?}'",
                             payable.tx_hash, e
-                        ));
+                        );
                     }
                 } else {
-                    return Err(format!(
+                    panic!(
                         "Payable fingerprint for {} doesn't exist but should by now; \
                         system unreliable",
                         payable.tx_hash
-                    ));
+                    );
                 };
 
                 debug!(
@@ -249,15 +243,13 @@ pub(in crate::accountant) mod scanners {
                     "Payable '{}' has been marked as pending in the payable table", payable.tx_hash
                 )
             }
-
-            Ok(())
         }
 
         fn handle_blockchain_errors(
             &self,
             blockchain_errors: Vec<BlockchainError>,
             logger: &Logger,
-        ) -> Result<(), String> {
+        ) {
             for blockchain_error in blockchain_errors {
                 if let Some(hash) = blockchain_error.carries_transaction_hash() {
                     if let Some(rowid) = self.pending_payable_dao.fingerprint_rowid(hash) {
@@ -266,11 +258,11 @@ pub(in crate::accountant) mod scanners {
                             "Deleting an existing backup for a failed transaction {}", hash
                         );
                         if let Err(e) = self.pending_payable_dao.delete_fingerprint(rowid) {
-                            return Err(format!(
+                            panic!(
                                 "Database unmaintainable; payable fingerprint deletion for \
                                 transaction {:?} has stayed undone due to {:?}",
                                 hash, e
-                            ));
+                            );
                         };
                     };
 
@@ -286,8 +278,6 @@ pub(in crate::accountant) mod scanners {
                     )
                 };
             }
-
-            Ok(())
         }
     }
 
@@ -338,7 +328,7 @@ pub(in crate::accountant) mod scanners {
             &mut self,
             message: ReportTransactionReceipts,
             logger: &Logger,
-        ) -> Result<Option<NodeToUiMessage>, String> {
+        ) -> Option<NodeToUiMessage> {
             // TODO: Make accountant to handle empty vector. Maybe log it as an error.
             debug!(
                 logger,
@@ -346,17 +336,15 @@ pub(in crate::accountant) mod scanners {
                 message.fingerprints_with_receipts.len()
             );
             let statuses = self.handle_pending_transaction_with_its_receipt(&message, logger);
-            self.process_transaction_by_status(statuses, logger)?;
+            self.process_transaction_by_status(statuses, logger);
 
-            let message_opt = match message.response_skeleton_opt {
+            match message.response_skeleton_opt {
                 Some(response_skeleton) => Some(NodeToUiMessage {
                     target: MessageTarget::ClientId(response_skeleton.client_id),
                     body: UiScanResponse {}.tmb(response_skeleton.context_id),
                 }),
                 None => None,
-            };
-
-            Ok(message_opt)
+            }
         }
 
         fn scan_started_at(&self) -> Option<SystemTime> {
@@ -441,45 +429,41 @@ pub(in crate::accountant) mod scanners {
             &mut self,
             statuses: Vec<PendingTransactionStatus>,
             logger: &Logger,
-        ) -> Result<(), String> {
+        ) {
             for status in statuses {
                 match status {
                     PendingTransactionStatus::StillPending(transaction_id) => {
-                        self.update_payable_fingerprint(transaction_id, logger)?;
+                        self.update_payable_fingerprint(transaction_id, logger);
                     }
                     PendingTransactionStatus::Failure(transaction_id) => {
-                        self.order_cancel_failed_transaction(transaction_id, logger)?;
+                        self.order_cancel_failed_transaction(transaction_id, logger);
                     }
                     PendingTransactionStatus::Confirmed(fingerprint) => {
-                        self.order_confirm_transaction(fingerprint, logger)?;
+                        self.order_confirm_transaction(fingerprint, logger);
                     }
                 }
             }
-
-            Ok(())
         }
 
         pub(crate) fn update_payable_fingerprint(
             &self,
             pending_payable_id: PendingPayableId,
             logger: &Logger,
-        ) -> Result<(), String> {
-            match self
+        ) {
+            if let Err(e) = self
                 .pending_payable_dao
                 .update_fingerprint(pending_payable_id.rowid)
             {
-                Ok(_) => {
-                    trace!(
-                        logger,
-                        "Updated record for rowid: {} ",
-                        pending_payable_id.rowid
-                    );
-                    Ok(())
-                }
-                Err(e) => Err(format!(
+                panic!(
                     "Failure on updating payable fingerprint '{:?}' due to {:?}",
                     pending_payable_id.hash, e
-                )),
+                );
+            } else {
+                trace!(
+                    logger,
+                    "Updated record for rowid: {} ",
+                    pending_payable_id.rowid
+                );
             }
         }
 
@@ -487,23 +471,20 @@ pub(in crate::accountant) mod scanners {
             &self,
             transaction_id: PendingPayableId,
             logger: &Logger,
-        ) -> Result<(), String> {
-            match self.pending_payable_dao.mark_failure(transaction_id.rowid) {
-                Ok(_) => {
-                    warning!(
+        ) {
+            if let Err(e) = self.pending_payable_dao.mark_failure(transaction_id.rowid) {
+                panic!(
+                    "Unsuccessful attempt for transaction {} to mark fatal error at payable \
+                    fingerprint due to {:?}; database unreliable",
+                    transaction_id.hash, e
+                )
+            } else {
+                warning!(
                         logger,
                         "Broken transaction {} left with an error mark; you should take over the care \
                         of this transaction to make sure your debts will be paid because there is no \
                         automated process that can fix this without you", transaction_id.hash
                     );
-
-                    Ok(())
-                }
-                Err(e) => Err(format!(
-                    "Unsuccessful attempt for transaction {} to mark fatal error at payable \
-                    fingerprint due to {:?}; database unreliable",
-                    transaction_id.hash, e
-                )),
             }
         }
 
@@ -511,7 +492,7 @@ pub(in crate::accountant) mod scanners {
             &mut self,
             pending_payable_fingerprint: PendingPayableFingerprint,
             logger: &Logger,
-        ) -> Result<(), String> {
+        ) {
             let hash = pending_payable_fingerprint.hash;
             let amount = pending_payable_fingerprint.amount;
             let rowid = pending_payable_fingerprint
@@ -522,10 +503,10 @@ pub(in crate::accountant) mod scanners {
                 .payable_dao
                 .transaction_confirmed(&pending_payable_fingerprint)
             {
-                Err(format!(
+                panic!(
                     "Was unable to uncheck pending payable '{}' after confirmation due to '{:?}'",
                     hash, e
-                ))
+                );
             } else {
                 let mut financial_statistics = self.financial_statistics.as_ref().borrow().clone();
                 financial_statistics.total_paid_payable += amount;
@@ -535,18 +516,16 @@ pub(in crate::accountant) mod scanners {
                     "Confirmation of transaction {}; record for payable was modified", hash
                 );
                 if let Err(e) = self.pending_payable_dao.delete_fingerprint(rowid) {
-                    Err(format!(
+                    panic!(
                         "Was unable to delete payable fingerprint '{}' after successful transaction \
                         due to '{:?}'", hash, e
-                    ))
+                    );
                 } else {
                     info!(
                         logger,
                         "Transaction {:?} has gone through the whole confirmation process succeeding",
                         hash
                     );
-
-                    Ok(())
                 }
             }
         }
@@ -619,7 +598,7 @@ pub(in crate::accountant) mod scanners {
             &mut self,
             message: ReceivedPayments,
             logger: &Logger,
-        ) -> Result<Option<NodeToUiMessage>, String> {
+        ) -> Option<NodeToUiMessage> {
             if message.payments.is_empty() {
                 warning!(
                     logger,
@@ -637,15 +616,13 @@ pub(in crate::accountant) mod scanners {
                 self.financial_statistics.replace(financial_statistics);
             }
 
-            let node_to_ui_message_opt = match message.response_skeleton_opt {
+            match message.response_skeleton_opt {
                 None => None,
                 Some(response_skeleton) => Some(NodeToUiMessage {
                     target: MessageTarget::ClientId(response_skeleton.client_id),
                     body: UiScanResponse {}.tmb(response_skeleton.context_id),
                 }),
-            };
-
-            Ok(node_to_ui_message_opt)
+            }
         }
 
         fn scan_started_at(&self) -> Option<SystemTime> {
@@ -705,7 +682,7 @@ pub(in crate::accountant) mod scanners {
             &mut self,
             _message: EndMessage,
             _logger: &Logger,
-        ) -> Result<Option<NodeToUiMessage>, String> {
+        ) -> Option<NodeToUiMessage> {
             panic!("Called from NullScanner");
         }
 
@@ -952,6 +929,9 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(
+        expected = "Payable fingerprint for 0x0000…0315 doesn't exist but should by now; system unreliable"
+    )]
     fn payable_scanner_throws_error_when_fingerprint_is_not_found() {
         init_test_logging();
         let now_system = SystemTime::now();
@@ -969,12 +949,15 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.scan_finished(sent_payable, &Logger::new("test"));
-
-        assert_eq!(result, Err("Payable fingerprint for 0x0000…0315 doesn't exist but should by now; system unreliable".to_string()));
+        let _ = subject.scan_finished(sent_payable, &Logger::new("test"));
     }
 
     #[test]
+    #[should_panic(
+        expected = "Database unmaintainable; payable fingerprint deletion for transaction \
+                0x000000000000000000000000000000000000000000000000000000000000007b has stayed \
+                undone due to RecordDeletion(\"we slept over, sorry\")"
+    )]
     fn payable_scanner_throws_error_when_dealing_with_failed_payment_fails_to_delete_the_existing_pending_payable_fingerprint(
     ) {
         let rowid = 4;
@@ -997,20 +980,14 @@ mod tests {
             Rc::new(make_payment_thresholds_with_defaults()),
         );
 
-        let result = subject.scan_finished(sent_payable, &Logger::new("test"));
-
-        assert_eq!(
-            result,
-            Err(
-                "Database unmaintainable; payable fingerprint deletion for transaction \
-                0x000000000000000000000000000000000000000000000000000000000000007b has stayed \
-                undone due to RecordDeletion(\"we slept over, sorry\")"
-                    .to_string()
-            )
-        );
+        let _ = subject.scan_finished(sent_payable, &Logger::new("test"));
     }
 
     #[test]
+    #[should_panic(
+        expected = "Was unable to create a mark in payables for a new pending payable '0x0000…007b' \
+                due to 'SignConversion(9999999999999)'"
+    )]
     fn payable_scanner_throws_error_when_it_fails_to_make_a_mark_in_payables() {
         let payable = Payable::new(
             make_wallet("blah"),
@@ -1032,16 +1009,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.scan_finished(sent_payable, &Logger::new("test"));
-
-        assert_eq!(
-            result,
-            Err(
-                "Was unable to create a mark in payables for a new pending payable '0x0000…007b' \
-                due to 'SignConversion(9999999999999)'"
-                    .to_string()
-            )
-        )
+        let _ = subject.scan_finished(sent_payable, &Logger::new("test"));
     }
 
     #[test]
@@ -1290,14 +1258,16 @@ mod tests {
             make_pending_payable_scanner_from_daos(PayableDaoMock::new(), pending_payable_dao);
         let transaction_id = PendingPayableId { hash, rowid };
 
-        let result = subject.update_payable_fingerprint(transaction_id, &Logger::new(test_name));
+        subject.update_payable_fingerprint(transaction_id, &Logger::new(test_name));
 
         let update_after_cycle_params = update_after_cycle_params_arc.lock().unwrap();
-        assert_eq!(result, Ok(()));
         assert_eq!(*update_after_cycle_params, vec![rowid])
     }
 
     #[test]
+    #[should_panic(expected = "Failure on updating payable fingerprint \
+                '0x000000000000000000000000000000000000000000000000000000000006c9d8' \
+                due to UpdateFailed(\"yeah, bad\")")]
     fn update_payable_fingerprint_sad_path() {
         let test_name = "update_payable_fingerprint_sad_path";
         let hash = H256::from_uint(&U256::from(444888));
@@ -1309,15 +1279,7 @@ mod tests {
             make_pending_payable_scanner_from_daos(PayableDaoMock::new(), pending_payable_dao);
         let transaction_id = PendingPayableId { hash, rowid };
 
-        let result = subject.update_payable_fingerprint(transaction_id, &Logger::new(test_name));
-
-        assert_eq!(
-            result,
-            Err("Failure on updating payable fingerprint \
-                '0x000000000000000000000000000000000000000000000000000000000006c9d8' \
-                due to UpdateFailed(\"yeah, bad\")"
-                .to_string())
-        )
+        subject.update_payable_fingerprint(transaction_id, &Logger::new(test_name));
     }
 
     #[test]
@@ -1336,11 +1298,9 @@ mod tests {
             rowid,
         };
 
-        let result = subject
-            .order_cancel_failed_transaction(transaction_id, &Logger::new("CancelPendingTxOk"));
+        subject.order_cancel_failed_transaction(transaction_id, &Logger::new("CancelPendingTxOk"));
 
         let mark_failure_params = mark_failure_params_arc.lock().unwrap();
-        assert_eq!(result, Ok(()));
         assert_eq!(*mark_failure_params, vec![rowid]);
         TestLogHandler::new().exists_log_containing(
             "WARN: CancelPendingTxOk: Broken transaction 0x051a…8c19 left with an error \
@@ -1350,6 +1310,10 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(
+        expected = "Unsuccessful attempt for transaction 0x051a…8c19 to mark fatal error at payable \
+                fingerprint due to UpdateFailed(\"no no no\"); database unreliable"
+    )]
     fn order_cancel_pending_transaction_throws_error_when_it_fails_to_mark_failure() {
         let payable_dao = PayableDaoMock::default().transaction_canceled_result(Ok(()));
         let pending_payable_dao = PendingPayableDaoMock::default().mark_failure_result(Err(
@@ -1360,20 +1324,14 @@ mod tests {
         let hash = H256::from("sometransactionhash".keccak256());
         let transaction_id = PendingPayableId { hash, rowid };
 
-        let result = subject
-            .order_cancel_failed_transaction(transaction_id, &Logger::new("CancelPendingTxOk"));
-
-        assert_eq!(
-            result,
-            Err(
-                "Unsuccessful attempt for transaction 0x051a…8c19 to mark fatal error at payable \
-                fingerprint due to UpdateFailed(\"no no no\"); database unreliable"
-                    .to_string()
-            )
-        )
+        subject.order_cancel_failed_transaction(transaction_id, &Logger::new("CancelPendingTxOk"));
     }
 
     #[test]
+    #[should_panic(
+        expected = "Was unable to delete payable fingerprint '0x0000…0315' after successful \
+                transaction due to 'RecordDeletion(\"the database is fooling around with us\")'"
+    )]
     fn handle_confirm_pending_transaction_throws_error_while_deleting_pending_payable_fingerprint()
     {
         init_test_logging();
@@ -1391,17 +1349,7 @@ mod tests {
         pending_payable_fingerprint.rowid_opt = Some(rowid);
         pending_payable_fingerprint.hash = hash;
 
-        let result =
-            subject.order_confirm_transaction(pending_payable_fingerprint, &Logger::new(test_name));
-
-        assert_eq!(
-            result,
-            Err(
-                "Was unable to delete payable fingerprint '0x0000…0315' after successful \
-                transaction due to 'RecordDeletion(\"the database is fooling around with us\")'"
-                    .to_string()
-            )
-        )
+        subject.order_confirm_transaction(pending_payable_fingerprint, &Logger::new(test_name));
     }
 
     #[test]
@@ -1430,7 +1378,7 @@ mod tests {
             process_error: None,
         };
 
-        let result = subject.order_confirm_transaction(
+        subject.order_confirm_transaction(
             pending_payable_fingerprint.clone(),
             &Logger::new(test_name),
         );
@@ -1440,7 +1388,6 @@ mod tests {
             delete_pending_payable_fingerprint_params_arc
                 .lock()
                 .unwrap();
-        assert_eq!(result, Ok(()));
         assert_eq!(
             *transaction_confirmed_params,
             vec![pending_payable_fingerprint]
@@ -1483,17 +1430,19 @@ mod tests {
         financial_statistics.total_paid_payable += 1111;
         subject.financial_statistics.replace(financial_statistics);
 
-        let result =
-            subject.order_confirm_transaction(fingerprint.clone(), &Logger::new(test_name));
+        subject.order_confirm_transaction(fingerprint.clone(), &Logger::new(test_name));
 
         let total_paid_payable = subject.financial_statistics().total_paid_payable;
         let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
-        assert_eq!(result, Ok(()));
         assert_eq!(total_paid_payable, 1111 + 5478);
         assert_eq!(*transaction_confirmed_params, vec![fingerprint])
     }
 
     #[test]
+    #[should_panic(
+        expected = "Was unable to uncheck pending payable '0x0000…0315' after confirmation due to \
+                'RusqliteError(\"record change not successful\")'"
+    )]
     fn order_confirm_transaction_throws_error_on_unchecking_payable_table() {
         init_test_logging();
         let test_name = "order_confirm_transaction_throws_error_on_unchecking_payable_table";
@@ -1508,16 +1457,7 @@ mod tests {
         fingerprint.rowid_opt = Some(rowid);
         fingerprint.hash = hash;
 
-        let result = subject.order_confirm_transaction(fingerprint, &Logger::new(test_name));
-
-        assert_eq!(
-            result,
-            Err(
-                "Was unable to uncheck pending payable '0x0000…0315' after confirmation due to \
-                'RusqliteError(\"record change not successful\")'"
-                    .to_string()
-            )
-        )
+        subject.order_confirm_transaction(fingerprint, &Logger::new(test_name));
     }
 
     #[test]
@@ -1571,10 +1511,10 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.scan_finished(msg, &Logger::new(test_name));
+        let message_opt = subject.scan_finished(msg, &Logger::new(test_name));
 
         let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
-        assert_eq!(result, Ok(None));
+        assert_eq!(message_opt, None);
         assert_eq!(
             *transaction_confirmed_params,
             vec![fingerprint_1, fingerprint_2]
@@ -1703,9 +1643,9 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.scan_finished(msg, &Logger::new(test_name));
+        let message_opt = subject.scan_finished(msg, &Logger::new(test_name));
 
-        assert_eq!(result, Ok(None));
+        assert_eq!(message_opt, None);
         TestLogHandler::new().exists_log_containing(&format!(
             "WARN: {test_name}: Handling received payments we got zero payments but \
             expected some, skipping database operations"
@@ -1740,11 +1680,11 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.scan_finished(msg, &Logger::new(test_name));
+        let message_opt = subject.scan_finished(msg, &Logger::new(test_name));
 
         let total_paid_receivable = subject.financial_statistics().total_paid_receivable;
         let more_money_received_params = more_money_received_params_arc.lock().unwrap();
-        assert_eq!(result, Ok(None));
+        assert_eq!(message_opt, None);
         assert_eq!(total_paid_receivable, 2222 + 45780 + 33345);
         assert_eq!(*more_money_received_params, vec![receivables]);
     }
