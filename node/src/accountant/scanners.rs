@@ -101,6 +101,8 @@ pub(in crate::accountant) mod scanners {
             logger: &Logger,
         ) -> Result<Option<NodeToUiMessage>, String>;
         fn scan_started_at(&self) -> Option<SystemTime>;
+        fn mark_as_started(&mut self, timestamp: SystemTime);
+        fn mark_as_ended(&mut self);
         as_any_dcl!();
     }
 
@@ -134,7 +136,7 @@ pub(in crate::accountant) mod scanners {
             if let Some(timestamp) = self.scan_started_at() {
                 return Err(ScannerError::ScanAlreadyRunning(timestamp));
             }
-            self.common.initiated_at_opt = Some(timestamp);
+            self.mark_as_started(timestamp);
             info!(logger, "Scanning for payables");
             let all_non_pending_payables = self.payable_dao.non_pending_payables();
             debug!(
@@ -195,6 +197,14 @@ pub(in crate::accountant) mod scanners {
 
         fn scan_started_at(&self) -> Option<SystemTime> {
             self.common.initiated_at_opt
+        }
+
+        fn mark_as_started(&mut self, timestamp: SystemTime) {
+            self.common.initiated_at_opt = Some(timestamp);
+        }
+
+        fn mark_as_ended(&mut self) {
+            self.common.initiated_at_opt = None;
         }
 
         as_any_impl!();
@@ -304,7 +314,7 @@ pub(in crate::accountant) mod scanners {
             if let Some(timestamp) = self.scan_started_at() {
                 return Err(ScannerError::ScanAlreadyRunning(timestamp));
             }
-            self.common.initiated_at_opt = Some(timestamp);
+            self.mark_as_started(timestamp);
             info!(logger, "Scanning for pending payable");
             let filtered_pending_payable = self.pending_payable_dao.return_all_fingerprints();
             match filtered_pending_payable.is_empty() {
@@ -356,6 +366,14 @@ pub(in crate::accountant) mod scanners {
 
         fn scan_started_at(&self) -> Option<SystemTime> {
             self.common.initiated_at_opt
+        }
+
+        fn mark_as_started(&mut self, timestamp: SystemTime) {
+            self.common.initiated_at_opt = Some(timestamp);
+        }
+
+        fn mark_as_ended(&mut self) {
+            self.common.initiated_at_opt = None;
         }
 
         as_any_impl!();
@@ -561,7 +579,7 @@ pub(in crate::accountant) mod scanners {
             if let Some(timestamp) = self.scan_started_at() {
                 return Err(ScannerError::ScanAlreadyRunning(timestamp));
             }
-            self.common.initiated_at_opt = Some(timestamp);
+            self.mark_as_started(timestamp);
             info!(
                 logger,
                 "Scanning for receivables to {}", self.earning_wallet
@@ -639,6 +657,14 @@ pub(in crate::accountant) mod scanners {
             self.common.initiated_at_opt
         }
 
+        fn mark_as_started(&mut self, timestamp: SystemTime) {
+            self.common.initiated_at_opt = Some(timestamp);
+        }
+
+        fn mark_as_ended(&mut self) {
+            self.common.initiated_at_opt = None;
+        }
+
         as_any_impl!();
     }
 
@@ -685,11 +711,19 @@ pub(in crate::accountant) mod scanners {
             _message: EndMessage,
             _logger: &Logger,
         ) -> Result<Option<NodeToUiMessage>, String> {
-            todo!()
+            panic!("Called from NullScanner");
         }
 
         fn scan_started_at(&self) -> Option<SystemTime> {
-            todo!()
+            panic!("Called from NullScanner");
+        }
+
+        fn mark_as_started(&mut self, _timestamp: SystemTime) {
+            panic!("Called from NullScanner");
+        }
+
+        fn mark_as_ended(&mut self) {
+            panic!("Called from NullScanner");
         }
 
         as_any_impl!();
@@ -1710,6 +1744,33 @@ mod tests {
         assert_eq!(total_paid_receivable, 2222 + 45780 + 33345);
         assert_eq!(*more_money_received_params, vec![receivables]);
     }
+
+    // #[test]
+    // fn scan_finished_function_of_scanners_ends_the_scan() {
+    //     let now = SystemTime::now();
+    //     let payment_thresholds = Rc::new(make_payment_thresholds_with_defaults());
+    //     let payable_dao_factory = PayableDaoFactoryMock::new()
+    //         .make_result(PayableDaoMock::new())
+    //         .make_result(PayableDaoMock::new());
+    //     let pending_payable_dao_factory = PendingPayableDaoFactoryMock::new()
+    //         .make_result(PendingPayableDaoMock::new())
+    //         .make_result(PendingPayableDaoMock::new());
+    //     let mut scanners = Scanners::new(
+    //         Box::new(payable_dao_factory),
+    //         Box::new(pending_payable_dao_factory),
+    //         Box::new(ReceivableDaoMock::new()),
+    //         Box::new(BannedDaoMock::new()),
+    //         Rc::clone(&payment_thresholds),
+    //         Rc::new(make_wallet("earning")),
+    //         0,
+    //         Rc::new(RefCell::new(FinancialStatistics::default())),
+    //     );
+    //     scanners.payable.mark_as_started(now);
+    //     scanners.pending_payable.mark_as_started(now);
+    //     scanners.receivable.mark_as_started(now);
+    //
+    //     scanners.payable.begin_scan()
+    // }
 
     fn make_pending_payable_scanner_from_daos(
         payable_dao: PayableDaoMock,
