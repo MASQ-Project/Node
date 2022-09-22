@@ -179,6 +179,7 @@ pub(in crate::accountant) mod scanners {
             self.handle_sent_payables(sent_payables, logger);
             self.handle_blockchain_errors(blockchain_errors, logger);
 
+            self.mark_as_ended();
             match message.response_skeleton_opt {
                 Some(response_skeleton) => Some(NodeToUiMessage {
                     target: MessageTarget::ClientId(response_skeleton.client_id),
@@ -338,6 +339,7 @@ pub(in crate::accountant) mod scanners {
             let statuses = self.handle_pending_transaction_with_its_receipt(&message, logger);
             self.process_transaction_by_status(statuses, logger);
 
+            self.mark_as_ended();
             match message.response_skeleton_opt {
                 Some(response_skeleton) => Some(NodeToUiMessage {
                     target: MessageTarget::ClientId(response_skeleton.client_id),
@@ -616,6 +618,7 @@ pub(in crate::accountant) mod scanners {
                 self.financial_statistics.replace(financial_statistics);
             }
 
+            self.mark_as_ended();
             match message.response_skeleton_opt {
                 None => None,
                 Some(response_skeleton) => Some(NodeToUiMessage {
@@ -1010,6 +1013,49 @@ mod tests {
         };
 
         let _ = subject.scan_finished(sent_payable, &Logger::new("test"));
+    }
+
+    #[test]
+    fn payable_scanner_handles_sent_payable_message() {
+        //the two failures differ in the logged messages
+        init_test_logging();
+        let fingerprint_rowid_params_arc = Arc::new(Mutex::new(vec![]));
+        let now_system = SystemTime::now();
+        let payable_1 = Err(BlockchainError::InvalidResponse);
+        let payable_2_rowid = 126;
+        let payable_hash_2 = H256::from_uint(&U256::from(166));
+        let payable_2 = Payable::new(make_wallet("booga"), 6789, payable_hash_2, now_system);
+        let payable_3 = Err(BlockchainError::TransactionFailed {
+            msg: "closing hours, sorry".to_string(),
+            hash_opt: None,
+        });
+        let sent_payable = SentPayable {
+            payable: vec![payable_1, Ok(payable_2.clone()), payable_3],
+            response_skeleton_opt: None,
+        };
+        let payable_dao = PayableDaoMock::new().mark_pending_payable_rowid_result(Ok(()));
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .fingerprint_rowid_params(&fingerprint_rowid_params_arc)
+            .fingerprint_rowid_result(Some(payable_2_rowid));
+        let mut subject = PayableScanner::new(
+            Box::new(payable_dao),
+            Box::new(pending_payable_dao),
+            Rc::new(make_payment_thresholds_with_defaults()),
+        );
+        subject.mark_as_started(SystemTime::now());
+
+        let message_opt =
+            subject.scan_finished(sent_payable, &Logger::new("PayableScannerScanFinished"));
+
+        let fingerprint_rowid_params = fingerprint_rowid_params_arc.lock().unwrap();
+        assert_eq!(message_opt, None);
+        assert_eq!(subject.scan_started_at(), None);
+        assert_eq!(*fingerprint_rowid_params, vec![payable_hash_2]); //we know the other two errors are associated with an initiated transaction having a backup
+        let log_handler = TestLogHandler::new();
+        log_handler.exists_log_containing("WARN: PayableScannerScanFinished: Outbound transaction failure due to 'InvalidResponse'. Please check your blockchain service URL configuration.");
+        log_handler.exists_log_containing("DEBUG: PayableScannerScanFinished: Payable '0x0000…00a6' has been marked as pending in the payable table");
+        log_handler.exists_log_containing("WARN: PayableScannerScanFinished: Encountered transaction error at this end: 'TransactionFailed { msg: \"closing hours, sorry\", hash_opt: None }'");
+        log_handler.exists_log_containing("DEBUG: PayableScannerScanFinished: Forgetting a transaction attempt that even did not reach the signing stage");
     }
 
     #[test]
@@ -1510,6 +1556,7 @@ mod tests {
             ],
             response_skeleton_opt: None,
         };
+        subject.mark_as_started(SystemTime::now());
 
         let message_opt = subject.scan_finished(msg, &Logger::new(test_name));
 
@@ -1519,6 +1566,7 @@ mod tests {
             *transaction_confirmed_params,
             vec![fingerprint_1, fingerprint_2]
         );
+        assert_eq!(subject.scan_started_at(), None);
         TestLogHandler::new().assert_logs_match_in_order(vec![
             &format!(
                 "INFO: {}: Transaction {:?} has gone through the whole confirmation process succeeding",
@@ -1653,7 +1701,7 @@ mod tests {
     }
 
     #[test]
-    fn total_paid_receivable_rises_with_each_bill_paid() {
+    fn receivable_scanner_handles_received_payments_message() {
         let test_name = "total_paid_receivable_rises_with_each_bill_paid";
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_dao = ReceivableDaoMock::new()
@@ -1679,12 +1727,14 @@ mod tests {
             payments: receivables.clone(),
             response_skeleton_opt: None,
         };
+        subject.mark_as_started(SystemTime::now());
 
         let message_opt = subject.scan_finished(msg, &Logger::new(test_name));
 
         let total_paid_receivable = subject.financial_statistics().total_paid_receivable;
         let more_money_received_params = more_money_received_params_arc.lock().unwrap();
         assert_eq!(message_opt, None);
+        assert_eq!(subject.scan_started_at(), None);
         assert_eq!(total_paid_receivable, 2222 + 45780 + 33345);
         assert_eq!(*more_money_received_params, vec![receivables]);
     }
@@ -1713,7 +1763,7 @@ mod tests {
     //     scanners.pending_payable.mark_as_started(now);
     //     scanners.receivable.mark_as_started(now);
     //
-    //     scanners.payable.begin_scan()
+    //     scanners.payable.scan_finished()
     // }
 
     fn make_pending_payable_scanner_from_daos(

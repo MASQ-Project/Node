@@ -2958,52 +2958,6 @@ mod tests {
     }
 
     #[test]
-    fn handle_sent_payable_receives_two_payments_one_incorrect_and_one_correct() {
-        //the two failures differ in the logged messages
-        init_test_logging();
-        let fingerprint_rowid_params_arc = Arc::new(Mutex::new(vec![]));
-        let now_system = SystemTime::now();
-        let payable_1 = Err(BlockchainError::InvalidResponse);
-        let payable_2_rowid = 126;
-        let payable_hash_2 = H256::from_uint(&U256::from(166));
-        let payable_2 = Payable::new(make_wallet("booga"), 6789, payable_hash_2, now_system);
-        let payable_3 = Err(BlockchainError::TransactionFailed {
-            msg: "closing hours, sorry".to_string(),
-            hash_opt: None,
-        });
-        let sent_payable = SentPayable {
-            payable: vec![payable_1, Ok(payable_2.clone()), payable_3],
-            response_skeleton_opt: None,
-        };
-        let payable_dao = PayableDaoMock::new().mark_pending_payable_rowid_result(Ok(()));
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprint_rowid_params(&fingerprint_rowid_params_arc)
-            .fingerprint_rowid_result(Some(payable_2_rowid));
-        let mut subject = AccountantBuilder::default()
-            .payable_dao(PayableDaoMock::new()) // For Accountant
-            .payable_dao(payable_dao) // For Payable Scanner
-            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
-            .pending_payable_dao(PendingPayableDaoMock::new()) // For Accountant
-            .pending_payable_dao(pending_payable_dao) // For Scanner
-            .pending_payable_dao(PendingPayableDaoMock::new()) // For Scanner
-            .build();
-
-        let _result = subject
-            .scanners
-            .payable
-            .scan_finished(sent_payable, &Logger::new("Accountant"));
-
-        let fingerprint_rowid_params = fingerprint_rowid_params_arc.lock().unwrap();
-        assert_eq!(*fingerprint_rowid_params, vec![payable_hash_2]); //we know the other two errors are associated with an initiated transaction having a backup
-        let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing("WARN: Accountant: Outbound transaction failure due to 'InvalidResponse'. Please check your blockchain service URL configuration.");
-        log_handler.exists_log_containing("DEBUG: Accountant: Payable '0x0000…00a6' has been marked as pending in the payable table");
-        log_handler.exists_log_containing("WARN: Accountant: Encountered transaction error at this end: 'TransactionFailed { msg: \"closing hours, sorry\", hash_opt: None }'");
-        log_handler.exists_log_containing("DEBUG: Accountant: Forgetting a transaction attempt that even did not reach the signing stage");
-        // TODO: Assert subject.scan_for_payables_in_progress [No scan in progress]
-    }
-
-    #[test]
     #[should_panic(
         expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
     )]
