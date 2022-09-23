@@ -829,6 +829,7 @@ mod tests {
     use super::*;
     use std::any::TypeId;
     use std::collections::HashMap;
+    use std::iter::Scan;
     use std::ops::Sub;
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -850,7 +851,7 @@ mod tests {
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
-    use crate::accountant::scanners::scanners::{NullScanner, ScannerMock};
+    use crate::accountant::scanners::scanners::{NullScanner, PendingPayableScanner, ScannerMock};
     use crate::accountant::test_utils::{
         bc_from_earning_wallet, bc_from_wallets, make_payables, BannedDaoFactoryMock,
         PayableDaoFactoryMock, PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
@@ -1770,45 +1771,33 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn periodical_scanning_for_pending_payable_works() {
-        //in the very first round we scan without waiting but we cannot find any pending payable
         init_test_logging();
-        let return_all_pending_payable_fingerprints_params_arc = Arc::new(Mutex::new(vec![]));
+        let test_name = "periodical_scanning_for_pending_payable_works";
+        let begin_scan_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_later_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
-        let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
-        let system =
-            System::new("accountant_payable_scan_timer_triggers_scanning_for_pending_payable");
-        let mut config = bc_from_earning_wallet(make_wallet("hi"));
+        let system = System::new(test_name);
+        SystemKillerActor::new(Duration::from_secs(10)).start(); // a safety net for GitHub Actions
+        let pending_payable_scanner = ScannerMock::new()
+            .begin_scan_params(&begin_scan_params_arc)
+            .begin_scan_result(Err(BeginScanError::NothingToProcess))
+            .begin_scan_result(Ok(RequestTransactionReceipts {
+                pending_payable: vec![],
+                response_skeleton_opt: None,
+            }))
+            .stop_system_after_last_message();
+        let mut config = make_bc_with_defaults();
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_secs(100),
             receivable_scan_interval: Duration::from_secs(100),
             pending_payable_scan_interval: Duration::from_millis(98),
         });
-        // slightly above minimum balance, to the right of the curve (time intersection)
-        let pending_payable_fingerprint_record = PendingPayableFingerprint {
-            rowid_opt: Some(45454),
-            timestamp: SystemTime::now(),
-            hash: H256::from_uint(&U256::from(565)),
-            attempt_opt: Some(1),
-            amount: 4589,
-            process_error: None,
-        };
-        let mut pending_payable_dao = PendingPayableDaoMock::default()
-            .return_all_fingerprints_params(&return_all_pending_payable_fingerprints_params_arc)
-            .return_all_fingerprints_result(vec![])
-            .return_all_fingerprints_result(vec![pending_payable_fingerprint_record.clone()]);
-        pending_payable_dao.have_return_all_fingerprints_shut_down_the_system = true;
-        let peer_actors = peer_actors_builder()
-            .blockchain_bridge(blockchain_bridge)
-            .build();
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .pending_payable_dao(PendingPayableDaoMock::new()) // For Accountant
-            .pending_payable_dao(pending_payable_dao) // For Scanner
             .build();
-        subject.scanners.receivable = Box::new(NullScanner::new()); //skipping
         subject.scanners.payable = Box::new(NullScanner::new()); //skipping
+        subject.scanners.pending_payable = Box::new(pending_payable_scanner);
+        subject.scanners.receivable = Box::new(NullScanner::new()); //skipping
         subject.notify_later.scan_for_pending_payable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_pending_payable_params_arc)
@@ -1816,39 +1805,19 @@ mod tests {
         );
         let subject_addr: Addr<Accountant> = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().build();
         send_bind_message!(subject_subs, peer_actors);
 
         send_start_message!(subject_subs);
 
         system.run();
-        let return_all_pending_payable_fingerprints =
-            return_all_pending_payable_fingerprints_params_arc
-                .lock()
-                .unwrap();
-        //the third attempt is the one where the queue is empty and System::current.stop() ends the cycle
-        assert_eq!(*return_all_pending_payable_fingerprints, vec![(), (), ()]);
-        let blockchain_bridge_recorder = blockchain_bridge_recording_arc.lock().unwrap();
-        assert_eq!(blockchain_bridge_recorder.len(), 1);
-        let request_transaction_receipt_msg =
-            blockchain_bridge_recorder.get_record::<RequestTransactionReceipts>(0);
-        assert_eq!(
-            request_transaction_receipt_msg,
-            &RequestTransactionReceipts {
-                pending_payable: vec![pending_payable_fingerprint_record],
-                response_skeleton_opt: None,
-            }
-        );
+        let begin_scan_params = begin_scan_params_arc.lock().unwrap();
+        assert_eq!(begin_scan_params.len(), 2);
         let notify_later_pending_payable_params =
             notify_later_pending_payable_params_arc.lock().unwrap();
         assert_eq!(
             *notify_later_pending_payable_params,
             vec![
-                (
-                    ScanForPendingPayables {
-                        response_skeleton_opt: None
-                    },
-                    Duration::from_millis(98)
-                ),
                 (
                     ScanForPendingPayables {
                         response_skeleton_opt: None
