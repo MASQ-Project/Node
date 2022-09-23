@@ -991,14 +991,6 @@ mod tests {
             .scan_for_receivable
             .as_any()
             .downcast_ref::<NotifyLaterHandleReal<ScanForReceivables>>();
-        // TODO: Write another test for it inside Scanner
-        // result
-        //     .scanners
-        //     .payables
-        //     .payable_threshold_tools
-        //     .as_any()
-        //     .downcast_ref::<PayableExceedThresholdToolsReal>()
-        //     .unwrap();
         assert_eq!(result.crashable, false);
         assert_eq!(financial_statistics.total_paid_receivable, 0);
         assert_eq!(financial_statistics.total_paid_payable, 0);
