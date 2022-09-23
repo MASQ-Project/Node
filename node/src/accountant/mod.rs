@@ -850,7 +850,7 @@ mod tests {
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
-    use crate::accountant::scanners::scanners::NullScanner;
+    use crate::accountant::scanners::scanners::{NullScanner, ScannerMock};
     use crate::accountant::test_utils::{
         bc_from_earning_wallet, bc_from_wallets, make_payables, BannedDaoFactoryMock,
         PayableDaoFactoryMock, PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
@@ -1917,31 +1917,31 @@ mod tests {
 
     #[test]
     fn periodical_scanning_for_payable_works() {
-        //in the very first round we scan without waiting but we cannot find any payable records
         init_test_logging();
-        let test_name = "accountant_payable_scan_timer_triggers_periodical_scanning_for_payables";
-        let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
+        let test_name = "periodical_scanning_for_payable_works";
+        let begin_scan_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_later_payables_params_arc = Arc::new(Mutex::new(vec![]));
         let system = System::new(test_name);
+        SystemKillerActor::new(Duration::from_secs(10)).start(); // a safety net for GitHub Actions
+        let payable_scanner = ScannerMock::new()
+            .begin_scan_params(&begin_scan_params_arc)
+            .begin_scan_result(Err(BeginScanError::NothingToProcess))
+            .begin_scan_result(Ok(ReportAccountsPayable {
+                accounts: vec![],
+                response_skeleton_opt: None,
+            }))
+            .stop_system_after_last_message();
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_millis(97),
             receivable_scan_interval: Duration::from_secs(100), // We'll never run this scanner
             pending_payable_scan_interval: Duration::from_secs(100), // We'll never run this scanner
         });
-        let mut payable_dao = PayableDaoMock::new()
-            .non_pending_payables_params(&non_pending_payables_params_arc)
-            .non_pending_payables_result(vec![]);
-        payable_dao.have_non_pending_payables_shut_down_the_system = true;
-        let peer_actors = peer_actors_builder().build();
-        SystemKillerActor::new(Duration::from_secs(10)).start();
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_dao(PayableDaoMock::new()) // For Accountant
-            .payable_dao(payable_dao) // For Payable Scanner
-            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
             .build();
         subject.logger = Logger::new(test_name);
+        subject.scanners.payable = Box::new(payable_scanner);
         subject.scanners.pending_payable = Box::new(NullScanner::new()); //skipping
         subject.scanners.receivable = Box::new(NullScanner::new()); //skipping
         subject.notify_later.scan_for_payable = Box::new(
@@ -1951,15 +1951,16 @@ mod tests {
         );
         let subject_addr = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().build();
         send_bind_message!(subject_subs, peer_actors);
 
         send_start_message!(subject_subs);
 
         system.run();
-        let non_pending_payables_params = non_pending_payables_params_arc.lock().unwrap();
         //the second attempt is the one where the queue is empty and System::current.stop() ends the cycle
-        assert_eq!(*non_pending_payables_params, vec![(), ()]);
+        let begin_scan_params = begin_scan_params_arc.lock().unwrap();
         let notify_later_payables_params = notify_later_payables_params_arc.lock().unwrap();
+        assert_eq!(*begin_scan_params, vec![(), ()]);
         assert_eq!(
             *notify_later_payables_params,
             vec![

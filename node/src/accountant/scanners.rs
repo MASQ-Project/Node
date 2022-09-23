@@ -22,14 +22,17 @@ pub(in crate::accountant) mod scanners {
     use crate::sub_lib::accountant::{FinancialStatistics, PaymentThresholds};
     use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
     use crate::sub_lib::wallet::Wallet;
-    use actix::Message;
+    use actix::{Message, System};
     use masq_lib::logger::Logger;
     use masq_lib::messages::{ToMessageBody, UiScanResponse};
     use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
     use masq_lib::utils::ExpectValue;
     use std::any::Any;
+    use std::borrow::BorrowMut;
     use std::cell::RefCell;
+    use std::ops::Deref;
     use std::rc::Rc;
+    use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
     use web3::types::TransactionReceipt;
 
@@ -746,64 +749,82 @@ pub(in crate::accountant) mod scanners {
         }
     }
 
-    // pub struct ScannerMock<BeginMessage, EndMessage> {
-    //     begin_scan_params: RefCell<Vec<(SystemTime, Option<ResponseSkeleton>)>>,
-    //     begin_scan_results: Arc<Mutex<Vec<Result<Box<BeginMessage>, Error>>>>,
-    //     end_scan_params: RefCell<Vec<EndMessage>>,
-    //     end_scan_results: Arc<Mutex<Vec<Result<(), Error>>>>,
-    // }
-    //
-    // impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage>
-    //     for ScannerMock<BeginMessage, EndMessage>
-    // where
-    //     BeginMessage: Message,
-    //     EndMessage: Message,
-    // {
-    //     fn begin_scan(
-    //         &mut self,
-    //         _timestamp: SystemTime,
-    //         _response_skeleton_opt: Option<ResponseSkeleton>,
-    //         _logger: &Logger,
-    //     ) -> Result<BeginMessage, Error> {
-    //         todo!("Implement ScannerMock")
-    //     }
-    //
-    //     fn scan_finished(&mut self, _message: EndMessage) -> Result<(), Error> {
-    //         todo!()
-    //     }
-    //
-    //     fn scan_started_at(&self) -> Option<SystemTime> {
-    //         todo!()
-    //     }
-    // }
-    //
-    // impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
-    //     pub fn new() -> Self {
-    //         Self {
-    //             begin_scan_params: RefCell::new(vec![]),
-    //             begin_scan_results: Arc::new(Mutex::new(vec![])),
-    //             end_scan_params: RefCell::new(vec![]),
-    //             end_scan_results: Arc::new(Mutex::new(vec![])),
-    //         }
-    //     }
-    //
-    //     pub fn begin_scan_params(
-    //         mut self,
-    //         params: Vec<(SystemTime, Option<ResponseSkeleton>)>,
-    //     ) -> Self {
-    //         self.begin_scan_params = RefCell::new(params);
-    //         self
-    //     }
-    //
-    //     pub fn begin_scan_result(self, result: Result<Box<BeginMessage>, Error>) -> Self {
-    //         self.begin_scan_results
-    //             .lock()
-    //             .unwrap()
-    //             .borrow_mut()
-    //             .push(result);
-    //         self
-    //     }
-    // }
+    pub struct ScannerMock<BeginMessage, EndMessage> {
+        begin_scan_params: Arc<Mutex<Vec<()>>>,
+        begin_scan_results: RefCell<Vec<Result<BeginMessage, BeginScanError>>>,
+        end_scan_params: RefCell<Vec<EndMessage>>,
+        end_scan_results: Arc<Mutex<Vec<Option<NodeToUiMessage>>>>,
+        stop_system_after_last_message: RefCell<bool>,
+    }
+
+    impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage>
+        for ScannerMock<BeginMessage, EndMessage>
+    where
+        BeginMessage: Message,
+        EndMessage: Message,
+    {
+        fn begin_scan(
+            &mut self,
+            _timestamp: SystemTime,
+            _response_skeleton_opt: Option<ResponseSkeleton>,
+            _logger: &Logger,
+        ) -> Result<BeginMessage, BeginScanError> {
+            self.begin_scan_params.lock().unwrap().push(());
+            if self.stop_system_after_last_message.borrow().clone()
+                && self.begin_scan_results.borrow().len() == 1
+            {
+                System::current().stop();
+            }
+            self.begin_scan_results.borrow_mut().remove(0)
+        }
+
+        fn scan_finished(
+            &mut self,
+            _message: EndMessage,
+            _logger: &Logger,
+        ) -> Option<NodeToUiMessage> {
+            todo!("Implement ScannerMock")
+        }
+
+        fn scan_started_at(&self) -> Option<SystemTime> {
+            todo!("Implement ScannerMock")
+        }
+
+        fn mark_as_started(&mut self, _timestamp: SystemTime) {
+            todo!("Implement ScannerMock")
+        }
+
+        fn mark_as_ended(&mut self, _logger: &Logger) {
+            todo!("Implement ScannerMock")
+        }
+    }
+
+    impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
+        pub fn new() -> Self {
+            Self {
+                begin_scan_params: Arc::new(Mutex::new(vec![])),
+                begin_scan_results: RefCell::new(vec![]),
+                end_scan_params: RefCell::new(vec![]),
+                end_scan_results: Arc::new(Mutex::new(vec![])),
+                stop_system_after_last_message: RefCell::new(false),
+            }
+        }
+
+        pub fn begin_scan_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+            self.begin_scan_params = params.clone();
+            self
+        }
+
+        pub fn begin_scan_result(self, result: Result<BeginMessage, BeginScanError>) -> Self {
+            self.begin_scan_results.borrow_mut().push(result);
+            self
+        }
+
+        pub fn stop_system_after_last_message(self) -> Self {
+            self.stop_system_after_last_message.replace(true);
+            self
+        }
+    }
 
     #[derive(Default)]
     pub struct NotifyLaterForScanners {
@@ -1784,33 +1805,6 @@ mod tests {
         TestLogHandler::new()
             .exists_log_containing(&format!("INFO: {}: The Receivable scan ended", test_name));
     }
-
-    // #[test]
-    // fn scan_finished_function_of_scanners_ends_the_scan() {
-    //     let now = SystemTime::now();
-    //     let payment_thresholds = Rc::new(make_payment_thresholds_with_defaults());
-    //     let payable_dao_factory = PayableDaoFactoryMock::new()
-    //         .make_result(PayableDaoMock::new())
-    //         .make_result(PayableDaoMock::new());
-    //     let pending_payable_dao_factory = PendingPayableDaoFactoryMock::new()
-    //         .make_result(PendingPayableDaoMock::new())
-    //         .make_result(PendingPayableDaoMock::new());
-    //     let mut scanners = Scanners::new(
-    //         Box::new(payable_dao_factory),
-    //         Box::new(pending_payable_dao_factory),
-    //         Box::new(ReceivableDaoMock::new()),
-    //         Box::new(BannedDaoMock::new()),
-    //         Rc::clone(&payment_thresholds),
-    //         Rc::new(make_wallet("earning")),
-    //         0,
-    //         Rc::new(RefCell::new(FinancialStatistics::default())),
-    //     );
-    //     scanners.payable.mark_as_started(now);
-    //     scanners.pending_payable.mark_as_started(now);
-    //     scanners.receivable.mark_as_started(now);
-    //
-    //     scanners.payable.scan_finished()
-    // }
 
     fn make_pending_payable_scanner_from_daos(
         payable_dao: PayableDaoMock,
