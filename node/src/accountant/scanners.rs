@@ -567,7 +567,7 @@ pub(in crate::accountant) mod scanners {
 
     pub struct ReceivableScanner {
         common: ScannerCommon,
-        dao: Box<dyn ReceivableDao>,
+        receivable_dao: Box<dyn ReceivableDao>,
         banned_dao: Box<dyn BannedDao>,
         earning_wallet: Rc<Wallet>,
         pub(crate) financial_statistics: Rc<RefCell<FinancialStatistics>>,
@@ -588,35 +588,7 @@ pub(in crate::accountant) mod scanners {
                 logger,
                 "Scanning for receivables to {}", self.earning_wallet
             );
-            info!(logger, "Scanning for delinquencies");
-            self.dao
-                .new_delinquencies(timestamp, self.common.payment_thresholds.as_ref())
-                .into_iter()
-                .for_each(|account| {
-                    self.banned_dao.ban(&account.wallet);
-                    let (balance, age) = balance_and_age(timestamp, &account);
-                    info!(
-                        logger,
-                        "Wallet {} (balance: {} MASQ, age: {} sec) banned for delinquency",
-                        account.wallet,
-                        balance,
-                        age.as_secs()
-                    )
-                });
-            self.dao
-                .paid_delinquencies(self.common.payment_thresholds.as_ref())
-                .into_iter()
-                .for_each(|account| {
-                    self.banned_dao.unban(&account.wallet);
-                    let (balance, age) = balance_and_age(timestamp, &account);
-                    info!(
-                        logger,
-                        "Wallet {} (balance: {} MASQ, age: {} sec) is no longer delinquent: unbanned",
-                        account.wallet,
-                        balance,
-                        age.as_secs()
-                    )
-                });
+            self.scan_for_delinquencies(timestamp, logger);
 
             Ok(RetrieveTransactions {
                 recipient: self.earning_wallet.as_ref().clone(),
@@ -640,7 +612,9 @@ pub(in crate::accountant) mod scanners {
                     .payments
                     .iter()
                     .fold(0, |so_far, now| so_far + now.gwei_amount);
-                self.dao.as_mut().more_money_received(message.payments);
+                self.receivable_dao
+                    .as_mut()
+                    .more_money_received(message.payments);
                 let mut financial_statistics = self.financial_statistics();
                 financial_statistics.total_paid_receivable += total_newly_paid_receivable;
                 self.financial_statistics.replace(financial_statistics);
@@ -683,7 +657,7 @@ pub(in crate::accountant) mod scanners {
 
     impl ReceivableScanner {
         pub fn new(
-            dao: Box<dyn ReceivableDao>,
+            receivable_dao: Box<dyn ReceivableDao>,
             banned_dao: Box<dyn BannedDao>,
             payment_thresholds: Rc<PaymentThresholds>,
             earning_wallet: Rc<Wallet>,
@@ -692,10 +666,50 @@ pub(in crate::accountant) mod scanners {
             Self {
                 common: ScannerCommon::new(payment_thresholds),
                 earning_wallet,
-                dao,
+                receivable_dao,
                 banned_dao,
                 financial_statistics,
             }
+        }
+
+        pub fn scan_for_delinquencies(&self, timestamp: SystemTime, logger: &Logger) {
+            info!(logger, "Scanning for delinquencies");
+            self.ban_nodes(timestamp, logger);
+            self.unban_nodes(timestamp, logger);
+        }
+
+        pub fn ban_nodes(&self, timestamp: SystemTime, logger: &Logger) {
+            self.receivable_dao
+                .new_delinquencies(timestamp, self.common.payment_thresholds.as_ref())
+                .into_iter()
+                .for_each(|account| {
+                    self.banned_dao.ban(&account.wallet);
+                    let (balance, age) = balance_and_age(timestamp, &account);
+                    info!(
+                        logger,
+                        "Wallet {} (balance: {} MASQ, age: {} sec) banned for delinquency",
+                        account.wallet,
+                        balance,
+                        age.as_secs()
+                    )
+                });
+        }
+
+        pub fn unban_nodes(&self, timestamp: SystemTime, logger: &Logger) {
+            self.receivable_dao
+                .paid_delinquencies(self.common.payment_thresholds.as_ref())
+                .into_iter()
+                .for_each(|account| {
+                    self.banned_dao.unban(&account.wallet);
+                    let (balance, age) = balance_and_age(timestamp, &account);
+                    info!(
+                        logger,
+                        "Wallet {} (balance: {} MASQ, age: {} sec) is no longer delinquent: unbanned",
+                        account.wallet,
+                        balance,
+                        age.as_secs()
+                    )
+                });
         }
 
         pub fn financial_statistics(&self) -> FinancialStatistics {
