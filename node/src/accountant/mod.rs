@@ -1722,7 +1722,7 @@ mod tests {
                 recipient: make_wallet("some_recipient"),
                 response_skeleton_opt: None,
             }))
-            .stop_system_after_last_message();
+            .stop_the_system();
         let mut config = make_bc_with_defaults();
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_secs(100),
@@ -1785,7 +1785,7 @@ mod tests {
                 pending_payable: vec![],
                 response_skeleton_opt: None,
             }))
-            .stop_system_after_last_message();
+            .stop_the_system();
         let mut config = make_bc_with_defaults();
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_secs(100),
@@ -1849,7 +1849,7 @@ mod tests {
                 accounts: vec![],
                 response_skeleton_opt: None,
             }))
-            .stop_system_after_last_message();
+            .stop_the_system();
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_millis(97),

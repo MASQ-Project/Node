@@ -820,7 +820,7 @@ pub(in crate::accountant) mod scanners {
             self
         }
 
-        pub fn stop_system_after_last_message(self) -> Self {
+        pub fn stop_the_system(self) -> Self {
             self.stop_system_after_last_message.replace(true);
             self
         }
