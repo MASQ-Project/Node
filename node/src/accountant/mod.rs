@@ -829,7 +829,6 @@ mod tests {
     use super::*;
     use std::any::TypeId;
     use std::collections::HashMap;
-    use std::iter::Scan;
     use std::ops::Sub;
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -850,8 +849,7 @@ mod tests {
 
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
-    use crate::accountant::receivable_dao::ReceivableAccount;
-    use crate::accountant::scanners::scanners::{NullScanner, PendingPayableScanner, ScannerMock};
+    use crate::accountant::scanners::scanners::{NullScanner, ScannerMock};
     use crate::accountant::test_utils::{
         bc_from_earning_wallet, bc_from_wallets, make_payables, BannedDaoFactoryMock,
         PayableDaoFactoryMock, PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,

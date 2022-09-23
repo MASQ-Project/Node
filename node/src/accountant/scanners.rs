@@ -20,7 +20,7 @@ pub(in crate::accountant) mod scanners {
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::sub_lib::accountant::{FinancialStatistics, PaymentThresholds};
-    use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
+    use crate::sub_lib::utils::NotifyLaterHandle;
     use crate::sub_lib::wallet::Wallet;
     use actix::{Message, System};
     use masq_lib::logger::Logger;
@@ -28,9 +28,7 @@ pub(in crate::accountant) mod scanners {
     use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
     use masq_lib::utils::ExpectValue;
     use std::any::Any;
-    use std::borrow::BorrowMut;
     use std::cell::RefCell;
-    use std::ops::Deref;
     use std::rc::Rc;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
