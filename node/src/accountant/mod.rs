@@ -1707,102 +1707,52 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
     fn periodical_scanning_for_receivables_and_delinquencies_works() {
         init_test_logging();
-        let new_delinquencies_params_arc = Arc::new(Mutex::new(vec![]));
-        let ban_params_arc = Arc::new(Mutex::new(vec![]));
+        let test_name = "periodical_scanning_for_receivables_and_delinquencies_works";
+        let begin_scan_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_later_receivable_params_arc = Arc::new(Mutex::new(vec![]));
-        let earning_wallet = make_wallet("earner3000");
-        let wallet_to_be_banned = make_wallet("bad_luck");
-        let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
-        let mut config = bc_from_earning_wallet(earning_wallet.clone());
+        let system = System::new(test_name);
+        SystemKillerActor::new(Duration::from_secs(10)).start(); // a safety net for GitHub Actions
+        let receivable_scanner = ScannerMock::new()
+            .begin_scan_params(&begin_scan_params_arc)
+            .begin_scan_result(Err(BeginScanError::NothingToProcess))
+            .begin_scan_result(Ok(RetrieveTransactions {
+                recipient: make_wallet("some_recipient"),
+                response_skeleton_opt: None,
+            }))
+            .stop_system_after_last_message();
+        let mut config = make_bc_with_defaults();
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_secs(100),
             receivable_scan_interval: Duration::from_millis(99),
             pending_payable_scan_interval: Duration::from_secs(100),
         });
-        let new_delinquent_account = ReceivableAccount {
-            wallet: wallet_to_be_banned.clone(),
-            balance: 4567,
-            last_received_timestamp: from_time_t(200_000_000),
-        };
-        let system = System::new("periodical_scanning_for_receivables_and_delinquencies_works");
-        let banned_dao = BannedDaoMock::new().ban_parameters(&ban_params_arc);
-        let mut receivable_dao = ReceivableDaoMock::new()
-            .new_delinquencies_parameters(&new_delinquencies_params_arc)
-            //this is the immediate try, not with our interval
-            .new_delinquencies_result(vec![])
-            //after the interval we actually process data
-            .new_delinquencies_result(vec![new_delinquent_account])
-            .paid_delinquencies_result(vec![])
-            .paid_delinquencies_result(vec![])
-            .paid_delinquencies_result(vec![]);
-        receivable_dao.have_new_delinquencies_shutdown_the_system = true;
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .receivable_dao(ReceivableDaoMock::new())
-            .receivable_dao(receivable_dao)
-            .banned_dao(BannedDaoMock::new())
-            .banned_dao(banned_dao)
             .build();
-        subject.scanners.pending_payable = Box::new(NullScanner::new());
-        subject.scanners.payable = Box::new(NullScanner::new());
+        subject.scanners.payable = Box::new(NullScanner::new()); // Skipping
+        subject.scanners.pending_payable = Box::new(NullScanner::new()); // Skipping
+        subject.scanners.receivable = Box::new(receivable_scanner);
         subject.notify_later.scan_for_receivable = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_receivable_params_arc)
                 .permit_to_send_out(),
         );
-        let peer_actors = peer_actors_builder()
-            .blockchain_bridge(blockchain_bridge)
-            .build();
-        let subject_addr: Addr<Accountant> = subject.start();
+        let subject_addr = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
+        let peer_actors = peer_actors_builder().build();
         send_bind_message!(subject_subs, peer_actors);
 
         send_start_message!(subject_subs);
 
         system.run();
-        let retrieve_transactions_recording = blockchain_bridge_recording.lock().unwrap();
-        assert_eq!(retrieve_transactions_recording.len(), 3);
-        let retrieve_transactions_msgs: Vec<&RetrieveTransactions> = (0
-            ..retrieve_transactions_recording.len())
-            .map(|index| retrieve_transactions_recording.get_record::<RetrieveTransactions>(index))
-            .collect();
-        assert_eq!(
-            *retrieve_transactions_msgs,
-            vec![
-                &RetrieveTransactions {
-                    recipient: earning_wallet.clone(),
-                    response_skeleton_opt: None,
-                },
-                &RetrieveTransactions {
-                    recipient: earning_wallet.clone(),
-                    response_skeleton_opt: None,
-                },
-                &RetrieveTransactions {
-                    recipient: earning_wallet.clone(),
-                    response_skeleton_opt: None,
-                },
-            ]
-        );
-        //sadly I cannot effectively assert on the exact params
-        //they are a) real timestamp of now, b) constant payment_thresholds
-        //the Rust type system gives me enough support to be okay with counting occurrences
-        let new_delinquencies_params = new_delinquencies_params_arc.lock().unwrap();
-        assert_eq!(new_delinquencies_params.len(), 3); //the third one is the signal to shut the system down
-        let ban_params = ban_params_arc.lock().unwrap();
-        assert_eq!(*ban_params, vec![wallet_to_be_banned]);
+        let begin_scan_params = begin_scan_params_arc.lock().unwrap();
         let notify_later_receivable_params = notify_later_receivable_params_arc.lock().unwrap();
+        assert_eq!(begin_scan_params.len(), 2);
         assert_eq!(
             *notify_later_receivable_params,
             vec![
-                (
-                    ScanForReceivables {
-                        response_skeleton_opt: None
-                    },
-                    Duration::from_millis(99)
-                ),
                 (
                     ScanForReceivables {
                         response_skeleton_opt: None
