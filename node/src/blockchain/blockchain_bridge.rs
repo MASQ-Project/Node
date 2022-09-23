@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_dao::{Payable, PayableAccount};
+use crate::accountant::payable_dao::{PendingPayable, PayableAccount};
 use crate::accountant::{
     ReceivedPayments, ResponseSkeleton, ScanError, SentPayable, SkeletonOptHolder,
 };
@@ -35,13 +35,13 @@ use masq_lib::utils::plus;
 use std::convert::TryFrom;
 use std::path::PathBuf;
 use std::time::SystemTime;
-use web3::Transport;
 use web3::transports::{Batch, Http};
 use web3::types::{TransactionReceipt, H256};
+use web3::Transport;
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
-pub struct BlockchainBridge<T: Transport=Http> {
+pub struct BlockchainBridge<T: Transport = Http> {
     consuming_wallet_opt: Option<Wallet>,
     blockchain_interface: Box<dyn BlockchainInterface<T>>,
     logger: Logger,
@@ -59,7 +59,7 @@ struct TransactionConfirmationTools {
     report_transaction_receipts_sub_opt: Option<Recipient<ReportTransactionReceipts>>,
 }
 
-impl Actor for BlockchainBridge{
+impl Actor for BlockchainBridge {
     type Context = Context<Self>;
 }
 
@@ -254,7 +254,7 @@ impl BlockchainBridge {
     fn preprocess_payments(
         &self,
         creditors_msg: &ReportAccountsPayable,
-    ) -> Result<Vec<BlockchainResult<Payable>>, String> {
+    ) -> Result<Vec<BlockchainResult<PendingPayable>>, String> {
         match self.consuming_wallet_opt.as_ref() {
             Some(consuming_wallet) => match self.persistent_config.gas_price() {
                 Ok(gas_price) => {
@@ -386,20 +386,24 @@ impl BlockchainBridge {
         creditors_msg: &ReportAccountsPayable,
         gas_price: u64,
         consuming_wallet: &Wallet,
-    ) -> Vec<BlockchainResult<Payable>> {
+    ) -> Vec<BlockchainResult<PendingPayable>> {
         //todo change to use of a question mark
-        let executable_payments = match self.check_our_capability_to_pay(&creditors_msg.accounts){
+        let executable_payments = match self.check_our_capability_to_pay(&creditors_msg.accounts) {
             Ok(ok) => todo!(),
-            Err(e)=> todo!()
+            Err(e) => todo!(),
         };
         //todo change to use of a question mark
-        let batch = match self.blockchain_interface.prepare_batched_transaction(executable_payments){
+        let last_nonce = self.blockchain_interface.get_transaction_count()
+        let batch = match self
+            .blockchain_interface
+            .prepare_requests(executable_payments)
+        {
             Ok(ok) => todo!(),
-            Err(e) => todo!()
+            Err(e) => todo!(),
         };
-        match self.blockchain_interface.send_batched_transaction(batch){
+        match self.blockchain_interface.send_batch_transaction(batch) {
             Ok(res) => todo!(),
-            Err(e) => todo!()
+            Err(e) => todo!(),
         }
         // creditors_msg
         //     .accounts
@@ -408,18 +412,21 @@ impl BlockchainBridge {
         //     .collect::<Vec<BlockchainResult<Payable>>>()
     }
 
-    fn check_our_capability_to_pay(&self, creditor_accounts: &[PayableAccount]) ->Result<Vec<PayableAccount>, BlockchainError>{
+    fn check_our_capability_to_pay(
+        &self,
+        creditor_accounts: &[PayableAccount],
+    ) -> Result<Vec<PayableAccount>, BlockchainError> {
         //TODO: implement GH-554 and GH-555 at this place
         todo!()
     }
 
-    //TODO this will be called repeatedly (from tx count down to sign_raw_tx) and then as the final, them all will be processed with web3 transport methods as their params, in a single vector.
+    //TODO this will be hugely different
     fn process_payments_inner_body(
         &self,
         payable: &PayableAccount,
         gas_price: u64,
         consuming_wallet: &Wallet,
-    ) -> BlockchainResult<Payable> {
+    ) -> BlockchainResult<PendingPayable> {
         let nonce = self
             .blockchain_interface
             .get_transaction_count(consuming_wallet)?;
@@ -440,7 +447,7 @@ impl BlockchainBridge {
                 gas_price,
                 send_tx_tools.as_ref(),
             )?) {
-            Ok((hash, timestamp)) => Ok(Payable::new(
+            Ok((hash, timestamp)) => Ok(PendingPayable::new(
                 payable.wallet.clone(),
                 unsigned_amount,
                 hash,
@@ -465,7 +472,7 @@ mod tests {
     use crate::accountant::payable_dao::PayableAccount;
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
-    use crate::blockchain::blockchain_bridge::Payable;
+    use crate::blockchain::blockchain_bridge::PendingPayable;
     use crate::blockchain::blockchain_interface::{
         BlockchainError, BlockchainTransaction, BlockchainTransactionError,
         RetrievedBlockchainTransactions,
@@ -739,13 +746,13 @@ mod tests {
             SentPayable {
                 timestamp: sent_payments_msg.timestamp,
                 payable: vec![
-                    Ok(Payable {
+                    Ok(PendingPayable {
                         to: make_wallet("blah"),
                         amount: 420,
                         timestamp: from_time_t(150_000_000),
                         tx_hash: H256::from("sometransactionhash".keccak256())
                     }),
-                    Ok(Payable {
+                    Ok(PendingPayable {
                         to: make_wallet("foo"),
                         amount: 210,
                         timestamp: from_time_t(160_000_000),

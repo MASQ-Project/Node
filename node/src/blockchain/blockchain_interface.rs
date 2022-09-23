@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_dao::PayableAccount;
+use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::tool_wrappers::{
     SendTransactionToolWrapperReal, SendTransactionToolsWrapper, SendTransactionToolsWrapperNull,
@@ -16,13 +16,11 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use std::time::SystemTime;
+use jsonrpc_core::Call;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, EventLoopHandle, Http};
-use web3::types::{
-    Address, BlockNumber, Bytes, FilterBuilder, Log, SignedTransaction, TransactionParameters,
-    TransactionReceipt, H160, H256, U256,
-};
-use web3::{BatchTransport, helpers, Transport, Web3};
+use web3::types::{Address, BlockNumber, Bytes, FilterBuilder, Log, SignedTransaction, TransactionParameters, TransactionReceipt, H160, H256, U256};
+use web3::{helpers, BatchTransport, Transport, Web3, RequestId};
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
 
@@ -86,7 +84,7 @@ pub struct RetrievedBlockchainTransactions {
     pub transactions: Vec<BlockchainTransaction>,
 }
 
-pub trait BlockchainInterface<T: Transport=Http> {
+pub trait BlockchainInterface<T: Transport = Http> {
     fn contract_address(&self) -> Address;
 
     fn retrieve_transactions(
@@ -95,9 +93,16 @@ pub trait BlockchainInterface<T: Transport=Http> {
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError>;
 
-    fn prepare_batched_transaction(&self, payments_to_be_paid: Vec<PayableAccount>)-> Result<Batch<T>,BlockchainTransactionError>;
+    fn prepare_requests(
+        &self,
+        last_transaction_nonce: U256,
+        payments_to_be_paid: Vec<PayableAccount>,
+    ) -> Result<(Vec<(RequestId, Call)>, SystemTime), BlockchainTransactionError>;
 
-    fn send_batched_transaction(&self, prepared_batch: Batch<T>)->Result<Vec<(H256,SystemTime)>,BlockchainTransactionError>;
+    fn send_batch_transaction(
+        &self,
+        signed_individual_transactions: Vec<(RequestId, Call)>
+    ) -> Result<Vec<PendingPayable>, BlockchainTransactionError>;
 
     fn send_transaction(
         &self,
@@ -161,11 +166,18 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         Err(BlockchainError::QueryFailed(msg))
     }
 
-    fn prepare_batched_transaction(&self, payments_to_be_paid: Vec<PayableAccount>) -> Result<Batch<Http>, BlockchainTransactionError> {
+    fn prepare_requests(
+        &self,
+        last_transaction_nonce: U256,
+        payments_to_be_paid: Vec<PayableAccount>,
+    ) -> Result<Vec<(RequestId, Call)>, BlockchainTransactionError> {
         todo!()
     }
 
-    fn send_batched_transaction(&self, prepared_batch: Batch<Http>) -> Result<Vec<(H256, SystemTime)>, BlockchainTransactionError> {
+    fn send_batch_transaction(
+        &self,
+        signed_individual_transactions: Vec<(RequestId, Call)>
+    ) -> Result<Vec<PendingPayable>, BlockchainTransactionError> {
         todo!()
     }
 
@@ -327,12 +339,19 @@ where
             .wait()
     }
 
-    fn prepare_batched_transaction(&self, payments_to_be_paid: Vec<PayableAccount>) -> Result<Batch<Http>, BlockchainTransactionError> {
+    fn prepare_requests(
+        &self,
+        last_transaction_id: usize,
+        payments_to_be_paid: Vec<PayableAccount>,
+    ) -> Result<(Vec<(RequestId, Call)>, SystemTime), BlockchainTransactionError> {
         //self.web3.transport().prepare("eth_sendRawTransaction", vec![helpers::serialize(&signed_transaction.raw_transaction)]);
         todo!()
     }
 
-    fn send_batched_transaction(&self, prepared_batch: Batch<Http>) -> Result<Vec<(H256, SystemTime)>, BlockchainTransactionError> {
+    fn send_batch_transaction(
+        &self,
+        signed_individual_transactions: Vec<(RequestId, Call)>
+    ) -> Result<Vec<PendingPayable>, BlockchainTransactionError> {
         todo!()
     }
 
@@ -407,7 +426,7 @@ where
     }
 }
 
-impl <T: BatchTransport> Deref for BlockchainInterfaceNonClandestine<T>{
+impl<T: BatchTransport> Deref for BlockchainInterfaceNonClandestine<T> {
     type Target = T;
 
     fn deref(&self) -> &Self::Target {
@@ -605,7 +624,7 @@ impl From<BlockchainTransactionError> for BlockchainError {
 mod tests {
     use super::*;
     use crate::accountant::test_utils::{
-        make_payable_account, make_payable_account_with_recipient_and_balance_and_timestamp_opt,
+        make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
     };
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
@@ -622,6 +641,7 @@ mod tests {
     use crossbeam_channel::{unbounded, Receiver};
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
+    use jsonrpc_core::{Error, ErrorCode};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::find_free_port;
@@ -1174,15 +1194,92 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_non_clandestine_can_transfer_tokens() {
+    fn blockchain_interface_non_clandestine_can_prepare_requests_for_batch(){
         init_test_logging();
-        let mut transport = TestTransport::default();
-        transport.add_response(json!(
-            "0xe26f2f487f5dd06c38860d410cdcede0d6e860dab2c971c7d518928c17034c8f"
-        ));
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let actor_addr = accountant.start();
         let recipient_of_pending_payable_fingerprint =
+            recipient!(actor_addr, PendingPayableFingerprint);
+        let subject = BlockchainInterfaceNonClandestine::new(
+            TestTransport::default(),
+            make_fake_event_loop_handle(),
+            TEST_DEFAULT_CHAIN,
+        );
+        let gas_price = 120;
+        let amount_1 = 9000;
+        let account_1 = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
+            make_wallet("blah123"),
+            amount_1,
+            None,
+        );
+        let amount_2 = 9000;
+        let account_2 = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
+            make_wallet("blah123"),
+            amount_2,
+            None,
+        );
+        let last_transaction_id = 6;
+        let our_consuming_wallet = make_paying_wallet(b"gdasgsa");
+        let tools = subject.send_transaction_tools(&recipient_of_pending_payable_fingerprint);
+        let test_timestamp_before = SystemTime::now();
+
+        let result = subject.prepare_requests(last_transaction_id, vec![account_1,account_2]).unwrap();
+
+        let test_timestamp_after = SystemTime::now();
+        let system = System::new("can transfer tokens test");
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        let (requests_responses_from_batch, common_timestamp) = result;
+        assert_eq!(
+            requests_responses_from_batch,
+            vec![(5,),(6,)]
+        );
+        // H256::from_str("e26f2f487f5dd06c38860d410cdcede0d6e860dab2c971c7d518928c17034c8f")
+        //     .unwrap()
+        assert!(test_timestamp_before <= common_timestamp && common_timestamp <= test_timestamp_after);
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let actual_fingerprint = accountant_recording.get_record::<PendingPayableFingerprint>(0);
+        let expected_pending_payable_fingerprint = PendingPayableFingerprint {
+            rowid_opt: None,
+            timestamp: common_timestamp,
+            hash,
+            attempt_opt: None,
+            amount: amount_1 as u64,
+            process_error: None,
+        };
+        assert_eq!(actual_fingerprint, &expected_pending_payable_fingerprint);
+        let log_handler = TestLogHandler::new();
+        log_handler.exists_log_containing("DEBUG: BlockchainInterface: Preparing transaction for 9000 Gwei to 0x00000000000000000000000000626c6168313233 from 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725 (chain_id: 3, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3, gas price: 120)" );
+        log_handler.exists_log_containing(
+            "INFO: BlockchainInterface: About to send transaction:\n\
+        recipient: 0x00000000000000000000000000626c6168313233,\n\
+        amount: 9000,\n\
+        (chain: eth-ropsten, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3)",
+        );
+    }
+
+    //TODO we may want to send fingerprints together as a set
+    #[test]
+    fn blockchain_interface_non_clandestine_can_transfer_tokens_in_batch() {
+        init_test_logging();
+        let mut transport = TestTransport::default();
+        let expected_batch_responses = vec![
+            Ok(json!(
+                "0xe26f2f487f5dd06c38860d410cdcede0d6e860dab2c971c7d518928c17034c8f"
+            )),
+            Err(web3::Error::Rpc(Error {
+                code: ErrorCode::ServerError(114),
+                message: "server being busy".to_string(),
+                data: None,
+            })),
+            Ok(json!(
+                "0xc3112f487f8aea6c38860d410cdcede0d6e860dab2c971c7d518928c23034a20"
+            )),
+        ];
+        transport.add_batch_response(expected_batch_responses);
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let actor_addr = accountant.start();
+        let recipient_of_ppf =
             recipient!(actor_addr, PendingPayableFingerprint);
         let subject = BlockchainInterfaceNonClandestine::new(
             transport.clone(),
@@ -1191,13 +1288,13 @@ mod tests {
         );
         let amount = 9000;
         let gas_price = 120;
-        let account = make_payable_account_with_recipient_and_balance_and_timestamp_opt(
+        let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             make_wallet("blah123"),
             amount,
             None,
         );
         let consuming_wallet = make_paying_wallet(b"gdasgsa");
-        let tools = subject.send_transaction_tools(&recipient_of_pending_payable_fingerprint);
+        let tools = subject.send_transaction_tools(&recipient_of_ppf);
         let inputs = SendTransactionInputs::new(
             &account,
             &consuming_wallet,
@@ -1206,15 +1303,19 @@ mod tests {
             tools.as_ref(),
         )
         .unwrap();
+        let batched_requests = vec![]; //TODO fill me up
         let test_timestamp_before = SystemTime::now();
 
-        let result = subject.send_transaction(inputs).unwrap();
+        //TODO should return something like "BatchResults"
+        let result = subject.send_batch_transaction(batched_requests).unwrap();
 
         let test_timestamp_after = SystemTime::now();
         let system = System::new("can transfer tokens test");
         System::current().stop();
         assert_eq!(system.run(), 0);
-        transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a901851bf08eb00082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0d4ecb2865f6a0370689be2e956cc272f7718cb360160f5a51756264ba1cc23fca005a3920e27680135e032bb23f4026a2e91c680866047cf9bbadee23ab8ab5ca2""#)]);
+        transport.assert_single_request("eth_sendRawTransaction", &[String::from(r#""0xf8a901851bf08eb00082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0d4ecb2865f6a0370689be2e956cc272f7718cb360160f5a51756264ba1cc23fca005a3920e27680135e032bb23f4026a2e91c680866047cf9bbadee23ab8ab5ca2""#)]);
+        transport.assert_single_request("eth_sendRawTransaction", &[String::from(r#""0xf8a901851bf08eb00082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0d4ecb2865f6a0370689be2e956cc272f7718cb360160f5a51756264ba1cc23fca005a3920e27680135e032bb23f4026a2e91c680866047cf9bbadee23ab8ab5ca2""#)]);
+        transport.assert_single_request("eth_sendRawTransaction", &[String::from(r#""0xf8a901851bf08eb00082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0d4ecb2865f6a0370689be2e956cc272f7718cb360160f5a51756264ba1cc23fca005a3920e27680135e032bb23f4026a2e91c680866047cf9bbadee23ab8ab5ca2""#)]);
         transport.assert_no_more_requests();
         let (hash, timestamp) = result;
         assert_eq!(
@@ -1244,6 +1345,78 @@ mod tests {
         );
     }
 
+    // #[test]
+    // fn blockchain_interface_non_clandestine_can_transfer_tokens_old() {
+    //     init_test_logging();
+    //     let mut transport = TestTransport::default();
+    //     transport.add_response(json!(
+    //         "0xe26f2f487f5dd06c38860d410cdcede0d6e860dab2c971c7d518928c17034c8f"
+    //     ));
+    //     let (accountant, _, accountant_recording_arc) = make_recorder();
+    //     let actor_addr = accountant.start();
+    //     let recipient_of_pending_payable_fingerprint =
+    //         recipient!(actor_addr, PendingPayableFingerprint);
+    //     let subject = BlockchainInterfaceNonClandestine::new(
+    //         transport.clone(),
+    //         make_fake_event_loop_handle(),
+    //         TEST_DEFAULT_CHAIN,
+    //     );
+    //     let amount = 9000;
+    //     let gas_price = 120;
+    //     let account = make_payable_account_with_recipient_and_balance_and_timestamp_opt(
+    //         make_wallet("blah123"),
+    //         amount,
+    //         None,
+    //     );
+    //     let consuming_wallet = make_paying_wallet(b"gdasgsa");
+    //     let tools = subject.send_transaction_tools(&recipient_of_pending_payable_fingerprint);
+    //     let inputs = SendTransactionInputs::new(
+    //         &account,
+    //         &consuming_wallet,
+    //         U256::from(1),
+    //         gas_price,
+    //         tools.as_ref(),
+    //     )
+    //     .unwrap();
+    //     let test_timestamp_before = SystemTime::now();
+    //
+    //     let result = subject.send_transaction(inputs).unwrap();
+    //
+    //     let test_timestamp_after = SystemTime::now();
+    //     let system = System::new("can transfer tokens test");
+    //     System::current().stop();
+    //     assert_eq!(system.run(), 0);
+    //     transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a901851bf08eb00082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0d4ecb2865f6a0370689be2e956cc272f7718cb360160f5a51756264ba1cc23fca005a3920e27680135e032bb23f4026a2e91c680866047cf9bbadee23ab8ab5ca2""#)]);
+    //     transport.assert_no_more_requests();
+    //     let (hash, timestamp) = result;
+    //     assert_eq!(
+    //         hash,
+    //         H256::from_str("e26f2f487f5dd06c38860d410cdcede0d6e860dab2c971c7d518928c17034c8f")
+    //             .unwrap()
+    //     );
+    //     assert!(test_timestamp_before <= timestamp && timestamp <= test_timestamp_after);
+    //     let accountant_recording = accountant_recording_arc.lock().unwrap();
+    //     let sent_backup = accountant_recording.get_record::<PendingPayableFingerprint>(0);
+    //     let expected_pending_payable_fingerprint = PendingPayableFingerprint {
+    //         rowid_opt: None,
+    //         timestamp,
+    //         hash,
+    //         attempt_opt: None,
+    //         amount: amount as u64,
+    //         process_error: None,
+    //     };
+    //     assert_eq!(sent_backup, &expected_pending_payable_fingerprint);
+    //     let log_handler = TestLogHandler::new();
+    //     log_handler.exists_log_containing("DEBUG: BlockchainInterface: Preparing transaction for 9000 Gwei to 0x00000000000000000000000000626c6168313233 from 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725 (chain_id: 3, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3, gas price: 120)" );
+    //     log_handler.exists_log_containing(
+    //         "INFO: BlockchainInterface: About to send transaction:\n\
+    //     recipient: 0x00000000000000000000000000626c6168313233,\n\
+    //     amount: 9000,\n\
+    //     (chain: eth-ropsten, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3)",
+    //     );
+    // }
+
+    //TODO what to do with this??? Will it
     #[test]
     fn non_clandestine_interface_components_of_send_transactions_work_together_properly() {
         let transport = TestTransport::default();
@@ -1291,7 +1464,7 @@ mod tests {
             .send_raw_transaction_params(&send_raw_transaction_params_arc)
             .send_raw_transaction_result(Ok(hash));
         let amount = 50_000;
-        let account = make_payable_account_with_recipient_and_balance_and_timestamp_opt(
+        let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             make_wallet("blah123"),
             amount,
             None,
@@ -1445,7 +1618,7 @@ mod tests {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let account_addr = accountant.start();
         let recipient = recipient!(account_addr, PendingPayableFingerprint);
-        let account = make_payable_account_with_recipient_and_balance_and_timestamp_opt(
+        let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             make_wallet("blah123"),
             9000,
             None,
@@ -1486,7 +1659,7 @@ mod tests {
             make_fake_event_loop_handle(),
             Chain::PolyMumbai,
         );
-        let account = make_payable_account_with_recipient_and_balance_and_timestamp_opt(
+        let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             make_wallet("blah123"),
             9000,
             None,
@@ -1527,7 +1700,7 @@ mod tests {
             make_fake_event_loop_handle(),
             Chain::PolyMumbai,
         );
-        let account = make_payable_account_with_recipient_and_balance_and_timestamp_opt(
+        let account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             make_wallet("blah123"),
             5000,
             None,
@@ -1596,7 +1769,7 @@ mod tests {
             ChainFamily::Polygon => TEST_GAS_PRICE_POLYGON,
             _ => panic!("isn't our interest in this test"),
         };
-        let payable_account = make_payable_account_with_recipient_and_balance_and_timestamp_opt(
+        let payable_account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             recipient_wallet,
             i64::try_from(TEST_PAYMENT_AMOUNT).unwrap(),
             None,
@@ -1855,7 +2028,7 @@ mod tests {
 
         let result = subject.get_transaction_count(&make_paying_wallet(b"gdasgsa"));
 
-        transport.assert_request(
+        transport.assert_single_request(
             "eth_getTransactionCount",
             &[
                 String::from(r#""0x5c361ba8d82fcf0e5538b2a823e9d457a2296725""#),

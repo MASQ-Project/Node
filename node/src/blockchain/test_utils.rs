@@ -13,19 +13,20 @@ use actix::Recipient;
 use bip39::{Language, Mnemonic, Seed};
 use ethereum_types::H256;
 use jsonrpc_core as rpc;
+use jsonrpc_core::Call;
 use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::collections::VecDeque;
+use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use jsonrpc_core::{Call};
 
+use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::{BatchTransport, Error as Web3Error};
 use web3::{RequestId, Transport};
-use crate::accountant::payable_dao::PayableAccount;
 
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
 
@@ -153,11 +154,18 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.retrieve_transactions_results.borrow_mut().remove(0)
     }
 
-    fn prepare_batched_transaction(&self, payments_to_be_paid: Vec<PayableAccount>) -> Result<Batch<Http>, BlockchainTransactionError> {
+    fn prepare_requests(
+        &self,
+        last_transaction_nonce: U256,
+        payments_to_be_paid: Vec<PayableAccount>,
+    )-> Result<Vec<(RequestId, Call)>, BlockchainTransactionError>{
         todo!()
     }
 
-    fn send_batched_transaction(&self, prepared_batch: Batch<Http>) -> Result<Vec<(H256, SystemTime)>, BlockchainTransactionError> {
+    fn send_batch_transaction(
+        &self,
+        signed_individual_transactions: Vec<(RequestId, Call)>
+    ) -> Result<Vec<PendingPayable>, BlockchainTransactionError> {
         todo!()
     }
 
@@ -207,8 +215,10 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 #[derive(Debug, Default, Clone)]
 pub struct TestTransport {
     asserted: usize,
-    requests: Rc<RefCell<Vec<(String, Vec<rpc::Value>)>>>,
-    responses: Rc<RefCell<VecDeque<rpc::Value>>>,
+    prepare_params: Rc<RefCell<Vec<(String, Vec<rpc::Value>)>>>,
+    send_batch_params: Rc<RefCell<Vec<Vec<(RequestId, Call)>>>>,
+    discrete_rpc_responses: Rc<RefCell<Vec<rpc::Value>>>,
+    batch_rpc_responses: Rc<RefCell<Vec<Vec<Result<rpc::Value, web3::Error>>>>>
 }
 
 impl Transport for TestTransport {
@@ -216,44 +226,58 @@ impl Transport for TestTransport {
 
     fn prepare(&self, method: &str, params: Vec<rpc::Value>) -> (RequestId, rpc::Call) {
         let request = web3::helpers::build_request(1, method, params.clone());
-        self.requests.borrow_mut().push((method.into(), params));
-        (self.requests.borrow().len(), request)
+        self.prepare_params
+            .borrow_mut()
+            .push((method.to_string(), params));
+        (self.prepare_params.borrow().len(), request)
     }
 
     fn send(&self, id: RequestId, request: rpc::Call) -> Self::Out {
-        match self.responses.borrow_mut().pop_front() {
-            Some(response) => Box::new(futures::finished(response)),
-            None => {
-                println!("Unexpected request (id: {:?}): {:?}", id, request);
-                Box::new(futures::failed(Web3Error::Unreachable))
-            }
-        }
+        todo!("drive me in again")
+        // match self.responses.borrow_mut().pop_front() {
+        //     Some(response) => Box::new(futures::finished(response)),
+        //     None => {
+        //         println!("Unexpected request (id: {:?}): {:?}", id, request);
+        //         Box::new(futures::failed(Web3Error::Unreachable))
+        //     }
+        // }
     }
 }
 
-impl BatchTransport for TestTransport{
-    type Batch = web3::Result<Vec<Result<rpc::Value,web3::Error>>>;
+impl BatchTransport for TestTransport {
+    type Batch = web3::Result<Vec<Result<rpc::Value, web3::Error>>>;
 
-    fn send_batch<T>(&self, requests: T) -> Self::Batch where T: IntoIterator<Item=(RequestId, Call)> {
-        todo!()
+    fn send_batch<T>(&self, requests: T) -> Self::Batch
+    where
+        T: IntoIterator<Item = (RequestId, Call)>,
+    {
+        self.send_batch_params
+            .borrow_mut()
+            .push(requests.into_iter().collect());
+        let response = self.batch_rpc_responses.borrow_mut().remove(0);
+        // let response = response.into_iter().map(|single_request|futures::finished(single_request)).collect();
+        Box::new(futures::finished(response))
     }
-}
-
-struct TestBatch {
-
 }
 
 impl TestTransport {
-    pub fn add_response(&mut self, value: rpc::Value) {
-        self.responses.borrow_mut().push_back(value);
+    //TODO check if you can write as continuous setup passing the ownership through and out.
+    pub fn add_response(&mut self, rpc_call_response: rpc::Value) {
+        self.discrete_rpc_responses
+            .borrow_mut()
+            .push(rpc_call_response);
     }
 
-    pub fn assert_request(&mut self, method: &str, params: &[String]) {
+    pub fn add_batch_response(&mut self, batched_responses: Vec<Result<rpc::Value,web3::Error>>){
+        self.batch_rpc_responses.borrow_mut().push(batched_responses)
+    }
+
+    pub fn assert_single_request(&mut self, method: &str, params: &[String]) {
         let idx = self.asserted;
         self.asserted += 1;
 
         let (m, p) = self
-            .requests
+            .prepare_params
             .borrow()
             .get(idx)
             .expect("Expected result.")
@@ -267,7 +291,7 @@ impl TestTransport {
     }
 
     pub fn assert_no_more_requests(&mut self) {
-        let requests = self.requests.borrow();
+        let requests = self.prepare_params.borrow();
         assert_eq!(
             self.asserted,
             requests.len(),

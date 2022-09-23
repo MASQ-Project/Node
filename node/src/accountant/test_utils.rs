@@ -48,20 +48,20 @@ pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableA
 pub fn make_payable_account(n: u64) -> PayableAccount {
     let now = to_time_t(SystemTime::now());
     let timestamp = from_time_t(now - (n as i64));
-    make_payable_account_with_recipient_and_balance_and_timestamp_opt(
+    make_payable_account_with_wallet_and_balance_and_timestamp_opt(
         make_wallet(&format!("wallet{}", n)),
         (n * 1_000_000_000) as i64,
         Some(timestamp),
     )
 }
 
-pub fn make_payable_account_with_recipient_and_balance_and_timestamp_opt(
-    recipient: Wallet,
+pub fn make_payable_account_with_wallet_and_balance_and_timestamp_opt(
+    wallet: Wallet,
     balance: i64,
     timestamp_opt: Option<SystemTime>,
 ) -> PayableAccount {
     PayableAccount {
-        wallet: recipient,
+        wallet,
         balance,
         last_paid_timestamp: timestamp_opt.unwrap_or(SystemTime::now()),
         pending_payable_opt: None,

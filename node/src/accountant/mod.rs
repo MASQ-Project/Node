@@ -12,7 +12,7 @@ use masq_lib::constants::SCAN_ERROR;
 use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 
-use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError, PayableDaoFactory};
+use crate::accountant::payable_dao::{PendingPayable, PayableAccount, PayableDaoError, PayableDaoFactory};
 use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
 use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDaoError, ReceivableDaoFactory,
@@ -104,7 +104,7 @@ pub struct ReceivedPayments {
 #[derive(Debug, Message, PartialEq, Eq)]
 pub struct SentPayable {
     pub timestamp: SystemTime,
-    pub payable: Vec<Result<Payable, BlockchainError>>,
+    pub payable: Vec<Result<PendingPayable, BlockchainError>>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -1009,7 +1009,7 @@ impl Accountant {
     fn separate_early_errors(
         sent_payments: &SentPayable,
         logger: &Logger,
-    ) -> (Vec<Payable>, Vec<BlockchainError>) {
+    ) -> (Vec<PendingPayable>, Vec<BlockchainError>) {
         sent_payments
             .payable
             .iter()
@@ -1027,7 +1027,7 @@ impl Accountant {
             })
     }
 
-    fn mark_pending_payable(&self, sent_payments: Vec<Payable>) {
+    fn mark_pending_payable(&self, sent_payments: Vec<PendingPayable>) {
         sent_payments
             .into_iter()
             .for_each(|payable| {
@@ -1849,7 +1849,7 @@ mod tests {
             .payable_dao(payable_dao)
             .pending_payable_dao(pending_payable_dao)
             .build();
-        let expected_payable = Payable::new(
+        let expected_payable = PendingPayable::new(
             expected_wallet.clone(),
             expected_amount,
             expected_hash.clone(),
@@ -1946,7 +1946,7 @@ mod tests {
         let sent_payable = SentPayable {
             timestamp: SystemTime::now(),
             payable: vec![
-                Ok(Payable {
+                Ok(PendingPayable {
                     to: wallet.clone(),
                     amount: 5656,
                     timestamp: SystemTime::now(),
@@ -3505,7 +3505,7 @@ mod tests {
         expected = "Was unable to create a mark in payables for a new pending payable '0x0000…007b' due to 'SignConversion(9999999999999)'"
     )]
     fn handle_sent_payable_fails_to_make_a_mark_in_payables_and_so_panics() {
-        let payable = Payable::new(
+        let payable = PendingPayable::new(
             make_wallet("blah"),
             6789,
             H256::from_uint(&U256::from(123)),
@@ -3561,7 +3561,7 @@ mod tests {
         let payable_1 = Err(BlockchainError::InvalidResponse);
         let payable_2_rowid = 126;
         let payable_hash_2 = H256::from_uint(&U256::from(166));
-        let payable_2 = Payable::new(make_wallet("booga"), 6789, payable_hash_2, now_system);
+        let payable_2 = PendingPayable::new(make_wallet("booga"), 6789, payable_hash_2, now_system);
         let payable_3 = Err(BlockchainError::TransactionFailed {
             msg: "closing hours, sorry".to_string(),
             hash_opt: None,
@@ -3598,7 +3598,7 @@ mod tests {
         init_test_logging();
         let now_system = SystemTime::now();
         let payment_hash = H256::from_uint(&U256::from(789));
-        let payment = Payable::new(make_wallet("booga"), 6789, payment_hash, now_system);
+        let payment = PendingPayable::new(make_wallet("booga"), 6789, payment_hash, now_system);
         let pending_payable_dao = PendingPayableDaoMock::default().fingerprint_rowid_result(None);
         let subject = AccountantBuilder::default()
             .payable_dao(PayableDaoMock::new().mark_pending_payable_rowid_result(Ok(())))
@@ -4533,7 +4533,7 @@ mod tests {
 
     #[test]
     fn separate_early_errors_works() {
-        let payable_ok = Payable {
+        let payable_ok = PendingPayable {
             to: make_wallet("blah"),
             amount: 5555,
             timestamp: SystemTime::now(),

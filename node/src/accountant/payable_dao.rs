@@ -29,14 +29,14 @@ pub struct PayableAccount {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Payable {
+pub struct PendingPayable {
     pub to: Wallet,
     pub amount: u64,
     pub timestamp: SystemTime,
     pub tx_hash: H256,
 }
 
-impl Payable {
+impl PendingPayable {
     pub fn new(to: Wallet, amount: u64, txn: H256, timestamp: SystemTime) -> Self {
         Self {
             to,
