@@ -750,8 +750,8 @@ pub(in crate::accountant) mod scanners {
     pub struct ScannerMock<BeginMessage, EndMessage> {
         begin_scan_params: Arc<Mutex<Vec<()>>>,
         begin_scan_results: RefCell<Vec<Result<BeginMessage, BeginScanError>>>,
-        end_scan_params: RefCell<Vec<EndMessage>>,
-        end_scan_results: Arc<Mutex<Vec<Option<NodeToUiMessage>>>>,
+        end_scan_params: Arc<Mutex<Vec<EndMessage>>>,
+        end_scan_results: RefCell<Vec<Option<NodeToUiMessage>>>,
         stop_system_after_last_message: RefCell<bool>,
     }
 
@@ -768,9 +768,7 @@ pub(in crate::accountant) mod scanners {
             _logger: &Logger,
         ) -> Result<BeginMessage, BeginScanError> {
             self.begin_scan_params.lock().unwrap().push(());
-            if self.stop_system_after_last_message.borrow().clone()
-                && self.begin_scan_results.borrow().len() == 1
-            {
+            if self.is_allowed_to_stop_the_system() && self.is_last_message() {
                 System::current().stop();
             }
             self.begin_scan_results.borrow_mut().remove(0)
@@ -802,8 +800,8 @@ pub(in crate::accountant) mod scanners {
             Self {
                 begin_scan_params: Arc::new(Mutex::new(vec![])),
                 begin_scan_results: RefCell::new(vec![]),
-                end_scan_params: RefCell::new(vec![]),
-                end_scan_results: Arc::new(Mutex::new(vec![])),
+                end_scan_params: Arc::new(Mutex::new(vec![])),
+                end_scan_results: RefCell::new(vec![]),
                 stop_system_after_last_message: RefCell::new(false),
             }
         }
@@ -821,6 +819,22 @@ pub(in crate::accountant) mod scanners {
         pub fn stop_the_system(self) -> Self {
             self.stop_system_after_last_message.replace(true);
             self
+        }
+
+        pub fn is_allowed_to_stop_the_system(&self) -> bool {
+            self.stop_system_after_last_message.borrow().clone()
+        }
+
+        pub fn is_last_message(&self) -> bool {
+            self.is_last_message_from_begin_scan() || self.is_last_message_from_end_scan()
+        }
+
+        pub fn is_last_message_from_begin_scan(&self) -> bool {
+            self.begin_scan_results.borrow().len() == 1 && self.end_scan_results.borrow().is_empty()
+        }
+
+        pub fn is_last_message_from_end_scan(&self) -> bool {
+            self.end_scan_results.borrow().len() == 1 && self.begin_scan_results.borrow().is_empty()
         }
     }
 
