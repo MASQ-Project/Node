@@ -323,6 +323,7 @@ pub(in crate::accountant) mod scanners {
                         logger,
                         "Pending payable scan ended. No pending payable found."
                     );
+                    self.mark_as_ended(logger);
                     Err(BeginScanError::NothingToProcess)
                 }
                 false => {
@@ -993,7 +994,9 @@ mod tests {
 
         let result = payable_scanner.begin_scan(now, None, &Logger::new(test_name));
 
+        let is_scan_running = payable_scanner.scan_started_at().is_some();
         assert_eq!(result, Err(BeginScanError::NothingToProcess));
+        assert_eq!(is_scan_running, false);
         TestLogHandler::new().assert_logs_match_in_order(vec![
             &format!("INFO: {}: Scanning for payables", test_name),
             "Chose 0 qualified debts to pay",
@@ -1199,7 +1202,9 @@ mod tests {
 
         let result = pending_payable_scanner.begin_scan(now, None, &Logger::new(test_name));
 
+        let is_scan_running = pending_payable_scanner.scan_started_at().is_some();
         assert_eq!(result, Err(BeginScanError::NothingToProcess));
+        assert_eq!(is_scan_running, false);
         TestLogHandler::new().assert_logs_match_in_order(vec![
             &format!("INFO: {}: Scanning for pending payable", test_name),
             &format!(
