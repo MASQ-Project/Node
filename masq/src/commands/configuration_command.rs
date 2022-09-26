@@ -26,7 +26,7 @@ pub struct ConfigurationCommand {
 
 const CONFIGURATION_ABOUT: &str = "Displays a running Node's current configuration.";
 const CONFIGURATION_ARG_HELP: &str =
-    "Password of the database from which the configuration will be read";
+    "Password of the database from which the configuration will be read.";
 
 pub fn configuration_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("configuration")
@@ -230,7 +230,7 @@ mod tests {
         );
         assert_eq!(
             CONFIGURATION_ARG_HELP,
-            "Password of the database from which the configuration will be read"
+            "Password of the database from which the configuration will be read."
         );
     }
 

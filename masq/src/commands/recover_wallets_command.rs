@@ -125,24 +125,24 @@ impl Command for RecoverWalletsCommand {
 }
 
 const RECOVER_WALLETS_ABOUT: &str =
-    "Recovers a pair of wallets (consuming and earning) for the Node if they haven't been recovered already";
+    "Recovers a pair of wallets (consuming and earning) for the Node if they haven't been recovered already.";
 const DB_PASSWORD_ARG_HELP: &str =
-    "The current database password (a password must be set to use this command)";
+    "The current database password (a password must be set to use this command).";
 const MNEMONIC_PHRASE_ARG_HELP: &str =
     "The mnemonic phrase upon which the consuming wallet (and possibly the earning wallet) is based. \
      Surround with double quotes.";
 const PASSPHRASE_ARG_HELP: &str =
     "An additional word--any word--to place at the end of the mnemonic phrase to recover the wallet pair";
-const LANGUAGE_ARG_HELP: &str = "The language in which the wallets' mnemonic phrase is written";
+const LANGUAGE_ARG_HELP: &str = "The language in which the wallets' mnemonic phrase is written.";
 const CONSUMING_PATH_ARG_HELP: &str =
     "Derivation that was used to generate the consuming wallet from which your bills will be paid. \
-     Remember to put it in double quotes; otherwise the single quotes will cause problems";
+     Remember to put it in double quotes; otherwise the single quotes will cause problems.";
 const CONSUMING_KEY_ARG_HELP: &str =
     "The private key of the consuming wallet. Represent it as a 64-character string of hexadecimal digits.";
 const EARNING_PATH_ARG_HELP: &str =
     "Derivation path that was used to generate the earning wallet from which your bills will be paid. \
      Can be the same as consuming-path. Remember to put it in double quotes; otherwise the single \
-     quotes will cause problems";
+     quotes will cause problems.";
 const EARNING_ADDRESS_ARG_HELP: &str =
     "The address of the earning wallet. Represent it as '0x' followed by 40 hexadecimal digits.";
 const LANGUAGE_ARG_POSSIBLE_VALUES: [&str; 8] = [
@@ -254,11 +254,11 @@ mod tests {
         assert_eq!(
             RECOVER_WALLETS_ABOUT,
             "Recovers a pair of wallets (consuming and earning) for the Node if they haven't been \
-             recovered already"
+             recovered already."
         );
         assert_eq!(
             DB_PASSWORD_ARG_HELP,
-            "The current database password (a password must be set to use this command)"
+            "The current database password (a password must be set to use this command)."
         );
         assert_eq!(
             MNEMONIC_PHRASE_ARG_HELP,
@@ -267,16 +267,16 @@ mod tests {
         assert_eq!(
             PASSPHRASE_ARG_HELP,
             "An additional word--any word--to place at the end of the mnemonic phrase to recover \
-             the wallet pair"
+             the wallet pair."
         );
         assert_eq!(
             LANGUAGE_ARG_HELP,
-            "The language in which the wallets' mnemonic phrase is written"
+            "The language in which the wallets' mnemonic phrase is written."
         );
         assert_eq!(
             CONSUMING_PATH_ARG_HELP,
             "Derivation that was used to generate the consuming wallet from which your bills will \
-             be paid. Remember to put it in double quotes; otherwise the single quotes will cause problems"
+             be paid. Remember to put it in double quotes; otherwise the single quotes will cause problems."
         );
         assert_eq!(
             CONSUMING_KEY_ARG_HELP,
@@ -287,7 +287,7 @@ mod tests {
             EARNING_PATH_ARG_HELP,
             "Derivation path that was used to generate the earning wallet from which your bills \
              will be paid. Can be the same as consuming-path. Remember to put it in double quotes; \
-             otherwise the single quotes will cause problems"
+             otherwise the single quotes will cause problems."
         );
         assert_eq!(
             EARNING_ADDRESS_ARG_HELP,
