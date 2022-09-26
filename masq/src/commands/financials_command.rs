@@ -517,7 +517,7 @@ impl FinancialsCommand {
     ) -> Vec<usize> {
         let headings_widths = Self::widths_of_str_values(headings.words.as_slice());
         let values_widths = Self::figure_out_max_widths(values_of_accounts);
-        Self::yield_bigger_values_from_vecs(headings_widths.len(), headings_widths, values_widths)
+        Self::yield_bigger_values_from_vecs(headings_widths, values_widths)
     }
 
     fn widths_of_str_values<T: AsRef<str>>(headings: &[T]) -> Vec<usize> {
@@ -593,6 +593,16 @@ impl FinancialsCommand {
             balance_width = optimal_widths[3],
             hash_width = optimal_widths[4]
         )
+    }
+
+    fn write_column_formatted(
+        stdout: &mut dyn Write,
+        preprocessed_segmented_account_values: &[(&String,&usize)],
+        value_ordinal_number_position: &dyn Display
+    ){
+        write!(stdout,"{}",value_ordinal_number_position).expect("write failed");
+        preprocessed_segmented_account_values.iter().for_each(|(value,opt_width)|write!(stdout, "{:<width$}", value,width = opt_width).expect("write failed"));
+        short_writeln!(stdout, "")
     }
 
     fn write_receivable_headings(stdout: &mut dyn Write, h_and_w: &[(&str, &usize)]) {
@@ -723,26 +733,23 @@ impl FinancialsCommand {
 
     fn figure_out_max_widths(values_of_accounts: &[Vec<String>]) -> Vec<usize> {
         //two-dimensional set of strings; measuring their lengths and saving the largest value for each column
-        let column_count = values_of_accounts[0].len();
-        let init = vec![0_usize; column_count];
+        let init = vec![0_usize; values_of_accounts[0].len()];
         let widths_except_ordinal_num = values_of_accounts.iter().fold(init, |acc, record| {
             Self::yield_bigger_values_from_vecs(
-                column_count,
                 acc,
                 Self::widths_of_str_values(record),
             )
         });
-        let mut result = vec![values_of_accounts.len().to_string().len()];
+        let mut result = vec![(values_of_accounts.len() as f64).log10() as usize + 1];
         result.extend(widths_except_ordinal_num);
         result
     }
 
     fn yield_bigger_values_from_vecs(
-        column_count: usize,
         first: Vec<usize>,
         second: Vec<usize>,
     ) -> Vec<usize> {
-        (0..column_count).fold(vec![], |acc, idx| plus(acc, first[idx].max(second[idx])))
+        (0..first.len()).fold(vec![], |acc, idx| plus(acc, first[idx].max(second[idx])))
     }
 
     fn triple_or_single_blank_line(stdout: &mut dyn Write, leading_dump: bool) {
@@ -777,7 +784,7 @@ impl FinancialsCommand {
         captures.get(idx).map(|catch| catch.as_str().to_owned())
     }
 
-    fn range_of_masq_values_regex() -> Regex {
+    fn regex_of_range_of_masq_values() -> Regex {
         Regex::new("(^(-?\\d+\\.?\\d*)\\s*-\\s*(-?\\d+\\.?\\d*))|(^-?\\d+\\.?\\d*)$")
             .expect("wrong regex")
     }
@@ -817,7 +824,7 @@ impl FinancialsCommand {
         <N as TryFrom<i64>>::Error: Debug,
     {
         let (first, second_opt) =
-            Self::extract_individual_masq_values(range_str, Self::range_of_masq_values_regex())?;
+            Self::extract_individual_masq_values(range_str, Self::regex_of_range_of_masq_values())?;
         let first_as_num = Self::process_optionally_fragmentary_number(&first)?;
         let second_as_num = if let Some(second) = second_opt.as_ref() {
             Self::process_optionally_fragmentary_number(second)?
