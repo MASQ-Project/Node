@@ -849,7 +849,7 @@ mod tests {
 
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
-    use crate::accountant::scanners::scanners::{NullScanner, PendingPayableScanner, ScannerMock};
+    use crate::accountant::scanners::scanners::{NullScanner, ScannerMock};
     use crate::accountant::test_utils::{
         bc_from_earning_wallet, bc_from_wallets, make_payables, BannedDaoFactoryMock,
         PayableDaoFactoryMock, PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
@@ -2985,7 +2985,7 @@ mod tests {
             ..fingerprint_2_first_round.clone()
         };
         let pending_payable_dao_for_accountant = PendingPayableDaoMock::default();
-        let mut pending_payable_dao_for_payable_scanner = PendingPayableDaoMock::default()
+        let pending_payable_dao_for_payable_scanner = PendingPayableDaoMock::default()
             .fingerprint_rowid_result(Some(rowid_for_account_1))
             .fingerprint_rowid_result(Some(rowid_for_account_2))
             .insert_fingerprint_params(&insert_fingerprint_params_arc)

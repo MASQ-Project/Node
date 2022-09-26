@@ -610,6 +610,12 @@ pub mod unshared_test_utils {
         config
     }
 
+    impl Default for PaymentThresholds {
+        fn default() -> Self {
+            DEFAULT_PAYMENT_THRESHOLDS.clone()
+        }
+    }
+
     pub fn make_payment_thresholds_with_defaults() -> PaymentThresholds {
         DEFAULT_PAYMENT_THRESHOLDS.clone()
     }

@@ -293,17 +293,6 @@ mod tests {
     use std::rc::Rc;
     use std::time::SystemTime;
 
-    // fn make_custom_payment_thresholds() -> PaymentThresholds {
-    //     PaymentThresholds {
-    //         threshold_interval_sec: 2_592_000,
-    //         debt_threshold_gwei: 1_000_000_000,
-    //         payment_grace_period_sec: 86_400,
-    //         maturity_threshold_sec: 86_400,
-    //         permanent_debt_allowed_gwei: 10_000_000,
-    //         unban_below_gwei: 10_000_000,
-    //     }
-    // }
-
     #[test]
     fn payable_generated_before_maturity_time_limit_is_marked_unqualified() {
         let now = SystemTime::now();
