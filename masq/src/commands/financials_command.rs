@@ -23,7 +23,7 @@ use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::mem;
 use std::num::{IntErrorKind, ParseIntError};
-use std::ops::{Add, Div, Mul};
+use std::ops::{Div, Mul};
 use std::str::FromStr;
 use thousands::Separable;
 
@@ -558,14 +558,14 @@ impl FinancialsCommand {
 
     fn title_for_custom_query(
         stdout: &mut dyn Write,
-        distinguished: &str,
+        table_type: &str,
         user_written_ranges: &UsersOriginalLiteralRanges,
     ) {
         let (age_range, balance_range) = Self::correct_users_writing_if_needed(user_written_ranges);
         short_writeln!(
             stdout,
             "Specific {} query: {} sec {} MASQ\n",
-            distinguished,
+            table_type,
             age_range,
             balance_range
         )
@@ -585,31 +585,20 @@ impl FinancialsCommand {
             ]
         }
         fn assemble_segments_into_single_number(strings: [Option<String>; 3]) -> String {
-            strings.into_iter().fold(String::new(), |acc, current| {
-                if let Some(piece) = current {
-                    acc.add(&piece)
-                } else {
-                    acc
-                }
-            })
+            strings.into_iter().flat_map(|str_opt| str_opt).collect()
         }
         fn compose_ranges(mut numbers: VecDeque<String>) -> (String, String) {
-            fn resolve_upper_bound(val: String) -> String {
-                if val.is_empty() {
-                    "UNLIMITED".to_string()
-                } else {
-                    val
-                }
-            }
+            if numbers.get(3).expectv("fourth element").is_empty() {
+                let _ = mem::replace(
+                    numbers.iter_mut().last().expect("fourth element"),
+                    "UNLIMITED".to_string(),
+                );
+            };
             let mut pop = |param: &str| numbers.pop_front().expectv(param);
-
+            let mut str_range = |tuple: (&str, &str)| format!("{}-{}", pop(tuple.0), pop(tuple.1));
             (
-                format!("{}-{}", pop("age min"), pop("age max")),
-                format!(
-                    "{}-{}",
-                    pop("balance min"),
-                    resolve_upper_bound(pop("balance max"))
-                ),
+                str_range(("age min", "age max")),
+                str_range(("balance min", "balance max")),
             )
         }
 
@@ -702,11 +691,6 @@ impl FinancialsCommand {
         captures.get(idx).map(|catch| catch.as_str().to_owned())
     }
 
-    fn regex_of_range_of_masq_values() -> Regex {
-        Regex::new("(^(-?\\d+\\.?\\d*)\\s*-\\s*(-?\\d+\\.?\\d*))|(^-?\\d+\\.?\\d*)$")
-            .expect("wrong regex")
-    }
-
     fn extract_individual_masq_values(
         masq_range_str: &str,
         masq_values_range_regex: Regex,
@@ -715,14 +699,13 @@ impl FinancialsCommand {
             let fetch_group = |idx: usize| FinancialsCommand::single_capture(&captures, idx);
             match (fetch_group(2), fetch_group(3)) {
                 (Some(second), Some(third)) => (Some(second), Some(third)),
-                (None, None) => (
-                    Some(fetch_group(4).expect("the regex is wrong if it allows this panic")),
-                    None,
-                ),
-                (first, second) => unreachable!(
-                    "the regex was designed not to allow this: {:?}, {:?}",
-                    first, second
-                ),
+                (None, None) => {
+                    let four = fetch_group(4).expect("the regex is wrong if it allows this panic");
+                    (Some(four), None)
+                }
+                (x, y) => {
+                    unreachable!("the regex was designed not to allow this: {:?}, {:?}", x, y)
+                }
             }
         }
 
@@ -736,28 +719,29 @@ impl FinancialsCommand {
         }
     }
 
-    pub fn parse_masq_range_to_gwei<N>(range_str: &str) -> Result<(N, N, String, String), String>
+    pub fn parse_masq_range_to_gwei<N>(range: &str) -> Result<(N, N, String, String), String>
     where
         N: FromStr<Err = ParseIntError> + TryFrom<i64> + Mul<Output = N> + CheckedMul + Display,
         <N as TryFrom<i64>>::Error: Debug,
     {
-        let (first, second_opt) =
-            Self::extract_individual_masq_values(range_str, Self::regex_of_range_of_masq_values())?;
-        let first_as_num = Self::process_optionally_fragmentary_number(&first)?;
-        let second_as_num = if let Some(second) = second_opt.as_ref() {
-            Self::process_optionally_fragmentary_number(second)?
+        let regex = Regex::new("(^(-?\\d+\\.?\\d*)\\s*-\\s*(-?\\d+\\.?\\d*))|(^-?\\d+\\.?\\d*)$")
+            .expect("wrong regex");
+        let (first, second_opt) = Self::extract_individual_masq_values(range, regex)?;
+        let first_numeral = Self::process_optionally_fractional_number(&first)?;
+        let second_numeral = if let Some(second) = second_opt.as_ref() {
+            Self::process_optionally_fractional_number(second)?
         } else {
-            N::try_from(i64::MAX).expect("must be within limits")
+            N::try_from(i64::MAX).expect("must fit in between limits")
         };
         Ok((
-            first_as_num,
-            second_as_num,
+            first_numeral,
+            second_numeral,
             first,
             second_opt.unwrap_or_default(), //None signifies unlimited bounds
         ))
     }
 
-    fn process_optionally_fragmentary_number<N>(num: &str) -> Result<N, String>
+    fn process_optionally_fractional_number<N>(num: &str) -> Result<N, String>
     where
         N: FromStr<Err = ParseIntError> + TryFrom<i64> + CheckedMul + Display,
         <N as TryFrom<i64>>::Error: Debug,
@@ -765,17 +749,14 @@ impl FinancialsCommand {
         fn decimal_digits_count(num: &str, dot_idx: usize) -> usize {
             num.chars().count() - dot_idx - 1
         }
-        let final_unit_conversion = |parse_result: N, pow_factor: u32| {
-            if let Some(int) =
-                parse_result.checked_mul(&N::try_from(10_i64.pow(pow_factor)).expect("no fear"))
-            {
-                Ok(int)
-            } else {
-                Err(format!("Attempt with too big amount of MASQ: {}", num))
-            }
-        };
 
-        if let Some(dot_idx) = num.chars().position(|char| char == '.') {
+        let final_unit_conversion = |parse_result: N, pow_factor: u32| {
+            parse_result
+                .checked_mul(&N::try_from(10_i64.pow(pow_factor)).expect("no fear"))
+                .ok_or_else(|| format!("MASQ amount is excessively large: {}", num))
+        };
+        let dot_opt = num.chars().position(|char| char == '.');
+        if let Some(dot_idx) = dot_opt {
             Self::pre_parsing_check(num, dot_idx)?;
             let naked_digits = &num.chars().filter(|char| *char != '.').collect::<String>();
             let root_parsed: N = Self::parse_integer(naked_digits)?;
@@ -796,6 +777,8 @@ impl FinancialsCommand {
         }
     }
 }
+
+trait BoundX: FromStr<Err = ParseIntError> + TryFrom<i64> + CheckedMul + Display {}
 
 struct HeadingsHolder {
     words: Vec<String>,
@@ -835,7 +818,7 @@ impl StringValuesOfAccount for UiReceivableAccount {
 
 pub fn validate_two_ranges<N>(double: String) -> Result<(), String>
 where
-    N: FromStr<Err = ParseIntError> + TryFrom<i64> + PartialOrd + Display + CheckedMul,
+    N: FromStr<Err = ParseIntError> + TryFrom<i64> + Display + CheckedMul + PartialOrd,
     <N as TryFrom<i64>>::Error: Debug,
 {
     fn checked_division<'a>(
@@ -1022,7 +1005,7 @@ mod tests {
             x => panic!("we expected CommandSyntax error but got: {:?}", x),
         };
 
-        assert!(err_message.contains("Attempt with too big amount of MASQ: 15800000800045"))
+        assert!(err_message.contains("MASQ amount is excessively large: 15800000800045"))
     }
 
     #[test]
@@ -1040,7 +1023,7 @@ mod tests {
             x => panic!("we expected CommandSyntax error but got: {:?}", x),
         };
 
-        assert!(err_message.contains("Attempt with too big amount of MASQ: 480045454455.00"))
+        assert!(err_message.contains("MASQ amount is excessively large: 480045454455.00"))
     }
 
     #[test]
@@ -2649,7 +2632,7 @@ mod tests {
 
     #[test]
     fn process_optionally_fragmentary_number_dislikes_dot_as_the_last_char() {
-        let result = FinancialsCommand::process_optionally_fragmentary_number::<i64>("4556.");
+        let result = FinancialsCommand::process_optionally_fractional_number::<i64>("4556.");
 
         assert_eq!(
             result,
@@ -2659,7 +2642,7 @@ mod tests {
 
     #[test]
     fn process_optionally_fragmentary_number_dislikes_more_than_one_dot() {
-        let result = FinancialsCommand::process_optionally_fragmentary_number::<i64>("45.056.000");
+        let result = FinancialsCommand::process_optionally_fractional_number::<i64>("45.056.000");
 
         assert_eq!(
             result,
