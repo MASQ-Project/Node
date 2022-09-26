@@ -420,6 +420,18 @@ impl FinancialsCommand {
         )
     }
 
+    fn process_gwei_into_right_format<T>(gwei: T, should_stay_gwei: bool) -> String
+        where
+            T: Separable + Div<Output = T> + Display + PartialEq + PartialOrd + From<u32>,
+            <T as Div>::Output: PartialOrd<T> + Display,
+    {
+        if should_stay_gwei {
+            gwei.separate_with_commas()
+        } else {
+            Self::convert_masq_from_gwei_and_dress_well(gwei)
+        }
+    }
+
     fn convert_masq_from_gwei_and_dress_well<T>(gwei: T) -> String
     where
         T: Display + PartialEq + From<u32> + Div<Output = T> + PartialOrd<T>,
@@ -461,18 +473,6 @@ impl FinancialsCommand {
         Right((affected_part, is_positive))
     }
 
-    fn process_gwei_into_right_format<T>(gwei: T, should_stay_gwei: bool) -> String
-    where
-        T: Separable + Div<Output = T> + Display + PartialEq + PartialOrd + From<u32>,
-        <T as Div>::Output: PartialOrd<T> + Display,
-    {
-        if should_stay_gwei {
-            gwei.separate_with_commas()
-        } else {
-            Self::convert_masq_from_gwei_and_dress_well(gwei)
-        }
-    }
-
     fn financial_status_totals_title(stdout: &mut dyn Write, gwei: bool) {
         short_writeln!(
             stdout,
@@ -489,71 +489,6 @@ impl FinancialsCommand {
             requested_count.count,
             account_type
         )
-    }
-
-    fn width_precise_calculation(
-        headings: &HeadingsHolder,
-        values_of_accounts: &[Vec<String>],
-    ) -> Vec<usize> {
-        let headings_widths = Self::widths_of_str_values(headings.words.as_slice());
-        let values_widths = Self::figure_out_max_widths(values_of_accounts);
-        Self::yield_bigger_values_from_vecs(headings_widths, &values_widths)
-    }
-
-    fn widths_of_str_values<T: AsRef<str>>(headings: &[T]) -> Vec<usize> {
-        headings
-            .iter()
-            .map(|phrase| phrase.as_ref().len())
-            .collect()
-    }
-
-    fn render_accounts_generic<A: StringValuesOfAccount>(
-        &self,
-        stdout: &mut dyn Write,
-        accounts: Vec<A>,
-        headings: &HeadingsHolder,
-    ) {
-        let preformatted_subset = &accounts
-            .iter()
-            .enumerate()
-            .map(|(idx, account)| account.into_string_values(idx + 1, headings.is_gwei))
-            .collect::<Vec<_>>();
-        let optimal_widths = Self::width_precise_calculation(headings, &preformatted_subset);
-        let zipped_inputs = &Self::zip_them(headings.words.as_slice(), &optimal_widths);
-        Self::write_column_formatted(stdout, zipped_inputs);
-        preformatted_subset.iter().for_each(|account| {
-            let zipped_inputs = Self::zip_them(account, &optimal_widths);
-            Self::write_column_formatted(stdout, &zipped_inputs);
-        });
-    }
-
-    fn zip_them<'a>(
-        words: &'a [String],
-        optimized_widths: &'a [usize],
-    ) -> Vec<(&'a String, &'a usize)> {
-        words.iter().zip(optimized_widths.iter()).collect()
-    }
-
-    fn write_column_formatted(
-        stdout: &mut dyn Write,
-        preprocessed_segmented_account_values: &[(&String, &usize)],
-    ) {
-        let column_count = preprocessed_segmented_account_values.len();
-        preprocessed_segmented_account_values
-            .iter()
-            .enumerate()
-            .for_each(|(idx, (value, opt_width))| {
-                write!(
-                    stdout,
-                    "{:<width$}{:gap$}",
-                    value,
-                    "",
-                    width = opt_width,
-                    gap = if idx + 1 == column_count { 0 } else { 3 }
-                )
-                .expect("write failed")
-            });
-        short_writeln!(stdout, "")
     }
 
     fn title_for_custom_query(
@@ -623,10 +558,18 @@ impl FinancialsCommand {
                 apply_care(amount_max)
             },
         ]
-        .into_iter()
-        .map(assemble_segments_into_single_number)
-        .collect::<VecDeque<String>>();
+            .into_iter()
+            .map(assemble_segments_into_single_number)
+            .collect::<VecDeque<String>>();
         compose_ranges(vec_of_correct_values)
+    }
+
+    fn triple_or_single_blank_line(stdout: &mut dyn Write, leading_dump: bool) {
+        if leading_dump {
+            short_writeln!(stdout)
+        } else {
+            short_writeln!(stdout, "\n\n")
+        }
     }
 
     fn no_records_found(stdout: &mut dyn Write, headings: &[String]) {
@@ -634,6 +577,71 @@ impl FinancialsCommand {
         let _ = mem::replace(&mut headings_widths[1], WALLET_ADDRESS_LENGTH);
         Self::write_column_formatted(stdout, &Self::zip_them(headings, &headings_widths));
         short_writeln!(stdout, "\nNo records found",)
+    }
+
+    fn width_precise_calculation(
+        headings: &HeadingsHolder,
+        values_of_accounts: &[Vec<String>],
+    ) -> Vec<usize> {
+        let headings_widths = Self::widths_of_str_values(headings.words.as_slice());
+        let values_widths = Self::figure_out_max_widths(values_of_accounts);
+        Self::yield_bigger_values_from_vecs(headings_widths, &values_widths)
+    }
+
+    fn widths_of_str_values<T: AsRef<str>>(headings: &[T]) -> Vec<usize> {
+        headings
+            .iter()
+            .map(|phrase| phrase.as_ref().len())
+            .collect()
+    }
+
+    fn render_accounts_generic<A: StringValuesOfAccount>(
+        &self,
+        stdout: &mut dyn Write,
+        accounts: Vec<A>,
+        headings: &HeadingsHolder,
+    ) {
+        let preformatted_subset = &accounts
+            .iter()
+            .enumerate()
+            .map(|(idx, account)| account.into_string_values(idx + 1, headings.is_gwei))
+            .collect::<Vec<_>>();
+        let optimal_widths = Self::width_precise_calculation(headings, &preformatted_subset);
+        let zipped_inputs = &Self::zip_them(headings.words.as_slice(), &optimal_widths);
+        Self::write_column_formatted(stdout, zipped_inputs);
+        preformatted_subset.iter().for_each(|account| {
+            let zipped_inputs = Self::zip_them(account, &optimal_widths);
+            Self::write_column_formatted(stdout, &zipped_inputs);
+        });
+    }
+
+    fn zip_them<'a>(
+        words: &'a [String],
+        optimized_widths: &'a [usize],
+    ) -> Vec<(&'a String, &'a usize)> {
+        words.iter().zip(optimized_widths.iter()).collect()
+    }
+
+    fn write_column_formatted(
+        stdout: &mut dyn Write,
+        preprocessed_segmented_account_values: &[(&String, &usize)],
+    ) {
+        let column_count = preprocessed_segmented_account_values.len();
+        preprocessed_segmented_account_values
+            .iter()
+            .enumerate()
+            .for_each(|(idx, (value, opt_width))| {
+                write!(
+                    stdout,
+                    "{:<width$}{:gap$}",
+                    value,
+                    "",
+                    width = opt_width,
+                    gap = if idx + 1 == column_count { 0 } else { 3 }
+                )
+                .expect("write failed")
+            });
+        short_writeln!(stdout, "")
     }
 
     fn figure_out_max_widths(values_of_accounts: &[Vec<String>]) -> Vec<usize> {
@@ -657,14 +665,6 @@ impl FinancialsCommand {
             acc.push(first[idx].max(second[idx]));
             acc
         })
-    }
-
-    fn triple_or_single_blank_line(stdout: &mut dyn Write, leading_dump: bool) {
-        if leading_dump {
-            short_writeln!(stdout)
-        } else {
-            short_writeln!(stdout, "\n\n")
-        }
     }
 
     fn parse_integer<N: FromStr<Err = ParseIntError>>(str_num: &str) -> Result<N, String> {
