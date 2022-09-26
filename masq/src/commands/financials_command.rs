@@ -13,7 +13,7 @@ use masq_lib::messages::{
 };
 use masq_lib::shared_schema::common_validators::validate_non_zero_u16;
 use masq_lib::short_writeln;
-use masq_lib::utils::{plus, ExpectValue};
+use masq_lib::utils::ExpectValue;
 use num::CheckedMul;
 use regex::{Captures, Regex};
 use std::cell::RefCell;
@@ -21,6 +21,7 @@ use std::collections::VecDeque;
 use std::default::Default;
 use std::fmt::{Debug, Display};
 use std::io::Write;
+use std::mem;
 use std::num::{IntErrorKind, ParseIntError};
 use std::ops::{Add, Div, Mul};
 use std::str::FromStr;
@@ -181,43 +182,23 @@ macro_rules! dump_statistics_lines {
 }
 
 macro_rules! process_records_after_their_flight_home {
-    ($self:expr, $account_type: literal, $headings: expr, $user_range_format: ident, $query_results_opt: expr,
-    $write_headings_fn: ident, $render_single_account_fn: ident, $stdout: expr) => {
+    ($self:expr, $account_type: literal, $headings: expr, $user_range_format: ident,
+     $query_results_opt: expr, $stdout: expr) => {
         if $self.top_records_opt.is_some() {
             $self.title_for_tops($stdout, $account_type);
             let records = $query_results_opt.expectv($account_type);
             if !records.is_empty() {
-                $self.render_accounts_generic(
-                    $stdout,
-                    records,
-                    &$headings,
-                    Self::$write_headings_fn,
-                    Self::$render_single_account_fn,
-                );
+                $self.render_accounts_generic($stdout, records, &$headings);
             } else {
-                Self::no_records_found(
-                    $stdout,
-                    $headings.words.as_slice(),
-                    Self::$write_headings_fn,
-                )
+                Self::no_records_found($stdout, $headings.words.as_slice())
             }
         } else if let Some(custom_queries) = $self.custom_queries_opt.as_ref() {
             if let Some(user_range_format) = custom_queries.$user_range_format.as_ref() {
                 Self::title_for_custom_query($stdout, $account_type, user_range_format);
                 if let Some(accounts) = $query_results_opt {
-                    $self.render_accounts_generic(
-                        $stdout,
-                        accounts,
-                        &$headings,
-                        Self::$write_headings_fn,
-                        Self::$render_single_account_fn,
-                    )
+                    $self.render_accounts_generic($stdout, accounts, &$headings)
                 } else {
-                    Self::no_records_found(
-                        $stdout,
-                        $headings.words.as_slice(),
-                        Self::$write_headings_fn,
-                    )
+                    Self::no_records_found($stdout, $headings.words.as_slice())
                 }
             }
         };
@@ -332,8 +313,6 @@ impl FinancialsCommand {
             payable_headings,
             users_payable_format_opt,
             returned_records.payable_opt,
-            write_payable_headings,
-            render_single_payable,
             stdout
         );
         if two_dumps {
@@ -345,8 +324,6 @@ impl FinancialsCommand {
             receivable_headings,
             users_receivable_format_opt,
             returned_records.receivable_opt,
-            write_receivable_headings,
-            render_single_receivable,
             stdout
         );
     }
@@ -427,14 +404,17 @@ impl FinancialsCommand {
     }
 
     fn prepare_headings_of_records(is_gwei: bool) -> (HeadingsHolder, HeadingsHolder) {
+        fn to_owned_strings(words: Vec<&str>) -> Vec<String> {
+            words.iter().map(|str| str.to_string()).collect()
+        }
         let balance = Self::gwei_or_masq_balance(is_gwei);
         (
             HeadingsHolder {
-                words: vec!["#", "Wallet", "Age [s]", balance, "Pending tx"],
+                words: to_owned_strings(vec!["#", "Wallet", "Age [s]", balance, "Pending tx"]),
                 is_gwei,
             },
             HeadingsHolder {
-                words: vec!["#", "Wallet", "Age [s]", balance],
+                words: to_owned_strings(vec!["#", "Wallet", "Age [s]", balance]),
                 is_gwei,
             },
         )
@@ -517,7 +497,7 @@ impl FinancialsCommand {
     ) -> Vec<usize> {
         let headings_widths = Self::widths_of_str_values(headings.words.as_slice());
         let values_widths = Self::figure_out_max_widths(values_of_accounts);
-        Self::yield_bigger_values_from_vecs(headings_widths, values_widths)
+        Self::yield_bigger_values_from_vecs(headings_widths, &values_widths)
     }
 
     fn widths_of_str_values<T: AsRef<str>>(headings: &[T]) -> Vec<usize> {
@@ -532,112 +512,48 @@ impl FinancialsCommand {
         stdout: &mut dyn Write,
         accounts: Vec<A>,
         headings: &HeadingsHolder,
-        render_headings_fn: fn(&mut dyn Write, &[(&str, &usize)]),
-        render_account_fn: fn(&mut dyn Write, &[String], &[usize], usize),
     ) {
         let preformatted_subset = &accounts
             .iter()
-            .map(|account| account.string_values(headings.is_gwei))
+            .enumerate()
+            .map(|(idx, account)| account.into_string_values(idx + 1, headings.is_gwei))
             .collect::<Vec<_>>();
         let optimal_widths = Self::width_precise_calculation(headings, &preformatted_subset);
         let zipped_inputs = &Self::zip_them(headings.words.as_slice(), &optimal_widths);
-        render_headings_fn(stdout, zipped_inputs);
-        let mut ordinal_number = 0_usize;
+        Self::write_column_formatted(stdout, zipped_inputs);
         preformatted_subset.iter().for_each(|account| {
-            ordinal_number += 1;
-            render_account_fn(stdout, account, &optimal_widths, ordinal_number)
+            let zipped_inputs = Self::zip_them(account, &optimal_widths);
+            Self::write_column_formatted(stdout, &zipped_inputs);
         });
     }
 
-    fn write_payable_headings(stdout: &mut dyn Write, h_and_w: &[(&str, &usize)]) {
-        short_writeln!(
-            stdout,
-            "{:<ordinal_num_width$}   {:<wallet_width$}   {:<age_width$}   {:<balance_width$}   {:<hash_width$}",
-            h_and_w[0].0,
-            h_and_w[1].0,
-            h_and_w[2].0,
-            h_and_w[3].0,
-            h_and_w[4].0,
-            ordinal_num_width = h_and_w[0].1,
-            wallet_width = WALLET_ADDRESS_LENGTH,
-            age_width = h_and_w[2].1,
-            balance_width = h_and_w[3].1,
-            hash_width = h_and_w[4].1
-        )
-    }
-
     fn zip_them<'a>(
-        words: &'a [&'a str],
+        words: &'a [String],
         optimized_widths: &'a [usize],
-    ) -> Vec<(&'a str, &'a usize)> {
-        words.iter().copied().zip(optimized_widths.iter()).collect()
-    }
-
-    fn render_single_payable(
-        stdout: &mut dyn Write,
-        preprocessed_values: &[String],
-        optimal_widths: &[usize],
-        ordinal_num: usize,
-    ) {
-        short_writeln!(
-            stdout,
-            "{:<ordinal_num_width$}   {:wallet_width$}   {:<age_width$}   {:<balance_width$}   {:<hash_width$}",
-            ordinal_num,
-            preprocessed_values[0],
-            preprocessed_values[1],
-            preprocessed_values[2],
-            preprocessed_values[3],
-            ordinal_num_width = optimal_widths[0],
-            wallet_width = WALLET_ADDRESS_LENGTH,
-            age_width = optimal_widths[2],
-            balance_width = optimal_widths[3],
-            hash_width = optimal_widths[4]
-        )
+    ) -> Vec<(&'a String, &'a usize)> {
+        words.iter().zip(optimized_widths.iter()).collect()
     }
 
     fn write_column_formatted(
         stdout: &mut dyn Write,
-        preprocessed_segmented_account_values: &[(&String,&usize)],
-        value_ordinal_number_position: &dyn Display
-    ){
-        write!(stdout,"{}",value_ordinal_number_position).expect("write failed");
-        preprocessed_segmented_account_values.iter().for_each(|(value,opt_width)|write!(stdout, "{:<width$}", value,width = opt_width).expect("write failed"));
-        short_writeln!(stdout, "")
-    }
-
-    fn write_receivable_headings(stdout: &mut dyn Write, h_and_w: &[(&str, &usize)]) {
-        short_writeln!(
-            stdout,
-            "{:<ordinal_num_width$}   {:wallet_width$}   {:<age_width$}   {:<balance_width$}",
-            h_and_w[0].0,
-            h_and_w[1].0,
-            h_and_w[2].0,
-            h_and_w[3].0,
-            ordinal_num_width = h_and_w[0].1,
-            wallet_width = WALLET_ADDRESS_LENGTH,
-            age_width = h_and_w[2].1,
-            balance_width = h_and_w[3].1,
-        );
-    }
-
-    fn render_single_receivable(
-        stdout: &mut dyn Write,
-        preprocessed_values: &[String],
-        optimal_widths: &[usize],
-        ordinal_number: usize,
+        preprocessed_segmented_account_values: &[(&String, &usize)],
     ) {
-        short_writeln!(
-            stdout,
-            "{:<ordinal_num_width$}   {:wallet_width$}   {:<age_width$}   {:<balance_width$}",
-            ordinal_number,
-            preprocessed_values[0],
-            preprocessed_values[1],
-            preprocessed_values[2],
-            ordinal_num_width = optimal_widths[0],
-            wallet_width = WALLET_ADDRESS_LENGTH,
-            age_width = optimal_widths[2],
-            balance_width = optimal_widths[3],
-        )
+        let column_count = preprocessed_segmented_account_values.len();
+        preprocessed_segmented_account_values
+            .iter()
+            .enumerate()
+            .for_each(|(idx, (value, opt_width))| {
+                write!(
+                    stdout,
+                    "{:<width$}{:gap$}",
+                    value,
+                    "",
+                    width = opt_width,
+                    gap = if idx + 1 == column_count { 0 } else { 3 }
+                )
+                .expect("write failed")
+            });
+        short_writeln!(stdout, "")
     }
 
     fn title_for_custom_query(
@@ -659,14 +575,16 @@ impl FinancialsCommand {
         user_ranges: &UsersOriginalLiteralRanges,
     ) -> (String, String) {
         fn handle_captures(captures: Captures) -> [Option<String>; 3] {
-            let fetch_group = |idx: usize| FinancialsCommand::single_capture(&captures, idx);
+            let fetch_group = |idx: usize| -> Option<String> {
+                FinancialsCommand::single_capture(&captures, idx)
+            };
             [
                 fetch_group(1),
                 fetch_group(2),
                 fetch_group(5).or_else(|| fetch_group(3)),
             ]
         }
-        fn assemble_optional_strings_into_single_number(strings: [Option<String>; 3]) -> String {
+        fn assemble_segments_into_single_number(strings: [Option<String>; 3]) -> String {
             strings.into_iter().fold(String::new(), |acc, current| {
                 if let Some(piece) = current {
                     acc.add(&piece)
@@ -717,39 +635,39 @@ impl FinancialsCommand {
             },
         ]
         .into_iter()
-        .map(assemble_optional_strings_into_single_number)
+        .map(assemble_segments_into_single_number)
         .collect::<VecDeque<String>>();
         compose_ranges(vec_of_correct_values)
     }
 
-    fn no_records_found<F>(stdout: &mut dyn Write, headings: &[&str], write_headings: F)
-    where
-        F: Fn(&mut dyn Write, &[(&str, &usize)]),
-    {
-        let headings_widths = Self::widths_of_str_values(headings);
-        write_headings(stdout, &Self::zip_them(headings, &headings_widths));
+    fn no_records_found(stdout: &mut dyn Write, headings: &[String]) {
+        let mut headings_widths = Self::widths_of_str_values(headings);
+        let _ = mem::replace(&mut headings_widths[1], WALLET_ADDRESS_LENGTH);
+        Self::write_column_formatted(stdout, &Self::zip_them(headings, &headings_widths));
         short_writeln!(stdout, "\nNo records found",)
     }
 
     fn figure_out_max_widths(values_of_accounts: &[Vec<String>]) -> Vec<usize> {
         //two-dimensional set of strings; measuring their lengths and saving the largest value for each column
-        let init = vec![0_usize; values_of_accounts[0].len()];
+        //the first value (ordinal number) and the second (wallet) are processed specifically, in shortcut
+        let init = vec![0_usize; values_of_accounts[0].len() - 2];
         let widths_except_ordinal_num = values_of_accounts.iter().fold(init, |acc, record| {
-            Self::yield_bigger_values_from_vecs(
-                acc,
-                Self::widths_of_str_values(record),
-            )
+            Self::yield_bigger_values_from_vecs(acc, &Self::widths_of_str_values(record)[2..])
         });
-        let mut result = vec![(values_of_accounts.len() as f64).log10() as usize + 1];
+        let mut result = vec![
+            (values_of_accounts.len() as f64).log10() as usize + 1,
+            WALLET_ADDRESS_LENGTH,
+        ];
         result.extend(widths_except_ordinal_num);
         result
     }
 
-    fn yield_bigger_values_from_vecs(
-        first: Vec<usize>,
-        second: Vec<usize>,
-    ) -> Vec<usize> {
-        (0..first.len()).fold(vec![], |acc, idx| plus(acc, first[idx].max(second[idx])))
+    fn yield_bigger_values_from_vecs(first: Vec<usize>, second: &[usize]) -> Vec<usize> {
+        //starting position works to order skipping n first elements
+        (0..first.len()).fold(vec![], |mut acc, idx| {
+            acc.push(first[idx].max(second[idx]));
+            acc
+        })
     }
 
     fn triple_or_single_blank_line(stdout: &mut dyn Write, leading_dump: bool) {
@@ -880,17 +798,18 @@ impl FinancialsCommand {
 }
 
 struct HeadingsHolder {
-    words: Vec<&'static str>,
+    words: Vec<String>,
     is_gwei: bool,
 }
 
 trait StringValuesOfAccount {
-    fn string_values(&self, gwei: bool) -> Vec<String>;
+    fn into_string_values(&self, ordinal_num: usize, gwei: bool) -> Vec<String>;
 }
 
 impl StringValuesOfAccount for UiPayableAccount {
-    fn string_values(&self, gwei: bool) -> Vec<String> {
+    fn into_string_values(&self, ordinal_num: usize, gwei: bool) -> Vec<String> {
         vec![
+            ordinal_num.to_string(),
             self.wallet.to_string(),
             self.age_s.separate_with_commas(),
             FinancialsCommand::process_gwei_into_right_format(self.balance_gwei, gwei),
@@ -904,8 +823,9 @@ impl StringValuesOfAccount for UiPayableAccount {
 }
 
 impl StringValuesOfAccount for UiReceivableAccount {
-    fn string_values(&self, gwei: bool) -> Vec<String> {
+    fn into_string_values(&self, ordinal_num: usize, gwei: bool) -> Vec<String> {
         vec![
+            ordinal_num.to_string(),
             self.wallet.to_string(),
             self.age_s.separate_with_commas(),
             FinancialsCommand::process_gwei_into_right_format(self.balance_gwei, gwei),
@@ -1538,8 +1458,13 @@ mod tests {
     }
 
     impl StringValuesOfAccount for TestAccount {
-        fn string_values(&self, _gwei: bool) -> Vec<String> {
-            vec![self.a.to_string(), self.b.to_string(), self.c.to_string()]
+        fn into_string_values(&self, ordinal_num: usize, _gwei: bool) -> Vec<String> {
+            vec![
+                ordinal_num.to_string(),
+                self.a.to_string(),
+                self.b.to_string(),
+                self.c.to_string(),
+            ]
         }
     }
 
@@ -1573,13 +1498,15 @@ mod tests {
         ]);
         let preformatted_subset = &vec_of_accounts
             .iter()
-            .map(|account| account.string_values(false))
+            .enumerate()
+            .map(|(idx, account)| account.into_string_values(idx, false))
             .collect::<Vec<_>>();
 
         let result = FinancialsCommand::figure_out_max_widths(&preformatted_subset);
 
         //the first number means number of digits within the biggest ordinal number
-        assert_eq!(result, vec![3, 8, 5, 10])
+        //the second number is always 42 as the length of wallet address
+        assert_eq!(result, vec![3, 42, 5, 10])
     }
 
     fn transpose_inputs_to_nested_tuples(
