@@ -12,7 +12,9 @@ use masq_lib::constants::SCAN_ERROR;
 use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 
-use crate::accountant::payable_dao::{PendingPayable, PayableAccount, PayableDaoError, PayableDaoFactory};
+use crate::accountant::payable_dao::{
+    PayableAccount, PayableDaoError, PayableDaoFactory, PendingPayable,
+};
 use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
 use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDaoError, ReceivableDaoFactory,

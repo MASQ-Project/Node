@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_dao::{PendingPayable, PayableAccount};
+use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
 use crate::accountant::{
     ReceivedPayments, ResponseSkeleton, ScanError, SentPayable, SkeletonOptHolder,
 };
@@ -35,7 +35,7 @@ use masq_lib::utils::plus;
 use std::convert::TryFrom;
 use std::path::PathBuf;
 use std::time::SystemTime;
-use web3::transports::{Batch, Http};
+use web3::transports::Http;
 use web3::types::{TransactionReceipt, H256};
 use web3::Transport;
 
@@ -389,19 +389,26 @@ impl BlockchainBridge {
     ) -> Vec<BlockchainResult<PendingPayable>> {
         //todo change to use of a question mark
         let executable_payments = match self.check_our_capability_to_pay(&creditors_msg.accounts) {
-            Ok(ok) => todo!(),
+            Ok(ok) => {
+                todo!()
+                //check if this amount of accounts is the same as the original...if not, at least log it
+            }
             Err(e) => todo!(),
         };
         //todo change to use of a question mark
-        let last_nonce = self.blockchain_interface.get_transaction_count()
-        let batch = match self
+        let last_nonce = match self
             .blockchain_interface
-            .prepare_requests(executable_payments)
+            .get_transaction_count(consuming_wallet)
         {
-            Ok(ok) => todo!(),
-            Err(e) => todo!(),
+            Ok(nonce) => todo!(),
+            Err(er) => todo!(),
         };
-        match self.blockchain_interface.send_batch_transaction(batch) {
+        match self.blockchain_interface.send_batched_payments(
+            consuming_wallet,
+            gas_price,
+            last_nonce,
+            executable_payments,
+        ) {
             Ok(res) => todo!(),
             Err(e) => todo!(),
         }

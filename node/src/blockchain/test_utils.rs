@@ -5,7 +5,7 @@
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::{
     Balance, BlockchainError, BlockchainInterface, BlockchainResult, BlockchainTransactionError,
-    Nonce, Receipt, SendTransactionInputs, REQUESTS_IN_PARALLEL,
+    Nonce, PendingPayableFallible, Receipt, SendTransactionInputs, REQUESTS_IN_PARALLEL,
 };
 use crate::blockchain::tool_wrappers::SendTransactionToolsWrapper;
 use crate::sub_lib::wallet::Wallet;
@@ -16,14 +16,13 @@ use jsonrpc_core as rpc;
 use jsonrpc_core::Call;
 use lazy_static::lazy_static;
 use std::cell::RefCell;
-use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
-use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
-use web3::transports::{Batch, EventLoopHandle, Http};
+use crate::accountant::payable_dao::PayableAccount;
+use web3::transports::{EventLoopHandle, Http};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::{BatchTransport, Error as Web3Error};
 use web3::{RequestId, Transport};
@@ -154,18 +153,13 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.retrieve_transactions_results.borrow_mut().remove(0)
     }
 
-    fn prepare_requests(
+    fn send_batched_payments(
         &self,
-        last_transaction_nonce: U256,
-        payments_to_be_paid: Vec<PayableAccount>,
-    )-> Result<Vec<(RequestId, Call)>, BlockchainTransactionError>{
-        todo!()
-    }
-
-    fn send_batch_transaction(
-        &self,
-        signed_individual_transactions: Vec<(RequestId, Call)>
-    ) -> Result<Vec<PendingPayable>, BlockchainTransactionError> {
+        consuming_wallet: &Wallet,
+        gas_price: u64,
+        last_nonce: U256,
+        accounts: Vec<PayableAccount>,
+    ) -> Result<(SystemTime, Vec<PendingPayableFallible>), BlockchainTransactionError> {
         todo!()
     }
 
@@ -216,9 +210,10 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 pub struct TestTransport {
     asserted: usize,
     prepare_params: Rc<RefCell<Vec<(String, Vec<rpc::Value>)>>>,
+    send_params: Rc<RefCell<Vec<(RequestId, Call)>>>,
     send_batch_params: Rc<RefCell<Vec<Vec<(RequestId, Call)>>>>,
     discrete_rpc_responses: Rc<RefCell<Vec<rpc::Value>>>,
-    batch_rpc_responses: Rc<RefCell<Vec<Vec<Result<rpc::Value, web3::Error>>>>>
+    batch_rpc_responses: Rc<RefCell<Vec<Vec<Result<rpc::Value, web3::Error>>>>>,
 }
 
 impl Transport for TestTransport {
@@ -268,8 +263,10 @@ impl TestTransport {
             .push(rpc_call_response);
     }
 
-    pub fn add_batch_response(&mut self, batched_responses: Vec<Result<rpc::Value,web3::Error>>){
-        self.batch_rpc_responses.borrow_mut().push(batched_responses)
+    pub fn add_batch_response(&mut self, batched_responses: Vec<Result<rpc::Value, web3::Error>>) {
+        self.batch_rpc_responses
+            .borrow_mut()
+            .push(batched_responses)
     }
 
     pub fn assert_single_request(&mut self, method: &str, params: &[String]) {
