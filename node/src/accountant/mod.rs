@@ -18,7 +18,7 @@ use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError, P
 use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
 use crate::accountant::receivable_dao::{ReceivableDaoError, ReceivableDaoFactory};
 use crate::accountant::scanners::scanners::{BeginScanError, NotifyLaterForScanners, Scanners};
-use crate::banned_dao::{BannedDao, BannedDaoFactory};
+use crate::banned_dao::BannedDaoFactory;
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
 use crate::bootstrapper::BootstrapperConfig;
@@ -70,7 +70,6 @@ pub struct Accountant {
     payable_dao: Box<dyn PayableDao>,
     receivable_dao: Box<dyn ReceivableDao>,
     pending_payable_dao: Box<dyn PendingPayableDao>,
-    banned_dao: Box<dyn BannedDao>,
     crashable: bool,
     scanners: Scanners,
     notify_later: NotifyLaterForScanners,
@@ -82,7 +81,6 @@ pub struct Accountant {
     report_sent_payments_sub: Option<Recipient<SentPayable>>,
     ui_message_sub: Option<Recipient<NodeToUiMessage>>,
     logger: Logger,
-    payment_thresholds: Rc<PaymentThresholds>,
 }
 
 impl Actor for Accountant {
@@ -417,14 +415,13 @@ impl Accountant {
             payable_dao: payable_dao_factory.make(),
             receivable_dao: receivable_dao_factory.make(),
             pending_payable_dao: pending_payable_dao_factory.make(),
-            banned_dao: banned_dao_factory.make(),
             crashable: config.crash_point == CrashPoint::Message,
             scanners: Scanners::new(
                 payable_dao_factory,
                 pending_payable_dao_factory,
                 receivable_dao_factory.make(),
                 banned_dao_factory.make(),
-                Rc::clone(&payment_thresholds),
+                payment_thresholds,
                 Rc::clone(&earning_wallet),
                 when_pending_too_long_sec,
                 Rc::clone(&financial_statistics),
@@ -438,7 +435,6 @@ impl Accountant {
             report_sent_payments_sub: None,
             ui_message_sub: None,
             logger: Logger::new("Accountant"),
-            payment_thresholds,
         }
     }
 
@@ -932,7 +928,7 @@ mod tests {
             *receivable_dao_factory_params_arc.lock().unwrap(),
             vec![(), ()]
         );
-        assert_eq!(*banned_dao_factory_params_arc.lock().unwrap(), vec![(), ()]);
+        assert_eq!(*banned_dao_factory_params_arc.lock().unwrap(), vec![()]);
     }
 
     #[test]
