@@ -518,9 +518,7 @@ pub mod unshared_test_utils {
     use crate::db_config::config_dao_null::ConfigDaoNull;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::sub_lib::accountant::{
-        PaymentThresholds, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS,
-    };
+    use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals, DEFAULT_SCAN_INTERVALS};
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::sub_lib::utils::{
         NLSpawnHandleHolder, NLSpawnHandleHolderReal, NotifyHandle, NotifyLaterHandle,

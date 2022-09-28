@@ -868,9 +868,9 @@ mod tests {
         BeginScanError, PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner, Scanners,
     };
     use crate::accountant::test_utils::{
-        make_payables, make_pending_payable_fingerprint, make_receivable_account, BannedDaoMock,
-        PayableDaoFactoryMock, PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
-        ReceivableDaoMock,
+        make_custom_payment_thresholds, make_payables, make_pending_payable_fingerprint,
+        make_receivable_account, BannedDaoMock, PayableDaoFactoryMock, PayableDaoMock,
+        PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoMock,
     };
     use crate::accountant::{
         PendingPayableId, PendingTransactionStatus, ReceivedPayments, ReportTransactionReceipts,
@@ -886,7 +886,6 @@ mod tests {
     use crate::database::dao_utils::from_time_t;
     use crate::sub_lib::accountant::{FinancialStatistics, PaymentThresholds};
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-    use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
@@ -1842,96 +1841,5 @@ mod tests {
         TestLogHandler::new().exists_log_matching(
             "INFO: receivable_scanner_handles_received_payments_message: The Receivable scan ended in \\d+ms.",
         );
-    }
-
-    impl Default for PayableScanner {
-        fn default() -> Self {
-            PayableScanner::new(
-                Box::new(PayableDaoMock::new()),
-                Box::new(PendingPayableDaoMock::new()),
-                Rc::new(PaymentThresholds::default()),
-            )
-        }
-    }
-
-    impl PayableScanner {
-        pub fn payable_dao(mut self, payable_dao: PayableDaoMock) -> Self {
-            self.payable_dao = Box::new(payable_dao);
-            self
-        }
-
-        pub fn pending_payable_dao(mut self, pending_payable_dao: PendingPayableDaoMock) -> Self {
-            self.pending_payable_dao = Box::new(pending_payable_dao);
-            self
-        }
-    }
-
-    impl Default for PendingPayableScanner {
-        fn default() -> Self {
-            PendingPayableScanner::new(
-                Box::new(PayableDaoMock::new()),
-                Box::new(PendingPayableDaoMock::new()),
-                Rc::new(PaymentThresholds::default()),
-                DEFAULT_PENDING_TOO_LONG_SEC,
-                Rc::new(RefCell::new(FinancialStatistics::default())),
-            )
-        }
-    }
-
-    impl PendingPayableScanner {
-        pub fn payable_dao(mut self, payable_dao: PayableDaoMock) -> Self {
-            self.payable_dao = Box::new(payable_dao);
-            self
-        }
-
-        pub fn pending_payable_dao(mut self, pending_payable_dao: PendingPayableDaoMock) -> Self {
-            self.pending_payable_dao = Box::new(pending_payable_dao);
-            self
-        }
-    }
-
-    impl Default for ReceivableScanner {
-        fn default() -> Self {
-            ReceivableScanner::new(
-                Box::new(ReceivableDaoMock::new()),
-                Box::new(BannedDaoMock::new()),
-                Rc::new(PaymentThresholds::default()),
-                Rc::new(make_wallet("earning")),
-                Rc::new(RefCell::new(FinancialStatistics::default())),
-            )
-        }
-    }
-
-    impl ReceivableScanner {
-        pub fn receivable_dao(mut self, receivable_dao: ReceivableDaoMock) -> Self {
-            self.receivable_dao = Box::new(receivable_dao);
-            self
-        }
-
-        pub fn banned_dao(mut self, banned_dao: BannedDaoMock) -> Self {
-            self.banned_dao = Box::new(banned_dao);
-            self
-        }
-
-        pub fn payment_thresholds(mut self, payment_thresholds: PaymentThresholds) -> Self {
-            self.common.payment_thresholds = Rc::new(payment_thresholds);
-            self
-        }
-
-        pub fn earning_wallet(mut self, earning_wallet: Wallet) -> Self {
-            self.earning_wallet = Rc::new(earning_wallet);
-            self
-        }
-    }
-
-    fn make_custom_payment_thresholds() -> PaymentThresholds {
-        PaymentThresholds {
-            threshold_interval_sec: 2_592_000,
-            debt_threshold_gwei: 1_000_000_000,
-            payment_grace_period_sec: 86_400,
-            maturity_threshold_sec: 86_400,
-            permanent_debt_allowed_gwei: 10_000_000,
-            unban_below_gwei: 10_000_000,
-        }
     }
 }

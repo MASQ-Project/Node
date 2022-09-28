@@ -11,7 +11,10 @@ use crate::accountant::pending_payable_dao::{
 use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
-use crate::accountant::{Accountant, PendingPayableId};
+use crate::accountant::scanners::scanners::{
+    PayableScanner, PendingPayableScanner, ReceivableScanner,
+};
+use crate::accountant::{Accountant, PendingPayableId, DEFAULT_PENDING_TOO_LONG_SEC};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
@@ -20,7 +23,7 @@ use crate::database::dao_utils;
 use crate::database::dao_utils::{from_time_t, to_time_t};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
-use crate::sub_lib::accountant::PaymentThresholds;
+use crate::sub_lib::accountant::{FinancialStatistics, PaymentThresholds};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
@@ -880,6 +883,97 @@ impl PendingPayableDaoFactoryMock {
     pub fn make_result(self, result: PendingPayableDaoMock) -> Self {
         self.make_results.borrow_mut().push(Box::new(result));
         self
+    }
+}
+
+impl Default for PayableScanner {
+    fn default() -> Self {
+        PayableScanner::new(
+            Box::new(PayableDaoMock::new()),
+            Box::new(PendingPayableDaoMock::new()),
+            Rc::new(PaymentThresholds::default()),
+        )
+    }
+}
+
+impl PayableScanner {
+    pub fn payable_dao(mut self, payable_dao: PayableDaoMock) -> Self {
+        self.payable_dao = Box::new(payable_dao);
+        self
+    }
+
+    pub fn pending_payable_dao(mut self, pending_payable_dao: PendingPayableDaoMock) -> Self {
+        self.pending_payable_dao = Box::new(pending_payable_dao);
+        self
+    }
+}
+
+impl Default for PendingPayableScanner {
+    fn default() -> Self {
+        PendingPayableScanner::new(
+            Box::new(PayableDaoMock::new()),
+            Box::new(PendingPayableDaoMock::new()),
+            Rc::new(PaymentThresholds::default()),
+            DEFAULT_PENDING_TOO_LONG_SEC,
+            Rc::new(RefCell::new(FinancialStatistics::default())),
+        )
+    }
+}
+
+impl PendingPayableScanner {
+    pub fn payable_dao(mut self, payable_dao: PayableDaoMock) -> Self {
+        self.payable_dao = Box::new(payable_dao);
+        self
+    }
+
+    pub fn pending_payable_dao(mut self, pending_payable_dao: PendingPayableDaoMock) -> Self {
+        self.pending_payable_dao = Box::new(pending_payable_dao);
+        self
+    }
+}
+
+impl Default for ReceivableScanner {
+    fn default() -> Self {
+        ReceivableScanner::new(
+            Box::new(ReceivableDaoMock::new()),
+            Box::new(BannedDaoMock::new()),
+            Rc::new(PaymentThresholds::default()),
+            Rc::new(make_wallet("earning")),
+            Rc::new(RefCell::new(FinancialStatistics::default())),
+        )
+    }
+}
+
+impl ReceivableScanner {
+    pub fn receivable_dao(mut self, receivable_dao: ReceivableDaoMock) -> Self {
+        self.receivable_dao = Box::new(receivable_dao);
+        self
+    }
+
+    pub fn banned_dao(mut self, banned_dao: BannedDaoMock) -> Self {
+        self.banned_dao = Box::new(banned_dao);
+        self
+    }
+
+    pub fn payment_thresholds(mut self, payment_thresholds: PaymentThresholds) -> Self {
+        self.common.payment_thresholds = Rc::new(payment_thresholds);
+        self
+    }
+
+    pub fn earning_wallet(mut self, earning_wallet: Wallet) -> Self {
+        self.earning_wallet = Rc::new(earning_wallet);
+        self
+    }
+}
+
+pub fn make_custom_payment_thresholds() -> PaymentThresholds {
+    PaymentThresholds {
+        threshold_interval_sec: 2_592_000,
+        debt_threshold_gwei: 1_000_000_000,
+        payment_grace_period_sec: 86_400,
+        maturity_threshold_sec: 86_400,
+        permanent_debt_allowed_gwei: 10_000_000,
+        unban_below_gwei: 10_000_000,
     }
 }
 
