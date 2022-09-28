@@ -87,11 +87,7 @@ pub(in crate::accountant) mod scanners {
             response_skeleton_opt: Option<ResponseSkeleton>,
             logger: &Logger,
         ) -> Result<BeginMessage, BeginScanError>;
-        fn scan_finished(
-            &mut self,
-            message: EndMessage,
-            logger: &Logger,
-        ) -> Option<NodeToUiMessage>;
+        fn finish_scan(&mut self, message: EndMessage, logger: &Logger) -> Option<NodeToUiMessage>;
         fn scan_started_at(&self) -> Option<SystemTime>;
         fn mark_as_started(&mut self, timestamp: SystemTime);
         fn mark_as_ended(&mut self, logger: &Logger);
@@ -166,7 +162,7 @@ pub(in crate::accountant) mod scanners {
             }
         }
 
-        fn scan_finished(
+        fn finish_scan(
             &mut self,
             message: SentPayable,
             logger: &Logger,
@@ -340,7 +336,7 @@ pub(in crate::accountant) mod scanners {
             }
         }
 
-        fn scan_finished(
+        fn finish_scan(
             &mut self,
             message: ReportTransactionReceipts,
             logger: &Logger,
@@ -596,7 +592,7 @@ pub(in crate::accountant) mod scanners {
             })
         }
 
-        fn scan_finished(
+        fn finish_scan(
             &mut self,
             message: ReceivedPayments,
             logger: &Logger,
@@ -733,7 +729,7 @@ pub(in crate::accountant) mod scanners {
             Err(BeginScanError::CalledFromNullScanner)
         }
 
-        fn scan_finished(
+        fn finish_scan(
             &mut self,
             _message: EndMessage,
             _logger: &Logger,
@@ -789,7 +785,7 @@ pub(in crate::accountant) mod scanners {
             self.begin_scan_results.borrow_mut().remove(0)
         }
 
-        fn scan_finished(
+        fn finish_scan(
             &mut self,
             message: EndMessage,
             _logger: &Logger,
@@ -1027,7 +1023,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let _ = subject.scan_finished(sent_payable, &Logger::new("test"));
+        let _ = subject.finish_scan(sent_payable, &Logger::new("test"));
     }
 
     #[test]
@@ -1054,7 +1050,7 @@ mod tests {
             )));
         let mut subject = PayableScanner::default().pending_payable_dao(pending_payable_dao);
 
-        let _ = subject.scan_finished(sent_payable, &Logger::new("test"));
+        let _ = subject.finish_scan(sent_payable, &Logger::new("test"));
     }
 
     #[test]
@@ -1081,7 +1077,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let _ = subject.scan_finished(sent_payable, &Logger::new("test"));
+        let _ = subject.finish_scan(sent_payable, &Logger::new("test"));
     }
 
     #[test]
@@ -1112,7 +1108,7 @@ mod tests {
             .pending_payable_dao(pending_payable_dao);
         subject.mark_as_started(SystemTime::now());
 
-        let message_opt = subject.scan_finished(sent_payable, &Logger::new(test_name));
+        let message_opt = subject.finish_scan(sent_payable, &Logger::new(test_name));
 
         let is_scan_running = subject.scan_started_at().is_some();
         let fingerprint_rowid_params = fingerprint_rowid_params_arc.lock().unwrap();
@@ -1645,7 +1641,7 @@ mod tests {
         };
         subject.mark_as_started(SystemTime::now());
 
-        let message_opt = subject.scan_finished(msg, &Logger::new(test_name));
+        let message_opt = subject.finish_scan(msg, &Logger::new(test_name));
 
         let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
         assert_eq!(message_opt, None);
@@ -1795,7 +1791,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let message_opt = subject.scan_finished(msg, &Logger::new(test_name));
+        let message_opt = subject.finish_scan(msg, &Logger::new(test_name));
 
         assert_eq!(message_opt, None);
         TestLogHandler::new().exists_log_containing(&format!(
@@ -1834,7 +1830,7 @@ mod tests {
         };
         subject.mark_as_started(SystemTime::now());
 
-        let message_opt = subject.scan_finished(msg, &Logger::new(test_name));
+        let message_opt = subject.finish_scan(msg, &Logger::new(test_name));
 
         let total_paid_receivable = subject.financial_statistics().total_paid_receivable;
         let more_money_received_params = more_money_received_params_arc.lock().unwrap();

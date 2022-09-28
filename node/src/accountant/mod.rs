@@ -177,7 +177,7 @@ impl Handler<SentPayable> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: SentPayable, _ctx: &mut Self::Context) -> Self::Result {
-        if let Some(node_to_ui_msg) = self.scanners.payable.scan_finished(msg, &self.logger) {
+        if let Some(node_to_ui_msg) = self.scanners.payable.finish_scan(msg, &self.logger) {
             self.ui_message_sub
                 .as_ref()
                 .expect("UIGateway is not bound")
@@ -191,11 +191,7 @@ impl Handler<ReportTransactionReceipts> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ReportTransactionReceipts, _ctx: &mut Self::Context) -> Self::Result {
-        if let Some(node_to_ui_msg) = self
-            .scanners
-            .pending_payable
-            .scan_finished(msg, &self.logger)
-        {
+        if let Some(node_to_ui_msg) = self.scanners.pending_payable.finish_scan(msg, &self.logger) {
             self.ui_message_sub
                 .as_ref()
                 .expect("UIGateway is not bound")
@@ -209,7 +205,7 @@ impl Handler<ReceivedPayments> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ReceivedPayments, _ctx: &mut Self::Context) -> Self::Result {
-        if let Some(node_to_ui_msg) = self.scanners.receivable.scan_finished(msg, &self.logger) {
+        if let Some(node_to_ui_msg) = self.scanners.receivable.finish_scan(msg, &self.logger) {
             self.ui_message_sub
                 .as_ref()
                 .expect("UIGateway is not bound")
