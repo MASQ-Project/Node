@@ -891,22 +891,21 @@ mod tests {
         let banned_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao_factory = PayableDaoFactoryMock::new()
             .make_params(&payable_dao_factory_params_arc)
-            .make_result(PayableDaoMock::new())
-            .make_result(PayableDaoMock::new())
-            .make_result(PayableDaoMock::new());
+            .make_result(PayableDaoMock::new()) // For Accountant
+            .make_result(PayableDaoMock::new()) // For Payable Scanner
+            .make_result(PayableDaoMock::new()); // For PendingPayable Scanner
         let pending_payable_dao_factory = PendingPayableDaoFactoryMock::new()
             .make_params(&pending_payable_dao_factory_params_arc)
-            .make_result(PendingPayableDaoMock::new())
-            .make_result(PendingPayableDaoMock::new())
-            .make_result(PendingPayableDaoMock::new());
+            .make_result(PendingPayableDaoMock::new()) // For Accountant
+            .make_result(PendingPayableDaoMock::new()) // For Payable Scanner
+            .make_result(PendingPayableDaoMock::new()); // For PendingPayable Scanner
         let receivable_dao_factory = ReceivableDaoFactoryMock::new()
             .make_params(&receivable_dao_factory_params_arc)
-            .make_result(ReceivableDaoMock::new())
-            .make_result(ReceivableDaoMock::new());
+            .make_result(ReceivableDaoMock::new()) // For Accountant
+            .make_result(ReceivableDaoMock::new()); // For Receivable Scanner
         let banned_dao_factory = BannedDaoFactoryMock::new()
             .make_params(&banned_dao_factory_params_arc)
-            .make_result(BannedDaoMock::new())
-            .make_result(BannedDaoMock::new());
+            .make_result(BannedDaoMock::new()); // For Receivable Scanner
 
         let _ = Accountant::new(
             &mut config,
@@ -957,11 +956,8 @@ mod tests {
                 .make_result(ReceivableDaoMock::new()) // For Accountant
                 .make_result(ReceivableDaoMock::new()), // For Scanner
         );
-        let banned_dao_factory = Box::new(
-            BannedDaoFactoryMock::new()
-                .make_result(BannedDaoMock::new())
-                .make_result(BannedDaoMock::new()),
-        );
+        let banned_dao_factory =
+            Box::new(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));
 
         let result = Accountant::new(
             &mut bootstrapper_config,

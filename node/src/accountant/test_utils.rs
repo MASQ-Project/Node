@@ -176,11 +176,9 @@ impl AccountantBuilder {
                 .make_result(PendingPayableDaoMock::new())
                 .make_result(PendingPayableDaoMock::new()),
         );
-        let banned_dao_factory = self.banned_dao_factory.unwrap_or(
-            BannedDaoFactoryMock::new()
-                .make_result(BannedDaoMock::new())
-                .make_result(BannedDaoMock::new()),
-        );
+        let banned_dao_factory = self
+            .banned_dao_factory
+            .unwrap_or(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));
         let accountant = Accountant::new(
             &mut config,
             Box::new(payable_dao_factory),
@@ -272,9 +270,7 @@ pub struct BannedDaoFactoryMock {
 impl BannedDaoFactory for BannedDaoFactoryMock {
     fn make(&self) -> Box<dyn BannedDao> {
         if self.make_results.borrow().len() == 0 {
-            panic!(
-                "BannedDao Missing. This problem mostly occurs when BannedDao is only supplied for Accountant and not for the Scanner while building Accountant."
-            )
+            panic!("BannedDao Missing.")
         };
         self.make_params.lock().unwrap().push(());
         self.make_results.borrow_mut().remove(0)
