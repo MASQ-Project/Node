@@ -791,22 +791,26 @@ pub(in crate::accountant) mod scanners {
 
         fn scan_finished(
             &mut self,
-            _message: EndMessage,
+            message: EndMessage,
             _logger: &Logger,
         ) -> Option<NodeToUiMessage> {
-            todo!("Implement ScannerMock")
+            self.end_scan_params.lock().unwrap().push(message);
+            if self.is_allowed_to_stop_the_system() && self.is_last_message() {
+                System::current().stop();
+            }
+            self.end_scan_results.borrow_mut().remove(0)
         }
 
         fn scan_started_at(&self) -> Option<SystemTime> {
-            todo!("Implement ScannerMock")
+            unimplemented!()
         }
 
         fn mark_as_started(&mut self, _timestamp: SystemTime) {
-            todo!("Implement ScannerMock")
+            unimplemented!()
         }
 
         fn mark_as_ended(&mut self, _logger: &Logger) {
-            todo!("Implement ScannerMock")
+            unimplemented!()
         }
     }
 
