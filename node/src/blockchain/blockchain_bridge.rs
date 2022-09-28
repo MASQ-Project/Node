@@ -7,7 +7,7 @@ use crate::accountant::{
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
-    BlockchainInterfaceNonClandestine, BlockchainResult, SendTransactionInputs,
+    BlockchainInterfaceNonClandestine, BlockchainResult,
 };
 use crate::database::db_initializer::{DbInitializer, DATABASE_FILE};
 use crate::database::db_migrations::MigratorConfig;
@@ -32,7 +32,6 @@ use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::plus;
-use std::convert::TryFrom;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use web3::transports::Http;
@@ -51,11 +50,11 @@ pub struct BlockchainBridge<T: Transport = Http> {
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
     scan_error_subs_opt: Option<Recipient<ScanError>>,
     crashable: bool,
-    payment_confirmation: TransactionConfirmationTools,
+    pay_payable_confirmation: TransactionConfirmationTools,
 }
 
 struct TransactionConfirmationTools {
-    transaction_backup_subs_opt: Option<Recipient<PendingPayableFingerprint>>,
+    pp_fingerprint_sub_opt: Option<Recipient<PendingPayableFingerprint>>,
     report_transaction_receipts_sub_opt: Option<Recipient<ReportTransactionReceipts>>,
 }
 
@@ -71,9 +70,9 @@ impl Handler<BindMessage> for BlockchainBridge {
             msg.peer_actors.neighborhood.set_consuming_wallet_sub,
             msg.peer_actors.proxy_server.set_consuming_wallet_sub,
         ]);
-        self.payment_confirmation.transaction_backup_subs_opt =
+        self.pay_payable_confirmation.pp_fingerprint_sub_opt =
             Some(msg.peer_actors.accountant.pending_payable_fingerprint);
-        self.payment_confirmation
+        self.pay_payable_confirmation
             .report_transaction_receipts_sub_opt =
             Some(msg.peer_actors.accountant.report_transaction_receipts);
         self.sent_payable_subs_opt = Some(msg.peer_actors.accountant.report_sent_payments);
@@ -179,8 +178,8 @@ impl BlockchainBridge {
             scan_error_subs_opt: None,
             crashable,
             logger: Logger::new("BlockchainBridge"),
-            payment_confirmation: TransactionConfirmationTools {
-                transaction_backup_subs_opt: None,
+            pay_payable_confirmation: TransactionConfirmationTools {
+                pp_fingerprint_sub_opt: None,
                 report_transaction_receipts_sub_opt: None,
             },
         }
@@ -329,7 +328,7 @@ impl BlockchainBridge {
                 .into_iter()
                 .zip(msg.pending_payable.iter().cloned())
                 .collect_vec();
-            self.payment_confirmation
+            self.pay_payable_confirmation
                 .report_transaction_receipts_sub_opt
                 .as_ref()
                 .expect("Accountant is unbound")
@@ -403,10 +402,16 @@ impl BlockchainBridge {
             Ok(nonce) => todo!(),
             Err(er) => todo!(),
         };
-        match self.blockchain_interface.send_batched_payments(
+        let fingerprint_recipient = self
+            .pay_payable_confirmation
+            .pp_fingerprint_sub_opt
+            .as_ref()
+            .expect("Accountant unbound");
+        match self.blockchain_interface.send_batch_of_payables(
             consuming_wallet,
             gas_price,
             last_nonce,
+            fingerprint_recipient,
             executable_payments,
         ) {
             Ok(res) => todo!(),
@@ -434,36 +439,37 @@ impl BlockchainBridge {
         gas_price: u64,
         consuming_wallet: &Wallet,
     ) -> BlockchainResult<PendingPayable> {
-        let nonce = self
-            .blockchain_interface
-            .get_transaction_count(consuming_wallet)?;
-        let unsigned_amount = u64::try_from(payable.balance)
-            .expect("negative balance for qualified payable is nonsense");
-        let send_tx_tools = self.blockchain_interface.send_transaction_tools(
-            self.payment_confirmation
-                .transaction_backup_subs_opt
-                .as_ref()
-                .expect("Accountant is unbound"),
-        );
-        match self
-            .blockchain_interface
-            .send_transaction(SendTransactionInputs::new(
-                payable,
-                consuming_wallet,
-                nonce,
-                gas_price,
-                send_tx_tools.as_ref(),
-            )?) {
-            Ok((hash, timestamp)) => Ok(PendingPayable::new(
-                payable.wallet.clone(),
-                unsigned_amount,
-                hash,
-                timestamp,
-            )),
-            Err(e) => Err(e.into()),
-            //if you're adding more code here that can fail don't forget to provide
-            //the transaction hash together with the error
-        }
+        todo!()
+        // let nonce = self
+        //     .blockchain_interface
+        //     .get_transaction_count(consuming_wallet)?;
+        // let unsigned_amount = u64::try_from(payable.balance)
+        //     .expect("negative balance for qualified payable is nonsense");
+        // let send_tx_tools = self.blockchain_interface.send_transaction_tools(
+        //     self.payment_confirmation
+        //         .transaction_backup_subs_opt
+        //         .as_ref()
+        //         .expect("Accountant is unbound"),
+        // );
+        // match self
+        //     .blockchain_interface
+        //     .send_transaction(SendTransactionInputs::new(
+        //         payable,
+        //         consuming_wallet,
+        //         nonce,
+        //         gas_price,
+        //         send_tx_tools.as_ref(),
+        //     )?) {
+        //     Ok((hash, timestamp)) => Ok(PendingPayable::new(
+        //         payable.wallet.clone(),
+        //         unsigned_amount,
+        //         hash,
+        //         timestamp,
+        //     )),
+        //     Err(e) => Err(e.into()),
+        //     //if you're adding more code here that can fail don't forget to provide
+        //     //the transaction hash together with the error
+        // }
     }
 }
 
@@ -485,7 +491,6 @@ mod tests {
         RetrievedBlockchainTransactions,
     };
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
-    use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
     use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -590,7 +595,6 @@ mod tests {
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_params(&get_transaction_count_params_arc)
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
-            .send_transaction_tools_result(Box::new(SendTransactionToolsWrapperNull))
             .send_transaction_result(Err(BlockchainTransactionError::Sending(
                 String::from("mock payment failure"),
                 transaction_hash,
@@ -615,7 +619,7 @@ mod tests {
         };
         let (accountant, _, _) = make_recorder();
         let backup_recipient = accountant.start().recipient();
-        subject.payment_confirmation.transaction_backup_subs_opt = Some(backup_recipient);
+        subject.pay_payable_confirmation.pp_fingerprint_sub_opt = Some(backup_recipient);
 
         let result = subject.preprocess_payments(&request);
 
@@ -666,8 +670,6 @@ mod tests {
             .get_transaction_count_params(&get_transaction_count_params_arc)
             .get_transaction_count_result(Ok(U256::from(1u64)))
             .get_transaction_count_result(Ok(U256::from(2u64)))
-            .send_transaction_tools_result(Box::new(SendTransactionToolsWrapperNull))
-            .send_transaction_tools_result(Box::new(SendTransactionToolsWrapperNull))
             .send_transaction_params(&send_transaction_params_arc)
             .send_transaction_result(Ok((
                 H256::from("sometransactionhash".keccak256()),
@@ -756,13 +758,11 @@ mod tests {
                     Ok(PendingPayable {
                         to: make_wallet("blah"),
                         amount: 420,
-                        timestamp: from_time_t(150_000_000),
                         tx_hash: H256::from("sometransactionhash".keccak256())
                     }),
                     Ok(PendingPayable {
                         to: make_wallet("foo"),
                         amount: 210,
-                        timestamp: from_time_t(160_000_000),
                         tx_hash: H256::from("someothertransactionhash".keccak256())
                     })
                 ],
@@ -965,7 +965,7 @@ mod tests {
             None,
         );
         subject
-            .payment_confirmation
+            .pay_payable_confirmation
             .report_transaction_receipts_sub_opt = Some(report_transaction_receipt_recipient);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
         let msg = RequestTransactionReceipts {
@@ -1053,7 +1053,7 @@ mod tests {
             None,
         );
         subject
-            .payment_confirmation
+            .pay_payable_confirmation
             //due to this None we would've panicked if we tried to send a msg
             .report_transaction_receipts_sub_opt = None;
         let msg = RequestTransactionReceipts {

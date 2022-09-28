@@ -32,16 +32,14 @@ pub struct PayableAccount {
 pub struct PendingPayable {
     pub to: Wallet,
     pub amount: u64,
-    pub timestamp: SystemTime,
     pub tx_hash: H256,
 }
 
 impl PendingPayable {
-    pub fn new(to: Wallet, amount: u64, txn: H256, timestamp: SystemTime) -> Self {
+    pub fn new(to: Wallet, amount: u64, txn: H256) -> Self {
         Self {
             to,
             amount,
-            timestamp,
             tx_hash: txn,
         }
     }

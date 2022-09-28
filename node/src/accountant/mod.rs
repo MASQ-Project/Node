@@ -1310,7 +1310,6 @@ mod tests {
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::blockchain::blockchain_interface::BlockchainTransaction;
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
-    use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
     use crate::bootstrapper::BootstrapperConfig;
     use crate::database::dao_utils::from_time_t;
     use crate::database::dao_utils::to_time_t;
@@ -1855,7 +1854,6 @@ mod tests {
             expected_wallet.clone(),
             expected_amount,
             expected_hash.clone(),
-            expected_timestamp,
         );
         let sent_payable = SentPayable {
             timestamp: SystemTime::now(),
@@ -1951,7 +1949,6 @@ mod tests {
                 Ok(PendingPayable {
                     to: wallet.clone(),
                     amount: 5656,
-                    timestamp: SystemTime::now(),
                     tx_hash: hash_tx_1,
                 }),
                 Err(BlockchainError::TransactionFailed {
@@ -3507,12 +3504,8 @@ mod tests {
         expected = "Was unable to create a mark in payables for a new pending payable '0x0000…007b' due to 'SignConversion(9999999999999)'"
     )]
     fn handle_sent_payable_fails_to_make_a_mark_in_payables_and_so_panics() {
-        let payable = PendingPayable::new(
-            make_wallet("blah"),
-            6789,
-            H256::from_uint(&U256::from(123)),
-            SystemTime::now(),
-        );
+        let payable =
+            PendingPayable::new(make_wallet("blah"), 6789, H256::from_uint(&U256::from(123)));
         let payable_dao = PayableDaoMock::new()
             .mark_pending_payable_rowid_result(Err(PayableDaoError::SignConversion(9999999999999)));
         let pending_payable_dao =
@@ -3563,7 +3556,7 @@ mod tests {
         let payable_1 = Err(BlockchainError::InvalidResponse);
         let payable_2_rowid = 126;
         let payable_hash_2 = H256::from_uint(&U256::from(166));
-        let payable_2 = PendingPayable::new(make_wallet("booga"), 6789, payable_hash_2, now_system);
+        let payable_2 = PendingPayable::new(make_wallet("booga"), 6789, payable_hash_2);
         let payable_3 = Err(BlockchainError::TransactionFailed {
             msg: "closing hours, sorry".to_string(),
             hash_opt: None,
@@ -3600,7 +3593,7 @@ mod tests {
         init_test_logging();
         let now_system = SystemTime::now();
         let payment_hash = H256::from_uint(&U256::from(789));
-        let payment = PendingPayable::new(make_wallet("booga"), 6789, payment_hash, now_system);
+        let payment = PendingPayable::new(make_wallet("booga"), 6789, payment_hash);
         let pending_payable_dao = PendingPayableDaoMock::default().fingerprint_rowid_result(None);
         let subject = AccountantBuilder::default()
             .payable_dao(PayableDaoMock::new().mark_pending_payable_rowid_result(Ok(())))
@@ -3989,8 +3982,6 @@ mod tests {
             //because we cannot have both, resolution on the high level and also of what's inside blockchain interface,
             //there is one component missing in this wholesome test - the part where we send a request for
             //a fingerprint of that payable in the DB - this happens inside send_raw_transaction()
-            .send_transaction_tools_result(Box::new(SendTransactionToolsWrapperNull))
-            .send_transaction_tools_result(Box::new(SendTransactionToolsWrapperNull))
             .send_transaction_result(Ok((pending_tx_hash_1, past_payable_timestamp_1)))
             .send_transaction_result(Ok((pending_tx_hash_2, past_payable_timestamp_2)))
             .get_transaction_receipt_params(&get_transaction_receipt_params_arc)
@@ -4538,7 +4529,6 @@ mod tests {
         let payable_ok = PendingPayable {
             to: make_wallet("blah"),
             amount: 5555,
-            timestamp: SystemTime::now(),
             tx_hash: Default::default(),
         };
         let error = BlockchainError::SignedValueConversion(666);
