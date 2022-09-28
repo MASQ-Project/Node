@@ -888,7 +888,6 @@ mod tests {
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::make_wallet;
-    use crate::test_utils::unshared_test_utils::make_payment_thresholds_with_defaults;
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
     use masq_lib::logger::Logger;
@@ -900,7 +899,7 @@ mod tests {
 
     #[test]
     fn scanners_struct_can_be_constructed_with_the_respective_scanners() {
-        let payment_thresholds = Rc::new(make_payment_thresholds_with_defaults());
+        let payment_thresholds = Rc::new(PaymentThresholds::default());
         let payable_dao_factory = PayableDaoFactoryMock::new()
             .make_result(PayableDaoMock::new())
             .make_result(PayableDaoMock::new());
@@ -1850,7 +1849,7 @@ mod tests {
             PayableScanner::new(
                 Box::new(PayableDaoMock::new()),
                 Box::new(PendingPayableDaoMock::new()),
-                Rc::new(make_payment_thresholds_with_defaults()),
+                Rc::new(PaymentThresholds::default()),
             )
         }
     }
@@ -1872,7 +1871,7 @@ mod tests {
             PendingPayableScanner::new(
                 Box::new(PayableDaoMock::new()),
                 Box::new(PendingPayableDaoMock::new()),
-                Rc::new(make_payment_thresholds_with_defaults()),
+                Rc::new(PaymentThresholds::default()),
                 DEFAULT_PENDING_TOO_LONG_SEC,
                 Rc::new(RefCell::new(FinancialStatistics::default())),
             )
@@ -1896,7 +1895,7 @@ mod tests {
             ReceivableScanner::new(
                 Box::new(ReceivableDaoMock::new()),
                 Box::new(BannedDaoMock::new()),
-                Rc::new(make_payment_thresholds_with_defaults()),
+                Rc::new(PaymentThresholds::default()),
                 Rc::new(make_wallet("earning")),
                 Rc::new(RefCell::new(FinancialStatistics::default())),
             )

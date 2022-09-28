@@ -40,12 +40,18 @@ lazy_static! {
 //please, alphabetical order
 #[derive(PartialEq, Debug, Clone)]
 pub struct PaymentThresholds {
-    pub debt_threshold_gwei: i64,    // Paybale
-    pub maturity_threshold_sec: i64, // Payable
+    pub debt_threshold_gwei: i64,
+    pub maturity_threshold_sec: i64,
     pub payment_grace_period_sec: i64,
-    pub permanent_debt_allowed_gwei: i64, // Payable
-    pub threshold_interval_sec: i64,      // Payable
+    pub permanent_debt_allowed_gwei: i64,
+    pub threshold_interval_sec: i64,
     pub unban_below_gwei: i64,
+}
+
+impl Default for PaymentThresholds {
+    fn default() -> Self {
+        DEFAULT_PAYMENT_THRESHOLDS.clone()
+    }
 }
 
 //this code is used in tests in Accountant

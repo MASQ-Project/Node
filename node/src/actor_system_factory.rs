@@ -607,6 +607,7 @@ mod tests {
         make_stream_handler_pool_subs_from, make_stream_handler_pool_subs_from_recorder,
         start_recorder_refcell_opt,
     };
+    use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -629,8 +630,7 @@ mod tests {
     };
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::{
-        make_payment_thresholds_with_defaults, make_scan_intervals_with_defaults, ArbitraryIdStamp,
-        SystemKillerActor,
+        make_scan_intervals_with_defaults, ArbitraryIdStamp, SystemKillerActor,
     };
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
@@ -1056,7 +1056,7 @@ mod tests {
                     rate_pack(100),
                 ),
             },
-            payment_thresholds_opt: Some(make_payment_thresholds_with_defaults()),
+            payment_thresholds_opt: Some(PaymentThresholds::default()),
             when_pending_too_long_opt: Some(DEFAULT_PENDING_TOO_LONG_SEC),
         };
         let persistent_config =

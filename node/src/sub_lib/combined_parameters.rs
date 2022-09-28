@@ -292,9 +292,7 @@ mod tests {
     use super::*;
     use crate::sub_lib::combined_parameters::CombinedParamsDataTypes::U128;
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
-    use crate::test_utils::unshared_test_utils::{
-        make_payment_thresholds_with_defaults, make_scan_intervals_with_defaults,
-    };
+    use crate::test_utils::unshared_test_utils::make_scan_intervals_with_defaults;
     use std::panic::catch_unwind;
 
     #[test]
@@ -427,8 +425,7 @@ mod tests {
 
         let panic_2 = catch_unwind(|| {
             let _: &[(&str, CombinedParamsDataTypes)] =
-                (&CombinedParams::PaymentThresholds(Some(make_payment_thresholds_with_defaults())))
-                    .into();
+                (&CombinedParams::PaymentThresholds(Some(PaymentThresholds::default()))).into();
         })
         .unwrap_err();
         let panic_2_msg = panic_2.downcast_ref::<String>().unwrap();
@@ -437,7 +434,7 @@ mod tests {
             panic_2_msg,
             &format!(
                 "should be called only on uninitialized object, not: PaymentThresholds(Some({:?}))",
-                make_payment_thresholds_with_defaults()
+                PaymentThresholds::default()
             )
         );
 
@@ -474,7 +471,7 @@ mod tests {
         );
 
         let panic_2 = catch_unwind(|| {
-            (&CombinedParams::PaymentThresholds(Some(make_payment_thresholds_with_defaults())))
+            (&CombinedParams::PaymentThresholds(Some(PaymentThresholds::default())))
                 .initiate_objects(HashMap::new());
         })
         .unwrap_err();
@@ -484,7 +481,7 @@ mod tests {
             panic_2_msg,
             &format!(
                 "should be called only on uninitialized object, not: PaymentThresholds(Some({:?}))",
-                make_payment_thresholds_with_defaults()
+                PaymentThresholds::default()
             )
         );
 

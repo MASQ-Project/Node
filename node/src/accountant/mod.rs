@@ -874,8 +874,8 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::unshared_test_utils::{
-        make_bc_with_defaults, make_payment_thresholds_with_defaults,
-        prove_that_crash_request_handler_is_hooked_up, NotifyLaterHandleMock, SystemKillerActor,
+        make_bc_with_defaults, prove_that_crash_request_handler_is_hooked_up,
+        NotifyLaterHandleMock, SystemKillerActor,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use web3::types::{TransactionReceipt, H256};
@@ -1500,7 +1500,7 @@ mod tests {
     {
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let now = SystemTime::now();
-        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let payment_thresholds = PaymentThresholds::default();
         let (qualified_payables, _, all_non_pending_payables) =
             make_payables(now, &payment_thresholds);
         let payable_dao =
@@ -1689,12 +1689,9 @@ mod tests {
             captured_timestamp < SystemTime::now()
                 && captured_timestamp >= from_time_t(to_time_t(SystemTime::now()) - 5)
         );
-        assert_eq!(captured_curves, make_payment_thresholds_with_defaults());
+        assert_eq!(captured_curves, PaymentThresholds::default());
         assert_eq!(paid_delinquencies_params.len(), 1);
-        assert_eq!(
-            paid_delinquencies_params[0],
-            make_payment_thresholds_with_defaults()
-        );
+        assert_eq!(paid_delinquencies_params[0], PaymentThresholds::default());
     }
 
     #[test]

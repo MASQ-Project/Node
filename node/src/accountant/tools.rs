@@ -287,8 +287,8 @@ mod tests {
     use crate::accountant::SentPayable;
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::database::dao_utils::{from_time_t, to_time_t};
+    use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
-    use crate::test_utils::unshared_test_utils::make_payment_thresholds_with_defaults;
     use masq_lib::logger::Logger;
     use std::rc::Rc;
     use std::time::SystemTime;
@@ -296,7 +296,7 @@ mod tests {
     #[test]
     fn payable_generated_before_maturity_time_limit_is_marked_unqualified() {
         let now = SystemTime::now();
-        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let payment_thresholds = PaymentThresholds::default();
         let qualified_debt = payment_thresholds.permanent_debt_allowed_gwei + 1;
         let unqualified_time = to_time_t(now) - payment_thresholds.maturity_threshold_sec + 1;
         let unqualified_payable_account = PayableAccount {
@@ -314,7 +314,7 @@ mod tests {
     #[test]
     fn payable_with_low_debt_is_marked_unqualified() {
         let now = SystemTime::now();
-        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let payment_thresholds = PaymentThresholds::default();
         let unqualified_debt = payment_thresholds.permanent_debt_allowed_gwei - 1;
         let qualified_time = to_time_t(now) - payment_thresholds.maturity_threshold_sec - 1;
         let unqualified_payable_account = PayableAccount {
@@ -332,7 +332,7 @@ mod tests {
     #[test]
     fn payable_with_low_payout_threshold_is_marked_unqualified() {
         let now = SystemTime::now();
-        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let payment_thresholds = PaymentThresholds::default();
         let debt = payment_thresholds.permanent_debt_allowed_gwei + 1;
         let time = to_time_t(now) - payment_thresholds.maturity_threshold_sec - 1;
         let unqualified_payable_account = PayableAccount {
@@ -350,7 +350,7 @@ mod tests {
     #[test]
     fn payable_above_threshold_values_is_marked_qualified_and_returns_threshold() {
         let now = SystemTime::now();
-        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let payment_thresholds = PaymentThresholds::default();
         let debt = payment_thresholds.permanent_debt_allowed_gwei + 1_000_000_000;
         let time = to_time_t(now) - payment_thresholds.maturity_threshold_sec - 1;
         let payment_thresholds_rc = Rc::new(payment_thresholds);
@@ -374,7 +374,7 @@ mod tests {
     #[test]
     fn qualified_payables_can_be_filtered_out_from_non_pending_payables_along_with_their_summary() {
         let now = SystemTime::now();
-        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let payment_thresholds = PaymentThresholds::default();
         let unqualified_payable_accounts = vec![PayableAccount {
             wallet: make_wallet("wallet1"),
             balance: payment_thresholds.permanent_debt_allowed_gwei + 1,
@@ -425,7 +425,7 @@ mod tests {
     #[test]
     fn returns_empty_array_and_summary_when_no_qualified_payables_are_found() {
         let now = SystemTime::now();
-        let payment_thresholds = make_payment_thresholds_with_defaults();
+        let payment_thresholds = PaymentThresholds::default();
         let unqualified_payable_accounts = vec![PayableAccount {
             wallet: make_wallet("wallet1"),
             balance: payment_thresholds.permanent_debt_allowed_gwei + 1,

@@ -593,7 +593,7 @@ pub mod unshared_test_utils {
         persistent_config_mock: PersistentConfigurationMock,
     ) -> PersistentConfigurationMock {
         persistent_config_mock
-            .payment_thresholds_result(Ok(make_payment_thresholds_with_defaults()))
+            .payment_thresholds_result(Ok(PaymentThresholds::default()))
             .scan_intervals_result(Ok(make_scan_intervals_with_defaults()))
     }
 
@@ -606,18 +606,8 @@ pub mod unshared_test_utils {
         config.scan_intervals_opt = Some(make_scan_intervals_with_defaults());
         config.suppress_initial_scans_opt = Some(false);
         config.when_pending_too_long_opt = Some(DEFAULT_PENDING_TOO_LONG_SEC);
-        config.payment_thresholds_opt = Some(make_payment_thresholds_with_defaults());
+        config.payment_thresholds_opt = Some(PaymentThresholds::default());
         config
-    }
-
-    impl Default for PaymentThresholds {
-        fn default() -> Self {
-            DEFAULT_PAYMENT_THRESHOLDS.clone()
-        }
-    }
-
-    pub fn make_payment_thresholds_with_defaults() -> PaymentThresholds {
-        DEFAULT_PAYMENT_THRESHOLDS.clone()
     }
 
     pub fn make_scan_intervals_with_defaults() -> ScanIntervals {
