@@ -1,16 +1,17 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
+use crate::blockchain::blockchain_bridge::{InitiatePPFingerprints, PendingPayableFingerprint};
 use actix::Recipient;
 use ethereum_types::H256;
+use jsonrpc_core as rpc;
 use std::fmt::Debug;
 use std::marker::PhantomData;
 use std::time::{SystemTime, UNIX_EPOCH};
 use web3::futures::Future;
 use web3::transports::Batch;
 use web3::types::{Bytes, SignedTransaction, TransactionParameters};
-use web3::Web3;
 use web3::{BatchTransport, Error as Web3Error};
+use web3::{Error, Web3};
 
 pub trait BatchedPayableTools<T>
 where
@@ -23,20 +24,32 @@ where
         key: &secp256k1secrets::key::SecretKey,
     ) -> Result<SignedTransaction, Web3Error>;
     fn batch_wide_timestamp(&self) -> SystemTime;
-    //TODO write that so that all fingerprints are requested by a single message
-    fn request_new_payable_fingerprint(
+    fn new_payable_fingerprints(
         &self,
         batch_wide_timestamp: SystemTime,
-        pp_fingerprint_sub: &Recipient<PendingPayableFingerprint>,
-        payable_attributes: Vec<(H256, u64)>,
+        pp_fingerprint_sub: &Recipient<InitiatePPFingerprints>,
+        payable_attributes: &[(H256, u64)],
     );
-    fn send_batch(&self, rlp: Bytes, web3: Web3<Batch<T>>) -> Result<H256, Web3Error>;
+    fn send_batch(
+        &self,
+        web3: &Web3<Batch<T>>,
+    ) -> Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error>;
 }
 
-#[derive(Debug, Default)]
-pub struct BatchedPayableToolsReal {}
+#[derive(Debug)]
+pub struct BatchedPayableToolsReal<T> {
+    phantom: PhantomData<T>,
+}
 
-impl<T: BatchTransport + Debug> BatchedPayableTools<T> for BatchedPayableToolsReal {
+impl<T: BatchTransport> Default for BatchedPayableToolsReal<T> {
+    fn default() -> Self {
+        Self {
+            phantom: Default::default(),
+        }
+    }
+}
+
+impl<T: BatchTransport + Debug> BatchedPayableTools<T> for BatchedPayableToolsReal<T> {
     fn sign_transaction(
         &self,
         transaction_params: TransactionParameters,
@@ -52,30 +65,25 @@ impl<T: BatchTransport + Debug> BatchedPayableTools<T> for BatchedPayableToolsRe
         UNIX_EPOCH //TODO test drive this out
     }
 
-    fn request_new_payable_fingerprint(
+    fn new_payable_fingerprints(
         &self,
         batch_wide_timestamp: SystemTime,
-        pp_fingerprint_sub: &Recipient<PendingPayableFingerprint>,
-        payable_attributes: Vec<(H256, u64)>,
+        pp_fingerprint_sub: &Recipient<InitiatePPFingerprints>,
+        chief_attributes_of_payables: &[(H256, u64)],
     ) {
-        payable_attributes.into_iter().for_each(|payable| {
-            todo!("make sure it is tested");
-            let (hash, amount) = payable;
-            pp_fingerprint_sub
-                .try_send(PendingPayableFingerprint {
-                    amount,
-                    rowid_opt: None,
-                    timestamp: batch_wide_timestamp,
-                    hash,
-                    attempt_opt: None,
-                    process_error: None,
-                })
-                .expect("Accountant is dead");
-        })
+        pp_fingerprint_sub
+            .try_send(InitiatePPFingerprints {
+                batch_wide_timestamp,
+                init_params: chief_attributes_of_payables.to_vec(),
+            })
+            .expect("Accountant is dead");
     }
 
-    fn send_batch(&self, rlp: Bytes, web3: Web3<Batch<T>>) -> Result<H256, Web3Error> {
-        web3.eth().send_raw_transaction(rlp).wait()
+    fn send_batch(
+        &self,
+        web3: &Web3<Batch<T>>,
+    ) -> Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error> {
+        web3.transport().submit_batch().wait()
     }
 }
 
@@ -106,34 +114,38 @@ impl<T: BatchTransport> BatchedPayableTools<T> for BatchedPayableToolsNull<T> {
         todo!()
     }
 
-    fn request_new_payable_fingerprint(
+    fn new_payable_fingerprints(
         &self,
         batch_wide_timestamp: SystemTime,
-        pp_fingerprint_sub: &Recipient<PendingPayableFingerprint>,
-        payable_attributes: Vec<(H256, u64)>,
+        pp_fingerprint_sub: &Recipient<InitiatePPFingerprints>,
+        payable_attributes: &[(H256, u64)],
     ) {
         panic!(
             "request_new_pending_payable_fingerprint() should never be called on the null object"
         )
     }
 
-    fn send_batch(&self, rlp: Bytes, web3: Web3<Batch<T>>) -> Result<H256, Web3Error> {
+    fn send_batch(
+        &self,
+        web3: &Web3<Batch<T>>,
+    ) -> Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error> {
         panic!("send_raw_transaction() should never be called on the null object")
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-    use crate::blockchain::test_utils::TestTransport;
+    use crate::blockchain::blockchain_bridge::{InitiatePPFingerprints, PendingPayableFingerprint};
+    use crate::blockchain::test_utils::{make_tx_hash, TestTransport};
     use crate::blockchain::tool_wrappers::{
         BatchedPayableTools, BatchedPayableToolsNull, BatchedPayableToolsReal,
     };
     use crate::test_utils::recorder::{make_recorder, Recorder};
-    use actix::{Actor, Recipient};
+    use actix::{Actor, Recipient, System};
+    use primitive_types::H256;
     use std::time::SystemTime;
-    use web3::transports::Batch;
-    use web3::types::{Bytes, TransactionParameters};
+    use web3::transports::{Batch, Http};
+    use web3::types::{Bytes, TransactionParameters, U256};
     use web3::Web3;
 
     #[test]
@@ -161,12 +173,12 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "send_raw_transaction() should never be called on the null object")]
-    fn null_send_raw_transaction_stops_the_run() {
+    #[should_panic(expected = "send_batch() should never be called on the null object")]
+    fn null_send_batch_stops_the_run() {
         let rlp = Bytes(b"data".to_vec());
         let web3 = Web3::new(Batch::new(TestTransport::default()));
 
-        let _ = BatchedPayableToolsNull::<TestTransport>::default().send_batch(rlp, web3);
+        let _ = BatchedPayableToolsNull::<TestTransport>::default().send_batch(&web3);
     }
 
     #[test]
@@ -175,24 +187,38 @@ mod tests {
     )]
     fn null_request_new_pending_payable_fingerprint_stops_the_run() {
         let recipient = Recorder::new().start().recipient();
-        let _ = BatchedPayableToolsNull::<TestTransport>::default()
-            .request_new_payable_fingerprint(
-                SystemTime::now(),
-                &recipient,
-                vec![(Default::default(), 5)],
-            );
+        let _ = BatchedPayableToolsNull::<TestTransport>::default().new_payable_fingerprints(
+            SystemTime::now(),
+            &recipient,
+            &[(Default::default(), 5)],
+        );
     }
 
     #[test]
-    fn custom_debug_for_send_transaction_tool_wrapper_real() {
-        let transport = TestTransport::default();
-        let web3 = Web3::new(transport);
-        let (random_actor, _, _) = make_recorder();
-        let recipient: Recipient<PendingPayableFingerprint> = random_actor.start().recipient();
+    fn request_new_payable_fingerprints_works() {
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let recipient = accountant.start().recipient();
+        let timestamp = SystemTime::now();
+        let chief_attributes_of_payables =
+            vec![(Default::default(), 5), (make_tx_hash(45466), 444444)];
 
-        let result = format!("{:?}", BatchedPayableToolsReal::default());
+        let _ = BatchedPayableToolsReal::<TestTransport>::default().new_payable_fingerprints(
+            timestamp,
+            &recipient,
+            &chief_attributes_of_payables,
+        );
 
-        assert_eq!(result,"SendTransactionToolWrapperReal { web3: Web3 { transport: TestTransport { asserted: 0, \
-         requests: RefCell { value: [] }, responses: RefCell { value: [] } } }, pending_payable_fingerprint_sub: _OMITTED_ }")
+        let system = System::new("new fingerprints");
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let message = accountant_recording.get_record::<InitiatePPFingerprints>(0);
+        assert_eq!(
+            message,
+            &InitiatePPFingerprints {
+                batch_wide_timestamp: timestamp,
+                init_params: chief_attributes_of_payables
+            }
+        )
     }
 }

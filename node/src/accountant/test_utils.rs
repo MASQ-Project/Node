@@ -15,6 +15,7 @@ use crate::accountant::{Accountant, PendingPayableId};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
+use crate::blockchain::test_utils::make_tx_hash;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils;
 use crate::database::dao_utils::{from_time_t, to_time_t};
@@ -823,7 +824,7 @@ pub fn make_pending_payable_fingerprint() -> PendingPayableFingerprint {
     PendingPayableFingerprint {
         rowid_opt: Some(33),
         timestamp: from_time_t(222_222_222),
-        hash: H256::from_uint(&U256::from(456)),
+        hash: make_tx_hash(456),
         attempt_opt: Some(0),
         amount: 12345,
         process_error: None,
@@ -851,7 +852,7 @@ pub fn account_status(conn: &Connection, wallet: &Wallet) -> Option<PayableAccou
                 pending_payable_opt: match rowid {
                     Some(rowid) => Some(PendingPayableId {
                         rowid: u64::try_from(rowid).unwrap(),
-                        hash: H256::from_uint(&U256::from(0)), //garbage
+                        hash: make_tx_hash(0), //garbage
                     }),
                     None => None,
                 },

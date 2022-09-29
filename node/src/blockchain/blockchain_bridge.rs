@@ -7,7 +7,7 @@ use crate::accountant::{
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
-    BlockchainInterfaceNonClandestine, BlockchainResult,
+    BlockchainInterfaceNonClandestine, BlockchainResult, PendingPayableFallible,
 };
 use crate::database::db_initializer::{DbInitializer, DATABASE_FILE};
 use crate::database::db_migrations::MigratorConfig;
@@ -54,7 +54,7 @@ pub struct BlockchainBridge<T: Transport = Http> {
 }
 
 struct TransactionConfirmationTools {
-    pp_fingerprint_sub_opt: Option<Recipient<PendingPayableFingerprint>>,
+    pp_fingerprint_sub_opt: Option<Recipient<InitiatePPFingerprints>>,
     report_transaction_receipts_sub_opt: Option<Recipient<ReportTransactionReceipts>>,
 }
 
@@ -71,7 +71,7 @@ impl Handler<BindMessage> for BlockchainBridge {
             msg.peer_actors.proxy_server.set_consuming_wallet_sub,
         ]);
         self.pay_payable_confirmation.pp_fingerprint_sub_opt =
-            Some(msg.peer_actors.accountant.pending_payable_fingerprint);
+            Some(msg.peer_actors.accountant.init_pending_payable_fingerprints);
         self.pay_payable_confirmation
             .report_transaction_receipts_sub_opt =
             Some(msg.peer_actors.accountant.report_transaction_receipts);
@@ -143,12 +143,18 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Message, Clone)]
+#[derive(Debug, PartialEq, Eq, Message)]
+pub struct InitiatePPFingerprints {
+    pub batch_wide_timestamp: SystemTime,
+    pub init_params: Vec<(H256, u64)>,
+}
+
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PendingPayableFingerprint {
-    pub rowid_opt: Option<u64>, //None when initialized
+    pub rowid_opt: Option<u64>, //None when initialized //TODO no need to be yet optional
     pub timestamp: SystemTime,
     pub hash: H256,
-    pub attempt_opt: Option<u16>, //None when initialized
+    pub attempt_opt: Option<u16>, //None when initialized //TODO no need to be yet optional
     pub amount: u64,
     pub process_error: Option<String>,
 }
@@ -236,7 +242,7 @@ impl BlockchainBridge {
         creditors_msg: &ReportAccountsPayable,
     ) -> Result<(), String> {
         let skeleton = creditors_msg.response_skeleton_opt;
-        let processed_payments = self.preprocess_payments(creditors_msg);
+        let processed_payments = self.start_preprocessing_payments(creditors_msg);
         processed_payments.map(|payments| {
             self.sent_payable_subs_opt
                 .as_ref()
@@ -250,15 +256,16 @@ impl BlockchainBridge {
         })
     }
 
-    fn preprocess_payments(
+    fn start_preprocessing_payments(
         &self,
         creditors_msg: &ReportAccountsPayable,
-    ) -> Result<Vec<BlockchainResult<PendingPayable>>, String> {
+    ) -> Result<BlockchainResult<Vec<PendingPayableFallible>>, String> {
         match self.consuming_wallet_opt.as_ref() {
             Some(consuming_wallet) => match self.persistent_config.gas_price() {
                 Ok(gas_price) => {
                     Ok(self.process_payments(creditors_msg, gas_price, consuming_wallet))
                 }
+
                 Err(err) => Err(format!("ReportAccountPayable: gas-price: {:?}", err)),
             },
             None => Err(String::from("No consuming wallet specified")),
@@ -385,7 +392,7 @@ impl BlockchainBridge {
         creditors_msg: &ReportAccountsPayable,
         gas_price: u64,
         consuming_wallet: &Wallet,
-    ) -> Vec<BlockchainResult<PendingPayable>> {
+    ) -> BlockchainResult<Vec<PendingPayableFallible>> {
         //todo change to use of a question mark
         let executable_payments = match self.check_our_capability_to_pay(&creditors_msg.accounts) {
             Ok(ok) => {
@@ -407,7 +414,7 @@ impl BlockchainBridge {
             .pp_fingerprint_sub_opt
             .as_ref()
             .expect("Accountant unbound");
-        match self.blockchain_interface.send_batch_of_payables(
+        match self.blockchain_interface.send_payables_within_batch(
             consuming_wallet,
             gas_price,
             last_nonce,
@@ -487,10 +494,10 @@ mod tests {
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_bridge::PendingPayable;
     use crate::blockchain::blockchain_interface::{
-        BlockchainError, BlockchainTransaction, BlockchainTransactionError,
+        BlockchainError, BlockchainTransaction, PayableTransactionError,
         RetrievedBlockchainTransactions,
     };
-    use crate::blockchain::test_utils::BlockchainInterfaceMock;
+    use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
     use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
@@ -504,6 +511,7 @@ mod tests {
     use actix::System;
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
+    use jsonrpc_core::ErrorCode;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::init_test_logging;
@@ -591,14 +599,14 @@ mod tests {
     #[test]
     fn report_accounts_payable_returns_error_for_blockchain_error() {
         let get_transaction_count_params_arc = Arc::new(Mutex::new(vec![]));
-        let transaction_hash = H256::from_uint(&U256::from(789));
+        let transaction_hash = make_tx_hash(789);
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_params(&get_transaction_count_params_arc)
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
-            .send_transaction_result(Err(BlockchainTransactionError::Sending(
-                String::from("mock payment failure"),
-                transaction_hash,
-            )));
+            .send_payables_within_batch_result(Err(PayableTransactionError::FromRemoteCall {
+                inherited_code: ErrorCode::ParseError,
+                msg: String::from("mock payment failure"),
+            }));
         let consuming_wallet = make_wallet("somewallet");
         let persistent_configuration_mock =
             PersistentConfigurationMock::new().gas_price_result(Ok(3u64));
@@ -621,11 +629,11 @@ mod tests {
         let backup_recipient = accountant.start().recipient();
         subject.pay_payable_confirmation.pp_fingerprint_sub_opt = Some(backup_recipient);
 
-        let result = subject.preprocess_payments(&request);
+        let result = subject.start_preprocessing_payments(&request);
 
         assert_eq!(
             result,
-            Ok(vec![Err(BlockchainError::TransactionFailed {
+            Ok(vec![Err(BlockchainError::SendingPayableFailed {
                 msg: String::from("Sending: mock payment failure"),
                 hash_opt: Some(transaction_hash)
             })])
@@ -654,7 +662,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.preprocess_payments(&request);
+        let result = subject.start_preprocessing_payments(&request);
 
         assert_eq!(result, Err("No consuming wallet specified".to_string()));
     }
@@ -670,12 +678,12 @@ mod tests {
             .get_transaction_count_params(&get_transaction_count_params_arc)
             .get_transaction_count_result(Ok(U256::from(1u64)))
             .get_transaction_count_result(Ok(U256::from(2u64)))
-            .send_transaction_params(&send_transaction_params_arc)
-            .send_transaction_result(Ok((
+            .send_payables_within_batch_params(&send_transaction_params_arc)
+            .send_payables_within_batch_result(Ok((
                 H256::from("sometransactionhash".keccak256()),
                 from_time_t(150_000_000),
             )))
-            .send_transaction_result(Ok((
+            .send_payables_within_batch_result(Ok((
                 H256::from("someothertransactionhash".keccak256()),
                 from_time_t(160_000_000),
             )));
@@ -815,7 +823,7 @@ mod tests {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let pending_payable_fingerprint_1 = make_pending_payable_fingerprint();
         let hash_1 = pending_payable_fingerprint_1.hash;
-        let hash_2 = H256::from_uint(&U256::from(78989));
+        let hash_2 = make_tx_hash(78989);
         let pending_payable_fingerprint_2 = PendingPayableFingerprint {
             rowid_opt: Some(456),
             timestamp: SystemTime::now(),
@@ -917,10 +925,10 @@ mod tests {
         let report_transaction_receipt_recipient: Recipient<ReportTransactionReceipts> =
             accountant_addr.clone().recipient();
         let scan_error_recipient: Recipient<ScanError> = accountant_addr.recipient();
-        let hash_1 = H256::from_uint(&U256::from(111334));
-        let hash_2 = H256::from_uint(&U256::from(100000));
-        let hash_3 = H256::from_uint(&U256::from(78989));
-        let hash_4 = H256::from_uint(&U256::from(11111));
+        let hash_1 = make_tx_hash(111334);
+        let hash_2 = make_tx_hash(100000);
+        let hash_3 = make_tx_hash(78989);
+        let hash_4 = make_tx_hash(11111);
         let mut fingerprint_1 = make_pending_payable_fingerprint();
         fingerprint_1.hash = hash_1;
         let fingerprint_2 = PendingPayableFingerprint {
@@ -1026,7 +1034,7 @@ mod tests {
     ) {
         init_test_logging();
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
-        let hash_1 = H256::from_uint(&U256::from(111334));
+        let hash_1 = make_tx_hash(111334);
         let fingerprint_1 = PendingPayableFingerprint {
             rowid_opt: Some(454),
             timestamp: SystemTime::now(),
@@ -1038,7 +1046,7 @@ mod tests {
         let fingerprint_2 = PendingPayableFingerprint {
             rowid_opt: Some(456),
             timestamp: SystemTime::now(),
-            hash: H256::from_uint(&U256::from(222444)),
+            hash: make_tx_hash(222444),
             attempt_opt: Some(3),
             amount: 4565,
             process_error: None,

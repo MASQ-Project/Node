@@ -182,6 +182,7 @@ mod tests {
     };
     use crate::accountant::unsigned_to_signed;
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
+    use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
@@ -202,7 +203,7 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
-        let hash = H256::from_uint(&U256::from(45466));
+        let hash = make_tx_hash(45466);
         let amount = 55556;
         let timestamp = from_time_t(200_000_000);
         let subject = PendingPayableDaoReal::new(wrapped_conn);
@@ -240,7 +241,7 @@ mod tests {
         )
         .unwrap();
         let wrapped_conn = ConnectionWrapperReal::new(conn_read_only);
-        let hash = H256::from_uint(&U256::from(45466));
+        let hash = make_tx_hash(45466);
         let amount = 55556;
         let timestamp = from_time_t(200_000_000);
         let subject = PendingPayableDaoReal::new(Box::new(wrapped_conn));
@@ -266,7 +267,7 @@ mod tests {
             .unwrap();
         let subject = PendingPayableDaoReal::new(wrapped_conn);
         let timestamp = from_time_t(195_000_000);
-        let hash = H256::from_uint(&U256::from(11119));
+        let hash = make_tx_hash(11119);
         let amount = 787;
         {
             subject
@@ -297,7 +298,7 @@ mod tests {
             assert_eq!(err, Error::QueryReturnedNoRows);
         }
         let subject = PendingPayableDaoReal::new(wrapped_conn);
-        let hash = H256::from_uint(&U256::from(11119));
+        let hash = make_tx_hash(11119);
 
         let result = subject.fingerprint_rowid(hash);
 
@@ -315,10 +316,10 @@ mod tests {
             .unwrap();
         let subject = PendingPayableDaoReal::new(wrapped_conn);
         let timestamp_1 = from_time_t(195_000_000);
-        let hash_1 = H256::from_uint(&U256::from(11119));
+        let hash_1 = make_tx_hash(11119);
         let amount_1 = 787;
         let timestamp_2 = from_time_t(198_000_000);
-        let hash_2 = H256::from_uint(&U256::from(10000));
+        let hash_2 = make_tx_hash(10000);
         let amount_2 = 333;
         {
             subject
@@ -367,15 +368,11 @@ mod tests {
             .unwrap();
         let subject = PendingPayableDaoReal::new(wrapped_conn);
         let timestamp = from_time_t(198_000_000);
-        let hash = H256::from_uint(&U256::from(10000));
+        let hash = make_tx_hash(10000);
         let amount = 333;
         {
             subject
-                .insert_new_fingerprint(
-                    H256::from_uint(&U256::from(11119)),
-                    2000,
-                    SystemTime::now(),
-                )
+                .insert_new_fingerprint(make_tx_hash(11119), 2000, SystemTime::now())
                 .unwrap();
             //we know that the previous record has a rowid=1, so we don't need to ask
             subject.mark_failure(1).unwrap();
@@ -408,7 +405,7 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
-        let hash = H256::from_uint(&U256::from(666666));
+        let hash = make_tx_hash(666666);
         let rowid = 1;
         let subject = PendingPayableDaoReal::new(conn);
         {
@@ -469,7 +466,7 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
-        let hash = H256::from_uint(&U256::from(666));
+        let hash = make_tx_hash(666);
         let amount = 1234;
         let timestamp = from_time_t(190_000_000);
         let subject = PendingPayableDaoReal::new(conn);
@@ -533,7 +530,7 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
-        let hash = H256::from_uint(&U256::from(666));
+        let hash = make_tx_hash(666);
         let amount = 1234;
         let timestamp = from_time_t(190_000_000);
         let subject = PendingPayableDaoReal::new(conn);

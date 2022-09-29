@@ -2,16 +2,16 @@
 
 #![cfg(test)]
 
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
+use crate::blockchain::blockchain_bridge::{InitiatePPFingerprints, PendingPayableFingerprint};
 use crate::blockchain::blockchain_interface::{
-    Balance, BlockchainError, BlockchainInterface, BlockchainResult, BlockchainTransactionError,
-    Nonce, PendingPayableFallible, Receipt, REQUESTS_IN_PARALLEL,
+    Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce,
+    PayableTransactionError, PendingPayableFallible, Receipt, REQUESTS_IN_PARALLEL,
 };
 use crate::blockchain::tool_wrappers::BatchedPayableTools;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use bip39::{Language, Mnemonic, Seed};
-use ethereum_types::H256;
+use ethereum_types::{BigEndianHash, H256};
 use jsonrpc_core as rpc;
 use jsonrpc_core::Call;
 use lazy_static::lazy_static;
@@ -58,8 +58,9 @@ pub struct BlockchainInterfaceMock {
     retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
-    send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
-    send_transaction_results: RefCell<Vec<Result<(H256, SystemTime), BlockchainTransactionError>>>,
+    send_payables_within_batch_params: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
+    send_payables_within_batch_results:
+        RefCell<Vec<Result<(H256, SystemTime), PayableTransactionError>>>,
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
     get_transaction_receipt_results: RefCell<Vec<Receipt>>,
     contract_address_results: RefCell<Vec<Address>>,
@@ -81,19 +82,21 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn send_transaction_params(
+    pub fn send_payables_within_batch_params(
         mut self,
         params: &Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
     ) -> Self {
-        self.send_transaction_parameters = params.clone();
+        self.send_payables_within_batch_params = params.clone();
         self
     }
 
-    pub fn send_transaction_result(
+    pub fn send_payables_within_batch_result(
         self,
-        result: Result<(H256, SystemTime), BlockchainTransactionError>,
+        result: Result<(H256, SystemTime), PayableTransactionError>,
     ) -> Self {
-        self.send_transaction_results.borrow_mut().push(result);
+        self.send_payables_within_batch_results
+            .borrow_mut()
+            .push(result);
         self
     }
 
@@ -142,14 +145,14 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.retrieve_transactions_results.borrow_mut().remove(0)
     }
 
-    fn send_batch_of_payables(
+    fn send_payables_within_batch(
         &self,
         consuming_wallet: &Wallet,
         gas_price: u64,
         last_nonce: U256,
-        fingerprint_recipient: &Recipient<PendingPayableFingerprint>,
+        fingerprint_recipient: &Recipient<InitiatePPFingerprints>,
         accounts: Vec<PayableAccount>,
-    ) -> Result<(SystemTime, Vec<PendingPayableFallible>), BlockchainTransactionError> {
+    ) -> Result<(SystemTime, Vec<PendingPayableFallible>), PayableTransactionError> {
         todo!()
     }
 
@@ -300,7 +303,7 @@ impl<T> SendTransactionToolWrapperFactoryMock<T> {
 }
 
 #[derive(Default)]
-pub struct BatchedPayableToolsMock {
+pub struct BatchedPayableToolsMock<T: BatchTransport> {
     sign_transaction_params:
         Arc<Mutex<Vec<(TransactionParameters, secp256k1secrets::key::SecretKey)>>>,
     sign_transaction_results: RefCell<Vec<Result<SignedTransaction, Web3Error>>>,
@@ -309,17 +312,17 @@ pub struct BatchedPayableToolsMock {
         Mutex<
             Vec<(
                 SystemTime,
-                Recipient<PendingPayableFingerprint>,
+                Recipient<InitiatePPFingerprints>,
                 Vec<(H256, u64)>,
             )>,
         >,
     >,
     request_new_pending_payable_fingerprint_results: RefCell<Vec<SystemTime>>,
-    send_raw_transaction_params: Arc<Mutex<Vec<Bytes>>>,
-    send_raw_transaction_results: RefCell<Vec<Result<H256, Web3Error>>>,
+    send_batch_params: Arc<Mutex<Vec<Web3<Batch<T>>>>>,
+    send_batch_results: RefCell<Vec<Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error>>>,
 }
 
-impl<T: BatchTransport> BatchedPayableTools<T> for BatchedPayableToolsMock {
+impl<T: BatchTransport> BatchedPayableTools<T> for BatchedPayableToolsMock<T> {
     fn sign_transaction(
         &self,
         transaction_params: TransactionParameters,
@@ -337,11 +340,11 @@ impl<T: BatchTransport> BatchedPayableTools<T> for BatchedPayableToolsMock {
         self.system_wide_timestamp_results.borrow_mut().remove(0)
     }
 
-    fn request_new_payable_fingerprint(
+    fn new_payable_fingerprints(
         &self,
         batch_wide_timestamp: SystemTime,
-        pp_fingerprint_sub: &Recipient<PendingPayableFingerprint>,
-        payable_attributes: Vec<(H256, u64)>,
+        pp_fingerprint_sub: &Recipient<InitiatePPFingerprints>,
+        payable_attributes: &[(H256, u64)],
     ) {
         self.request_new_pending_payable_fingerprint_params
             .lock()
@@ -349,17 +352,20 @@ impl<T: BatchTransport> BatchedPayableTools<T> for BatchedPayableToolsMock {
             .push((
                 batch_wide_timestamp,
                 (*pp_fingerprint_sub).clone(),
-                payable_attributes,
+                payable_attributes.to_vec(),
             ));
     }
 
-    fn send_batch(&self, rlp: Bytes, web3: Web3<Batch<T>>) -> Result<H256, Web3Error> {
-        self.send_raw_transaction_params.lock().unwrap().push(rlp);
-        self.send_raw_transaction_results.borrow_mut().remove(0)
+    fn send_batch(
+        &self,
+        web3: &Web3<Batch<T>>,
+    ) -> Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error> {
+        self.send_batch_params.lock().unwrap().push(web3.clone());
+        self.send_batch_results.borrow_mut().remove(0)
     }
 }
 
-impl BatchedPayableToolsMock {
+impl<T: BatchTransport> BatchedPayableToolsMock<T> {
     pub fn sign_transaction_params(
         mut self,
         params: &Arc<Mutex<Vec<(TransactionParameters, secp256k1secrets::key::SecretKey)>>>,
@@ -383,7 +389,7 @@ impl BatchedPayableToolsMock {
             Mutex<
                 Vec<(
                     SystemTime,
-                    Recipient<PendingPayableFingerprint>,
+                    Recipient<InitiatePPFingerprints>,
                     Vec<(H256, u64)>,
                 )>,
             >,
@@ -393,12 +399,15 @@ impl BatchedPayableToolsMock {
         self
     }
 
-    pub fn send_raw_transaction_params(mut self, params: &Arc<Mutex<Vec<Bytes>>>) -> Self {
-        self.send_raw_transaction_params = params.clone();
+    pub fn send_batch_params(mut self, params: &Arc<Mutex<Vec<Web3<Batch<T>>>>>) -> Self {
+        self.send_batch_params = params.clone();
         self
     }
-    pub fn send_raw_transaction_result(self, result: Result<H256, Web3Error>) -> Self {
-        self.send_raw_transaction_results.borrow_mut().push(result);
+    pub fn send_batch_result(
+        self,
+        result: Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error>,
+    ) -> Self {
+        self.send_batch_results.borrow_mut().push(result);
         self
     }
 }
@@ -412,4 +421,8 @@ pub fn make_default_signed_transaction() -> SignedTransaction {
         raw_transaction: Default::default(),
         transaction_hash: Default::default(),
     }
+}
+
+pub fn make_tx_hash(base: u32) -> H256 {
+    H256::from_uint(&U256::from(base))
 }

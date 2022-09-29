@@ -4,6 +4,7 @@ use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables,
     ScanForPendingPayables, ScanForReceivables, SentPayable,
 };
+use crate::blockchain::blockchain_bridge::InitiatePPFingerprints;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::daemon::crash_notification::CrashNotification;
@@ -130,7 +131,7 @@ recorder_message_handler!(SetGasPriceMsg);
 recorder_message_handler!(StartMessage);
 recorder_message_handler!(StreamShutdownMsg);
 recorder_message_handler!(TransmitDataMsg);
-recorder_message_handler!(PendingPayableFingerprint);
+recorder_message_handler!(InitiatePPFingerprints);
 recorder_message_handler!(RetrieveTransactions);
 recorder_message_handler!(RequestTransactionReceipts);
 recorder_message_handler!(ReportTransactionReceipts);
@@ -380,7 +381,7 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_routing_service_consumed: recipient!(addr, ReportRoutingServiceConsumedMessage),
         report_exit_service_consumed: recipient!(addr, ReportExitServiceConsumedMessage),
         report_new_payments: recipient!(addr, ReceivedPayments),
-        pending_payable_fingerprint: recipient!(addr, PendingPayableFingerprint),
+        init_pending_payable_fingerprints: recipient!(addr, InitiatePPFingerprints),
         report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
         report_sent_payments: recipient!(addr, SentPayable),
         scan_errors: recipient!(addr, ScanError),

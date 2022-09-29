@@ -31,15 +31,13 @@ pub struct PayableAccount {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PendingPayable {
     pub to: Wallet,
-    pub amount: u64,
     pub tx_hash: H256,
 }
 
 impl PendingPayable {
-    pub fn new(to: Wallet, amount: u64, txn: H256) -> Self {
+    pub fn new(to: Wallet, txn: H256) -> Self {
         Self {
             to,
-            amount,
             tx_hash: txn,
         }
     }
@@ -322,6 +320,7 @@ impl PayableDaoReal {
 mod tests {
     use super::*;
     use crate::accountant::test_utils::{account_status, make_pending_payable_fingerprint};
+    use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
@@ -457,7 +456,7 @@ mod tests {
         let mut after_expected_status = before_expected_status;
         after_expected_status.pending_payable_opt = Some(PendingPayableId {
             rowid: pending_payable_rowid,
-            hash: H256::from_uint(&U256::from(0)), //garbage
+            hash: make_tx_hash(0), //garbage
         });
         assert_eq!(after_account_status, after_expected_status)
     }
@@ -534,7 +533,7 @@ mod tests {
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         let secondary_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
-        let hash = H256::from_uint(&U256::from(12345));
+        let hash = make_tx_hash(12345);
         let rowid = 789;
         let previous_timestamp = from_time_t(190_000_000);
         let payable_timestamp = from_time_t(199_000_000);
@@ -561,7 +560,7 @@ mod tests {
                 last_paid_timestamp: previous_timestamp,
                 pending_payable_opt: Some(PendingPayableId {
                     rowid,
-                    hash: H256::from_uint(&U256::from(0))
+                    hash: make_tx_hash(0)
                 }) //hash is just garbage
             })
         );
@@ -598,7 +597,7 @@ mod tests {
         let conn = how_to_trick_rusqlite_for_an_error(&home_dir);
         let conn_wrapped = ConnectionWrapperReal::new(conn);
         let mut pending_payable_fingerprint = make_pending_payable_fingerprint();
-        let hash = H256::from_uint(&U256::from(12345));
+        let hash = make_tx_hash(12345);
         let rowid = 789;
         pending_payable_fingerprint.hash = hash;
         pending_payable_fingerprint.rowid_opt = Some(rowid);
@@ -627,7 +626,7 @@ mod tests {
                 .unwrap(),
         );
         let mut pending_payable_fingerprint = make_pending_payable_fingerprint();
-        let hash = H256::from_uint(&U256::from(12345));
+        let hash = make_tx_hash(12345);
         let rowid = 789;
         pending_payable_fingerprint.hash = hash;
         pending_payable_fingerprint.rowid_opt = Some(rowid);

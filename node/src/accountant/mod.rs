@@ -21,8 +21,11 @@ use crate::accountant::receivable_dao::{
 };
 use crate::accountant::tools::accountant_tools::{Scanner, Scanners, TransactionConfirmationTools};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
-use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
-use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
+use crate::blockchain::blockchain_bridge::{
+    InitiatePPFingerprints, PendingPayableFingerprint, RetrieveTransactions,
+};
+use crate::blockchain::blockchain_interface::PendingPayableFallible::{Correct, Failure};
+use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction, PendingPayableFallible, RpcPayableFailure};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_migrations::MigratorConfig;
@@ -43,7 +46,7 @@ use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::Recipient;
-use itertools::Itertools;
+use itertools::{Either, Itertools};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiFinancialsResponse;
@@ -59,6 +62,7 @@ use std::default::Default;
 use std::ops::Add;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
+use itertools::Either::{Left, Right};
 use web3::types::{TransactionReceipt, H256};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
@@ -106,7 +110,7 @@ pub struct ReceivedPayments {
 #[derive(Debug, Message, PartialEq, Eq)]
 pub struct SentPayable {
     pub timestamp: SystemTime,
-    pub payable: Vec<Result<PendingPayable, BlockchainError>>,
+    pub payable: Result<Vec<PendingPayableFallible>, BlockchainError>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -372,10 +376,10 @@ impl Handler<ConfirmPendingTransaction> for Accountant {
     }
 }
 
-impl Handler<PendingPayableFingerprint> for Accountant {
+impl Handler<InitiatePPFingerprints> for Accountant {
     type Result = ();
-    fn handle(&mut self, msg: PendingPayableFingerprint, _ctx: &mut Self::Context) -> Self::Result {
-        self.handle_new_pending_payable_fingerprint(msg)
+    fn handle(&mut self, msg: InitiatePPFingerprints, _ctx: &mut Self::Context) -> Self::Result {
+        self.handle_new_pending_payable_fingerprints(msg)
     }
 }
 
@@ -443,7 +447,7 @@ impl Accountant {
             report_routing_service_consumed: recipient!(addr, ReportRoutingServiceConsumedMessage),
             report_exit_service_consumed: recipient!(addr, ReportExitServiceConsumedMessage),
             report_new_payments: recipient!(addr, ReceivedPayments),
-            pending_payable_fingerprint: recipient!(addr, PendingPayableFingerprint),
+            init_pending_payable_fingerprints: recipient!(addr, InitiatePPFingerprints),
             report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
             report_sent_payments: recipient!(addr, SentPayable),
             scan_errors: recipient!(addr, ScanError),
@@ -808,14 +812,21 @@ impl Accountant {
     }
 
     fn handle_sent_payable(&self, sent_payable: SentPayable) {
-        let (ok, err) = Self::separate_early_errors(&sent_payable, &self.logger);
-        debug!(self.logger, "We gathered these errors at sending transactions for payable: {:?}, out of the total of {} attempts", err, ok.len() + err.len());
+        let (ok, err_opt) = Self::separate_errors(&sent_payable, &self.logger);
+        debug!(self.logger,"Received {} of correctly sent off payables", ok.len());
         self.mark_pending_payable(ok);
-        if !err.is_empty() {
-            err.into_iter().for_each(|err|
-            if let Some(hash) = err.carries_transaction_hash(){
-                self.discard_incomplete_transaction_with_a_failure(hash)
-            } else {debug!(self.logger,"Forgetting a transaction attempt that even did not reach the signing stage")})
+        if let Some(err) = err_opt{
+            match err{
+                Left(our_procedure_err) => todo!(),
+                Right(remote_procedure_err) => todo!()
+            }
+            // debug!(self.logger, "We gathered these errors at sending payables: {:?}, out of the total of {} attempts", err, ok.len() + err.len());
+            // if !err.is_empty() {
+            //     err.into_iter().for_each(|err|
+            //         if let Some(hash) = err.carries_transaction_hash(){
+            //             self.discard_incomplete_transaction_with_a_failure(hash)
+            //         } else {debug!(self.logger,"Forgetting a transaction attempt that even did not reach the signing stage")})
+            // }
         }
         if let Some(response_skeleton) = &sent_payable.response_skeleton_opt {
             self.ui_message_sub
@@ -1008,25 +1019,38 @@ impl Accountant {
         }
     }
 
-    fn separate_early_errors(
+    fn separate_errors(
         sent_payments: &SentPayable,
         logger: &Logger,
-    ) -> (Vec<PendingPayable>, Vec<BlockchainError>) {
-        sent_payments
-            .payable
-            .iter()
-            .fold((vec![],vec![]),|so_far,payment| {
-                match payment{
-                    Ok(payment_sent) => (plus(so_far.0,payment_sent.clone()),so_far.1),
-                    Err(error) => {
-                        logger.warning(|| match &error {
-                            BlockchainError::TransactionFailed { .. } => format!("Encountered transaction error at this end: '{:?}'", error),
-                            x => format!("Outbound transaction failure due to '{:?}'. Please check your blockchain service URL configuration.", x)
-                        });
-                        (so_far.0,plus(so_far.1,error.clone()))
-                    }
-                }
-            })
+    ) -> (Vec<PendingPayable>, Option<Either<BlockchainError, Vec<RpcPayableFailure>>>) {
+        match &sent_payments.payable {
+            Ok(batch_responses) => {
+                todo!();
+                batch_responses
+                    .iter()
+                    .fold(
+                        (vec![], None),
+                        |so_far, request_outcome| match request_outcome {
+                            Correct(payment_sent) => {
+                                (plus(so_far.0, payment_sent.clone()), so_far.1)
+                            }
+                            Failure {rpc_failure
+                            } => {
+                                todo!("log warning here about these errors");
+                                warning!(logger,"blaaaaaaaaaaaah");
+                                (so_far.0, plus(so_far.1, rpc_failure.clone()))
+                            }
+                        },
+                    )
+            }
+            Err(e) => {
+                todo!();
+                logger.warning(|| match e {
+                    BlockchainError::SendingPayableFailed { .. } => format!("Encountered transaction error at this end: '{:?}'", e),
+                    x => format!("Outbound transaction failure due to '{:?}'. Please check your blockchain service URL configuration.", x)
+                })
+            }
+        }
     }
 
     fn mark_pending_payable(&self, sent_payments: Vec<PendingPayable>) {
@@ -1188,20 +1212,21 @@ impl Accountant {
         );
     }
 
-    fn handle_new_pending_payable_fingerprint(&self, msg: PendingPayableFingerprint) {
-        match self
-            .pending_payable_dao
-            .insert_new_fingerprint(msg.hash, msg.amount, msg.timestamp)
-        {
-            Ok(_) => debug!(
-                self.logger,
-                "Processed a pending payable fingerprint for '{:?}'", msg.hash
-            ),
-            Err(e) => error!(
-                self.logger,
-                "Failed to make a fingerprint for pending payable '{}' due to '{:?}'", msg.hash, e
-            ),
-        }
+    fn handle_new_pending_payable_fingerprints(&self, msg: InitiatePPFingerprints) {
+        todo!()
+        // match self
+        //     .pending_payable_dao
+        //     .insert_new_fingerprint(msg.hash, msg.amount, msg.timestamp)
+        // {
+        //     Ok(_) => debug!(
+        //         self.logger,
+        //         "Processed a pending payable fingerprint for '{:?}'", msg.hash
+        //     ),
+        //     Err(e) => error!(
+        //         self.logger,
+        //         "Failed to make a fingerprint for pending payable '{}' due to '{:?}'", msg.hash, e
+        //     ),
+        // }
     }
 }
 
@@ -1309,7 +1334,7 @@ mod tests {
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::blockchain::blockchain_interface::BlockchainTransaction;
-    use crate::blockchain::test_utils::BlockchainInterfaceMock;
+    use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
     use crate::bootstrapper::BootstrapperConfig;
     use crate::database::dao_utils::from_time_t;
     use crate::database::dao_utils::to_time_t;
@@ -1885,10 +1910,10 @@ mod tests {
         let accountant = AccountantBuilder::default()
             .pending_payable_dao(pending_payable_dao)
             .build();
-        let hash = H256::from_uint(&U256::from(12345));
+        let hash = make_tx_hash(12345);
         let sent_payable = SentPayable {
             timestamp: SystemTime::now(),
-            payable: vec![Err(BlockchainError::TransactionFailed {
+            payable: vec![Err(BlockchainError::SendingPayableFailed {
                 msg: "SQLite migraine".to_string(),
                 hash_opt: Some(hash),
             })],
@@ -1941,8 +1966,8 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let wallet = make_wallet("blah");
-        let hash_tx_1 = H256::from_uint(&U256::from(5555));
-        let hash_tx_2 = H256::from_uint(&U256::from(12345));
+        let hash_tx_1 = make_tx_hash(5555);
+        let hash_tx_2 = make_tx_hash(12345);
         let sent_payable = SentPayable {
             timestamp: SystemTime::now(),
             payable: vec![
@@ -1951,7 +1976,7 @@ mod tests {
                     amount: 5656,
                     tx_hash: hash_tx_1,
                 }),
-                Err(BlockchainError::TransactionFailed {
+                Err(BlockchainError::SendingPayableFailed {
                     msg: "Attempt failed".to_string(),
                     hash_opt: Some(hash_tx_2),
                 }),
@@ -2371,7 +2396,7 @@ mod tests {
         let pending_payable_fingerprint_record = PendingPayableFingerprint {
             rowid_opt: Some(45454),
             timestamp: SystemTime::now(),
-            hash: H256::from_uint(&U256::from(565)),
+            hash: make_tx_hash(565),
             attempt_opt: Some(1),
             amount: 4589,
             process_error: None,
@@ -2805,7 +2830,7 @@ mod tests {
         let payable_fingerprint_1 = PendingPayableFingerprint {
             rowid_opt: Some(555),
             timestamp: from_time_t(210_000_000),
-            hash: H256::from_uint(&U256::from(45678)),
+            hash: make_tx_hash(45678),
             attempt_opt: Some(0),
             amount: 4444,
             process_error: None,
@@ -2813,7 +2838,7 @@ mod tests {
         let payable_fingerprint_2 = PendingPayableFingerprint {
             rowid_opt: Some(550),
             timestamp: from_time_t(210_000_100),
-            hash: H256::from_uint(&U256::from(112233)),
+            hash: make_tx_hash(112233),
             attempt_opt: Some(0),
             amount: 7999,
             process_error: None,
@@ -3504,8 +3529,7 @@ mod tests {
         expected = "Was unable to create a mark in payables for a new pending payable '0x0000…007b' due to 'SignConversion(9999999999999)'"
     )]
     fn handle_sent_payable_fails_to_make_a_mark_in_payables_and_so_panics() {
-        let payable =
-            PendingPayable::new(make_wallet("blah"), 6789, H256::from_uint(&U256::from(123)));
+        let payable = PendingPayable::new(make_wallet("blah"), 6789, make_tx_hash(123));
         let payable_dao = PayableDaoMock::new()
             .mark_pending_payable_rowid_result(Err(PayableDaoError::SignConversion(9999999999999)));
         let pending_payable_dao =
@@ -3526,10 +3550,10 @@ mod tests {
     fn handle_sent_payable_dealing_with_failed_payment_fails_to_delete_the_existing_pending_payable_fingerprint_and_panics(
     ) {
         let rowid = 4;
-        let hash = H256::from_uint(&U256::from(123));
+        let hash = make_tx_hash(123);
         let sent_payable = SentPayable {
             timestamp: SystemTime::now(),
-            payable: vec![Err(BlockchainError::TransactionFailed {
+            payable: vec![Err(BlockchainError::SendingPayableFailed {
                 msg: "blah".to_string(),
                 hash_opt: Some(hash),
             })],
@@ -3555,9 +3579,9 @@ mod tests {
         let now_system = SystemTime::now();
         let payable_1 = Err(BlockchainError::InvalidResponse);
         let payable_2_rowid = 126;
-        let payable_hash_2 = H256::from_uint(&U256::from(166));
+        let payable_hash_2 = make_tx_hash(166);
         let payable_2 = PendingPayable::new(make_wallet("booga"), 6789, payable_hash_2);
-        let payable_3 = Err(BlockchainError::TransactionFailed {
+        let payable_3 = Err(BlockchainError::SendingPayableFailed {
             msg: "closing hours, sorry".to_string(),
             hash_opt: None,
         });
@@ -3592,7 +3616,7 @@ mod tests {
     fn handle_sent_payable_receives_proper_payment_but_fingerprint_not_found_so_it_panics() {
         init_test_logging();
         let now_system = SystemTime::now();
-        let payment_hash = H256::from_uint(&U256::from(789));
+        let payment_hash = make_tx_hash(789);
         let payment = PendingPayable::new(make_wallet("booga"), 6789, payment_hash);
         let pending_payable_dao = PendingPayableDaoMock::default().fingerprint_rowid_result(None);
         let subject = AccountantBuilder::default()
@@ -3656,7 +3680,7 @@ mod tests {
     )]
     fn handle_confirm_pending_transaction_panics_on_unchecking_payable_table() {
         init_test_logging();
-        let hash = H256::from_uint(&U256::from(789));
+        let hash = make_tx_hash(789);
         let rowid = 3;
         let payable_dao = PayableDaoMock::new().transaction_confirmed_result(Err(
             PayableDaoError::RusqliteError("record change not successful".to_string()),
@@ -3680,7 +3704,7 @@ mod tests {
     )]
     fn handle_confirm_pending_transaction_panics_on_deleting_pending_payable_fingerprint() {
         init_test_logging();
-        let hash = H256::from_uint(&U256::from(789));
+        let hash = make_tx_hash(789);
         let rowid = 3;
         let payable_dao = PayableDaoMock::new().transaction_confirmed_result(Ok(()));
         let pending_payable_dao = PendingPayableDaoMock::default().delete_fingerprint_result(Err(
@@ -3953,8 +3977,8 @@ mod tests {
         let notify_confirm_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_confirm_transaction_params_arc_cloned =
             notify_confirm_transaction_params_arc.clone(); //because it moves into a closure
-        let pending_tx_hash_1 = H256::from_uint(&U256::from(123));
-        let pending_tx_hash_2 = H256::from_uint(&U256::from(567));
+        let pending_tx_hash_1 = make_tx_hash(123);
+        let pending_tx_hash_2 = make_tx_hash(567);
         let rowid_for_account_1 = 3;
         let rowid_for_account_2 = 5;
         let now = SystemTime::now();
@@ -3982,8 +4006,8 @@ mod tests {
             //because we cannot have both, resolution on the high level and also of what's inside blockchain interface,
             //there is one component missing in this wholesome test - the part where we send a request for
             //a fingerprint of that payable in the DB - this happens inside send_raw_transaction()
-            .send_transaction_result(Ok((pending_tx_hash_1, past_payable_timestamp_1)))
-            .send_transaction_result(Ok((pending_tx_hash_2, past_payable_timestamp_2)))
+            .send_payables_within_batch_result(Ok((pending_tx_hash_1, past_payable_timestamp_1)))
+            .send_payables_within_batch_result(Ok((pending_tx_hash_2, past_payable_timestamp_2)))
             .get_transaction_receipt_params(&get_transaction_receipt_params_arc)
             .get_transaction_receipt_result(Ok(None))
             .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_2_first_round)))
@@ -4243,7 +4267,7 @@ mod tests {
         let subject = AccountantBuilder::default().build();
         let tx_receipt_opt = None;
         let rowid = 455;
-        let hash = H256::from_uint(&U256::from(2323));
+        let hash = make_tx_hash(2323);
         let fingerprint = PendingPayableFingerprint {
             rowid_opt: Some(rowid),
             timestamp: SystemTime::now().sub(Duration::from_millis(10000)),
@@ -4276,7 +4300,7 @@ mod tests {
         subject.tools.notify_confirm_transaction =
             Box::new(NotifyHandleMock::default().notify_params(&notify_handle_params_arc));
         let subject_addr = subject.start();
-        let transaction_hash_1 = H256::from_uint(&U256::from(4545));
+        let transaction_hash_1 = make_tx_hash(4545);
         let mut transaction_receipt_1 = TransactionReceipt::default();
         transaction_receipt_1.transaction_hash = transaction_hash_1;
         transaction_receipt_1.status = Some(U64::from(1)); //success
@@ -4288,7 +4312,7 @@ mod tests {
             amount: 444,
             process_error: None,
         };
-        let transaction_hash_2 = H256::from_uint(&U256::from(3333333));
+        let transaction_hash_2 = make_tx_hash(3333333);
         let mut transaction_receipt_2 = TransactionReceipt::default();
         transaction_receipt_2.transaction_hash = transaction_hash_2;
         transaction_receipt_2.status = Some(U64::from(1)); //success
@@ -4333,7 +4357,7 @@ mod tests {
         let subject = AccountantBuilder::default().build();
         let mut tx_receipt = TransactionReceipt::default();
         tx_receipt.status = Some(U64::from(0)); //failure
-        let hash = H256::from_uint(&U256::from(4567));
+        let hash = make_tx_hash(4567);
         let fingerprint = PendingPayableFingerprint {
             rowid_opt: Some(777777),
             timestamp: SystemTime::now().sub(Duration::from_millis(150000)),
@@ -4363,7 +4387,7 @@ mod tests {
     #[test]
     fn interpret_transaction_receipt_when_transaction_status_is_none_and_within_waiting_interval() {
         init_test_logging();
-        let hash = H256::from_uint(&U256::from(567));
+        let hash = make_tx_hash(567);
         let rowid = 466;
         let tx_receipt = TransactionReceipt::default(); //status defaulted to None
         let when_sent = SystemTime::now().sub(Duration::from_millis(100));
@@ -4397,7 +4421,7 @@ mod tests {
     fn interpret_transaction_receipt_when_transaction_status_is_none_and_outside_waiting_interval()
     {
         init_test_logging();
-        let hash = H256::from_uint(&U256::from(567));
+        let hash = make_tx_hash(567);
         let rowid = 466;
         let tx_receipt = TransactionReceipt::default(); //status defaulted to None
         let when_sent =
@@ -4437,7 +4461,7 @@ mod tests {
         let mut tx_receipt = TransactionReceipt::default();
         tx_receipt.status = Some(U64::from(456));
         let mut fingerprint = make_pending_payable_fingerprint();
-        fingerprint.hash = H256::from_uint(&U256::from(123));
+        fingerprint.hash = make_tx_hash(123);
         let subject = AccountantBuilder::default().build();
 
         let _ = subject.interpret_transaction_receipt(
@@ -4458,10 +4482,19 @@ mod tests {
             .pending_payable_dao(pending_payment_dao)
             .build();
         let accountant_addr = subject.start();
-        let tx_hash = H256::from_uint(&U256::from(55));
+        let tx_hash = make_tx_hash(55);
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
         let amount = 4055;
         let timestamp = SystemTime::now();
+        let hash_1 = make_tx_hash(555555);
+        let amount_1 = 12345;
+        let hash_2 = Default::default();
+        let amount_2 = 87654;
+        let init_params = vec![(hash_1, amount_1), (hash_2, amount_2)];
+        let init_fingerprints_msg = InitiatePPFingerprints {
+            batch_wide_timestamp: timestamp,
+            init_params: init_params.clone(),
+        };
         let backup_message = PendingPayableFingerprint {
             rowid_opt: None,
             timestamp,
@@ -4472,8 +4505,8 @@ mod tests {
         };
 
         let _ = accountant_subs
-            .pending_payable_fingerprint
-            .try_send(backup_message.clone())
+            .init_pending_payable_fingerprints
+            .try_send(init_fingerprints_msg)
             .unwrap();
 
         let system = System::new("ordering payment fingerprint test");
@@ -4482,7 +4515,7 @@ mod tests {
         let insert_fingerprint_params = insert_fingerprint_params_arc.lock().unwrap();
         assert_eq!(
             *insert_fingerprint_params,
-            vec![(tx_hash, amount, timestamp)]
+            vec![(hash_1, amount_1, timestamp), (hash_2, amount_2, timestamp)]
         );
         TestLogHandler::new().exists_log_containing(
             "DEBUG: Accountant: Processed a pending payable fingerprint for '0x0000000000000000000000000000000000000000000000000000000000000037'",
@@ -4500,26 +4533,22 @@ mod tests {
                 "Crashed".to_string(),
             )));
         let amount = 2345;
-        let transaction_hash = H256::from_uint(&U256::from(456));
+        let transaction_hash = make_tx_hash(456);
         let subject = AccountantBuilder::default()
             .pending_payable_dao(pending_payable_dao)
             .build();
-        let timestamp_secs = 150_000_000;
-        let fingerprint = PendingPayableFingerprint {
-            rowid_opt: None,
-            timestamp: from_time_t(timestamp_secs),
-            hash: transaction_hash,
-            attempt_opt: None,
-            amount,
-            process_error: None,
+        let timestamp = SystemTime::now();
+        let init_fingerprints = InitiatePPFingerprints {
+            batch_wide_timestamp: timestamp,
+            init_params: vec![(Default::default(), 12345)],
         };
 
-        let _ = subject.handle_new_pending_payable_fingerprint(fingerprint);
+        let _ = subject.handle_new_pending_payable_fingerprints(init_fingerprints);
 
         let insert_fingerprint_params = insert_fingerprint_params_arc.lock().unwrap();
         assert_eq!(
             *insert_fingerprint_params,
-            vec![(transaction_hash, amount, from_time_t(timestamp_secs))]
+            vec![(transaction_hash, amount, timestamp)]
         );
         TestLogHandler::new().exists_log_containing("ERROR: Accountant: Failed to make a fingerprint for pending payable '0x0000…01c8' due to 'InsertionFailed(\"Crashed\")'");
     }
@@ -4538,7 +4567,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let (ok, err) = Accountant::separate_early_errors(&sent_payable, &Logger::new("test"));
+        let (ok, err) = Accountant::separate_errors(&sent_payable, &Logger::new("test"));
 
         assert_eq!(ok, vec![payable_ok]);
         assert_eq!(err, vec![error])
@@ -4547,7 +4576,7 @@ mod tests {
     #[test]
     fn update_payable_fingerprint_happy_path() {
         let update_after_cycle_params_arc = Arc::new(Mutex::new(vec![]));
-        let hash = H256::from_uint(&U256::from(444888));
+        let hash = make_tx_hash(444888);
         let rowid = 3456;
         let pending_payable_dao = PendingPayableDaoMock::default()
             .update_fingerprint_params(&update_after_cycle_params_arc)
@@ -4569,7 +4598,7 @@ mod tests {
          due to UpdateFailed(\"yeah, bad\")"
     )]
     fn update_payable_fingerprint_sad_path() {
-        let hash = H256::from_uint(&U256::from(444888));
+        let hash = make_tx_hash(444888);
         let rowid = 3456;
         let pending_payable_dao = PendingPayableDaoMock::default().update_fingerprint_results(Err(
             PendingPayableDaoError::UpdateFailed("yeah, bad".to_string()),
@@ -4671,7 +4700,7 @@ mod tests {
         let fingerprint = PendingPayableFingerprint {
             rowid_opt: Some(5),
             timestamp: from_time_t(189_999_888),
-            hash: H256::from_uint(&U256::from(56789)),
+            hash: make_tx_hash(56789),
             attempt_opt: Some(1),
             amount: 5478,
             process_error: None,

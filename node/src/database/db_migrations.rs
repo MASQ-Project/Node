@@ -703,6 +703,7 @@ impl DatabaseMigration for InterimMigrationPlaceholder {
 #[cfg(test)]
 mod tests {
     use crate::blockchain::bip39::Bip39;
+    use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
@@ -1852,9 +1853,9 @@ mod tests {
         let conn = bring_db_0_back_to_life_and_return_connection(&db_path);
         let conn = ConnectionWrapperReal::new(conn);
         let wallet_1 = make_wallet("james_bond");
-        let transaction_hash_1 = H256::from_uint(&U256::from(45454545));
+        let transaction_hash_1 = make_tx_hash(45454545);
         let wallet_2 = make_wallet("robinson_crusoe");
-        let transaction_hash_2 = H256::from_uint(&U256::from(999888));
+        let transaction_hash_2 = make_tx_hash(999888);
         let subject = DbInitializerReal::default();
         {
             let _ = subject
