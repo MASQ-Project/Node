@@ -7,7 +7,7 @@ use masq_lib::ui_traffic_converter::UnmarshalError;
 use std::fmt::{Debug, Formatter};
 use std::time::Duration;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ClientError {
     // TODO: Perhaps this can be combined with NodeConversationTermination
     NoServer(u16, String),
@@ -18,7 +18,7 @@ pub enum ClientError {
     Timeout(u64),
 }
 
-#[derive(PartialEq, Clone, Copy, Debug)]
+#[derive(PartialEq, Eq, Clone, Copy, Debug)]
 pub enum NodeConversationTermination {
     Graceful,
     Resend,

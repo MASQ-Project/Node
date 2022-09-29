@@ -2,6 +2,8 @@
 
 use crate::neighborhood::gossip::Gossip_0v1;
 use crate::neighborhood::node_record::NodeRecord;
+use crate::neighborhood::overall_connection_status::ConnectionProgress;
+use crate::neighborhood::Neighborhood;
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_real::CryptDEReal;
@@ -13,6 +15,7 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
 use actix::Recipient;
@@ -29,6 +32,9 @@ use std::convert::TryFrom;
 use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
+use std::time::Duration;
+
+const ASK_ABOUT_GOSSIP_INTERVAL: Duration = Duration::from_secs(10);
 
 pub const DEFAULT_RATE_PACK: RatePack = RatePack {
     routing_byte_rate: 1,
@@ -52,7 +58,7 @@ pub struct RatePack {
     pub exit_service_rate: u64,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NeighborhoodMode {
     Standard(NodeAddr, Vec<NodeDescriptor>, RatePack),
     ZeroHop,
@@ -245,7 +251,7 @@ fn first_dividing(descriptor: &str) -> Result<(&str, &str), String> {
         CENTRAL_DELIMITER,
         DescriptorParsingError::CentralDelimiterProbablyMissing(descriptor),
     )?;
-    let _ = approx_position_assertion(descriptor, &halves)?;
+    approx_position_assertion(descriptor, &halves)?;
     Ok((halves[0], halves[1]))
 }
 
@@ -344,7 +350,7 @@ impl Display for DescriptorParsingError<'_> {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NeighborhoodConfig {
     pub mode: NeighborhoodMode,
 }
@@ -369,6 +375,7 @@ pub struct NeighborhoodSubs {
     pub set_consuming_wallet_sub: Recipient<SetConsumingWalletMessage>,
     pub from_ui_message_sub: Recipient<NodeFromUiMessage>,
     pub new_password_sub: Recipient<NewPasswordMessage>,
+    pub connection_progress_sub: Recipient<ConnectionProgressMessage>,
 }
 
 impl Debug for NeighborhoodSubs {
@@ -377,7 +384,7 @@ impl Debug for NeighborhoodSubs {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NodeQueryResponseMetadata {
     pub public_key: PublicKey,
     pub node_addr_opt: Option<NodeAddr>,
@@ -399,15 +406,15 @@ impl NodeQueryResponseMetadata {
 }
 
 //TODO probably dead code?
-#[derive(Clone, Debug, Message, PartialEq)]
+#[derive(Clone, Debug, Message, PartialEq, Eq)]
 pub struct BootstrapNeighborhoodNowMessage {}
 
-#[derive(Clone, Debug, Message, PartialEq)]
+#[derive(Clone, Debug, Message, PartialEq, Eq)]
 pub struct NeighborhoodDotGraphRequest {
     pub client_id: u64,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NodeQueryMessage {
     IpAddress(IpAddr),
     PublicKey(PublicKey),
@@ -424,12 +431,13 @@ pub struct DispatcherNodeQueryMessage {
     pub recipient: Recipient<DispatcherNodeQueryResponse>,
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct RouteQueryMessage {
     pub target_key_opt: Option<PublicKey>,
     pub target_component: Component,
     pub minimum_hop_count: usize,
     pub return_component_opt: Option<Component>,
+    pub payload_size: usize,
 }
 
 impl Message for RouteQueryMessage {
@@ -437,46 +445,72 @@ impl Message for RouteQueryMessage {
 }
 
 impl RouteQueryMessage {
-    pub fn data_indefinite_route_request(minimum_hop_count: usize) -> RouteQueryMessage {
+    pub fn data_indefinite_route_request(
+        minimum_hop_count: usize,
+        payload_size: usize,
+    ) -> RouteQueryMessage {
         RouteQueryMessage {
             target_key_opt: None,
             target_component: Component::ProxyClient,
             minimum_hop_count,
             return_component_opt: Some(Component::ProxyServer),
+            payload_size,
         }
     }
 }
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExpectedService {
     Routing(PublicKey, Wallet, RatePack),
     Exit(PublicKey, Wallet, RatePack),
     Nothing,
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ExpectedServices {
     OneWay(Vec<ExpectedService>),
     RoundTrip(Vec<ExpectedService>, Vec<ExpectedService>, u32),
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RouteQueryResponse {
     pub route: Route,
     pub expected_services: ExpectedServices,
 }
 
-#[derive(Clone, Debug, Message, PartialEq)]
+#[derive(Clone, Debug, Message, PartialEq, Eq)]
 pub struct RemoveNeighborMessage {
     pub public_key: PublicKey,
 }
 
-#[derive(Clone, Debug, Message, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum ConnectionProgressEvent {
+    TcpConnectionSuccessful,
+    TcpConnectionFailed,
+    NoGossipResponseReceived,
+    PassLoopFound,
+    StandardGossipReceived,
+    IntroductionGossipReceived(IpAddr),
+    PassGossipReceived(IpAddr),
+}
+
+#[derive(Clone, Debug, Message, PartialEq, Eq)]
+pub struct ConnectionProgressMessage {
+    pub peer_addr: IpAddr,
+    pub event: ConnectionProgressEvent,
+}
+
+#[derive(Clone, Debug, Message, PartialEq, Eq)]
+pub struct AskAboutDebutGossipMessage {
+    pub prev_connection_progress: ConnectionProgress,
+}
+
+#[derive(Clone, Debug, Message, PartialEq, Eq)]
 pub enum NodeRecordMetadataMessage {
     Desirable(PublicKey, bool),
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]
 pub enum GossipFailure_0v1 {
     NoNeighbors,
@@ -499,10 +533,26 @@ impl fmt::Display for GossipFailure_0v1 {
     }
 }
 
+pub struct NeighborhoodTools {
+    pub notify_later_ask_about_gossip:
+        Box<dyn NotifyLaterHandle<AskAboutDebutGossipMessage, Neighborhood>>,
+    pub ask_about_gossip_interval: Duration,
+}
+
+impl Default for NeighborhoodTools {
+    fn default() -> Self {
+        Self {
+            notify_later_ask_about_gossip: Box::new(NotifyLaterHandleReal::new()),
+            ask_about_gossip_interval: ASK_ABOUT_GOSSIP_INTERVAL,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::sub_lib::cryptde_real::CryptDEReal;
+    use crate::sub_lib::utils::NotifyLaterHandleReal;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::recorder::Recorder;
     use actix::Actor;
@@ -531,6 +581,7 @@ mod tests {
                 exit_service_rate: 0,
             }
         );
+        assert_eq!(ASK_ABOUT_GOSSIP_INTERVAL, Duration::from_secs(10));
     }
 
     pub fn rate_pack(base_rate: u64) -> RatePack {
@@ -561,6 +612,7 @@ mod tests {
             set_consuming_wallet_sub: recipient!(recorder, SetConsumingWalletMessage),
             from_ui_message_sub: recipient!(recorder, NodeFromUiMessage),
             new_password_sub: recipient!(recorder, NewPasswordMessage),
+            connection_progress_sub: recipient!(recorder, ConnectionProgressMessage),
         };
 
         assert_eq!(format!("{:?}", subject), "NeighborhoodSubs");
@@ -906,7 +958,7 @@ mod tests {
 
     #[test]
     fn data_indefinite_route_request() {
-        let result = RouteQueryMessage::data_indefinite_route_request(2);
+        let result = RouteQueryMessage::data_indefinite_route_request(2, 7500);
 
         assert_eq!(
             result,
@@ -915,6 +967,7 @@ mod tests {
                 target_component: Component::ProxyClient,
                 minimum_hop_count: 2,
                 return_component_opt: Some(Component::ProxyServer),
+                payload_size: 7500,
             }
         );
     }
@@ -1107,5 +1160,16 @@ mod tests {
 
     fn assert_make_light(heavy: NeighborhoodMode, expected_value: NeighborhoodModeLight) {
         assert_eq!(heavy.make_light(), expected_value)
+    }
+
+    #[test]
+    fn neighborhood_tools_default_is_set_properly() {
+        let subject = NeighborhoodTools::default();
+        subject
+            .notify_later_ask_about_gossip
+            .as_any()
+            .downcast_ref::<NotifyLaterHandleReal<AskAboutDebutGossipMessage>>()
+            .unwrap();
+        assert_eq!(subject.ask_about_gossip_interval, Duration::from_secs(10));
     }
 }

@@ -23,7 +23,7 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
         .map(|_| start_real_node(&mut cluster, originating_node.node_reference()))
         .collect::<Vec<MASQRealNode>>();
 
-    thread::sleep(Duration::from_millis(3000));
+    thread::sleep(Duration::from_millis(10_000));
 
     let mut client = originating_node.make_client(8080);
     let request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes();
@@ -72,12 +72,12 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
 }
 
 fn non_pending_payables(node: &MASQRealNode) -> Vec<PayableAccount> {
-    let payable_dao = payable_dao(node);
+    let payable_dao = payable_dao(node.name());
     payable_dao.non_pending_payables()
 }
 
 fn receivables(node: &MASQRealNode) -> Vec<ReceivableAccount> {
-    let receivable_dao = receivable_dao(node);
+    let receivable_dao = receivable_dao(node.name());
     receivable_dao.receivables()
 }
 

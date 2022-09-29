@@ -610,7 +610,7 @@ pub(in crate::accountant) mod scanners {
                     .fold(0, |so_far, now| so_far + now.gwei_amount);
                 self.receivable_dao
                     .as_mut()
-                    .more_money_received(message.payments);
+                    .more_money_received(message.timestamp, message.payments);
                 let mut financial_statistics = self.financial_statistics();
                 financial_statistics.total_paid_receivable += total_newly_paid_receivable;
                 self.financial_statistics.replace(financial_statistics);
@@ -1019,6 +1019,7 @@ mod tests {
             .payable_dao(payable_dao)
             .pending_payable_dao(pending_payable_dao);
         let sent_payable = SentPayable {
+            timestamp: now,
             payable: vec![Ok(payable)],
             response_skeleton_opt: None,
         };
@@ -1037,6 +1038,7 @@ mod tests {
         let rowid = 4;
         let hash = H256::from_uint(&U256::from(123));
         let sent_payable = SentPayable {
+            timestamp: SystemTime::now(),
             payable: vec![Err(BlockchainError::TransactionFailed {
                 msg: "blah".to_string(),
                 hash_opt: Some(hash),
@@ -1073,6 +1075,7 @@ mod tests {
             .payable_dao(payable_dao)
             .pending_payable_dao(pending_payable_dao);
         let sent_payable = SentPayable {
+            timestamp: SystemTime::now(),
             payable: vec![Ok(payable)],
             response_skeleton_opt: None,
         };
@@ -1096,6 +1099,7 @@ mod tests {
             hash_opt: None,
         });
         let sent_payable = SentPayable {
+            timestamp: SystemTime::now(),
             payable: vec![payable_1, Ok(payable_2.clone()), payable_3],
             response_skeleton_opt: None,
         };
@@ -1787,6 +1791,7 @@ mod tests {
         let test_name = "receivable_scanner_aborts_scan_if_no_payments_were_supplied";
         let mut subject = ReceivableScanner::default();
         let msg = ReceivedPayments {
+            timestamp: SystemTime::now(),
             payments: vec![],
             response_skeleton_opt: None,
         };
@@ -1804,6 +1809,7 @@ mod tests {
     fn receivable_scanner_handles_received_payments_message() {
         init_test_logging();
         let test_name = "receivable_scanner_handles_received_payments_message";
+        let now = SystemTime::now();
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_dao = ReceivableDaoMock::new()
             .more_money_received_parameters(&more_money_received_params_arc)
@@ -1825,6 +1831,7 @@ mod tests {
             },
         ];
         let msg = ReceivedPayments {
+            timestamp: now,
             payments: receivables.clone(),
             response_skeleton_opt: None,
         };
@@ -1837,7 +1844,7 @@ mod tests {
         assert_eq!(message_opt, None);
         assert_eq!(subject.scan_started_at(), None);
         assert_eq!(total_paid_receivable, 2222 + 45780 + 33345);
-        assert_eq!(*more_money_received_params, vec![receivables]);
+        assert_eq!(*more_money_received_params, vec![(now, receivables)]);
         TestLogHandler::new().exists_log_matching(
             "INFO: receivable_scanner_handles_received_payments_message: The Receivable scan ended in \\d+ms.",
         );

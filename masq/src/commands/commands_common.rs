@@ -16,7 +16,7 @@ use std::io::Write;
 pub const STANDARD_COMMAND_TIMEOUT_MILLIS: u64 = 1000;
 pub const STANDARD_COLUMN_WIDTH: usize = 33;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum CommandError {
     ConnectionProblem(String),
     Transmission(String),
@@ -33,7 +33,17 @@ impl Display for CommandError {
             Transmission(s) => format!("Transmission problem: {}", s),
             Reception(s) => format!("Reception problem: {}", s),
             UnexpectedResponse(e) => format!("{}", e),
-            Payload(code, s) => format!("{} (Code {})", s, code),
+            Payload(code, s) => {
+                let pure_hex_string = format!("{:016X}", code);
+                let expanded_hex_string = format!(
+                    "{}_{}_{}_{}",
+                    &pure_hex_string[0..4],
+                    &pure_hex_string[4..8],
+                    &pure_hex_string[8..12],
+                    &pure_hex_string[12..16]
+                );
+                format!("{} (Code {})", s, expanded_hex_string)
+            }
             Other(s) => s.to_string(),
         };
         write!(f, "{}", msg)
@@ -244,7 +254,7 @@ mod tests {
         );
         assert_eq!(
             format!("{}", Payload(1234, "string".to_string())),
-            "string (Code 1234)".to_string()
+            "string (Code 0000_0000_0000_04D2)".to_string()
         );
         assert_eq!(
             format!("{}", Other("string".to_string())),

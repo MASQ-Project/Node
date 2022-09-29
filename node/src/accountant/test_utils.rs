@@ -23,7 +23,8 @@ use crate::database::dao_utils;
 use crate::database::dao_utils::{from_time_t, to_time_t};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
-use crate::sub_lib::accountant::{FinancialStatistics, PaymentThresholds};
+use crate::sub_lib::accountant::FinancialStatistics;
+use crate::sub_lib::accountant::{MessageIdGenerator, PaymentThresholds};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
@@ -324,7 +325,7 @@ impl ConfigDaoFactoryMock {
 
 #[derive(Debug, Default)]
 pub struct PayableDaoMock {
-    more_money_payable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
+    more_money_payable_parameters: Arc<Mutex<Vec<(SystemTime, Wallet, u64)>>>,
     more_money_payable_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     non_pending_payables_params: Arc<Mutex<Vec<()>>>,
     non_pending_payables_results: RefCell<Vec<Vec<PayableAccount>>>,
@@ -341,11 +342,16 @@ pub struct PayableDaoMock {
 }
 
 impl PayableDao for PayableDaoMock {
-    fn more_money_payable(&self, wallet: &Wallet, amount: u64) -> Result<(), PayableDaoError> {
+    fn more_money_payable(
+        &self,
+        now: SystemTime,
+        wallet: &Wallet,
+        amount: u64,
+    ) -> Result<(), PayableDaoError> {
         self.more_money_payable_parameters
             .lock()
             .unwrap()
-            .push((wallet.clone(), amount));
+            .push((now, wallet.clone(), amount));
         self.more_money_payable_results.borrow_mut().remove(0)
     }
 
@@ -403,9 +409,9 @@ impl PayableDaoMock {
         PayableDaoMock::default()
     }
 
-    pub fn more_money_payable_parameters(
+    pub fn more_money_payable_params(
         mut self,
-        parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
+        parameters: Arc<Mutex<Vec<(SystemTime, Wallet, u64)>>>,
     ) -> Self {
         self.more_money_payable_parameters = parameters;
         self
@@ -487,9 +493,9 @@ impl PayableDaoMock {
 pub struct ReceivableDaoMock {
     account_status_parameters: Arc<Mutex<Vec<Wallet>>>,
     account_status_results: RefCell<Vec<Option<ReceivableAccount>>>,
-    more_money_receivable_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
+    more_money_receivable_parameters: Arc<Mutex<Vec<(SystemTime, Wallet, u64)>>>,
     more_money_receivable_results: RefCell<Vec<Result<(), ReceivableDaoError>>>,
-    more_money_received_parameters: Arc<Mutex<Vec<Vec<BlockchainTransaction>>>>,
+    more_money_received_parameters: Arc<Mutex<Vec<(SystemTime, Vec<BlockchainTransaction>)>>>,
     more_money_received_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     receivables_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     new_delinquencies_parameters: Arc<Mutex<Vec<(SystemTime, PaymentThresholds)>>>,
@@ -505,21 +511,22 @@ pub struct ReceivableDaoMock {
 impl ReceivableDao for ReceivableDaoMock {
     fn more_money_receivable(
         &self,
+        now: SystemTime,
         wallet: &Wallet,
         amount: u64,
     ) -> Result<(), ReceivableDaoError> {
         self.more_money_receivable_parameters
             .lock()
             .unwrap()
-            .push((wallet.clone(), amount));
+            .push((now, wallet.clone(), amount));
         self.more_money_receivable_results.borrow_mut().remove(0)
     }
 
-    fn more_money_received(&mut self, transactions: Vec<BlockchainTransaction>) {
+    fn more_money_received(&mut self, now: SystemTime, transactions: Vec<BlockchainTransaction>) {
         self.more_money_received_parameters
             .lock()
             .unwrap()
-            .push(transactions);
+            .push((now, transactions));
     }
 
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount> {
@@ -581,7 +588,7 @@ impl ReceivableDaoMock {
 
     pub fn more_money_receivable_parameters(
         mut self,
-        parameters: &Arc<Mutex<Vec<(Wallet, u64)>>>,
+        parameters: &Arc<Mutex<Vec<(SystemTime, Wallet, u64)>>>,
     ) -> Self {
         self.more_money_receivable_parameters = parameters.clone();
         self
@@ -594,7 +601,7 @@ impl ReceivableDaoMock {
 
     pub fn more_money_received_parameters(
         mut self,
-        parameters: &Arc<Mutex<Vec<Vec<BlockchainTransaction>>>>,
+        parameters: &Arc<Mutex<Vec<(SystemTime, Vec<BlockchainTransaction>)>>>,
     ) -> Self {
         self.more_money_received_parameters = parameters.clone();
         self
@@ -1028,6 +1035,24 @@ pub fn make_payables(
         unqualified_payable_accounts,
         all_non_pending_payables,
     )
+}
+
+#[derive(Default)]
+pub struct MessageIdGeneratorMock {
+    ids: RefCell<Vec<u32>>,
+}
+
+impl MessageIdGenerator for MessageIdGeneratorMock {
+    fn id(&self) -> u32 {
+        self.ids.borrow_mut().remove(0)
+    }
+}
+
+impl MessageIdGeneratorMock {
+    pub fn id_result(self, id: u32) -> Self {
+        self.ids.borrow_mut().push(id);
+        self
+    }
 }
 
 //warning: this test function will not tell you anything about the transaction record in the pending_payable table

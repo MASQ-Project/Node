@@ -18,7 +18,7 @@ use std::str::FromStr;
 use std::{fmt, marker};
 use web3::types::{Address, H256};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum WalletError {
     InvalidAddress,
     Signature(String),

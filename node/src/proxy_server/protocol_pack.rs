@@ -5,9 +5,8 @@ use crate::sub_lib::cryptde::{PlainData, PublicKey};
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::proxy_server::ProxyProtocol;
 use masq_lib::constants::{HTTP_PORT, TLS_PORT};
-use masq_lib::logger::Logger;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Host {
     pub name: String,
     pub port: Option<u16>,
@@ -27,39 +26,33 @@ pub fn from_protocol(protocol: ProxyProtocol) -> Box<dyn ProtocolPack> {
     }
 }
 
-pub fn from_standard_port(_standard_port: u16) -> Option<Box<dyn ProtocolPack>> {
-    match _standard_port {
+pub fn from_standard_port(standard_port: u16) -> Option<Box<dyn ProtocolPack>> {
+    match standard_port {
         HTTP_PORT => Some(Box::new(HttpProtocolPack {})),
         TLS_PORT => Some(Box::new(TlsProtocolPack {})),
         _ => None,
     }
 }
 
-pub fn from_ibcd(ibcd: &InboundClientData, logger: &Logger) -> Option<Box<dyn ProtocolPack>> {
+pub fn from_ibcd(ibcd: &InboundClientData) -> Result<Box<dyn ProtocolPack>, String> {
     let origin_port = match ibcd.reception_port {
         None => {
-            error!(
-                logger,
+            return Err(format!(
                 "No origin port specified with {}-byte non-clandestine packet: {:?}",
                 ibcd.data.len(),
                 ibcd.data
-            );
-            return None;
+            ))
         }
         Some(origin_port) => origin_port,
     };
     match from_standard_port(origin_port) {
-        Some(pp) => Some(pp),
-        None => {
-            error!(
-                logger,
-                "No protocol associated with origin port {} for {}-byte non-clandestine packet: {:?}",
-                origin_port,
-                ibcd.data.len(),
-                &ibcd.data
-            );
-            None
-        }
+        Some(pp) => Ok(pp),
+        None => Err(format!(
+            "No protocol associated with origin port {} for {}-byte non-clandestine packet: {:?}",
+            origin_port,
+            ibcd.data.len(),
+            &ibcd.data
+        )),
     }
 }
 

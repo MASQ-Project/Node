@@ -15,7 +15,7 @@ use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use ProgramEntering::{Enter, Leave};
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 enum Mode {
     DumpConfig,
     Initialization,
@@ -213,7 +213,7 @@ enum Leaving {
     ExitCode(i32),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum RunnerError {
     Configurator(ConfiguratorError),
     Numeric(i32),
@@ -294,6 +294,7 @@ mod tests {
     use std::cell::RefCell;
     use std::ops::{Deref, Not};
     use std::sync::{Arc, Mutex};
+    use time::OffsetDateTime;
 
     pub struct RunnerMock {
         run_node_params: Arc<Mutex<Vec<Vec<String>>>>,
@@ -746,10 +747,9 @@ parm2 - msg2\n"
     #[ignore]
     #[test]
     fn daemon_and_node_modes_version_call() {
-        use chrono::offset::Utc;
-        use chrono::NaiveDate;
+        use time::macros::datetime;
         //this line here makes us aware that this issue is still unresolved; you may want to set this date more forward if we still cannot answer this
-        if Utc::today().and_hms(0, 0, 0).naive_utc().date() >= NaiveDate::from_ymd(2022, 3, 31) {
+        if OffsetDateTime::now_utc().date() >= datetime!(2022-03-31 0:00 UTC).date() {
             let subject = RunModes::new();
             let mut daemon_v_holder = FakeStreamHolder::new();
             let mut node_v_holder = FakeStreamHolder::new();

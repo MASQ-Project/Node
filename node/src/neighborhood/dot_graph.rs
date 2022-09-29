@@ -2,6 +2,7 @@
 
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::node_addr::NodeAddr;
+use std::fmt::Write as _;
 
 pub trait DotRenderable {
     fn render(&self) -> String;
@@ -25,17 +26,17 @@ pub struct NodeRenderable {
 impl DotRenderable for NodeRenderable {
     fn render(&self) -> String {
         let mut result = String::new();
-        result.push_str(&format!("\"{}\"", self.public_key));
-        result.push_str(&self.render_label());
+        let _ = write!(result, "\"{}\"", self.public_key);
+        let _ = write!(result, "{}", &self.render_label());
         if !self.is_present {
-            result.push_str(" [shape=none]")
+            let _ = write!(result, " [shape=none]");
         } else if self.known_target {
-            result.push_str(" [shape=box]")
+            let _ = write!(result, " [shape=box]");
         }
         if self.known_source {
-            result.push_str(" [style=filled]")
+            let _ = write!(result, " [style=filled]");
         }
-        result.push(';');
+        let _ = write!(result, ";");
         result
     }
 }
@@ -77,7 +78,7 @@ pub struct EdgeRenderable {
 impl DotRenderable for EdgeRenderable {
     fn render(&self) -> String {
         let mut result = String::new();
-        result.push_str(&format!("\"{}\" -> \"{}\";", self.from, self.to));
+        let _ = write!(result, "\"{}\" -> \"{}\";", self.from, self.to);
         result
     }
 }
@@ -85,7 +86,7 @@ impl DotRenderable for EdgeRenderable {
 pub fn render_dot_graph(renderables: Vec<Box<dyn DotRenderable>>) -> String {
     let mut result = String::from("digraph db {");
     for renderable in renderables {
-        result.push_str(&format!(" {}", renderable.render()))
+        let _ = write!(result, " {}", renderable.render());
     }
     result.push_str(" }");
     result

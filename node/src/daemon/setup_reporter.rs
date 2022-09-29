@@ -1044,7 +1044,7 @@ mod tests {
     use crate::daemon::setup_reporter;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
-    use crate::db_config::config_dao::{ConfigDaoRead, ConfigDaoReal};
+    use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
     };

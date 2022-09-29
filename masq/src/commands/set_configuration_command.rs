@@ -10,7 +10,7 @@ use masq_lib::utils::{ExpectValue, WrapResult};
 #[cfg(test)]
 use std::any::Any;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct SetConfigurationCommand {
     pub name: String,
     pub value: String,

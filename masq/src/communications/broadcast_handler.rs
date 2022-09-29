@@ -6,8 +6,8 @@ use crate::notifications::crashed_notification::CrashNotifier;
 use crate::terminal::terminal_interface::TerminalWrapper;
 use crossbeam_channel::{unbounded, RecvError, Sender};
 use masq_lib::messages::{
-    FromMessageBody, UiLogBroadcast, UiNewPasswordBroadcast, UiNodeCrashedBroadcast,
-    UiSetupBroadcast, UiUndeliveredFireAndForget,
+    FromMessageBody, UiConnectionChangeBroadcast, UiLogBroadcast, UiNewPasswordBroadcast,
+    UiNodeCrashedBroadcast, UiSetupBroadcast, UiUndeliveredFireAndForget,
 };
 use masq_lib::ui_gateway::MessageBody;
 use masq_lib::utils::ExpectValue;
@@ -16,6 +16,7 @@ use std::fmt::Debug;
 use std::io::Write;
 use std::thread;
 
+use crate::notifications::connection_change_notification::ConnectionChangeNotification;
 #[cfg(test)]
 use std::any::Any;
 
@@ -105,6 +106,13 @@ impl BroadcastHandlerReal {
                         stdout,
                         terminal_interface,
                     );
+                } else if let Ok((body, _)) = UiConnectionChangeBroadcast::fmb(message_body.clone())
+                {
+                    ConnectionChangeNotification::handle_broadcast(
+                        body,
+                        stdout,
+                        terminal_interface,
+                    );
                 } else {
                     handle_unrecognized_broadcast(message_body, stderr, terminal_interface)
                 }
@@ -118,7 +126,7 @@ pub trait StreamFactory: Send + Debug {
     fn make(&self) -> (Box<dyn Write>, Box<dyn Write>);
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub struct StreamFactoryReal;
 
 impl StreamFactory for StreamFactoryReal {
@@ -186,7 +194,8 @@ mod tests {
     };
     use crossbeam_channel::{bounded, unbounded, Receiver};
     use masq_lib::messages::{
-        CrashReason, SerializableLogLevel, ToMessageBody, UiLogBroadcast, UiNodeCrashedBroadcast,
+        CrashReason, SerializableLogLevel, ToMessageBody, UiConnectionChangeBroadcast,
+        UiConnectionStage, UiLogBroadcast, UiNodeCrashedBroadcast,
     };
     use masq_lib::messages::{UiSetupBroadcast, UiSetupResponseValue, UiSetupResponseValueStatus};
     use masq_lib::ui_gateway::MessagePath;
@@ -325,6 +334,39 @@ mod tests {
         assert_eq!(
             stdout,
             "\nCannot handle uninventedMessage request: Node is not running.\n\n".to_string()
+        );
+        assert_eq!(
+            handle.stderr_so_far(),
+            "".to_string(),
+            "stderr: '{}'",
+            stdout
+        );
+    }
+
+    #[test]
+    fn ui_connection_change_broadcast_is_handled_properly() {
+        let (factory, handle) = TestStreamFactory::new();
+        let (mut stdout, mut stderr) = factory.make();
+        let terminal_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
+
+        let message_body = UiConnectionChangeBroadcast {
+            stage: UiConnectionStage::ConnectedToNeighbor,
+        }
+        .tmb(0);
+
+        let result = BroadcastHandlerReal::handle_message_body(
+            Ok(message_body),
+            &mut stdout,
+            &mut stderr,
+            &terminal_interface,
+        );
+
+        assert_eq!(result, true);
+        let stdout = handle.stdout_so_far();
+        assert_eq!(
+            stdout,
+            "\nConnectedToNeighbor: Established neighborship with an external node.\n\n"
+                .to_string()
         );
         assert_eq!(
             handle.stderr_so_far(),

@@ -1,7 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::utils::{DaemonProcess, MasqProcess};
-use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+use masq_lib::test_utils::utils::{
+    ensure_node_home_directory_exists, is_running_under_github_actions,
+};
 use masq_lib::utils::find_free_port;
 use regex::Regex;
 use std::thread;
@@ -68,7 +70,6 @@ fn masq_terminates_based_on_loss_of_connection_to_the_daemon_integration() {
     );
     let port = find_free_port();
     let daemon_handle = DaemonProcess::new().start(port);
-    thread::sleep(Duration::from_millis(300));
     let mut masq_handle = MasqProcess::new().start_interactive(port, true);
     let mut stdin_handle = masq_handle.create_stdin_handle();
     stdin_handle.type_command(&format!(
@@ -91,16 +92,18 @@ fn masq_terminates_based_on_loss_of_connection_to_the_daemon_integration() {
     );
 }
 
-#[ignore]
 #[test]
 fn handles_startup_and_shutdown_integration() {
+    if cfg!(windows) && is_running_under_github_actions() {
+        eprintln!("This test is not run in Actions under Windows, because it's flaky there.");
+        return;
+    }
     let dir_path = ensure_node_home_directory_exists(
         "masq_integration_tests",
         "handles_startup_and_shutdown_integration",
     );
     let port = find_free_port();
     let daemon_handle = DaemonProcess::new().start(port);
-    thread::sleep(Duration::from_millis(200));
 
     let masq_handle = MasqProcess::new().start_noninteractive(vec![
         "--ui-port",

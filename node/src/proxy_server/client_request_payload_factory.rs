@@ -8,22 +8,28 @@ use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use masq_lib::logger::Logger;
 
+pub trait ClientRequestPayloadFactory {
+    fn make(
+        &self,
+        ibcd: &InboundClientData,
+        stream_key: StreamKey,
+        cryptde: &dyn CryptDE,
+        logger: &Logger,
+    ) -> Option<ClientRequestPayload_0v1>;
+}
+
 #[derive(Default)]
-pub struct ClientRequestPayloadFactory {}
+pub struct ClientRequestPayloadFactoryReal {}
 
-impl ClientRequestPayloadFactory {
-    pub fn new() -> Self {
-        Self::default()
-    }
-
-    pub fn make(
+impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
+    fn make(
         &self,
         ibcd: &InboundClientData,
         stream_key: StreamKey,
         cryptde: &dyn CryptDE,
         logger: &Logger,
     ) -> Option<ClientRequestPayload_0v1> {
-        let protocol_pack = from_ibcd(ibcd, logger)?;
+        let protocol_pack = from_ibcd(ibcd).map_err(|e| error!(logger, "{}", e)).ok()?;
         let sequence_number = match ibcd.sequence_number {
             Some(sequence_number) => sequence_number,
             None => {
@@ -59,6 +65,12 @@ impl ClientRequestPayloadFactory {
     }
 }
 
+impl ClientRequestPayloadFactoryReal {
+    pub fn new() -> Self {
+        Self::default()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -69,11 +81,13 @@ mod tests {
     use masq_lib::test_utils::logging::TestLogHandler;
     use std::net::SocketAddr;
     use std::str::FromStr;
+    use std::time::SystemTime;
 
     #[test]
     fn handles_http_with_a_port() {
         let data = PlainData::new(&b"GET http://borkoed.com:2345/fleebs.html HTTP/1.1\r\n\r\n"[..]);
         let ibcd = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(1),
@@ -83,7 +97,7 @@ mod tests {
         };
         let cryptde = main_cryptde();
         let logger = Logger::new("test");
-        let subject = ClientRequestPayloadFactory::new();
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
         let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
@@ -108,6 +122,7 @@ mod tests {
     fn handles_http_with_no_port() {
         let data = PlainData::new(&b"GET http://borkoed.com/fleebs.html HTTP/1.1\r\n\r\n"[..]);
         let ibcd = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(1),
@@ -117,7 +132,7 @@ mod tests {
         };
         let cryptde = main_cryptde();
         let logger = Logger::new("test");
-        let subject = ClientRequestPayloadFactory::new();
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
         let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
@@ -161,6 +176,7 @@ mod tests {
             b's', b'e', b'r', b'v', b'e', b'r', b'.', b'c', b'o', b'm', // server_name
         ]);
         let ibcd = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             sequence_number: Some(0),
             reception_port: Some(443),
@@ -170,7 +186,7 @@ mod tests {
         };
         let cryptde = main_cryptde();
         let logger = Logger::new("test");
-        let subject = ClientRequestPayloadFactory::new();
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
         let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
@@ -208,6 +224,7 @@ mod tests {
             0x00, 0x00, // extensions_length
         ]);
         let ibcd = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: Some(443),
             last_data: true,
@@ -217,7 +234,7 @@ mod tests {
         };
         let cryptde = main_cryptde();
         let logger = Logger::new("test");
-        let subject = ClientRequestPayloadFactory::new();
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
         let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
@@ -242,6 +259,7 @@ mod tests {
     fn makes_no_payload_if_origin_port_is_not_specified() {
         init_test_logging();
         let ibcd = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             sequence_number: Some(0),
             reception_port: None,
@@ -251,7 +269,7 @@ mod tests {
         };
         let cryptde = main_cryptde();
         let logger = Logger::new("test");
-        let subject = ClientRequestPayloadFactory::new();
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
         let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
@@ -265,6 +283,7 @@ mod tests {
     fn makes_no_payload_if_origin_port_is_unknown() {
         init_test_logging();
         let ibcd = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:5678").unwrap(),
             reception_port: Some(1234),
             sequence_number: Some(0),
@@ -274,7 +293,7 @@ mod tests {
         };
         let cryptde = main_cryptde();
         let logger = Logger::new("test");
-        let subject = ClientRequestPayloadFactory::new();
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
         let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
@@ -285,6 +304,7 @@ mod tests {
     #[test]
     fn use_sequence_from_inbound_client_data_in_client_request_payload() {
         let ibcd = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:80").unwrap(),
             reception_port: Some(HTTP_PORT),
             sequence_number: Some(1),
@@ -294,8 +314,7 @@ mod tests {
         };
         let cryptde = main_cryptde();
         let logger = Logger::new("test");
-
-        let subject = ClientRequestPayloadFactory::new();
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
         let result = subject
             .make(&ibcd, make_meaningless_stream_key(), cryptde, &logger)
@@ -308,6 +327,7 @@ mod tests {
     fn makes_no_payload_if_sequence_number_is_unknown() {
         init_test_logging();
         let ibcd = InboundClientData {
+            timestamp: SystemTime::now(),
             peer_addr: SocketAddr::from_str("1.2.3.4:80").unwrap(),
             reception_port: Some(HTTP_PORT),
             last_data: false,
@@ -317,13 +337,11 @@ mod tests {
         };
         let cryptde = main_cryptde();
         let logger = Logger::new("test");
-
-        let subject = ClientRequestPayloadFactory::new();
+        let subject = Box::new(ClientRequestPayloadFactoryReal::new());
 
         let result = subject.make(&ibcd, make_meaningless_stream_key(), cryptde, &logger);
 
         assert_eq!(result, None);
-
         TestLogHandler::new().exists_log_containing(
             "ERROR: test: internal error: got IBCD with no sequence number and 4 bytes",
         );
