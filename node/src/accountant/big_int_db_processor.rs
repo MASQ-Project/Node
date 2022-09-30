@@ -437,15 +437,18 @@ impl BigIntDivider {
         (high_bytes << 63) | low_bytes
     }
 
-    pub fn register_deconstruct_for_sqlite_connection(conn: &Connection) -> rusqlite::Result<()> {
-        Self::guts_of_register_deconstruct(conn, "biginthigh", "bigintlow")
+    pub fn register_big_int_deconstruction_for_sqlite_connection(
+        conn: &Connection,
+    ) -> rusqlite::Result<()> {
+        Self::register_deconstruct_guts(conn, "biginthigh", "bigintlow")
     }
 
-    fn guts_of_register_deconstruct(
+    fn register_deconstruct_guts(
         conn: &Connection,
         fn_name_1: &'static str,
         fn_name_2: &'static str,
     ) -> rusqlite::Result<()> {
+        //TODO inline this
         fn invalid_input_error(fn_name: &str, message: String) -> Error {
             UserFunctionError(Box::new(InvalidInputValue(fn_name.to_string(), message)))
         }
@@ -469,6 +472,7 @@ impl BigIntDivider {
         fn common_arg_distillation(ctx: &Context, fn_name: &str) -> rusqlite::Result<i128> {
             negativity_check_and_final_composition(
                 fn_name,
+                //TODO probably deconstruct this macro, hard to read and ugly
                 parse_fn_creation_args!(
                     ctx, fn_name,
                     0, 1;
@@ -1396,18 +1400,18 @@ mod tests {
         );
     }
 
-    fn create_test_table_and_run_register_deconstruct_for_sqlite_connection(
+    fn create_test_table_and_run_register_deconstruction_for_sqlite_connection(
         test_name: &str,
     ) -> Connection {
         let conn = create_new_empty_db("big_int_db_processor", test_name);
-        BigIntDivider::register_deconstruct_for_sqlite_connection(&conn).unwrap();
+        BigIntDivider::register_big_int_deconstruction_for_sqlite_connection(&conn).unwrap();
         conn.execute("create table test_table (computed_high_bytes int, computed_low_bytes int, database_parameter int not null)",[]).unwrap();
         conn
     }
 
     #[test]
     fn register_deconstruct_for_sqlite_connection_works() {
-        let conn = create_test_table_and_run_register_deconstruct_for_sqlite_connection(
+        let conn = create_test_table_and_run_register_deconstruction_for_sqlite_connection(
             "register_deconstruct_for_sqlite_connection_works",
         );
 
@@ -1468,7 +1472,7 @@ mod tests {
 
     #[test]
     fn register_deconstruct_for_sqlite_connection_returns_error_at_setting_the_first_function() {
-        let conn = create_test_table_and_run_register_deconstruct_for_sqlite_connection(
+        let conn = create_test_table_and_run_register_deconstruction_for_sqlite_connection(
             "register_deconstruct_for_sqlite_connection_returns_error_at_setting_the_first_function",
         );
 
@@ -1496,7 +1500,7 @@ mod tests {
 
     #[test]
     fn register_deconstruct_for_sqlite_connection_returns_error_at_setting_the_second_function() {
-        let conn = create_test_table_and_run_register_deconstruct_for_sqlite_connection(
+        let conn = create_test_table_and_run_register_deconstruction_for_sqlite_connection(
             "register_deconstruct_for_sqlite_connection_returns_error_at_setting_the_second_function",
         );
 
@@ -1524,7 +1528,7 @@ mod tests {
     #[test]
     fn our_sqlite_functions_are_specialized_and_thus_should_not_take_positive_number_for_the_second_parameter(
     ) {
-        let conn = create_test_table_and_run_register_deconstruct_for_sqlite_connection(
+        let conn = create_test_table_and_run_register_deconstruction_for_sqlite_connection(
             "our_sqlite_functions_are_specialized_and_thus_should_not_take_positive_number_for_the_second_parameter"
         );
         let error_invoker = |bytes_type: &str| {
@@ -1554,7 +1558,7 @@ mod tests {
 
     #[test]
     fn other_than_real_num_argument_error() {
-        let conn = create_test_table_and_run_register_deconstruct_for_sqlite_connection(
+        let conn = create_test_table_and_run_register_deconstruction_for_sqlite_connection(
             "other_than_real_num_argument_error",
         );
 
@@ -1576,12 +1580,12 @@ mod tests {
 
     #[test]
     fn first_fn_returns_internal_error_from_create_scalar_function() {
-        let conn = create_test_table_and_run_register_deconstruct_for_sqlite_connection(
+        let conn = create_test_table_and_run_register_deconstruction_for_sqlite_connection(
             "first_fn_returns_internal_error_from_create_scalar_function",
         );
 
         let result =
-            BigIntDivider::guts_of_register_deconstruct(&conn, "badly\u{0000}named", "bigintlow")
+            BigIntDivider::register_deconstruct_guts(&conn, "badly\u{0000}named", "bigintlow")
                 .unwrap_err();
 
         //I couldn't assert on an exact fit because the error carries unstable code
@@ -1593,16 +1597,13 @@ mod tests {
 
     #[test]
     fn second_fn_returns_internal_error_from_create_scalar_function() {
-        let conn = create_test_table_and_run_register_deconstruct_for_sqlite_connection(
+        let conn = create_test_table_and_run_register_deconstruction_for_sqlite_connection(
             "second_fn_returns_internal_error_from_create_scalar_function",
         );
 
-        let result = BigIntDivider::guts_of_register_deconstruct(
-            &conn,
-            "biginthigh",
-            "also\u{0000}badlynamed",
-        )
-        .unwrap_err();
+        let result =
+            BigIntDivider::register_deconstruct_guts(&conn, "biginthigh", "also\u{0000}badlynamed")
+                .unwrap_err();
 
         //I couldn't assert on an exact fit because the error carries unstable code
         assert_eq!(

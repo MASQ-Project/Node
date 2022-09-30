@@ -102,7 +102,7 @@ impl ReceivableDaoFactory for DaoFactoryReal {
             {
                 let init_config = self.init_config.take().expectv("init config");
                 init_config.add_special_conn_setup(
-                    BigIntDivider::register_deconstruct_for_sqlite_connection,
+                    BigIntDivider::register_big_int_deconstruction_for_sqlite_connection,
                 )
             },
         )))
@@ -703,8 +703,9 @@ mod tests {
     fn make_connection_with_our_defined_sqlite_functions(
         home_dir: &Path,
     ) -> Box<dyn ConnectionWrapper> {
-        let init_config = DbInitializationConfig::test_default()
-            .add_special_conn_setup(BigIntDivider::register_deconstruct_for_sqlite_connection);
+        let init_config = DbInitializationConfig::test_default().add_special_conn_setup(
+            BigIntDivider::register_big_int_deconstruction_for_sqlite_connection,
+        );
         DbInitializerReal::default()
             .initialize(home_dir, true, init_config)
             .unwrap()
