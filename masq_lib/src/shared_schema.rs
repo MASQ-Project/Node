@@ -1067,6 +1067,13 @@ mod tests {
     }
 
     #[test]
+    fn validate_non_zero_u16_too_big() {
+        let result = validate_non_zero_u16("65536".to_string());
+
+        assert_eq!(result, Err("65536".to_string()))
+    }
+
+    #[test]
     fn validate_non_zero_u16_sad_path_just_junk() {
         let result = validate_non_zero_u16("garbage".to_string());
 

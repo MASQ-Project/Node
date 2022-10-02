@@ -681,10 +681,7 @@ impl FinancialsCommand {
                 "Broken code: Clap validation should have caught this overflow of {} earlier",
                 str_num
             ),
-            _ => format!(
-                "Non numeric value > {} <, all must be valid numbers",
-                str_num
-            ),
+            _ => format!("Non numeric value '{}', all must be valid numbers", str_num),
         })
     }
 
@@ -727,7 +724,10 @@ impl FinancialsCommand {
         {
             Some((Some(first), Some(second))) => Ok((first, Some(second))),
             Some((Some(first), None)) => Ok((first, None)),
-            _ => Err("Second range in improper format".to_string()),
+            _ => Err(format!(
+                "Second range '{}' in improper format",
+                masq_in_range_str
+            )),
         }
     }
 
@@ -787,9 +787,12 @@ impl FinancialsCommand {
 
     fn pre_parsing_check(num: &str, dot_idx: usize) -> Result<(), String> {
         if dot_idx == (num.len() - 1) {
-            Err("Ending dot at decimal number is unsupported".to_string())
+            Err(format!(
+                "Ending dot at decimal number, like here '{}', is unsupported",
+                num
+            ))
         } else if num.chars().filter(|char| *char == '.').count() != 1 {
-            Err("Misused decimal number dot delimiter".to_string())
+            Err(format!("Misused decimal number dot delimiter at '{}'", num))
         } else {
             Ok(())
         }
@@ -842,25 +845,28 @@ where
     fn checked_split<'a>(
         str: &'a str,
         delim: char,
-        err_msg: &'a str,
+        err_msg_formatter: fn(&'a str) -> String,
     ) -> Result<Vec<&'a str>, String> {
         let ranges = str.split(delim).collect::<Vec<&str>>();
         if ranges.len() != 2 {
-            return Err(err_msg.to_string());
+            return Err(err_msg_formatter(str));
         }
         Ok(ranges)
     }
-    let separate_ranges = checked_split(&two_ranges, '|', "Central vertical delimiter misused")?;
-    let time_range = checked_split(separate_ranges[0], '-', "First range is formatted wrong")?;
+    let separate_ranges = checked_split(&two_ranges, '|', |example| {
+        format!("Central vertical delimiter '|' misused in '{}'", example)
+    })?;
+    let time_range = checked_split(separate_ranges[0], '-', |example| {
+        format!("First range '{}' is formatted wrong", example)
+    })?;
     let (min_age, max_age) = FinancialsCommand::parse_time_params(&time_range)?;
     let (min_amount, max_amount, _, _): (N, N, _, _) =
         FinancialsCommand::parse_masq_range_to_gwei(separate_ranges[1])?;
-    eprintln!("min {}, max {}", min_amount, max_amount);
     //There is no sense in trying to check an exact age because of its all time moving nature
     //In money, it is less nonsensical but still quite unlikely that you would really need it;
     //the backend engine carries the search out always on the Gwei precision
     if min_age >= max_age || min_amount >= max_amount {
-        Err("Both ranges must be ascendant".to_string())
+        Err(format!("Both ranges '{}' must be ascendant", two_ranges))
     } else {
         Ok(())
     }
@@ -2648,7 +2654,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("Central vertical delimiter misused".to_string())
+            Err("Central vertical delimiter '|' misused in '45-500545-006'".to_string())
         )
     }
 
@@ -2656,42 +2662,60 @@ mod tests {
     fn validate_two_ranges_with_misused_range_delimiter() {
         let result = validate_two_ranges::<i64>("45+500|545+006".to_string());
 
-        assert_eq!(result, Err("First range is formatted wrong".to_string()))
+        assert_eq!(
+            result,
+            Err("First range '45+500' is formatted wrong".to_string())
+        )
     }
 
     #[test]
     fn validate_two_ranges_second_value_smaller_than_the_first_for_time() {
         let result = validate_two_ranges::<u64>("4545-2000|20000.0-30000.0".to_string());
 
-        assert_eq!(result, Err("Both ranges must be ascendant".to_string()))
+        assert_eq!(
+            result,
+            Err("Both ranges '4545-2000|20000.0-30000.0' must be ascendant".to_string())
+        )
     }
 
     #[test]
     fn validate_two_ranges_both_values_the_same_for_time() {
         let result = validate_two_ranges::<i64>("2000-2000|20000.0-30000.0".to_string());
 
-        assert_eq!(result, Err("Both ranges must be ascendant".to_string()))
+        assert_eq!(
+            result,
+            Err("Both ranges '2000-2000|20000.0-30000.0' must be ascendant".to_string())
+        )
     }
 
     #[test]
     fn validate_two_ranges_both_values_the_same_for_masqs() {
         let result = validate_two_ranges::<i64>("1000-2000|20000.0-20000.0".to_string());
 
-        assert_eq!(result, Err("Both ranges must be ascendant".to_string()))
+        assert_eq!(
+            result,
+            Err("Both ranges '1000-2000|20000.0-20000.0' must be ascendant".to_string())
+        )
     }
 
     #[test]
     fn validate_two_ranges_second_value_smaller_than_the_first_for_masqs_but_not_in_decimals() {
         let result = validate_two_ranges::<i64>("2000-4545|30.0-27.0".to_string());
 
-        assert_eq!(result, Err("Both ranges must be ascendant".to_string()))
+        assert_eq!(
+            result,
+            Err("Both ranges '2000-4545|30.0-27.0' must be ascendant".to_string())
+        )
     }
 
     #[test]
     fn validate_two_ranges_second_value_smaller_than_the_first_for_masqs_in_decimals() {
         let result = validate_two_ranges::<u64>("2000-4545|20.13-20.11".to_string());
 
-        assert_eq!(result, Err("Both ranges must be ascendant".to_string()))
+        assert_eq!(
+            result,
+            Err("Both ranges '2000-4545|20.13-20.11' must be ascendant".to_string())
+        )
     }
 
     #[test]
@@ -2700,7 +2724,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("Non numeric value > blah <, all must be valid numbers".to_string())
+            Err("Non numeric value 'blah', all must be valid numbers".to_string())
         )
     }
 
@@ -2708,7 +2732,10 @@ mod tests {
     fn validate_two_ranges_non_numeric_value_for_second_range() {
         let result = validate_two_ranges::<i64>("1000-1234|7878.0-a lot".to_string());
 
-        assert_eq!(result, Err("Second range in improper format".to_string()))
+        assert_eq!(
+            result,
+            Err("Second range '7878.0-a lot' in improper format".to_string())
+        )
     }
 
     #[test]
@@ -2717,7 +2744,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("Ending dot at decimal number is unsupported".to_string())
+            Err("Ending dot at decimal number, like here '4556.', is unsupported".to_string())
         )
     }
 
@@ -2727,7 +2754,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("Misused decimal number dot delimiter".to_string())
+            Err("Misused decimal number dot delimiter at '45.056.000'".to_string())
         )
     }
 }

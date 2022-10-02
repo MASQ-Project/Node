@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::big_int_db_processor::ByteOrder::{High, Low};
+use crate::accountant::big_int_db_processor::ByteMagnitude::{High, Low};
 use crate::accountant::big_int_db_processor::UserDefinedFunctionError::InvalidInputValue;
 use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::checked_conversion;
@@ -20,11 +20,11 @@ use std::marker::PhantomData;
 use std::ops::Neg;
 
 #[derive(Debug)]
-pub struct BigIntDbProcessor<T: DAOTableIdentifier> {
+pub struct BigIntDbProcessor<T: TableNameDAO> {
     phantom: PhantomData<T>,
 }
 
-impl<T: DAOTableIdentifier> BigIntDbProcessor<T> {
+impl<T: TableNameDAO> BigIntDbProcessor<T> {
     pub fn execute<'a>(
         &self,
         conn: Either<&dyn ConnectionWrapper, &Transaction>,
@@ -32,10 +32,10 @@ impl<T: DAOTableIdentifier> BigIntDbProcessor<T> {
     ) -> Result<(), BigIntDbError> {
         let main_sql = config.construct_main_sql();
         let mut stm = Self::prepare_statement(conn, &main_sql);
-        let params = config
+        let params: Vec<(&str, &dyn ToSql)> = config
             .params
-            .pure_rusqlite_params_uncorrected()
-            .collect::<Vec<(&str, &dyn ToSql)>>();
+            .pure_rusqlite_params_with_wei_params((&config.params.wei_change_params).into())
+            .collect();
         match stm.execute(params.as_slice()) {
             Ok(_) => Ok(()),
             //SQLITE_CONSTRAINT_DATATYPE (3091),
@@ -66,20 +66,26 @@ impl<T: DAOTableIdentifier> BigIntDbProcessor<T> {
             match low_bytes_result {
                 Ok(low_bytes) => {
                     let wei_change_params = &config.params.wei_change_params;
-                    let high_bytes_correction = wei_change_params[0].1 + 1;
+                    let high_bytes_correction = wei_change_params.high.value + 1;
                     let low_bytes_correction = ((low_bytes as i128
-                        + wei_change_params[1].1 as i128)
+                        + wei_change_params.low.value as i128)
                         & 0x7FFFFFFFFFFFFFFF) as i64
                         - low_bytes;
                     let update_sql = config.prepare_update_sql();
                     let mut update_stm = Self::prepare_statement(conn, &update_sql);
                     let wei_update_array = [
-                        (wei_change_params[0].0.as_str(), high_bytes_correction),
-                        (wei_change_params[1].0.as_str(), low_bytes_correction),
+                        (
+                            wei_change_params.high.name.as_str(),
+                            &high_bytes_correction as &dyn ToSql,
+                        ),
+                        (
+                            wei_change_params.low.name.as_str(),
+                            &low_bytes_correction as &dyn ToSql,
+                        ),
                     ];
                     let params = config
                         .params
-                        .pure_rusqlite_params_corrected(&wei_update_array)
+                        .pure_rusqlite_params_with_wei_params(wei_update_array)
                         .collect::<Vec<_>>();
                     match update_stm
                         .execute(&*params)
@@ -107,7 +113,7 @@ impl<T: DAOTableIdentifier> BigIntDbProcessor<T> {
     }
 }
 
-impl<T: DAOTableIdentifier> Default for BigIntDbProcessor<T> {
+impl<T: TableNameDAO> Default for BigIntDbProcessor<T> {
     fn default() -> BigIntDbProcessor<T> {
         Self {
             phantom: Default::default(),
@@ -115,7 +121,7 @@ impl<T: DAOTableIdentifier> Default for BigIntDbProcessor<T> {
     }
 }
 
-impl<T: DAOTableIdentifier> BigIntDbProcessor<T> {
+impl<T: TableNameDAO> BigIntDbProcessor<T> {
     fn prepare_statement<'a>(
         form_of_conn: Either<&'a dyn ConnectionWrapper, &'a Transaction>,
         sql: &'a str,
@@ -135,7 +141,7 @@ pub struct BigIntSqlConfig<'a, T> {
     phantom: PhantomData<T>,
 }
 
-impl<'a, T: DAOTableIdentifier> BigIntSqlConfig<'a, T> {
+impl<'a, T: TableNameDAO> BigIntSqlConfig<'a, T> {
     pub fn new(
         main_sql: &'a str,
         update_clause_opt: Option<for<'b> fn(&'b str) -> String>,
@@ -173,9 +179,9 @@ impl<'a, T: DAOTableIdentifier> BigIntSqlConfig<'a, T> {
         let key_info = self.key_info();
         format!(
             "select {} from {} where {} = '{}'",
-            &self.params.wei_change_params[1].0[1..],
+            &self.params.wei_change_params.low.name[1..],
             T::table_name(),
-            self.params.table_key_name,
+            self.params.table_unique_key_name,
             key_info.1
         )
     }
@@ -187,7 +193,7 @@ impl<'a, T: DAOTableIdentifier> BigIntSqlConfig<'a, T> {
 
     fn balance_change(&self) -> i128 {
         let wei_params = &self.params.wei_change_params;
-        BigIntDivider::reconstitute(wei_params[0].1, wei_params[1].1)
+        BigIntDivider::reconstitute(wei_params.high.value, wei_params.low.value)
     }
 
     fn determine_command(&self) -> String {
@@ -221,19 +227,29 @@ impl_of_extended_params_marker!(i64, &str, Wallet);
 
 #[derive(Default)]
 pub struct SQLParamsBuilder<'a> {
-    key_spec_opt: Option<(&'a str, &'a str, &'a dyn ExtendedParamsMarker)>,
+    key_spec_opt: Option<UniqueKeySpec<'a>>,
     wei_change_spec_opt: Option<WeiChange>,
     other_params: Vec<(&'a str, &'a dyn ExtendedParamsMarker)>,
+}
+
+struct UniqueKeySpec<'a> {
+    definition_name: &'a str,
+    substitution_name_in_sql: &'a str,
+    value_itself: &'a dyn ExtendedParamsMarker,
 }
 
 impl<'a> SQLParamsBuilder<'a> {
     pub fn key(
         mut self,
-        table_param_name: &'a str,
-        substitution_name: &'a str,
-        value: &'a dyn ExtendedParamsMarker,
+        definition_name: &'a str,
+        substitution_name_in_sql: &'a str,
+        value_itself: &'a dyn ExtendedParamsMarker,
     ) -> Self {
-        self.key_spec_opt = Some((table_param_name, substitution_name, value));
+        self.key_spec_opt = Some(UniqueKeySpec {
+            definition_name,
+            substitution_name_in_sql,
+            value_itself,
+        });
         self
     }
 
@@ -254,16 +270,17 @@ impl<'a> SQLParamsBuilder<'a> {
         let wei_change_spec = self
             .wei_change_spec_opt
             .unwrap_or_else(|| panic!("SQLparams cannot miss the component of Wei change"));
-        let (wei_change_names, split_bytes) = Self::expand_wei_params(wei_change_spec);
-        let params = once((key_spec.1, key_spec.2))
+        let ((high_bytes_param_name, low_bytes_param_name), (high_bytes_value, low_bytes_value)) =
+            Self::expand_wei_params(wei_change_spec);
+        let params = once((key_spec.substitution_name_in_sql, key_spec.value_itself))
             .chain(self.other_params.into_iter())
             .collect();
         SQLParams {
-            table_key_name: key_spec.0,
-            wei_change_params: [
-                (wei_change_names.0, split_bytes.0),
-                (wei_change_names.1, split_bytes.1),
-            ],
+            table_unique_key_name: key_spec.definition_name,
+            wei_change_params: WeisMakingTheChange {
+                high: StdParamFormNamed::new(high_bytes_param_name, high_bytes_value),
+                low: StdParamFormNamed::new(low_bytes_param_name, low_bytes_value),
+            },
             params_except_wei_change: params,
         }
     }
@@ -282,17 +299,17 @@ impl<'a> SQLParamsBuilder<'a> {
         )
     }
 
-    fn proper_wei_change_param_name(base_word: &str, byte_order: ByteOrder) -> String {
-        format!(":{}_{}_b", base_word, byte_order)
+    fn proper_wei_change_param_name(base_word: &str, byte_magnitude: ByteMagnitude) -> String {
+        format!(":{}_{}_b", base_word, byte_magnitude)
     }
 }
 
-enum ByteOrder {
+enum ByteMagnitude {
     High,
     Low,
 }
 
-impl Display for ByteOrder {
+impl Display for ByteMagnitude {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             High => write!(f, "high"),
@@ -302,29 +319,44 @@ impl Display for ByteOrder {
 }
 
 pub struct SQLParams<'a> {
-    table_key_name: &'a str,
-    wei_change_params: [(String, i64); 2],
+    table_unique_key_name: &'a str,
+    wei_change_params: WeisMakingTheChange,
     params_except_wei_change: Vec<(&'a str, &'a dyn ExtendedParamsMarker)>,
 }
 
-impl<'a> SQLParams<'a> {
-    fn pure_rusqlite_params_uncorrected(&self) -> impl Iterator<Item = (&str, &dyn ToSql)> {
-        self.pure_rusqlite_params(
-            self.wei_change_params
-                .iter()
-                .map(|(name, value)| (name.as_str(), value as &dyn ToSql)),
-        )
-    }
+#[derive(Debug, PartialEq)]
+struct WeisMakingTheChange {
+    high: StdParamFormNamed,
+    low: StdParamFormNamed,
+}
 
-    fn pure_rusqlite_params_corrected(
+#[derive(Debug, PartialEq)]
+struct StdParamFormNamed {
+    name: String,
+    value: i64,
+}
+
+impl StdParamFormNamed {
+    fn new(name: String, value: i64) -> Self {
+        Self { name, value }
+    }
+}
+
+impl<'a> From<&'a WeisMakingTheChange> for [(&'a str, &'a dyn ToSql); 2] {
+    fn from(wei_change: &'a WeisMakingTheChange) -> Self {
+        [
+            (wei_change.high.name.as_str(), &wei_change.high.value),
+            (wei_change.low.name.as_str(), &wei_change.low.value),
+        ]
+    }
+}
+
+impl<'a> SQLParams<'a> {
+    fn pure_rusqlite_params_with_wei_params(
         &'a self,
-        wei_change_params: &'a [(&'a str, i64); 2],
+        wei_change_params: [(&'a str, &'a dyn ToSql); 2],
     ) -> impl Iterator<Item = (&str, &dyn ToSql)> {
-        self.pure_rusqlite_params(
-            wei_change_params
-                .iter()
-                .map(|(name, num)| (*name, num as &dyn ToSql)),
-        )
+        self.pure_rusqlite_params(wei_change_params.into_iter())
     }
 
     fn pure_rusqlite_params(
@@ -338,7 +370,7 @@ impl<'a> SQLParams<'a> {
     }
 }
 
-pub trait DAOTableIdentifier: Debug + Send {
+pub trait TableNameDAO: Debug + Send {
     fn table_name() -> String;
 }
 
@@ -525,7 +557,7 @@ mod tests {
     #[derive(Debug)]
     struct DummyDao {}
 
-    impl DAOTableIdentifier for DummyDao {
+    impl TableNameDAO for DummyDao {
         fn table_name() -> String {
             String::from("test_table")
         }
@@ -556,7 +588,7 @@ mod tests {
     }
 
     #[test]
-    fn display_for_byte_order_works() {
+    fn display_for_byte_magnitude_works() {
         assert_eq!(High.to_string(), "high".to_string());
         assert_eq!(Low.to_string(), "low".to_string())
     }
@@ -571,10 +603,10 @@ mod tests {
             .other(vec![("other_thing", &46565)]);
 
         assert_eq!(result.wei_change_spec_opt, Some(Addition("balance", 4546)));
-        assert!(matches!(
-            result.key_spec_opt,
-            Some(("some_key", ":some_key", _))
-        ));
+        let key_spec = result.key_spec_opt.unwrap();
+        assert_eq!(key_spec.definition_name, "some_key");
+        assert_eq!(key_spec.substitution_name_in_sql, ":some_key");
+        assert_eq!(key_spec.value_itself.to_string(), "blah".to_string());
         assert!(matches!(result.other_params[0], ("other_thing", _)));
         assert_eq!(result.other_params.len(), 1)
     }
@@ -589,13 +621,13 @@ mod tests {
             .other(vec![(":other_thing", &11111)])
             .build();
 
-        assert_eq!(result.table_key_name, "some_key");
+        assert_eq!(result.table_unique_key_name, "some_key");
         assert_eq!(
             result.wei_change_params,
-            [
-                (":balance_high_b".to_string(), 0),
-                (":balance_low_b".to_string(), 115898)
-            ]
+            WeisMakingTheChange {
+                high: StdParamFormNamed::new(":balance_high_b".to_string(), 0),
+                low: StdParamFormNamed::new(":balance_low_b".to_string(), 115898)
+            }
         );
         assert_eq!(result.params_except_wei_change[0].0, ":some_key");
         assert_eq!(
@@ -620,13 +652,13 @@ mod tests {
             .other(vec![(":other_thing", &46565)])
             .build();
 
-        assert_eq!(result.table_key_name, "some_key");
+        assert_eq!(result.table_unique_key_name, "some_key");
         assert_eq!(
             result.wei_change_params,
-            [
-                (":balance_high_b".to_string(), -1),
-                (":balance_low_b".to_string(), 9223372036854321124)
-            ]
+            WeisMakingTheChange {
+                high: StdParamFormNamed::new(":balance_high_b".to_string(), -1),
+                low: StdParamFormNamed::new(":balance_low_b".to_string(), 9223372036854321124)
+            }
         );
         assert_eq!(result.params_except_wei_change[0].0, ":some_key");
         assert_eq!(
@@ -675,8 +707,11 @@ mod tests {
 
     fn make_empty_sql_params<'a>() -> SQLParams<'a> {
         SQLParams {
-            table_key_name: "",
-            wei_change_params: [("".to_string(), 0), ("".to_string(), 0)],
+            table_unique_key_name: "",
+            wei_change_params: WeisMakingTheChange {
+                high: StdParamFormNamed::new("".to_string(), 0),
+                low: StdParamFormNamed::new("".to_string(), 0),
+            },
             params_except_wei_change: vec![],
         }
     }

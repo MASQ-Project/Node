@@ -3,7 +3,7 @@
 use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::big_int_db_processor::{
     collect_and_sum_i128_values_from_table, BigIntDbProcessor, BigIntDivider, BigIntSqlConfig,
-    DAOTableIdentifier, SQLParamsBuilder,
+    SQLParamsBuilder, TableNameDAO,
 };
 use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
@@ -359,7 +359,7 @@ impl PayableDaoReal {
     }
 }
 
-impl DAOTableIdentifier for PayableDaoReal {
+impl TableNameDAO for PayableDaoReal {
     fn table_name() -> String {
         String::from("payable")
     }
