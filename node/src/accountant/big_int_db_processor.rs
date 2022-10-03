@@ -32,10 +32,9 @@ impl<T: TableNameDAO> BigIntDbProcessor<T> {
     ) -> Result<(), BigIntDbError> {
         let main_sql = config.construct_main_sql();
         let mut stm = Self::prepare_statement(conn, &main_sql);
-        let params: Vec<(&str, &dyn ToSql)> = config
+        let params = config
             .params
-            .pure_rusqlite_params_with_wei_params((&config.params.wei_change_params).into())
-            .collect();
+            .pure_rusqlite_params_with_wei_params((&config.params.wei_change_params).into());
         match stm.execute(params.as_slice()) {
             Ok(_) => Ok(()),
             //SQLITE_CONSTRAINT_DATATYPE (3091),
@@ -48,7 +47,7 @@ impl<T: TableNameDAO> BigIntDbProcessor<T> {
                 config.determine_command(),
                 T::table_name(),
                 config.balance_change(),
-                config.key_info().1,
+                config.key_value(),
                 e
             ))),
         }
@@ -85,8 +84,7 @@ impl<T: TableNameDAO> BigIntDbProcessor<T> {
                     ];
                     let params = config
                         .params
-                        .pure_rusqlite_params_with_wei_params(wei_update_array)
-                        .collect::<Vec<_>>();
+                        .pure_rusqlite_params_with_wei_params(wei_update_array);
                     match update_stm
                         .execute(&*params)
                         .expect("correction-for update sql has wrong logic")
@@ -106,7 +104,7 @@ impl<T: TableNameDAO> BigIntDbProcessor<T> {
                 "Updating balance for {} of {} Wei to {} with error '{}'",
                 T::table_name(),
                 config.balance_change(),
-                config.key_info().1,
+                config.key_value(),
                 e
             ))),
         }
@@ -176,19 +174,17 @@ impl<'a, T: TableNameDAO> BigIntSqlConfig<'a, T> {
     }
 
     fn select_sql(&self) -> String {
-        let key_info = self.key_info();
         format!(
             "select {} from {} where {} = '{}'",
             &self.params.wei_change_params.low.name[1..],
             T::table_name(),
             self.params.table_unique_key_name,
-            key_info.1
+            self.key_value()
         )
     }
 
-    fn key_info(&self) -> (&str, String) {
-        let key_definition = self.params.params_except_wei_change[0];
-        (key_definition.0, key_definition.1.to_string())
+    fn key_value(&self) -> &'a dyn ExtendedParamsMarker {
+        self.params.params_except_wei_change[0].1
     }
 
     fn balance_change(&self) -> i128 {
@@ -278,8 +274,8 @@ impl<'a> SQLParamsBuilder<'a> {
         SQLParams {
             table_unique_key_name: key_spec.definition_name,
             wei_change_params: WeisMakingTheChange {
-                high: StdParamFormNamed::new(high_bytes_param_name, high_bytes_value),
-                low: StdParamFormNamed::new(low_bytes_param_name, low_bytes_value),
+                high: StdNumParamFormNamed::new(high_bytes_param_name, high_bytes_value),
+                low: StdNumParamFormNamed::new(low_bytes_param_name, low_bytes_value),
             },
             params_except_wei_change: params,
         }
@@ -326,17 +322,17 @@ pub struct SQLParams<'a> {
 
 #[derive(Debug, PartialEq)]
 struct WeisMakingTheChange {
-    high: StdParamFormNamed,
-    low: StdParamFormNamed,
+    high: StdNumParamFormNamed,
+    low: StdNumParamFormNamed,
 }
 
 #[derive(Debug, PartialEq)]
-struct StdParamFormNamed {
+struct StdNumParamFormNamed {
     name: String,
     value: i64,
 }
 
-impl StdParamFormNamed {
+impl StdNumParamFormNamed {
     fn new(name: String, value: i64) -> Self {
         Self { name, value }
     }
@@ -355,8 +351,9 @@ impl<'a> SQLParams<'a> {
     fn pure_rusqlite_params_with_wei_params(
         &'a self,
         wei_change_params: [(&'a str, &'a dyn ToSql); 2],
-    ) -> impl Iterator<Item = (&str, &dyn ToSql)> {
+    ) -> Vec<(&'a str, &'a dyn ToSql)> {
         self.pure_rusqlite_params(wei_change_params.into_iter())
+            .collect()
     }
 
     fn pure_rusqlite_params(
@@ -429,15 +426,6 @@ macro_rules! create_big_int_sqlite_fns {
     }
 }
 
-macro_rules! parse_fn_creation_args {
-    ($ctx: expr, $fn_name: expr, $($idx: expr),+; $($parser: ident),+; $($err_msg: literal),+) => {
-        ($($ctx.get_raw($idx)
-            .$parser()
-            .map_err(|_| invalid_input_error($fn_name, format!($err_msg, $ctx.get_raw($idx))))?
-        ),+)
-    };
-}
-
 pub struct BigIntDivider {}
 
 impl BigIntDivider {
@@ -480,39 +468,40 @@ impl BigIntDivider {
         fn_name_1: &'static str,
         fn_name_2: &'static str,
     ) -> rusqlite::Result<()> {
-        //TODO inline this
-        fn invalid_input_error(fn_name: &str, message: String) -> Error {
-            UserFunctionError(Box::new(InvalidInputValue(fn_name.to_string(), message)))
-        }
-        fn negativity_check_and_final_composition(
-            fn_name: &str,
-            tuple: (i64, f64),
-        ) -> rusqlite::Result<i128> {
-            let (point_to_decrease_from_gwei, decrease_wei) = tuple;
-            if decrease_wei.is_sign_negative() {
-                Ok(point_to_decrease_from_gwei as i128 * WEIS_OF_GWEI + decrease_wei as i128)
+        fn common_arg_distillation(ctx: &Context, fn_name: &str) -> rusqlite::Result<i128> {
+            let start_point_to_decrease_from_gwei = {
+                let raw_value = ctx.get_raw(0);
+                raw_value.as_i64().map_err(|_| {
+                    UserFunctionError(Box::new(InvalidInputValue(
+                        fn_name.to_string(),
+                        format!("First argument takes only i64, not: {:?}", raw_value),
+                    )))
+                })?
+            };
+            let actual_decrease_wei = {
+                let raw_value = ctx.get_raw(1);
+                raw_value.as_f64().map_err(|_| {
+                    UserFunctionError(Box::new(InvalidInputValue(
+                        fn_name.to_string(),
+                        format!(
+                            "Second argument takes only a real number, not: {:?}",
+                            raw_value
+                        ),
+                    )))
+                })?
+            };
+            if actual_decrease_wei.is_sign_negative() {
+                Ok(start_point_to_decrease_from_gwei as i128 * WEIS_OF_GWEI
+                    + actual_decrease_wei as i128)
             } else {
-                Err(invalid_input_error(
-                    fn_name,
+                Err(UserFunctionError(Box::new(InvalidInputValue(
+                    fn_name.to_string(),
                     format!(
                         "None negative slope, while designed only for use with negative one: {}",
-                        decrease_wei
+                        actual_decrease_wei
                     ),
-                ))
+                ))))
             }
-        }
-        fn common_arg_distillation(ctx: &Context, fn_name: &str) -> rusqlite::Result<i128> {
-            negativity_check_and_final_composition(
-                fn_name,
-                //TODO probably deconstruct this macro, hard to read and ugly
-                parse_fn_creation_args!(
-                    ctx, fn_name,
-                    0, 1;
-                    as_i64, as_f64;
-                    "First argument takes only i64, not: {:?}",
-                    "Second argument takes only a real number, not: {:?}"
-                ),
-            )
         }
 
         create_big_int_sqlite_fns!(
@@ -625,8 +614,8 @@ mod tests {
         assert_eq!(
             result.wei_change_params,
             WeisMakingTheChange {
-                high: StdParamFormNamed::new(":balance_high_b".to_string(), 0),
-                low: StdParamFormNamed::new(":balance_low_b".to_string(), 115898)
+                high: StdNumParamFormNamed::new(":balance_high_b".to_string(), 0),
+                low: StdNumParamFormNamed::new(":balance_low_b".to_string(), 115898)
             }
         );
         assert_eq!(result.params_except_wei_change[0].0, ":some_key");
@@ -656,8 +645,8 @@ mod tests {
         assert_eq!(
             result.wei_change_params,
             WeisMakingTheChange {
-                high: StdParamFormNamed::new(":balance_high_b".to_string(), -1),
-                low: StdParamFormNamed::new(":balance_low_b".to_string(), 9223372036854321124)
+                high: StdNumParamFormNamed::new(":balance_high_b".to_string(), -1),
+                low: StdNumParamFormNamed::new(":balance_low_b".to_string(), 9223372036854321124)
             }
         );
         assert_eq!(result.params_except_wei_change[0].0, ":some_key");
@@ -709,8 +698,8 @@ mod tests {
         SQLParams {
             table_unique_key_name: "",
             wei_change_params: WeisMakingTheChange {
-                high: StdParamFormNamed::new("".to_string(), 0),
-                low: StdParamFormNamed::new("".to_string(), 0),
+                high: StdNumParamFormNamed::new("".to_string(), 0),
+                low: StdNumParamFormNamed::new("".to_string(), 0),
             },
             params_except_wei_change: vec![],
         }
@@ -1274,17 +1263,11 @@ mod tests {
     }
 
     #[test]
-    fn deconstruct_works_for_small_number() {
-        let result = BigIntDivider::deconstruct(45879);
-
-        assert_eq!(result, (0, 45879))
-    }
-
-    #[test]
-    fn deconstruct_works_for_big_number() {
-        let result = BigIntDivider::deconstruct(i64::MAX as i128 + 33333);
-
-        assert_eq!(result, (1, 33332))
+    #[should_panic(
+        expected = "Too big positive integer to be divided: 0x20000000000000000000000000000000"
+    )]
+    fn deconstruct_has_its_limits_up() {
+        let _ = BigIntDivider::deconstruct(0x1FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF + 1);
     }
 
     #[test]
@@ -1297,15 +1280,21 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Too big positive integer to be divided: 0x20000000000000000000000000000000"
-    )]
-    fn deconstruct_has_its_limits_up() {
-        let _ = BigIntDivider::deconstruct(0x1FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF + 1);
+    fn deconstruct_works_for_number_bigger_than_the_low_bytes_type_size() {
+        let result = BigIntDivider::deconstruct(i64::MAX as i128 + 1);
+
+        assert_eq!(result, (1, 0))
     }
 
     #[test]
-    fn deconstruct_works_for_zero_plus_one() {
+    fn deconstruct_works_for_big_number() {
+        let result = BigIntDivider::deconstruct(i64::MAX as i128);
+
+        assert_eq!(result, (0, 9223372036854775807))
+    }
+
+    #[test]
+    fn deconstruct_works_for_small_positive_number() {
         let result = BigIntDivider::deconstruct(1);
 
         assert_eq!(result, (0, 1))
@@ -1319,24 +1308,24 @@ mod tests {
     }
 
     #[test]
-    fn deconstruct_works_for_zero_minus_one() {
+    fn deconstruct_works_for_small_negative_number() {
         let result = BigIntDivider::deconstruct(-1);
 
         assert_eq!(result, (-1, i64::MAX))
     }
 
     #[test]
-    fn deconstruct_works_for_small_negative_number() {
-        let result = BigIntDivider::deconstruct(-454887);
+    fn deconstruct_works_for_big_negative_number() {
+        let result = BigIntDivider::deconstruct(i64::MIN as i128);
 
-        assert_eq!(result, (-1, 9223372036854320921))
+        assert_eq!(result, (-1, 0))
     }
 
     #[test]
-    fn deconstruct_works_for_big_negative_number() {
-        let result = BigIntDivider::deconstruct(i64::MIN as i128 - 4444);
+    fn deconstruct_works_for_number_smaller_than_the_low_bytes_type_size() {
+        let result = BigIntDivider::deconstruct(i64::MAX as i128 - 1);
 
-        assert_eq!(result, (-2, 9223372036854771364))
+        assert_eq!(result, (0, 9223372036854775806))
     }
 
     #[test]
@@ -1645,5 +1634,30 @@ mod tests {
             result.to_string(),
             "nul byte found in provided data at position: 4".to_string()
         )
+    }
+
+    //TODO this test probably will go away, as it proves this is a blind alley
+    #[test]
+    fn testing_rusqlite_ability_of_taking_different_parameter_types() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute("create table type_test (number integer not null)", [])
+            .unwrap();
+        let mut stm = conn
+            .prepare("insert into type_test (number) values (?)")
+            .unwrap();
+        let big_num: u64 = i64::MAX as u64 + 1;
+
+        let result = stm.execute(&[&big_num]);
+
+        assert_eq!(result, Ok(1));
+        let queried_num = conn
+            .prepare("select number from type_test where rowid = 1")
+            .unwrap()
+            .query_row([], |row| {
+                let number: Result<u64, rusqlite::Error> = row.get(0);
+                Ok(number)
+            })
+            .unwrap();
+        assert_eq!(queried_num, Ok(i64::MAX as u64 + 1))
     }
 }
