@@ -1211,32 +1211,4 @@ mod tests {
             Err("Unrecognized ordering: 'upside-down'".to_string())
         );
     }
-
-    #[derive(PartialEq, Debug, Serialize, Deserialize)]
-    struct TestExampleA {
-        number: i64,
-    }
-
-    #[test]
-    fn serde_library_can_deserialize_sign_bit_restricted_number() {
-        let json = "{\"number\": 10000000000000000000}";
-
-        let result = serde_json::from_str::<TestExampleA>(&json);
-
-        assert_eq!(format!("{:?}", result),"Err(Error(\"invalid value: integer `10000000000000000000`, expected i64\", line: 1, column: 31))".to_string())
-    }
-
-    #[derive(PartialEq, Debug, Serialize, Deserialize)]
-    struct TestExampleB {
-        number: u16,
-    }
-
-    #[test]
-    fn serde_library_can_deserialize_number_different_by_its_order_of_magnitude() {
-        let json = "{\"number\": 10000000000000000000}";
-
-        let result = serde_json::from_str::<TestExampleB>(&json);
-
-        assert_eq!(format!("{:?}", result),"Err(Error(\"invalid value: integer `10000000000000000000`, expected u16\", line: 1, column: 31))".to_string())
-    }
 }

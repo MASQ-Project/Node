@@ -381,17 +381,16 @@ pub enum WeiChange {
 pub struct BigIntDbError(pub String);
 
 macro_rules! insert_update_error_from {
-    ($implementer: ident) => {
-        impl From<BigIntDbError> for $implementer {
+    ($($implementer: ident),+) => {
+        $(impl From<BigIntDbError> for $implementer {
             fn from(iu_err: BigIntDbError) -> Self {
                 $implementer::RusqliteError(iu_err.0)
             }
-        }
-    };
+        })+
+    }
 }
 
-insert_update_error_from!(PayableDaoError);
-insert_update_error_from!(ReceivableDaoError);
+insert_update_error_from!(PayableDaoError,ReceivableDaoError);
 
 pub fn collect_and_sum_i128_values_from_table(
     conn: &dyn ConnectionWrapper,
@@ -1262,79 +1261,114 @@ mod tests {
         );
     }
 
-    #[test]
-    #[should_panic(
-        expected = "Too big positive integer to be divided: 0x20000000000000000000000000000000"
-    )]
-    fn deconstruct_has_its_limits_up() {
-        let _ = BigIntDivider::deconstruct(0x1FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF + 1);
+    fn assert_reconstitution(as_two_integers:(i64, i64), expected_number: i128){
+        let result = BigIntDivider::reconstitute(as_two_integers.0,as_two_integers.1);
+
+        assert_eq!(result,expected_number)
     }
 
     #[test]
-    fn deconstruct_works_for_huge_number() {
-        let result = BigIntDivider::deconstruct(0x1FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
+    fn deconstruct_and_reconstitute_works_for_huge_number() {
+        let tested_number = 0x1FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF;
+
+        let result = BigIntDivider::deconstruct(tested_number);
         //this is the maximum: -42535295865117307932_921825928_971026431 Wei ... 42535295865117307932 MASQs
         //there are fewer than 1 billion of units available on the market
 
-        assert_eq!(result, (4611686018427387903, i64::MAX))
+        assert_eq!(result, (4611686018427387903, i64::MAX));
+
+        assert_reconstitution(result, tested_number)
     }
 
     #[test]
-    fn deconstruct_works_for_number_bigger_than_the_low_bytes_type_size() {
-        let result = BigIntDivider::deconstruct(i64::MAX as i128 + 1);
+    fn deconstruct_and_reconstitute_works_for_number_bigger_than_the_low_bytes_type_size() {
+        let tested_number = i64::MAX as i128 + 1;
 
-        assert_eq!(result, (1, 0))
+        let result = BigIntDivider::deconstruct(tested_number);
+
+        assert_eq!(result, (1, 0));
+
+        assert_reconstitution(result, tested_number)
     }
 
     #[test]
     fn deconstruct_works_for_big_number() {
+        let tested_number = i64::MAX as i128;
         let result = BigIntDivider::deconstruct(i64::MAX as i128);
 
-        assert_eq!(result, (0, 9223372036854775807))
+        assert_eq!(result, (0, 9223372036854775807));
+
+        assert_reconstitution(result, tested_number)
     }
 
     #[test]
     fn deconstruct_works_for_small_positive_number() {
-        let result = BigIntDivider::deconstruct(1);
+        let tested_number = 1;
+        let result = BigIntDivider::deconstruct(tested_number);
 
-        assert_eq!(result, (0, 1))
+        assert_eq!(result, (0, 1));
+
+        assert_reconstitution(result, tested_number)
     }
 
     #[test]
     fn deconstruct_works_for_zero() {
-        let result = BigIntDivider::deconstruct(0);
+        let tested_number = 0;
+        let result = BigIntDivider::deconstruct(tested_number);
 
-        assert_eq!(result, (0, 0))
+        assert_eq!(result, (0, 0));
+
+        assert_reconstitution(result, tested_number)
     }
 
     #[test]
     fn deconstruct_works_for_small_negative_number() {
-        let result = BigIntDivider::deconstruct(-1);
+        let tested_number = -1;
+        let result = BigIntDivider::deconstruct(tested_number);
 
-        assert_eq!(result, (-1, i64::MAX))
+        assert_eq!(result, (-1, i64::MAX));
+
+        assert_reconstitution(result, tested_number)
     }
 
     #[test]
     fn deconstruct_works_for_big_negative_number() {
-        let result = BigIntDivider::deconstruct(i64::MIN as i128);
+        let tested_number = i64::MIN as i128;
+        let result = BigIntDivider::deconstruct(tested_number);
 
-        assert_eq!(result, (-1, 0))
+        assert_eq!(result, (-1, 0));
+
+        assert_reconstitution(result, tested_number)
     }
 
     #[test]
     fn deconstruct_works_for_number_smaller_than_the_low_bytes_type_size() {
-        let result = BigIntDivider::deconstruct(i64::MAX as i128 - 1);
+        let tested_number = i64::MAX as i128 -1;
+        let result = BigIntDivider::deconstruct(tested_number);
 
-        assert_eq!(result, (0, 9223372036854775806))
+        assert_eq!(result, (0, 9223372036854775806));
+
+        assert_reconstitution(result, tested_number)
     }
 
     #[test]
     fn deconstruct_works_for_huge_negative_number() {
-        let result = BigIntDivider::deconstruct(-0x40000000000000000000000000000000);
+        let tested_number = -0x40000000000000000000000000000000;
+        let result = BigIntDivider::deconstruct(tested_number);
         //this is the minimum: -85070591730234615865_843651857_942052864 Wei ... -85070591730234615865 MASQs
         //there are fewer than 1 billion of units available on the market
 
-        assert_eq!(result, (-9223372036854775808, 0))
+        assert_eq!(result, (-9223372036854775808, 0));
+
+        assert_reconstitution(result, tested_number)
+    }
+
+    #[test]
+    #[should_panic(
+    expected = "Too big positive integer to be divided: 0x20000000000000000000000000000000"
+    )]
+    fn deconstruct_has_its_limits_up() {
+        let _ = BigIntDivider::deconstruct(0x7FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF);
     }
 
     #[test]
@@ -1342,50 +1376,14 @@ mod tests {
         expected = "Too big negative integer to be divided: -0xBFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF"
     )]
     fn deconstruct_has_its_limits_down() {
-        let _ = BigIntDivider::deconstruct(-0x40000000000000000000000000000000 - 1);
-        //at this number we lose the sign so it's the minimal possible value with which we can go down
+        let _ = BigIntDivider::deconstruct(0x80000000000000000000000000000000);
     }
 
     #[test]
-    fn reconstitute_works_for_small_number() {
-        let result = BigIntDivider::reconstitute(0, 45879);
+    fn reconstitute_should_reject_lower_half_with_high_bit_set() {
+        let result = BigIntDivider::reconstitute (0, -1);
 
-        assert_eq!(result, 45879)
-    }
-
-    #[test]
-    fn reconstitute_works_for_big_number() {
-        let result = BigIntDivider::reconstitute(1, 33332);
-
-        assert_eq!(result, i64::MAX as i128 + 33333)
-    }
-
-    #[test]
-    fn reconstitute_works_for_huge_number() {
-        let result = BigIntDivider::reconstitute(2305843009213693951, i64::MAX);
-
-        assert_eq!(result, 0x0FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF)
-    }
-
-    #[test]
-    fn reconstitute_works_for_small_negative_number() {
-        let result = BigIntDivider::reconstitute(-1, 9223372036854320921);
-
-        assert_eq!(result, -454887)
-    }
-
-    #[test]
-    fn reconstitute_works_for_big_negative_number() {
-        let result = BigIntDivider::reconstitute(-2, 9223372036854771364);
-
-        assert_eq!(result, i64::MIN as i128 - 4444)
-    }
-
-    #[test]
-    fn reconstitute_works_for_huge_negative_number() {
-        let result = BigIntDivider::reconstitute(-9223372036854775808, 0);
-
-        assert_eq!(result, -0x40000000000000000000000000000000)
+        assert_eq! (result, Err ("Range violation".to_string()));
     }
 
     #[test]
