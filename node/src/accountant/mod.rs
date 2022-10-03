@@ -25,7 +25,9 @@ use crate::blockchain::blockchain_bridge::{
     InitiatePPFingerprints, PendingPayableFingerprint, RetrieveTransactions,
 };
 use crate::blockchain::blockchain_interface::PendingPayableFallible::{Correct, Failure};
-use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction, PendingPayableFallible, RpcPayableFailure};
+use crate::blockchain::blockchain_interface::{
+    BlockchainError, BlockchainTransaction, PendingPayableFallible, RpcPayableFailure,
+};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_migrations::MigratorConfig;
@@ -46,6 +48,7 @@ use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::Recipient;
+use itertools::Either::{Left, Right};
 use itertools::{Either, Itertools};
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
@@ -62,7 +65,6 @@ use std::default::Default;
 use std::ops::Add;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
-use itertools::Either::{Left, Right};
 use web3::types::{TransactionReceipt, H256};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
@@ -107,10 +109,10 @@ pub struct ReceivedPayments {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-#[derive(Debug, Message, PartialEq, Eq)]
+#[derive(Debug, Message, PartialEq)]
 pub struct SentPayable {
     pub timestamp: SystemTime,
-    pub payable: Result<Vec<PendingPayableFallible>, BlockchainError>,
+    pub payable_outcomes: Result<Vec<PendingPayableFallible>, BlockchainError>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -813,12 +815,16 @@ impl Accountant {
 
     fn handle_sent_payable(&self, sent_payable: SentPayable) {
         let (ok, err_opt) = Self::separate_errors(&sent_payable, &self.logger);
-        debug!(self.logger,"Received {} of correctly sent off payables", ok.len());
+        debug!(
+            self.logger,
+            "Received {} of correctly sent off payables",
+            ok.len()
+        );
         self.mark_pending_payable(ok);
-        if let Some(err) = err_opt{
-            match err{
+        if let Some(err) = err_opt {
+            match err {
                 Left(our_procedure_err) => todo!(),
-                Right(remote_procedure_err) => todo!()
+                Right(remote_procedure_err) => todo!(),
             }
             // debug!(self.logger, "We gathered these errors at sending payables: {:?}, out of the total of {} attempts", err, ok.len() + err.len());
             // if !err.is_empty() {
@@ -1022,33 +1028,36 @@ impl Accountant {
     fn separate_errors(
         sent_payments: &SentPayable,
         logger: &Logger,
-    ) -> (Vec<PendingPayable>, Option<Either<BlockchainError, Vec<RpcPayableFailure>>>) {
-        match &sent_payments.payable {
+    ) -> (
+        Vec<PendingPayable>,
+        Option<Either<BlockchainError, Vec<RpcPayableFailure>>>,
+    ) {
+        match &sent_payments.payable_outcomes {
             Ok(batch_responses) => {
                 todo!();
-                batch_responses
-                    .iter()
+                batch_responses.
+                    iter()
                     .fold(
-                        (vec![], None),
+                        (vec![], vec![]),
                         |so_far, request_outcome| match request_outcome {
                             Correct(payment_sent) => {
                                 (plus(so_far.0, payment_sent.clone()), so_far.1)
                             }
-                            Failure {rpc_failure
-                            } => {
-                                todo!("log warning here about these errors");
+                            Failure(rpc_failure) => {
+                                todo!("log warning here about these errors and drive in the following");
                                 warning!(logger,"blaaaaaaaaaaaah");
                                 (so_far.0, plus(so_far.1, rpc_failure.clone()))
                             }
                         },
-                    )
+                    );
+                todo!()
             }
             Err(e) => {
-                todo!();
-                logger.warning(|| match e {
-                    BlockchainError::SendingPayableFailed { .. } => format!("Encountered transaction error at this end: '{:?}'", e),
-                    x => format!("Outbound transaction failure due to '{:?}'. Please check your blockchain service URL configuration.", x)
-                })
+                todo!()
+                // logger.warning(|| match e {
+                //     BlockchainError::SendingPayableFailed { .. } => format!("Encountered transaction error at this end: '{:?}'", e),
+                //     x => format!("Outbound transaction failure due to '{:?}'. Please check your blockchain service URL configuration.", x)
+                // })
             }
         }
     }
@@ -1057,15 +1066,15 @@ impl Accountant {
         sent_payments
             .into_iter()
             .for_each(|payable| {
-                let rowid = match self.pending_payable_dao.fingerprint_rowid(payable.tx_hash) {
+                let rowid = match self.pending_payable_dao.fingerprint_rowid(payable.hash) {
                     Some(rowid) => rowid,
-                    None => panic!("Payable fingerprint for {} doesn't exist but should by now; system unreliable", payable.tx_hash)
+                    None => panic!("Payable fingerprint for {} doesn't exist but should by now; system unreliable", payable.hash)
                 };
                 match self.payable_dao.as_ref().mark_pending_payable_rowid(&payable.to, rowid ) {
                     Ok(()) => (),
-                    Err(e) => panic!("Was unable to create a mark in payables for a new pending payable '{}' due to '{:?}'", payable.tx_hash, e)
+                    Err(e) => panic!("Was unable to create a mark in payables for a new pending payable '{}' due to '{:?}'", payable.hash, e)
                 }
-                debug!(self.logger, "Payable '{}' has been marked as pending in the payable table",payable.tx_hash)
+                debug!(self.logger, "Payable '{}' has been marked as pending in the payable table",payable.hash)
             })
     }
 
@@ -1724,7 +1733,7 @@ mod tests {
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let sent_payable = SentPayable {
             timestamp: SystemTime::now(),
-            payable: vec![],
+            payable_outcomes: Ok(vec![]),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 1234,
                 context_id: 4321,
@@ -1875,14 +1884,10 @@ mod tests {
             .payable_dao(payable_dao)
             .pending_payable_dao(pending_payable_dao)
             .build();
-        let expected_payable = PendingPayable::new(
-            expected_wallet.clone(),
-            expected_amount,
-            expected_hash.clone(),
-        );
+        let expected_payable = PendingPayable::new(expected_wallet.clone(), expected_hash.clone());
         let sent_payable = SentPayable {
             timestamp: SystemTime::now(),
-            payable: vec![Ok(expected_payable.clone())],
+            payable_outcomes: Ok(vec![Correct(expected_payable.clone())]),
             response_skeleton_opt: None,
         };
         let subject = accountant.start();
@@ -1913,10 +1918,10 @@ mod tests {
         let hash = make_tx_hash(12345);
         let sent_payable = SentPayable {
             timestamp: SystemTime::now(),
-            payable: vec![Err(BlockchainError::SendingPayableFailed {
+            payable_outcomes: Err(BlockchainError::FinalPayableSendingProcessFailed {
                 msg: "SQLite migraine".to_string(),
-                hash_opt: Some(hash),
-            })],
+                fingerprints_established_opt: Some(vec![hash]),
+            }),
             response_skeleton_opt: None,
         };
         let subject = accountant.start();
@@ -1943,26 +1948,22 @@ mod tests {
     }
 
     #[test]
-    fn handle_sent_payable_discovers_failed_transaction_and_pending_payable_fingerprint_was_really_created(
+    fn handle_sent_payable_discovers_failed_transaction_and_pending_payable_fingerprints_was_really_created(
     ) {
         init_test_logging();
         let fingerprint_rowid_params_arc = Arc::new(Mutex::new(vec![]));
-        let mark_pending_payable_rowid_params_arc = Arc::new(Mutex::new(vec![]));
         let delete_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
-        let good_transaction_rowid = 3;
-        let failed_transaction_rowid = 5;
-        let payable_dao = PayableDaoMock::new()
-            .mark_pending_payable_rowid_params(&mark_pending_payable_rowid_params_arc)
-            .mark_pending_payable_rowid_result(Ok(()));
-        let system = System::new("accountant_calls_payable_dao_payment_sent_when_sent_payments");
+        let first_incomplete_transaction_rowid = 3;
+        let second_incomplete_transaction_rowid = 5;
+        let system = System::new("handle_sent_payable_discovers_failed_transaction_and_pending_payable_fingerprints_was_really_created");
         let pending_payable_dao = PendingPayableDaoMock::default()
             .fingerprint_rowid_params(&fingerprint_rowid_params_arc)
-            .fingerprint_rowid_result(Some(good_transaction_rowid)) //for the correct transaction before mark_pending_payment
-            .fingerprint_rowid_result(Some(failed_transaction_rowid)) //err, to find out if the backup has been created or if the error occurred before that
+            .fingerprint_rowid_result(Some(first_incomplete_transaction_rowid)) //for the correct transaction before mark_pending_payment
+            .fingerprint_rowid_result(Some(second_incomplete_transaction_rowid)) //err, to find out if the backup has been created or if the error occurred before that
             .delete_fingerprint_params(&delete_fingerprint_params_arc)
+            .delete_fingerprint_result(Ok(()))
             .delete_fingerprint_result(Ok(()));
         let subject = AccountantBuilder::default()
-            .payable_dao(payable_dao)
             .pending_payable_dao(pending_payable_dao)
             .build();
         let wallet = make_wallet("blah");
@@ -1970,17 +1971,10 @@ mod tests {
         let hash_tx_2 = make_tx_hash(12345);
         let sent_payable = SentPayable {
             timestamp: SystemTime::now(),
-            payable: vec![
-                Ok(PendingPayable {
-                    to: wallet.clone(),
-                    amount: 5656,
-                    tx_hash: hash_tx_1,
-                }),
-                Err(BlockchainError::SendingPayableFailed {
-                    msg: "Attempt failed".to_string(),
-                    hash_opt: Some(hash_tx_2),
-                }),
-            ],
+            payable_outcomes: Err(BlockchainError::FinalPayableSendingProcessFailed {
+                msg: "Attempt failed".to_string(),
+                fingerprints_established_opt: Some(vec![hash_tx_1, hash_tx_2]),
+            }),
             response_skeleton_opt: None,
         };
         let subject_addr = subject.start();
@@ -1996,16 +1990,14 @@ mod tests {
             *pending_payable_fingerprint_rowid_params,
             vec![hash_tx_1, hash_tx_2]
         );
-        let mark_pending_payable_params = mark_pending_payable_rowid_params_arc.lock().unwrap();
-        assert_eq!(
-            *mark_pending_payable_params,
-            vec![(wallet, good_transaction_rowid)]
-        );
         let delete_pending_payable_fingerprint_params =
             delete_fingerprint_params_arc.lock().unwrap();
         assert_eq!(
             *delete_pending_payable_fingerprint_params,
-            vec![failed_transaction_rowid]
+            vec![
+                first_incomplete_transaction_rowid,
+                second_incomplete_transaction_rowid
+            ]
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing("WARN: Accountant: Encountered transaction error at this end: \
@@ -2013,6 +2005,7 @@ mod tests {
         log_handler.exists_log_containing(
             "DEBUG: Accountant: Deleting an existing backup for a failed transaction 0x0000…3039",
         );
+        //we haven't supplied any result for mark_pending_payable() and so it's proved not to be called
     }
 
     #[test]
@@ -3529,7 +3522,7 @@ mod tests {
         expected = "Was unable to create a mark in payables for a new pending payable '0x0000…007b' due to 'SignConversion(9999999999999)'"
     )]
     fn handle_sent_payable_fails_to_make_a_mark_in_payables_and_so_panics() {
-        let payable = PendingPayable::new(make_wallet("blah"), 6789, make_tx_hash(123));
+        let payable = PendingPayable::new(make_wallet("blah"), make_tx_hash(123));
         let payable_dao = PayableDaoMock::new()
             .mark_pending_payable_rowid_result(Err(PayableDaoError::SignConversion(9999999999999)));
         let pending_payable_dao =
@@ -3553,10 +3546,10 @@ mod tests {
         let hash = make_tx_hash(123);
         let sent_payable = SentPayable {
             timestamp: SystemTime::now(),
-            payable: vec![Err(BlockchainError::SendingPayableFailed {
+            payable_outcomes: Err(BlockchainError::FinalPayableSendingProcessFailed {
                 msg: "blah".to_string(),
-                hash_opt: Some(hash),
-            })],
+                fingerprints_established_opt: Some(vec![hash]),
+            }),
             response_skeleton_opt: None,
         };
         let pending_payable_dao = PendingPayableDaoMock::default()
@@ -3572,38 +3565,65 @@ mod tests {
     }
 
     #[test]
-    fn handle_sent_payable_receives_two_payments_one_incorrect_and_one_correct() {
+    fn handle_sent_payable_process_two_correct_payments_and_one_incorrect_rpc_call() {
         //the two failures differ in the logged messages
         init_test_logging();
         let fingerprint_rowid_params_arc = Arc::new(Mutex::new(vec![]));
+        let mark_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
+        let delete_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
         let now_system = SystemTime::now();
-        let payable_1 = Err(BlockchainError::InvalidResponse);
-        let payable_2_rowid = 126;
-        let payable_hash_2 = make_tx_hash(166);
-        let payable_2 = PendingPayable::new(make_wallet("booga"), 6789, payable_hash_2);
-        let payable_3 = Err(BlockchainError::SendingPayableFailed {
-            msg: "closing hours, sorry".to_string(),
-            hash_opt: None,
-        });
-        let sent_payable = SentPayable {
-            timestamp: SystemTime::now(),
-            payable: vec![payable_1, Ok(payable_2.clone()), payable_3],
-            response_skeleton_opt: None,
-        };
+        let payable_hash_1 = make_tx_hash(111);
+        let payable_rowid_1 = 125;
+        let wallet_1 = make_wallet("tralala");
+        let pending_payable_1 = PendingPayable::new(wallet_1.clone(), payable_hash_1);
+        let payable_hash_2 = make_tx_hash(222);
+        let payable_rowid_2 = 126;
+        let wallet_2 = make_wallet("hohoho");
+        let pending_payable_2 = PendingPayable::new(wallet_1.clone(), payable_hash_1);
+        let payable_hash_3 = make_tx_hash(333);
+        let payable_rowid_3 = 127;
+        let wallet_3 = make_wallet("booga");
+        let pending_payable_3 = PendingPayable::new(wallet_3.clone(), payable_hash_3);
         let pending_payable_dao = PendingPayableDaoMock::default()
             .fingerprint_rowid_params(&fingerprint_rowid_params_arc)
-            .fingerprint_rowid_result(Some(payable_2_rowid));
+            .fingerprint_rowid_result(Some(payable_rowid_1))
+            .fingerprint_rowid_result(Some(payable_rowid_2))
+            .fingerprint_rowid_result(Some(payable_rowid_3))
+            .delete_fingerprint_params(&delete_fingerprint_params_arc)
+            .delete_fingerprint_result(Ok(()));
         let subject = AccountantBuilder::default()
-            .payable_dao(PayableDaoMock::new().mark_pending_payable_rowid_result(Ok(())))
+            .payable_dao(
+                PayableDaoMock::new()
+                    .mark_pending_payable_rowid_params(&mark_pending_payable_params_arc)
+                    .mark_pending_payable_rowid_result(Ok(()))
+                    .mark_pending_payable_rowid_result(Ok(())),
+            )
             .pending_payable_dao(pending_payable_dao)
             .build();
+        let sent_payable = SentPayable {
+            timestamp: now_system,
+            payable_outcomes: Ok(vec![Correct(pending_payable_1), Correct(pending_payable_3)]),
+            response_skeleton_opt: None,
+        };
 
         subject.handle_sent_payable(sent_payable);
 
         let fingerprint_rowid_params = fingerprint_rowid_params_arc.lock().unwrap();
-        assert_eq!(*fingerprint_rowid_params, vec![payable_hash_2]); //we know the other two errors are associated with an initiated transaction having a backup
+        assert_eq!(
+            *fingerprint_rowid_params,
+            vec![payable_hash_1, payable_hash_2, payable_hash_3]
+        );
+        let mark_pending_payable_params = mark_pending_payable_params_arc.lock().unwrap();
+        assert_eq!(
+            *mark_pending_payable_params,
+            vec![(wallet_1, payable_rowid_1), (wallet_3, payable_rowid_3)]
+        );
+        let delete_fingerprint_params = delete_fingerprint_params_arc.lock().unwrap();
+        assert_eq!(*delete_fingerprint_params, vec![payable_rowid_2]);
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing("WARN: Accountant: Outbound transaction failure due to 'InvalidResponse'. Please check your blockchain service URL configuration.");
+        //TODO make the hash be seen wholly
+        // and think more about if these logs are up to date and wide enough to cover the test
         log_handler.exists_log_containing("DEBUG: Accountant: Payable '0x0000…00a6' has been marked as pending in the payable table");
         log_handler.exists_log_containing("WARN: Accountant: Encountered transaction error at this end: 'TransactionFailed { msg: \"closing hours, sorry\", hash_opt: None }'");
         log_handler.exists_log_containing("DEBUG: Accountant: Forgetting a transaction attempt that even did not reach the signing stage");
@@ -3617,7 +3637,7 @@ mod tests {
         init_test_logging();
         let now_system = SystemTime::now();
         let payment_hash = make_tx_hash(789);
-        let payment = PendingPayable::new(make_wallet("booga"), 6789, payment_hash);
+        let payment = PendingPayable::new(make_wallet("booga"), payment_hash);
         let pending_payable_dao = PendingPayableDaoMock::default().fingerprint_rowid_result(None);
         let subject = AccountantBuilder::default()
             .payable_dao(PayableDaoMock::new().mark_pending_payable_rowid_result(Ok(())))
@@ -4554,23 +4574,47 @@ mod tests {
     }
 
     #[test]
-    fn separate_early_errors_works() {
-        let payable_ok = PendingPayable {
-            to: make_wallet("blah"),
-            amount: 5555,
-            tx_hash: Default::default(),
+    fn separate_errors_works_for_our_errors() {
+        let error = BlockchainError::FinalPayableSendingProcessFailed {
+            msg: "bad timing".to_string(),
+            fingerprints_established_opt: None,
         };
-        let error = BlockchainError::SignedValueConversion(666);
         let sent_payable = SentPayable {
             timestamp: SystemTime::now(),
-            payable: vec![Ok(payable_ok.clone()), Err(error.clone())],
+            payable_outcomes: Err(error.clone()),
+            response_skeleton_opt: None,
+        };
+
+        let (ok, err) = Accountant::separate_errors(&sent_payable, &Logger::new("test"));
+
+        assert_eq!(ok, vec![]);
+        assert_eq!(err, Some(Left(error)))
+    }
+
+    #[test]
+    fn separate_errors_works_for_their_errors() {
+        let payable_ok = PendingPayable {
+            to: make_wallet("blah"),
+            hash: make_tx_hash(123),
+        };
+        let bad_rpc_call = RpcPayableFailure {
+            rpc_error: web3::Error::InvalidResponse("oh we screwed it up".to_string()),
+            recipient: make_wallet("whooa"),
+            hash: make_tx_hash(789),
+        };
+        let sent_payable = SentPayable {
+            timestamp: SystemTime::now(),
+            payable_outcomes: Ok(vec![
+                Correct(payable_ok.clone()),
+                Failure(bad_rpc_call.clone()),
+            ]),
             response_skeleton_opt: None,
         };
 
         let (ok, err) = Accountant::separate_errors(&sent_payable, &Logger::new("test"));
 
         assert_eq!(ok, vec![payable_ok]);
-        assert_eq!(err, vec![error])
+        assert_eq!(err, Some(Right(vec![bad_rpc_call])))
     }
 
     #[test]

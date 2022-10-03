@@ -37,6 +37,9 @@ pub trait PendingPayableDao {
 
 impl PendingPayableDao for PendingPayableDaoReal<'_> {
     fn fingerprint_rowid(&self, transaction_hash: H256) -> Option<u64> {
+        todo!(
+            "you might want to rewrite this to fetch all rowids for set of hashes at one operation"
+        );
         let mut stm = self
             .conn
             .prepare("select rowid from pending_payable where transaction_hash = ?")

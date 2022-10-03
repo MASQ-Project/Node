@@ -249,7 +249,7 @@ impl BlockchainBridge {
                 .expect("Accountant is unbound")
                 .try_send(SentPayable {
                     timestamp: SystemTime::now(),
-                    payable: payments,
+                    payable_outcomes: payments,
                     response_skeleton_opt: skeleton,
                 })
                 .expect("Accountant is dead");
@@ -493,6 +493,7 @@ mod tests {
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_bridge::PendingPayable;
+    use crate::blockchain::blockchain_interface::PendingPayableFallible::{Correct, Failure};
     use crate::blockchain::blockchain_interface::{
         BlockchainError, BlockchainTransaction, PayableTransactionError,
         RetrievedBlockchainTransactions,
@@ -600,12 +601,13 @@ mod tests {
     fn report_accounts_payable_returns_error_for_blockchain_error() {
         let get_transaction_count_params_arc = Arc::new(Mutex::new(vec![]));
         let transaction_hash = make_tx_hash(789);
+        let tx_hash = make_tx_hash(123);
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_params(&get_transaction_count_params_arc)
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
-            .send_payables_within_batch_result(Err(PayableTransactionError::FromRemoteCall {
-                inherited_code: ErrorCode::ParseError,
-                msg: String::from("mock payment failure"),
+            .send_payables_within_batch_result(Err(PayableTransactionError::Sending {
+                msg: "failure from exhaustion".to_string(),
+                hashes_of_transactions: vec![tx_hash],
             }));
         let consuming_wallet = make_wallet("somewallet");
         let persistent_configuration_mock =
@@ -626,17 +628,17 @@ mod tests {
             response_skeleton_opt: None,
         };
         let (accountant, _, _) = make_recorder();
-        let backup_recipient = accountant.start().recipient();
-        subject.pay_payable_confirmation.pp_fingerprint_sub_opt = Some(backup_recipient);
+        let fingerprint_recipient = accountant.start().recipient();
+        subject.pay_payable_confirmation.pp_fingerprint_sub_opt = Some(fingerprint_recipient);
 
         let result = subject.start_preprocessing_payments(&request);
 
         assert_eq!(
             result,
-            Ok(vec![Err(BlockchainError::SendingPayableFailed {
-                msg: String::from("Sending: mock payment failure"),
-                hash_opt: Some(transaction_hash)
-            })])
+            Ok(Err(BlockchainError::FinalPayableSendingProcessFailed {
+                msg: "failure from exhaustion".to_string(),
+                fingerprints_established_opt: Some(vec![transaction_hash])
+            }))
         );
         let get_transaction_count_params = get_transaction_count_params_arc.lock().unwrap();
         assert_eq!(*get_transaction_count_params, vec![consuming_wallet]);
@@ -762,18 +764,16 @@ mod tests {
             *sent_payments_msg,
             SentPayable {
                 timestamp: sent_payments_msg.timestamp,
-                payable: vec![
-                    Ok(PendingPayable {
+                payable_outcomes: Ok(vec![
+                    Correct(PendingPayable {
                         to: make_wallet("blah"),
-                        amount: 420,
-                        tx_hash: H256::from("sometransactionhash".keccak256())
+                        hash: H256::from("sometransactionhash".keccak256())
                     }),
-                    Ok(PendingPayable {
+                    Correct(PendingPayable {
                         to: make_wallet("foo"),
-                        amount: 210,
-                        tx_hash: H256::from("someothertransactionhash".keccak256())
+                        hash: H256::from("someothertransactionhash".keccak256())
                     })
-                ],
+                ]),
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321

@@ -5,10 +5,12 @@ use crate::blockchain::blockchain_bridge::{InitiatePPFingerprints, PendingPayabl
 use crate::blockchain::tool_wrappers::{
     BatchedPayableTools, BatchedPayableToolsNull, BatchedPayableToolsReal,
 };
+use crate::database::db_migrations::Suppression::No;
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, Recipient};
 use futures::{future, Future};
 use jsonrpc_core as rpc;
+use jsonrpc_core::ErrorCode;
 use masq_lib::blockchains::chains::{Chain, ChainFamily};
 use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::logger::Logger;
@@ -18,7 +20,6 @@ use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::ops::Deref;
 use std::time::SystemTime;
-use jsonrpc_core::ErrorCode;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{
@@ -26,7 +27,6 @@ use web3::types::{
     TransactionReceipt, H160, H256, U256,
 };
 use web3::{BatchTransport, Error, Transport, Web3};
-use crate::database::db_migrations::Suppression::No;
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
 
@@ -63,14 +63,20 @@ pub enum BlockchainError {
     InvalidResponse,
     QueryFailed(String),
     SignedValueConversion(i64),
-    SendingPayableFailed { msg: String, hash_opt: Option<H256> },
+    FinalPayableSendingProcessFailed {
+        msg: String,
+        fingerprints_established_opt: Option<Vec<H256>>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PayableTransactionError {
     UnusableWallet(String),
     Signing(String),
-    Sending(String, H256),
+    Sending {
+        msg: String,
+        hashes_of_transactions: Vec<H256>,
+    },
 }
 
 impl Display for BlockchainError {
@@ -336,7 +342,7 @@ where
                 let addition = U256::from(idx + 1);
                 let nonce = last_nonce
                     .checked_add(addition)
-                    .expect("unexpected ceiling");  //TODO what happens at the ultimate end of the data type capabilities?
+                    .expect("unexpected ceiling"); //TODO what happens at the ultimate end of the data type capabilities?
                 self.process_account(acc, consuming_wallet, nonce, gas_price, account)
             },
         ) {
@@ -345,15 +351,17 @@ where
         };
 
         let timestamp = self.send_transaction_tools.batch_wide_timestamp();
-        self.send_transaction_tools
-            .new_payable_fingerprints(
-                timestamp,
-                fingerprint_recipient,
-                &fingerprint_inputs,
-            );
+        self.send_transaction_tools.new_payable_fingerprints(
+            timestamp,
+            fingerprint_recipient,
+            &fingerprint_inputs,
+        );
 
         match self.send_transaction_tools.send_batch(&self.batch_web3) {
-            Ok(responses) => Ok((timestamp, Self::join_data(responses, fingerprint_inputs, accounts))),
+            Ok(responses) => Ok((
+                timestamp,
+                Self::join_data(responses, fingerprint_inputs, accounts),
+            )),
             Err(e) => todo!(),
         }
     }
@@ -425,17 +433,17 @@ where
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Clone)]
 pub enum PendingPayableFallible {
     Correct(PendingPayable),
     Failure(RpcPayableFailure),
 }
 
-#[derive(Debug)]
-pub struct RpcPayableFailure{
-    rpc_error: Error,
-    recipient: Wallet,
-    hash: H256
+#[derive(Debug, PartialEq, Clone)]
+pub struct RpcPayableFailure {
+    pub rpc_error: Error,
+    pub recipient: Wallet,
+    pub hash: H256,
 }
 
 //TODO what is this for??
@@ -499,7 +507,7 @@ where
 
     fn join_data(
         results: Vec<web3::transports::Result<rpc::Value>>,
-        fingerprint_inputs: Vec<(H256,u64)>,
+        fingerprint_inputs: Vec<(H256, u64)>,
         accounts: Vec<PayableAccount>,
     ) -> Vec<PendingPayableFallible> {
         todo!()
@@ -601,16 +609,16 @@ where
 }
 
 impl BlockchainError {
-    pub fn carries_transaction_hash(&self) -> Option<H256> {
+    pub fn carries_transaction_hashes(&self) -> Option<Vec<H256>> {
         match self {
-            Self::SendingPayableFailed {
+            Self::FinalPayableSendingProcessFailed {
                 msg: _,
-                hash_opt: None,
+                fingerprints_established_opt: None,
             } => None,
-            Self::SendingPayableFailed {
+            Self::FinalPayableSendingProcessFailed {
                 msg: _,
-                hash_opt: Some(hash),
-            } => Some(*hash),
+                fingerprints_established_opt: Some(hash),
+            } => Some(hash.clone()),
             _ => None,
         }
     }
@@ -621,7 +629,7 @@ impl Display for PayableTransactionError {
         match self {
             Self::UnusableWallet(msg) => write!(f, "UnusableWallet: {}", msg),
             Self::Signing(msg) => write!(f, "Signing: {}", msg),
-            Self::FromRemoteCall(msg, _) => write!(f, "Sending: {}", msg),
+            Self::Sending { msg, .. } => write!(f, "Sending: {}", msg),
         }
     }
 }
@@ -629,13 +637,17 @@ impl Display for PayableTransactionError {
 impl From<PayableTransactionError> for BlockchainError {
     fn from(error: PayableTransactionError) -> Self {
         match error {
-             PayableTransactionError::Sending(_,hash) => BlockchainError::SendingPayableFailed {
-                msg: error.to_string(),
-                hash_opt: Some(hash),
+            PayableTransactionError::Sending {
+                msg,
+                hashes_of_transactions,
+                ..
+            } => BlockchainError::FinalPayableSendingProcessFailed {
+                msg,
+                fingerprints_established_opt: Some(hashes_of_transactions),
             },
-            _ => BlockchainError::SendingPayableFailed {
+            _ => BlockchainError::FinalPayableSendingProcessFailed {
                 msg: error.to_string(),
-                hash_opt: None,
+                fingerprints_established_opt: None,
             },
         }
     }
@@ -1305,12 +1317,12 @@ mod tests {
             let pending_payable_fallible_1 = &pending_payables[0];
             let pending_payable_1 = match pending_payable_fallible_1 {
                 Correct(pp) => pp,
-                Failure { rpc_error, recipient, hash } => panic!(
+                Failure(RpcPayableFailure{ rpc_error, recipient, hash }) => panic!(
                 "we expected correct pending payable but got one with rpc_error: {:?} and hash: {} for recipient: {}",
                 rpc_error, hash, recipient
             ),
             };
-            let hash_1 = pending_payable_1.tx_hash;
+            let hash_1 = pending_payable_1.hash;
             assert_eq!(hash_1, expected_hash)
         };
 
@@ -1327,7 +1339,11 @@ mod tests {
                 "we expected failing pending payable but got a good one: {:?}",
                 pp
             ),
-            Failure { rpc_error, recipient, hash } => (rpc_error, recipient, hash),
+            Failure(RpcPayableFailure {
+                rpc_error,
+                recipient,
+                hash,
+            }) => (rpc_error, recipient, hash),
         };
         let (rpc_error, recipient_2, hash_2) = pending_payable_2_failure;
         assert_eq!(
@@ -1342,7 +1358,7 @@ mod tests {
             hash_2,
             &H256::from_str("aaaaaaaaaabbbbbbbbbbbbbbbbbbbbb").unwrap()
         );
-        assert_eq!(recipient_2,&make_wallet("w555"));
+        assert_eq!(recipient_2, &make_wallet("w555"));
 
         //second_succeeding_request
         let expected_hash_3 = H256::from_str("ccccccccccccccccccccccccccccc").unwrap();
@@ -1534,8 +1550,7 @@ mod tests {
 
         let expected_pending_payable = PendingPayable {
             to: creditor_wallet,
-            amount,
-            tx_hash: Default::default(),
+            hash: Default::default(),
         };
         assert_eq!(
             result,
@@ -1762,9 +1777,11 @@ mod tests {
     }
 
     #[test]
-    fn send_transaction_fails_on_sending_raw_transaction() {
+    fn send_transaction_fails_on_sending_batch() {
         let transport = TestTransport::default();
-        let signed_transaction = make_default_signed_transaction();
+        let hash = make_tx_hash(123);
+        let mut signed_transaction = make_default_signed_transaction();
+        signed_transaction.transaction_hash = hash;
         let send_transaction_tools = &BatchedPayableToolsMock::<TestTransport>::default()
             .sign_transaction_result(Ok(signed_transaction))
             .send_batch_result(Err(Web3Error::Transport("Transaction crashed".to_string())));
@@ -1794,9 +1811,10 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PayableTransactionError::Sending(
-                "Transport error: Transaction crashed".to_string()
-            ))
+            Err(PayableTransactionError::Sending {
+                msg: "Transport error: Transaction crashed".to_string(),
+                hashes_of_transactions: vec![hash]
+            })
         );
     }
 
@@ -2229,8 +2247,10 @@ mod tests {
         let original_errors = [
             PayableTransactionError::UnusableWallet("wallet error".to_string()),
             PayableTransactionError::Signing("signature error".to_string()),
-            PayableTransactionError::Sending("sending error".to_string()),
-            PayableTransactionError::FromRemoteCall{inherited_code: ErrorCode::InternalError, msg: "remote call error".to_string()},
+            PayableTransactionError::Sending {
+                msg: "sending error".to_string(),
+                hashes_of_transactions: vec![make_tx_hash(456)],
+            },
         ];
 
         let check: Vec<_> = original_errors
@@ -2241,9 +2261,9 @@ mod tests {
                 PayableTransactionError::UnusableWallet(..) => {
                     assert_eq!(
                         BlockchainError::from(to_assert),
-                        BlockchainError::SendingPayableFailed {
+                        BlockchainError::FinalPayableSendingProcessFailed {
                             msg: "UnusableWallet: wallet error".to_string(),
-                            hash_opt: None
+                            fingerprints_established_opt: None
                         }
                     );
                     11
@@ -2251,26 +2271,19 @@ mod tests {
                 PayableTransactionError::Signing(..) => {
                     assert_eq!(
                         BlockchainError::from(to_assert),
-                        BlockchainError::SendingPayableFailed {
+                        BlockchainError::FinalPayableSendingProcessFailed {
                             msg: "Signing: signature error".to_string(),
-                            hash_opt: None
+                            fingerprints_established_opt: None
                         }
                     );
                     22
                 }
-                PayableTransactionError::Sending(..) => {
+                PayableTransactionError::Sending { .. } => {
                     assert_eq!(
                         BlockchainError::from(to_assert),
-                        BlockchainError::SendingPayableFailed { msg: "".to_string(), hash_opt: None }
-
-                    )
-                }
-                PayableTransactionError::FromRemoteCall{..} => {
-                    assert_eq!(
-                        BlockchainError::from(to_assert),
-                        BlockchainError::SendingPayableFailed {
-                            msg: "Sending: sending error".to_string(),
-                            hash_opt: Some(hash)
+                        BlockchainError::FinalPayableSendingProcessFailed {
+                            msg: "sending error".to_string(),
+                            fingerprints_established_opt: Some(vec![make_tx_hash(456)])
                         }
                     );
                     33
@@ -2282,21 +2295,22 @@ mod tests {
     }
 
     #[test]
-    fn carries_transaction_hash_works() {
-        let hash = make_tx_hash(999);
+    fn carries_transaction_hashes_works() {
+        let hash_1 = make_tx_hash(555);
+        let hash_2 = make_tx_hash(777);
         let original_errors = [
             BlockchainError::InvalidUrl,
             BlockchainError::InvalidAddress,
             BlockchainError::InvalidResponse,
             BlockchainError::QueryFailed("blah".to_string()),
             BlockchainError::SignedValueConversion(33333333333333),
-            BlockchainError::SendingPayableFailed {
+            BlockchainError::FinalPayableSendingProcessFailed {
                 msg: "Voila".to_string(),
-                hash_opt: None,
+                fingerprints_established_opt: None,
             },
-            BlockchainError::SendingPayableFailed {
+            BlockchainError::FinalPayableSendingProcessFailed {
                 msg: "Hola".to_string(),
-                hash_opt: Some(hash),
+                fingerprints_established_opt: Some(vec![hash_1, hash_2]),
             },
         ];
 
@@ -2306,33 +2320,40 @@ mod tests {
             .zip(original_errors.into_iter())
             .map(|(to_resolve, to_assert)| match to_resolve {
                 BlockchainError::InvalidUrl => {
-                    assert_eq!(to_assert.carries_transaction_hash(), None);
+                    assert_eq!(to_assert.carries_transaction_hashes(), None);
                     11
                 }
                 BlockchainError::InvalidAddress => {
-                    assert_eq!(to_assert.carries_transaction_hash(), None);
+                    assert_eq!(to_assert.carries_transaction_hashes(), None);
                     22
                 }
                 BlockchainError::InvalidResponse => {
-                    assert_eq!(to_assert.carries_transaction_hash(), None);
+                    assert_eq!(to_assert.carries_transaction_hashes(), None);
                     33
                 }
                 BlockchainError::QueryFailed(..) => {
-                    assert_eq!(to_assert.carries_transaction_hash(), None);
+                    assert_eq!(to_assert.carries_transaction_hashes(), None);
                     44
                 }
                 BlockchainError::SignedValueConversion(..) => {
-                    assert_eq!(to_assert.carries_transaction_hash(), None);
+                    assert_eq!(to_assert.carries_transaction_hashes(), None);
                     55
                 }
-                BlockchainError::SendingPayableFailed { hash_opt: None, .. } => {
-                    assert_eq!(to_assert.carries_transaction_hash(), None);
+                BlockchainError::FinalPayableSendingProcessFailed {
+                    fingerprints_established_opt: None,
+                    ..
+                } => {
+                    assert_eq!(to_assert.carries_transaction_hashes(), None);
                     66
                 }
-                BlockchainError::SendingPayableFailed {
-                    hash_opt: Some(_), ..
+                BlockchainError::FinalPayableSendingProcessFailed {
+                    fingerprints_established_opt: Some(_),
+                    ..
                 } => {
-                    assert_eq!(to_assert.carries_transaction_hash(), Some(hash));
+                    assert_eq!(
+                        to_assert.carries_transaction_hashes(),
+                        Some(vec![hash_1, hash_2])
+                    );
                     77
                 }
             })
@@ -2357,7 +2378,7 @@ mod tests {
                 pending_payable_opt: None,
             },
         ];
-        let fingerprint_inputs = vec![(make_tx_hash(444),2346),(make_tx_hash(333),6543)];
+        let fingerprint_inputs = vec![(make_tx_hash(444), 2346), (make_tx_hash(333), 6543)];
         let responses = vec![
             Ok(Value::String(String::from("blah"))),
             Err(web3::Error::Rpc(Error {
@@ -2367,12 +2388,25 @@ mod tests {
             })),
         ];
 
-        let result = BlockchainInterfaceNonClandestine::<TestTransport>::join_data(responses, fingerprint_inputs, accounts);
+        let result = BlockchainInterfaceNonClandestine::<TestTransport>::join_data(
+            responses,
+            fingerprint_inputs,
+            accounts,
+        );
 
-        assert_eq!(result,vec![Correct(PendingPayable{
-            to: make_wallet("4567"),
-            amount: 2345,
-            tx_hash: make_tx_hash(444)
-        }),Failure { rpc_error: Error::Unreachable, recipient: make_wallet("5656"), hash: make_tx_hash(333) }])
+        assert_eq!(
+            result,
+            vec![
+                Correct(PendingPayable {
+                    to: make_wallet("4567"),
+                    hash: make_tx_hash(444)
+                }),
+                Failure(RpcPayableFailure {
+                    rpc_error: web3::Error::Unreachable,
+                    recipient: make_wallet("5656"),
+                    hash: make_tx_hash(333)
+                })
+            ]
+        )
     }
 }
