@@ -796,7 +796,7 @@ pub fn unsigned_to_signed(unsigned: u64) -> Result<i64, u64> {
     i64::try_from(unsigned).map_err(|_| unsigned)
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum PendingTransactionStatus {
     StillPending(PendingPayableId), //updates slightly the record, waits an interval and starts a new round
     Failure(PendingPayableId),      //official tx failure
