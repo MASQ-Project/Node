@@ -686,10 +686,10 @@ mod tests {
         let one_logger = Logger::new("logger_format_is_correct_one");
         let another_logger = Logger::new("logger_format_is_correct_another");
 
-        let before = SystemTime::now();
+        let before = OffsetDateTime::now_utc();
         error!(one_logger, "one log");
         error!(another_logger, "another log");
-        let after = SystemTime::now();
+        let after = OffsetDateTime::now_utc();
 
         let tlh = TestLogHandler::new();
         let prefix_len = "0000-00-00T00:00:00.000".len();
@@ -702,8 +702,8 @@ mod tests {
             " Thd{}: ERROR: logger_format_is_correct_another: another log",
             thread_id_as_string(thread_id)
         )));
-        let before_str = timestamp_as_string(&before);
-        let after_str = timestamp_as_string(&after);
+        let before_str = timestamp_as_string(before);
+        let after_str = timestamp_as_string(after);
         assert_between(&one_log[..prefix_len], &before_str, &after_str);
         assert_between(&another_log[..prefix_len], &before_str, &after_str);
     }
@@ -872,7 +872,7 @@ mod tests {
         tlh.exists_log_containing("error! 42");
     }
 
-    pub fn timestamp_as_string(timestamp: OffsetDateTime) -> String {
+    fn timestamp_as_string(timestamp: OffsetDateTime) -> String {
         timestamp
             .format(&parse(TIME_FORMATTING_STRING).unwrap())
             .unwrap()
