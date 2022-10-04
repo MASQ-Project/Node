@@ -70,15 +70,6 @@ pub struct ScanIntervals {
     pub receivable_scan_interval: Duration,
 }
 
-// TODO: Remove it once you realise you don't want to know which fields was accountant config composed of
-// #[derive(Clone, PartialEq, Debug)]
-// pub struct AccountantConfig {
-//     pub scan_intervals: ScanIntervals,
-//     pub payment_thresholds: PaymentThresholds,
-//     pub suppress_initial_scans: bool,
-//     pub when_pending_too_long_sec: u64,
-// }
-
 #[derive(Clone)]
 pub struct AccountantSubs {
     pub bind: Recipient<BindMessage>,

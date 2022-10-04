@@ -112,7 +112,6 @@ recorder_message_handler!(AddReturnRouteMessage);
 recorder_message_handler!(AddRouteMessage);
 recorder_message_handler!(AddStreamMsg);
 recorder_message_handler!(BindMessage);
-recorder_message_handler!(ConnectionProgressMessage);
 recorder_message_handler!(CrashNotification);
 recorder_message_handler!(DaemonBindMessage);
 recorder_message_handler!(DispatcherNodeQueryMessage);
@@ -156,6 +155,7 @@ recorder_message_handler!(ReportTransactionReceipts);
 recorder_message_handler!(ReportAccountsPayable);
 recorder_message_handler!(ScanForReceivables);
 recorder_message_handler!(ScanForPayables);
+recorder_message_handler!(ConnectionProgressMessage);
 recorder_message_handler!(ScanForPendingPayables);
 
 impl Handler<NodeQueryMessage> for Recorder {
