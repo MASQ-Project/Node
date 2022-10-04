@@ -3,7 +3,7 @@ pub mod payable_dao;
 pub mod pending_payable_dao;
 pub mod receivable_dao;
 pub mod scanners;
-pub mod tools;
+pub mod scanners_tools;
 
 #[cfg(test)]
 pub mod test_utils;
@@ -18,7 +18,7 @@ use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError, P
 use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
 use crate::accountant::receivable_dao::{ReceivableDaoError, ReceivableDaoFactory};
 use crate::accountant::scanners::scanners::{BeginScanError, NotifyLaterForScanners, Scanners};
-use crate::accountant::tools::common_tools::timestamp_as_string;
+use crate::accountant::scanners_tools::common_tools::timestamp_as_string;
 use crate::banned_dao::BannedDaoFactory;
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};

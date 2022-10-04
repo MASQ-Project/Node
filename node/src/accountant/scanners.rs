@@ -4,13 +4,13 @@ pub(in crate::accountant) mod scanners {
     use crate::accountant::payable_dao::{Payable, PayableDao, PayableDaoFactory};
     use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
     use crate::accountant::receivable_dao::ReceivableDao;
-    use crate::accountant::tools::payable_scanner_tools::{
+    use crate::accountant::scanners_tools::payable_scanner_tools::{
         investigate_debt_extremes, qualified_payables_and_summary, separate_early_errors,
     };
-    use crate::accountant::tools::pending_payable_scanner_tools::{
+    use crate::accountant::scanners_tools::pending_payable_scanner_tools::{
         elapsed_in_ms, handle_none_status, handle_status_with_failure, handle_status_with_success,
     };
-    use crate::accountant::tools::receivable_scanner_tools::balance_and_age;
+    use crate::accountant::scanners_tools::receivable_scanner_tools::balance_and_age;
     use crate::accountant::{
         Accountant, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts,
         ResponseSkeleton, ScanForPayables, ScanForPendingPayables, ScanForReceivables, SentPayable,
