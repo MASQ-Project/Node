@@ -26,7 +26,7 @@ jobs:
         - name: Display structure of downloaded files
           run: ls -R download
 
-        - if: startsWith(github.head_ref, 'v*') != true
+        - if: ${{ startsWith(github.head_ref, 'v*') != true && github.event.workflow_run.conclusion == 'success' }}
           name: Versioned S3 Sync
           uses: jakejarvis/s3-sync-action@v0.5.1
           with:
@@ -39,7 +39,7 @@ jobs:
             DEST_DIR: 'Node/${{ github.event.workflow_run.head_branch }}/Node-${{ matrix.name }}'
             SOURCE_DIR: 'download/Node-${{ matrix.name }}/generated/bin/'
 
-        - if: startsWith(github.head_ref, 'v*') == true
+        - if: ${{ startsWith(github.head_ref, 'v*') == true && github.event.workflow_run.conclusion == 'success' }}
           name: Latest S3 Sync
           uses: jakejarvis/s3-sync-action@v0.5.1
           with:
