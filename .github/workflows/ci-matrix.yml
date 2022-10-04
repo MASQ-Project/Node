@@ -26,6 +26,7 @@ jobs:
           profile: minimal
           toolchain: 1.63.0
           components: rustfmt, clippy
+          override: true
       - uses: actions/cache@v3
         with:
           path: |
