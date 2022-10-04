@@ -20,12 +20,11 @@ use crate::node_configurator::{
     data_directory_from_context, determine_config_file_path, DirsWrapper, DirsWrapperReal,
 };
 use crate::sub_lib::accountant::PaymentThresholds as PaymentThresholdsFromAccountant;
-use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
+use crate::sub_lib::accountant::DEFAULT_SCAN_INTERVALS;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::{NeighborhoodMode as NeighborhoodModeEnum, DEFAULT_RATE_PACK};
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::test_utils::main_cryptde;
-use crate::test_utils::unshared_test_utils::make_scan_intervals_with_defaults;
 use clap::value_t;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain as BlockChain;
@@ -920,10 +919,7 @@ impl ValueRetriever for ScanIntervals {
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         let pc_value = pc.scan_intervals().expectv("scan-intervals");
-        payment_thresholds_rate_pack_and_scan_intervals(
-            pc_value,
-            make_scan_intervals_with_defaults(),
-        )
+        payment_thresholds_rate_pack_and_scan_intervals(pc_value, *DEFAULT_SCAN_INTERVALS)
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
@@ -1050,7 +1046,9 @@ mod tests {
     };
     use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::sub_lib::accountant::PaymentThresholds as PaymentThresholdsFromAccountant;
+    use crate::sub_lib::accountant::{
+        PaymentThresholds as PaymentThresholdsFromAccountant, DEFAULT_PAYMENT_THRESHOLDS,
+    };
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
@@ -3089,13 +3087,13 @@ mod tests {
     fn scan_intervals_computed_default_when_persistent_config_like_default() {
         assert_computed_default_when_persistent_config_like_default(
             &ScanIntervals {},
-            make_scan_intervals_with_defaults(),
+            *DEFAULT_SCAN_INTERVALS,
         )
     }
 
     #[test]
     fn scan_intervals_computed_default_persistent_config_unequal_to_default() {
-        let mut scan_intervals = make_scan_intervals_with_defaults();
+        let mut scan_intervals = *DEFAULT_SCAN_INTERVALS;
         scan_intervals.pending_payable_scan_interval = scan_intervals
             .pending_payable_scan_interval
             .add(Duration::from_secs(15));

@@ -48,7 +48,7 @@ pub struct PaymentThresholds {
 
 impl Default for PaymentThresholds {
     fn default() -> Self {
-        DEFAULT_PAYMENT_THRESHOLDS.clone()
+        *DEFAULT_PAYMENT_THRESHOLDS
     }
 }
 

@@ -11,9 +11,7 @@ use crate::accountant::pending_payable_dao::{
 use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
-use crate::accountant::scanners::scanners::{
-    PayableScanner, PendingPayableScanner, ReceivableScanner,
-};
+use crate::accountant::scanners::{PayableScanner, PendingPayableScanner, ReceivableScanner};
 use crate::accountant::{Accountant, PendingPayableId, DEFAULT_PENDING_TOO_LONG_SEC};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;

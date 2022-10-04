@@ -24,6 +24,7 @@ pub(crate) mod payable_scanner_tools {
         }
 
         fn bigger(payable_1: PayableInfo, payable_2: PayableInfo) -> PayableInfo {
+            #[allow(clippy::comparison_chain)]
             if payable_1.balance > payable_2.balance {
                 payable_1
             } else if payable_2.balance > payable_1.balance {
@@ -37,6 +38,7 @@ pub(crate) mod payable_scanner_tools {
         }
 
         fn older(payable_1: PayableInfo, payable_2: PayableInfo) -> PayableInfo {
+            #[allow(clippy::comparison_chain)]
             if payable_1.age > payable_2.age {
                 payable_1
             } else if payable_2.age > payable_1.age {

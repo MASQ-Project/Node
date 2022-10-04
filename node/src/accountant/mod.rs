@@ -14,10 +14,10 @@ use std::cell::RefCell;
 use masq_lib::messages::{ScanType, UiScanRequest};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 
-use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError, PayableDaoFactory};
+use crate::accountant::payable_dao::{Payable, PayableDaoError, PayableDaoFactory};
 use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
 use crate::accountant::receivable_dao::{ReceivableDaoError, ReceivableDaoFactory};
-use crate::accountant::scanners::scanners::{BeginScanError, NotifyLaterForScanners, Scanners};
+use crate::accountant::scanners::{BeginScanError, NotifyLaterForScanners, Scanners};
 use crate::accountant::scanners_tools::common_tools::timestamp_as_string;
 use crate::banned_dao::BannedDaoFactory;
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
@@ -25,11 +25,11 @@ use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransac
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_migrations::MigratorConfig;
+use crate::sub_lib::accountant::FinancialStatistics;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::accountant::{AccountantSubs, ScanIntervals};
-use crate::sub_lib::accountant::{FinancialStatistics, PaymentThresholds};
 use crate::sub_lib::accountant::{MessageIdGenerator, MessageIdGeneratorReal};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
@@ -42,7 +42,6 @@ use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::Recipient;
-use itertools::Itertools;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiFinancialsResponse;
@@ -53,7 +52,6 @@ use masq_lib::utils::ExpectValue;
 use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::default::Default;
-use std::ops::Add;
 use std::path::Path;
 use std::rc::Rc;
 use std::time::SystemTime;
@@ -825,7 +823,7 @@ mod tests {
     use super::*;
     use std::any::TypeId;
     use std::collections::HashMap;
-    use std::ops::Sub;
+    use std::ops::{Add, Sub};
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::time::Duration;
@@ -833,6 +831,7 @@ mod tests {
     use actix::{Arbiter, System};
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
+    use itertools::Itertools;
     use log::Level;
     use masq_lib::constants::SCAN_ERROR;
     use web3::types::U256;
@@ -842,9 +841,9 @@ mod tests {
     use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::ui_gateway::{MessageBody, MessagePath, NodeFromUiMessage, NodeToUiMessage};
 
-    use crate::accountant::payable_dao::PayableDaoError;
+    use crate::accountant::payable_dao::{PayableAccount, PayableDaoError};
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
-    use crate::accountant::scanners::scanners::{NullScanner, ScannerMock};
+    use crate::accountant::scanners::{NullScanner, ScannerMock};
     use crate::accountant::test_utils::{
         bc_from_earning_wallet, bc_from_wallets, make_payables, BannedDaoFactoryMock,
         MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock,
@@ -861,7 +860,8 @@ mod tests {
     use crate::database::dao_utils::from_time_t;
     use crate::database::dao_utils::to_time_t;
     use crate::sub_lib::accountant::{
-        ExitServiceConsumed, RoutingServiceConsumed, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
+        ExitServiceConsumed, PaymentThresholds, RoutingServiceConsumed, ScanIntervals,
+        DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::sub_lib::utils::NotifyLaterHandleReal;

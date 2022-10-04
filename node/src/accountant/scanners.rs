@@ -1,375 +1,368 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub(in crate::accountant) mod scanners {
-    use crate::accountant::payable_dao::{Payable, PayableDao, PayableDaoFactory};
-    use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
-    use crate::accountant::receivable_dao::ReceivableDao;
-    use crate::accountant::scanners_tools::payable_scanner_tools::{
-        investigate_debt_extremes, qualified_payables_and_summary, separate_early_errors,
-    };
-    use crate::accountant::scanners_tools::pending_payable_scanner_tools::{
-        elapsed_in_ms, handle_none_status, handle_status_with_failure, handle_status_with_success,
-    };
-    use crate::accountant::scanners_tools::receivable_scanner_tools::balance_and_age;
-    use crate::accountant::{
-        Accountant, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts,
-        ResponseSkeleton, ScanForPayables, ScanForPendingPayables, ScanForReceivables, SentPayable,
-    };
-    use crate::accountant::{PendingPayableId, PendingTransactionStatus, ReportAccountsPayable};
-    use crate::banned_dao::BannedDao;
-    use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
-    use crate::blockchain::blockchain_interface::BlockchainError;
-    use crate::sub_lib::accountant::{FinancialStatistics, PaymentThresholds};
-    use crate::sub_lib::utils::NotifyLaterHandle;
-    use crate::sub_lib::wallet::Wallet;
-    use actix::{Message, System};
-    use masq_lib::logger::Logger;
-    use masq_lib::messages::{ToMessageBody, UiScanResponse};
-    use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
-    use masq_lib::utils::ExpectValue;
-    use std::any::Any;
-    use std::cell::RefCell;
-    use std::rc::Rc;
-    use std::sync::{Arc, Mutex};
-    use std::time::SystemTime;
-    use web3::types::TransactionReceipt;
+use crate::accountant::payable_dao::{Payable, PayableDao, PayableDaoFactory};
+use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
+use crate::accountant::receivable_dao::ReceivableDao;
+use crate::accountant::scanners_tools::payable_scanner_tools::{
+    investigate_debt_extremes, qualified_payables_and_summary, separate_early_errors,
+};
+use crate::accountant::scanners_tools::pending_payable_scanner_tools::{
+    elapsed_in_ms, handle_none_status, handle_status_with_failure, handle_status_with_success,
+};
+use crate::accountant::scanners_tools::receivable_scanner_tools::balance_and_age;
+use crate::accountant::{
+    Accountant, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts,
+    ResponseSkeleton, ScanForPayables, ScanForPendingPayables, ScanForReceivables, SentPayable,
+};
+use crate::accountant::{PendingPayableId, PendingTransactionStatus, ReportAccountsPayable};
+use crate::banned_dao::BannedDao;
+use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
+use crate::blockchain::blockchain_interface::BlockchainError;
+use crate::sub_lib::accountant::{FinancialStatistics, PaymentThresholds};
+use crate::sub_lib::utils::NotifyLaterHandle;
+use crate::sub_lib::wallet::Wallet;
+use actix::{Message, System};
+use masq_lib::logger::Logger;
+use masq_lib::messages::{ToMessageBody, UiScanResponse};
+use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
+use masq_lib::utils::ExpectValue;
+#[cfg(test)]
+use std::any::Any;
+use std::cell::RefCell;
+use std::rc::Rc;
+use std::sync::{Arc, Mutex};
+use std::time::SystemTime;
+use web3::types::TransactionReceipt;
 
-    pub struct Scanners {
-        pub payable: Box<dyn Scanner<ReportAccountsPayable, SentPayable>>,
-        pub pending_payable:
-            Box<dyn Scanner<RequestTransactionReceipts, ReportTransactionReceipts>>,
-        pub receivable: Box<dyn Scanner<RetrieveTransactions, ReceivedPayments>>,
+pub struct Scanners {
+    pub payable: Box<dyn Scanner<ReportAccountsPayable, SentPayable>>,
+    pub pending_payable: Box<dyn Scanner<RequestTransactionReceipts, ReportTransactionReceipts>>,
+    pub receivable: Box<dyn Scanner<RetrieveTransactions, ReceivedPayments>>,
+}
+
+impl Scanners {
+    #[allow(clippy::too_many_arguments)]
+    pub fn new(
+        payable_dao_factory: Box<dyn PayableDaoFactory>,
+        pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
+        receivable_dao: Box<dyn ReceivableDao>,
+        banned_dao: Box<dyn BannedDao>,
+        payment_thresholds: Rc<PaymentThresholds>,
+        earning_wallet: Rc<Wallet>,
+        when_pending_too_long_sec: u64,
+        financial_statistics: Rc<RefCell<FinancialStatistics>>,
+    ) -> Self {
+        Scanners {
+            payable: Box::new(PayableScanner::new(
+                payable_dao_factory.make(),
+                pending_payable_dao_factory.make(),
+                Rc::clone(&payment_thresholds),
+            )),
+            pending_payable: Box::new(PendingPayableScanner::new(
+                payable_dao_factory.make(),
+                pending_payable_dao_factory.make(),
+                Rc::clone(&payment_thresholds),
+                when_pending_too_long_sec,
+                Rc::clone(&financial_statistics),
+            )),
+            receivable: Box::new(ReceivableScanner::new(
+                receivable_dao,
+                banned_dao,
+                Rc::clone(&payment_thresholds),
+                earning_wallet,
+                financial_statistics,
+            )),
+        }
     }
+}
 
-    impl Scanners {
-        pub fn new(
-            payable_dao_factory: Box<dyn PayableDaoFactory>,
-            pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
-            receivable_dao: Box<dyn ReceivableDao>,
-            banned_dao: Box<dyn BannedDao>,
-            payment_thresholds: Rc<PaymentThresholds>,
-            earning_wallet: Rc<Wallet>,
-            when_pending_too_long_sec: u64,
-            financial_statistics: Rc<RefCell<FinancialStatistics>>,
-        ) -> Self {
-            Scanners {
-                payable: Box::new(PayableScanner::new(
-                    payable_dao_factory.make(),
-                    pending_payable_dao_factory.make(),
-                    Rc::clone(&payment_thresholds),
-                )),
-                pending_payable: Box::new(PendingPayableScanner::new(
-                    payable_dao_factory.make(),
-                    pending_payable_dao_factory.make(),
-                    Rc::clone(&payment_thresholds),
-                    when_pending_too_long_sec,
-                    Rc::clone(&financial_statistics),
-                )),
-                receivable: Box::new(ReceivableScanner::new(
-                    receivable_dao,
-                    banned_dao,
-                    Rc::clone(&payment_thresholds),
-                    earning_wallet,
-                    financial_statistics,
-                )),
+pub trait Scanner<BeginMessage, EndMessage>
+where
+    BeginMessage: Message,
+    EndMessage: Message,
+{
+    fn begin_scan(
+        &mut self,
+        timestamp: SystemTime,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+        logger: &Logger,
+    ) -> Result<BeginMessage, BeginScanError>;
+    fn finish_scan(&mut self, message: EndMessage, logger: &Logger) -> Option<NodeToUiMessage>;
+    fn scan_started_at(&self) -> Option<SystemTime>;
+    fn mark_as_started(&mut self, timestamp: SystemTime);
+    fn mark_as_ended(&mut self, logger: &Logger);
+    as_any_dcl!();
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum BeginScanError {
+    NothingToProcess,
+    ScanAlreadyRunning(SystemTime),
+    CalledFromNullScanner, // Exclusive for tests
+}
+
+pub struct ScannerCommon {
+    initiated_at_opt: Option<SystemTime>,
+    pub payment_thresholds: Rc<PaymentThresholds>,
+}
+
+impl ScannerCommon {
+    fn new(payment_thresholds: Rc<PaymentThresholds>) -> Self {
+        Self {
+            initiated_at_opt: None,
+            payment_thresholds,
+        }
+    }
+}
+
+pub struct PayableScanner {
+    pub common: ScannerCommon,
+    pub payable_dao: Box<dyn PayableDao>,
+    pub pending_payable_dao: Box<dyn PendingPayableDao>,
+}
+
+impl Scanner<ReportAccountsPayable, SentPayable> for PayableScanner {
+    fn begin_scan(
+        &mut self,
+        timestamp: SystemTime,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+        logger: &Logger,
+    ) -> Result<ReportAccountsPayable, BeginScanError> {
+        if let Some(timestamp) = self.scan_started_at() {
+            return Err(BeginScanError::ScanAlreadyRunning(timestamp));
+        }
+        self.mark_as_started(timestamp);
+        info!(logger, "Scanning for payables");
+        let all_non_pending_payables = self.payable_dao.non_pending_payables();
+        debug!(
+            logger,
+            "{}",
+            investigate_debt_extremes(timestamp, &all_non_pending_payables)
+        );
+        let (qualified_payables, summary) = qualified_payables_and_summary(
+            timestamp,
+            all_non_pending_payables,
+            self.common.payment_thresholds.as_ref(),
+        );
+        info!(
+            logger,
+            "Chose {} qualified debts to pay",
+            qualified_payables.len()
+        );
+        debug!(logger, "{}", summary);
+        match qualified_payables.is_empty() {
+            true => {
+                self.mark_as_ended(logger);
+                Err(BeginScanError::NothingToProcess)
             }
+            false => Ok(ReportAccountsPayable {
+                accounts: qualified_payables,
+                response_skeleton_opt,
+            }),
         }
     }
 
-    pub trait Scanner<BeginMessage, EndMessage>
-    where
-        BeginMessage: Message,
-        EndMessage: Message,
-    {
-        fn begin_scan(
-            &mut self,
-            timestamp: SystemTime,
-            response_skeleton_opt: Option<ResponseSkeleton>,
-            logger: &Logger,
-        ) -> Result<BeginMessage, BeginScanError>;
-        fn finish_scan(&mut self, message: EndMessage, logger: &Logger) -> Option<NodeToUiMessage>;
-        fn scan_started_at(&self) -> Option<SystemTime>;
-        fn mark_as_started(&mut self, timestamp: SystemTime);
-        fn mark_as_ended(&mut self, logger: &Logger);
-        as_any_dcl!();
-    }
-
-    #[derive(Debug, PartialEq, Eq)]
-    pub enum BeginScanError {
-        NothingToProcess,
-        ScanAlreadyRunning(SystemTime),
-        CalledFromNullScanner, // Exclusive for tests
-    }
-
-    pub struct ScannerCommon {
-        initiated_at_opt: Option<SystemTime>,
-        pub payment_thresholds: Rc<PaymentThresholds>,
-    }
-
-    impl ScannerCommon {
-        fn new(payment_thresholds: Rc<PaymentThresholds>) -> Self {
-            Self {
-                initiated_at_opt: None,
-                payment_thresholds,
-            }
-        }
-    }
-
-    pub struct PayableScanner {
-        pub common: ScannerCommon,
-        pub payable_dao: Box<dyn PayableDao>,
-        pub pending_payable_dao: Box<dyn PendingPayableDao>,
-    }
-
-    impl Scanner<ReportAccountsPayable, SentPayable> for PayableScanner {
-        fn begin_scan(
-            &mut self,
-            timestamp: SystemTime,
-            response_skeleton_opt: Option<ResponseSkeleton>,
-            logger: &Logger,
-        ) -> Result<ReportAccountsPayable, BeginScanError> {
-            if let Some(timestamp) = self.scan_started_at() {
-                return Err(BeginScanError::ScanAlreadyRunning(timestamp));
-            }
-            self.mark_as_started(timestamp);
-            info!(logger, "Scanning for payables");
-            let all_non_pending_payables = self.payable_dao.non_pending_payables();
-            debug!(
-                logger,
-                "{}",
-                investigate_debt_extremes(timestamp, &all_non_pending_payables)
-            );
-            let (qualified_payables, summary) = qualified_payables_and_summary(
-                timestamp,
-                all_non_pending_payables,
-                self.common.payment_thresholds.as_ref(),
-            );
-            info!(
-                logger,
-                "Chose {} qualified debts to pay",
-                qualified_payables.len()
-            );
-            debug!(logger, "{}", summary);
-            match qualified_payables.is_empty() {
-                true => {
-                    self.mark_as_ended(logger);
-                    Err(BeginScanError::NothingToProcess)
-                }
-                false => Ok(ReportAccountsPayable {
-                    accounts: qualified_payables,
-                    response_skeleton_opt,
-                }),
-            }
-        }
-
-        fn finish_scan(
-            &mut self,
-            message: SentPayable,
-            logger: &Logger,
-        ) -> Option<NodeToUiMessage> {
-            let (sent_payables, blockchain_errors) = separate_early_errors(&message, logger);
-            debug!(
-                logger,
-                "We gathered these errors at sending transactions for payable: {:?}, out of the \
+    fn finish_scan(&mut self, message: SentPayable, logger: &Logger) -> Option<NodeToUiMessage> {
+        let (sent_payables, blockchain_errors) = separate_early_errors(&message, logger);
+        debug!(
+            logger,
+            "We gathered these errors at sending transactions for payable: {:?}, out of the \
                 total of {} attempts",
-                blockchain_errors,
-                sent_payables.len() + blockchain_errors.len()
-            );
+            blockchain_errors,
+            sent_payables.len() + blockchain_errors.len()
+        );
 
-            self.handle_sent_payables(sent_payables, logger);
-            self.handle_blockchain_errors(blockchain_errors, logger);
+        self.handle_sent_payables(sent_payables, logger);
+        self.handle_blockchain_errors(blockchain_errors, logger);
 
-            self.mark_as_ended(logger);
-            match message.response_skeleton_opt {
-                Some(response_skeleton) => Some(NodeToUiMessage {
-                    target: MessageTarget::ClientId(response_skeleton.client_id),
-                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
-                }),
-                None => None,
-            }
-        }
-
-        fn scan_started_at(&self) -> Option<SystemTime> {
-            self.common.initiated_at_opt
-        }
-
-        fn mark_as_started(&mut self, timestamp: SystemTime) {
-            self.common.initiated_at_opt = Some(timestamp);
-        }
-
-        fn mark_as_ended(&mut self, logger: &Logger) {
-            match self.scan_started_at() {
-                Some(timestamp) => {
-                    let elapsed_time = SystemTime::now()
-                        .duration_since(timestamp)
-                        .expect("Unable to calculate elapsed time for the scan.")
-                        .as_millis();
-                    info!(logger, "The Payable scan ended in {elapsed_time}ms.");
-                    self.common.initiated_at_opt = None;
-                }
-                None => error!(logger, "The scan_finished() was called for Payable scanner but timestamp was not found"),
-            };
-        }
-
-        as_any_impl!();
+        self.mark_as_ended(logger);
+        message
+            .response_skeleton_opt
+            .map(|response_skeleton| NodeToUiMessage {
+                target: MessageTarget::ClientId(response_skeleton.client_id),
+                body: UiScanResponse {}.tmb(response_skeleton.context_id),
+            })
     }
 
-    impl PayableScanner {
-        pub fn new(
-            payable_dao: Box<dyn PayableDao>,
-            pending_payable_dao: Box<dyn PendingPayableDao>,
-            payment_thresholds: Rc<PaymentThresholds>,
-        ) -> Self {
-            Self {
-                common: ScannerCommon::new(payment_thresholds),
-                payable_dao,
-                pending_payable_dao,
-            }
-        }
+    fn scan_started_at(&self) -> Option<SystemTime> {
+        self.common.initiated_at_opt
+    }
 
-        fn handle_sent_payables(&self, sent_payables: Vec<Payable>, logger: &Logger) {
-            for payable in sent_payables {
-                if let Some(rowid) = self.pending_payable_dao.fingerprint_rowid(payable.tx_hash) {
-                    if let Err(e) = self
-                        .payable_dao
-                        .as_ref()
-                        .mark_pending_payable_rowid(&payable.to, rowid)
-                    {
-                        panic!(
-                            "Was unable to create a mark in payables for a new pending payable \
-                            '{}' due to '{:?}'",
-                            payable.tx_hash, e
-                        );
-                    }
-                } else {
+    fn mark_as_started(&mut self, timestamp: SystemTime) {
+        self.common.initiated_at_opt = Some(timestamp);
+    }
+
+    fn mark_as_ended(&mut self, logger: &Logger) {
+        match self.scan_started_at() {
+            Some(timestamp) => {
+                let elapsed_time = SystemTime::now()
+                    .duration_since(timestamp)
+                    .expect("Unable to calculate elapsed time for the scan.")
+                    .as_millis();
+                info!(logger, "The Payable scan ended in {elapsed_time}ms.");
+                self.common.initiated_at_opt = None;
+            }
+            None => error!(
+                logger,
+                "The scan_finished() was called for Payable scanner but timestamp was not found"
+            ),
+        };
+    }
+
+    as_any_impl!();
+}
+
+impl PayableScanner {
+    pub fn new(
+        payable_dao: Box<dyn PayableDao>,
+        pending_payable_dao: Box<dyn PendingPayableDao>,
+        payment_thresholds: Rc<PaymentThresholds>,
+    ) -> Self {
+        Self {
+            common: ScannerCommon::new(payment_thresholds),
+            payable_dao,
+            pending_payable_dao,
+        }
+    }
+
+    fn handle_sent_payables(&self, sent_payables: Vec<Payable>, logger: &Logger) {
+        for payable in sent_payables {
+            if let Some(rowid) = self.pending_payable_dao.fingerprint_rowid(payable.tx_hash) {
+                if let Err(e) = self
+                    .payable_dao
+                    .as_ref()
+                    .mark_pending_payable_rowid(&payable.to, rowid)
+                {
                     panic!(
-                        "Payable fingerprint for {} doesn't exist but should by now; \
-                        system unreliable",
-                        payable.tx_hash
+                        "Was unable to create a mark in payables for a new pending payable \
+                            '{}' due to '{:?}'",
+                        payable.tx_hash, e
                     );
+                }
+            } else {
+                panic!(
+                    "Payable fingerprint for {} doesn't exist but should by now; \
+                        system unreliable",
+                    payable.tx_hash
+                );
+            };
+
+            debug!(
+                logger,
+                "Payable '{}' has been marked as pending in the payable table", payable.tx_hash
+            )
+        }
+    }
+
+    fn handle_blockchain_errors(&self, blockchain_errors: Vec<BlockchainError>, logger: &Logger) {
+        for blockchain_error in blockchain_errors {
+            if let Some(hash) = blockchain_error.carries_transaction_hash() {
+                if let Some(rowid) = self.pending_payable_dao.fingerprint_rowid(hash) {
+                    debug!(
+                        logger,
+                        "Deleting an existing backup for a failed transaction {}", hash
+                    );
+                    if let Err(e) = self.pending_payable_dao.delete_fingerprint(rowid) {
+                        panic!(
+                            "Database unmaintainable; payable fingerprint deletion for \
+                                transaction {:?} has stayed undone due to {:?}",
+                            hash, e
+                        );
+                    };
                 };
 
+                warning!(
+                    logger,
+                    "Failed transaction with a hash '{}' but without the record - thrown out",
+                    hash
+                )
+            } else {
                 debug!(
                     logger,
-                    "Payable '{}' has been marked as pending in the payable table", payable.tx_hash
+                    "Forgetting a transaction attempt that even did not reach the signing stage"
                 )
-            }
+            };
         }
+    }
+}
 
-        fn handle_blockchain_errors(
-            &self,
-            blockchain_errors: Vec<BlockchainError>,
-            logger: &Logger,
-        ) {
-            for blockchain_error in blockchain_errors {
-                if let Some(hash) = blockchain_error.carries_transaction_hash() {
-                    if let Some(rowid) = self.pending_payable_dao.fingerprint_rowid(hash) {
-                        debug!(
-                            logger,
-                            "Deleting an existing backup for a failed transaction {}", hash
-                        );
-                        if let Err(e) = self.pending_payable_dao.delete_fingerprint(rowid) {
-                            panic!(
-                                "Database unmaintainable; payable fingerprint deletion for \
-                                transaction {:?} has stayed undone due to {:?}",
-                                hash, e
-                            );
-                        };
-                    };
+pub struct PendingPayableScanner {
+    pub common: ScannerCommon,
+    pub payable_dao: Box<dyn PayableDao>,
+    pub pending_payable_dao: Box<dyn PendingPayableDao>,
+    pub when_pending_too_long_sec: u64,
+    pub financial_statistics: Rc<RefCell<FinancialStatistics>>,
+}
 
-                    warning!(
-                        logger,
-                        "Failed transaction with a hash '{}' but without the record - thrown out",
-                        hash
-                    )
-                } else {
-                    debug!(
-                        logger,
-                        "Forgetting a transaction attempt that even did not reach the signing stage"
-                    )
-                };
+impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingPayableScanner {
+    fn begin_scan(
+        &mut self,
+        timestamp: SystemTime,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+        logger: &Logger,
+    ) -> Result<RequestTransactionReceipts, BeginScanError> {
+        if let Some(timestamp) = self.scan_started_at() {
+            return Err(BeginScanError::ScanAlreadyRunning(timestamp));
+        }
+        self.mark_as_started(timestamp);
+        info!(logger, "Scanning for pending payable");
+        let filtered_pending_payable = self.pending_payable_dao.return_all_fingerprints();
+        match filtered_pending_payable.is_empty() {
+            true => {
+                debug!(
+                    logger,
+                    "Pending payable scan ended. No pending payable found."
+                );
+                self.mark_as_ended(logger);
+                Err(BeginScanError::NothingToProcess)
+            }
+            false => {
+                debug!(
+                    logger,
+                    "Found {} pending payables to process",
+                    filtered_pending_payable.len()
+                );
+                Ok(RequestTransactionReceipts {
+                    pending_payable: filtered_pending_payable,
+                    response_skeleton_opt,
+                })
             }
         }
     }
 
-    pub struct PendingPayableScanner {
-        pub common: ScannerCommon,
-        pub payable_dao: Box<dyn PayableDao>,
-        pub pending_payable_dao: Box<dyn PendingPayableDao>,
-        pub when_pending_too_long_sec: u64,
-        pub financial_statistics: Rc<RefCell<FinancialStatistics>>,
+    fn finish_scan(
+        &mut self,
+        message: ReportTransactionReceipts,
+        logger: &Logger,
+    ) -> Option<NodeToUiMessage> {
+        // TODO: Make accountant to handle empty vector. Maybe log it as an error.
+        debug!(
+            logger,
+            "Processing receipts for {} transactions",
+            message.fingerprints_with_receipts.len()
+        );
+        let statuses = self.handle_pending_transaction_with_its_receipt(&message, logger);
+        self.process_transaction_by_status(statuses, logger);
+
+        self.mark_as_ended(logger);
+        message
+            .response_skeleton_opt
+            .map(|response_skeleton| NodeToUiMessage {
+                target: MessageTarget::ClientId(response_skeleton.client_id),
+                body: UiScanResponse {}.tmb(response_skeleton.context_id),
+            })
     }
 
-    impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingPayableScanner {
-        fn begin_scan(
-            &mut self,
-            timestamp: SystemTime,
-            response_skeleton_opt: Option<ResponseSkeleton>,
-            logger: &Logger,
-        ) -> Result<RequestTransactionReceipts, BeginScanError> {
-            if let Some(timestamp) = self.scan_started_at() {
-                return Err(BeginScanError::ScanAlreadyRunning(timestamp));
-            }
-            self.mark_as_started(timestamp);
-            info!(logger, "Scanning for pending payable");
-            let filtered_pending_payable = self.pending_payable_dao.return_all_fingerprints();
-            match filtered_pending_payable.is_empty() {
-                true => {
-                    debug!(
-                        logger,
-                        "Pending payable scan ended. No pending payable found."
-                    );
-                    self.mark_as_ended(logger);
-                    Err(BeginScanError::NothingToProcess)
-                }
-                false => {
-                    debug!(
-                        logger,
-                        "Found {} pending payables to process",
-                        filtered_pending_payable.len()
-                    );
-                    Ok(RequestTransactionReceipts {
-                        pending_payable: filtered_pending_payable,
-                        response_skeleton_opt,
-                    })
-                }
-            }
-        }
+    fn scan_started_at(&self) -> Option<SystemTime> {
+        self.common.initiated_at_opt
+    }
 
-        fn finish_scan(
-            &mut self,
-            message: ReportTransactionReceipts,
-            logger: &Logger,
-        ) -> Option<NodeToUiMessage> {
-            // TODO: Make accountant to handle empty vector. Maybe log it as an error.
-            debug!(
-                logger,
-                "Processing receipts for {} transactions",
-                message.fingerprints_with_receipts.len()
-            );
-            let statuses = self.handle_pending_transaction_with_its_receipt(&message, logger);
-            self.process_transaction_by_status(statuses, logger);
+    fn mark_as_started(&mut self, timestamp: SystemTime) {
+        self.common.initiated_at_opt = Some(timestamp);
+    }
 
-            self.mark_as_ended(logger);
-            match message.response_skeleton_opt {
-                Some(response_skeleton) => Some(NodeToUiMessage {
-                    target: MessageTarget::ClientId(response_skeleton.client_id),
-                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
-                }),
-                None => None,
-            }
-        }
-
-        fn scan_started_at(&self) -> Option<SystemTime> {
-            self.common.initiated_at_opt
-        }
-
-        fn mark_as_started(&mut self, timestamp: SystemTime) {
-            self.common.initiated_at_opt = Some(timestamp);
-        }
-
-        fn mark_as_ended(&mut self, logger: &Logger) {
-            match self.scan_started_at() {
+    fn mark_as_ended(&mut self, logger: &Logger) {
+        match self.scan_started_at() {
                 Some(timestamp) => {
                     let elapsed_time = SystemTime::now()
                         .duration_since(timestamp)
@@ -383,64 +376,62 @@ pub(in crate::accountant) mod scanners {
                 }
                 None => error!(logger, "The scan_finished() was called for Pending Payable scanner but timestamp was not found"),
             };
-        }
-
-        as_any_impl!();
     }
 
-    impl PendingPayableScanner {
-        pub fn new(
-            payable_dao: Box<dyn PayableDao>,
-            pending_payable_dao: Box<dyn PendingPayableDao>,
-            payment_thresholds: Rc<PaymentThresholds>,
-            when_pending_too_long_sec: u64,
-            financial_statistics: Rc<RefCell<FinancialStatistics>>,
-        ) -> Self {
-            Self {
-                common: ScannerCommon::new(payment_thresholds),
-                payable_dao,
-                pending_payable_dao,
-                when_pending_too_long_sec,
-                financial_statistics,
-            }
-        }
+    as_any_impl!();
+}
 
-        pub(crate) fn handle_pending_transaction_with_its_receipt(
-            &self,
-            msg: &ReportTransactionReceipts,
-            logger: &Logger,
-        ) -> Vec<PendingTransactionStatus> {
-            msg.fingerprints_with_receipts
-                .iter()
-                .map(|(receipt_opt, fingerprint)| match receipt_opt {
-                    Some(receipt) => {
-                        self.interpret_transaction_receipt(receipt, fingerprint, logger)
-                    }
-                    None => {
-                        debug!(
-                            logger,
-                            "Interpreting a receipt for transaction '{}' but none was given; \
+impl PendingPayableScanner {
+    pub fn new(
+        payable_dao: Box<dyn PayableDao>,
+        pending_payable_dao: Box<dyn PendingPayableDao>,
+        payment_thresholds: Rc<PaymentThresholds>,
+        when_pending_too_long_sec: u64,
+        financial_statistics: Rc<RefCell<FinancialStatistics>>,
+    ) -> Self {
+        Self {
+            common: ScannerCommon::new(payment_thresholds),
+            payable_dao,
+            pending_payable_dao,
+            when_pending_too_long_sec,
+            financial_statistics,
+        }
+    }
+
+    pub(crate) fn handle_pending_transaction_with_its_receipt(
+        &self,
+        msg: &ReportTransactionReceipts,
+        logger: &Logger,
+    ) -> Vec<PendingTransactionStatus> {
+        msg.fingerprints_with_receipts
+            .iter()
+            .map(|(receipt_opt, fingerprint)| match receipt_opt {
+                Some(receipt) => self.interpret_transaction_receipt(receipt, fingerprint, logger),
+                None => {
+                    debug!(
+                        logger,
+                        "Interpreting a receipt for transaction '{}' but none was given; \
                             attempt {}, {}ms since sending",
-                            fingerprint.hash,
-                            fingerprint.attempt_opt.expectv("initialized attempt"),
-                            elapsed_in_ms(fingerprint.timestamp)
-                        );
-                        PendingTransactionStatus::StillPending(PendingPayableId {
-                            hash: fingerprint.hash,
-                            rowid: fingerprint.rowid_opt.expectv("initialized rowid"),
-                        })
-                    }
-                })
-                .collect()
-        }
+                        fingerprint.hash,
+                        fingerprint.attempt_opt.expectv("initialized attempt"),
+                        elapsed_in_ms(fingerprint.timestamp)
+                    );
+                    PendingTransactionStatus::StillPending(PendingPayableId {
+                        hash: fingerprint.hash,
+                        rowid: fingerprint.rowid_opt.expectv("initialized rowid"),
+                    })
+                }
+            })
+            .collect()
+    }
 
-        pub fn interpret_transaction_receipt(
-            &self,
-            receipt: &TransactionReceipt,
-            fingerprint: &PendingPayableFingerprint,
-            logger: &Logger,
-        ) -> PendingTransactionStatus {
-            match receipt.status {
+    pub fn interpret_transaction_receipt(
+        &self,
+        receipt: &TransactionReceipt,
+        fingerprint: &PendingPayableFingerprint,
+        logger: &Logger,
+    ) -> PendingTransactionStatus {
+        match receipt.status {
                 None => handle_none_status(fingerprint, self.when_pending_too_long_sec, logger),
                 Some(status_code) =>
                     match status_code.as_u64() {
@@ -449,422 +440,427 @@ pub(in crate::accountant) mod scanners {
                         other => unreachable!("tx receipt for pending '{}' - tx status: code other than 0 or 1 shouldn't be possible, but was {}", fingerprint.hash, other)
                     }
             }
-        }
+    }
 
-        fn process_transaction_by_status(
-            &mut self,
-            statuses: Vec<PendingTransactionStatus>,
-            logger: &Logger,
-        ) {
-            for status in statuses {
-                match status {
-                    PendingTransactionStatus::StillPending(transaction_id) => {
-                        self.update_payable_fingerprint(transaction_id, logger);
-                    }
-                    PendingTransactionStatus::Failure(transaction_id) => {
-                        self.order_cancel_failed_transaction(transaction_id, logger);
-                    }
-                    PendingTransactionStatus::Confirmed(fingerprint) => {
-                        self.order_confirm_transaction(fingerprint, logger);
-                    }
+    fn process_transaction_by_status(
+        &mut self,
+        statuses: Vec<PendingTransactionStatus>,
+        logger: &Logger,
+    ) {
+        for status in statuses {
+            match status {
+                PendingTransactionStatus::StillPending(transaction_id) => {
+                    self.update_payable_fingerprint(transaction_id, logger);
+                }
+                PendingTransactionStatus::Failure(transaction_id) => {
+                    self.order_cancel_failed_transaction(transaction_id, logger);
+                }
+                PendingTransactionStatus::Confirmed(fingerprint) => {
+                    self.order_confirm_transaction(fingerprint, logger);
                 }
             }
         }
+    }
 
-        pub(crate) fn update_payable_fingerprint(
-            &self,
-            pending_payable_id: PendingPayableId,
-            logger: &Logger,
-        ) {
-            if let Err(e) = self
-                .pending_payable_dao
-                .update_fingerprint(pending_payable_id.rowid)
-            {
-                panic!(
-                    "Failure on updating payable fingerprint '{:?}' due to {:?}",
-                    pending_payable_id.hash, e
-                );
-            } else {
-                trace!(
-                    logger,
-                    "Updated record for rowid: {} ",
-                    pending_payable_id.rowid
-                );
-            }
+    pub(crate) fn update_payable_fingerprint(
+        &self,
+        pending_payable_id: PendingPayableId,
+        logger: &Logger,
+    ) {
+        if let Err(e) = self
+            .pending_payable_dao
+            .update_fingerprint(pending_payable_id.rowid)
+        {
+            panic!(
+                "Failure on updating payable fingerprint '{:?}' due to {:?}",
+                pending_payable_id.hash, e
+            );
+        } else {
+            trace!(
+                logger,
+                "Updated record for rowid: {} ",
+                pending_payable_id.rowid
+            );
         }
+    }
 
-        pub fn order_cancel_failed_transaction(
-            &self,
-            transaction_id: PendingPayableId,
-            logger: &Logger,
-        ) {
-            if let Err(e) = self.pending_payable_dao.mark_failure(transaction_id.rowid) {
-                panic!(
-                    "Unsuccessful attempt for transaction {} to mark fatal error at payable \
+    pub fn order_cancel_failed_transaction(
+        &self,
+        transaction_id: PendingPayableId,
+        logger: &Logger,
+    ) {
+        if let Err(e) = self.pending_payable_dao.mark_failure(transaction_id.rowid) {
+            panic!(
+                "Unsuccessful attempt for transaction {} to mark fatal error at payable \
                     fingerprint due to {:?}; database unreliable",
-                    transaction_id.hash, e
-                )
-            } else {
-                warning!(
+                transaction_id.hash, e
+            )
+        } else {
+            warning!(
                         logger,
                         "Broken transaction {} left with an error mark; you should take over the care \
                         of this transaction to make sure your debts will be paid because there is no \
                         automated process that can fix this without you", transaction_id.hash
                     );
-            }
         }
+    }
 
-        pub fn order_confirm_transaction(
-            &mut self,
-            pending_payable_fingerprint: PendingPayableFingerprint,
-            logger: &Logger,
-        ) {
-            let hash = pending_payable_fingerprint.hash;
-            let amount = pending_payable_fingerprint.amount;
-            let rowid = pending_payable_fingerprint
-                .rowid_opt
-                .expectv("initialized rowid");
+    pub fn order_confirm_transaction(
+        &mut self,
+        pending_payable_fingerprint: PendingPayableFingerprint,
+        logger: &Logger,
+    ) {
+        let hash = pending_payable_fingerprint.hash;
+        let amount = pending_payable_fingerprint.amount;
+        let rowid = pending_payable_fingerprint
+            .rowid_opt
+            .expectv("initialized rowid");
 
-            if let Err(e) = self
-                .payable_dao
-                .transaction_confirmed(&pending_payable_fingerprint)
-            {
+        if let Err(e) = self
+            .payable_dao
+            .transaction_confirmed(&pending_payable_fingerprint)
+        {
+            panic!(
+                "Was unable to uncheck pending payable '{}' after confirmation due to '{:?}'",
+                hash, e
+            );
+        } else {
+            let mut financial_statistics = self.financial_statistics.as_ref().borrow().clone();
+            financial_statistics.total_paid_payable += amount;
+            self.financial_statistics.replace(financial_statistics);
+            debug!(
+                logger,
+                "Confirmation of transaction {}; record for payable was modified", hash
+            );
+            if let Err(e) = self.pending_payable_dao.delete_fingerprint(rowid) {
                 panic!(
-                    "Was unable to uncheck pending payable '{}' after confirmation due to '{:?}'",
+                    "Was unable to delete payable fingerprint '{}' after successful transaction \
+                        due to '{:?}'",
                     hash, e
                 );
             } else {
-                let mut financial_statistics = self.financial_statistics.as_ref().borrow().clone();
-                financial_statistics.total_paid_payable += amount;
-                self.financial_statistics.replace(financial_statistics);
-                debug!(
+                info!(
                     logger,
-                    "Confirmation of transaction {}; record for payable was modified", hash
+                    "Transaction {:?} has gone through the whole confirmation process succeeding",
+                    hash
                 );
-                if let Err(e) = self.pending_payable_dao.delete_fingerprint(rowid) {
-                    panic!(
-                        "Was unable to delete payable fingerprint '{}' after successful transaction \
-                        due to '{:?}'", hash, e
-                    );
-                } else {
-                    info!(
-                        logger,
-                        "Transaction {:?} has gone through the whole confirmation process succeeding",
-                        hash
-                    );
-                }
             }
-        }
-
-        pub fn financial_statistics(&self) -> FinancialStatistics {
-            self.financial_statistics.as_ref().borrow().clone()
         }
     }
 
-    pub struct ReceivableScanner {
-        pub common: ScannerCommon,
-        pub receivable_dao: Box<dyn ReceivableDao>,
-        pub banned_dao: Box<dyn BannedDao>,
-        pub earning_wallet: Rc<Wallet>,
-        pub financial_statistics: Rc<RefCell<FinancialStatistics>>,
+    pub fn financial_statistics(&self) -> FinancialStatistics {
+        self.financial_statistics.as_ref().borrow().clone()
+    }
+}
+
+pub struct ReceivableScanner {
+    pub common: ScannerCommon,
+    pub receivable_dao: Box<dyn ReceivableDao>,
+    pub banned_dao: Box<dyn BannedDao>,
+    pub earning_wallet: Rc<Wallet>,
+    pub financial_statistics: Rc<RefCell<FinancialStatistics>>,
+}
+
+impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
+    fn begin_scan(
+        &mut self,
+        timestamp: SystemTime,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+        logger: &Logger,
+    ) -> Result<RetrieveTransactions, BeginScanError> {
+        if let Some(timestamp) = self.scan_started_at() {
+            return Err(BeginScanError::ScanAlreadyRunning(timestamp));
+        }
+        self.mark_as_started(timestamp);
+        info!(
+            logger,
+            "Scanning for receivables to {}", self.earning_wallet
+        );
+        self.scan_for_delinquencies(timestamp, logger);
+
+        Ok(RetrieveTransactions {
+            recipient: self.earning_wallet.as_ref().clone(),
+            response_skeleton_opt,
+        })
     }
 
-    impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
-        fn begin_scan(
-            &mut self,
-            timestamp: SystemTime,
-            response_skeleton_opt: Option<ResponseSkeleton>,
-            logger: &Logger,
-        ) -> Result<RetrieveTransactions, BeginScanError> {
-            if let Some(timestamp) = self.scan_started_at() {
-                return Err(BeginScanError::ScanAlreadyRunning(timestamp));
-            }
-            self.mark_as_started(timestamp);
-            info!(
+    fn finish_scan(
+        &mut self,
+        message: ReceivedPayments,
+        logger: &Logger,
+    ) -> Option<NodeToUiMessage> {
+        if message.payments.is_empty() {
+            warning!(
                 logger,
-                "Scanning for receivables to {}", self.earning_wallet
-            );
-            self.scan_for_delinquencies(timestamp, logger);
-
-            Ok(RetrieveTransactions {
-                recipient: self.earning_wallet.as_ref().clone(),
-                response_skeleton_opt,
-            })
-        }
-
-        fn finish_scan(
-            &mut self,
-            message: ReceivedPayments,
-            logger: &Logger,
-        ) -> Option<NodeToUiMessage> {
-            if message.payments.is_empty() {
-                warning!(
-                    logger,
-                    "Handling received payments we got zero payments but expected some, \
+                "Handling received payments we got zero payments but expected some, \
                     skipping database operations"
+            )
+        } else {
+            let total_newly_paid_receivable = message
+                .payments
+                .iter()
+                .fold(0, |so_far, now| so_far + now.gwei_amount);
+            self.receivable_dao
+                .as_mut()
+                .more_money_received(message.timestamp, message.payments);
+            let mut financial_statistics = self.financial_statistics();
+            financial_statistics.total_paid_receivable += total_newly_paid_receivable;
+            self.financial_statistics.replace(financial_statistics);
+        }
+
+        self.mark_as_ended(logger);
+        message
+            .response_skeleton_opt
+            .map(|response_skeleton| NodeToUiMessage {
+                target: MessageTarget::ClientId(response_skeleton.client_id),
+                body: UiScanResponse {}.tmb(response_skeleton.context_id),
+            })
+    }
+
+    fn scan_started_at(&self) -> Option<SystemTime> {
+        self.common.initiated_at_opt
+    }
+
+    fn mark_as_started(&mut self, timestamp: SystemTime) {
+        self.common.initiated_at_opt = Some(timestamp);
+    }
+
+    fn mark_as_ended(&mut self, logger: &Logger) {
+        match self.scan_started_at() {
+            Some(timestamp) => {
+                let elapsed_time = SystemTime::now()
+                    .duration_since(timestamp)
+                    .expect("Unable to calculate elapsed time for the scan.")
+                    .as_millis();
+                info!(logger, "The Receivable scan ended in {elapsed_time}ms.");
+                self.common.initiated_at_opt = None;
+            }
+            None => error!(
+                logger,
+                "The scan_finished() was called for Receivable scanner but timestamp was not found"
+            ),
+        };
+    }
+
+    as_any_impl!();
+}
+
+impl ReceivableScanner {
+    pub fn new(
+        receivable_dao: Box<dyn ReceivableDao>,
+        banned_dao: Box<dyn BannedDao>,
+        payment_thresholds: Rc<PaymentThresholds>,
+        earning_wallet: Rc<Wallet>,
+        financial_statistics: Rc<RefCell<FinancialStatistics>>,
+    ) -> Self {
+        Self {
+            common: ScannerCommon::new(payment_thresholds),
+            earning_wallet,
+            receivable_dao,
+            banned_dao,
+            financial_statistics,
+        }
+    }
+
+    pub fn scan_for_delinquencies(&self, timestamp: SystemTime, logger: &Logger) {
+        info!(logger, "Scanning for delinquencies");
+        self.ban_nodes(timestamp, logger);
+        self.unban_nodes(timestamp, logger);
+    }
+
+    pub fn ban_nodes(&self, timestamp: SystemTime, logger: &Logger) {
+        self.receivable_dao
+            .new_delinquencies(timestamp, self.common.payment_thresholds.as_ref())
+            .into_iter()
+            .for_each(|account| {
+                self.banned_dao.ban(&account.wallet);
+                let (balance, age) = balance_and_age(timestamp, &account);
+                info!(
+                    logger,
+                    "Wallet {} (balance: {} MASQ, age: {} sec) banned for delinquency",
+                    account.wallet,
+                    balance,
+                    age.as_secs()
                 )
-            } else {
-                let total_newly_paid_receivable = message
-                    .payments
-                    .iter()
-                    .fold(0, |so_far, now| so_far + now.gwei_amount);
-                self.receivable_dao
-                    .as_mut()
-                    .more_money_received(message.timestamp, message.payments);
-                let mut financial_statistics = self.financial_statistics();
-                financial_statistics.total_paid_receivable += total_newly_paid_receivable;
-                self.financial_statistics.replace(financial_statistics);
-            }
-
-            self.mark_as_ended(logger);
-            match message.response_skeleton_opt {
-                None => None,
-                Some(response_skeleton) => Some(NodeToUiMessage {
-                    target: MessageTarget::ClientId(response_skeleton.client_id),
-                    body: UiScanResponse {}.tmb(response_skeleton.context_id),
-                }),
-            }
-        }
-
-        fn scan_started_at(&self) -> Option<SystemTime> {
-            self.common.initiated_at_opt
-        }
-
-        fn mark_as_started(&mut self, timestamp: SystemTime) {
-            self.common.initiated_at_opt = Some(timestamp);
-        }
-
-        fn mark_as_ended(&mut self, logger: &Logger) {
-            match self.scan_started_at() {
-                Some(timestamp) => {
-                    let elapsed_time = SystemTime::now()
-                        .duration_since(timestamp)
-                        .expect("Unable to calculate elapsed time for the scan.")
-                        .as_millis();
-                    info!(logger, "The Receivable scan ended in {elapsed_time}ms.");
-                    self.common.initiated_at_opt = None;
-                }
-                None => error!(logger, "The scan_finished() was called for Receivable scanner but timestamp was not found"),
-            };
-        }
-
-        as_any_impl!();
+            });
     }
 
-    impl ReceivableScanner {
-        pub fn new(
-            receivable_dao: Box<dyn ReceivableDao>,
-            banned_dao: Box<dyn BannedDao>,
-            payment_thresholds: Rc<PaymentThresholds>,
-            earning_wallet: Rc<Wallet>,
-            financial_statistics: Rc<RefCell<FinancialStatistics>>,
-        ) -> Self {
-            Self {
-                common: ScannerCommon::new(payment_thresholds),
-                earning_wallet,
-                receivable_dao,
-                banned_dao,
-                financial_statistics,
-            }
-        }
-
-        pub fn scan_for_delinquencies(&self, timestamp: SystemTime, logger: &Logger) {
-            info!(logger, "Scanning for delinquencies");
-            self.ban_nodes(timestamp, logger);
-            self.unban_nodes(timestamp, logger);
-        }
-
-        pub fn ban_nodes(&self, timestamp: SystemTime, logger: &Logger) {
-            self.receivable_dao
-                .new_delinquencies(timestamp, self.common.payment_thresholds.as_ref())
-                .into_iter()
-                .for_each(|account| {
-                    self.banned_dao.ban(&account.wallet);
-                    let (balance, age) = balance_and_age(timestamp, &account);
-                    info!(
-                        logger,
-                        "Wallet {} (balance: {} MASQ, age: {} sec) banned for delinquency",
-                        account.wallet,
-                        balance,
-                        age.as_secs()
-                    )
-                });
-        }
-
-        pub fn unban_nodes(&self, timestamp: SystemTime, logger: &Logger) {
-            self.receivable_dao
-                .paid_delinquencies(self.common.payment_thresholds.as_ref())
-                .into_iter()
-                .for_each(|account| {
-                    self.banned_dao.unban(&account.wallet);
-                    let (balance, age) = balance_and_age(timestamp, &account);
-                    info!(
-                        logger,
-                        "Wallet {} (balance: {} MASQ, age: {} sec) is no longer delinquent: unbanned",
-                        account.wallet,
-                        balance,
-                        age.as_secs()
-                    )
-                });
-        }
-
-        pub fn financial_statistics(&self) -> FinancialStatistics {
-            self.financial_statistics.as_ref().borrow().clone()
-        }
+    pub fn unban_nodes(&self, timestamp: SystemTime, logger: &Logger) {
+        self.receivable_dao
+            .paid_delinquencies(self.common.payment_thresholds.as_ref())
+            .into_iter()
+            .for_each(|account| {
+                self.banned_dao.unban(&account.wallet);
+                let (balance, age) = balance_and_age(timestamp, &account);
+                info!(
+                    logger,
+                    "Wallet {} (balance: {} MASQ, age: {} sec) is no longer delinquent: unbanned",
+                    account.wallet,
+                    balance,
+                    age.as_secs()
+                )
+            });
     }
 
-    pub struct NullScanner {}
+    pub fn financial_statistics(&self) -> FinancialStatistics {
+        self.financial_statistics.as_ref().borrow().clone()
+    }
+}
 
-    impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for NullScanner
-    where
-        BeginMessage: Message,
-        EndMessage: Message,
-    {
-        fn begin_scan(
-            &mut self,
-            _timestamp: SystemTime,
-            _response_skeleton_opt: Option<ResponseSkeleton>,
-            _logger: &Logger,
-        ) -> Result<BeginMessage, BeginScanError> {
-            Err(BeginScanError::CalledFromNullScanner)
-        }
+pub struct NullScanner {}
 
-        fn finish_scan(
-            &mut self,
-            _message: EndMessage,
-            _logger: &Logger,
-        ) -> Option<NodeToUiMessage> {
-            panic!("Called from NullScanner");
-        }
-
-        fn scan_started_at(&self) -> Option<SystemTime> {
-            panic!("Called from NullScanner");
-        }
-
-        fn mark_as_started(&mut self, _timestamp: SystemTime) {
-            panic!("Called from NullScanner");
-        }
-
-        fn mark_as_ended(&mut self, _logger: &Logger) {
-            panic!("Called from NullScanner");
-        }
-
-        as_any_impl!();
+impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for NullScanner
+where
+    BeginMessage: Message,
+    EndMessage: Message,
+{
+    fn begin_scan(
+        &mut self,
+        _timestamp: SystemTime,
+        _response_skeleton_opt: Option<ResponseSkeleton>,
+        _logger: &Logger,
+    ) -> Result<BeginMessage, BeginScanError> {
+        Err(BeginScanError::CalledFromNullScanner)
     }
 
-    impl NullScanner {
-        pub fn new() -> Self {
-            Self {}
+    fn finish_scan(&mut self, _message: EndMessage, _logger: &Logger) -> Option<NodeToUiMessage> {
+        panic!("Called from NullScanner");
+    }
+
+    fn scan_started_at(&self) -> Option<SystemTime> {
+        panic!("Called from NullScanner");
+    }
+
+    fn mark_as_started(&mut self, _timestamp: SystemTime) {
+        panic!("Called from NullScanner");
+    }
+
+    fn mark_as_ended(&mut self, _logger: &Logger) {
+        panic!("Called from NullScanner");
+    }
+
+    as_any_impl!();
+}
+
+impl Default for NullScanner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl NullScanner {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+pub struct ScannerMock<BeginMessage, EndMessage> {
+    begin_scan_params: Arc<Mutex<Vec<()>>>,
+    begin_scan_results: RefCell<Vec<Result<BeginMessage, BeginScanError>>>,
+    end_scan_params: Arc<Mutex<Vec<EndMessage>>>,
+    end_scan_results: RefCell<Vec<Option<NodeToUiMessage>>>,
+    stop_system_after_last_message: RefCell<bool>,
+}
+
+impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage>
+    for ScannerMock<BeginMessage, EndMessage>
+where
+    BeginMessage: Message,
+    EndMessage: Message,
+{
+    fn begin_scan(
+        &mut self,
+        _timestamp: SystemTime,
+        _response_skeleton_opt: Option<ResponseSkeleton>,
+        _logger: &Logger,
+    ) -> Result<BeginMessage, BeginScanError> {
+        self.begin_scan_params.lock().unwrap().push(());
+        if self.is_allowed_to_stop_the_system() && self.is_last_message() {
+            System::current().stop();
+        }
+        self.begin_scan_results.borrow_mut().remove(0)
+    }
+
+    fn finish_scan(&mut self, message: EndMessage, _logger: &Logger) -> Option<NodeToUiMessage> {
+        self.end_scan_params.lock().unwrap().push(message);
+        if self.is_allowed_to_stop_the_system() && self.is_last_message() {
+            System::current().stop();
+        }
+        self.end_scan_results.borrow_mut().remove(0)
+    }
+
+    fn scan_started_at(&self) -> Option<SystemTime> {
+        unimplemented!()
+    }
+
+    fn mark_as_started(&mut self, _timestamp: SystemTime) {
+        unimplemented!()
+    }
+
+    fn mark_as_ended(&mut self, _logger: &Logger) {
+        unimplemented!()
+    }
+}
+
+impl<BeginMessage, EndMessage> Default for ScannerMock<BeginMessage, EndMessage> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
+    pub fn new() -> Self {
+        Self {
+            begin_scan_params: Arc::new(Mutex::new(vec![])),
+            begin_scan_results: RefCell::new(vec![]),
+            end_scan_params: Arc::new(Mutex::new(vec![])),
+            end_scan_results: RefCell::new(vec![]),
+            stop_system_after_last_message: RefCell::new(false),
         }
     }
 
-    pub struct ScannerMock<BeginMessage, EndMessage> {
-        begin_scan_params: Arc<Mutex<Vec<()>>>,
-        begin_scan_results: RefCell<Vec<Result<BeginMessage, BeginScanError>>>,
-        end_scan_params: Arc<Mutex<Vec<EndMessage>>>,
-        end_scan_results: RefCell<Vec<Option<NodeToUiMessage>>>,
-        stop_system_after_last_message: RefCell<bool>,
+    pub fn begin_scan_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
+        self.begin_scan_params = params.clone();
+        self
     }
 
-    impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage>
-        for ScannerMock<BeginMessage, EndMessage>
-    where
-        BeginMessage: Message,
-        EndMessage: Message,
-    {
-        fn begin_scan(
-            &mut self,
-            _timestamp: SystemTime,
-            _response_skeleton_opt: Option<ResponseSkeleton>,
-            _logger: &Logger,
-        ) -> Result<BeginMessage, BeginScanError> {
-            self.begin_scan_params.lock().unwrap().push(());
-            if self.is_allowed_to_stop_the_system() && self.is_last_message() {
-                System::current().stop();
-            }
-            self.begin_scan_results.borrow_mut().remove(0)
-        }
-
-        fn finish_scan(
-            &mut self,
-            message: EndMessage,
-            _logger: &Logger,
-        ) -> Option<NodeToUiMessage> {
-            self.end_scan_params.lock().unwrap().push(message);
-            if self.is_allowed_to_stop_the_system() && self.is_last_message() {
-                System::current().stop();
-            }
-            self.end_scan_results.borrow_mut().remove(0)
-        }
-
-        fn scan_started_at(&self) -> Option<SystemTime> {
-            unimplemented!()
-        }
-
-        fn mark_as_started(&mut self, _timestamp: SystemTime) {
-            unimplemented!()
-        }
-
-        fn mark_as_ended(&mut self, _logger: &Logger) {
-            unimplemented!()
-        }
+    pub fn begin_scan_result(self, result: Result<BeginMessage, BeginScanError>) -> Self {
+        self.begin_scan_results.borrow_mut().push(result);
+        self
     }
 
-    impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
-        pub fn new() -> Self {
-            Self {
-                begin_scan_params: Arc::new(Mutex::new(vec![])),
-                begin_scan_results: RefCell::new(vec![]),
-                end_scan_params: Arc::new(Mutex::new(vec![])),
-                end_scan_results: RefCell::new(vec![]),
-                stop_system_after_last_message: RefCell::new(false),
-            }
-        }
-
-        pub fn begin_scan_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-            self.begin_scan_params = params.clone();
-            self
-        }
-
-        pub fn begin_scan_result(self, result: Result<BeginMessage, BeginScanError>) -> Self {
-            self.begin_scan_results.borrow_mut().push(result);
-            self
-        }
-
-        pub fn stop_the_system(self) -> Self {
-            self.stop_system_after_last_message.replace(true);
-            self
-        }
-
-        pub fn is_allowed_to_stop_the_system(&self) -> bool {
-            self.stop_system_after_last_message.borrow().clone()
-        }
-
-        pub fn is_last_message(&self) -> bool {
-            self.is_last_message_from_begin_scan() || self.is_last_message_from_end_scan()
-        }
-
-        pub fn is_last_message_from_begin_scan(&self) -> bool {
-            self.begin_scan_results.borrow().len() == 1 && self.end_scan_results.borrow().is_empty()
-        }
-
-        pub fn is_last_message_from_end_scan(&self) -> bool {
-            self.end_scan_results.borrow().len() == 1 && self.begin_scan_results.borrow().is_empty()
-        }
+    pub fn stop_the_system(self) -> Self {
+        self.stop_system_after_last_message.replace(true);
+        self
     }
 
-    #[derive(Default)]
-    pub struct NotifyLaterForScanners {
-        pub scan_for_pending_payable:
-            Box<dyn NotifyLaterHandle<ScanForPendingPayables, Accountant>>,
-        pub scan_for_payable: Box<dyn NotifyLaterHandle<ScanForPayables, Accountant>>,
-        pub scan_for_receivable: Box<dyn NotifyLaterHandle<ScanForReceivables, Accountant>>,
+    pub fn is_allowed_to_stop_the_system(&self) -> bool {
+        *self.stop_system_after_last_message.borrow()
     }
+
+    pub fn is_last_message(&self) -> bool {
+        self.is_last_message_from_begin_scan() || self.is_last_message_from_end_scan()
+    }
+
+    pub fn is_last_message_from_begin_scan(&self) -> bool {
+        self.begin_scan_results.borrow().len() == 1 && self.end_scan_results.borrow().is_empty()
+    }
+
+    pub fn is_last_message_from_end_scan(&self) -> bool {
+        self.end_scan_results.borrow().len() == 1 && self.begin_scan_results.borrow().is_empty()
+    }
+}
+
+#[derive(Default)]
+pub struct NotifyLaterForScanners {
+    pub scan_for_pending_payable: Box<dyn NotifyLaterHandle<ScanForPendingPayables, Accountant>>,
+    pub scan_for_payable: Box<dyn NotifyLaterHandle<ScanForPayables, Accountant>>,
+    pub scan_for_receivable: Box<dyn NotifyLaterHandle<ScanForReceivables, Accountant>>,
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::scanners::scanners::{
+    use crate::accountant::scanners::{
         BeginScanError, PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner, Scanners,
     };
     use crate::accountant::test_utils::{
