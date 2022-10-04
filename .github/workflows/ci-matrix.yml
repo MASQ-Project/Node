@@ -20,6 +20,12 @@ jobs:
     runs-on: ${{ matrix.target.os }}
     steps:
       - uses: actions/checkout@v3
+      - name: Stable with rustfmt and clippy
+        uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: 1.63.0
+          components: rustfmt, clippy
       - uses: actions/cache@v3
         with:
           path: |
@@ -33,20 +39,6 @@ jobs:
           restore-keys: ${{ runner.OS }}-cargo-
       - name: Build ${{ matrix.target.os }}
         run: |
-          rustup check
-          case "$OSTYPE" in
-            msys)
-              echo "Windows doesn't like it when rustup updates itself"
-              rustup update --no-self-update stable
-              ;;
-            *)
-              echo "Linux and macOS don't need manual suppression of rustup self update"
-              rustup update stable
-              ;;
-          esac
-          rustup check
-          rustup component add rustfmt
-          rustup component add clippy
           ./ci/all.sh
           ./ci/multinode_integration_test.sh
           ./ci/collect_results.sh
