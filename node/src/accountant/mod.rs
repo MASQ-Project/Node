@@ -171,45 +171,25 @@ impl Handler<StartMessage> for Accountant {
     }
 }
 
-impl Handler<SentPayable> for Accountant {
-    type Result = ();
-
-    fn handle(&mut self, msg: SentPayable, _ctx: &mut Self::Context) -> Self::Result {
-        if let Some(node_to_ui_msg) = self.scanners.payable.finish_scan(msg, &self.logger) {
-            self.ui_message_sub
-                .as_ref()
-                .expect("UIGateway is not bound")
-                .try_send(node_to_ui_msg)
-                .expect("UIGateway is dead");
-        }
-    }
-}
-
-#[derive(Debug, PartialEq, Message, Clone)]
-pub struct ReportTransactionReceipts {
-    pub fingerprints_with_receipts: Vec<(Option<TransactionReceipt>, PendingPayableFingerprint)>,
-    pub response_skeleton_opt: Option<ResponseSkeleton>,
-}
-
-impl Handler<ReportTransactionReceipts> for Accountant {
-    type Result = ();
-
-    fn handle(&mut self, msg: ReportTransactionReceipts, _ctx: &mut Self::Context) -> Self::Result {
-        if let Some(node_to_ui_msg) = self.scanners.pending_payable.finish_scan(msg, &self.logger) {
-            self.ui_message_sub
-                .as_ref()
-                .expect("UIGateway is not bound")
-                .try_send(node_to_ui_msg)
-                .expect("UIGateway is dead");
-        }
-    }
-}
-
 impl Handler<ReceivedPayments> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ReceivedPayments, _ctx: &mut Self::Context) -> Self::Result {
         if let Some(node_to_ui_msg) = self.scanners.receivable.finish_scan(msg, &self.logger) {
+            self.ui_message_sub
+                .as_ref()
+                .expect("UIGateway is not bound")
+                .try_send(node_to_ui_msg)
+                .expect("UIGateway is dead");
+        }
+    }
+}
+
+impl Handler<SentPayable> for Accountant {
+    type Result = ();
+
+    fn handle(&mut self, msg: SentPayable, _ctx: &mut Self::Context) -> Self::Result {
+        if let Some(node_to_ui_msg) = self.scanners.payable.finish_scan(msg, &self.logger) {
             self.ui_message_sub
                 .as_ref()
                 .expect("UIGateway is not bound")
@@ -261,6 +241,26 @@ impl Handler<ScanForReceivables> for Accountant {
             self.scan_intervals.receivable_scan_interval,
             ctx,
         );
+    }
+}
+
+#[derive(Debug, PartialEq, Message, Clone)]
+pub struct ReportTransactionReceipts {
+    pub fingerprints_with_receipts: Vec<(Option<TransactionReceipt>, PendingPayableFingerprint)>,
+    pub response_skeleton_opt: Option<ResponseSkeleton>,
+}
+
+impl Handler<ReportTransactionReceipts> for Accountant {
+    type Result = ();
+
+    fn handle(&mut self, msg: ReportTransactionReceipts, _ctx: &mut Self::Context) -> Self::Result {
+        if let Some(node_to_ui_msg) = self.scanners.pending_payable.finish_scan(msg, &self.logger) {
+            self.ui_message_sub
+                .as_ref()
+                .expect("UIGateway is not bound")
+                .try_send(node_to_ui_msg)
+                .expect("UIGateway is dead");
+        }
     }
 }
 
@@ -798,10 +798,8 @@ pub fn unsigned_to_signed(unsigned: u64) -> Result<i64, u64> {
 
 #[derive(Debug, PartialEq, Clone)]
 pub enum PendingTransactionStatus {
-    StillPending(PendingPayableId),
-    //updates slightly the record, waits an interval and starts a new round
-    Failure(PendingPayableId),
-    //official tx failure
+    StillPending(PendingPayableId), //updates slightly the record, waits an interval and starts a new round
+    Failure(PendingPayableId),      //official tx failure
     Confirmed(PendingPayableFingerprint), //tx was fully processed and successful
 }
 
@@ -934,12 +932,6 @@ mod tests {
 
     #[test]
     fn accountant_have_proper_defaulted_values() {
-        // TODO: Verify Scanners are defaulted properly [write this test once GH-574's recorder's code is merged, or cherry-pick the commit]
-        // When scan() is called, on a scanner, it sends one message to blockchain bridge and a notify_later message, which in turn
-        // schedules another scan, in turn accountant sends another message to blockchain bridge. Make sure a scan() call to a scanner results in two messages
-        // to blockchain bridge (one received directly and other indirectly via notify_later). Make sure 6 messages are received in total.
-        // The second message is received after test defined scan intervals.
-        // Make sure to use a real database instead of using mock utilities. It'll require at least one row for each table of individual scanners.
         let mut bootstrapper_config = make_bc_with_defaults();
         let payable_dao_factory = Box::new(
             PayableDaoFactoryMock::new()
