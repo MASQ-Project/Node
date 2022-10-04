@@ -244,26 +244,6 @@ impl Handler<ScanForReceivables> for Accountant {
     }
 }
 
-#[derive(Debug, PartialEq, Message, Clone)]
-pub struct ReportTransactionReceipts {
-    pub fingerprints_with_receipts: Vec<(Option<TransactionReceipt>, PendingPayableFingerprint)>,
-    pub response_skeleton_opt: Option<ResponseSkeleton>,
-}
-
-impl Handler<ReportTransactionReceipts> for Accountant {
-    type Result = ();
-
-    fn handle(&mut self, msg: ReportTransactionReceipts, _ctx: &mut Self::Context) -> Self::Result {
-        if let Some(node_to_ui_msg) = self.scanners.pending_payable.finish_scan(msg, &self.logger) {
-            self.ui_message_sub
-                .as_ref()
-                .expect("UIGateway is not bound")
-                .try_send(node_to_ui_msg)
-                .expect("UIGateway is dead");
-        }
-    }
-}
-
 impl Handler<ScanError> for Accountant {
     type Result = ();
 
@@ -341,6 +321,26 @@ pub struct RequestTransactionReceipts {
 impl SkeletonOptHolder for RequestTransactionReceipts {
     fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
         self.response_skeleton_opt
+    }
+}
+
+#[derive(Debug, PartialEq, Message, Clone)]
+pub struct ReportTransactionReceipts {
+    pub fingerprints_with_receipts: Vec<(Option<TransactionReceipt>, PendingPayableFingerprint)>,
+    pub response_skeleton_opt: Option<ResponseSkeleton>,
+}
+
+impl Handler<ReportTransactionReceipts> for Accountant {
+    type Result = ();
+
+    fn handle(&mut self, msg: ReportTransactionReceipts, _ctx: &mut Self::Context) -> Self::Result {
+        if let Some(node_to_ui_msg) = self.scanners.pending_payable.finish_scan(msg, &self.logger) {
+            self.ui_message_sub
+                .as_ref()
+                .expect("UIGateway is not bound")
+                .try_send(node_to_ui_msg)
+                .expect("UIGateway is dead");
+        }
     }
 }
 
