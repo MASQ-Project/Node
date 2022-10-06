@@ -53,63 +53,6 @@ impl<'a, T: TableNameDAO> BigIntDbProcessor<T> {
             ))),
         }
     }
-
-    // fn update_with_overflow<'a>(
-    //     &self,
-    //     conn: Either<&dyn ConnectionWrapper, &Transaction>,
-    //     config: BigIntSqlConfig<'a, T>,
-    // ) -> Result<(), BigIntDbError> {
-    //     let select_sql = config.select_sql();
-    //     let mut select_stm = Self::prepare_statement(conn, &select_sql);
-    //     match select_stm.query_row([], |row| {
-    //         let low_bytes_result = row.get::<usize, i64>(0);
-    //         match low_bytes_result {
-    //             Ok(low_bytes) => {
-    //                 let wei_change_params = &config.params.wei_change_params;
-    //                 let high_bytes_correction = wei_change_params.high.value + 1;
-    //                 let low_bytes_correction = ((low_bytes as i128
-    //                     + wei_change_params.low.value as i128)
-    //                     & 0x7FFFFFFFFFFFFFFF) as i64
-    //                     - low_bytes;
-    //                 let update_sql = config.prepare_update_sql();
-    //                 let mut update_stm = Self::prepare_statement(conn, &update_sql);
-    //                 let wei_update_array = [
-    //                     (
-    //                         wei_change_params.high.name.as_str(),
-    //                         &high_bytes_correction as &dyn ToSql,
-    //                     ),
-    //                     (
-    //                         wei_change_params.low.name.as_str(),
-    //                         &low_bytes_correction as &dyn ToSql,
-    //                     ),
-    //                 ];
-    //                 let params = config
-    //                     .params
-    //                     .pure_rusqlite_params_with_wei_params(wei_update_array);
-    //                 match update_stm
-    //                     .execute(&*params)
-    //                     .expect("correction-for update sql has wrong logic")
-    //                 {
-    //                     1 => Ok(()),
-    //                     x => unreachable!(
-    //                         "This code was written to handle one changed row a time, not {}",
-    //                         x
-    //                     ),
-    //                 }
-    //             }
-    //             Err(e) => Err(e),
-    //         }
-    //     }) {
-    //         Ok(()) => Ok(()),
-    //         Err(e) => Err(BigIntDbError(format!(
-    //             "Updating balance for {} of {} Wei to {} with error '{}'",
-    //             T::table_name(),
-    //             config.balance_change(),
-    //             config.key_value(),
-    //             e
-    //         ))),
-    //     }
-    // }
 }
 
 impl<T: TableNameDAO + 'static> Default for BigIntDbProcessor<T> {
@@ -155,7 +98,77 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
         conn: Either<&dyn ConnectionWrapper, &Transaction>,
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
-        todo!()
+        let select_sql = config.select_sql();
+        let mut select_stm = BigIntDbProcessor::<T>::prepare_statement(conn, &select_sql);
+        match select_stm.query_row([], |row| {
+            let low_bytes_result = row.get::<usize, i64>(0);
+            match low_bytes_result {
+                Ok(previous_low_bytes) => {
+                    let requested_wei_change = &config.params.wei_change_params;
+                    let (high_bytes_correction, low_bytes_correction) = if requested_wei_change.high.value >= 0 {
+                        Self::bytes_corrections_for_addition(previous_low_bytes, requested_wei_change)
+                    }else{
+                        Self::bytes_corrections_for_subtraction(previous_low_bytes, requested_wei_change)
+                    };
+                    let update_sql = config.prepare_update_sql();
+                    let mut update_stm = BigIntDbProcessor::<T>::prepare_statement(conn, &update_sql);
+                    let wei_update_array = [
+                        (
+                            requested_wei_change.high.name.as_str(),
+                            &high_bytes_correction as &dyn ToSql,
+                        ),
+                        (
+                            requested_wei_change.low.name.as_str(),
+                            &low_bytes_correction as &dyn ToSql,
+                        ),
+                    ];
+                    let params = config
+                        .params
+                        .pure_rusqlite_params_with_wei_params(wei_update_array);
+                    match update_stm
+                        .execute(&*params)
+                        .expect("correction-for update sql has wrong logic")
+                    {
+                        1 => Ok(()),
+                        x => unreachable!(
+                            "This code was written to handle one changed row a time, not {}",
+                            x
+                        ),
+                    }
+                }
+                Err(e) => Err(e),
+            }
+        }) {
+            Ok(()) => Ok(()),
+            Err(e) => Err(BigIntDbError(format!(
+                "Updating balance for {} of {} Wei to {} with error '{}'",
+                T::table_name(),
+                config.balance_change(),
+                config.key_value(),
+                e
+            ))),
+        }
+    }
+}
+
+impl <T: TableNameDAO + Debug> UpdateOverflowHandlerReal<T>{
+    fn bytes_corrections_for_addition(previous_low_bytes:i64, requested_wei_change: &WeisMakingTheChange) ->(i64, i64){
+        let high_bytes_correction = requested_wei_change.high.value + 1;
+        let low_bytes_correction = ((previous_low_bytes as i128
+            + requested_wei_change.low.value as i128)
+            & 0x7FFFFFFFFFFFFFFF) as i64
+            - previous_low_bytes;
+        (high_bytes_correction,low_bytes_correction)
+    }
+
+    fn bytes_corrections_for_subtraction(previous_low_bytes:i64, requested_wei_change: &WeisMakingTheChange) ->(i64, i64){
+        let high_bytes_correction = requested_wei_change.high.value - 1;
+        eprintln!("previous: {}",previous_low_bytes);
+        eprintln!("requested: {}",requested_wei_change.low.value);
+        eprintln!("positive 50 {:#X}",9223372036854775241_i128);
+        eprintln!("negative 50 {:#X}",-9223372036854775241_i128);
+        let low_bytes_correction = - requested_wei_change.low.value;
+        (high_bytes_correction,low_bytes_correction)
     }
 }
 
@@ -474,9 +487,9 @@ impl BigIntDivider {
     fn deconstruct_range_check(num: i128) {
         let top_two_bits = num >> 126 & 0b11;
         if top_two_bits == 0b01 {
-            panic!("Dividing big integer for special database storage, however: {:#X} is too big, maximally 0x3FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF allowed",num)
+            panic!("Dividing big integer for special database storage: {:#X} is too big, maximally 0x3FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFF allowed",num)
         } else if top_two_bits == 0b10 {
-            panic!("Dividing big integer for special database storage, however: {:#X} is too small, minimally 0xC0000000000000000000000000000000 allowed",num)
+            panic!("Dividing big integer for special database storage: {:#X} is too small, minimally 0xC0000000000000000000000000000000 allowed",num)
         }
     }
 
@@ -489,7 +502,7 @@ impl BigIntDivider {
 
     fn forbidden_low_bytes_negativity_check(low_bytes: i64) {
         if low_bytes < 0 {
-            panic!("Reconstituting big integer from special database storage, however: the second lower integer {:#X} is signed, although only positive values strictly expected",low_bytes)
+            panic!("Reconstituting big integer from special database storage: the second, lower integer {:#X} is signed, even though just positive values strictly expected",low_bytes)
         }
     }
 
@@ -592,7 +605,7 @@ mod tests {
     }
 
     #[test]
-    fn conversion_from_insert_update_error_to_particular_payable_dao_error_works() {
+    fn conversion_from_local_error_to_particular_payable_dao_error_works() {
         let subject = BigIntDbError(String::from("whatever"));
 
         let result: PayableDaoError = subject.into();
@@ -604,7 +617,7 @@ mod tests {
     }
 
     #[test]
-    fn conversion_from_insert_update_error_to_particular_receivable_dao_error_works() {
+    fn conversion_from_local_error_to_particular_receivable_dao_error_works() {
         let subject = BigIntDbError(String::from("whatever"));
 
         let result: ReceivableDaoError = subject.into();
@@ -724,7 +737,7 @@ mod tests {
     }
 
     #[test]
-    fn sql_params_builder_can_be_built_without_wei_change_spec() {
+    fn sql_params_builder_can_be_built_without_other_params_present() {
         let subject = SQLParamsBuilder::default();
 
         let _ = subject
@@ -773,7 +786,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "broken code: unexpected or misplaced command \"some\" in upsert")]
+    #[should_panic(expected = "broken code: unexpected or misplaced command \"some\" in insert or update, respectively")]
     fn determine_command_panics_if_unknown_command_without_update_clause() {
         let subject: BigIntSqlConfig<'_, DummyDao> = BigIntSqlConfig {
             main_sql: "some other sql command",
@@ -992,12 +1005,12 @@ mod tests {
     );
 
     #[test]
-    fn update_alone_in_its_pure_look_works_just_fine_for_addition() {
+    fn update_alone_works_for_addition() {
         let initial = BigIntDivider::reconstitute(55, 1234567);
         let wei_change = BigIntDivider::reconstitute(1, 22222);
 
         let result = analyse_sql_commands_execution_without_details_of_overflow(
-            "update_alone_in_its_pure_look_works_just_fine_for_addition",
+            "update_alone_works_for_addition",
             STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
             None,
             Addition("balance", wei_change as u128),
@@ -1045,26 +1058,27 @@ mod tests {
     }
 
     #[test]
-    fn update_alone_in_its_pure_look_works_just_fine_for_subtraction() {
+    fn update_alone_works_for_subtraction() {
         let initial = BigIntDivider::reconstitute(55, i64::MAX - 5);
-        let wei_change = BigIntDivider::reconstitute(1, 6);
+        let wei_change = - (i64::MAX - 3) as i128;
 
         let result = analyse_sql_commands_execution_without_details_of_overflow(
-            "update_alone_in_its_pure_look_works_just_fine_for_subtraction",
+            "update_alone_works_for_subtraction",
             STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
             None,
-            Subtraction("balance", wei_change as u128),
+            Subtraction("balance", wei_change.abs() as u128),
             initial,
         );
 
+        assert_eq!(BigIntDivider::deconstruct(wei_change),(-1, 4));
         assert_eq!(
             result,
             ConventionalUpsertUpdateAnalysisData {
                 was_update_with_overflow: false,
                 final_database_values: ReadFinalRow {
                     high_bytes: 54,
-                    low_bytes: i64::MAX - 11,
-                    as_i128: initial - wei_change
+                    low_bytes: 9223372036854775806,
+                    as_i128: initial - (- wei_change)
                 }
             }
         )
@@ -1072,25 +1086,26 @@ mod tests {
 
     #[test]
     fn update_alone_works_for_subtraction_with_overflow() {
-        let initial = BigIntDivider::reconstitute(55, i64::MAX - 5);
-        let wei_change = BigIntDivider::reconstitute(1, 6);
+        let initial = BigIntDivider::reconstitute(55, 4588288282);
+        let wei_change: i128 = - 12;
 
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "update_alone_works_for_subtraction_with_overflow",
             STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
             None,
-            Subtraction("balance", wei_change as u128),
+            Subtraction("balance", wei_change.abs() as u128),
             initial,
         );
 
+        assert_eq!(BigIntDivider::deconstruct(wei_change),(-1, 9223372036854775796));
         assert_eq!(
             result,
             ConventionalUpsertUpdateAnalysisData {
                 was_update_with_overflow: true,
                 //overflow halts the update machinery within this specific test, no numeric change
                 final_database_values: ReadFinalRow {
-                    high_bytes: 54,
-                    low_bytes: i64::MAX - 5,
+                    high_bytes: 55,
+                    low_bytes: 4588288282,
                     as_i128: initial
                 }
             }
@@ -1126,24 +1141,25 @@ mod tests {
     #[test]
     fn early_return_for_successful_insert_works_for_subtraction() {
         let initial = BigIntDivider::reconstitute(0, 0);
-        let wei_change = BigIntDivider::reconstitute(845, 7788);
+        let wei_change: i128 = - 987654;
 
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "early_return_for_successful_insert_works_for_subtraction",
             STANDARD_EXAMPLE_OF_INSERT_CLAUSE,
             None,
-            Subtraction("balance", wei_change as u128),
+            Subtraction("balance", wei_change.abs() as u128),
             initial,
         );
 
+        assert_eq!(BigIntDivider::deconstruct(wei_change),(-1, 9223372036853788154));
         assert_eq!(
             result,
             ConventionalUpsertUpdateAnalysisData {
                 was_update_with_overflow: false,
                 final_database_values: ReadFinalRow {
-                    high_bytes: -845, //TODO fix this
-                    low_bytes: 7788,  //TODO fix this
-                    as_i128: -wei_change
+                    high_bytes: -1,
+                    low_bytes: 9223372036853788154,
+                    as_i128: wei_change
                 }
             }
         )
@@ -1178,24 +1194,25 @@ mod tests {
     #[test]
     fn insert_blocked_simple_update_succeeds_for_subtraction() {
         let initial = BigIntDivider::reconstitute(-50, 20);
-        let wei_change = BigIntDivider::reconstitute(8, 2);
+        let wei_change: i128 = -27670116110564327418;
 
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "insert_blocked_simple_update_succeeds_for_subtraction",
             STANDARD_EXAMPLE_OF_INSERT_WITH_CONFLICT_CLAUSE,
             STANDARD_EXAMPLE_OF_CONFLICT_UPDATE_CLAUSE_IN_CLOSURE,
-            Subtraction("balance", wei_change as u128),
+            Subtraction("balance", wei_change.abs() as u128),
             initial,
         );
 
+        assert_eq!(BigIntDivider::deconstruct(wei_change),(-3,6));
         assert_eq!(
             result,
             ConventionalUpsertUpdateAnalysisData {
                 was_update_with_overflow: false,
                 final_database_values: ReadFinalRow {
-                    high_bytes: -58,
-                    low_bytes: 18, //TODO really?
-                    as_i128: initial - wei_change
+                    high_bytes: -53,
+                    low_bytes: 26,
+                    as_i128: initial - ( - wei_change)
                 }
             }
         )
@@ -1231,16 +1248,17 @@ mod tests {
     #[test]
     fn insert_blocked_update_with_overflow_for_subtraction() {
         let initial = BigIntDivider::reconstitute(-44, 11);
-        let wei_change = BigIntDivider::reconstitute(8, 30);
+        let wei_change:i128 = -7;
 
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "insert_blocked_update_with_overflow_for_subtraction",
             STANDARD_EXAMPLE_OF_INSERT_WITH_CONFLICT_CLAUSE,
             STANDARD_EXAMPLE_OF_CONFLICT_UPDATE_CLAUSE_IN_CLOSURE,
-            Subtraction("balance", wei_change as u128),
+            Subtraction("balance", wei_change.abs() as u128),
             initial,
         );
 
+        assert_eq!(BigIntDivider::deconstruct(wei_change),(-1,9223372036854775801));
         assert_eq!(
             result,
             ConventionalUpsertUpdateAnalysisData {
@@ -1252,7 +1270,8 @@ mod tests {
                     as_i128: initial
                 }
             }
-        )
+        );
+
     }
 
     #[test]
@@ -1297,53 +1316,6 @@ mod tests {
     }
 
     #[test]
-    fn select_stm_in_update_with_overflow_gets_also_well_along_numeric_key_value_and_different_table_and_substitution_param_name(
-    ) {
-        let conn = create_new_empty_db(
-            "big_int_db_processor",
-            "select_stm_in_update_with_overflow_gets_also_well_along_numeric_key_value_and_different_table_and_substitution_param_name"
-        );
-        let conn = ConnectionWrapperReal::new(conn);
-        let mut stm = conn.prepare("create table test_table \
-        (family_members_count int primary key, costs_per_month_per_district_high_b int not null, costs_per_month_per_district_low_b int not null)").unwrap();
-        stm.execute([]).unwrap();
-        let mut stm = conn.prepare("insert into test_table \
-        (family_members_count, costs_per_month_per_district_high_b, costs_per_month_per_district_low_b) values (4,4578,5468956)").unwrap();
-        stm.execute([]).unwrap();
-        let balance_change = Addition("costs_per_month_per_district", 50000);
-        let update_config = BigIntSqlConfig::new(
-            "update test_table set costs_per_month_per_district_high_b = costs_per_month_per_district_high_b + :costs_per_month_per_district_high_b,\
-             costs_per_month_per_district_low_b = costs_per_month_per_district_low_b + :costs_per_month_per_district_low_b where family_members_count = :members_count",
-            None,
-            SQLParamsBuilder::default()
-                .wei_change(balance_change)
-                .key("family_members_count", ":members_count", &4)
-                .build(),
-        );
-
-        let result = BigIntDbProcessor::<DummyDao>::default()
-            .overflow_handler
-            .update_with_overflow(Either::Left(&conn), update_config);
-
-        assert_eq!(result, Ok(()));
-        let (high_bytes_added, low_bytes_added) = BigIntDivider::deconstruct(50000);
-        conn.prepare("select * from test_table")
-            .unwrap()
-            .query_row([], |row| {
-                let member_count = row.get::<usize, i64>(0).unwrap();
-                let high_bytes = row.get::<usize, i64>(1).unwrap();
-                let low_bytes = row.get::<usize, i64>(2).unwrap();
-                assert_eq!(member_count, 4);
-                //the added 1 seems wrong, but we're exercising code intended
-                //specially for dealing with overflow and the addition is automated (even though unreasonable in this case)
-                assert_eq!(high_bytes, 4578 + high_bytes_added + 1);
-                assert_eq!(low_bytes, 5468956 + low_bytes_added);
-                Ok(())
-            })
-            .unwrap();
-    }
-
-    #[test]
     fn insert_failed_update_failed_too() {
         let conn = initiate_simple_connection_and_test_table(
             "big_int_db_processor",
@@ -1354,7 +1326,8 @@ mod tests {
         let balance_change = Addition("balance", 5555);
         let config = BigIntSqlConfig::new(
             "insert into test_table (name, balance_high_b, balance_low_b) values (:name,:balance_high_b,:balance_low_b) on conflict (name) do",
-            Some(|table_name|format!("update {} set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :whatever where name = :name",table_name)),
+            Some(|table_name|format!("update {} set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :missing_argument_causing_trouble \
+             where name = :name",table_name)),
                 SQLParamsBuilder::default()
                     .key("name", ":name", &"Joe")
                     .wei_change(balance_change)
@@ -1402,6 +1375,116 @@ mod tests {
         );
     }
 
+    const HIGH_B_CHANGE_FROM_OVERFLOW: i64 = 1;
+
+    #[test]
+    fn close_test_of_update_with_overflow_for_addition_with_wei_change_having_high_bytes_equal_to_zero(
+    ) {
+        let conn = initiate_simple_connection_and_test_table("big_int_db_processor","close_test_of_update_with_overflow_for_addition_with_wei_change_having_high_bytes_equal_to_zero");
+        insert_single_record(&*conn,[&"Joe",&4555,&(i64::MAX - 55)]);
+        let numeric_balance_change = 56;
+        let balance_change = Addition("balance", numeric_balance_change);
+        let update_config = BigIntSqlConfig::new(
+            "",
+            STANDARD_EXAMPLE_OF_CONFLICT_UPDATE_CLAUSE_IN_CLOSURE,
+            SQLParamsBuilder::default()
+                .wei_change(balance_change)
+                .key("name", ":name", &"Joe")
+                .build(),
+        );
+
+        let result = BigIntDbProcessor::<DummyDao>::default()
+            .overflow_handler
+            .update_with_overflow(Left(&*conn), update_config);
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(BigIntDivider::deconstruct(numeric_balance_change as i128), (0, 56));
+        conn.prepare("select balance_high_b, balance_low_b from test_table where name = 'Joe'")
+            .unwrap()
+            .query_row([], |row| {
+                let high_bytes = row.get::<usize, i64>(0).unwrap();
+                let low_bytes = row.get::<usize, i64>(1).unwrap();
+                assert_eq!(high_bytes, 4555 + 0 + HIGH_B_CHANGE_FROM_OVERFLOW);
+                assert_eq!(low_bytes, 56 - 55 - 1);
+                let single_int_repr = BigIntDivider::reconstitute(4555,i64::MAX - 55) + 56;
+                assert_eq!(BigIntDivider::reconstitute(high_bytes,low_bytes),single_int_repr);
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn close_test_of_update_with_overflow_for_addition_with_wei_change_having_high_bytes_bigger_than_zero(
+    ) {
+        let conn = initiate_simple_connection_and_test_table("big_int_db_processor","close_test_of_update_with_overflow_for_addition_with_wei_change_having_high_bytes_bigger_than_zero");
+        insert_single_record(&*conn,[&"Joe",&4555,&(i64::MAX - 55)]);
+        let numeric_balance_change = i64::MAX as u128 * 4; //36893488147419103228
+        let balance_change = Addition("balance", numeric_balance_change);
+        let update_config = BigIntSqlConfig::new(
+            "",
+            STANDARD_EXAMPLE_OF_CONFLICT_UPDATE_CLAUSE_IN_CLOSURE,
+            SQLParamsBuilder::default()
+                .wei_change(balance_change)
+                .key("name", ":name", &"Joe")
+                .build(),
+        );
+
+        let result = BigIntDbProcessor::<DummyDao>::default()
+            .overflow_handler
+            .update_with_overflow(Left(&*conn), update_config);
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(BigIntDivider::deconstruct(numeric_balance_change as i128), (3, 9223372036854775804));
+        conn.prepare("select balance_high_b, balance_low_b from test_table where name = 'Joe'")
+            .unwrap()
+            .query_row([], |row| {
+                let high_bytes = row.get::<usize, i64>(0).unwrap();
+                let low_bytes = row.get::<usize, i64>(1).unwrap();
+                assert_eq!(high_bytes, 4555 + 3 + HIGH_B_CHANGE_FROM_OVERFLOW);
+                assert_eq!(low_bytes, 9223372036854775804 - 55 - 1);
+                let single_int_repr = BigIntDivider::reconstitute(4555,i64::MAX - 55) + i64::MAX as i128 * 4;
+                assert_eq!(BigIntDivider::reconstitute(high_bytes,low_bytes),single_int_repr);
+                Ok(())
+            })
+            .unwrap();
+    }
+
+    #[test]
+    fn close_test_of_update_with_overflow_for_subtraction(
+    ) {
+        let conn = initiate_simple_connection_and_test_table("big_int_db_processor","close_test_of_update_with_overflow_for_subtraction");
+        insert_single_record(&*conn,[&"Joe",&4555,&55]);
+        let numeric_balance_change = 567;
+        let balance_change = Subtraction("balance", numeric_balance_change);
+        let update_config = BigIntSqlConfig::new(
+            "",
+            STANDARD_EXAMPLE_OF_CONFLICT_UPDATE_CLAUSE_IN_CLOSURE,
+            SQLParamsBuilder::default()
+                .wei_change(balance_change)
+                .key("name", ":name", &"Joe")
+                .build(),
+        );
+
+        let result = BigIntDbProcessor::<DummyDao>::default()
+            .overflow_handler
+            .update_with_overflow(Left(&*conn), update_config);
+
+        assert_eq!(result, Ok(()));
+        assert_eq!(BigIntDivider::deconstruct(- (numeric_balance_change as i128)), (-1, 9223372036854775241));
+        conn.prepare("select balance_high_b, balance_low_b from test_table where name = 'Joe'")
+            .unwrap()
+            .query_row([], |row| {
+                let high_bytes = row.get::<usize, i64>(0).unwrap();
+                let low_bytes = row.get::<usize, i64>(1).unwrap();
+                assert_eq!(high_bytes, 4555 - 1 - HIGH_B_CHANGE_FROM_OVERFLOW);
+              //  assert_eq!(low_bytes, (i64::MAX - 9223372036854775241) - 55 + 1);
+                let single_int_repr = BigIntDivider::reconstitute(4555,55) - 567;
+                assert_eq!(BigIntDivider::reconstitute(high_bytes,low_bytes),single_int_repr);
+                Ok(())
+            })
+            .unwrap();
+    }
+
     #[test]
     fn update_with_overflow_handles_unspecific_error() {
         let conn = initiate_simple_connection_and_test_table(
@@ -1439,7 +1522,7 @@ mod tests {
         insert_single_record(&*conn, [&"Jodie", &77, &0]);
         let balance_change = Addition("balance", 100);
         let update_config = BigIntSqlConfig::new(
-            "update test_table set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where name in(:name,'Jodie')",
+            "update test_table set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where name in (:name,'Jodie')",
             None,
             SQLParamsBuilder::default()
                 .wei_change(balance_change)
@@ -1636,7 +1719,7 @@ mod tests {
                 let (previous_high_b, previous_low_b) = BigIntDivider::deconstruct(previous);
                 let (current_high_b, current_low_b) = BigIntDivider::deconstruct(current.1);
                 assert!(
-                    (previous_high_b > current_high_b) || (previous_high_b == current_high_b && previous_low_b >= current_low_b) ,
+                    (previous_high_b > current_high_b) || (previous_high_b == current_high_b && previous_low_b > current_low_b) ,
                     "previous_high_b: {}, current_high_b: {} and previous_low_b: {}, current_low_b: {} for {} and {} which is idx {}",
                     previous_high_b,
                     current_high_b,
