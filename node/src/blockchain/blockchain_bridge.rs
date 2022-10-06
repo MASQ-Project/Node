@@ -1024,6 +1024,8 @@ mod tests {
     fn handle_request_transaction_receipts_short_circuits_on_failure_of_the_first_payment_and_it_does_not_send_any_message_just_aborts_and_logs(
     ) {
         init_test_logging();
+        let (accountant, _, accountant_recording) = make_recorder();
+        let recipient = accountant.start().recipient();
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
         let hash_1 = H256::from_uint(&U256::from(111334));
         let fingerprint_1 = PendingPayableFingerprint {
@@ -1054,11 +1056,12 @@ mod tests {
         subject
             .payment_confirmation
             //due to this None we would've panicked if we tried to send a msg
-            .report_transaction_receipts_sub_opt = None;
+            .report_transaction_receipts_sub_opt = Some(recipient);
         let msg = RequestTransactionReceipts {
             pending_payable: vec![fingerprint_1, fingerprint_2],
             response_skeleton_opt: None,
         };
+        let system = System::new("test");
 
         let _ = subject.handle_scan(
             BlockchainBridge::handle_request_transaction_receipts,
@@ -1066,8 +1069,18 @@ mod tests {
             &msg,
         );
 
+        System::current().stop();
+        system.run();
         let get_transaction_receipts_params = get_transaction_receipt_params_arc.lock().unwrap();
+        let recording = accountant_recording.lock().unwrap();
         assert_eq!(*get_transaction_receipts_params, vec![hash_1]);
+        assert_eq!(
+            recording.get_record::<ReportTransactionReceipts>(0),
+            &ReportTransactionReceipts {
+                fingerprints_with_receipts: vec![],
+                response_skeleton_opt: None
+            }
+        );
         TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: Aborting scanning; request of a transaction \
          receipt for '0x000000000000000000000000000000000000000000000000000000000001b2e6' failed due to 'QueryFailed(\"booga\")'");
     }

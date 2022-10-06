@@ -335,7 +335,6 @@ impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingP
         message: ReportTransactionReceipts,
         logger: &Logger,
     ) -> Option<NodeToUiMessage> {
-        // TODO: Make accountant to handle empty vector. Maybe log it as an error.
         debug!(
             logger,
             "Processing receipts for {} transactions",
@@ -1663,6 +1662,28 @@ mod tests {
                 Pending Payable scan ended in \\d+ms.",
 
         ]);
+    }
+
+    #[test]
+    fn pending_payable_scanner_handles_report_transaction_receipts_message_with_empty_vector() {
+        init_test_logging();
+        let test_name =
+            "pending_payable_scanner_handles_report_transaction_receipts_message_with_empty_vector";
+        let mut subject = PendingPayableScanner::default();
+        let msg = ReportTransactionReceipts {
+            fingerprints_with_receipts: vec![],
+            response_skeleton_opt: None,
+        };
+        subject.mark_as_started(SystemTime::now());
+
+        let message_opt = subject.finish_scan(msg, &Logger::new(test_name));
+
+        let is_scan_running = subject.scan_started_at().is_some();
+        assert_eq!(message_opt, None);
+        assert_eq!(is_scan_running, false);
+        TestLogHandler::new().exists_log_matching(&format!(
+            "INFO: {test_name}: The Pending Payable scan ended in \\d+ms."
+        ));
     }
 
     #[test]
