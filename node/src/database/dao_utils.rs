@@ -4,7 +4,6 @@ use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
 use masq_lib::utils::ExpectValue;
-use std::cell::RefCell;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::time::SystemTime;
@@ -28,7 +27,7 @@ pub fn from_time_t(time_t: i64) -> SystemTime {
 pub struct DaoFactoryReal {
     pub data_directory: PathBuf,
     pub create_if_necessary: bool,
-    pub migrator_config: RefCell<Option<MigratorConfig>>,
+    pub migrator_config: Option<MigratorConfig>,
 }
 
 impl DaoFactoryReal {
@@ -40,7 +39,7 @@ impl DaoFactoryReal {
         Self {
             data_directory: data_directory.to_path_buf(),
             create_if_necessary,
-            migrator_config: RefCell::new(Some(migrator_config)),
+            migrator_config: Some(migrator_config),
         }
     }
 
@@ -49,7 +48,7 @@ impl DaoFactoryReal {
             &DbInitializerReal::default(),
             &self.data_directory,
             self.create_if_necessary,
-            self.migrator_config.take().expectv("MigratorConfig"),
+            self.migrator_config.clone().expectv("MigratorConfig"),
         )
     }
 }
