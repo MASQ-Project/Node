@@ -124,8 +124,9 @@ impl ReceivableDao for ReceivableDaoReal {
         amount: u128,
     ) -> Result<(), ReceivableDaoError> {
         Ok(self.big_int_db_processor.execute(Left(self.conn.as_ref()), BigIntSqlConfig::new(
-               "insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (:wallet, :balance_high_b, :balance_low_b, :last_received) on conflict (wallet_address) do",
-            Some(|table|format!("update {} set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b",table)),
+               "insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (:wallet, :balance_high_b, :balance_low_b, :last_received) on conflict (wallet_address) do \
+               update set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b",
+            "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b",
             SQLParamsBuilder::default()
                         .key(  "wallet_address",":wallet",wallet)
                         .wei_change(Addition("balance",amount))
@@ -278,7 +279,7 @@ impl ReceivableDaoReal {
             for transaction in payments {
                 self.big_int_db_processor.execute(Either::Right(&xactn), BigIntSqlConfig::new(
                     "update receivable set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, last_received_timestamp = :last_received where wallet_address = :wallet",
-                    None,
+                    "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, last_received_timestamp = :last_received where wallet_address = :wallet",
                     SQLParamsBuilder::default()
                                 .key( "wallet_address", ":wallet",&transaction.from)
                                 .wei_change(Subtraction("balance",transaction.wei_amount))
