@@ -1,5 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::accountant::payable_dao::PayableDaoFactory;
+use crate::accountant::pending_payable_dao::PendingPayableDaoFactory;
+use crate::accountant::receivable_dao::ReceivableDaoFactory;
 use crate::accountant::{ReceivedPayments, ReportTransactionReceipts, ScanError, SentPayable};
+use crate::banned_dao::BannedDaoFactory;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
@@ -61,6 +65,13 @@ impl PaymentThresholds {
     pub fn sugg_thru_decreasing(&self, now: i64) -> i64 {
         self.sugg_and_grace(now) - self.threshold_interval_sec
     }
+}
+
+pub struct DaoFactories {
+    pub payable_dao_factory: Box<dyn PayableDaoFactory>,
+    pub pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
+    pub receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
+    pub banned_dao_factory: Box<dyn BannedDaoFactory>,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]

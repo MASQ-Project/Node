@@ -17,7 +17,7 @@ use crate::database::db_initializer::{connection_or_panic, DbInitializer, DbInit
 use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::node_configurator::configurator::Configurator;
-use crate::sub_lib::accountant::AccountantSubs;
+use crate::sub_lib::accountant::{AccountantSubs, DaoFactories};
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::configurator::ConfiguratorSubs;
 use crate::sub_lib::cryptde::CryptDE;
@@ -444,10 +444,10 @@ impl ActorFactory for ActorFactoryReal {
         banned_cache_loader: &dyn BannedCacheLoader,
     ) -> AccountantSubs {
         let mut cloned_config = config.clone();
-        let payable_dao_factory = Accountant::dao_factory(data_directory);
-        let receivable_dao_factory = Accountant::dao_factory(data_directory);
-        let pending_payable_dao_factory = Accountant::dao_factory(data_directory);
-        let banned_dao_factory = Accountant::dao_factory(data_directory);
+        let payable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
+        let pending_payable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
+        let receivable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
+        let banned_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         banned_cache_loader.load(connection_or_panic(
             db_initializer,
             data_directory,
@@ -458,10 +458,12 @@ impl ActorFactory for ActorFactoryReal {
         let addr: Addr<Accountant> = arbiter.start(move |_| {
             Accountant::new(
                 &mut cloned_config,
-                Box::new(payable_dao_factory),
-                Box::new(receivable_dao_factory),
-                Box::new(pending_payable_dao_factory),
-                Box::new(banned_dao_factory),
+                DaoFactories {
+                    payable_dao_factory,
+                    pending_payable_dao_factory,
+                    receivable_dao_factory,
+                    banned_dao_factory,
+                },
             )
         });
         Accountant::make_subs_from(&addr)

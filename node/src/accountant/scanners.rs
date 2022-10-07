@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_dao::{Payable, PayableDao, PayableDaoFactory};
-use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
+use crate::accountant::payable_dao::{Payable, PayableDao};
+use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDao;
 use crate::accountant::scanners_tools::payable_scanner_tools::{
     investigate_debt_extremes, qualified_payables_and_summary, separate_early_errors,
@@ -18,7 +18,7 @@ use crate::accountant::{PendingPayableId, PendingTransactionStatus, ReportAccoun
 use crate::banned_dao::BannedDao;
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::BlockchainError;
-use crate::sub_lib::accountant::{FinancialStatistics, PaymentThresholds};
+use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics, PaymentThresholds};
 use crate::sub_lib::utils::NotifyLaterHandle;
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, System};
@@ -41,12 +41,8 @@ pub struct Scanners {
 }
 
 impl Scanners {
-    #[allow(clippy::too_many_arguments)]
     pub fn new(
-        payable_dao_factory: Box<dyn PayableDaoFactory>,
-        pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
-        receivable_dao: Box<dyn ReceivableDao>,
-        banned_dao: Box<dyn BannedDao>,
+        dao_factories: DaoFactories,
         payment_thresholds: Rc<PaymentThresholds>,
         earning_wallet: Rc<Wallet>,
         when_pending_too_long_sec: u64,
@@ -54,20 +50,20 @@ impl Scanners {
     ) -> Self {
         Scanners {
             payable: Box::new(PayableScanner::new(
-                payable_dao_factory.make(),
-                pending_payable_dao_factory.make(),
+                dao_factories.payable_dao_factory.make(),
+                dao_factories.pending_payable_dao_factory.make(),
                 Rc::clone(&payment_thresholds),
             )),
             pending_payable: Box::new(PendingPayableScanner::new(
-                payable_dao_factory.make(),
-                pending_payable_dao_factory.make(),
+                dao_factories.payable_dao_factory.make(),
+                dao_factories.pending_payable_dao_factory.make(),
                 Rc::clone(&payment_thresholds),
                 when_pending_too_long_sec,
                 Rc::clone(&financial_statistics),
             )),
             receivable: Box::new(ReceivableScanner::new(
-                receivable_dao,
-                banned_dao,
+                dao_factories.receivable_dao_factory.make(),
+                dao_factories.banned_dao_factory.make(),
                 Rc::clone(&payment_thresholds),
                 earning_wallet,
                 financial_statistics,
@@ -864,8 +860,9 @@ mod tests {
     };
     use crate::accountant::test_utils::{
         make_custom_payment_thresholds, make_payables, make_pending_payable_fingerprint,
-        make_receivable_account, BannedDaoMock, PayableDaoFactoryMock, PayableDaoMock,
-        PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoMock,
+        make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, PayableDaoFactoryMock,
+        PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
+        ReceivableDaoFactoryMock, ReceivableDaoMock,
     };
     use crate::accountant::{
         PendingPayableId, PendingTransactionStatus, ReceivedPayments, ReportTransactionReceipts,
@@ -879,7 +876,7 @@ mod tests {
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
     use crate::database::dao_utils::from_time_t;
-    use crate::sub_lib::accountant::{FinancialStatistics, PaymentThresholds};
+    use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics, PaymentThresholds};
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::test_utils::make_wallet;
     use ethereum_types::{BigEndianHash, U64};
@@ -900,11 +897,16 @@ mod tests {
         let pending_payable_dao_factory = PendingPayableDaoFactoryMock::new()
             .make_result(PendingPayableDaoMock::new())
             .make_result(PendingPayableDaoMock::new());
+        let receivable_dao_factory =
+            ReceivableDaoFactoryMock::new().make_result(ReceivableDaoMock::new());
+        let banned_dao_factory = BannedDaoFactoryMock::new().make_result(BannedDaoMock::new());
         let scanners = Scanners::new(
-            Box::new(payable_dao_factory),
-            Box::new(pending_payable_dao_factory),
-            Box::new(ReceivableDaoMock::new()),
-            Box::new(BannedDaoMock::new()),
+            DaoFactories {
+                payable_dao_factory: Box::new(payable_dao_factory),
+                pending_payable_dao_factory: Box::new(pending_payable_dao_factory),
+                receivable_dao_factory: Box::new(receivable_dao_factory),
+                banned_dao_factory: Box::new(banned_dao_factory),
+            },
             Rc::clone(&payment_thresholds),
             Rc::new(make_wallet("earning")),
             0,

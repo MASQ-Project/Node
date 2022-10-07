@@ -21,7 +21,7 @@ use crate::database::dao_utils;
 use crate::database::dao_utils::{from_time_t, to_time_t};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
-use crate::sub_lib::accountant::FinancialStatistics;
+use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics};
 use crate::sub_lib::accountant::{MessageIdGenerator, PaymentThresholds};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
@@ -180,10 +180,12 @@ impl AccountantBuilder {
             .unwrap_or(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));
         let accountant = Accountant::new(
             &mut config,
-            Box::new(payable_dao_factory),
-            Box::new(receivable_dao_factory),
-            Box::new(pending_payable_dao_factory),
-            Box::new(banned_dao_factory),
+            DaoFactories {
+                payable_dao_factory: Box::new(payable_dao_factory),
+                pending_payable_dao_factory: Box::new(pending_payable_dao_factory),
+                receivable_dao_factory: Box::new(receivable_dao_factory),
+                banned_dao_factory: Box::new(banned_dao_factory),
+            },
         );
         accountant
     }

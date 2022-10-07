@@ -14,22 +14,21 @@ use std::cell::RefCell;
 use masq_lib::messages::{ScanType, UiScanRequest};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
 
-use crate::accountant::payable_dao::{Payable, PayableDaoError, PayableDaoFactory};
-use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
-use crate::accountant::receivable_dao::{ReceivableDaoError, ReceivableDaoFactory};
+use crate::accountant::payable_dao::{Payable, PayableDaoError};
+use crate::accountant::pending_payable_dao::PendingPayableDao;
+use crate::accountant::receivable_dao::ReceivableDaoError;
 use crate::accountant::scanners::{BeginScanError, NotifyLaterForScanners, Scanners};
 use crate::accountant::scanners_tools::common_tools::timestamp_as_string;
-use crate::banned_dao::BannedDaoFactory;
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::DaoFactoryReal;
 use crate::database::db_migrations::MigratorConfig;
-use crate::sub_lib::accountant::FinancialStatistics;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::accountant::{AccountantSubs, ScanIntervals};
+use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics};
 use crate::sub_lib::accountant::{MessageIdGenerator, MessageIdGeneratorReal};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
@@ -372,13 +371,7 @@ impl Handler<NodeFromUiMessage> for Accountant {
 }
 
 impl Accountant {
-    pub fn new(
-        config: &mut BootstrapperConfig,
-        payable_dao_factory: Box<dyn PayableDaoFactory>,
-        receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
-        pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
-        banned_dao_factory: Box<dyn BannedDaoFactory>,
-    ) -> Accountant {
+    pub fn new(config: &mut BootstrapperConfig, dao_factories: DaoFactories) -> Accountant {
         let payment_thresholds = Rc::new(
             config
                 .payment_thresholds_opt
@@ -398,15 +391,12 @@ impl Accountant {
             suppress_initial_scans_opt: config.suppress_initial_scans_opt,
             consuming_wallet: config.consuming_wallet_opt.clone(),
             earning_wallet: Rc::clone(&earning_wallet),
-            payable_dao: payable_dao_factory.make(),
-            receivable_dao: receivable_dao_factory.make(),
-            pending_payable_dao: pending_payable_dao_factory.make(),
+            payable_dao: dao_factories.payable_dao_factory.make(),
+            receivable_dao: dao_factories.receivable_dao_factory.make(),
+            pending_payable_dao: dao_factories.pending_payable_dao_factory.make(),
             crashable: config.crash_point == CrashPoint::Message,
             scanners: Scanners::new(
-                payable_dao_factory,
-                pending_payable_dao_factory,
-                receivable_dao_factory.make(),
-                banned_dao_factory.make(),
+                dao_factories,
                 payment_thresholds,
                 Rc::clone(&earning_wallet),
                 when_pending_too_long_sec,
@@ -909,10 +899,12 @@ mod tests {
 
         let _ = Accountant::new(
             &mut config,
-            Box::new(payable_dao_factory),
-            Box::new(receivable_dao_factory),
-            Box::new(pending_payable_dao_factory),
-            Box::new(banned_dao_factory),
+            DaoFactories {
+                payable_dao_factory: Box::new(payable_dao_factory),
+                pending_payable_dao_factory: Box::new(pending_payable_dao_factory),
+                receivable_dao_factory: Box::new(receivable_dao_factory),
+                banned_dao_factory: Box::new(banned_dao_factory),
+            },
         );
 
         assert_eq!(
@@ -955,10 +947,12 @@ mod tests {
 
         let result = Accountant::new(
             &mut bootstrapper_config,
-            payable_dao_factory,
-            receivable_dao_factory,
-            pending_payable_dao_factory,
-            banned_dao_factory,
+            DaoFactories {
+                payable_dao_factory,
+                pending_payable_dao_factory,
+                receivable_dao_factory,
+                banned_dao_factory,
+            },
         );
 
         let financial_statistics = result.financial_statistics();
