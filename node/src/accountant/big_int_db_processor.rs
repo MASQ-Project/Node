@@ -18,7 +18,6 @@ use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
 use std::marker::PhantomData;
 use std::ops::Neg;
-use std::result;
 
 #[derive(Debug)]
 pub struct BigIntDbProcessor<T: TableNameDAO> {
@@ -59,9 +58,7 @@ impl<'a, T: TableNameDAO> BigIntDbProcessor<T> {
 impl<T: TableNameDAO + 'static> Default for BigIntDbProcessor<T> {
     fn default() -> BigIntDbProcessor<T> {
         Self {
-            overflow_handler: Box::new(UpdateOverflowHandlerReal {
-                phantom: Default::default(),
-            }),
+            overflow_handler: Box::new(UpdateOverflowHandlerReal::default()),
             phantom: Default::default(),
         }
     }
@@ -91,6 +88,14 @@ pub trait UpdateOverflowHandler<T>: Debug + Send {
 #[derive(Debug)]
 struct UpdateOverflowHandlerReal<T: TableNameDAO> {
     phantom: PhantomData<T>,
+}
+
+impl<T: TableNameDAO> Default for UpdateOverflowHandlerReal<T> {
+    fn default() -> Self {
+        Self {
+            phantom: Default::default(),
+        }
+    }
 }
 
 impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> {
@@ -168,8 +173,14 @@ impl<T: TableNameDAO + Debug> UpdateOverflowHandlerReal<T> {
     }
 
     fn return_first_error(two_results: [rusqlite::Result<i64>; 2]) -> rusqlite::Result<()> {
-        //we know there is an error somewhere
-        todo!()
+        let cached = format!("{:?}", two_results);
+        match two_results.into_iter().find(|result| result.is_err()) {
+            Some(err) => Err(err.expect_err("we just said it is an error")),
+            None => panic!(
+                "Broken code: being called to process an error but none was found in {}",
+                cached
+            ),
+        }
     }
 }
 
@@ -215,21 +226,21 @@ impl<'a, T: TableNameDAO> BigIntSqlConfig<'a, T> {
     }
 
     fn determine_command(&self) -> String {
-        todo!()
-        // let keyword = self
-        //     .main_sql
-        //     .chars()
-        //     .skip_while(|char| char.is_whitespace())
-        //     .take_while(|char| !char.is_whitespace())
-        //     .collect::<String>();
-        // match (keyword.trim(), self.overflow_update_clause.is_some()) {
-        //     ("insert", true) => "upsert".to_string(),
-        //     ("update", false) => keyword,
-        //     _ => panic!(
-        //         "broken code: unexpected or misplaced command \"{}\" in upsert",
-        //         keyword
-        //     ),
-        //}
+        let keyword = self
+            .main_sql
+            .chars()
+            .skip_while(|char| char.is_whitespace())
+            .take_while(|char| !char.is_whitespace())
+            .collect::<String>();
+        match keyword.trim() {
+            "insert" => "upsert".to_string(),
+            "update" => keyword,
+            _ => panic!(
+                "broken code: unexpected or misplaced command \"{}\" \
+                 in upsert or update, respectively",
+                keyword
+            ),
+        }
     }
 }
 
@@ -569,7 +580,6 @@ mod tests {
     use crate::accountant::big_int_db_processor::WeiChange::Addition;
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::test_utils::make_wallet;
-    use crate::test_utils::unshared_test_utils::ArbitraryIdStamp;
     use itertools::Either;
     use itertools::Either::Left;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
@@ -729,6 +739,36 @@ mod tests {
             .build();
     }
 
+    #[test]
+    fn return_first_error_works_for_first_error() {
+        let results = [Err(Error::GetAuxWrongType), Ok(45465)];
+
+        let err = UpdateOverflowHandlerReal::<DummyDao>::return_first_error(results);
+
+        assert_eq!(err, Err(Error::GetAuxWrongType))
+    }
+
+    #[test]
+    fn return_first_error_works_for_second_error() {
+        let results = [Ok(45465), Err(Error::QueryReturnedNoRows)];
+
+        let err = UpdateOverflowHandlerReal::<DummyDao>::return_first_error(results);
+
+        assert_eq!(err, Err(Error::QueryReturnedNoRows))
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Broken code: being called to process an error but none was found in [Ok(-45465), Ok(898)]"
+    )]
+    fn return_first_error_needs_some_error() {
+        let results = [Ok(-45465), Ok(898)];
+
+        let err = UpdateOverflowHandlerReal::<DummyDao>::return_first_error(results);
+
+        assert_eq!(err, Err(Error::QueryReturnedNoRows))
+    }
+
     fn make_empty_sql_params<'a>() -> SQLParams<'a> {
         SQLParams {
             table_unique_key_name: "",
@@ -742,9 +782,9 @@ mod tests {
 
     #[test]
     fn determine_command_works_for_upsert() {
-        todo!("check me");
         let subject: BigIntSqlConfig<'_, DummyDao> = BigIntSqlConfig {
-            main_sql: "insert into table (a,b) values ('a','b')",
+            main_sql:
+                "insert into table (a,b) values ('a','b') on conflict (rowid) do update set etc.",
             overflow_update_clause: "side clause",
             params: make_empty_sql_params(),
             phantom: Default::default(),
@@ -757,7 +797,6 @@ mod tests {
 
     #[test]
     fn determine_command_works_for_update() {
-        todo!("check me");
         let subject: BigIntSqlConfig<'_, DummyDao> = BigIntSqlConfig {
             main_sql: "update table set a='a',b='b' where a = 'e'",
             overflow_update_clause: "update with overflow sql",
@@ -772,41 +811,12 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "broken code: unexpected or misplaced command \"some\" in insert or update, respectively"
+        expected = "broken code: unexpected or misplaced command \"some\" in upsert or update, respectively"
     )]
-    fn determine_command_panics_if_unknown_command_without_update_clause() {
-        todo!("check me");
+    fn determine_command_panics_if_unknown_command() {
         let subject: BigIntSqlConfig<'_, DummyDao> = BigIntSqlConfig {
             main_sql: "some other sql command",
-            overflow_update_clause: "update with overflow sql",
-            params: make_empty_sql_params(),
-            phantom: Default::default(),
-        };
-
-        let _ = subject.determine_command();
-    }
-
-    #[test]
-    #[should_panic(expected = "broken code: unexpected or misplaced command \"wow\" in upsert")]
-    fn determine_command_panics_if_malformed_upsert() {
-        todo!("check me");
-        let subject: BigIntSqlConfig<'_, DummyDao> = BigIntSqlConfig {
-            main_sql: "wow sql command",
-            overflow_update_clause: "update with overflow sql",
-            params: make_empty_sql_params(),
-            phantom: Default::default(),
-        };
-
-        let _ = subject.determine_command();
-    }
-
-    #[test]
-    #[should_panic(expected = "broken code: unexpected or misplaced command \"update\" in upsert")]
-    fn determine_command_panics_if_upsert_starting_with_update() {
-        todo!("check me");
-        let subject: BigIntSqlConfig<'_, DummyDao> = BigIntSqlConfig {
-            main_sql: "update sql command",
-            overflow_update_clause: "update with overflow sql",
+            overflow_update_clause: "",
             params: make_empty_sql_params(),
             phantom: Default::default(),
         };
@@ -816,10 +826,9 @@ mod tests {
 
     #[test]
     fn determine_command_allows_preceding_spaces() {
-        todo!("check me");
         let subject: BigIntSqlConfig<'_, DummyDao> = BigIntSqlConfig {
             main_sql: "  update into table (a,b) values ('a','b')",
-            overflow_update_clause: "update with overflow sql",
+            overflow_update_clause: "",
             params: make_empty_sql_params(),
             phantom: Default::default(),
         };
@@ -936,14 +945,13 @@ mod tests {
         assert_eq!(result, Ok(()));
         let update_with_overflow_params = update_with_overflow_params_arc.lock().unwrap();
         let was_update_with_overflow = !update_with_overflow_params.is_empty();
-        assert_on_whole_row(was_update_with_overflow, &*conn, "Joe", init_record)
+        assert_on_whole_row(was_update_with_overflow, &*conn, "Joe")
     }
 
     fn assert_on_whole_row(
         was_update_with_overflow: bool,
         conn: &dyn ConnectionWrapper,
         expected_name: &str,
-        init_record: i128,
     ) -> ConventionalUpsertUpdateAnalysisData {
         let final_database_values = conn
             .prepare("select name, balance_high_b, balance_low_b from test_table")
@@ -1319,8 +1327,9 @@ mod tests {
         insert_single_record(conn.as_ref(), [&"Joe", &60, &5555]);
         let subject = BigIntDbProcessor::<DummyDao>::default();
         let balance_change = Addition("balance", 5555);
+        todo!("this is a huge problem...it should have aborted but it mistakenly continued to the higher update overflow section");
         let config = BigIntSqlConfig::new(
-            STANDARD_EXAMPLE_OF_INSERT_WITH_CONFLICT_CLAUSE,
+            "insert into test_table (name, balance_high_b, balance_low_b) values (:name, :balance_high_b, :balance_low_b) on conflict (name) do update set balance_high_b = :name",
             "",
             SQLParamsBuilder::default()
                 .key("name", ":name", &"Joe")
@@ -1349,7 +1358,8 @@ mod tests {
         let subject = BigIntDbProcessor::<DummyDao>::default();
         let balance_change = Addition("balance", 4879898145125);
         let config = BigIntSqlConfig::new(
-            STANDARD_EXAMPLE_OF_INSERT_WITH_CONFLICT_CLAUSE,
+            "insert into test_table (name,balance_high_b,balance_low_b) values (:name,:balance_a,:balance_b) on conflict (name) do \
+             update set balance_high_b = balance_high_b + 5, balance_low_b = balance_low_b + 10 where name = :name",
             "",
             SQLParamsBuilder::default()
                 .key("name", ":name", &"Joe")
@@ -1480,7 +1490,7 @@ mod tests {
         let initial_high_bytes = -3000;
         let initial_low_bytes = 666333;
         //signed just to make the test more unconditional
-        let balance_change_signed = - 1217485108864830961090;
+        let balance_change_signed = -1217485108864830961090;
 
         let result = update_with_overflow_shared_test_body(
             "update_with_overflow_for_subtraction_from_negative_num",
@@ -1494,8 +1504,11 @@ mod tests {
             UpdateWithOverflowSummary {
                 balance_change_decomposed: (-133, i64::MAX - 554433),
                 final_read_high_bytes: -3000 - 133 + SINGLE_UNIT_FROM_OVERFLOW,
-                final_read_low_bytes: (i64::MAX - 554433) - (i64::MAX - 666333) - SINGLE_UNIT_FROM_OVERFLOW,
-                math_operation_expected_result: BigIntDivider::reconstitute(-3000, 666333) - 1217485108864830961090
+                final_read_low_bytes: (i64::MAX - 554433)
+                    - (i64::MAX - 666333)
+                    - SINGLE_UNIT_FROM_OVERFLOW,
+                math_operation_expected_result: BigIntDivider::reconstitute(-3000, 666333)
+                    - 1217485108864830961090
             }
         );
     }
@@ -1518,7 +1531,7 @@ mod tests {
 
         let result = BigIntDbProcessor::<DummyDao>::default()
             .overflow_handler
-            .update_with_overflow(Either::Left(conn.as_ref()), update_config);
+            .update_with_overflow(Left(conn.as_ref()), update_config);
 
         //this kind of error is impossible in the real use case but is easiest regarding an arrangement of the test
         assert_eq!(result, Err(BigIntDbError("Updating balance for test_table of 100 Wei to Joe with error 'Query returned no rows'".to_string())));
@@ -1536,10 +1549,9 @@ mod tests {
         insert_single_record(&*conn, [&"Joe", &60, &5555]);
         insert_single_record(&*conn, [&"Jodie", &77, &0]);
         let balance_change = Addition("balance", 100);
-        todo!("fix me");
         let update_config = BigIntSqlConfig::new(
-            "", //"update test_table set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where name in (:name,'Jodie')",
-            STANDARD_EXAMPLE_OF_OVERFLOW_UPDATE_CLAUSE,
+            "",
+            "update test_table set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where name in (:name,'Jodie')",
             SQLParamsBuilder::default()
                 .wei_change(balance_change)
                 .key("name", ":name", &"Joe")
@@ -1548,7 +1560,7 @@ mod tests {
 
         let _ = BigIntDbProcessor::<DummyDao>::default()
             .overflow_handler
-            .update_with_overflow(Either::Left(conn.as_ref()), update_config);
+            .update_with_overflow(Left(conn.as_ref()), update_config);
     }
 
     #[test]
@@ -1578,13 +1590,13 @@ mod tests {
 
         let result = BigIntDbProcessor::<DummyDao>::default()
             .overflow_handler
-            .update_with_overflow(Either::Left(conn.as_ref()), update_config);
+            .update_with_overflow(Left(conn.as_ref()), update_config);
 
         assert_eq!(
             result,
             Err(BigIntDbError(
                 "Updating balance for test_table of 100 Wei to Joe with error \
-        'Invalid column type Text at index: 0, name: balance_low_b'"
+        'Invalid column type Text at index: 1, name: balance_low_b'"
                     .to_string()
             ))
         );
