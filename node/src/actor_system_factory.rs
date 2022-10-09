@@ -1852,20 +1852,6 @@ mod tests {
             )
             .unwrap();
         let receivable_dao = ReceivableDaoReal::new(db_conn);
-        let last_received = from_time_t(
-            to_time_t(SystemTime::now())
-                - (accountant_config.payment_thresholds.maturity_threshold_sec
-                    + accountant_config
-                        .payment_thresholds
-                        .payment_grace_period_sec) as i64,
-        );
-        receivable_dao
-            .more_money_receivable(
-                last_received,
-                &make_wallet("unimportant_wallet"),
-                (1000001 * WEIS_OF_GWEI) as u128,
-            )
-            .unwrap();
         let mut b_config = bc_from_ac_plus_earning_wallet(accountant_config, make_wallet("mine"));
         b_config.data_directory = data_dir;
         let system = System::new("big_int_divider_functions_for_accountant");

@@ -21,8 +21,11 @@ use std::time::SystemTime;
 
 pub fn to_time_t(system_time: SystemTime) -> i64 {
     match system_time.duration_since(SystemTime::UNIX_EPOCH) {
-        Err(e) => unimplemented!("{}", e),
         Ok(d) => sign_conversion::<u64, i64>(d.as_secs()).expect("MASQNode has expired"),
+        Err(e) => panic!(
+            "Must be wrong, moment way far in the past: {:?}, {}",
+            system_time, e
+        ),
     }
 }
 
@@ -59,7 +62,7 @@ impl DaoFactoryReal {
             &DbInitializerReal::default(),
             &self.data_directory,
             self.create_if_necessary,
-            self.init_config.take().expectv("MigratorConfig"),
+            self.init_config.take().expectv("Db init config"),
         )
     }
 }
@@ -91,19 +94,9 @@ pub enum CustomQuery<N> {
 type RusqliteParamsWithOwnedToSql = Vec<(&'static str, Box<dyn ToSql>)>;
 
 pub struct TopStmConfig {
-    limit_clause: &'static str,
-    gwei_min_resolution_clause: &'static str,
-    age_param: &'static str,
-}
-
-impl TopStmConfig {
-    pub fn new(age_param: &'static str) -> Self {
-        Self {
-            limit_clause: "limit :limit_count",
-            gwei_min_resolution_clause: "where (balance_high_b > 0) or ((balance_high_b = 0) and (balance_low_b >= 1000000000))",
-            age_param,
-        }
-    }
+    pub limit_clause: &'static str,
+    pub gwei_min_resolution_clause: &'static str,
+    pub age_param_name: &'static str,
 }
 
 pub struct RangeStmConfig {
@@ -140,7 +133,7 @@ impl<N: Copy + Display> CustomQuery<N> {
         let (finalized_stm, params): (String, RusqliteParamsWithOwnedToSql) = match self {
             Self::TopRecords { count, ordered_by } => {
                 let (order_by_first_param, order_by_second_param) =
-                    Self::ordering(ordered_by, variant_top.age_param);
+                    Self::ordering(ordered_by, variant_top.age_param_name);
                 (
                     stm_assembler(AssemblerFeeder {
                         main_where_clause: variant_top.gwei_min_resolution_clause,
@@ -166,9 +159,9 @@ impl<N: Copy + Display> CustomQuery<N> {
                     order_by_second_param: variant_range.secondary_order_param,
                     limit_clause: "",
                 }),
-                Self::set_up_age_constrains(min_age, max_age, timestamp)
+                Self::set_age_constraints(min_age, max_age, timestamp)
                     .into_iter()
-                    .chain(Self::set_up_wei_constrains(vec![min_amount, max_amount]))
+                    .chain(Self::set_wei_constraints(min_amount, max_amount))
                     .collect::<Vec<(&str, Box<dyn ToSql>)>>(),
             ),
         };
@@ -199,7 +192,7 @@ impl<N: Copy + Display> CustomQuery<N> {
             .collect::<Vec<R>>()
     }
 
-    fn set_up_age_constrains(
+    fn set_age_constraints(
         min_age: u64,
         max_age: u64,
         timestamp: SystemTime,
@@ -212,7 +205,7 @@ impl<N: Copy + Display> CustomQuery<N> {
         ]
     }
 
-    fn set_up_wei_constrains(two_num_limits: Vec<N>) -> RusqliteParamsWithOwnedToSql
+    fn set_wei_constraints(min_amount: N, max_amount: N) -> RusqliteParamsWithOwnedToSql
     where
         i128: From<N>,
     {
@@ -221,7 +214,7 @@ impl<N: Copy + Display> CustomQuery<N> {
             (":max_balance_high_b", ":max_balance_low_b"),
         ]
         .into_iter()
-        .zip(two_num_limits.into_iter())
+        .zip([min_amount, max_amount].into_iter())
         .flat_map(|(param_names, gwei_num)| {
             let wei_num = i128::from(gwei_num) * WEIS_OF_GWEI;
             let (high_bytes, low_bytes) = BigIntDivider::deconstruct(wei_num);
@@ -295,6 +288,12 @@ fn to_age(timestamp: SystemTime) -> u64 {
     (to_time_t(SystemTime::now()) - to_time_t(timestamp)) as u64
 }
 
+pub fn vigilant_flatten<T>(
+    collection: impl Iterator<Item = rusqlite::Result<T>>,
+) -> impl Iterator<Item = T> {
+    collection.flat_map(|item|item.map_err(|err|panic!("discovered an error from a preceding operation when flattening produced Result structures: {:?}", err)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -305,6 +304,7 @@ mod tests {
     use rusqlite::types::{ToSqlOutput, Value};
     use rusqlite::{Connection, OpenFlags};
     use std::str::FromStr;
+    use std::time::UNIX_EPOCH;
 
     #[test]
     #[should_panic(expected = "Failed to connect to database at \"nonexistent")]
@@ -319,12 +319,12 @@ mod tests {
     }
 
     #[test]
-    fn set_up_age_constrains_works() {
+    fn set_age_constraints_works() {
         let min_age = 5555;
         let max_age = 10000;
         let now = SystemTime::now();
 
-        let result = CustomQuery::<i64>::set_up_age_constrains(min_age, max_age, now);
+        let result = CustomQuery::<i64>::set_age_constraints(min_age, max_age, now);
 
         assert_eq!(result.len(), 2);
         let param_pair_1 = &result[0];
@@ -368,7 +368,7 @@ mod tests {
             TopStmConfig {
                 limit_clause: "",
                 gwei_min_resolution_clause: "",
-                age_param: "",
+                age_param_name: "",
             },
             RangeStmConfig {
                 where_clause: "",
@@ -389,13 +389,13 @@ mod tests {
             PayableAccount {
                 wallet: make_wallet("abc123"),
                 balance_wei: 4_888_123_457,
-                last_paid_timestamp: SystemTime::now(), //unimportant
+                last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             },
             PayableAccount {
                 wallet: make_wallet("ac3665c"),
                 balance_wei: 565_122_333,
-                last_paid_timestamp: SystemTime::now(), //unimportant
+                last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             },
         ];
@@ -475,5 +475,38 @@ mod tests {
         } else {
             panic!("we expected range query but got something else")
         }
+    }
+
+    #[test]
+    #[should_panic(expected = "Must be wrong, moment way far in the past")]
+    fn to_time_t_does_not_like_time_traveling() {
+        let far_far_before = UNIX_EPOCH.checked_sub(Duration::from_secs(1)).unwrap();
+
+        let _ = to_time_t(far_far_before);
+    }
+
+    #[test]
+    fn vigilant_flatten_can_flatten() {
+        let collection = vec![Ok(56_u16), Ok(0), Ok(6789)];
+        let iterator = collection.into_iter();
+
+        let result = vigilant_flatten(iterator).collect::<Vec<_>>();
+
+        assert_eq!(result, vec![56, 0, 6789])
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "discovered an error from a preceding operation when flattening produced Result structures: QueryReturnedNoRows"
+    )]
+    fn vigilant_flatten_discovers_error() {
+        let collection = vec![
+            Ok(56_u16),
+            Err(rusqlite::Error::QueryReturnedNoRows),
+            Err(rusqlite::Error::UnwindingPanic),
+        ];
+        let iterator = collection.into_iter();
+
+        let _ = vigilant_flatten(iterator).collect::<Vec<_>>();
     }
 }

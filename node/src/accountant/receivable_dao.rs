@@ -6,7 +6,8 @@ use crate::accountant::big_int_db_processor::{
 };
 use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
-    to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal, RangeStmConfig, TopStmConfig,
+    to_time_t, vigilant_flatten, AssemblerFeeder, CustomQuery, DaoFactoryReal, RangeStmConfig,
+    TopStmConfig,
 };
 use crate::accountant::receivable_dao::ReceivableDaoError::RusqliteError;
 use crate::accountant::{checked_conversion, ThresholdUtils};
@@ -24,6 +25,8 @@ use masq_lib::utils::{plus, ExpectValue};
 use rusqlite::OptionalExtension;
 use rusqlite::Row;
 use rusqlite::{named_params, Error};
+#[cfg(test)]
+use std::any::Any;
 use std::time::SystemTime;
 
 #[derive(Debug, PartialEq, Eq)]
@@ -83,10 +86,7 @@ pub trait ReceivableDao: Send {
     //test only intended method but because of share with multi-node tests conditional compilation is disallowed
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 
-    #[cfg(test)]
-    fn to_test_our_user_defined_sqlite_functions(&self) {
-        intentionally_blank!()
-    }
+    as_any_dcl!();
 }
 
 pub trait ReceivableDaoFactory {
@@ -95,16 +95,18 @@ pub trait ReceivableDaoFactory {
 
 impl ReceivableDaoFactory for DaoFactoryReal {
     fn make(&self) -> Box<dyn ReceivableDao> {
+        let init_config = self
+            .init_config
+            .take()
+            .expectv("init config")
+            .add_special_conn_setup(
+                BigIntDivider::register_big_int_deconstruction_for_sqlite_connection,
+            );
         Box::new(ReceivableDaoReal::new(connection_or_panic(
             &DbInitializerReal::default(),
             self.data_directory.as_path(),
             self.create_if_necessary,
-            {
-                let init_config = self.init_config.take().expectv("init config");
-                init_config.add_special_conn_setup(
-                    BigIntDivider::register_big_int_deconstruction_for_sqlite_connection,
-                )
-            },
+            init_config,
         )))
     }
 }
@@ -165,7 +167,7 @@ impl ReceivableDao for ReceivableDaoReal {
                     and b.wallet_address is null
             "
         );
-        self.conn
+        vigilant_flatten(self.conn
             .prepare(sql)
             .expect("Couldn't prepare statement")
             .query_map(
@@ -178,8 +180,7 @@ impl ReceivableDao for ReceivableDaoReal {
                 },
                 Self::form_receivable_account,
             )
-            .expect("Couldn't retrieve new delinquencies: database corruption")
-            .flatten()
+            .expect("Couldn't retrieve new delinquencies: database corruption"))
             .collect()
     }
 
@@ -196,21 +197,25 @@ impl ReceivableDao for ReceivableDaoReal {
         let (unban_balance_high_b, unban_balance_low_b) = BigIntDivider::deconstruct(
             (payment_thresholds.unban_below_gwei as i128) * WEIS_OF_GWEI,
         );
-        stmt.query_map(
-            named_params! {
-                ":unban_balance_high_b": unban_balance_high_b,
-                ":unban_balance_low_b": unban_balance_low_b
-            },
-            Self::form_receivable_account,
+        vigilant_flatten(
+            stmt.query_map(
+                named_params! {
+                    ":unban_balance_high_b": unban_balance_high_b,
+                    ":unban_balance_low_b": unban_balance_low_b
+                },
+                Self::form_receivable_account,
+            )
+            .expect("Couldn't retrieve new delinquencies: database corruption"),
         )
-        .expect("Couldn't retrieve new delinquencies: database corruption")
-        .flatten()
         .collect()
     }
 
     fn custom_query(&self, custom_query: CustomQuery<i64>) -> Option<Vec<ReceivableAccount>> {
-        let variant_top = TopStmConfig::new("last_received_timestamp asc");
-
+        let variant_top = TopStmConfig{
+            limit_clause: "limit :limit_count",
+            gwei_min_resolution_clause: "where (balance_high_b > 0) or ((balance_high_b = 0) and (balance_low_b >= 1000000000))",
+            age_param_name: "last_received_timestamp asc",
+        };
         let variant_range = RangeStmConfig {
             where_clause: "where ((last_received_timestamp <= :max_timestamp) and (last_received_timestamp >= :min_timestamp)) \
             and ((balance_high_b > :min_balance_high_b) or ((balance_high_b = :min_balance_high_b) and (balance_low_b >= :min_balance_low_b))) \
@@ -249,15 +254,7 @@ impl ReceivableDao for ReceivableDaoReal {
         }
     }
 
-    #[cfg(test)]
-    fn to_test_our_user_defined_sqlite_functions(&self) {
-        self.conn
-            .prepare("select biginthigh(4578745,89.7888)")
-            .unwrap();
-        self.conn
-            .prepare("select bigintlow(787845,7878.0056)")
-            .unwrap();
-    }
+    as_any_impl!();
 }
 
 impl ReceivableDaoReal {
@@ -442,7 +439,18 @@ mod tests {
 
         let receivable_dao = subject.make();
 
-        receivable_dao.to_test_our_user_defined_sqlite_functions();
+        let definite_dao = receivable_dao
+            .as_any()
+            .downcast_ref::<ReceivableDaoReal>()
+            .unwrap();
+        definite_dao
+            .conn
+            .prepare("select biginthigh(4578745,89.7888)")
+            .unwrap();
+        definite_dao
+            .conn
+            .prepare("select bigintlow(787845,7878.0056)")
+            .unwrap();
         //we didn't blow up, all is good
     }
 
@@ -893,6 +901,43 @@ mod tests {
         let result = subject.new_delinquencies(from_time_t(now), &payment_thresholds);
 
         assert!(result.is_empty())
+    }
+
+    #[test]
+    fn new_delinquencies_handles_too_young_debts_causing_slope_parameter_to_be_negative() {
+        //would happen if sugg_and_grace involve more time than the age of the debt
+        let home_dir = ensure_node_home_directory_exists(
+            "receivable_dao",
+            "new_delinquencies_handles_too_young_debts_causing_slope_parameter_to_be_negative",
+        );
+        let payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 25,
+            payment_grace_period_sec: 50,
+            permanent_debt_allowed_gwei: 100,
+            debt_threshold_gwei: 200,
+            threshold_interval_sec: 100,
+            unban_below_gwei: 0,
+        };
+        let now = to_time_t(SystemTime::now());
+        let sugg_and_grace = payment_thresholds.sugg_and_grace(now);
+        let too_young_new_delinquency = ReceivableAccount {
+            wallet: make_wallet("abc123"),
+            balance_wei: 123_456_789_101_112,
+            last_received_timestamp: from_time_t(sugg_and_grace + 1),
+        };
+        let ok_new_delinquency = ReceivableAccount {
+            wallet: make_wallet("aaa999"),
+            balance_wei: 123_456_789_101_112,
+            last_received_timestamp: from_time_t(sugg_and_grace - 1),
+        };
+        let conn = make_connection_with_our_defined_sqlite_functions(&home_dir);
+        add_receivable_account(&conn, &too_young_new_delinquency);
+        add_receivable_account(&conn, &ok_new_delinquency.clone());
+        let subject = ReceivableDaoReal::new(conn);
+
+        let result = subject.new_delinquencies(from_time_t(now), &payment_thresholds);
+
+        assert_eq!(result, vec![ok_new_delinquency])
     }
 
     #[test]

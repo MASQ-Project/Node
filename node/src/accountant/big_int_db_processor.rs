@@ -41,6 +41,7 @@ impl<'a, T: TableNameDAO> BigIntDbProcessor<T> {
             //SQLITE_CONSTRAINT_DATATYPE (3091),
             //the moment of Sqlite trying to store the number as REAL in a strict INT column
             Err(Error::SqliteFailure(e, _)) if e.extended_code == 3091 => {
+                eprintln!("the constraint error in detail: {}", e);
                 self.overflow_handler.update_with_overflow(conn, config)
             }
             Err(e) => Err(BigIntDbError(format!(
@@ -540,7 +541,8 @@ impl BigIntDivider {
                 Err(UserFunctionError(Box::new(InvalidInputValue(
                     fn_name.to_string(),
                     format!(
-                        "None negative slope, while designed only for use with negative one: {}",
+                        "Nonnegative slope '{}', while designed only for the negative numbers. \
+                         Watch out for too young debts that could flip the sign",
                         actual_decrease_wei
                     ),
                 ))))
@@ -583,6 +585,8 @@ mod tests {
     use itertools::Either;
     use itertools::Either::Left;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use rusqlite::types::Value;
+    use rusqlite::types::Value::Null;
     use rusqlite::Error::SqliteFailure;
     use rusqlite::{Connection, ErrorCode, ToSql};
     use std::cell::RefCell;
@@ -981,16 +985,20 @@ mod tests {
         Connection::open(db_path.as_path()).unwrap()
     }
 
-    fn initiate_simple_connection_and_test_table(
-        module: &str,
-        test_name: &str,
-    ) -> Box<ConnectionWrapperReal> {
-        let conn = create_new_empty_db(module, test_name);
+    fn create_test_table(conn: &Connection) {
         conn.execute(
             "create table test_table (name text primary key, balance_high_b integer not null, balance_low_b integer not null) strict",
             [],
         )
             .unwrap();
+    }
+
+    fn initiate_simple_connection_and_test_table(
+        module: &str,
+        test_name: &str,
+    ) -> Box<ConnectionWrapperReal> {
+        let conn = create_new_empty_db(module, test_name);
+        create_test_table(&conn);
         Box::new(ConnectionWrapperReal::new(conn))
     }
 
@@ -1319,46 +1327,15 @@ mod tests {
     }
 
     #[test]
-    fn insert_failed_update_failed_too() {
+    fn main_sql_clause_error_handled() {
         let conn = initiate_simple_connection_and_test_table(
             "big_int_db_processor",
-            "insert_failed_update_failed_too",
-        );
-        insert_single_record(conn.as_ref(), [&"Joe", &60, &5555]);
-        let subject = BigIntDbProcessor::<DummyDao>::default();
-        let balance_change = Addition("balance", 5555);
-        todo!("this is a huge problem...it should have aborted but it mistakenly continued to the higher update overflow section");
-        let config = BigIntSqlConfig::new(
-            "insert into test_table (name, balance_high_b, balance_low_b) values (:name, :balance_high_b, :balance_low_b) on conflict (name) do update set balance_high_b = :name",
-            "",
-            SQLParamsBuilder::default()
-                .key("name", ":name", &"Joe")
-                .wei_change(balance_change)
-                .build(),
-        );
-
-        let result = subject.execute(Left(conn.as_ref()), config);
-
-        assert_eq!(
-            result,
-            Err(BigIntDbError(
-                //sadly, I wasn't able to get a nicer error case with a more obvious relation to the tested requirements
-                "Wei change: error after invalid upsert command for test_table of 5555 Wei to Joe with error 'NOT NULL constraint failed: test_table.balance_low_b'"
-                    .to_string()
-            ))
-        );
-    }
-
-    #[test]
-    fn insert_handles_unspecific_failures() {
-        let conn = initiate_simple_connection_and_test_table(
-            "big_int_db_processor",
-            "insert_handles_unspecific_failures",
+            "main_sql_clause_error_handled",
         );
         let subject = BigIntDbProcessor::<DummyDao>::default();
         let balance_change = Addition("balance", 4879898145125);
         let config = BigIntSqlConfig::new(
-            "insert into test_table (name,balance_high_b,balance_low_b) values (:name,:balance_a,:balance_b) on conflict (name) do \
+            "insert into test_table (name, balance_high_b, balance_low_b) values (:name, :balance_a, :balance_b) on conflict (name) do \
              update set balance_high_b = balance_high_b + 5, balance_low_b = balance_low_b + 10 where name = :name",
             "",
             SQLParamsBuilder::default()
@@ -1906,13 +1883,13 @@ mod tests {
         assert_eq!(high_bytes_error,
                    SqliteFailure(
                        rusqlite::ffi::Error{ code: ErrorCode::Unknown, extended_code: 1 },
-                       Some("Error from biginthigh: None negative slope, while designed only for use with negative one: 5656.23".to_string())
+                       Some("Error from biginthigh: Nonnegative slope '5656.23', while designed only for the negative numbers. Watch out for too young debts that could flip the sign".to_string())
                    )
         );
         assert_eq!(low_bytes_error,
                    SqliteFailure(
                        rusqlite::ffi::Error{ code: ErrorCode::Unknown, extended_code: 1 },
-                       Some("Error from bigintlow: None negative slope, while designed only for use with negative one: 5656.23".to_string())
+                       Some("Error from bigintlow: Nonnegative slope '5656.23', while designed only for the negative numbers. Watch out for too young debts that could flip the sign".to_string())
                    )
         );
     }
@@ -1949,7 +1926,8 @@ mod tests {
             BigIntDivider::register_deconstruct_guts(&conn, "badly\u{0000}named", "bigintlow")
                 .unwrap_err();
 
-        //I couldn't assert on an exact fit because the error carries unstable code
+        //not asserting on the exact fit because the error
+        //would involve some unstable code at reproducing it
         assert_eq!(
             result.to_string(),
             "nul byte found in provided data at position: 5".to_string()
@@ -1966,7 +1944,8 @@ mod tests {
             BigIntDivider::register_deconstruct_guts(&conn, "biginthigh", "also\u{0000}badlynamed")
                 .unwrap_err();
 
-        //I couldn't assert on an exact fit because the error carries unstable code
+        //not asserting on the exact fit because the error
+        //would involve some unstable code at reproducing it
         assert_eq!(
             result.to_string(),
             "nul byte found in provided data at position: 4".to_string()

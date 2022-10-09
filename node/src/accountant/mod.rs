@@ -756,9 +756,9 @@ impl Accountant {
         if qualified_payables.is_empty() {
             return;
         }
-        debug!(self.logger, "{}", {
+        debug!(self.logger, "Paying qualified debts:\n{}", {
             let now = SystemTime::now();
-            let list = qualified_payables
+            qualified_payables
                 .iter()
                 .map(|payable| {
                     let p_age = now
@@ -775,8 +775,7 @@ impl Accountant {
                         payable.wallet
                     )
                 })
-                .join("\n");
-            String::from("Paying qualified debts:\n").add(&list)
+                .join("\n")
         })
     }
 
@@ -1552,6 +1551,7 @@ fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
 #[cfg(test)]
 pub mod check_sqlite_fns {
     use super::*;
+    use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
     use actix::System;
 
     #[derive(Message)]
@@ -1567,7 +1567,7 @@ pub mod check_sqlite_fns {
         ) -> Self::Result {
             //hypothesis is that this is gonna blow up in the middle of the operation if our defined functions haven't been hooked up
             self.receivable_dao
-                .to_test_our_user_defined_sqlite_functions();
+                .new_delinquencies(SystemTime::now(), &DEFAULT_PAYMENT_THRESHOLDS);
             System::current().stop();
         }
     }
