@@ -4,7 +4,7 @@ use crate::sub_lib::framer::Framer;
 use core::fmt::Debug;
 use masq_lib::logger::Logger;
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct UnmaskedChunk {
     pub chunk: Vec<u8>,
     pub last_chunk: bool,

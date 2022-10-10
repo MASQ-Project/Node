@@ -11,7 +11,7 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 
-#[derive(Clone, PartialEq, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct BlockchainBridgeConfig {
     pub blockchain_service_url_opt: Option<String>,
     pub chain: Chain,
@@ -33,7 +33,7 @@ impl Debug for BlockchainBridgeSubs {
     }
 }
 
-#[derive(Clone, PartialEq, Debug, Message)]
+#[derive(Clone, PartialEq, Eq, Debug, Message)]
 pub struct ReportAccountsPayable {
     pub accounts: Vec<PayableAccount>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
@@ -45,13 +45,13 @@ impl SkeletonOptHolder for ReportAccountsPayable {
     }
 }
 
-#[derive(Clone, PartialEq, Debug, Message)]
+#[derive(Clone, PartialEq, Eq, Debug, Message)]
 pub struct SetDbPasswordMsg {
     pub client_id: u64,
     pub password: String,
 }
 
-#[derive(Clone, PartialEq, Debug, Message)]
+#[derive(Clone, PartialEq, Eq, Debug, Message)]
 pub struct SetGasPriceMsg {
     pub client_id: u64,
     pub gas_price: String,

@@ -16,7 +16,7 @@ trait Recognizer: Sync {
     fn try_convert(&self, exit_code: Option<i32>, stderr: &Option<String>) -> Option<CrashReason>;
 }
 
-#[derive(Message, Clone, Debug, PartialEq)]
+#[derive(Message, Clone, Debug, PartialEq, Eq)]
 pub struct CrashNotification {
     pub process_id: u32,
     pub exit_code: Option<i32>,

@@ -37,8 +37,36 @@ lazy_static! {
     };
 }
 
+/*
+                                  +------+-- maturity_threshold_sec
+                                  |      |
+
+                                  |      |   |
+                                  |      |   |
+                                  |      |   |
+                                  |      |   |
+      debt_threshold_gwei --+-    |      +   +
+                            |     |       \   \
+                            |     |        \   \
+                            |     |         \   \
+                            |     |          \   \
+                            |     |           \   \
+                            |     |            +---+-------------     -+
+                            |     |                                    |
+                            +-  0 +------------------------------     -+
+                                 now  .  .  .  .  .  .  .  the past    |
+                                                                       |
+                                         |     |        permanent_debt_allowed_gwei,
+                                         |     |        unban_below_gwei
+                                         |     |
+                                         +-----+-- threshold_interval_sec
+
+                                               |   |
+                                               +---+-- payment_grace_period_sec
+ */
+
 //please, alphabetical order
-#[derive(PartialEq, Debug, Clone, Copy, Default)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]
 pub struct PaymentThresholds {
     pub debt_threshold_gwei: i64,
     pub maturity_threshold_sec: i64,
@@ -59,14 +87,14 @@ impl PaymentThresholds {
     }
 }
 
-#[derive(PartialEq, Debug, Clone, Copy, Default)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]
 pub struct ScanIntervals {
     pub pending_payable_scan_interval: Duration,
     pub payable_scan_interval: Duration,
     pub receivable_scan_interval: Duration,
 }
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub struct AccountantConfig {
     pub scan_intervals: ScanIntervals,
     pub payment_thresholds: PaymentThresholds,
@@ -97,7 +125,7 @@ impl Debug for AccountantSubs {
 }
 
 // TODO: These four structures all consist of exactly the same five fields. They could be factored out.
-#[derive(Clone, PartialEq, Debug, Message)]
+#[derive(Clone, PartialEq, Eq, Debug, Message)]
 pub struct ReportRoutingServiceProvidedMessage {
     pub timestamp: SystemTime,
     pub paying_wallet: Wallet,
@@ -106,7 +134,7 @@ pub struct ReportRoutingServiceProvidedMessage {
     pub byte_rate: u64,
 }
 
-#[derive(Clone, PartialEq, Debug, Message)]
+#[derive(Clone, PartialEq, Eq, Debug, Message)]
 pub struct ReportExitServiceProvidedMessage {
     pub timestamp: SystemTime,
     pub paying_wallet: Wallet,
@@ -115,7 +143,7 @@ pub struct ReportExitServiceProvidedMessage {
     pub byte_rate: u64,
 }
 
-#[derive(Clone, PartialEq, Debug, Message)]
+#[derive(Clone, PartialEq, Eq, Debug, Message)]
 pub struct ReportRoutingServiceConsumedMessage {
     pub timestamp: SystemTime,
     pub earning_wallet: Wallet,
@@ -124,7 +152,7 @@ pub struct ReportRoutingServiceConsumedMessage {
     pub byte_rate: u64,
 }
 
-#[derive(Clone, PartialEq, Debug, Message)]
+#[derive(Clone, PartialEq, Eq, Debug, Message)]
 pub struct ReportExitServiceConsumedMessage {
     pub timestamp: SystemTime,
     pub earning_wallet: Wallet,
@@ -133,7 +161,7 @@ pub struct ReportExitServiceConsumedMessage {
     pub byte_rate: u64,
 }
 
-#[derive(Clone, PartialEq, Debug, Default)]
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct FinancialStatistics {
     pub total_paid_payable: u64,
     pub total_paid_receivable: u64,

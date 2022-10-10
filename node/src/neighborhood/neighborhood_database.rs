@@ -347,7 +347,7 @@ impl NeighborhoodDatabase {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum NeighborhoodDatabaseError {
     NodeKeyNotFound(PublicKey),
     NodeKeyCollision(PublicKey),

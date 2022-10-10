@@ -13,7 +13,7 @@ use serde_derive::{Deserialize, Serialize};
 use std::cmp::min;
 use std::iter;
 
-#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 pub struct Route {
     pub hops: Vec<CryptData>,
 }
@@ -334,7 +334,7 @@ impl RouteSegment {
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum RouteError {
     HopDecodeProblem(String),
     EmptyRoute,
@@ -344,6 +344,7 @@ pub enum RouteError {
 
 #[cfg(test)]
 mod tests {
+    use std::fmt::UpperHex;
     use super::*;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::test_utils::make_wallet;

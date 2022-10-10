@@ -12,7 +12,7 @@ use std::fmt;
 use std::iter::FromIterator;
 use std::str::FromStr;
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct PrivateKey {
     data: Vec<u8>,
 }
@@ -181,7 +181,7 @@ impl<'a> Visitor<'a> for KeyVisitor {
     }
 }
 
-#[derive(Clone, PartialEq, Hash)]
+#[derive(Clone, PartialEq, Eq, Hash)]
 pub struct SymmetricKey {
     data: Vec<u8>,
 }
@@ -519,7 +519,7 @@ impl<'a> Visitor<'a> for PlainDataVisitor {
     }
 }
 
-#[derive(PartialEq, Debug, Clone)]
+#[derive(PartialEq, Eq, Debug, Clone)]
 pub enum CryptdecError {
     EmptyKey,
     EmptyData,

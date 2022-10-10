@@ -294,7 +294,7 @@ impl Handler<NewPasswordMessage> for Neighborhood {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub struct AccessibleGossipRecord {
     pub signed_gossip: PlainData,
     pub signature: CryptData,

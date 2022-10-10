@@ -6,7 +6,7 @@ use ethsign::keyfile::Crypto;
 use ethsign::Protected;
 use rustc_hex::{FromHex, ToHex};
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum Bip39Error {
     ConversionError(String),
     EncryptionFailure(String),

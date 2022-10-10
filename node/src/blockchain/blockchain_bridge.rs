@@ -143,7 +143,7 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
     }
 }
 
-#[derive(Debug, PartialEq, Message, Clone)]
+#[derive(Debug, PartialEq, Eq, Message, Clone)]
 pub struct PendingPayableFingerprint {
     pub rowid_opt: Option<u64>, //None when initialized
     pub timestamp: SystemTime,

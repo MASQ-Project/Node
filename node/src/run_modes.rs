@@ -213,7 +213,7 @@ enum Leaving {
     ExitCode(i32),
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum RunnerError {
     Configurator(ConfiguratorError),
     Numeric(i32),

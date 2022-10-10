@@ -45,7 +45,7 @@ impl TryFrom<&GossipNodeRecord> for NodeRecordInner_0v1 {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NodeRecordError {
     SelfNeighborAttempt(PublicKey),
 }
@@ -323,7 +323,7 @@ impl TryFrom<&GossipNodeRecord> for NodeRecord {
     }
 }
 
-#[derive(Clone, Debug, Default, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 pub struct NodeRecordMetadata {
     pub desirable_for_exit: bool,

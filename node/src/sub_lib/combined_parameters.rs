@@ -35,14 +35,14 @@ macro_rules! initiate_struct{
     }
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub enum CombinedParamsDataTypes {
     U64,
     I64,
     U128,
 }
 
-#[derive(PartialEq, Debug)]
+#[derive(PartialEq, Eq, Debug)]
 pub enum CombinedParamsValueRetriever {
     U64(u64),
     I64(i64),

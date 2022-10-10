@@ -16,7 +16,7 @@ use std::net::{IpAddr, SocketAddr};
 /// Gossip storms.
 pub const MAX_DEGREE: usize = 5;
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum GossipAcceptanceResult {
     // The incoming Gossip produced database changes. Generate standard Gossip and broadcast.
     Accepted,
