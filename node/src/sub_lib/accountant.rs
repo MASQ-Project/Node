@@ -56,11 +56,6 @@ impl PaymentThresholds {
         now - checked_conversion::<u64, i64>(self.maturity_threshold_sec)
             - checked_conversion::<u64, i64>(self.payment_grace_period_sec)
     }
-
-    #[cfg(test)]
-    pub fn sugg_thru_decreasing(&self, now: i64) -> i64 {
-        self.sugg_and_grace(now) - checked_conversion::<u64, i64>(self.threshold_interval_sec)
-    }
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]
@@ -166,56 +161,6 @@ pub enum SignConversionError {
     I128(String),
 }
 
-#[macro_export]
-macro_rules! process_individual_range_queries {
-    ($self: expr, $msg: expr, $context_id: expr, $($table_name: literal),+) => {
-        Ok(match $msg.custom_queries_opt.as_ref(){
-            Some(specs) => {
-                let (payable_opt, receivable_opt) =
-
-                ($(paste! {
-                    if let Some(query_specs) = specs.[<$table_name _opt>].as_ref() {
-                        let query = CustomQuery::from(query_specs);
-                        Accountant::check_query_is_within_tech_limits(&query, $table_name, $context_id)?;
-                        $self.[<request_ $table_name _accounts_by_specific_mode>](
-                            query
-                        )
-                    } else {
-                        None
-                    }
-                }),+);
-
-                Some(
-                    QueryResults {
-                        payable_opt,
-                        receivable_opt,
-                    }
-                )
-            }
-            None => None}
-        )
-    };
-}
-
-#[macro_export]
-macro_rules! process_top_records_query {
-    ($self: expr, $msg: expr, $($table_name: literal),+) => {
-        $msg.top_records_opt.map(|config|{
-            let (payable, receivable) =
-
-            ($(paste! {
-                $self.[<request_ $table_name _accounts_by_specific_mode>](config.into())
-               .unwrap_or_default()
-            }),+);
-
-            QueryResults{
-                payable_opt: Some(payable),
-                receivable_opt: Some(receivable)
-            }
-        })
-    };
-}
-
 pub trait MessageIdGenerator {
     fn id(&self) -> u32;
     as_any_dcl!();
@@ -234,7 +179,7 @@ impl MessageIdGenerator for MessageIdGeneratorReal {
 #[cfg(test)]
 mod tests {
     use crate::accountant::test_utils::AccountantBuilder;
-    use crate::accountant::Accountant;
+    use crate::accountant::{checked_conversion, Accountant};
     use crate::sub_lib::accountant::{
         AccountantSubsFactory, AccountantSubsFactoryReal, MessageIdGenerator,
         MessageIdGeneratorReal, PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET,
@@ -250,6 +195,12 @@ mod tests {
     use std::time::Duration;
 
     static MSG_ID_GENERATOR_TEST_GUARD: Mutex<()> = Mutex::new(());
+
+    impl PaymentThresholds {
+        pub fn sugg_thru_decreasing(&self, now: i64) -> i64 {
+            self.sugg_and_grace(now) - checked_conversion::<u64, i64>(self.threshold_interval_sec)
+        }
+    }
 
     #[test]
     fn constants_have_correct_values() {

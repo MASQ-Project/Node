@@ -4,6 +4,7 @@ pub mod dao_utils;
 pub mod payable_dao;
 pub mod pending_payable_dao;
 pub mod receivable_dao;
+pub mod related_to_financials;
 pub mod tools;
 
 #[cfg(test)]
@@ -12,7 +13,6 @@ pub mod test_utils;
 use core::fmt::Debug;
 use masq_lib::constants::{
     REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, REQUEST_WITH_NO_VALUES, SCAN_ERROR,
-    VALUE_EXCEEDS_ALLOWED_LIMIT,
 };
 
 use masq_lib::messages::{
@@ -29,6 +29,7 @@ use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDa
 use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDaoError, ReceivableDaoFactory,
 };
+use crate::accountant::related_to_financials::check_query_is_within_tech_limits;
 use crate::accountant::tools::accountant_tools::{Scanner, Scanners, TransactionConfirmationTools};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
@@ -940,13 +941,13 @@ impl Accountant {
     }
 
     fn handle_financials(&self, msg: &UiFinancialsRequest, client_id: u64, context_id: u64) {
-        let response_body = self.compute_financials(msg, context_id);
+        let body: MessageBody = self.compute_financials(msg, context_id);
         self.ui_message_sub
             .as_ref()
             .expect("UiGateway not bound")
             .try_send(NodeToUiMessage {
                 target: ClientId(client_id),
-                body: response_body,
+                body,
             })
             .expect("UiGateway is dead");
     }
@@ -1030,75 +1031,6 @@ impl Accountant {
         {
             Some(results) => Ok(results),
             None => Ok(None),
-        }
-    }
-
-    fn compare_amount_param<T>(num: &T) -> bool
-    where
-        T: Ord + Copy + TryFrom<u64>,
-        u64: TryFrom<T>,
-        <T as TryFrom<u64>>::Error: Debug,
-    {
-        match u64::try_from(*num) {
-            Ok(num) => num > i64::MAX as u64,
-            Err(_) => {
-                let zero_as_t: T = 0_u64.try_into().expect("should be fine");
-                if num < &zero_as_t {
-                    false
-                } else {
-                    unreachable!("only u64 and i64 values are expected")
-                }
-            }
-        }
-    }
-
-    //if you look for usages, see it in a macro
-    fn check_query_is_within_tech_limits<T>(
-        query: &CustomQuery<T>,
-        table: &str,
-        context_id: u64,
-    ) -> Result<(), MessageBody>
-    where
-        T: Ord + Copy + Display + TryFrom<u64>,
-        u64: TryFrom<T>,
-        <u64 as TryFrom<T>>::Error: Debug,
-        <T as TryFrom<u64>>::Error: Debug,
-    {
-        let err = |param_name, num: &dyn Display| {
-            Err(Accountant::financials_bad_news(
-                VALUE_EXCEEDS_ALLOWED_LIMIT,
-                &format!(
-                    "Range query for {}: {} requested too big. Should be under {}, not like: {}",
-                    table,
-                    param_name,
-                    i64::MAX,
-                    num
-                ),
-                context_id,
-            ))
-        };
-        if let CustomQuery::RangeQuery {
-            min_age_s,
-            max_age_s,
-            min_amount_gwei,
-            max_amount_gwei,
-            ..
-        } = query
-        {
-            match (
-                min_age_s > &(i64::MAX as u64),
-                max_age_s > &(i64::MAX as u64),
-                Self::compare_amount_param(min_amount_gwei),
-                Self::compare_amount_param(max_amount_gwei),
-            ) {
-                (true, ..) => err("Min age", min_age_s),
-                (_, true, ..) => err("Max age", max_age_s),
-                (_, _, true, _) => err("Min amount", min_amount_gwei),
-                (_, _, _, true) => err("Max amount", max_amount_gwei),
-                _ => Ok(()),
-            }
-        } else {
-            panic!("Broken code: only range query belongs in here")
         }
     }
 
@@ -1565,7 +1497,7 @@ pub mod check_sqlite_fns {
             _msg: CheckSqliteFunctionsDefinedByUs,
             _ctx: &mut Self::Context,
         ) -> Self::Result {
-            //hypothesis is that this is gonna blow up in the middle of the operation if our defined functions haven't been hooked up
+            //hypothesis is that this call blows up in the middle of the operation if our defined functions haven't been hooked up
             self.receivable_dao
                 .new_delinquencies(SystemTime::now(), &DEFAULT_PAYMENT_THRESHOLDS);
             System::current().stop();
@@ -5723,7 +5655,7 @@ mod tests {
         assert!(before <= actual_timestamp && actual_timestamp <= after)
     }
 
-    fn asserts_compute_financials_tests_range_query_on_too_big_values_in_input(
+    fn assert_compute_financials_tests_range_query_on_too_big_values_in_input(
         request: UiFinancialsRequest,
         err_msg: &str,
     ) {
@@ -5763,7 +5695,7 @@ mod tests {
             }),
         };
 
-        asserts_compute_financials_tests_range_query_on_too_big_values_in_input(
+        assert_compute_financials_tests_range_query_on_too_big_values_in_input(
             request,
             "Range query for payable: Max amount requested too big. \
              Should be under 9223372036854775807, not like: 18446744073709551615",
@@ -5786,137 +5718,11 @@ mod tests {
             }),
         };
 
-        asserts_compute_financials_tests_range_query_on_too_big_values_in_input(
+        assert_compute_financials_tests_range_query_on_too_big_values_in_input(
             request,
             "Range query for receivable: Max age requested too big. \
              Should be under 9223372036854775807, not like: 18446744073709551615",
         )
-    }
-
-    fn asser_check_query_is_within_tech_limits<T>(
-        query: CustomQuery<T>,
-        err_msg: &str,
-        context_id: u64,
-    ) where
-        T: Ord + Copy + Display + TryFrom<u64>,
-        u64: TryFrom<T>,
-        <u64 as TryFrom<T>>::Error: Debug,
-        <T as TryFrom<u64>>::Error: Debug,
-    {
-        let result = Accountant::check_query_is_within_tech_limits(&query, "payable", context_id);
-
-        assert_eq!(
-            result,
-            Err(Accountant::financials_bad_news(
-                VALUE_EXCEEDS_ALLOWED_LIMIT,
-                err_msg,
-                context_id
-            ))
-        )
-    }
-
-    #[test]
-    fn check_query_is_within_tech_limits_catches_error_at_age_min() {
-        let query = CustomQuery::RangeQuery {
-            min_age_s: i64::MAX as u64 + 1,
-            max_age_s: 4000000,
-            min_amount_gwei: 55,
-            max_amount_gwei: 6666,
-            timestamp: SystemTime::now(),
-        };
-
-        asser_check_query_is_within_tech_limits(
-            query,
-            "Range query for payable: Min age requested \
-         too big. Should be under 9223372036854775807, not like: 9223372036854775808",
-            12345,
-        )
-    }
-
-    #[test]
-    fn check_query_is_within_tech_limits_catches_error_at_age_max() {
-        let query = CustomQuery::RangeQuery {
-            min_age_s: 32656,
-            max_age_s: i64::MAX as u64 + 3,
-            min_amount_gwei: 55,
-            max_amount_gwei: 6666,
-            timestamp: SystemTime::now(),
-        };
-
-        asser_check_query_is_within_tech_limits(
-            query,
-            "Range query for payable: Max age requested \
-         too big. Should be under 9223372036854775807, not like: 9223372036854775810",
-            33333,
-        )
-    }
-
-    #[test]
-    fn check_query_is_within_tech_limits_catches_error_at_amount_min() {
-        let query = CustomQuery::RangeQuery {
-            min_age_s: 32656,
-            max_age_s: 4545555,
-            min_amount_gwei: i64::MAX as u64 + 9,
-            max_amount_gwei: 6666,
-            timestamp: SystemTime::now(),
-        };
-
-        asser_check_query_is_within_tech_limits(
-            query,
-            "Range query for payable: Min amount requested \
-         too big. Should be under 9223372036854775807, not like: 9223372036854775816",
-            111222,
-        )
-    }
-
-    #[test]
-    fn check_query_is_within_tech_limits_catches_error_at_amount_max() {
-        let query = CustomQuery::RangeQuery {
-            min_age_s: 32656,
-            max_age_s: 4545555,
-            min_amount_gwei: 144,
-            max_amount_gwei: i64::MAX as u64 + 11,
-            timestamp: SystemTime::now(),
-        };
-
-        asser_check_query_is_within_tech_limits(
-            query,
-            "Range query for payable: Max amount requested \
-         too big. Should be under 9223372036854775807, not like: 9223372036854775818",
-            45,
-        )
-    }
-
-    #[test]
-    fn check_query_is_within_tech_limits_works_for_negative_values() {
-        let query = CustomQuery::RangeQuery {
-            min_age_s: 32656,
-            max_age_s: 4545555,
-            min_amount_gwei: -500000,
-            max_amount_gwei: -500,
-            timestamp: SystemTime::now(),
-        };
-
-        let result = Accountant::check_query_is_within_tech_limits(&query, "payable", 789);
-
-        assert_eq!(result, Ok(()))
-    }
-
-    #[test]
-    #[should_panic(expected = "entered unreachable code: only u64 and i64 values are expected")]
-    fn compare_amount_param_unreachable_condition() {
-        let _ = Accountant::compare_amount_param(&u128::MAX);
-    }
-
-    #[test]
-    #[should_panic(expected = "Broken code: only range query belongs in here")]
-    fn check_query_within_tech_limits_blows_up_if_unexpected_query_type() {
-        let query = CustomQuery::<i64>::TopRecords {
-            count: 123,
-            ordered_by: Age,
-        };
-
-        let _ = Accountant::check_query_is_within_tech_limits(&query, "payable", 1234);
     }
 
     #[test]

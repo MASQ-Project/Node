@@ -198,10 +198,10 @@ impl<N: Copy + Display> CustomQuery<N> {
         timestamp: SystemTime,
     ) -> RusqliteParamsWithOwnedToSql {
         let now = to_time_t(timestamp);
-        let to_time_t = |limit| now - checked_conversion::<u64, i64>(limit);
+        let age_to_time_t = |age_limit| now - checked_conversion::<u64, i64>(age_limit);
         vec![
-            (":min_timestamp", Box::new(to_time_t(max_age))),
-            (":max_timestamp", Box::new(to_time_t(min_age))),
+            (":min_timestamp", Box::new(age_to_time_t(max_age))),
+            (":max_timestamp", Box::new(age_to_time_t(min_age))),
         ]
     }
 

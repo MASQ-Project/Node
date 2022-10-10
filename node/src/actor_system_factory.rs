@@ -602,8 +602,7 @@ impl LogRecipientSetter for LogRecipientSetterReal {
 mod tests {
     use super::*;
     use crate::accountant::check_sqlite_fns::CheckSqliteFunctionsDefinedByUs;
-    use crate::accountant::dao_utils::{from_time_t, to_time_t};
-    use crate::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
+    use crate::accountant::receivable_dao::ReceivableDaoReal;
     use crate::accountant::test_utils::bc_from_ac_plus_earning_wallet;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
@@ -611,7 +610,6 @@ mod tests {
         make_stream_handler_pool_subs_from, make_stream_handler_pool_subs_from_recorder,
         start_recorder_refcell_opt,
     };
-    use crate::sub_lib::accountant::WEIS_OF_GWEI;
     use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -659,6 +657,9 @@ mod tests {
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::convert::TryFrom;
+    use std::env::current_dir;
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
     use std::net::Ipv4Addr;
     use std::net::{IpAddr, SocketAddr, SocketAddrV4};
     use std::path::PathBuf;
@@ -666,7 +667,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
-    use std::time::{Duration, SystemTime};
+    use std::time::Duration;
 
     struct LogRecipientSetterNull {}
 
@@ -1826,17 +1827,81 @@ mod tests {
     impl AccountantSubsFactory for AccountantSubsFactoryTestOnly {
         fn make(&self, addr: &Addr<Accountant>) -> AccountantSubs {
             self.address_leaker.try_send(addr.clone()).unwrap();
-            //making sure this code wouldn't work in real life
-            let addr = Recorder::new().start();
-            make_accountant_subs_from_recorder(&addr)
+            let nonsensical_addr = Recorder::new().start();
+            make_accountant_subs_from_recorder(&nonsensical_addr)
+        }
+    }
+
+    fn checking_ongoing_usage_of_big_int_sqlite_functions_in_new_delinquencies_in_receivable_dao() {
+        fn skip_up_to_new_delinquencies_included(
+            previous: impl Iterator<Item = String>,
+        ) -> impl Iterator<Item = String> {
+            previous
+                .skip_while(|line| {
+                    let adjusted_line: String = line
+                        .chars()
+                        .skip_while(|char| char.is_whitespace())
+                        .collect();
+                    !adjusted_line.starts_with("fn new_delinquencies(")
+                })
+                .skip(1)
+        }
+        fn fold_guts(previous: (bool, bool), line: String) -> (bool, bool) {
+            let high = |previous: (bool, bool)| {
+                if line.contains(" biginthigh(") {
+                    (true, previous.1)
+                } else {
+                    previous
+                }
+            };
+            let low = |previous: (bool, bool)| {
+                if line.contains(" bigintlow(") {
+                    (previous.0, true)
+                } else {
+                    previous
+                }
+            };
+            match previous {
+                (true, true) => previous,
+                (true, false) => low(previous),
+                (false, true) => high(previous),
+                _ => low(high(previous)),
+            }
+        }
+
+        let file_path = current_dir()
+            .unwrap()
+            .join("src")
+            .join("accountant")
+            .join("receivable_dao.rs");
+        let file = File::open(file_path).unwrap();
+        let reader = BufReader::new(file);
+        let lines_without_fn_trait_definition =
+            skip_up_to_new_delinquencies_included(reader.lines().flatten());
+        let presence_check =
+            skip_up_to_new_delinquencies_included(lines_without_fn_trait_definition)
+                .take_while(|line| {
+                    let adjusted_line: String = line
+                        .chars()
+                        .skip_while(|char| char.is_whitespace())
+                        .collect();
+                    !adjusted_line.starts_with("fn")
+                })
+                .fold((false, false), |previous, line| fold_guts(previous, line));
+        if presence_check != (true, true) {
+            panic!("about to run test checking usage of functions (biginthigh and bigintlow) which aren't out there, though, \
+           and so they cannot signalize troubles, leaving a falsely positive result")
         }
     }
 
     #[test]
-    fn our_big_int_sqlite_functions_are_hooked_up_to_receivable_dao_in_accountant() {
+    fn our_big_int_sqlite_functions_are_linked_to_receivable_dao_within_accountant() {
+        //this test works only under the condition that ReceivableDao.new_delinquencies() still
+        //encompasses the special functions, so a formal check of that opens this test
+        checking_ongoing_usage_of_big_int_sqlite_functions_in_new_delinquencies_in_receivable_dao();
         let data_dir = ensure_node_home_directory_exists(
             "actor_system_factory",
-            "our_big_int_sqlite_functions_are_hooked_up_to_receivable_dao_in_accountant",
+            "our_big_int_sqlite_functions_are_linked_to_receivable_dao_within_accountant",
         );
         let mut accountant_config = make_populated_accountant_config_with_defaults();
         accountant_config.payment_thresholds.debt_threshold_gwei = 1000000;
@@ -1851,10 +1916,11 @@ mod tests {
                 DbInitializationConfig::test_default(),
             )
             .unwrap();
-        let receivable_dao = ReceivableDaoReal::new(db_conn);
         let mut b_config = bc_from_ac_plus_earning_wallet(accountant_config, make_wallet("mine"));
         b_config.data_directory = data_dir;
-        let system = System::new("big_int_divider_functions_for_accountant");
+        let system = System::new(
+            "our_big_int_sqlite_functions_are_linked_to_receivable_dao_within_accountant",
+        );
         let (addr_tx, addr_rv) = bounded(1);
         let subject = ActorFactoryReal {};
 

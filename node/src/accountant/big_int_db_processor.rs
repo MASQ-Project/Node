@@ -585,8 +585,6 @@ mod tests {
     use itertools::Either;
     use itertools::Either::Left;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::types::Value;
-    use rusqlite::types::Value::Null;
     use rusqlite::Error::SqliteFailure;
     use rusqlite::{Connection, ErrorCode, ToSql};
     use std::cell::RefCell;
