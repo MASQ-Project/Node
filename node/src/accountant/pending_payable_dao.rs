@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::big_int_db_processor::BigIntDivider;
-use crate::accountant::dao_utils::{from_time_t, to_time_t, vigilant_flatten, DaoFactoryReal};
+use crate::accountant::dao_utils::{from_time_t, to_time_t, DaoFactoryReal, VigilantFlatten};
 use crate::accountant::{checked_conversion, sign_conversion};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -54,28 +54,27 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
 
     fn return_all_fingerprints(&self) -> Vec<PendingPayableFingerprint> {
         let mut stm = self.conn.prepare("select rowid, transaction_hash, amount_high_b, amount_low_b, payable_timestamp, attempt from pending_payable where process_error is null").expect("Internal error");
-        vigilant_flatten(
-            stm.query_map([], |row| {
-                let rowid: u64 = Self::get_with_expect(row, 0);
-                let transaction_hash: String = Self::get_with_expect(row, 1);
-                let amount_high_bytes: i64 = Self::get_with_expect(row, 2);
-                let amount_low_bytes: i64 = Self::get_with_expect(row, 3);
-                let timestamp: i64 = Self::get_with_expect(row, 4);
-                let attempt: u16 = Self::get_with_expect(row, 5);
-                Ok(PendingPayableFingerprint {
-                    rowid_opt: Some(rowid),
-                    timestamp: from_time_t(timestamp),
-                    hash: H256::from_str(&transaction_hash[2..]).expectv("string hash"),
-                    attempt_opt: Some(attempt),
-                    amount: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
-                        amount_high_bytes,
-                        amount_low_bytes,
-                    )),
-                    process_error: None,
-                })
+        stm.query_map([], |row| {
+            let rowid: u64 = Self::get_with_expect(row, 0);
+            let transaction_hash: String = Self::get_with_expect(row, 1);
+            let amount_high_bytes: i64 = Self::get_with_expect(row, 2);
+            let amount_low_bytes: i64 = Self::get_with_expect(row, 3);
+            let timestamp: i64 = Self::get_with_expect(row, 4);
+            let attempt: u16 = Self::get_with_expect(row, 5);
+            Ok(PendingPayableFingerprint {
+                rowid_opt: Some(rowid),
+                timestamp: from_time_t(timestamp),
+                hash: H256::from_str(&transaction_hash[2..]).expectv("string hash"),
+                attempt_opt: Some(attempt),
+                amount: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
+                    amount_high_bytes,
+                    amount_low_bytes,
+                )),
+                process_error: None,
             })
-            .expect("rusqlite failure"),
-        )
+        })
+        .expect("rusqlite failure")
+        .vigilant_flatten()
         .collect()
     }
 

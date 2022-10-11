@@ -7,8 +7,8 @@ use crate::accountant::big_int_db_processor::{
 };
 use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
-    to_time_t, vigilant_flatten, AssemblerFeeder, CustomQuery, DaoFactoryReal, RangeStmConfig,
-    TopStmConfig,
+    to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal, RangeStmConfig, TopStmConfig,
+    VigilantFlatten,
 };
 use crate::accountant::{checked_conversion, sign_conversion, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
@@ -175,33 +175,32 @@ impl PayableDao for PayableDaoReal {
         let mut stmt = self.conn
             .prepare("select wallet_address, balance_high_b, balance_low_b, last_paid_timestamp from payable where pending_payable_rowid is null")
             .expect("Internal error");
-        vigilant_flatten(
-            stmt.query_map([], |row| {
-                let wallet_result: Result<Wallet, Error> = row.get(0);
-                let high_b_result: Result<i64, Error> = row.get(1);
-                let low_b_result: Result<i64, Error> = row.get(2);
-                let last_paid_timestamp_result = row.get(3);
-                match (
-                    wallet_result,
-                    high_b_result,
-                    low_b_result,
-                    last_paid_timestamp_result,
-                ) {
-                    (Ok(wallet), Ok(high_b), Ok(low_b), Ok(last_paid_timestamp)) => {
-                        Ok(PayableAccount {
-                            wallet,
-                            balance_wei: checked_conversion::<i128, u128>(
-                                BigIntDivider::reconstitute(high_b, low_b),
-                            ),
-                            last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                            pending_payable_opt: None,
-                        })
-                    }
-                    _ => panic!("Database is corrupt: PAYABLE table columns and/or types"),
+        stmt.query_map([], |row| {
+            let wallet_result: Result<Wallet, Error> = row.get(0);
+            let high_b_result: Result<i64, Error> = row.get(1);
+            let low_b_result: Result<i64, Error> = row.get(2);
+            let last_paid_timestamp_result = row.get(3);
+            match (
+                wallet_result,
+                high_b_result,
+                low_b_result,
+                last_paid_timestamp_result,
+            ) {
+                (Ok(wallet), Ok(high_b), Ok(low_b), Ok(last_paid_timestamp)) => {
+                    Ok(PayableAccount {
+                        wallet,
+                        balance_wei: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
+                            high_b, low_b,
+                        )),
+                        last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
+                        pending_payable_opt: None,
+                    })
                 }
-            })
-            .expect("Database is corrupt"),
-        )
+                _ => panic!("Database is corrupt: PAYABLE table columns and/or types"),
+            }
+        })
+        .expect("Database is corrupt")
+        .vigilant_flatten()
         .collect()
     }
 

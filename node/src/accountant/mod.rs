@@ -98,7 +98,7 @@ pub struct Accountant {
     report_new_payments_sub: Option<Recipient<ReceivedPayments>>,
     report_sent_payments_sub: Option<Recipient<SentPayables>>,
     ui_message_sub: Option<Recipient<NodeToUiMessage>>,
-    payable_threshold_tools: Box<dyn PayableThresholdTools>,
+    payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
     message_id_generator: Box<dyn MessageIdGenerator>,
     logger: Logger,
 }
@@ -435,7 +435,7 @@ impl Accountant {
             ui_message_sub: None,
             confirmation_tools: TransactionConfirmationTools::default(),
             message_id_generator: Box::new(MessageIdGeneratorReal::default()),
-            payable_threshold_tools: Box::new(PayableThresholdToolsReal::default()),
+            payable_threshold_gauge: Box::new(PayableThresholdsGaugeReal::default()),
             logger: Logger::new("Accountant"),
         }
     }
@@ -595,14 +595,14 @@ impl Accountant {
             .expect("Internal error")
             .as_secs();
 
-        if self.payable_threshold_tools.is_innocent_age(
+        if self.payable_threshold_gauge.is_innocent_age(
             time_since_last_paid,
             self.config.payment_thresholds.maturity_threshold_sec as u64,
         ) {
             return None;
         }
 
-        if self.payable_threshold_tools.is_innocent_balance(
+        if self.payable_threshold_gauge.is_innocent_balance(
             payable.balance_wei,
             gwei_to_wei(self.config.payment_thresholds.permanent_debt_allowed_gwei),
         ) {
@@ -610,8 +610,11 @@ impl Accountant {
         }
 
         let threshold = gwei_to_wei(
-            self.payable_threshold_tools
-                .calculate_payout_threshold(&self.config.payment_thresholds, time_since_last_paid),
+            self.payable_threshold_gauge
+                .calculate_payout_threshold_in_gwei(
+                    &self.config.payment_thresholds,
+                    time_since_last_paid,
+                ),
         );
         if payable.balance_wei > threshold {
             Some(threshold)
@@ -1360,26 +1363,35 @@ impl From<&PendingPayableFingerprint> for PendingPayableId {
     }
 }
 
-trait PayableThresholdTools {
+trait PayableThresholdsGauge {
     fn is_innocent_age(&self, age: u64, limit: u64) -> bool;
     fn is_innocent_balance(&self, balance: u128, limit: u128) -> bool;
-    fn calculate_payout_threshold(&self, payment_thresholds: &PaymentThresholds, x: u64) -> u64;
+    fn calculate_payout_threshold_in_gwei(
+        &self,
+        payment_thresholds: &PaymentThresholds,
+        x: u64,
+    ) -> u64;
     as_any_dcl!();
 }
 
 #[derive(Default)]
-struct PayableThresholdToolsReal {}
+struct PayableThresholdsGaugeReal {}
 
-impl PayableThresholdTools for PayableThresholdToolsReal {
+impl PayableThresholdsGauge for PayableThresholdsGaugeReal {
     fn is_innocent_age(&self, age: u64, limit: u64) -> bool {
         age <= limit
     }
 
     fn is_innocent_balance(&self, balance: u128, limit: u128) -> bool {
+        eprintln!("coming balance: {}, limit: {}", balance, limit);
         balance <= limit
     }
 
-    fn calculate_payout_threshold(&self, payment_thresholds: &PaymentThresholds, x: u64) -> u64 {
+    fn calculate_payout_threshold_in_gwei(
+        &self,
+        payment_thresholds: &PaymentThresholds,
+        x: u64,
+    ) -> u64 {
         ThresholdUtils::calculate_sloped_threshold_by_time(payment_thresholds, x) as u64
     }
     as_any_impl!();
@@ -1397,50 +1409,61 @@ impl ThresholdUtils {
                 payment_thresholds.permanent_debt_allowed_gwei
             )
         }
-        let slope = -(payment_thresholds.debt_threshold_gwei as f64
-            - payment_thresholds.permanent_debt_allowed_gwei as f64)
+        let slope = (payment_thresholds.permanent_debt_allowed_gwei as f64
+            - payment_thresholds.debt_threshold_gwei as f64)
             / Self::convert(payment_thresholds.threshold_interval_sec) as f64;
         if for_wei_computation {
-            slope * 10_u64.pow(9) as f64
+            slope * WEIS_OF_GWEI as f64
         } else {
             slope
         }
     }
 
-    fn convert(num: u64) -> i64 {
-        checked_conversion::<u64, i64>(num)
-    }
-
-    fn compute_theoretical_interception_with_y_axis(
-        m: f64,
-        debt_threshold: i64,
-        maturity_threshold_sec: i64,
-    ) -> f64 {
-        let m = m.abs();
-        let x_interception = (debt_threshold as f64 / m) + maturity_threshold_sec as f64;
-        m * x_interception
-    }
-
-    pub fn calculate_sloped_threshold_by_time(
+    fn calculate_sloped_threshold_by_time(
         payment_thresholds: &PaymentThresholds,
         time: u64,
     ) -> f64 {
+        if Self::test_if_lies_after_the_slope(time, payment_thresholds) {
+            return payment_thresholds.permanent_debt_allowed_gwei as f64;
+        };
         let m = ThresholdUtils::slope(payment_thresholds, false);
         let b = ThresholdUtils::compute_theoretical_interception_with_y_axis(
             m,
-            ThresholdUtils::convert(payment_thresholds.debt_threshold_gwei),
             ThresholdUtils::convert(payment_thresholds.maturity_threshold_sec),
+            ThresholdUtils::convert(payment_thresholds.debt_threshold_gwei),
         );
         let y = m * time as f64 + b;
-        let f_debt_threshold_gwei = payment_thresholds.debt_threshold_gwei as f64;
-        let f_permanent_debt_allowed_gwei = payment_thresholds.permanent_debt_allowed_gwei as f64;
-        if y >= f_debt_threshold_gwei {
-            return f_debt_threshold_gwei;
-        };
-        if y <= f_permanent_debt_allowed_gwei {
-            return f_permanent_debt_allowed_gwei;
-        };
+        eprintln!("calculated y {}", y);
+        Self::test_valid_scope(y, payment_thresholds, time);
         y
+    }
+
+    fn compute_theoretical_interception_with_y_axis(
+        m: f64, //is negative
+        maturity_threshold_sec: i64,
+        debt_threshold: i64,
+    ) -> f64 {
+        debt_threshold as f64 - (maturity_threshold_sec as f64 * m)
+    }
+
+    fn test_valid_scope(y: f64, payment_thresholds: &PaymentThresholds, time: u64) {
+        let f_debt_threshold_gwei = payment_thresholds.debt_threshold_gwei as f64;
+        if y >= f_debt_threshold_gwei {
+            panic!(
+                "Broken code: elapse of time ({}) shorter or equal to {} is supposed \
+             to divert before passing to the slope calculation",
+                time, payment_thresholds.maturity_threshold_sec
+            );
+        };
+    }
+
+    fn test_if_lies_after_the_slope(time: u64, payment_thresholds: &PaymentThresholds) -> bool {
+        time > (payment_thresholds.maturity_threshold_sec
+            + payment_thresholds.threshold_interval_sec)
+    }
+
+    fn convert(num: u64) -> i64 {
+        checked_conversion::<u64, i64>(num)
     }
 }
 
@@ -1509,7 +1532,9 @@ pub mod check_sqlite_fns {
 mod tests {
     use super::*;
     use std::cell::RefCell;
+    use std::collections::HashMap;
     use std::ops::Sub;
+    use std::panic::catch_unwind;
     use std::rc::Rc;
     use std::sync::Mutex;
     use std::sync::{Arc, MutexGuard};
@@ -1537,7 +1562,6 @@ mod tests {
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::{ReceivableAccount, SignConversionError};
     use crate::accountant::test_utils::{
-        assert_on_sloped_segment_of_payment_thresholds_and_its_proper_alignment,
         bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_pending_payable_fingerprint,
         make_receivable_account, BannedDaoFactoryMock, MessageIdGeneratorMock,
         PayableDaoFactoryMock, PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
@@ -1552,6 +1576,7 @@ mod tests {
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
     use crate::bootstrapper::BootstrapperConfig;
+    use crate::database::db_initializer::Suppression::No;
     use crate::sub_lib::accountant::{
         ExitServiceConsumed, RoutingServiceConsumed, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
         WEIS_OF_GWEI,
@@ -1573,7 +1598,7 @@ mod tests {
     use web3::types::{TransactionReceipt, H256};
 
     #[derive(Default)]
-    struct PayableThresholdToolsMock {
+    struct PayableThresholdsGaugeMock {
         is_innocent_age_params: Arc<Mutex<Vec<(u64, u64)>>>,
         is_innocent_age_results: RefCell<Vec<bool>>,
         is_innocent_balance_params: Arc<Mutex<Vec<(u128, u128)>>>,
@@ -1582,7 +1607,7 @@ mod tests {
         calculate_payout_threshold_results: RefCell<Vec<u64>>,
     }
 
-    impl PayableThresholdTools for PayableThresholdToolsMock {
+    impl PayableThresholdsGauge for PayableThresholdsGaugeMock {
         fn is_innocent_age(&self, age: u64, limit: u64) -> bool {
             self.is_innocent_age_params
                 .lock()
@@ -1599,7 +1624,7 @@ mod tests {
             self.is_innocent_balance_results.borrow_mut().remove(0)
         }
 
-        fn calculate_payout_threshold(
+        fn calculate_payout_threshold_in_gwei(
             &self,
             payment_thresholds: &PaymentThresholds,
             x: u64,
@@ -1614,7 +1639,7 @@ mod tests {
         }
     }
 
-    impl PayableThresholdToolsMock {
+    impl PayableThresholdsGaugeMock {
         fn is_innocent_age_params(mut self, params: &Arc<Mutex<Vec<(u64, u64)>>>) -> Self {
             self.is_innocent_age_params = params.clone();
             self
@@ -1750,9 +1775,9 @@ mod tests {
             .downcast_ref::<ReceivablesScanner>()
             .unwrap();
         result
-            .payable_threshold_tools
+            .payable_threshold_gauge
             .as_any()
-            .downcast_ref::<PayableThresholdToolsReal>()
+            .downcast_ref::<PayableThresholdsGaugeReal>()
             .unwrap();
         assert_eq!(result.crashable, false);
         assert_eq!(result.financial_statistics.total_paid_receivable_wei, 0);
@@ -1881,8 +1906,7 @@ mod tests {
         );
         let payable_account = PayableAccount {
             wallet: make_wallet("wallet"),
-            balance_wei: (DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1) as u128
-                * (WEIS_OF_GWEI as u128),
+            balance_wei: gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1),
             last_paid_timestamp: SystemTime::now().sub(Duration::from_secs(
                 (DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec + 1) as u64,
             )),
@@ -4148,8 +4172,7 @@ mod tests {
     fn payables_debug_summary_stays_still_if_no_qualified_payments() {
         init_test_logging();
         let mut subject = AccountantBuilder::default().build();
-        subject.logger =
-            Logger::new("payables_debug_summary_prints_nothing_if_no_qualified_payments");
+        subject.logger = Logger::new("payables_debug_summary_stays_still_if_no_qualified_payments");
 
         subject.payables_debug_summary(&vec![]);
 
@@ -4166,24 +4189,138 @@ mod tests {
             threshold_interval_sec: 1111111,
             unban_below_gwei: 0,
         };
-        let higher_corner_timestamp = payment_thresholds.maturity_threshold_sec;
+        //the very end on the left is forbid so we have to estimate
+        let higher_corner_timestamp = payment_thresholds.maturity_threshold_sec + 1;
         let middle_point_timestamp = payment_thresholds.maturity_threshold_sec
             + payment_thresholds.threshold_interval_sec / 2;
         let lower_corner_timestamp =
             payment_thresholds.maturity_threshold_sec + payment_thresholds.threshold_interval_sec;
         let tested_fn = |payment_thresholds: &PaymentThresholds, time| {
-            PayableThresholdToolsReal {}.calculate_payout_threshold(payment_thresholds, time)
-                as i128
+            PayableThresholdsGaugeReal {}
+                .calculate_payout_threshold_in_gwei(payment_thresholds, time) as i128
                 * WEIS_OF_GWEI
         };
 
-        assert_on_sloped_segment_of_payment_thresholds_and_its_proper_alignment(
-            tested_fn,
-            payment_thresholds,
-            higher_corner_timestamp,
-            middle_point_timestamp,
-            lower_corner_timestamp,
+        let higher_corner_point = tested_fn(&payment_thresholds, higher_corner_timestamp);
+        let middle_point = tested_fn(&payment_thresholds, middle_point_timestamp);
+        let lower_corner_point = tested_fn(&payment_thresholds, lower_corner_timestamp);
+
+        let allowed_imprecision = 1 * WEIS_OF_GWEI;
+        let ideal_template_higher = payment_thresholds.debt_threshold_gwei as i128 * WEIS_OF_GWEI;
+        let ideal_template_middle = ((payment_thresholds.debt_threshold_gwei
+            - payment_thresholds.permanent_debt_allowed_gwei)
+            / 2
+            + payment_thresholds.permanent_debt_allowed_gwei)
+            as i128
+            * WEIS_OF_GWEI;
+        let ideal_template_lower =
+            payment_thresholds.permanent_debt_allowed_gwei as i128 * WEIS_OF_GWEI;
+        assert!(
+            higher_corner_point <= ideal_template_higher + allowed_imprecision
+                && ideal_template_higher - allowed_imprecision <= higher_corner_point,
+            "ideal: {}, real: {}",
+            ideal_template_higher,
+            higher_corner_point
+        );
+        assert!(
+            middle_point <= ideal_template_middle + allowed_imprecision
+                && ideal_template_middle - allowed_imprecision <= middle_point,
+            "ideal: {}, real: {}",
+            ideal_template_middle,
+            middle_point
+        );
+        assert!(
+            lower_corner_point <= ideal_template_lower + allowed_imprecision
+                && ideal_template_lower - allowed_imprecision <= lower_corner_point,
+            "ideal: {}, real: {}",
+            ideal_template_lower,
+            lower_corner_point
         )
+    }
+
+    #[test]
+    fn testing_granularity_calculate_sloped_threshold_by_time() {
+        fn gap_tester(
+            referential_point: u64,
+            payment_thresholds: &PaymentThresholds,
+        ) -> Option<u64> {
+            let cached = (0_u64..20).map(|to_add| {
+                ThresholdUtils::calculate_sloped_threshold_by_time(
+                    &payment_thresholds,
+                    1000 + to_add,
+                ) as u64
+            });
+            let mut counts_of_unique_elements: HashMap<u64, usize> = HashMap::new();
+            cached.for_each(|point_height| {
+                counts_of_unique_elements
+                    .entry(point_height)
+                    .and_modify(|q| *q += 1)
+                    .or_insert(1);
+            });
+            let mut counts_of_same_size_count_groups: HashMap<usize, usize> = HashMap::new();
+            counts_of_unique_elements.values().for_each(|unique_count| {
+                counts_of_same_size_count_groups
+                    .entry(*unique_count)
+                    .and_modify(|q| *q += 1)
+                    .or_insert(1);
+            });
+            let mut sortable = counts_of_same_size_count_groups.drain().collect::<Vec<_>>();
+            sortable.sort_by_key(|(key, count)| *count);
+            let (biggest_groups_size, occurrence) = sortable.last().expect("no values to analyze");
+            //checking if the sample has enough weight compared to 20 picked elements at the beginning
+            if biggest_groups_size * occurrence >= 15 {
+                Some(*biggest_groups_size as u64)
+            } else {
+                panic!("test cannot provide relevant enough information")
+            }
+        }
+
+        {
+            let payment_thresholds = PaymentThresholds {
+                maturity_threshold_sec: 100,
+                payment_grace_period_sec: 0,
+                permanent_debt_allowed_gwei: 100,
+                debt_threshold_gwei: 10_000,
+                threshold_interval_sec: 10_000,
+                unban_below_gwei: 100,
+            };
+            let referential_point =
+                ThresholdUtils::calculate_sloped_threshold_by_time(&payment_thresholds, 1000)
+                    as u64;
+
+            let finding_under_135_degree = gap_tester(referential_point, &payment_thresholds);
+
+            if let Some(seconds_needed_for_smallest_detected_change_in_height) =
+                finding_under_135_degree
+            {
+                assert_eq!(seconds_needed_for_smallest_detected_change_in_height, 1)
+            } else {
+                panic!("while testing 135° slope, we waited for some finding but got none")
+            }
+        }
+        {
+            let payment_thresholds = PaymentThresholds {
+                maturity_threshold_sec: 100,
+                payment_grace_period_sec: 0,
+                permanent_debt_allowed_gwei: 100,
+                debt_threshold_gwei: 5_773,
+                threshold_interval_sec: 10_000,
+                unban_below_gwei: 100,
+            };
+            let referential_point =
+                ThresholdUtils::calculate_sloped_threshold_by_time(&payment_thresholds, 1000)
+                    as u64;
+
+            let finding_under_150_degree = gap_tester(referential_point, &payment_thresholds);
+
+            if let Some(seconds_needed_for_smallest_detected_change_in_height) =
+                finding_under_150_degree
+            {
+                assert_eq!(seconds_needed_for_smallest_detected_change_in_height, 2)
+            } else {
+                panic!("while testing 150° slope, we waited for some finding but got none")
+            }
+        }
     }
 
     #[test]
@@ -4223,7 +4360,56 @@ mod tests {
     }
 
     #[test]
-    fn computation_of_calculate_sloped_threshold_by_time_cannot_exceed_limit_points() {
+    fn not_enough_time_passed_brings_slope_value_out_of_range_with_panic() {
+        fn test_panic(payment_thresholds: &PaymentThresholds) {
+            let panic = catch_unwind(|| {
+                ThresholdUtils::calculate_sloped_threshold_by_time(
+                    payment_thresholds,
+                    payment_thresholds.maturity_threshold_sec,
+                )
+            })
+            .unwrap_err();
+            let panic_msg = panic.downcast_ref::<String>().unwrap();
+            assert_eq!(
+                panic_msg,
+                &String::from(
+                    "Broken code: elapse of time (500) shorter or \
+             equal to 500 is supposed to divert before passing to the slope calculation"
+                )
+            )
+        }
+
+        let payment_thresholds_5_degree = PaymentThresholds {
+            maturity_threshold_sec: 500,
+            payment_grace_period_sec: 100,
+            permanent_debt_allowed_gwei: 1000,
+            debt_threshold_gwei: 87_488_000,
+            threshold_interval_sec: 1_000_000_000,
+            unban_below_gwei: 1000,
+        };
+        test_panic(&payment_thresholds_5_degree);
+        let payment_thresholds_45_degree = PaymentThresholds {
+            maturity_threshold_sec: 500,
+            payment_grace_period_sec: 100,
+            permanent_debt_allowed_gwei: 1000,
+            debt_threshold_gwei: 1_000_000_000,
+            threshold_interval_sec: 1_000_000_000,
+            unban_below_gwei: 1000,
+        };
+        test_panic(&payment_thresholds_45_degree);
+        let payment_thresholds_85_degree = PaymentThresholds {
+            maturity_threshold_sec: 500,
+            payment_grace_period_sec: 100,
+            permanent_debt_allowed_gwei: 1000,
+            debt_threshold_gwei: 11_430_052_000,
+            threshold_interval_sec: 1_000_000_000,
+            unban_below_gwei: 1000,
+        };
+        test_panic(&payment_thresholds_85_degree);
+    }
+
+    #[test]
+    fn slope_after_its_end_turns_into_permanent_debt_allowed() {
         let payment_thresholds = PaymentThresholds {
             maturity_threshold_sec: 1000,
             payment_grace_period_sec: 444,
@@ -4233,23 +4419,25 @@ mod tests {
             unban_below_gwei: 0,
         };
 
-        let seeming_upper_overflow = ThresholdUtils::calculate_sloped_threshold_by_time(
-            &payment_thresholds,
-            payment_thresholds.maturity_threshold_sec - 10,
-        ) as u64;
-        let seeming_lower_overflow = ThresholdUtils::calculate_sloped_threshold_by_time(
+        let right_at_the_end = ThresholdUtils::calculate_sloped_threshold_by_time(
             &payment_thresholds,
             payment_thresholds.maturity_threshold_sec
                 + payment_thresholds.threshold_interval_sec
-                + 33,
+                + 1,
+        ) as u64;
+        let a_certain_distance_further = ThresholdUtils::calculate_sloped_threshold_by_time(
+            &payment_thresholds,
+            payment_thresholds.maturity_threshold_sec
+                + payment_thresholds.threshold_interval_sec
+                + 333,
         ) as u64;
 
         assert_eq!(
-            seeming_upper_overflow,
-            payment_thresholds.debt_threshold_gwei
+            right_at_the_end,
+            payment_thresholds.permanent_debt_allowed_gwei
         );
         assert_eq!(
-            seeming_lower_overflow,
+            a_certain_distance_further,
             payment_thresholds.permanent_debt_allowed_gwei
         )
     }
@@ -4259,7 +4447,7 @@ mod tests {
         let safe_age_params_arc = Arc::new(Mutex::new(vec![]));
         let safe_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let calculate_payable_threshold_params_arc = Arc::new(Mutex::new(vec![]));
-        let balance = 5555 * WEIS_OF_GWEI as u128;
+        let balance = gwei_to_wei(5555_u64);
         let how_far_in_past = Duration::from_secs(1111 + 1);
         let last_paid_timestamp = SystemTime::now().sub(how_far_in_past);
         let payable_account = PayableAccount {
@@ -4283,7 +4471,7 @@ mod tests {
             suppress_initial_scans: false,
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         });
-        let payable_thresholds_tools = PayableThresholdToolsMock::default()
+        let payable_thresholds_gauge = PayableThresholdsGaugeMock::default()
             .is_innocent_age_params(&safe_age_params_arc)
             .is_innocent_age_result(
                 how_far_in_past.as_secs()
@@ -4298,11 +4486,11 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bootstrapper_config)
             .build();
-        subject.payable_threshold_tools = Box::new(payable_thresholds_tools);
+        subject.payable_threshold_gauge = Box::new(payable_thresholds_gauge);
 
         let result = subject.payable_exceeded_threshold(&payable_account);
 
-        assert_eq!(result, Some(4567 * WEIS_OF_GWEI as u128));
+        assert_eq!(result, Some(gwei_to_wei(4567_u64)));
         let mut safe_age_params = safe_age_params_arc.lock().unwrap();
         let safe_age_single_params = safe_age_params.remove(0);
         assert_eq!(*safe_age_params, vec![]);
@@ -5032,7 +5220,7 @@ mod tests {
     }
 
     #[test]
-    fn financials_request_with_nothing_to_response_to_is_refused() {
+    fn financials_request_with_nothing_to_respond_to_is_refused() {
         let system = System::new("test");
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
@@ -5076,7 +5264,7 @@ mod tests {
     }
 
     #[test]
-    fn financials_request_allows_only_one_kind_of_view_into_books_a_time() {
+    fn financials_request_allows_only_one_kind_of_view_into_books_at_a_time() {
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
                 make_populated_accountant_config_with_defaults(),
@@ -5698,7 +5886,7 @@ mod tests {
         assert_compute_financials_tests_range_query_on_too_big_values_in_input(
             request,
             "Range query for payable: Max amount requested too big. \
-             Should be under 9223372036854775807, not like: 18446744073709551615",
+             Should be less than or equal to 9223372036854775807, not: 18446744073709551615",
         )
     }
 
@@ -5721,7 +5909,7 @@ mod tests {
         assert_compute_financials_tests_range_query_on_too_big_values_in_input(
             request,
             "Range query for receivable: Max age requested too big. \
-             Should be under 9223372036854775807, not like: 18446744073709551615",
+             Should be less than or equal to 9223372036854775807, not: 18446744073709551615",
         )
     }
 

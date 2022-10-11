@@ -6,8 +6,8 @@ use crate::accountant::big_int_db_processor::{
 };
 use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
-    to_time_t, vigilant_flatten, AssemblerFeeder, CustomQuery, DaoFactoryReal, RangeStmConfig,
-    TopStmConfig,
+    to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal, RangeStmConfig, TopStmConfig,
+    VigilantFlatten,
 };
 use crate::accountant::receivable_dao::ReceivableDaoError::RusqliteError;
 use crate::accountant::{checked_conversion, ThresholdUtils};
@@ -167,7 +167,7 @@ impl ReceivableDao for ReceivableDaoReal {
                     and b.wallet_address is null
             "
         );
-        vigilant_flatten(self.conn
+        self.conn
             .prepare(sql)
             .expect("Couldn't prepare statement")
             .query_map(
@@ -180,7 +180,8 @@ impl ReceivableDao for ReceivableDaoReal {
                 },
                 Self::form_receivable_account,
             )
-            .expect("Couldn't retrieve new delinquencies: database corruption"))
+            .expect("Couldn't retrieve new delinquencies: database corruption")
+            .vigilant_flatten()
             .collect()
     }
 
@@ -197,16 +198,15 @@ impl ReceivableDao for ReceivableDaoReal {
         let (unban_balance_high_b, unban_balance_low_b) = BigIntDivider::deconstruct(
             (payment_thresholds.unban_below_gwei as i128) * WEIS_OF_GWEI,
         );
-        vigilant_flatten(
-            stmt.query_map(
-                named_params! {
-                    ":unban_balance_high_b": unban_balance_high_b,
-                    ":unban_balance_low_b": unban_balance_low_b
-                },
-                Self::form_receivable_account,
-            )
-            .expect("Couldn't retrieve new delinquencies: database corruption"),
+        stmt.query_map(
+            named_params! {
+                ":unban_balance_high_b": unban_balance_high_b,
+                ":unban_balance_low_b": unban_balance_low_b
+            },
+            Self::form_receivable_account,
         )
+        .expect("Couldn't retrieve new delinquencies: database corruption")
+        .vigilant_flatten()
         .collect()
     }
 

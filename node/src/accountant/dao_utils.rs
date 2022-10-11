@@ -15,6 +15,7 @@ use masq_lib::utils::ExpectValue;
 use rusqlite::{Row, ToSql};
 use std::cell::RefCell;
 use std::fmt::Display;
+use std::iter::FlatMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::time::SystemTime;
@@ -188,7 +189,7 @@ impl<N: Copy + Display> CustomQuery<N> {
                 value_fetcher,
             )
             .unwrap_or_else(|e| panic!("database corrupt: {}", e))
-            .flatten()
+            .vigilant_flatten()
             .collect::<Vec<R>>()
     }
 
@@ -288,11 +289,18 @@ fn to_age(timestamp: SystemTime) -> u64 {
     (to_time_t(SystemTime::now()) - to_time_t(timestamp)) as u64
 }
 
-pub fn vigilant_flatten<T>(
-    collection: impl Iterator<Item = rusqlite::Result<T>>,
-) -> impl Iterator<Item = T> {
-    collection.flat_map(|item|item.map_err(|err|panic!("discovered an error from a preceding operation when flattening produced Result structures: {:?}", err)))
+pub trait VigilantFlatten {
+    fn vigilant_flatten<R>(
+        self,
+    ) -> FlatMap<Self, rusqlite::Result<R>, fn(rusqlite::Result<R>) -> rusqlite::Result<R>>
+    where
+        Self: Iterator<Item = rusqlite::Result<R>> + Sized,
+    {
+        self.flat_map(|item: rusqlite::Result<R>|item.map_err(|err|panic!("discovered an error from a preceding operation when flattening produced Result structures: {:?}", err)))
+    }
 }
+
+impl<T: Iterator<Item = rusqlite::Result<R>>, R> VigilantFlatten for T {}
 
 #[cfg(test)]
 mod tests {
@@ -490,7 +498,7 @@ mod tests {
         let collection = vec![Ok(56_u16), Ok(0), Ok(6789)];
         let iterator = collection.into_iter();
 
-        let result = vigilant_flatten(iterator).collect::<Vec<_>>();
+        let result = iterator.vigilant_flatten().collect::<Vec<_>>();
 
         assert_eq!(result, vec![56, 0, 6789])
     }
@@ -507,6 +515,6 @@ mod tests {
         ];
         let iterator = collection.into_iter();
 
-        let _ = vigilant_flatten(iterator).collect::<Vec<_>>();
+        let _ = iterator.vigilant_flatten().collect::<Vec<_>>();
     }
 }

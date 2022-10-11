@@ -19,9 +19,7 @@ use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
-use crate::sub_lib::accountant::{
-    AccountantConfig, MessageIdGenerator, PaymentThresholds, WEIS_OF_GWEI,
-};
+use crate::sub_lib::accountant::{AccountantConfig, MessageIdGenerator, PaymentThresholds};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
@@ -825,51 +823,6 @@ pub fn convert_to_all_string_values(str_args: Vec<(&str, &str)>) -> Vec<(String,
         .into_iter()
         .map(|(a, b)| (a.to_string(), b.to_string()))
         .collect()
-}
-
-pub fn assert_on_sloped_segment_of_payment_thresholds_and_its_proper_alignment<F>(
-    tested_fn: F,
-    payment_thresholds: PaymentThresholds,
-    higher_corner_timestamp: u64,
-    middle_point_timestamp: u64,
-    lower_corner_timestamp: u64,
-) where
-    F: Fn(&PaymentThresholds, u64) -> i128,
-{
-    let higher_corner_point = tested_fn(&payment_thresholds, higher_corner_timestamp);
-    let middle_point = tested_fn(&payment_thresholds, middle_point_timestamp);
-    let lower_corner_point = tested_fn(&payment_thresholds, lower_corner_timestamp);
-
-    let allowed_imprecision = 1 * WEIS_OF_GWEI;
-    let ideal_template_higher = payment_thresholds.debt_threshold_gwei as i128 * WEIS_OF_GWEI;
-    let ideal_template_middle = ((payment_thresholds.debt_threshold_gwei
-        - payment_thresholds.permanent_debt_allowed_gwei)
-        / 2
-        + payment_thresholds.permanent_debt_allowed_gwei) as i128
-        * WEIS_OF_GWEI;
-    let ideal_template_lower =
-        payment_thresholds.permanent_debt_allowed_gwei as i128 * WEIS_OF_GWEI;
-    assert!(
-        higher_corner_point <= ideal_template_higher + allowed_imprecision
-            && ideal_template_higher - allowed_imprecision <= higher_corner_point,
-        "ideal: {}, real: {}",
-        ideal_template_higher,
-        higher_corner_point
-    );
-    assert!(
-        middle_point <= ideal_template_middle + allowed_imprecision
-            && ideal_template_middle - allowed_imprecision <= middle_point,
-        "ideal: {}, real: {}",
-        ideal_template_middle,
-        middle_point
-    );
-    assert!(
-        lower_corner_point <= ideal_template_lower + allowed_imprecision
-            && ideal_template_lower - allowed_imprecision <= lower_corner_point,
-        "ideal: {}, real: {}",
-        ideal_template_lower,
-        lower_corner_point
-    );
 }
 
 #[derive(Default)]
