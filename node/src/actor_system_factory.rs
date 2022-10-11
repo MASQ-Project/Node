@@ -602,7 +602,6 @@ impl LogRecipientSetter for LogRecipientSetterReal {
 mod tests {
     use super::*;
     use crate::accountant::check_sqlite_fns::CheckSqliteFunctionsDefinedByUs;
-    use crate::accountant::receivable_dao::ReceivableDaoReal;
     use crate::accountant::test_utils::bc_from_ac_plus_earning_wallet;
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
@@ -1903,13 +1902,8 @@ mod tests {
             "actor_system_factory",
             "our_big_int_sqlite_functions_are_linked_to_receivable_dao_within_accountant",
         );
-        let mut accountant_config = make_populated_accountant_config_with_defaults();
-        accountant_config.payment_thresholds.debt_threshold_gwei = 1000000;
-        accountant_config
-            .payment_thresholds
-            .permanent_debt_allowed_gwei = 1000;
-        accountant_config.payment_thresholds.unban_below_gwei = 1000;
-        let db_conn = DbInitializerReal::default()
+        let accountant_config = make_populated_accountant_config_with_defaults();
+        let _ = DbInitializerReal::default()
             .initialize(
                 data_dir.as_ref(),
                 true,

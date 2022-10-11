@@ -482,28 +482,47 @@ fn configure_accountant_config(
     let suppress_initial_scans =
         value_m!(multi_config, "scans", String).unwrap_or_else(|| "on".to_string()) == *"off";
 
+    let scan_intervals = process_combined_params(
+        "scan-intervals",
+        multi_config,
+        persist_config,
+        |str: &str| ScanIntervals::try_from(str),
+        |pc: &dyn PersistentConfiguration| pc.scan_intervals(),
+        |pc: &mut dyn PersistentConfiguration, intervals| pc.set_scan_intervals(intervals),
+    )?;
+    let payment_thresholds = process_combined_params(
+        "payment-thresholds",
+        multi_config,
+        persist_config,
+        |str: &str| PaymentThresholds::try_from(str),
+        |pc: &dyn PersistentConfiguration| pc.payment_thresholds(),
+        |pc: &mut dyn PersistentConfiguration, curves| pc.set_payment_thresholds(curves),
+    )?;
+
+    check_payment_thresholds(&payment_thresholds)?;
+
     let accountant_config = AccountantConfig {
-        scan_intervals: process_combined_params(
-            "scan-intervals",
-            multi_config,
-            persist_config,
-            |str: &str| ScanIntervals::try_from(str),
-            |pc: &dyn PersistentConfiguration| pc.scan_intervals(),
-            |pc: &mut dyn PersistentConfiguration, intervals| pc.set_scan_intervals(intervals),
-        )?,
-        payment_thresholds: process_combined_params(
-            "payment-thresholds",
-            multi_config,
-            persist_config,
-            |str: &str| PaymentThresholds::try_from(str),
-            |pc: &dyn PersistentConfiguration| pc.payment_thresholds(),
-            |pc: &mut dyn PersistentConfiguration, curves| pc.set_payment_thresholds(curves),
-        )?,
+        scan_intervals,
+        payment_thresholds,
         suppress_initial_scans,
         when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
     };
     config.accountant_config_opt = Some(accountant_config);
     Ok(())
+}
+
+fn check_payment_thresholds(
+    payment_thresholds: &PaymentThresholds,
+) -> Result<(), ConfiguratorError> {
+    if payment_thresholds.debt_threshold_gwei > payment_thresholds.permanent_debt_allowed_gwei {
+        Ok(())
+    } else {
+        let msg = format!(
+            "Value of DebtThresholdGwei ({}) must be bigger than of PermanentDebtAllowedGwei ({})",
+            payment_thresholds.debt_threshold_gwei, payment_thresholds.permanent_debt_allowed_gwei
+        );
+        Err(ConfiguratorError::required("payment-thresholds", &msg))
+    }
 }
 
 fn configure_rate_pack(
@@ -601,6 +620,7 @@ mod tests {
     use crate::db_config::config_dao::{ConfigDao, ConfigDaoReal};
     use crate::db_config::persistent_configuration::PersistentConfigError::NotPresent;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
+    use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
     use crate::sub_lib::utils::make_new_test_multi_config;
@@ -1697,7 +1717,7 @@ mod tests {
     }
 
     #[test]
-    fn unprivileged_parse_args_accountant_config_aggregated_params_command_line_values_different_from_database(
+    fn unprivileged_parse_args_accountant_config_with_combined_params_from_command_line_different_from_database(
     ) {
         running_test();
         let set_scan_intervals_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1708,7 +1728,7 @@ mod tests {
             "--scan-intervals",
             "180|150|130",
             "--payment-thresholds",
-            "10000|10000|1000|20000|1000|20000",
+            "100000|10000|1000|20000|1000|20000",
         ];
         let mut config = BootstrapperConfig::new();
         let multi_config = make_simplified_multi_config(args);
@@ -1751,7 +1771,7 @@ mod tests {
             },
             payment_thresholds: PaymentThresholds {
                 threshold_interval_sec: 1000,
-                debt_threshold_gwei: 10000,
+                debt_threshold_gwei: 100000,
                 payment_grace_period_sec: 1000,
                 maturity_threshold_sec: 10000,
                 permanent_debt_allowed_gwei: 20000,
@@ -1766,7 +1786,7 @@ mod tests {
         let set_payment_thresholds_params = set_payment_thresholds_params_arc.lock().unwrap();
         assert_eq!(
             *set_payment_thresholds_params,
-            vec!["10000|10000|1000|20000|1000|20000".to_string()]
+            vec!["100000|10000|1000|20000|1000|20000".to_string()]
         )
     }
 
@@ -1970,6 +1990,52 @@ mod tests {
         };
         assert_eq!(actual_rate_pack, expected_rate_pack);
         //no prepared results for the setter methods, that is they're uncalled
+    }
+
+    #[test]
+    fn configure_accountant_config_discovers_invalid_combination_in_payment_thresholds_params_from_user_input(
+    ) {
+        let multi_config = make_simplified_multi_config([
+            "--payment-thresholds",
+            "19999|10000|1000|20000|1000|20000",
+        ]);
+        let mut bootstrapper_config = BootstrapperConfig::new();
+        let mut persistent_config =
+            configure_default_persistent_config(ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL)
+                .set_payment_thresholds_result(Ok(()));
+
+        let result = configure_accountant_config(
+            &multi_config,
+            &mut bootstrapper_config,
+            &mut persistent_config,
+        );
+
+        let expected_msg = "Value of DebtThresholdGwei (19999) must be bigger than of PermanentDebtAllowedGwei (20000)";
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::required(
+                "payment-thresholds",
+                expected_msg
+            ))
+        )
+    }
+
+    #[test]
+    fn check_payment_thresholds_works_for_equal() {
+        let mut payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
+        payment_thresholds.permanent_debt_allowed_gwei = 10000;
+        payment_thresholds.debt_threshold_gwei = 10000;
+
+        let result = check_payment_thresholds(&payment_thresholds);
+
+        let expected_msg = "Value of DebtThresholdGwei (10000) must be bigger than of PermanentDebtAllowedGwei (10000)";
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::required(
+                "payment-thresholds",
+                expected_msg
+            ))
+        )
     }
 
     #[test]

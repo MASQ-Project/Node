@@ -31,15 +31,9 @@ use std::time::SystemTime;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum ReceivableDaoError {
-    SignConversion(SignConversionError<u128>),
+    SignConversion(u128),
     ConfigurationError(String),
     RusqliteError(String),
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum SignConversionError<T> {
-    Msg(String),
-    BadNum(T),
 }
 
 impl From<PersistentConfigError> for ReceivableDaoError {

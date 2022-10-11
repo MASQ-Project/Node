@@ -858,8 +858,8 @@ mod tests {
     impl<T> UpdateOverflowHandler<T> for UpdateOverflowHandlerMock {
         fn update_with_overflow<'a>(
             &self,
-            conn: Either<&dyn ConnectionWrapper, &Transaction>,
-            config: BigIntSqlConfig<'a, T>,
+            _conn: Either<&dyn ConnectionWrapper, &Transaction>,
+            _config: BigIntSqlConfig<'a, T>,
         ) -> Result<(), BigIntDbError> {
             self.update_with_overflow_params.lock().unwrap().push(());
             self.update_with_overflow_results.borrow_mut().remove(0)

@@ -1383,7 +1383,6 @@ impl PayableThresholdsGauge for PayableThresholdsGaugeReal {
     }
 
     fn is_innocent_balance(&self, balance: u128, limit: u128) -> bool {
-        eprintln!("coming balance: {}, limit: {}", balance, limit);
         balance <= limit
     }
 
@@ -1401,14 +1400,6 @@ pub struct ThresholdUtils {}
 
 impl ThresholdUtils {
     pub fn slope(payment_thresholds: &PaymentThresholds, for_wei_computation: bool) -> f64 {
-        if payment_thresholds.debt_threshold_gwei <= payment_thresholds.permanent_debt_allowed_gwei
-        {
-            panic!(
-                "Debt threshold ({}) cannot be smaller than permanent debt allowed ({})",
-                payment_thresholds.debt_threshold_gwei,
-                payment_thresholds.permanent_debt_allowed_gwei
-            )
-        }
         let slope = (payment_thresholds.permanent_debt_allowed_gwei as f64
             - payment_thresholds.debt_threshold_gwei as f64)
             / Self::convert(payment_thresholds.threshold_interval_sec) as f64;
@@ -1433,7 +1424,6 @@ impl ThresholdUtils {
             ThresholdUtils::convert(payment_thresholds.debt_threshold_gwei),
         );
         let y = m * time as f64 + b;
-        eprintln!("calculated y {}", y);
         Self::test_valid_scope(y, payment_thresholds, time);
         y
     }
@@ -1467,18 +1457,12 @@ impl ThresholdUtils {
     }
 }
 
-pub fn sign_conversion<T: Copy, S: TryFrom<T>>(unsigned: T) -> Result<S, T> {
-    S::try_from(unsigned).map_err(|_| unsigned)
+pub fn sign_conversion<T: Copy, S: TryFrom<T>>(num: T) -> Result<S, T> {
+    S::try_from(num).map_err(|_| num)
 }
 
-pub fn checked_conversion<T: Copy + Display, S: TryFrom<T>>(unsigned: T) -> S {
-    politely_checked_conversion(unsigned).unwrap_or_else(|msg| panic!("{}", msg))
-}
-
-pub fn politely_checked_conversion<T: Copy + Display, S: TryFrom<T>>(
-    unsigned: T,
-) -> Result<S, String> {
-    sign_conversion(unsigned).map_err(|num| {
+pub fn politely_checked_conversion<T: Copy + Display, S: TryFrom<T>>(num: T) -> Result<S, String> {
+    sign_conversion(num).map_err(|num| {
         format!(
             "Overflow detected with {}: cannot be converted from {} to {}",
             num,
@@ -1488,12 +1472,16 @@ pub fn politely_checked_conversion<T: Copy + Display, S: TryFrom<T>>(
     })
 }
 
+pub fn checked_conversion<T: Copy + Display, S: TryFrom<T>>(num: T) -> S {
+    politely_checked_conversion(num).unwrap_or_else(|msg| panic!("{}", msg))
+}
+
 pub fn gwei_to_wei<T: Mul<Output = T> + From<u32> + From<S>, S>(gwei: S) -> T {
-    (T::from(gwei)).mul(T::from(1_000_000_000))
+    (T::from(gwei)).mul(T::from(WEIS_OF_GWEI as u32))
 }
 
 pub fn wei_to_gwei<T: TryFrom<S>, S: Display + Copy + Div<Output = S> + From<u32>>(wei: S) -> T {
-    checked_conversion::<S, T>(wei.div(S::from(1_000_000_000)))
+    checked_conversion::<S, T>(wei.div(S::from(WEIS_OF_GWEI as u32)))
 }
 
 fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
@@ -1520,7 +1508,7 @@ pub mod check_sqlite_fns {
             _msg: CheckSqliteFunctionsDefinedByUs,
             _ctx: &mut Self::Context,
         ) -> Self::Result {
-            //hypothesis is that this call blows up in the middle of the operation if our defined functions haven't been hooked up
+            //this call blows up in the middle of the operation if our own sqlite functions haven't been hooked up
             self.receivable_dao
                 .new_delinquencies(SystemTime::now(), &DEFAULT_PAYMENT_THRESHOLDS);
             System::current().stop();
@@ -1560,7 +1548,7 @@ mod tests {
     use crate::accountant::dao_utils::{to_time_t, CustomQuery};
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
-    use crate::accountant::receivable_dao::{ReceivableAccount, SignConversionError};
+    use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::test_utils::{
         bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_pending_payable_fingerprint,
         make_receivable_account, BannedDaoFactoryMock, MessageIdGeneratorMock,
@@ -1576,7 +1564,6 @@ mod tests {
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
     use crate::bootstrapper::BootstrapperConfig;
-    use crate::database::db_initializer::Suppression::No;
     use crate::sub_lib::accountant::{
         ExitServiceConsumed, RoutingServiceConsumed, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
         WEIS_OF_GWEI,
@@ -3753,9 +3740,8 @@ mod tests {
     fn record_service_provided_handles_overflow() {
         init_test_logging();
         let wallet = make_wallet("booga");
-        let receivable_dao = ReceivableDaoMock::new().more_money_receivable_result(Err(
-            ReceivableDaoError::SignConversion(SignConversionError::BadNum(1234)),
-        ));
+        let receivable_dao = ReceivableDaoMock::new()
+            .more_money_receivable_result(Err(ReceivableDaoError::SignConversion(1234)));
         let subject = AccountantBuilder::default()
             .receivable_dao(receivable_dao)
             .build();
@@ -4240,10 +4226,7 @@ mod tests {
 
     #[test]
     fn testing_granularity_calculate_sloped_threshold_by_time() {
-        fn gap_tester(
-            referential_point: u64,
-            payment_thresholds: &PaymentThresholds,
-        ) -> Option<u64> {
+        fn gap_tester(payment_thresholds: &PaymentThresholds) -> Option<u64> {
             let cached = (0_u64..20).map(|to_add| {
                 ThresholdUtils::calculate_sloped_threshold_by_time(
                     &payment_thresholds,
@@ -4265,7 +4248,7 @@ mod tests {
                     .or_insert(1);
             });
             let mut sortable = counts_of_same_size_count_groups.drain().collect::<Vec<_>>();
-            sortable.sort_by_key(|(key, count)| *count);
+            sortable.sort_by_key(|(_key, count)| *count);
             let (biggest_groups_size, occurrence) = sortable.last().expect("no values to analyze");
             //checking if the sample has enough weight compared to 20 picked elements at the beginning
             if biggest_groups_size * occurrence >= 15 {
@@ -4284,11 +4267,8 @@ mod tests {
                 threshold_interval_sec: 10_000,
                 unban_below_gwei: 100,
             };
-            let referential_point =
-                ThresholdUtils::calculate_sloped_threshold_by_time(&payment_thresholds, 1000)
-                    as u64;
 
-            let finding_under_135_degree = gap_tester(referential_point, &payment_thresholds);
+            let finding_under_135_degree = gap_tester(&payment_thresholds);
 
             if let Some(seconds_needed_for_smallest_detected_change_in_height) =
                 finding_under_135_degree
@@ -4307,11 +4287,8 @@ mod tests {
                 threshold_interval_sec: 10_000,
                 unban_below_gwei: 100,
             };
-            let referential_point =
-                ThresholdUtils::calculate_sloped_threshold_by_time(&payment_thresholds, 1000)
-                    as u64;
 
-            let finding_under_150_degree = gap_tester(referential_point, &payment_thresholds);
+            let finding_under_150_degree = gap_tester(&payment_thresholds);
 
             if let Some(seconds_needed_for_smallest_detected_change_in_height) =
                 finding_under_150_degree
@@ -4340,23 +4317,6 @@ mod tests {
         let slope = ThresholdUtils::slope(&payment_thresholds, true);
 
         assert_eq!(slope, -3.75e25)
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Debt threshold (1000000) cannot be smaller than permanent debt allowed (1000001)"
-    )]
-    fn slope_does_not_tolerate_disproportional_parameters() {
-        let payment_thresholds = PaymentThresholds {
-            maturity_threshold_sec: 20,
-            payment_grace_period_sec: 33,
-            permanent_debt_allowed_gwei: 1_000_001,
-            debt_threshold_gwei: 1_000_000,
-            threshold_interval_sec: 100,
-            unban_below_gwei: 0,
-        };
-
-        let _ = ThresholdUtils::slope(&payment_thresholds, false);
     }
 
     #[test]
@@ -5393,8 +5353,26 @@ mod tests {
         )
     }
 
+    macro_rules! extract_ages_from_accounts {
+        ($account_type: ident, $main_structure: expr, $account_specific_field_opt: ident) => {{
+            let accounts_collection = &$main_structure
+                .query_results_opt
+                .as_ref()
+                .unwrap()
+                .$account_specific_field_opt
+                .as_ref()
+                .unwrap();
+            accounts_collection
+                .iter()
+                .map(|account| account.age_s)
+                .collect::<Vec<u64>>()
+        }};
+    }
+
     #[test]
     fn compute_financials_processes_request_with_top_records_only_and_balance_ordering() {
+        //take that the tested logic doesn't contain anything about an actual process of ordering,
+        //that part is in the responsibility of the database manager, answering the specific SQL query
         let payable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_accounts_retrieved = vec![PayableAccount {
@@ -5406,18 +5384,11 @@ mod tests {
         let payable_dao = PayableDaoMock::new()
             .custom_query_params(&payable_custom_query_params_arc)
             .custom_query_result(Some(payable_accounts_retrieved));
-        let receivable_accounts_retrieved = vec![
-            ReceivableAccount {
-                wallet: make_wallet("efe4848"),
-                balance_wei: 3_788_455_600_556_898,
-                last_received_timestamp: SystemTime::now().sub(Duration::from_secs(6500)),
-            },
-            ReceivableAccount {
-                wallet: make_wallet("ef947ca"),
-                balance_wei: 85_121_000_656_445,
-                last_received_timestamp: SystemTime::now().sub(Duration::from_secs(8989)),
-            },
-        ];
+        let receivable_accounts_retrieved = vec![ReceivableAccount {
+            wallet: make_wallet("efe4848"),
+            balance_wei: 3_788_455_600_556_898,
+            last_received_timestamp: SystemTime::now().sub(Duration::from_secs(6500)),
+        }];
         let receivable_dao = ReceivableDaoMock::new()
             .custom_query_params(&receivable_custom_query_params_arc)
             .custom_query_result(Some(receivable_accounts_retrieved));
@@ -5444,24 +5415,10 @@ mod tests {
 
         let after = SystemTime::now();
         let (computed_response, context_id) = UiFinancialsResponse::fmb(result).unwrap();
-        let extracted_payable_ages = extract_ages_from_ui_payable_accounts(
-            &computed_response
-                .query_results_opt
-                .as_ref()
-                .unwrap()
-                .payable_opt
-                .as_ref()
-                .unwrap(),
-        );
-        let extracted_receivable_ages = extract_ages_from_ui_receivable_accounts(
-            &computed_response
-                .query_results_opt
-                .as_ref()
-                .unwrap()
-                .receivable_opt
-                .as_ref()
-                .unwrap(),
-        );
+        let extracted_payable_ages =
+            extract_ages_from_accounts!(UiPayableAccount, computed_response, payable_opt);
+        let extracted_receivable_ages =
+            extract_ages_from_accounts!(UiReceivableAccount, computed_response, receivable_opt);
         assert_eq!(context_id, context_id_expected);
         assert_eq!(
             computed_response,
@@ -5474,18 +5431,11 @@ mod tests {
                         balance_gwei: 58,
                         pending_payable_hash_opt: None
                     },]),
-                    receivable_opt: Some(vec![
-                        UiReceivableAccount {
-                            wallet: make_wallet("efe4848").to_string(),
-                            age_s: extracted_receivable_ages[0],
-                            balance_gwei: 3_788_455
-                        },
-                        UiReceivableAccount {
-                            wallet: make_wallet("ef947ca").to_string(),
-                            age_s: extracted_receivable_ages[1],
-                            balance_gwei: 85_121
-                        }
-                    ])
+                    receivable_opt: Some(vec![UiReceivableAccount {
+                        wallet: make_wallet("efe4848").to_string(),
+                        age_s: extracted_receivable_ages[0],
+                        balance_gwei: 3_788_455
+                    },])
                 }),
             }
         );
@@ -5498,10 +5448,6 @@ mod tests {
         assert!(
             extracted_receivable_ages[0] >= 6500
                 && extracted_receivable_ages[0] <= 6500 + time_needed_for_the_act_in_full_sec
-        );
-        assert!(
-            extracted_receivable_ages[1] >= 8989
-                && extracted_receivable_ages[1] <= 8989 + time_needed_for_the_act_in_full_sec
         );
         let payable_custom_query_params = payable_custom_query_params_arc.lock().unwrap();
         assert_eq!(
@@ -5581,14 +5527,6 @@ mod tests {
         )
     }
 
-    fn extract_ages_from_ui_payable_accounts(accounts: &[UiPayableAccount]) -> Vec<u64> {
-        accounts.iter().map(|account| account.age_s).collect()
-    }
-
-    fn extract_ages_from_ui_receivable_accounts(accounts: &[UiReceivableAccount]) -> Vec<u64> {
-        accounts.iter().map(|account| account.age_s).collect()
-    }
-
     #[test]
     fn compute_financials_processes_request_with_range_queries_only() {
         let payable_custom_query_params_arc = Arc::new(Mutex::new(vec![]));
@@ -5650,24 +5588,10 @@ mod tests {
 
         let after = SystemTime::now();
         let (computed_response, context_id) = UiFinancialsResponse::fmb(result).unwrap();
-        let extracted_payable_ages = extract_ages_from_ui_payable_accounts(
-            computed_response
-                .query_results_opt
-                .as_ref()
-                .unwrap()
-                .payable_opt
-                .as_ref()
-                .unwrap(),
-        );
-        let extracted_receivable_ages = extract_ages_from_ui_receivable_accounts(
-            computed_response
-                .query_results_opt
-                .as_ref()
-                .unwrap()
-                .receivable_opt
-                .as_ref()
-                .unwrap(),
-        );
+        let extracted_payable_ages =
+            extract_ages_from_accounts!(UiPayableAccount, computed_response, payable_opt);
+        let extracted_receivable_ages =
+            extract_ages_from_accounts!(UiReceivableAccount, computed_response, receivable_opt);
         assert_eq!(context_id, context_id_expected);
         assert_eq!(
             computed_response,
@@ -5790,57 +5714,13 @@ mod tests {
                 }),
             }),
         };
-        let before = SystemTime::now();
 
         let result = subject.compute_financials(&request, context_id_expected);
 
-        let after = SystemTime::now();
-        let (computed_response, context_id) = UiFinancialsResponse::fmb(result).unwrap();
-        let extracted_receivable_ages = extract_ages_from_ui_receivable_accounts(
-            computed_response
-                .query_results_opt
-                .as_ref()
-                .unwrap()
-                .receivable_opt
-                .as_ref()
-                .unwrap(),
-        );
-        assert_eq!(context_id, context_id_expected);
-        assert_eq!(
-            computed_response,
-            UiFinancialsResponse {
-                stats_opt: None,
-                query_results_opt: Some(QueryResults {
-                    payable_opt: None,
-                    receivable_opt: Some(vec![UiReceivableAccount {
-                        wallet: make_wallet("efe4848").to_string(),
-                        age_s: extracted_receivable_ages[0],
-                        balance_gwei: 60
-                    }])
-                })
-            }
-        );
-        let time_needed_for_the_act_to_finish_its_job_in_secs =
-            (after.duration_since(before).unwrap().as_millis() / 1000 + 1) as u64;
-        assert!(
-            3333 <= extracted_receivable_ages[0]
-                && extracted_receivable_ages[0]
-                    <= 3333 + time_needed_for_the_act_to_finish_its_job_in_secs
-        );
-        let receivable_custom_query_params = receivable_custom_query_params_arc.lock().unwrap();
-        let actual_timestamp =
-            extract_timestamp_from_custom_query(&receivable_custom_query_params[0]);
-        assert_eq!(
-            *receivable_custom_query_params,
-            vec![CustomQuery::RangeQuery {
-                min_age_s: 2000,
-                max_age_s: 200000,
-                min_amount_gwei: 0,
-                max_amount_gwei: 150000000000,
-                timestamp: actual_timestamp
-            }]
-        );
-        assert!(before <= actual_timestamp && actual_timestamp <= after)
+        let (response, _) = UiFinancialsResponse::fmb(result).unwrap();
+        let response_guts = response.query_results_opt.unwrap();
+        assert_eq!(response_guts.payable_opt.is_some(), false);
+        assert_eq!(response_guts.receivable_opt.is_some(), true);
     }
 
     fn assert_compute_financials_tests_range_query_on_too_big_values_in_input(
@@ -6113,10 +5993,10 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128"
+        expected = "Overflow detected with 170141183460469231731687303715884105728: cannot be converted from u128 to i128"
     )]
     fn checked_conversion_works_for_overflow() {
-        checked_conversion::<u128, i128>(u128::MAX);
+        checked_conversion::<u128, i128>(i128::MAX as u128 + 1);
     }
 
     #[test]
@@ -6128,14 +6008,14 @@ mod tests {
 
     #[test]
     fn gwei_to_wei_works() {
-        let result: u128 = gwei_to_wei(12546_u64);
+        let result: u128 = gwei_to_wei(12_546_u64);
 
         assert_eq!(result, 12_546_000_000_000)
     }
 
     #[test]
     fn wei_to_gwei_works() {
-        let result: u64 = wei_to_gwei((127_300_050_500_u64 + 111) as u128);
+        let result: u64 = wei_to_gwei(127_800_050_500_u128);
 
         assert_eq!(result, 127)
     }

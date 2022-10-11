@@ -1438,7 +1438,7 @@ mod tests {
             ("MASQ_MAPPING_PROTOCOL", "pmp"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
             ("MASQ_NEIGHBORS", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
-            ("MASQ_PAYMENT_THRESHOLDS","1234|50000|1000|1234|19000|20000"),
+            ("MASQ_PAYMENT_THRESHOLDS","12345|50000|1000|1234|19000|20000"),
             ("MASQ_RATE_PACK","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
@@ -1469,7 +1469,7 @@ mod tests {
             ("mapping-protocol", "pmp", Configured),
             ("neighborhood-mode", "originate-only", Configured),
             ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
-            ("payment-thresholds","1234|50000|1000|1234|19000|20000",Configured),
+            ("payment-thresholds","12345|50000|1000|1234|19000|20000",Configured),
             ("rate-pack","1|3|3|8",Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
@@ -1528,7 +1528,7 @@ mod tests {
             config_file.write_all(b"scans = \"off\"\n").unwrap();
             config_file.write_all(b"rate-pack = \"2|2|2|2\"\n").unwrap();
             config_file
-                .write_all(b"payment-thresholds = \"33|55|33|646|999|999\"\n")
+                .write_all(b"payment-thresholds = \"3333|55|33|646|999|999\"\n")
                 .unwrap();
             config_file
                 .write_all(b"scan-intervals = \"111|100|99\"\n")
@@ -1572,7 +1572,7 @@ mod tests {
                 .write_all(b"rate-pack = \"55|50|60|61\"\n")
                 .unwrap();
             config_file
-                .write_all(b"payment-thresholds = \"1000|1000|3000|3333|10000|20000\"\n")
+                .write_all(b"payment-thresholds = \"4000|1000|3000|3333|10000|20000\"\n")
                 .unwrap();
             config_file
                 .write_all(b"scan-intervals = \"555|555|555\"\n")
@@ -1630,7 +1630,7 @@ mod tests {
             ("neighbors", "", Blank),
             (
                 "payment-thresholds",
-                "1000|1000|3000|3333|10000|20000",
+                "4000|1000|3000|3333|10000|20000",
                 Configured,
             ),
             ("rate-pack", "55|50|60|61", Configured),

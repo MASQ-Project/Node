@@ -141,24 +141,21 @@ mod tests {
     use std::fmt::{Debug, Display};
     use std::time::SystemTime;
 
-    fn asser_check_query_is_within_tech_limits<T>(
-        query: CustomQuery<T>,
-        err_msg: &str,
-        context_id: u64,
-    ) where
+    fn assert_check_query_is_within_tech_limits<T>(query: CustomQuery<T>, err_msg: &str)
+    where
         T: Ord + Copy + Display + TryFrom<u64>,
         u64: TryFrom<T>,
         <u64 as TryFrom<T>>::Error: Debug,
         <T as TryFrom<u64>>::Error: Debug,
     {
-        let result = check_query_is_within_tech_limits(&query, "payable", context_id);
+        let result = check_query_is_within_tech_limits(&query, "payable", 1234);
 
         assert_eq!(
             result,
             Err(Accountant::financials_bad_news(
                 VALUE_EXCEEDS_ALLOWED_LIMIT,
                 err_msg,
-                context_id
+                1234
             ))
         )
     }
@@ -173,11 +170,10 @@ mod tests {
             timestamp: SystemTime::now(),
         };
 
-        asser_check_query_is_within_tech_limits(
+        assert_check_query_is_within_tech_limits(
             query,
             "Range query for payable: Min age requested \
          too big. Should be less than or equal to 9223372036854775807, not: 9223372036854775808",
-            12345,
         )
     }
 
@@ -191,11 +187,10 @@ mod tests {
             timestamp: SystemTime::now(),
         };
 
-        asser_check_query_is_within_tech_limits(
+        assert_check_query_is_within_tech_limits(
             query,
             "Range query for payable: Max age requested \
          too big. Should be less than or equal to 9223372036854775807, not: 9223372036854775810",
-            33333,
         )
     }
 
@@ -209,11 +204,10 @@ mod tests {
             timestamp: SystemTime::now(),
         };
 
-        asser_check_query_is_within_tech_limits(
+        assert_check_query_is_within_tech_limits(
             query,
             "Range query for payable: Min amount requested \
          too big. Should be less than or equal to 9223372036854775807, not: 9223372036854775816",
-            111222,
         )
     }
 
@@ -227,11 +221,10 @@ mod tests {
             timestamp: SystemTime::now(),
         };
 
-        asser_check_query_is_within_tech_limits(
+        assert_check_query_is_within_tech_limits(
             query,
             "Range query for payable: Max amount requested \
          too big. Should be less than or equal to 9223372036854775807, not: 9223372036854775818",
-            45,
         )
     }
 

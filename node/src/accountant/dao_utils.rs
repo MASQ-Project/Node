@@ -182,10 +182,11 @@ impl<N: Copy + Display> CustomQuery<N> {
         conn.prepare(stm)
             .expect("select statement is wrong")
             .query_map(
-                &*params
+                params
                     .iter()
                     .map(|(param_name, value)| (*param_name, value.as_ref()))
-                    .collect::<Vec<_>>(),
+                    .collect::<Vec<_>>()
+                    .as_slice(),
                 value_fetcher,
             )
             .unwrap_or_else(|e| panic!("database corrupt: {}", e))
@@ -218,13 +219,22 @@ impl<N: Copy + Display> CustomQuery<N> {
         .zip([min_amount, max_amount].into_iter())
         .flat_map(|(param_names, gwei_num)| {
             let wei_num = i128::from(gwei_num) * WEIS_OF_GWEI;
-            let (high_bytes, low_bytes) = BigIntDivider::deconstruct(wei_num);
-            vec![
-                (param_names.0, Box::new(high_bytes) as Box<dyn ToSql>),
-                (param_names.1, Box::new(low_bytes)),
-            ]
+            let big_int_divided = BigIntDivider::deconstruct(wei_num);
+            Self::balance_constraint_as_integer_pair(param_names, big_int_divided)
         })
         .collect()
+    }
+
+    fn balance_constraint_as_integer_pair<'a>(
+        param_names: (&'a str, &'a str),
+        big_int_divided: (i64, i64),
+    ) -> Vec<(&'a str, Box<dyn ToSql>)> {
+        let (high_bytes_param_name, low_bytes_param_name) = param_names;
+        let (high_bytes_value, low_bytes_value) = big_int_divided;
+        vec![
+            (high_bytes_param_name, Box::new(high_bytes_value)),
+            (low_bytes_param_name, Box::new(low_bytes_value)),
+        ]
     }
 
     fn ordering(
