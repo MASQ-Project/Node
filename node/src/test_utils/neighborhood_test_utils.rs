@@ -92,7 +92,7 @@ pub fn neighborhood_from_nodes(
         Some(neighbor) => NeighborhoodConfig {
             mode: NeighborhoodMode::Standard(
                 root.node_addr_opt().unwrap(),
-                vec![NodeDescriptor::from((neighbor, Chain::EthRopsten, cryptde))],
+                vec![NodeDescriptor::from((neighbor, Chain::PolyMumbai, cryptde))],
                 *root.rate_pack(),
             ),
         },

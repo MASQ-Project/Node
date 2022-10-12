@@ -626,7 +626,7 @@ mod tests {
     fn convert_ci_configs_handles_blockchain_mismatch() {
         let multi_config = make_simplified_multi_config([
             "--neighbors",
-            "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678",
+            "masq://polygon-mumbai:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678",
             "--chain",
             DEFAULT_CHAIN.rec().literal_identifier,
         ]);
@@ -637,7 +637,7 @@ mod tests {
             result,
             ConfiguratorError::required(
                 "neighbors",
-                &format!("Mismatched chains. You are requiring access to '{identifier}' (masq://{identifier}:<public key>@<node address>) with descriptor belonging to 'eth-ropsten'",identifier = DEFAULT_CHAIN.rec().literal_identifier)
+                &format!("Mismatched chains. You are requiring access to '{identifier}' (masq://{identifier}:<public key>@<node address>) with descriptor belonging to 'polygon-mumbai'",identifier = DEFAULT_CHAIN.rec().literal_identifier)
             )
         )
     }
@@ -1135,23 +1135,23 @@ mod tests {
     fn convert_ci_configs_handles_leftover_whitespaces_between_descriptors_and_commas() {
         let multi_config = make_simplified_multi_config([
             "--chain",
-            "eth-ropsten",
+            "polygon-mumbai",
             "--fake-public-key",
             "ABCDE",
             "--neighbors",
-            "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@1.2.3.4:5555, masq://eth-ropsten:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542 , masq://eth-ropsten:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504",
+            "masq://polygon-mumbai:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@1.2.3.4:5555, masq://polygon-mumbai:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542 , masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504",
         ]);
         let public_key = PublicKey::new(b"ABCDE");
-        let cryptde = CryptDENull::from(&public_key, Chain::EthRopsten);
+        let cryptde = CryptDENull::from(&public_key, Chain::PolyMumbai);
         let cryptde_traitified = &cryptde as &dyn CryptDE;
 
         let result = convert_ci_configs(&multi_config);
 
         assert_eq!(result, Ok(Some(
             vec![
-                NodeDescriptor::try_from((cryptde_traitified, "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@1.2.3.4:5555")).unwrap(),
-                NodeDescriptor::try_from((cryptde_traitified, "masq://eth-ropsten:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542")).unwrap(),
-                NodeDescriptor::try_from((cryptde_traitified, "masq://eth-ropsten:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504")).unwrap()])
+                NodeDescriptor::try_from((cryptde_traitified, "masq://polygon-mumbai:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@1.2.3.4:5555")).unwrap(),
+                NodeDescriptor::try_from((cryptde_traitified, "masq://polygon-mumbai:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542")).unwrap(),
+                NodeDescriptor::try_from((cryptde_traitified, "masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504")).unwrap()])
             )
         )
     }
@@ -1196,14 +1196,14 @@ mod tests {
     {
         let multi_config = make_simplified_multi_config([
             "--chain",
-            "eth-ropsten",
+            "polygon-mumbai",
             "--neighbors",
-            "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:",
+            "masq://polygon-mumbai:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:",
         ]);
 
         let result = convert_ci_configs(&multi_config);
 
-        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", "Neighbors supplied without ip addresses and ports are not valid: 'masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@<N/A>:<N/A>")])))
+        assert_eq!(result,Err(ConfiguratorError::new(vec![ParamError::new("neighbors", "Neighbors supplied without ip addresses and ports are not valid: 'masq://polygon-mumbai:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@<N/A>:<N/A>")])))
     }
 
     #[test]
@@ -1218,9 +1218,9 @@ mod tests {
         .set_past_neighbors_result(Ok(()));
         let multi_config = make_simplified_multi_config([
             "--chain",
-            "eth-ropsten",
+            "polygon-mumbai",
             "--neighbors",
-            "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
+            "masq://polygon-mumbai:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
             "--db-password",
             "password",
             "--neighborhood-mode",
@@ -1251,7 +1251,7 @@ mod tests {
             vec![(
                 Some(vec![NodeDescriptor::try_from((
                     main_cryptde(),
-                    "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345"
+                    "masq://polygon-mumbai:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345"
                 ))
                 .unwrap()]),
                 "password".to_string()
@@ -1270,7 +1270,7 @@ mod tests {
         .set_past_neighbors_params(&set_past_neighbors_params_arc);
         let multi_config = make_simplified_multi_config([
             "--chain",
-            "eth-ropsten",
+            "polygon-mumbai",
             "--neighborhood-mode",
             "zero-hop",
         ]);
@@ -1302,7 +1302,7 @@ mod tests {
         //no results prepared for set_past_neighbors() and no panic so it was not called
         let descriptor_list = vec![NodeDescriptor::try_from((
             main_cryptde(),
-            "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
+            "masq://polygon-mumbai:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
         ))
         .unwrap()];
 
@@ -1326,7 +1326,7 @@ mod tests {
         );
         let descriptor_list = vec![NodeDescriptor::try_from((
             main_cryptde(),
-            "masq://eth-ropsten:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
+            "masq://polygon-mumbai:UJNoZW5p-PDVqEjpr3b_8jZ_93yPG8i5dOAgE1bhK_A@2.3.4.5:2345",
         ))
         .unwrap()];
 
@@ -1541,7 +1541,7 @@ mod tests {
                 None,
                 None,
                 Some(
-                    "masq://eth-ropsten:AQIDBA@1.2.3.4:1234,masq://eth-ropsten:AgMEBQ@2.3.4.5:2345",
+                    "masq://polygon-mumbai:AQIDBA@1.2.3.4:1234,masq://polygon-mumbai:AgMEBQ@2.3.4.5:2345",
                 ),
                 None,
             )
@@ -1567,12 +1567,12 @@ mod tests {
             &[
                 NodeDescriptor::try_from((
                     main_cryptde(),
-                    "masq://eth-ropsten:AQIDBA@1.2.3.4:1234"
+                    "masq://polygon-mumbai:AQIDBA@1.2.3.4:1234"
                 ))
                 .unwrap(),
                 NodeDescriptor::try_from((
                     main_cryptde(),
-                    "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"
+                    "masq://polygon-mumbai:AgMEBQ@2.3.4.5:2345"
                 ))
                 .unwrap(),
             ]

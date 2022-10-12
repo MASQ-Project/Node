@@ -1585,7 +1585,7 @@ mod tests {
         let connection = result.unwrap();
         let (chn_value, chn_encrypted) = retrieve_config_row(connection.as_ref(), "chain_name");
         let (cs_value, cs_encrypted) = retrieve_config_row(connection.as_ref(), "schema_version");
-        assert_eq!(chn_value, Some("eth-ropsten".to_string()));
+        assert_eq!(chn_value, Some("polygon-mumbai".to_string()));
         assert_eq!(chn_encrypted, false);
         assert_eq!(cs_value, Some("2".to_string()));
         assert_eq!(cs_encrypted, false);
@@ -1898,7 +1898,7 @@ mod tests {
         let config_table_after = fetch_all_from_config_table(&conn);
         assert_eq!(config_table_before, config_table_after);
         assert_on_schema_5_was_adopted(conn_schema5.as_ref());
-        TestLogHandler::new().exists_log_containing("WARN: DbMigrator: Migration from 4 to 5: database belonging to the chain 'eth-ropsten'; \
+        TestLogHandler::new().exists_log_containing("WARN: DbMigrator: Migration from 4 to 5: database belonging to the chain 'polygon-mumbai'; \
          we discovered possibly abandoned transactions that are said yet to be pending, these are: \
           '0x0000000000000000000000000000000000000000000000000000000002b594d1', \
           '0x00000000000000000000000000000000000000000000000000000000000f41d0'; continuing");

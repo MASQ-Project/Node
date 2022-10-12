@@ -1590,7 +1590,7 @@ mod tests {
         let node_descriptors = vec![
             NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234"))
                 .unwrap(),
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"))
+            NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mumbai:AgMEBQ@2.3.4.5:2345"))
                 .unwrap(),
         ];
         let node_descriptors_bytes =
@@ -1632,7 +1632,7 @@ mod tests {
         let node_descriptors = vec![
             NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234"))
                 .unwrap(),
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"))
+            NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mumbai:AgMEBQ@2.3.4.5:2345"))
                 .unwrap(),
         ];
         let set_params_arc = Arc::new(Mutex::new(vec![]));

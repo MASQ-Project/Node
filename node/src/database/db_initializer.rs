@@ -1057,7 +1057,7 @@ mod tests {
                 &updated_db_path_dir,
                 true,
                 MigratorConfig::create_or_migrate(ExternalData::new(
-                    Chain::EthRopsten,
+                    Chain::PolyMumbai,
                     NeighborhoodModeLight::Standard,
                     Some("password".to_string()),
                 )),

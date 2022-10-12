@@ -1054,7 +1054,7 @@ mod tests {
             },
         };
         let persistent_config =
-            PersistentConfigurationMock::default().chain_name_result("eth-ropsten".to_string());
+            PersistentConfigurationMock::default().chain_name_result("polygon-mumbai".to_string());
         Bootstrapper::pub_initialize_cryptdes_for_testing(
             &Some(main_cryptde()),
             &Some(alias_cryptde()),
@@ -1792,7 +1792,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Database with a wrong chain name detected; expected: eth-ropsten, was: eth-mainnet"
+        expected = "Database with a wrong chain name detected; expected: polygon-mumbai, was: eth-mainnet"
     )]
     fn make_and_start_actors_does_not_tolerate_differences_in_setup_chain_and_database_chain() {
         let mut bootstrapper_config = BootstrapperConfig::new();

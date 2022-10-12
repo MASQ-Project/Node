@@ -244,13 +244,13 @@ fn row_to_config_dao_record(row: &Row) -> ConfigDaoRecord {
 
 #[cfg(test)]
 mod tests {
+    use masq_lib::constants::MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK;
     use super::*;
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
     };
     use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::assert_contains;
-    use masq_lib::constants::ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 
     #[test]
@@ -277,7 +277,7 @@ mod tests {
             &result,
             &ConfigDaoRecord::new(
                 "start_block",
-                Some(&ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK.to_string()),
+                Some(&MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK.to_string()),
                 false,
             ),
         );

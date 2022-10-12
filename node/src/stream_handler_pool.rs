@@ -172,8 +172,8 @@ impl Handler<NodeFromUiMessage> for StreamHandlerPool {
 impl Handler<NewPublicIp> for StreamHandlerPool {
     type Result = ();
 
-    fn handle(&mut self, msg: NewPublicIp, _ctx: &mut Self::Context) -> Self::Result {
-        todo! ();
+    fn handle(&mut self, _msg: NewPublicIp, _ctx: &mut Self::Context) -> Self::Result {
+        self.handle_new_ip()
     }
 }
 
@@ -558,6 +558,18 @@ impl StreamHandlerPool {
             }
         }
     }
+
+    fn handle_new_ip(&mut self) {
+        #[allow (clippy::needless_collect)] // without the collect, the Borrow Checker complains
+        let stream_writer_keys = self.stream_writers.iter()
+            .map(|sw| *sw.0)
+            .collect::<Vec<StreamWriterKey>>();
+        stream_writer_keys.into_iter()
+            .for_each (|key| {
+                info!(self.logger, "Removing stream to {} due to IP change", key);
+                self.stream_writers.remove (&key).expect ("Removal failed");
+            });
+    }
 }
 
 trait TrafficAnalyzer {
@@ -602,7 +614,7 @@ mod tests {
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::constants::HTTP_PORT;
-    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::{init_test_logging};
     use masq_lib::test_utils::logging::TestLogHandler;
     use std::io::Error;
     use std::io::ErrorKind;
@@ -1735,6 +1747,52 @@ mod tests {
             sender_wrapper_unbounded_send_params.deref(),
             &[SequencedPacket::new(b"hello".to_vec(), 0, true),]
         );
+    }
+
+    #[test]
+    fn handling_new_ip_calls_proper_internal_method() {
+        init_test_logging();
+        let peer_addr = SocketAddr::from_str("1.2.3.4:8005").unwrap();
+        let sender_wrapper = SenderWrapperMock::new(peer_addr);
+        let system = System::new ("handling_new_ip_calls_proper_internal_method");
+        let mut subject = StreamHandlerPool::new(vec![], false);
+        subject.stream_writers.insert(
+            StreamWriterKey::from(peer_addr),
+            Some(Box::new(sender_wrapper)),
+        );
+        let addr = subject.start();
+        let recipient = addr.recipient::<NewPublicIp>();
+
+        recipient.try_send (NewPublicIp {new_ip: IpAddr::from_str("1.2.3.4").unwrap()}).unwrap();
+
+        System::current().stop();
+        system.run();
+        TestLogHandler::new().exists_log_containing ("INFO: Dispatcher: Removing stream to 1.2.3.4:* due to IP change");
+    }
+
+    #[test]
+    fn handling_new_ip_removes_all_stream_writers() {
+        init_test_logging();
+        let one_peer_addr = SocketAddr::from_str("1.2.3.4:8005").unwrap();
+        let another_peer_addr = SocketAddr::from_str("2.3.4.5:8005").unwrap();
+        let one_sender_wrapper = SenderWrapperMock::new(one_peer_addr);
+        let another_sender_wrapper = SenderWrapperMock::new(another_peer_addr);
+        let mut subject = StreamHandlerPool::new(vec![], false);
+        subject.stream_writers.insert(
+            StreamWriterKey::from(one_peer_addr),
+            Some(Box::new(one_sender_wrapper)),
+        );
+        subject.stream_writers.insert(
+            StreamWriterKey::from(another_peer_addr),
+            Some(Box::new(another_sender_wrapper)),
+        );
+
+        subject.handle_new_ip();
+
+        assert! (subject.stream_writers.is_empty());
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing ("INFO: Dispatcher: Removing stream to 1.2.3.4:* due to IP change");
+        tlh.exists_log_containing ("INFO: Dispatcher: Removing stream to 2.3.4.5:* due to IP change");
     }
 
     #[test]

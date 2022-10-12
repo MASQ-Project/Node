@@ -581,15 +581,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_works_for_ropsten() {
-        let descriptor = "masq://eth-ropsten:as45cs5c5@1.2.3.4:4444";
-
-        let result = NodeDescriptor::parse_url(descriptor).unwrap();
-
-        assert_eq!(result, (Chain::EthRopsten, "as45cs5c5", "1.2.3.4:4444"))
-    }
-
-    #[test]
     fn parse_works_for_dev_chain() {
         let descriptor = "masq://dev:as45cs5c5@1.2.3.4:4444";
 
@@ -640,7 +631,7 @@ mod tests {
         assert_eq!(
             result,
             Err(
-                "Chain identifier 'bitcoin' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-mumbai', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'"
+                "Chain identifier 'bitcoin' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-mumbai' while formatted as 'masq://<chain identifier>:<public key>@<node address>'"
                     .to_string()
             )
         );
@@ -739,7 +730,7 @@ mod tests {
 
         let result = DescriptorParsingError::WrongChainIdentifier("blah").to_string();
 
-        assert_eq!(result, "Chain identifier 'blah' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-mumbai', 'eth-ropsten' while formatted as 'masq://<chain identifier>:<public key>@<node address>'")
+        assert_eq!(result, "Chain identifier 'blah' is not valid; possible values are 'polygon-mainnet', 'eth-mainnet', 'polygon-mumbai' while formatted as 'masq://<chain identifier>:<public key>@<node address>'")
     }
 
     #[test]
@@ -759,7 +750,7 @@ mod tests {
     fn from_str_complains_about_slash_in_the_key() {
         let result = NodeDescriptor::try_from((
             &CryptDEReal::new(TEST_DEFAULT_CHAIN) as &dyn CryptDE,
-            "masq://eth-ropsten:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
+            "masq://polygon-mumbai:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
         ));
 
         assert_eq!(
@@ -774,7 +765,7 @@ mod tests {
     fn from_str_complains_about_plus_in_the_key() {
         let result = NodeDescriptor::try_from((
             &CryptDEReal::new(DEFAULT_CHAIN) as &dyn CryptDE,
-            "masq://eth-ropsten:abJ5XvhVbmVy+GejkYUmftF09pmGZGKgkPzRNnWQxFw@12.23.34.45:5678",
+            "masq://polygon-mumbai:abJ5XvhVbmVy+GejkYUmftF09pmGZGKgkPzRNnWQxFw@12.23.34.45:5678",
         ));
 
         assert_eq!(
@@ -806,14 +797,14 @@ mod tests {
     fn from_str_handles_the_happy_path_with_node_addr() {
         let result = NodeDescriptor::try_from((
             main_cryptde(),
-            "masq://eth-ropsten:R29vZEtleQ@1.2.3.4:1234/2345/3456",
+            "masq://polygon-mumbai:R29vZEtleQ@1.2.3.4:1234/2345/3456",
         ));
 
         assert_eq!(
             result.unwrap(),
             NodeDescriptor {
                 encryption_public_key: PublicKey::new(b"GoodKey"),
-                blockchain: Chain::EthRopsten,
+                blockchain: Chain::PolyMumbai,
                 node_addr_opt: Some(NodeAddr::new(
                     &IpAddr::from_str("1.2.3.4").unwrap(),
                     &[1234, 2345, 3456],
@@ -874,13 +865,13 @@ mod tests {
         let cryptde: &dyn CryptDE = main_cryptde();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
         let node_addr = NodeAddr::new(&IpAddr::from_str("123.45.67.89").unwrap(), &[2345, 3456]);
-        let subject = NodeDescriptor::from((&public_key, &node_addr, Chain::EthRopsten, cryptde));
+        let subject = NodeDescriptor::from((&public_key, &node_addr, Chain::PolyMumbai, cryptde));
 
         let result = subject.to_string(cryptde);
 
         assert_eq!(
             result,
-            "masq://eth-ropsten:AQIDBAUGBwg@123.45.67.89:2345/3456".to_string()
+            "masq://polygon-mumbai:AQIDBAUGBwg@123.45.67.89:2345/3456".to_string()
         );
     }
 
@@ -959,10 +950,10 @@ mod tests {
     #[test]
     fn originate_only_mode_results() {
         let one_neighbor =
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AQIDBA@1.2.3.4:1234"))
+            NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mumbai:AQIDBA@1.2.3.4:1234"))
                 .unwrap();
         let another_neighbor =
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"))
+            NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mumbai:AgMEBQ@2.3.4.5:2345"))
                 .unwrap();
         let subject = NeighborhoodMode::OriginateOnly(
             vec![one_neighbor.clone(), another_neighbor.clone()],

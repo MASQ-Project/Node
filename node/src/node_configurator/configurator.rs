@@ -2180,7 +2180,7 @@ mod tests {
         let node_descriptor = NodeDescriptor::from((
             &public_key,
             &node_addr,
-            Chain::EthRopsten,
+            Chain::PolyMumbai,
             main_cryptde() as &dyn CryptDE,
         ));
         let persistent_config = PersistentConfigurationMock::new()
@@ -2307,7 +2307,7 @@ mod tests {
         let node_descriptor = NodeDescriptor::from((
             &public_key,
             &node_addr,
-            Chain::EthRopsten,
+            Chain::PolyMumbai,
             main_cryptde() as &dyn CryptDE,
         ));
         let persistent_config = PersistentConfigurationMock::new()

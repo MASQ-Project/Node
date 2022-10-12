@@ -250,7 +250,7 @@ mod tests {
     lazy_static! {
         static ref NODE_DESCRIPTOR: NodeDescriptor = NodeDescriptor::try_from((
             main_cryptde(),
-            "masq://eth-ropsten:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXgXEN6zQ@12.23.45.67:1234"
+            "masq://polygon-mumbai:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXgXEN6zQ@12.23.45.67:1234"
         ))
         .unwrap();
     }

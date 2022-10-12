@@ -192,7 +192,7 @@ mod tests {
             )),
         );
         let data_dir_opt = None;
-        let chain_name = "eth-ropsten";
+        let chain_name = "polygon-mumbai";
 
         let result = data_directory_from_context(
             &dirs_wrapper,
@@ -204,7 +204,7 @@ mod tests {
         assert_eq!(
             result,
             PathBuf::from(
-                "/nonexistent_home/nonexistent_alice/.local/share/MASQ/eth-ropsten".to_string()
+                "/nonexistent_home/nonexistent_alice/.local/share/MASQ/polygon-mumbai".to_string()
             )
         )
     }

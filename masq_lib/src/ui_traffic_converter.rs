@@ -11,7 +11,7 @@ use std::fmt::Display;
 
 // TODO: Each of these error values would be much more forensically valuable if they contained
 // the text of the JSON that caused the problem.
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, Eq, PartialEq, Clone)]
 pub enum TrafficConversionError {
     JsonSyntaxError(String),                // couldn't parse as JSON
     NotJsonObjectError(String),             // root level wasn't a JSON object
@@ -36,7 +36,7 @@ impl Display for TrafficConversionError {
     }
 }
 
-#[derive(Debug, PartialEq, Clone)]
+#[derive(Debug, PartialEq, Eq, Clone)]
 pub enum UnmarshalError {
     Critical(TrafficConversionError),
     NonCritical(String, Option<u64>, TrafficConversionError),

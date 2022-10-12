@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::time::Duration;
 use std::{fs, io, thread};
 
-pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthRopsten;
+pub const TEST_DEFAULT_CHAIN: Chain = Chain::PolyMumbai;
 pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;
 pub const BASE_TEST_DIR: &str = "generated/test";
 
