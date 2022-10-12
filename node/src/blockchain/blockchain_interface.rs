@@ -3,7 +3,7 @@
 use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
 use crate::blockchain::blockchain_bridge::{InitiatePPFingerprints, PendingPayableFingerprint};
 use crate::blockchain::tool_wrappers::{
-    BatchedPayableTools, BatchedPayableToolsNull, BatchedPayableToolsReal,
+    BatchedPayableTools, BatchedPayableToolsNull, BatchedPayablesToolsReal,
 };
 use crate::database::db_migrations::Suppression::No;
 use crate::sub_lib::wallet::Wallet;
@@ -223,7 +223,7 @@ pub struct BlockchainInterfaceNonClandestine<T: BatchTransport + Debug> {
     web3: Web3<T>,
     batch_web3: Web3<Batch<T>>,
     contract: Contract<T>,
-    send_transaction_tools: Box<dyn BatchedPayableTools<T>>,
+    batched_payables_tools: Box<dyn BatchedPayableTools<T>>,
 }
 
 const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]);
@@ -350,14 +350,14 @@ where
             Err(err) => todo!(),
         };
 
-        let timestamp = self.send_transaction_tools.batch_wide_timestamp();
-        self.send_transaction_tools.new_payable_fingerprints(
+        let timestamp = self.batched_payables_tools.batch_wide_timestamp();
+        self.batched_payables_tools.new_payable_fingerprints(
             timestamp,
             fingerprint_recipient,
             &fingerprint_inputs,
         );
 
-        match self.send_transaction_tools.send_batch(&self.batch_web3) {
+        match self.batched_payables_tools.send_batch(&self.batch_web3) {
             Ok(responses) => Ok((
                 timestamp,
                 Self::join_data(responses, fingerprint_inputs, accounts),
@@ -442,7 +442,7 @@ pub enum PendingPayableFallible {
 #[derive(Debug, PartialEq, Clone)]
 pub struct RpcPayableFailure {
     pub rpc_error: Error,
-    pub recipient: Wallet,
+    pub recipient_wallet: Wallet,
     pub hash: H256,
 }
 
@@ -474,7 +474,7 @@ where
             web3,
             batch_web3,
             contract,
-            send_transaction_tools: Box::new(BatchedPayableToolsReal::<T>::default()),
+            batched_payables_tools: Box::new(BatchedPayablesToolsReal::<T>::default()),
         }
     }
 
@@ -510,7 +510,26 @@ where
         fingerprint_inputs: Vec<(H256, u64)>,
         accounts: Vec<PayableAccount>,
     ) -> Vec<PendingPayableFallible> {
-        todo!()
+        eprintln!("results {:?}", results);
+        eprintln!("fingerprints {:?}", fingerprint_inputs);
+        eprintln!("accounts {:?}", accounts);
+        let iterator_with_all_data = results
+            .into_iter()
+            .zip(fingerprint_inputs.into_iter())
+            .zip(accounts.into_iter());
+        iterator_with_all_data
+            .map(|((rpc_result, (hash, _)), account)| match rpc_result {
+                Ok(_) => PendingPayableFallible::Correct(PendingPayable {
+                    recipient_wallet: account.wallet,
+                    hash,
+                }),
+                Err(rpc_error) => PendingPayableFallible::Failure(RpcPayableFailure {
+                    rpc_error,
+                    recipient_wallet: account.wallet,
+                    hash,
+                }),
+            })
+            .collect()
     }
 
     fn prepare_signed_transaction<'a>(
@@ -555,7 +574,7 @@ where
             Err(e) => return Err(PayableTransactionError::UnusableWallet(e.to_string())),
         };
 
-        match self.send_transaction_tools.sign_transaction(
+        match self.batched_payables_tools.sign_transaction(
             transaction_parameters,
             &self.batch_web3,
             &key,
@@ -676,7 +695,8 @@ mod tests {
     use crossbeam_channel::{unbounded, Receiver};
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
-    use jsonrpc_core::{Error, ErrorCode};
+    use jsonrpc_core::Version::V2;
+    use jsonrpc_core::{Call, Error, ErrorCode, Id, MethodCall, Params};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::find_free_port;
@@ -1231,21 +1251,22 @@ mod tests {
     #[test]
     fn blockchain_interface_non_clandestine_can_transfer_tokens_in_batch() {
         init_test_logging();
-        let mut transport = TestTransport::default();
+        let send_batch_params_arc = Arc::new(Mutex::new(vec![]));
+        //we compute the hashes ourselves and so we ignore the same ones in the response
+        //we use the OKs as indicators of success though...
+        //and the eventual rpc errors come from here too...
         let expected_batch_responses = vec![
-            Ok(json!(
-                "0xe26f2f487f5dd06c38860d410cdcede0d6e860dab2c971c7d518928c17034c8f"
-            )),
+            Ok(json!("...unnecessarily important hash...")),
             Err(web3::Error::Rpc(Error {
                 code: ErrorCode::ServerError(114),
                 message: "server being busy".to_string(),
                 data: None,
             })),
-            Ok(json!(
-                "0xc3112f487f8aea6c38860d410cdcede0d6e860dab2c971c7d518928c23034a20"
-            )),
+            Ok(json!("...unnecessarily important hash...")),
         ];
-        transport.add_batch_response(expected_batch_responses);
+        let mut transport = TestTransport::default()
+            .send_batch_params(&send_batch_params_arc)
+            .send_batch_result(expected_batch_responses);
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let actor_addr = accountant.start();
         let fingerprint_recipient = recipient!(actor_addr, InitiatePPFingerprints);
@@ -1276,17 +1297,8 @@ mod tests {
         let last_nonce = U256::from(6);
         let accounts_to_process = vec![account_1, account_2, account_3];
         let consuming_wallet = make_paying_wallet(b"gdasgsa");
-        // let inputs = SendTransactionInputs::new(
-        //     &account,
-        //     &consuming_wallet,
-        //     U256::from(1),
-        //     gas_price,
-        //     tools.as_ref(),
-        // )
-        //.unwrap();
         let test_timestamp_before = SystemTime::now();
 
-        //TODO should return something like "BatchResults"
         let result = subject
             .send_payables_within_batch(
                 &consuming_wallet,
@@ -1301,23 +1313,55 @@ mod tests {
         let system = System::new("can transfer tokens test");
         System::current().stop();
         assert_eq!(system.run(), 0);
-        transport.assert_single_request("eth_sendRawTransaction", &[String::from("\"0xf8a901851bf08eb00082dbe894384dec25e03f94931767\
-        ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c6168313233000000000000000000000000000000000000000000000\
-        0000000082f79cd900029a0d4ecb2865f6a0370689be2e956cc272f7718cb360160f5a51756264ba1cc23fca005a3920e27680135e032bb23f4026a2e91c680866047cf9bbadee2\
-        3ab8ab5ca2\"")]);
-        transport.assert_single_request("eth_sendRawTransaction", &[String::from("\"0xf8a901851bf08eb00082dbe894384dec25e03f94931767\
-        ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c616831323300000000000000000000000000000000000000000000\
-        00000000082f79cd900029a0d4ecb2865f6a0370689be2e956cc272f7718cb360160f5a51756264ba1cc23fca005a3920e27680135e032bb23f4026a2e91c680866047cf9bbade\
-        e23ab8ab5ca2\"")]);
-        transport.assert_single_request("eth_sendRawTransaction", &[String::from(r#""0xf8a901851bf08eb00082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0d4ecb2865f6a0370689be2e956cc272f7718cb360160f5a51756264ba1cc23fca005a3920e27680135e032bb23f4026a2e91c680866047cf9bbadee23ab8ab5ca2""#)]);
-        transport.assert_no_more_requests();
-        let common_timestamp = result.0;
-        let pending_payables = result.1;
-        let check_successful_request = |expected_hash: H256| {
-            let pending_payable_fallible_1 = &pending_payables[0];
+        let send_batch_params = send_batch_params_arc.lock().unwrap();
+        assert_eq!(
+            *send_batch_params,
+            vec![vec![
+                (
+                    0,
+                    Call::MethodCall(MethodCall {
+                        jsonrpc: Some(V2),
+                        method: "eth_sendRawTransaction".to_string(),
+                        params: Params::None,
+                        id: Id::Null
+                    })
+                ),
+                (
+                    1,
+                    Call::MethodCall(MethodCall {
+                        jsonrpc: None,
+                        method: "eth_sendRawTransaction".to_string(),
+                        params: Params::Array(vec![Value::String("blah".to_string())]),
+                        id: Id::Null
+                    })
+                ),
+                (
+                    2,
+                    Call::MethodCall(MethodCall {
+                        jsonrpc: None,
+                        method: "eth_sendRawTransaction".to_string(),
+                        params: Params::None,
+                        id: Id::Null
+                    })
+                )
+            ]]
+        );
+        // transport.assert_single_request("eth_sendRawTransaction", &[String::from("\"0xf8a901851bf08eb00082dbe894384dec25e03f94931767\
+        // ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c6168313233000000000000000000000000000000000000000000000\
+        // 0000000082f79cd900029a0d4ecb2865f6a0370689be2e956cc272f7718cb360160f5a51756264ba1cc23fca005a3920e27680135e032bb23f4026a2e91c680866047cf9bbadee2\
+        // 3ab8ab5ca2\"")]);
+        // transport.assert_single_request("eth_sendRawTransaction", &[String::from("\"0xf8a901851bf08eb00082dbe894384dec25e03f94931767\
+        // ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c616831323300000000000000000000000000000000000000000000\
+        // 00000000082f79cd900029a0d4ecb2865f6a0370689be2e956cc272f7718cb360160f5a51756264ba1cc23fca005a3920e27680135e032bb23f4026a2e91c680866047cf9bbade\
+        // e23ab8ab5ca2\"")]);
+        // transport.assert_single_request("eth_sendRawTransaction", &[String::from(r#""0xf8a901851bf08eb00082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0d4ecb2865f6a0370689be2e956cc272f7718cb360160f5a51756264ba1cc23fca005a3920e27680135e032bb23f4026a2e91c680866047cf9bbadee23ab8ab5ca2""#)]);
+        // transport.assert_no_more_requests();
+        let (common_timestamp, pending_payables) = result;
+        let check_expected_successful_request = |expected_hash: H256, idx: usize| {
+            let pending_payable_fallible_1 = &pending_payables[idx];
             let pending_payable_1 = match pending_payable_fallible_1 {
                 Correct(pp) => pp,
-                Failure(RpcPayableFailure{ rpc_error, recipient, hash }) => panic!(
+                Failure(RpcPayableFailure{ rpc_error, recipient_wallet: recipient, hash }) => panic!(
                 "we expected correct pending payable but got one with rpc_error: {:?} and hash: {} for recipient: {}",
                 rpc_error, hash, recipient
             ),
@@ -1325,27 +1369,24 @@ mod tests {
             let hash_1 = pending_payable_1.hash;
             assert_eq!(hash_1, expected_hash)
         };
-
         //first successful request
         let expected_hash_1 =
-            H256::from_str("e26f2f487f5dd06c38860d410cdcede0d6e860dab2c971c7d518928c17034c8f")
+            H256::from_str("b91b16e213475c64b0e1fc3633192113671842e7b3daa558f47ba05196e46c17")
                 .unwrap();
-        check_successful_request(expected_hash_1);
-
+        check_expected_successful_request(expected_hash_1, 0);
         //failing request
-        let pending_payable_fallible_2 = &pending_payables[0];
-        let pending_payable_2_failure = match pending_payable_fallible_2 {
+        let pending_payable_fallible_2 = &pending_payables[1];
+        let (rpc_error, recipient_2, hash_2) = match pending_payable_fallible_2 {
             Correct(pp) => panic!(
                 "we expected failing pending payable but got a good one: {:?}",
                 pp
             ),
             Failure(RpcPayableFailure {
                 rpc_error,
-                recipient,
+                recipient_wallet: recipient,
                 hash,
             }) => (rpc_error, recipient, hash),
         };
-        let (rpc_error, recipient_2, hash_2) = pending_payable_2_failure;
         assert_eq!(
             rpc_error,
             &web3::Error::Rpc(Error {
@@ -1356,30 +1397,51 @@ mod tests {
         );
         assert_eq!(
             hash_2,
-            &H256::from_str("aaaaaaaaaabbbbbbbbbbbbbbbbbbbbb").unwrap()
+            &H256::from_str("575bcea3d79afbe3a55f41166e81eda20cf5bb7e79718ee21a861d6d7e60fe20")
+                .unwrap()
         );
         assert_eq!(recipient_2, &make_wallet("w555"));
-
         //second_succeeding_request
-        let expected_hash_3 = H256::from_str("ccccccccccccccccccccccccccccc").unwrap();
-        check_successful_request(expected_hash_3);
-
+        let expected_hash_3 =
+            H256::from_str("5faf271e2bc8d3fe4b15ca0e0a68ef29ffef028b63c5d8c0f8ca1f3cfdca8284")
+                .unwrap();
+        check_expected_successful_request(expected_hash_3, 2);
         assert!(
             test_timestamp_before <= common_timestamp && common_timestamp <= test_timestamp_after
         );
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let sent_fingerprint_1 = accountant_recording.get_record::<PendingPayableFingerprint>(0);
-        let expected_fingerprint_1 =
-            set_up_pp_fingerprint(common_timestamp, expected_hash_1, amount_1 as u64);
-        let sent_fingerprint_2 = accountant_recording.get_record::<PendingPayableFingerprint>(1);
-        let expected_fingerprint_2 =
-            set_up_pp_fingerprint(common_timestamp, *hash_2, amount_2 as u64);
-        let sent_fingerprint_3 = accountant_recording.get_record::<PendingPayableFingerprint>(1);
-        let expected_fingerprint_3 =
-            set_up_pp_fingerprint(common_timestamp, expected_hash_3, amount_3 as u64);
-        assert_eq!(sent_fingerprint_1, &expected_fingerprint_1);
-        assert_eq!(sent_fingerprint_2, &expected_fingerprint_2);
-        assert_eq!(sent_fingerprint_3, &expected_fingerprint_3);
+        assert_eq!(accountant_recording.len(), 1);
+        let initiate_fingerprints_msg =
+            accountant_recording.get_record::<InitiatePPFingerprints>(0);
+        assert_eq!(
+            initiate_fingerprints_msg,
+            &InitiatePPFingerprints {
+                batch_wide_timestamp: common_timestamp,
+                init_params: vec![
+                    (
+                        H256::from_str(
+                            "b91b16e213475c64b0e1fc3633192113671842e7b3daa558f47ba05196e46c17"
+                        )
+                        .unwrap(),
+                        900000000
+                    ),
+                    (
+                        H256::from_str(
+                            "575bcea3d79afbe3a55f41166e81eda20cf5bb7e79718ee21a861d6d7e60fe20"
+                        )
+                        .unwrap(),
+                        111111111
+                    ),
+                    (
+                        H256::from_str(
+                            "5faf271e2bc8d3fe4b15ca0e0a68ef29ffef028b63c5d8c0f8ca1f3cfdca8284"
+                        )
+                        .unwrap(),
+                        33355666
+                    )
+                ]
+            }
+        );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing("DEBUG: BlockchainInterface: Preparing transaction for 9000 Gwei \
         to 0x00000000000000000000000000626c6168313233 from 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725 (chain_id: 3, \
@@ -1549,7 +1611,7 @@ mod tests {
         );
 
         let expected_pending_payable = PendingPayable {
-            to: creditor_wallet,
+            recipient_wallet: creditor_wallet,
             hash: Default::default(),
         };
         assert_eq!(
@@ -2105,10 +2167,12 @@ mod tests {
 
     #[test]
     fn blockchain_interface_non_clandestine_can_fetch_nonce() {
-        let mut transport = TestTransport::default();
-        transport.add_response(json!(
-            "0x0000000000000000000000000000000000000000000000000000000000000001"
-        ));
+        let prepare_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut transport = TestTransport::default()
+            .prepare_params(&prepare_params_arc)
+            .send_result(json!(
+                "0x0000000000000000000000000000000000000000000000000000000000000001"
+            ));
         let subject = BlockchainInterfaceNonClandestine::new(
             transport.clone(),
             make_fake_event_loop_handle(),
@@ -2117,15 +2181,22 @@ mod tests {
 
         let result = subject.get_transaction_count(&make_paying_wallet(b"gdasgsa"));
 
-        transport.assert_single_request(
-            "eth_getTransactionCount",
-            &[
+        assert_eq!(result, Ok(U256::from(1)));
+        let mut prepare_params = prepare_params_arc.lock().unwrap();
+        let (method_name, actual_arguments) = prepare_params.remove(0);
+        assert!(prepare_params.is_empty());
+        let actual_arguments: Vec<String> = actual_arguments
+            .into_iter()
+            .map(|arg| serde_json::to_string(&arg).unwrap())
+            .collect();
+        assert_eq!(method_name, "eth_getTransactionCount".to_string());
+        assert_eq!(
+            actual_arguments,
+            vec![
                 String::from(r#""0x5c361ba8d82fcf0e5538b2a823e9d457a2296725""#),
                 String::from(r#""pending""#),
-            ],
-        );
-        transport.assert_no_more_requests();
-        assert_eq!(result, Ok(U256::from(1)));
+            ]
+        )
     }
 
     #[test]
@@ -2363,7 +2434,7 @@ mod tests {
     }
 
     #[test]
-    fn finalize_works() {
+    fn join_data_works() {
         let accounts = vec![
             PayableAccount {
                 wallet: make_wallet("4567"),
@@ -2398,12 +2469,16 @@ mod tests {
             result,
             vec![
                 Correct(PendingPayable {
-                    to: make_wallet("4567"),
+                    recipient_wallet: make_wallet("4567"),
                     hash: make_tx_hash(444)
                 }),
                 Failure(RpcPayableFailure {
-                    rpc_error: web3::Error::Unreachable,
-                    recipient: make_wallet("5656"),
+                    rpc_error: web3::Error::Rpc(Error {
+                        code: ErrorCode::ParseError,
+                        message: "I guess we've got a problem".to_string(),
+                        data: None,
+                    }),
+                    recipient_wallet: make_wallet("5656"),
                     hash: make_tx_hash(333)
                 })
             ]

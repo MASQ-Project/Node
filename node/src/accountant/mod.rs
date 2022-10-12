@@ -1070,7 +1070,7 @@ impl Accountant {
                     Some(rowid) => rowid,
                     None => panic!("Payable fingerprint for {} doesn't exist but should by now; system unreliable", payable.hash)
                 };
-                match self.payable_dao.as_ref().mark_pending_payable_rowid(&payable.to, rowid ) {
+                match self.payable_dao.as_ref().mark_pending_payable_rowid(&payable.recipient_wallet, rowid ) {
                     Ok(()) => (),
                     Err(e) => panic!("Was unable to create a mark in payables for a new pending payable '{}' due to '{:?}'", payable.hash, e)
                 }
@@ -4594,12 +4594,12 @@ mod tests {
     #[test]
     fn separate_errors_works_for_their_errors() {
         let payable_ok = PendingPayable {
-            to: make_wallet("blah"),
+            recipient_wallet: make_wallet("blah"),
             hash: make_tx_hash(123),
         };
         let bad_rpc_call = RpcPayableFailure {
             rpc_error: web3::Error::InvalidResponse("oh we screwed it up".to_string()),
-            recipient: make_wallet("whooa"),
+            recipient_wallet: make_wallet("whooa"),
             hash: make_tx_hash(789),
         };
         let sent_payable = SentPayable {

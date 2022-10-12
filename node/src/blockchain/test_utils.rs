@@ -15,6 +15,8 @@ use ethereum_types::{BigEndianHash, H256};
 use jsonrpc_core as rpc;
 use jsonrpc_core::Call;
 use lazy_static::lazy_static;
+use rusqlite::params;
+use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::rc::Rc;
@@ -195,11 +197,11 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 #[derive(Debug, Default, Clone)]
 pub struct TestTransport {
     asserted: usize,
-    prepare_params: Rc<RefCell<Vec<(String, Vec<rpc::Value>)>>>,
-    send_params: Rc<RefCell<Vec<(RequestId, Call)>>>,
-    send_batch_params: Rc<RefCell<Vec<Vec<(RequestId, Call)>>>>,
-    discrete_rpc_responses: Rc<RefCell<Vec<rpc::Value>>>,
-    batch_rpc_responses: Rc<RefCell<Vec<Vec<Result<rpc::Value, web3::Error>>>>>,
+    prepare_params: Arc<Mutex<Vec<(String, Vec<rpc::Value>)>>>,
+    send_params: Arc<Mutex<Vec<(RequestId, Call)>>>,
+    send_results: RefCell<Vec<rpc::Value>>,
+    send_batch_params: Arc<Mutex<Vec<Vec<(RequestId, Call)>>>>,
+    send_batch_results: RefCell<Vec<Vec<Result<rpc::Value, web3::Error>>>>,
 }
 
 impl Transport for TestTransport {
@@ -207,10 +209,9 @@ impl Transport for TestTransport {
 
     fn prepare(&self, method: &str, params: Vec<rpc::Value>) -> (RequestId, rpc::Call) {
         let request = web3::helpers::build_request(1, method, params.clone());
-        self.prepare_params
-            .borrow_mut()
-            .push((method.to_string(), params));
-        (self.prepare_params.borrow().len(), request)
+        let mut prepare_params = self.prepare_params.lock().unwrap();
+        prepare_params.push((method.to_string(), params));
+        (prepare_params.len(), request)
     }
 
     fn send(&self, id: RequestId, request: rpc::Call) -> Self::Out {
@@ -233,54 +234,36 @@ impl BatchTransport for TestTransport {
         T: IntoIterator<Item = (RequestId, Call)>,
     {
         self.send_batch_params
-            .borrow_mut()
+            .lock()
+            .unwrap()
             .push(requests.into_iter().collect());
-        let response = self.batch_rpc_responses.borrow_mut().remove(0);
-        // let response = response.into_iter().map(|single_request|futures::finished(single_request)).collect();
+        let response = self.send_batch_results.borrow_mut().remove(0);
         Box::new(futures::finished(response))
     }
 }
 
 impl TestTransport {
-    //TODO check if you can write as continuous setup passing the ownership through and out.
-    pub fn add_response(&mut self, rpc_call_response: rpc::Value) {
-        self.discrete_rpc_responses
-            .borrow_mut()
-            .push(rpc_call_response);
+    pub fn prepare_params(mut self, params: &Arc<Mutex<Vec<(String, Vec<rpc::Value>)>>>) -> Self {
+        self.prepare_params = params.clone();
+        self
     }
 
-    pub fn add_batch_response(&mut self, batched_responses: Vec<Result<rpc::Value, web3::Error>>) {
-        self.batch_rpc_responses
-            .borrow_mut()
-            .push(batched_responses)
+    pub fn send_result(self, rpc_call_response: rpc::Value) -> Self {
+        self.send_results.borrow_mut().push(rpc_call_response);
+        self
     }
 
-    pub fn assert_single_request(&mut self, method: &str, params: &[String]) {
-        let idx = self.asserted;
-        self.asserted += 1;
-
-        let (m, p) = self
-            .prepare_params
-            .borrow()
-            .get(idx)
-            .expect("Expected result.")
-            .clone();
-        assert_eq!(&m, method);
-        let p: Vec<String> = p
-            .into_iter()
-            .map(|p| serde_json::to_string(&p).unwrap())
-            .collect();
-        assert_eq!(p, params);
+    pub fn send_batch_params(mut self, params: &Arc<Mutex<Vec<Vec<(RequestId, Call)>>>>) -> Self {
+        self.send_batch_params = params.clone();
+        self
     }
 
-    pub fn assert_no_more_requests(&mut self) {
-        let requests = self.prepare_params.borrow();
-        assert_eq!(
-            self.asserted,
-            requests.len(),
-            "Expected no more requests, got: {:?}",
-            &requests[self.asserted..]
-        );
+    pub fn send_batch_result(
+        self,
+        batched_responses: Vec<Result<rpc::Value, web3::Error>>,
+    ) -> Self {
+        self.send_batch_results.borrow_mut().push(batched_responses);
+        self
     }
 }
 

@@ -37,11 +37,11 @@ where
 }
 
 #[derive(Debug)]
-pub struct BatchedPayableToolsReal<T> {
+pub struct BatchedPayablesToolsReal<T> {
     phantom: PhantomData<T>,
 }
 
-impl<T: BatchTransport> Default for BatchedPayableToolsReal<T> {
+impl<T: BatchTransport> Default for BatchedPayablesToolsReal<T> {
     fn default() -> Self {
         Self {
             phantom: Default::default(),
@@ -49,7 +49,7 @@ impl<T: BatchTransport> Default for BatchedPayableToolsReal<T> {
     }
 }
 
-impl<T: BatchTransport + Debug> BatchedPayableTools<T> for BatchedPayableToolsReal<T> {
+impl<T: BatchTransport + Debug> BatchedPayableTools<T> for BatchedPayablesToolsReal<T> {
     fn sign_transaction(
         &self,
         transaction_params: TransactionParameters,
@@ -62,19 +62,19 @@ impl<T: BatchTransport + Debug> BatchedPayableTools<T> for BatchedPayableToolsRe
     }
 
     fn batch_wide_timestamp(&self) -> SystemTime {
-        UNIX_EPOCH //TODO test drive this out
+        SystemTime::now()
     }
 
     fn new_payable_fingerprints(
         &self,
         batch_wide_timestamp: SystemTime,
         pp_fingerprint_sub: &Recipient<InitiatePPFingerprints>,
-        chief_attributes_of_payables: &[(H256, u64)],
+        chief_payable_attributes: &[(H256, u64)],
     ) {
         pp_fingerprint_sub
             .try_send(InitiatePPFingerprints {
                 batch_wide_timestamp,
-                init_params: chief_attributes_of_payables.to_vec(),
+                init_params: chief_payable_attributes.to_vec(),
             })
             .expect("Accountant is dead");
     }
@@ -138,7 +138,7 @@ mod tests {
     use crate::blockchain::blockchain_bridge::{InitiatePPFingerprints, PendingPayableFingerprint};
     use crate::blockchain::test_utils::{make_tx_hash, TestTransport};
     use crate::blockchain::tool_wrappers::{
-        BatchedPayableTools, BatchedPayableToolsNull, BatchedPayableToolsReal,
+        BatchedPayableTools, BatchedPayableToolsNull, BatchedPayablesToolsReal,
     };
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use actix::{Actor, Recipient, System};
@@ -202,7 +202,7 @@ mod tests {
         let chief_attributes_of_payables =
             vec![(Default::default(), 5), (make_tx_hash(45466), 444444)];
 
-        let _ = BatchedPayableToolsReal::<TestTransport>::default().new_payable_fingerprints(
+        let _ = BatchedPayablesToolsReal::<TestTransport>::default().new_payable_fingerprints(
             timestamp,
             &recipient,
             &chief_attributes_of_payables,
@@ -220,5 +220,16 @@ mod tests {
                 init_params: chief_attributes_of_payables
             }
         )
+    }
+
+    #[test]
+    fn batch_wide_timestamp_returns_current_now() {
+        let subject = BatchedPayablesToolsReal::<TestTransport>::default();
+        let before = SystemTime::now();
+
+        let result = subject.batch_wide_timestamp();
+
+        let after = SystemTime::now();
+        assert!(before <= result && result <= after)
     }
 }

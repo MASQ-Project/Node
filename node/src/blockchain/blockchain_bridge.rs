@@ -766,11 +766,11 @@ mod tests {
                 timestamp: sent_payments_msg.timestamp,
                 payable_outcomes: Ok(vec![
                     Correct(PendingPayable {
-                        to: make_wallet("blah"),
+                        recipient_wallet: make_wallet("blah"),
                         hash: H256::from("sometransactionhash".keccak256())
                     }),
                     Correct(PendingPayable {
-                        to: make_wallet("foo"),
+                        recipient_wallet: make_wallet("foo"),
                         hash: H256::from("someothertransactionhash".keccak256())
                     })
                 ]),
