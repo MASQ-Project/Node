@@ -1123,35 +1123,25 @@ impl Neighborhood {
         payload_size: usize,
         link_type: LinkType,
     ) -> i64 {
-        todo!("modify how the undesirability is calculated");
         let (per_byte, per_cores) = match link_type {
             LinkType::Relay => (
                 node_record.inner.rate_pack.routing_byte_rate,
                 node_record.inner.rate_pack.routing_service_rate,
             ),
-            LinkType::Exit => (
+            LinkType::Exit(_) => (
                 node_record.inner.rate_pack.exit_byte_rate,
                 node_record.inner.rate_pack.exit_service_rate,
             ),
             LinkType::Origin => (0, 0),
         };
         let rate_undesirability = per_cores as i64 + (per_byte as i64 * payload_size as i64);
-        let desirable_undesirability =
-            if !node_record.metadata.desirable_for_exit && (link_type == LinkType::Exit) {
-                UNDESIRABLE_FOR_EXIT_PENALTY
-            } else {
-                0
-            };
-        rate_undesirability + desirable_undesirability
+        if let LinkType::Exit(host_name) = link_type {
+            if node_record.metadata.unreachable_hosts.contains(&host_name) {
+                return rate_undesirability + UNDESIRABLE_FOR_EXIT_PENALTY;
+            }
+        }
 
-        // TODO: Uncomment these lines while test driving this code
-        // if let LinkType::Exit(link_name) = link_type {
-        //     if node_record.metadata.unreachable_hosts.contains(&link_name) {
-        //         return rate_undesirability + UNDESIRABLE_FOR_EXIT_PENALTY;
-        //     }
-        // }
-
-        // rate_undesirability
+        rate_undesirability
     }
 
     fn is_orig_node_on_back_leg(
@@ -1311,8 +1301,9 @@ impl Neighborhood {
         payload_size: usize,
         direction: RouteDirection,
     ) -> i64 {
+        let host_name = String::from("hostname.com"); // TODO: Use the actual string
         let link_type = match (direction, target_opt) {
-            (RouteDirection::Over, None) if hops_remaining == 0 => LinkType::Exit,
+            (RouteDirection::Over, None) if hops_remaining == 0 => LinkType::Exit(host_name),
             (RouteDirection::Over, _) => LinkType::Relay,
             (RouteDirection::Back, Some(target)) if &node_record.inner.public_key == target => {
                 LinkType::Origin
@@ -1489,8 +1480,8 @@ pub fn regenerate_signed_gossip(
 #[derive(PartialEq, Eq)]
 enum LinkType {
     Relay,
-    Exit,
-    // Exit(String), // TODO: Change above variant to this
+    // Exit,
+    Exit(String),
     Origin,
 }
 
@@ -3266,7 +3257,11 @@ mod tests {
             exit_service_rate: 200,
         };
 
-        let result = subject.compute_undesirability(&node_record, 10000, LinkType::Exit);
+        let result = subject.compute_undesirability(
+            &node_record,
+            10000,
+            LinkType::Exit("hostname.com".to_string()),
+        );
 
         assert_eq!(result, 200 + (100 * 10000));
     }
@@ -3291,8 +3286,12 @@ mod tests {
     #[test]
     fn compute_undesirability_for_undesirable_for_exit_node_used_as_exit() {
         let subject = make_standard_subject();
+        let unreachable_host = String::from("somehostname.com");
+        let mut unreachable_hosts = HashSet::new();
+        unreachable_hosts.insert(unreachable_host.clone());
         let mut node_record = make_node_record(1, false);
         node_record.metadata.desirable_for_exit = false; // used as exit: penalty is effective
+        node_record.metadata.unreachable_hosts = unreachable_hosts;
         node_record.inner.rate_pack = RatePack {
             routing_byte_rate: 123456,
             routing_service_rate: 234567,
@@ -3300,7 +3299,8 @@ mod tests {
             exit_service_rate: 1,
         };
 
-        let result = subject.compute_undesirability(&node_record, 10000, LinkType::Exit);
+        let result =
+            subject.compute_undesirability(&node_record, 10000, LinkType::Exit(unreachable_host));
 
         assert_eq!(result, 1 + (1 * 10000) + UNDESIRABLE_FOR_EXIT_PENALTY);
     }
