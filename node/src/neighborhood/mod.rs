@@ -817,6 +817,7 @@ impl Neighborhood {
             minimum_hop_count: DEFAULT_MINIMUM_HOP_COUNT,
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
+            hostname_opt: None,
         };
         if self.handle_route_query_message(msg).is_some() {
             debug!(
@@ -952,6 +953,7 @@ impl Neighborhood {
             msg.target_component,
             msg.payload_size,
             RouteDirection::Over,
+            msg.hostname_opt.clone(),
         )?;
         debug!(self.logger, "Route over: {:?}", over);
         let back = self.make_route_segment(
@@ -961,6 +963,7 @@ impl Neighborhood {
             msg.return_component_opt.expect("No return component"),
             msg.payload_size,
             RouteDirection::Back,
+            msg.hostname_opt,
         )?;
         debug!(self.logger, "Route back: {:?}", back);
         self.compose_route_query_response(over, back)
@@ -1019,6 +1022,7 @@ impl Neighborhood {
         target_component: Component,
         payload_size: usize,
         direction: RouteDirection,
+        hostname_opt: Option<String>,
     ) -> Result<RouteSegment, String> {
         let route_opt = self.find_best_route_segment(
             origin,
@@ -1026,6 +1030,7 @@ impl Neighborhood {
             minimum_hop_count,
             payload_size,
             direction,
+            hostname_opt,
         );
         match route_opt {
             None => {
@@ -1141,9 +1146,11 @@ impl Neighborhood {
             LinkType::Origin => (0, 0),
         };
         let rate_undesirability = per_cores as i64 + (per_byte as i64 * payload_size as i64);
-        if let LinkType::Exit(host_name) = link_type {
-            if node_record.metadata.unreachable_hosts.contains(&host_name) {
-                return rate_undesirability + UNDESIRABLE_FOR_EXIT_PENALTY;
+        if let LinkType::Exit(hostname_opt) = link_type {
+            if let Some(hostname) = hostname_opt {
+                if node_record.metadata.unreachable_hosts.contains(&hostname) {
+                    return rate_undesirability + UNDESIRABLE_FOR_EXIT_PENALTY;
+                }
             }
         }
 
@@ -1177,6 +1184,7 @@ impl Neighborhood {
     // target in hops_remaining or more hops with no cycles, or from the origin hops_remaining hops
     // out into the MASQ Network. No round trips; if you want a round trip, call this method twice.
     // If the return value is None, no qualifying route was found.
+    // TODO: Add a parameter for host_name
     fn find_best_route_segment<'a>(
         &'a self,
         source: &'a PublicKey,
@@ -1184,6 +1192,7 @@ impl Neighborhood {
         minimum_hops: usize,
         payload_size: usize,
         direction: RouteDirection,
+        hostname_opt: Option<String>,
     ) -> Option<Vec<&'a PublicKey>> {
         let mut minimum_undesirability = i64::MAX;
         self.routing_engine(
@@ -1194,6 +1203,7 @@ impl Neighborhood {
             payload_size,
             direction,
             &mut minimum_undesirability,
+            hostname_opt,
         )
         .into_iter()
         .filter(|cr| cr.undesirability <= minimum_undesirability)
@@ -1211,6 +1221,7 @@ impl Neighborhood {
         payload_size: usize,
         direction: RouteDirection,
         minimum_undesirability: &mut i64,
+        hostname_opt: Option<String>,
     ) -> Vec<ComputedRouteSegment<'a>> {
         if undesirability > *minimum_undesirability {
             return vec![];
@@ -1263,6 +1274,7 @@ impl Neighborhood {
                         hops_remaining,
                         payload_size,
                         direction,
+                        hostname_opt.clone(),
                     );
 
                     self.routing_engine(
@@ -1273,6 +1285,7 @@ impl Neighborhood {
                         payload_size,
                         direction,
                         minimum_undesirability,
+                        hostname_opt.clone(),
                     )
                 })
                 .collect()
@@ -1306,10 +1319,10 @@ impl Neighborhood {
         hops_remaining: usize,
         payload_size: usize,
         direction: RouteDirection,
+        hostname_opt: Option<String>,
     ) -> i64 {
-        let host_name = String::from("hostname.com"); // TODO: Use the actual string
         let link_type = match (direction, target_opt) {
-            (RouteDirection::Over, None) if hops_remaining == 0 => LinkType::Exit(host_name),
+            (RouteDirection::Over, None) if hops_remaining == 0 => LinkType::Exit(hostname_opt),
             (RouteDirection::Over, _) => LinkType::Relay,
             (RouteDirection::Back, Some(target)) if &node_record.inner.public_key == target => {
                 LinkType::Origin
@@ -1486,8 +1499,7 @@ pub fn regenerate_signed_gossip(
 #[derive(PartialEq, Eq)]
 enum LinkType {
     Relay,
-    // Exit,
-    Exit(String),
+    Exit(Option<String>),
     Origin,
 }
 
@@ -2597,7 +2609,9 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(5, 400));
+        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, 5, 400,
+        ));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2613,7 +2627,9 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(2, 430));
+        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, 2, 430,
+        ));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2654,7 +2670,7 @@ mod tests {
         }
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(1, 54000);
+        let msg = RouteQueryMessage::data_indefinite_route_request(None, 1, 54000);
 
         let future = sub.send(msg);
 
@@ -2727,7 +2743,7 @@ mod tests {
         }
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(1, 10000);
+        let msg = RouteQueryMessage::data_indefinite_route_request(None, 1, 10000);
 
         let future = sub.send(msg);
 
@@ -2744,7 +2760,7 @@ mod tests {
         let subject = make_standard_subject();
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(2, 20000);
+        let msg = RouteQueryMessage::data_indefinite_route_request(None, 2, 20000);
 
         let future = sub.send(msg);
 
@@ -2762,7 +2778,9 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(0, 12345));
+        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, 0, 12345,
+        ));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2857,7 +2875,9 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(2, 5000));
+        let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, 2, 5000,
+        ));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2952,8 +2972,12 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(2, 2000));
-        let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(2, 3000));
+        let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, 2, 2000,
+        ));
+        let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, 2, 3000,
+        ));
 
         System::current().stop_with_code(0);
         system.run();
@@ -3003,13 +3027,15 @@ mod tests {
         )
         .unwrap();
 
-        let route_request_1 =
-            route_sub.send(RouteQueryMessage::data_indefinite_route_request(2, 1000));
+        let route_request_1 = route_sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, 2, 1000,
+        ));
         let _ = set_wallet_sub.try_send(SetConsumingWalletMessage {
             wallet: expected_new_wallet,
         });
-        let route_request_2 =
-            route_sub.send(RouteQueryMessage::data_indefinite_route_request(2, 2000));
+        let route_request_2 = route_sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, 2, 2000,
+        ));
 
         System::current().stop();
         system.run();
@@ -3099,30 +3125,35 @@ mod tests {
         db.add_arbitrary_full_neighbor(s, r);
 
         // At least two hops from p to anywhere standard
-        let route_opt = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over);
+        let route_opt =
+            subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None);
 
         assert_eq!(route_opt.unwrap(), vec![p, s, t]);
         // no [p, r, s] or [p, s, r] because s and r are both neighbors of p and can't exit for it
 
         // At least two hops over from p to t
-        let route_opt = subject.find_best_route_segment(p, Some(t), 2, 10000, RouteDirection::Over);
+        let route_opt =
+            subject.find_best_route_segment(p, Some(t), 2, 10000, RouteDirection::Over, None);
 
         assert_eq!(route_opt.unwrap(), vec![p, s, t]);
 
         // At least two hops over from t to p
-        let route_opt = subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Over);
+        let route_opt =
+            subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Over, None);
 
         assert_eq!(route_opt, None);
         // p is consume-only; can't be an exit Node.
 
         // At least two hops back from t to p
-        let route_opt = subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Back);
+        let route_opt =
+            subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Back, None);
 
         assert_eq!(route_opt.unwrap(), vec![t, s, p]);
         // p is consume-only, but it's the originating Node, so including it is okay
 
         // At least two hops from p to Q - impossible
-        let route_opt = subject.find_best_route_segment(p, Some(q), 2, 10000, RouteDirection::Over);
+        let route_opt =
+            subject.find_best_route_segment(p, Some(q), 2, 10000, RouteDirection::Over, None);
 
         assert_eq!(route_opt, None);
     }
@@ -3195,7 +3226,7 @@ mod tests {
 
         // All the target-designated routes from L to N
         let route = subject
-            .find_best_route_segment(&l, Some(&n), 3, 10000, RouteDirection::Back)
+            .find_best_route_segment(&l, Some(&n), 3, 10000, RouteDirection::Back, None)
             .unwrap();
 
         let after = Instant::now();
@@ -3229,7 +3260,8 @@ mod tests {
         db.add_arbitrary_full_neighbor(q, r);
 
         // At least two hops from P to anywhere standard
-        let route_opt = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over);
+        let route_opt =
+            subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None);
 
         assert_eq!(route_opt, None);
     }
@@ -3263,11 +3295,7 @@ mod tests {
             exit_service_rate: 200,
         };
 
-        let result = subject.compute_undesirability(
-            &node_record,
-            10000,
-            LinkType::Exit("hostname.com".to_string()),
-        );
+        let result = subject.compute_undesirability(&node_record, 10000, LinkType::Exit(None));
 
         assert_eq!(result, 200 + (100 * 10000));
     }
@@ -3292,7 +3320,7 @@ mod tests {
     #[test]
     fn compute_undesirability_for_undesirable_for_exit_node_used_as_exit() {
         let subject = make_standard_subject();
-        let unreachable_host = String::from("somehostname.com");
+        let unreachable_host = String::from("somedomain.com");
         let mut unreachable_hosts = HashSet::new();
         unreachable_hosts.insert(unreachable_host.clone());
         let mut node_record = make_node_record(1, false);
@@ -3305,8 +3333,11 @@ mod tests {
             exit_service_rate: 1,
         };
 
-        let result =
-            subject.compute_undesirability(&node_record, 10000, LinkType::Exit(unreachable_host));
+        let result = subject.compute_undesirability(
+            &node_record,
+            10000,
+            LinkType::Exit(Some(unreachable_host)),
+        );
 
         assert_eq!(result, 1 + (1 * 10000) + UNDESIRABLE_FOR_EXIT_PENALTY);
     }
@@ -4514,6 +4545,7 @@ mod tests {
             minimum_hop_count: 3,
             return_component_opt: None,
             payload_size: 10000,
+            hostname_opt: None,
         };
         let unsuccessful_three_hop_route = addr.send(three_hop_route_request);
         let public_key_query = addr.send(NodeQueryMessage::PublicKey(a.public_key().clone()));
@@ -4870,6 +4902,7 @@ mod tests {
             minimum_hop_count,
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
+            hostname_opt: None,
         });
 
         assert_eq!(
@@ -4916,6 +4949,7 @@ mod tests {
             minimum_hop_count,
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
+            hostname_opt: None,
         });
 
         let next_door_neighbor_cryptde =
@@ -5010,6 +5044,7 @@ mod tests {
                 minimum_hop_count: 2,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size,
+                hostname_opt: None,
             })
             .unwrap();
 

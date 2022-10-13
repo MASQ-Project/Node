@@ -938,6 +938,7 @@ impl IBCDHelperReal {
     ) -> Result<(), String> {
         let common_args = args.common_opt.as_ref().expectv("TTH common");
         let pld = &common_args.payload;
+        let hostname_opt = pld.target_hostname.clone();
         debug!(
             args.logger,
             "Getting route and opening new stream with key {} to transmit: sequence {}, length {}",
@@ -949,6 +950,7 @@ impl IBCDHelperReal {
         tokio::spawn(
             route_source
                 .send(RouteQueryMessage::data_indefinite_route_request(
+                    hostname_opt,
                     if common_args.is_decentralized {
                         DEFAULT_MINIMUM_HOP_COUNT
                     } else {
@@ -1287,7 +1289,7 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(DEFAULT_MINIMUM_HOP_COUNT, 47)
+            &RouteQueryMessage::data_indefinite_route_request(None, DEFAULT_MINIMUM_HOP_COUNT, 47)
         );
         let recording = proxy_server_recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
@@ -1407,7 +1409,7 @@ mod tests {
         let neighborhood_record = neighborhood_recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             neighborhood_record,
-            &RouteQueryMessage::data_indefinite_route_request(DEFAULT_MINIMUM_HOP_COUNT, 12)
+            &RouteQueryMessage::data_indefinite_route_request(None, DEFAULT_MINIMUM_HOP_COUNT, 12)
         );
     }
 
@@ -1805,6 +1807,7 @@ mod tests {
                 minimum_hop_count: 0,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 47,
+                hostname_opt: None
             }
         );
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
@@ -1884,7 +1887,8 @@ mod tests {
                 target_component: Component::ProxyClient,
                 minimum_hop_count: 0,
                 return_component_opt: Some(Component::ProxyServer),
-                payload_size: 16
+                payload_size: 16,
+                hostname_opt: None
             }
         );
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
@@ -2194,7 +2198,7 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(3, 47)
+            &RouteQueryMessage::data_indefinite_route_request(None, 3, 47)
         );
     }
 
@@ -2706,7 +2710,11 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(3, 47)
+            &RouteQueryMessage::data_indefinite_route_request(
+                Some("nowhere.com".to_string()),
+                3,
+                47
+            )
         );
         TestLogHandler::new()
             .exists_log_containing("ERROR: ProxyServer: Failed to find route to nowhere.com");
@@ -2878,7 +2886,11 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(3, 47)
+            &RouteQueryMessage::data_indefinite_route_request(
+                Some("nowhere.com".to_string()),
+                3,
+                47
+            )
         );
         TestLogHandler::new()
             .exists_log_containing("ERROR: ProxyServer: Failed to find route to nowhere.com");
