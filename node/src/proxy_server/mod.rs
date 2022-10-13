@@ -278,6 +278,10 @@ impl ProxyServer {
                 })
                 .clone()
         };
+        let host_name = match &return_route_info.server_name {
+            Some(name) => name.clone(),
+            None => "<unspecified server>".to_string(),
+        };
         let response = &msg.payload;
         match self.keys_and_addrs.a_to_b(&response.stream_key) {
             Some(socket_addr) => {
@@ -285,10 +289,10 @@ impl ProxyServer {
                     .as_ref()
                     .expect("Neighborhood unbound in ProxyServer")
                     .update_node_record_metadata
-                    .try_send(NodeRecordMetadataMessage::Desirable(
-                        exit_public_key.clone(),
-                        false,
-                    ))
+                    .try_send(NodeRecordMetadataMessage {
+                        public_key: exit_public_key.clone(),
+                        unreachable_host_name_opt: Some(host_name),
+                    })
                     .expect("Neighborhood is dead");
 
                 self.report_response_services_consumed(&return_route_info, 0, msg.payload_len);
@@ -316,13 +320,9 @@ impl ProxyServer {
                 self.purge_stream_key(&response.stream_key);
             }
             None => {
-                let server_name = match &return_route_info.server_name {
-                    Some(name) => format!("\"{}\"", name),
-                    None => "<unspecified server>".to_string(),
-                };
                 error!(self.logger,
                     "Discarding DnsResolveFailure message for {} from an unrecognized stream key {:?}",
-                    server_name,
+                    host_name,
                     &response.stream_key
                 )
             }
@@ -3885,7 +3885,10 @@ mod tests {
         let record = neighborhood_recording.get_record::<NodeRecordMetadataMessage>(0);
         assert_eq!(
             record,
-            &NodeRecordMetadataMessage::Desirable(exit_public_key, false)
+            &NodeRecordMetadataMessage {
+                public_key: exit_public_key,
+                unreachable_host_name_opt: Some("server.com".to_string())
+            }
         );
     }
 
@@ -3948,7 +3951,12 @@ mod tests {
         System::current().stop();
         system.run();
         TestLogHandler::new().exists_log_containing(
-            format!("Discarding DnsResolveFailure message for \"server.com\" from an unrecognized stream key {:?}", stream_key).as_str());
+            format!(
+                "Discarding DnsResolveFailure message for {} from an unrecognized stream key {:?}",
+                "server.com", stream_key
+            )
+            .as_str(),
+        );
     }
 
     #[test]

@@ -337,17 +337,18 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: NodeRecordMetadataMessage, _ctx: &mut Self::Context) -> Self::Result {
-        match msg {
-            NodeRecordMetadataMessage::Desirable(public_key, desirable) => {
-                if let Some(node_record) = self.neighborhood_database.node_by_key_mut(&public_key) {
-                    debug!(
-                        self.logger,
-                        "About to set desirable '{}' for '{:?}'", desirable, public_key
-                    );
-                    node_record.set_desirable_for_exit(desirable);
-                };
-            }
-        };
+        todo!("rewrite how this is handled");
+        // match msg {
+        //     NodeRecordMetadataMessage::Desirable(public_key, desirable) => {
+        //         if let Some(node_record) = self.neighborhood_database.node_by_key_mut(&public_key) {
+        //             debug!(
+        //                 self.logger,
+        //                 "About to set desirable '{}' for '{:?}'", desirable, public_key
+        //             );
+        //             node_record.set_desirable_for_exit(desirable);
+        //         };
+        //     }
+        // };
     }
 }
 
@@ -1122,6 +1123,7 @@ impl Neighborhood {
         payload_size: usize,
         link_type: LinkType,
     ) -> i64 {
+        todo!("modify how the undesirability is calculated");
         let (per_byte, per_cores) = match link_type {
             LinkType::Relay => (
                 node_record.inner.rate_pack.routing_byte_rate,
@@ -1141,6 +1143,15 @@ impl Neighborhood {
                 0
             };
         rate_undesirability + desirable_undesirability
+
+        // TODO: Uncomment these lines while test driving this code
+        // if let LinkType::Exit(link_name) = link_type {
+        //     if node_record.metadata.unreachable_hosts.contains(&link_name) {
+        //         return rate_undesirability + UNDESIRABLE_FOR_EXIT_PENALTY;
+        //     }
+        // }
+
+        // rate_undesirability
     }
 
     fn is_orig_node_on_back_leg(
@@ -1479,6 +1490,7 @@ pub fn regenerate_signed_gossip(
 enum LinkType {
     Relay,
     Exit,
+    // Exit(String), // TODO: Change above variant to this
     Origin,
 }
 

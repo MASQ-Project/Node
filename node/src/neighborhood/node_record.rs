@@ -329,7 +329,18 @@ pub struct NodeRecordMetadata {
     pub desirable_for_exit: bool,
     pub last_update: u32,
     pub node_addr_opt: Option<NodeAddr>,
+    pub unreachable_hosts: HashSet<String>,
 }
+
+/*
+ORIGINATING     RELAY               EXIT
+facebook.com    facebook.com        baofeng.com
+twitter.com     wikipedia.com
+
+
+
+
+*/
 
 impl NodeRecordMetadata {
     pub fn new() -> NodeRecordMetadata {
@@ -337,6 +348,7 @@ impl NodeRecordMetadata {
             desirable_for_exit: true,
             last_update: time_t_timestamp(),
             node_addr_opt: None,
+            unreachable_hosts: Default::default(),
         }
     }
 }

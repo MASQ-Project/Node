@@ -506,8 +506,10 @@ pub struct AskAboutDebutGossipMessage {
 }
 
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
-pub enum NodeRecordMetadataMessage {
-    Desirable(PublicKey, bool),
+pub struct NodeRecordMetadataMessage {
+    pub public_key: PublicKey,
+    pub unreachable_host_name_opt: Option<String>,
+    // Desirable(PublicKey, bool),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
