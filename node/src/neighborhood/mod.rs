@@ -337,18 +337,24 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: NodeRecordMetadataMessage, _ctx: &mut Self::Context) -> Self::Result {
-        todo!("rewrite how this is handled");
-        // match msg {
-        //     NodeRecordMetadataMessage::Desirable(public_key, desirable) => {
-        //         if let Some(node_record) = self.neighborhood_database.node_by_key_mut(&public_key) {
-        //             debug!(
-        //                 self.logger,
-        //                 "About to set desirable '{}' for '{:?}'", desirable, public_key
-        //             );
-        //             node_record.set_desirable_for_exit(desirable);
-        //         };
-        //     }
-        // };
+        let public_key = msg.public_key;
+        let unreachable_host = msg
+            .unreachable_host_name_opt
+            .expect("No unreachable host found");
+        let node_record = self
+            .neighborhood_database
+            .node_by_key_mut(&public_key)
+            .expect(&format!(
+                "No Node Record found for public_key: {public_key}"
+            ));
+        node_record
+            .metadata
+            .unreachable_hosts
+            .insert(unreachable_host.clone());
+        debug!(
+            self.logger,
+            "Host {unreachable_host} is marked unreachable for the node with public key {public_key}"
+        );
     }
 }
 
@@ -5018,6 +5024,49 @@ mod tests {
         let expected_relay_key = if a_not_b { a.clone() } else { b.clone() };
         assert_eq!(extract_key(over), expected_relay_key);
         assert_eq!(extract_key(back), expected_relay_key);
+    }
+
+    #[test]
+    fn node_record_metadata_message_is_handled_properly() {
+        init_test_logging();
+        let subject_node = make_global_cryptde_node_record(1345, true);
+        let public_key = PublicKey::from(&b"exit_node"[..]);
+        let node_record = NodeRecord::new(
+            &public_key,
+            make_wallet("earning"),
+            rate_pack(100),
+            true,
+            true,
+            0,
+            main_cryptde(),
+        );
+        let unreachable_host = String::from("facebook.com");
+        let mut subject = neighborhood_from_nodes(&subject_node, None);
+        let _ = subject.neighborhood_database.add_node(node_record);
+        let addr = subject.start();
+        let system = System::new("test");
+
+        let _ = addr.try_send(NodeRecordMetadataMessage {
+            public_key: public_key.clone(),
+            unreachable_host_name_opt: Some(unreachable_host.clone()),
+        });
+
+        let assertions = Box::new(move |actor: &mut Neighborhood| {
+            let updated_node_record = actor
+                .neighborhood_database
+                .node_by_key(&public_key)
+                .unwrap();
+            assert!(updated_node_record
+                .metadata
+                .unreachable_hosts
+                .contains(&unreachable_host));
+            TestLogHandler::new().exists_log_matching(&format!(
+                "Host {unreachable_host} is marked unreachable for the node with public key {public_key}"
+            ));
+        });
+        addr.try_send(AssertionsMessage { assertions }).unwrap();
+        System::current().stop();
+        assert_eq!(system.run(), 0);
     }
 
     #[test]
