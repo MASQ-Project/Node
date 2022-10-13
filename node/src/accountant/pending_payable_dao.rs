@@ -190,12 +190,11 @@ mod tests {
     use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
     use crate::database::db_migrations::MigratorConfig;
-    use ethereum_types::BigEndianHash;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, Error, OpenFlags, Row};
     use std::str::FromStr;
     use std::time::SystemTime;
-    use web3::types::{H256, U256};
+    use web3::types::H256;
 
     #[test]
     fn insert_fingerprint_happy_path() {

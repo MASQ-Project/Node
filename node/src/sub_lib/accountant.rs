@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::{ReceivedPayments, ReportTransactionReceipts, ScanError, SentPayable};
-use crate::blockchain::blockchain_bridge::{InitiatePPFingerprints, PendingPayableFingerprint};
+use crate::blockchain::blockchain_bridge::InitiatePPFingerprints;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;

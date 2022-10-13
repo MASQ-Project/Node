@@ -5,7 +5,6 @@ use crate::accountant::{
     ScanForPendingPayables, ScanForReceivables, SentPayable,
 };
 use crate::blockchain::blockchain_bridge::InitiatePPFingerprints;
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::DaemonBindMessage;

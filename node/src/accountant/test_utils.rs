@@ -26,7 +26,7 @@ use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
 use actix::System;
-use ethereum_types::{BigEndianHash, H256, U256};
+use ethereum_types::{BigEndianHash, H256};
 use rusqlite::{Connection, Error, OptionalExtension};
 use std::cell::RefCell;
 use std::rc::Rc;

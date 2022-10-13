@@ -1318,10 +1318,9 @@ mod tests {
     use std::time::SystemTime;
 
     use actix::{Arbiter, System};
-    use ethereum_types::{BigEndianHash, U64};
+    use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
     use masq_lib::constants::SCAN_ERROR;
-    use web3::types::U256;
 
     use masq_lib::messages::{ScanType, UiScanRequest, UiScanResponse};
     use masq_lib::test_utils::logging::init_test_logging;

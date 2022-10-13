@@ -1,16 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
-use crate::blockchain::blockchain_bridge::{InitiatePPFingerprints, PendingPayableFingerprint};
-use crate::blockchain::tool_wrappers::{
-    BatchedPayableTools, BatchedPayableToolsNull, BatchedPayablesToolsReal,
-};
-use crate::database::db_migrations::Suppression::No;
+use crate::blockchain::blockchain_bridge::InitiatePPFingerprints;
+use crate::sub_lib::blockchain_bridge::{BatchedPayableTools, BatchedPayablesToolsReal};
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, Recipient};
 use futures::{future, Future};
 use jsonrpc_core as rpc;
-use jsonrpc_core::ErrorCode;
 use masq_lib::blockchains::chains::{Chain, ChainFamily};
 use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::logger::Logger;
@@ -18,13 +14,14 @@ use masq_lib::utils::plus;
 use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
+use std::iter::once;
 use std::ops::Deref;
 use std::time::SystemTime;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{
-    Address, BlockNumber, Bytes, FilterBuilder, Log, SignedTransaction, TransactionParameters,
-    TransactionReceipt, H160, H256, U256,
+    Address, BlockNumber, Bytes, FilterBuilder, Log, TransactionParameters, TransactionReceipt,
+    H160, H256, U256,
 };
 use web3::{BatchTransport, Error, Transport, Web3};
 
@@ -114,11 +111,6 @@ pub trait BlockchainInterface<T: Transport = Http> {
         accounts: Vec<PayableAccount>,
     ) -> Result<(SystemTime, Vec<PendingPayableFallible>), PayableTransactionError>;
 
-    // fn send_transaction(
-    //     &self,
-    //     inputs: SendTransactionInputs,
-    // ) -> Result<(H256, SystemTime), BlockchainTransactionError>;
-
     fn get_eth_balance(&self, address: &Wallet) -> Balance;
 
     fn get_token_balance(&self, address: &Wallet) -> Balance;
@@ -181,15 +173,6 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     ) -> Result<(SystemTime, Vec<PendingPayableFallible>), PayableTransactionError> {
         todo!()
     }
-
-    // fn send_transaction<'a>(
-    //     &self,
-    //     _inputs: SendTransactionInputs,
-    // ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
-    //     let msg = "Can't send transactions clandestinely yet".to_string();
-    //     error!(self.logger, "{}", &msg);
-    //     Err(BlockchainTransactionError::Sending(msg, H256::default()))
-    // }
 
     fn get_eth_balance(&self, _address: &Wallet) -> Balance {
         error!(self.logger, "Can't get eth balance clandestinely yet",);
@@ -342,7 +325,7 @@ where
                 let addition = U256::from(idx + 1);
                 let nonce = last_nonce
                     .checked_add(addition)
-                    .expect("unexpected ceiling"); //TODO what happens at the ultimate end of the data type capabilities?
+                    .expect("unexpected ceiling");
                 self.process_account(acc, consuming_wallet, nonce, gas_price, account)
             },
         ) {
@@ -357,43 +340,16 @@ where
             &fingerprint_inputs,
         );
 
+        self.logger
+            .info(|| self.transmission_log(&accounts, gas_price));
         match self.batched_payables_tools.send_batch(&self.batch_web3) {
             Ok(responses) => Ok((
                 timestamp,
-                Self::join_data(responses, fingerprint_inputs, accounts),
+                Self::output_data_from_joined_sources(responses, fingerprint_inputs, accounts),
             )),
             Err(e) => todo!(),
         }
     }
-
-    // fn send_transaction<'a>(
-    //     &self,
-    //     // tools: &'a dyn SendTransactionToolsWrapper,
-    //     // recipient: &'a Wallet,
-    //     // consuming_wallet: &'a Wallet,
-    //     // amount: u64,
-    //     // nonce: U256,
-    //     // gas_price: u64,
-    //     inputs: SendTransactionInputs,
-    // ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
-    //     self.logger.debug(|| self.preparation_log(&inputs));
-    //     let signed_transaction = self.prepare_signed_transaction()?;
-    //     let payable_timestamp = inputs
-    //         .tools
-    //         .request_new_payable_fingerprint(signed_transaction.transaction_hash, inputs.amount);
-    //     self.logger
-    //         .info(|| self.transmission_log(inputs.recipient, inputs.amount));
-    //     match inputs
-    //         .tools
-    //         .send_raw_transaction(signed_transaction.raw_transaction)
-    //     {
-    //         Ok(hash) => Ok((hash, payable_timestamp)),
-    //         Err(e) => Err(BlockchainTransactionError::Sending(
-    //             e.to_string(),
-    //             signed_transaction.transaction_hash,
-    //         )),
-    //     }
-    // }
 
     fn get_eth_balance(&self, wallet: &Wallet) -> Balance {
         self.web3
@@ -486,7 +442,9 @@ where
         gas_price: u64,
         account: &PayableAccount,
     ) -> InitialPhaseBatchProcessingResult {
-        if let Ok(f_values) = acc {
+        if let Ok(fingerprints_values) = acc {
+            self.logger
+                .debug(|| self.preparation_log(&account.wallet, account.balance as u64, gas_price));
             match self.prepare_signed_transaction(
                 &account.wallet,
                 consuming_wallet,
@@ -494,10 +452,7 @@ where
                 nonce,
                 gas_price,
             ) {
-                Ok(signed_tx) => Ok((plus(
-                    f_values,
-                    (signed_tx.transaction_hash, account.balance as u64),
-                ))),
+                Ok(tx_hash) => Ok(plus(fingerprints_values, (tx_hash, account.balance as u64))),
                 Err(err) => todo!(),
             }
         } else {
@@ -505,14 +460,11 @@ where
         }
     }
 
-    fn join_data(
+    fn output_data_from_joined_sources(
         results: Vec<web3::transports::Result<rpc::Value>>,
         fingerprint_inputs: Vec<(H256, u64)>,
         accounts: Vec<PayableAccount>,
     ) -> Vec<PendingPayableFallible> {
-        eprintln!("results {:?}", results);
-        eprintln!("fingerprints {:?}", fingerprint_inputs);
-        eprintln!("accounts {:?}", accounts);
         let iterator_with_all_data = results
             .into_iter()
             .zip(fingerprint_inputs.into_iter())
@@ -539,7 +491,7 @@ where
         amount: u64,
         nonce: U256,
         gas_price: u64,
-    ) -> Result<SignedTransaction, PayableTransactionError> {
+    ) -> Result<H256, PayableTransactionError> {
         let mut data = [0u8; 4 + 32 + 32];
         data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
         data[16..36].copy_from_slice(&recipient.address().0[..]);
@@ -574,43 +526,59 @@ where
             Err(e) => return Err(PayableTransactionError::UnusableWallet(e.to_string())),
         };
 
-        match self.batched_payables_tools.sign_transaction(
+        let signed_tx = match self.batched_payables_tools.sign_transaction(
             transaction_parameters,
             &self.batch_web3,
             &key,
         ) {
-            Ok(tx) => Ok(tx),
-            Err(e) => Err(PayableTransactionError::Signing(e.to_string())),
-        }
+            Ok(tx) => tx,
+            Err(e) => todo!(), //Err(PayableTransactionError::Signing(e.to_string())),
+        };
+
+        self.batched_payables_tools
+            .store_raw_transaction_for_batch(signed_tx.raw_transaction, &self.batch_web3);
+
+        Ok(signed_tx.transaction_hash)
     }
 
-    fn preparation_log(
-        &self,
-        amount: u64,
-        recipient: &Wallet,
-        consuming_wallet: &Wallet,
-        gas_price: u64,
-    ) -> String {
-        format!("Preparing transaction for {} Gwei to {} from {} (chain_id: {}, contract: {:#x}, gas price: {})", //TODO fix this later to Wei
-        amount,
-        recipient,
-        consuming_wallet,
-        self.chain.rec().num_chain_id,
-        self.contract_address(),
-        gas_price)
-    }
-
-    fn transmission_log(&self, recipient: &Wallet, amount: u64) -> String {
+    fn preparation_log(&self, recipient: &Wallet, amount: u64, gas_price: u64) -> String {
         format!(
-            "About to send transaction:\n\
-        recipient: {},\n\
-        amount: {},\n\
-        (chain: {}, contract: {:#x})",
-            recipient,
+            "Preparing payment of {} Gwei to {} (chain_id: {}, contract: {:#x}, gas_price: {})", //TODO fix this later to Wei
             amount,
-            self.chain.rec().literal_identifier,
-            self.contract_address()
+            recipient,
+            self.chain.rec().num_chain_id,
+            self.contract_address(),
+            gas_price
         )
+    }
+
+    fn transmission_log(&self, accounts: &[PayableAccount], gas_price: u64) -> String {
+        let chain_name = self
+            .chain
+            .rec()
+            .literal_identifier
+            .chars()
+            .skip_while(|char| char != &'-')
+            .skip(1)
+            .collect::<String>();
+        let introduction = once(format!(
+            "\
+        Paying to creditors...\n\
+        Transactions in the batch:\n\
+        \n\
+        gas price:                                   {} Gwei\n\
+        chain:                                       {}\n\
+        \n\
+        [wallet address]                             [payment in Gwei]\n",
+            gas_price, chain_name
+        )); //TODO change to Wei later
+        let body = accounts
+            .iter()
+            .map(|account| format!("{}   {}\n", account.wallet, account.balance));
+        introduction
+            .chain(body)
+            .chain(once("\n".to_string()))
+            .collect()
     }
 
     fn base_gas_limit(chain: Chain) -> u64 {
@@ -693,7 +661,7 @@ mod tests {
     use crate::test_utils::{make_wallet, TestRawTransaction};
     use actix::{Actor, System};
     use crossbeam_channel::{unbounded, Receiver};
-    use ethereum_types::{BigEndianHash, U64};
+    use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
     use jsonrpc_core::Version::V2;
     use jsonrpc_core::{Call, Error, ErrorCode, Id, MethodCall, Params};
@@ -1270,11 +1238,13 @@ mod tests {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let actor_addr = accountant.start();
         let fingerprint_recipient = recipient!(actor_addr, InitiatePPFingerprints);
-        let subject = BlockchainInterfaceNonClandestine::new(
+        let logger = Logger::new("sending_batch_payments");
+        let mut subject = BlockchainInterfaceNonClandestine::new(
             transport.clone(),
             make_fake_event_loop_handle(),
             TEST_DEFAULT_CHAIN,
         );
+        subject.logger = logger;
         let gas_price = 120;
         let amount_1 = 900000000;
         let account_1 = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
@@ -1285,7 +1255,7 @@ mod tests {
         let amount_2 = 111111111;
         let account_2 = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             make_wallet("w555"),
-            amount_1,
+            amount_2,
             None,
         );
         let amount_3 = 33355666;
@@ -1318,44 +1288,40 @@ mod tests {
             *send_batch_params,
             vec![vec![
                 (
-                    0,
+                    1,
                     Call::MethodCall(MethodCall {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
-                        params: Params::None,
-                        id: Id::Null
-                    })
-                ),
-                (
-                    1,
-                    Call::MethodCall(MethodCall {
-                        jsonrpc: None,
-                        method: "eth_sendRawTransaction".to_string(),
-                        params: Params::Array(vec![Value::String("blah".to_string())]),
-                        id: Id::Null
+                        params: Params::Array(vec![Value::String("0xf8a907851bf08eb00082db6894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
+        00000000000000000000000000000000000000000000000000000773132330000000000000000000000000000000000000000000000000c7d713b49da00002aa0114ad6e8b99356\
+        cdabd669034790ab000e607ce599adff740c481f160d0491b9a0094e53ac6d0eb4390cf157e0effa3c8e909b7831f87b268c38173826b776edad".to_string())]),
+                        id: Id::Num(1)
                     })
                 ),
                 (
                     2,
                     Call::MethodCall(MethodCall {
-                        jsonrpc: None,
+                        jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
-                        params: Params::None,
-                        id: Id::Null
+                        params: Params::Array(vec![Value::String("0xf8a908851bf08eb00082dba894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
+        0000000000000000000000000000000000000000000000000000077353535000000000000000000000000000000000000000000000000018abef77dc1060029a008aff49170a09f\
+        cb5b830c134c177343192df7584e893dbf399e3361a2e5cf0ca02a2ca0e6b574343c8a47f1ecf5948d1e649beb43a4cca144f91502d28a70e825".to_string())]),
+                        id: Id::Num(1)
+                    })
+                ),
+                (
+                    3,
+                    Call::MethodCall(MethodCall {
+                        jsonrpc: Some(V2),
+                        method: "eth_sendRawTransaction".to_string(),
+                        params: Params::Array(vec![Value::String("0xf8a909851bf08eb00082db6894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
+        0000000000000000000000000000000000000000000000000000077393837000000000000000000000000000000000000000000000000007680cd2f2d34002aa0f816d73289035f\
+        2aad6ca41e36cdbedf5a481e54a6d92f84d499bd1533824e8ca01040ae3fb884bebc2cc6368d0104b2d1aea8692728add3aa169e549e48d0a83d".to_string())]),
+                        id: Id::Num(1)
                     })
                 )
             ]]
         );
-        // transport.assert_single_request("eth_sendRawTransaction", &[String::from("\"0xf8a901851bf08eb00082dbe894384dec25e03f94931767\
-        // ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c6168313233000000000000000000000000000000000000000000000\
-        // 0000000082f79cd900029a0d4ecb2865f6a0370689be2e956cc272f7718cb360160f5a51756264ba1cc23fca005a3920e27680135e032bb23f4026a2e91c680866047cf9bbadee2\
-        // 3ab8ab5ca2\"")]);
-        // transport.assert_single_request("eth_sendRawTransaction", &[String::from("\"0xf8a901851bf08eb00082dbe894384dec25e03f94931767\
-        // ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c616831323300000000000000000000000000000000000000000000\
-        // 00000000082f79cd900029a0d4ecb2865f6a0370689be2e956cc272f7718cb360160f5a51756264ba1cc23fca005a3920e27680135e032bb23f4026a2e91c680866047cf9bbade\
-        // e23ab8ab5ca2\"")]);
-        // transport.assert_single_request("eth_sendRawTransaction", &[String::from(r#""0xf8a901851bf08eb00082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0d4ecb2865f6a0370689be2e956cc272f7718cb360160f5a51756264ba1cc23fca005a3920e27680135e032bb23f4026a2e91c680866047cf9bbadee23ab8ab5ca2""#)]);
-        // transport.assert_no_more_requests();
         let (common_timestamp, pending_payables) = result;
         let check_expected_successful_request = |expected_hash: H256, idx: usize| {
             let pending_payable_fallible_1 = &pending_payables[idx];
@@ -1397,7 +1363,7 @@ mod tests {
         );
         assert_eq!(
             hash_2,
-            &H256::from_str("575bcea3d79afbe3a55f41166e81eda20cf5bb7e79718ee21a861d6d7e60fe20")
+            &H256::from_str("56bdf43306fbba900927487172c94d03367d482e5443d502c8479883ffaff991")
                 .unwrap()
         );
         assert_eq!(recipient_2, &make_wallet("w555"));
@@ -1427,7 +1393,7 @@ mod tests {
                     ),
                     (
                         H256::from_str(
-                            "575bcea3d79afbe3a55f41166e81eda20cf5bb7e79718ee21a861d6d7e60fe20"
+                            "56bdf43306fbba900927487172c94d03367d482e5443d502c8479883ffaff991"
                         )
                         .unwrap(),
                         111111111
@@ -1443,14 +1409,24 @@ mod tests {
             }
         );
         let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing("DEBUG: BlockchainInterface: Preparing transaction for 9000 Gwei \
-        to 0x00000000000000000000000000626c6168313233 from 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725 (chain_id: 3, \
-        contract: 0x384dec25e03f94931767ce4c3556168468ba24c3, gas price: 120)" );
+        log_handler.exists_log_containing("DEBUG: sending_batch_payments: Preparing payment of 900000000 Gwei \
+        to 0x0000000000000000000000000000000077313233 (chain_id: 3, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3, gas_price: 120)" );
+        log_handler.exists_log_containing("DEBUG: sending_batch_payments: Preparing payment of 111111111 Gwei \
+        to 0x0000000000000000000000000000000077353535 (chain_id: 3, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3, gas_price: 120)" );
+        log_handler.exists_log_containing("DEBUG: sending_batch_payments: Preparing payment of 33355666 Gwei \
+        to 0x0000000000000000000000000000000077393837 (chain_id: 3, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3, gas_price: 120)" );
         log_handler.exists_log_containing(
-            "INFO: BlockchainInterface: About to send transaction:\n\
-        recipient: 0x00000000000000000000000000626c6168313233,\n\
-        amount: 9000,\n\
-        (chain: eth-ropsten, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3)",
+            "INFO: sending_batch_payments: Paying to creditors...\n\
+        Transactions in the batch:\n\
+        \n\
+        gas price:                                   120 Gwei\n\
+        chain:                                       ropsten\n\
+        \n\
+        [wallet address]                             [payment in Gwei]\n\
+        0x0000000000000000000000000000000077313233   900000000\n\
+        0x0000000000000000000000000000000077353535   111111111\n\
+        0x0000000000000000000000000000000077393837   33355666\n\
+        \n",
         );
     }
 
@@ -1938,8 +1914,9 @@ mod tests {
             )
             .unwrap();
 
-        let byte_set_to_compare = signed_transaction.raw_transaction.0;
-        assert_eq!(&byte_set_to_compare, template)
+        todo!("get this data from params of store_raw_transaction_for_batch")
+        // let byte_set_to_compare = signed_transaction.raw_transaction.0;
+        // assert_eq!(&byte_set_to_compare, template)
     }
 
     //with a real confirmation through a transaction sent with this data to the network
@@ -2434,7 +2411,7 @@ mod tests {
     }
 
     #[test]
-    fn join_data_works() {
+    fn output_data_from_joined_sources_works() {
         let accounts = vec![
             PayableAccount {
                 wallet: make_wallet("4567"),
@@ -2459,11 +2436,12 @@ mod tests {
             })),
         ];
 
-        let result = BlockchainInterfaceNonClandestine::<TestTransport>::join_data(
-            responses,
-            fingerprint_inputs,
-            accounts,
-        );
+        let result =
+            BlockchainInterfaceNonClandestine::<TestTransport>::output_data_from_joined_sources(
+                responses,
+                fingerprint_inputs,
+                accounts,
+            );
 
         assert_eq!(
             result,

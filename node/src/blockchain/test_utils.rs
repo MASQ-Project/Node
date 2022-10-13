@@ -2,12 +2,11 @@
 
 #![cfg(test)]
 
-use crate::blockchain::blockchain_bridge::{InitiatePPFingerprints, PendingPayableFingerprint};
+use crate::blockchain::blockchain_bridge::InitiatePPFingerprints;
 use crate::blockchain::blockchain_interface::{
     Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce,
     PayableTransactionError, PendingPayableFallible, Receipt, REQUESTS_IN_PARALLEL,
 };
-use crate::blockchain::tool_wrappers::BatchedPayableTools;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
 use bip39::{Language, Mnemonic, Seed};
@@ -15,11 +14,8 @@ use ethereum_types::{BigEndianHash, H256};
 use jsonrpc_core as rpc;
 use jsonrpc_core::Call;
 use lazy_static::lazy_static;
-use rusqlite::params;
-use std::borrow::Borrow;
 use std::cell::RefCell;
 use std::fmt::Debug;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
@@ -30,6 +26,7 @@ use web3::{BatchTransport, Error as Web3Error, Web3};
 use web3::{RequestId, Transport};
 
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
+use crate::sub_lib::blockchain_bridge::BatchedPayableTools;
 
 lazy_static! {
     static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![
@@ -337,6 +334,10 @@ impl<T: BatchTransport> BatchedPayableTools<T> for BatchedPayableToolsMock<T> {
                 (*pp_fingerprint_sub).clone(),
                 payable_attributes.to_vec(),
             ));
+    }
+
+    fn store_raw_transaction_for_batch(&self, signed_transactions: Bytes, web3: &Web3<Batch<T>>) {
+        todo!()
     }
 
     fn send_batch(

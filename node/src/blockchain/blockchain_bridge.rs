@@ -414,6 +414,10 @@ impl BlockchainBridge {
             .pp_fingerprint_sub_opt
             .as_ref()
             .expect("Accountant unbound");
+        debug!(
+            self.logger,
+            "Starting the procedure of batch payments dispatch from wallet: {}", consuming_wallet
+        );
         match self.blockchain_interface.send_payables_within_batch(
             consuming_wallet,
             gas_price,
@@ -493,7 +497,7 @@ mod tests {
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_bridge::PendingPayable;
-    use crate::blockchain::blockchain_interface::PendingPayableFallible::{Correct, Failure};
+    use crate::blockchain::blockchain_interface::PendingPayableFallible::Correct;
     use crate::blockchain::blockchain_interface::{
         BlockchainError, BlockchainTransaction, PayableTransactionError,
         RetrievedBlockchainTransactions,
@@ -510,7 +514,7 @@ mod tests {
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
-    use ethereum_types::{BigEndianHash, U64};
+    use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
     use jsonrpc_core::ErrorCode;
     use masq_lib::constants::DEFAULT_CHAIN;

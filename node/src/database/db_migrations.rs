@@ -729,7 +729,6 @@ mod tests {
     };
     use crate::test_utils::make_wallet;
     use bip39::{Language, Mnemonic, MnemonicType, Seed};
-    use ethereum_types::BigEndianHash;
     use itertools::Itertools;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::logger::Logger;
@@ -748,7 +747,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
     use tiny_hderive::bip32::ExtendedPrivKey;
-    use web3::types::{H256, U256};
+    use web3::types::H256;
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {
