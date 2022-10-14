@@ -1289,7 +1289,11 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(None, DEFAULT_MINIMUM_HOP_COUNT, 47)
+            &RouteQueryMessage::data_indefinite_route_request(
+                Some("nowhere.com".to_string()),
+                DEFAULT_MINIMUM_HOP_COUNT,
+                47
+            )
         );
         let recording = proxy_server_recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
@@ -1409,7 +1413,11 @@ mod tests {
         let neighborhood_record = neighborhood_recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             neighborhood_record,
-            &RouteQueryMessage::data_indefinite_route_request(None, DEFAULT_MINIMUM_HOP_COUNT, 12)
+            &RouteQueryMessage::data_indefinite_route_request(
+                Some("realdomain.nu".to_string()),
+                DEFAULT_MINIMUM_HOP_COUNT,
+                12
+            )
         );
     }
 
@@ -1807,7 +1815,7 @@ mod tests {
                 minimum_hop_count: 0,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 47,
-                hostname_opt: None
+                hostname_opt: Some("nowhere.com".to_string())
             }
         );
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
@@ -2198,7 +2206,11 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(None, 3, 47)
+            &RouteQueryMessage::data_indefinite_route_request(
+                Some("nowhere.com".to_string()),
+                3,
+                47
+            )
         );
     }
 
