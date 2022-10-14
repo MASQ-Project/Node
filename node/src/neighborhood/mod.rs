@@ -1181,7 +1181,6 @@ impl Neighborhood {
     // target in hops_remaining or more hops with no cycles, or from the origin hops_remaining hops
     // out into the MASQ Network. No round trips; if you want a round trip, call this method twice.
     // If the return value is None, no qualifying route was found.
-    // TODO: Add a parameter for host_name
     fn find_best_route_segment<'a>(
         &'a self,
         source: &'a PublicKey,

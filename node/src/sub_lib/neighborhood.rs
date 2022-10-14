@@ -512,7 +512,6 @@ pub struct AskAboutDebutGossipMessage {
 pub struct NodeRecordMetadataMessage {
     pub public_key: PublicKey,
     pub unreachable_host_name_opt: Option<String>,
-    // Desirable(PublicKey, bool),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
