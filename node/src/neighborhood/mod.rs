@@ -344,9 +344,7 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
         let node_record = self
             .neighborhood_database
             .node_by_key_mut(&public_key)
-            .expect(&format!(
-                "No Node Record found for public_key: {public_key}"
-            ));
+            .unwrap_or_else(|| panic!("No Node Record found for public_key: {public_key}"));
         node_record
             .metadata
             .unreachable_hosts
@@ -1014,6 +1012,7 @@ impl Neighborhood {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn make_route_segment(
         &self,
         origin: &PublicKey,
@@ -1146,11 +1145,9 @@ impl Neighborhood {
             LinkType::Origin => (0, 0),
         };
         let rate_undesirability = per_cores as i64 + (per_byte as i64 * payload_size as i64);
-        if let LinkType::Exit(hostname_opt) = link_type {
-            if let Some(hostname) = hostname_opt {
-                if node_record.metadata.unreachable_hosts.contains(&hostname) {
-                    return rate_undesirability + UNDESIRABLE_FOR_EXIT_PENALTY;
-                }
+        if let LinkType::Exit(Some(hostname)) = link_type {
+            if node_record.metadata.unreachable_hosts.contains(&hostname) {
+                return rate_undesirability + UNDESIRABLE_FOR_EXIT_PENALTY;
             }
         }
 
@@ -1311,6 +1308,7 @@ impl Neighborhood {
         );
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn compute_new_undesirability(
         &self,
         node_record: &NodeRecord,

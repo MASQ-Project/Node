@@ -332,16 +332,6 @@ pub struct NodeRecordMetadata {
     pub unreachable_hosts: HashSet<String>,
 }
 
-/*
-ORIGINATING     RELAY               EXIT
-facebook.com    facebook.com        baofeng.com
-twitter.com     wikipedia.com
-
-
-
-
-*/
-
 impl NodeRecordMetadata {
     pub fn new() -> NodeRecordMetadata {
         NodeRecordMetadata {
