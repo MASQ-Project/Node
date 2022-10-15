@@ -267,7 +267,10 @@ impl PersistentConfiguration for PersistentConfigurationMock {
     }
 
     fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-        *self.arbitrary_id_stamp_opt.as_ref().unwrap()
+        self.arbitrary_id_stamp_opt
+            .as_ref()
+            .unwrap()
+            .identical_clone()
     }
 }
 

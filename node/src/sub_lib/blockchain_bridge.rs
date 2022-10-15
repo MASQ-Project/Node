@@ -67,7 +67,7 @@ pub struct SetGasPriceMsg {
     pub gas_price: String,
 }
 
-pub trait BatchedPayableTools<T>
+pub trait BatchPayablesTools<T>
 where
     T: BatchTransport,
 {
@@ -84,8 +84,9 @@ where
         pp_fingerprint_sub: &Recipient<InitiatePPFingerprints>,
         payable_attributes: &[(H256, u64)],
     );
-    fn store_raw_transaction_for_batch(&self, signed_transactions: Bytes, web3: &Web3<Batch<T>>);
-    fn send_batch(
+    fn enter_raw_transaction_to_batch(&self, signed_transactions: Bytes, web3: &Web3<Batch<T>>);
+    //calls internally 'send_batch()' that takes more parameters
+    fn submit_batch(
         &self,
         web3: &Web3<Batch<T>>,
     ) -> Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error>;
@@ -104,7 +105,7 @@ impl<T: BatchTransport> Default for BatchedPayablesToolsReal<T> {
     }
 }
 
-impl<T: BatchTransport + Debug> BatchedPayableTools<T> for BatchedPayablesToolsReal<T> {
+impl<T: BatchTransport + Debug> BatchPayablesTools<T> for BatchedPayablesToolsReal<T> {
     fn sign_transaction(
         &self,
         transaction_params: TransactionParameters,
@@ -134,11 +135,11 @@ impl<T: BatchTransport + Debug> BatchedPayableTools<T> for BatchedPayablesToolsR
             .expect("Accountant is dead");
     }
 
-    fn store_raw_transaction_for_batch(&self, signed_transactions: Bytes, web3: &Web3<Batch<T>>) {
+    fn enter_raw_transaction_to_batch(&self, signed_transactions: Bytes, web3: &Web3<Batch<T>>) {
         let _ = web3.eth().send_raw_transaction(signed_transactions);
     }
 
-    fn send_batch(
+    fn submit_batch(
         &self,
         web3: &Web3<Batch<T>>,
     ) -> Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error> {
@@ -159,7 +160,7 @@ impl<T> Default for BatchedPayableToolsNull<T> {
     }
 }
 
-impl<T: BatchTransport> BatchedPayableTools<T> for BatchedPayableToolsNull<T> {
+impl<T: BatchTransport> BatchPayablesTools<T> for BatchedPayableToolsNull<T> {
     fn sign_transaction(
         &self,
         _transaction_params: TransactionParameters,
@@ -184,11 +185,11 @@ impl<T: BatchTransport> BatchedPayableTools<T> for BatchedPayableToolsNull<T> {
         )
     }
 
-    fn store_raw_transaction_for_batch(&self, signed_transactions: Bytes, web3: &Web3<Batch<T>>) {
+    fn enter_raw_transaction_to_batch(&self, signed_transactions: Bytes, web3: &Web3<Batch<T>>) {
         todo!()
     }
 
-    fn send_batch(
+    fn submit_batch(
         &self,
         web3: &Web3<Batch<T>>,
     ) -> Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error> {
@@ -201,7 +202,7 @@ mod tests {
     use crate::blockchain::blockchain_bridge::InitiatePPFingerprints;
     use crate::blockchain::test_utils::{make_tx_hash, TestTransport};
     use crate::sub_lib::blockchain_bridge::{
-        BatchedPayableTools, BatchedPayableToolsNull, BatchedPayablesToolsReal,
+        BatchPayablesTools, BatchedPayableToolsNull, BatchedPayablesToolsReal,
     };
     use crate::test_utils::recorder::{make_blockchain_bridge_subs_from, make_recorder, Recorder};
     use actix::{Actor, System};
@@ -240,7 +241,7 @@ mod tests {
         let rlp = Bytes(b"data".to_vec());
         let web3 = Web3::new(Batch::new(TestTransport::default()));
 
-        let _ = BatchedPayableToolsNull::<TestTransport>::default().send_batch(&web3);
+        let _ = BatchedPayableToolsNull::<TestTransport>::default().submit_batch(&web3);
     }
 
     #[test]

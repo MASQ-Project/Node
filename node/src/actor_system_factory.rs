@@ -1831,7 +1831,8 @@ mod tests {
         let actor_factory_before_raw_address = addr_of!(*actor_factory);
         let persistent_config_id = ArbitraryIdStamp::new();
         let persistent_config = Box::new(
-            PersistentConfigurationMock::default().set_arbitrary_id_stamp(persistent_config_id),
+            PersistentConfigurationMock::default()
+                .set_arbitrary_id_stamp(persistent_config_id.identical_clone()),
         );
         let persistent_config_before_raw = addr_of!(*persistent_config);
         let tools = ActorSystemFactoryToolsMock::default()

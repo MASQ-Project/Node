@@ -248,7 +248,7 @@ impl BlockchainBridge {
                 .as_ref()
                 .expect("Accountant is unbound")
                 .try_send(SentPayable {
-                    timestamp: SystemTime::now(),
+                    timestamp: SystemTime::now(), //TODO this is probably wrong, I have a more accurate timestamp
                     payable_outcomes: payments,
                     response_skeleton_opt: skeleton,
                 })
@@ -516,7 +516,6 @@ mod tests {
     use actix::System;
     use ethereum_types::U64;
     use ethsign_crypto::Keccak256;
-    use jsonrpc_core::ErrorCode;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::init_test_logging;

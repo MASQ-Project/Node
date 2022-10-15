@@ -867,16 +867,46 @@ pub mod unshared_test_utils {
             Mutex::new(MutexIncrementInset(0));
     }
 
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub struct ArbitraryIdStamp(usize);
+    #[derive(Debug, PartialEq, Eq)]
+    pub struct ArbitraryIdStamp {
+        id: usize,
+        chronological_ancestors: Vec<usize>,
+    }
 
     impl ArbitraryIdStamp {
         pub fn new() -> Self {
-            ArbitraryIdStamp({
-                let mut access = ARBITRARY_ID_STAMP_SEQUENCER.lock().unwrap();
-                access.0 += 1;
-                access.0
-            })
+            ArbitraryIdStamp {
+                id: {
+                    let mut access = ARBITRARY_ID_STAMP_SEQUENCER.lock().unwrap();
+                    access.0 += 1;
+                    access.0
+                },
+                chronological_ancestors: vec![],
+            }
+        }
+        pub fn with_ancestors(ancestors: Vec<usize>) -> Self {
+            let mut new_instance = ArbitraryIdStamp::new();
+            new_instance.chronological_ancestors = ancestors;
+            new_instance
+        }
+
+        pub fn hand_over_the_baton(&self) -> Vec<usize> {
+            let mut history = self.chronological_ancestors.clone();
+            history.push(self.id);
+            history
+        }
+
+        pub fn identical_clone(&self) -> Self {
+            ArbitraryIdStamp {
+                id: self.id,
+                chronological_ancestors: self.chronological_ancestors.clone(),
+            }
+        }
+    }
+
+    impl Clone for ArbitraryIdStamp {
+        fn clone(&self) -> Self {
+            ArbitraryIdStamp::with_ancestors(self.hand_over_the_baton())
         }
     }
 
