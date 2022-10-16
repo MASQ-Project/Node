@@ -223,7 +223,7 @@ impl PayableDao for PayableDaoReal {
             Self::stm_assembler_of_payable_cq,
             variant_top,
             variant_range,
-            Self::form_payable_account,
+            Self::create_payable_account,
         )
     }
 
@@ -292,7 +292,7 @@ impl PayableDaoReal {
         }
     }
 
-    fn form_payable_account(row: &Row) -> rusqlite::Result<PayableAccount> {
+    fn create_payable_account(row: &Row) -> rusqlite::Result<PayableAccount> {
         let wallet_result: Result<Wallet, Error> = row.get(0);
         let balance_high_bytes_result = row.get(1);
         let balance_low_bytes_result = row.get(2);
@@ -374,6 +374,7 @@ impl TableNameDAO for PayableDaoReal {
 mod tests {
     use super::*;
     use crate::accountant::dao_utils::{from_time_t, now_time_t, to_time_t};
+    use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::{
         assert_database_blows_up_on_an_unexpected_error, make_pending_payable_fingerprint,
     };
@@ -463,11 +464,6 @@ mod tests {
         let _ = subject.more_money_payable(SystemTime::now(), &wallet, u128::MAX);
     }
 
-    fn insert_single_record_into_payable(conn: &dyn ConnectionWrapper, params: &[&dyn ToSql]) {
-        let mut stm = conn.prepare("insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid) values (?,?,?,?,?)").unwrap();
-        stm.execute(params).unwrap();
-    }
-
     #[test]
     fn mark_pending_payment_marks_a_pending_transaction_for_a_new_address() {
         let home_dir = ensure_node_home_directory_exists(
@@ -480,10 +476,7 @@ mod tests {
             .initialize(&home_dir, true, DbInitializationConfig::test_default())
             .unwrap();
         {
-            insert_single_record_into_payable(
-                &*boxed_conn,
-                &[&wallet, &0, &5000, &150_000_000, &Null],
-            );
+            insert_record(&*boxed_conn, &wallet.to_string(), 5000, 150_000_000, None);
         }
         let subject = PayableDaoReal::new(boxed_conn);
         let before_account_status = subject.account_status(&wallet).unwrap();
@@ -535,7 +528,7 @@ mod tests {
         );
         let wallet = make_wallet("booga");
         let rowid = 656;
-        let conn = how_to_trick_rusqlite_for_an_error(&home_dir);
+        let conn = trick_rusqlite_with_read_only_conn(&home_dir);
         let conn_wrapped = ConnectionWrapperReal::new(conn);
         let subject = PayableDaoReal::new(Box::new(conn_wrapped));
 
@@ -566,15 +559,12 @@ mod tests {
         let payment = 6666;
         let wallet = make_wallet("bobble");
         {
-            insert_single_record_into_payable(
+            insert_record(
                 &*boxed_conn,
-                &[
-                    &wallet,
-                    &high_bytes,
-                    &low_bytes,
-                    &to_time_t(previous_timestamp),
-                    &sign_conversion::<u64, i64>(rowid).unwrap(),
-                ],
+                &wallet.to_string(),
+                starting_amount,
+                to_time_t(previous_timestamp),
+                Some(sign_conversion::<u64, i64>(rowid).unwrap()),
             );
         }
         let subject = PayableDaoReal::new(boxed_conn);
@@ -621,7 +611,7 @@ mod tests {
             "payable_dao",
             "transaction_confirmed_works_for_generic_sql_error",
         );
-        let conn = how_to_trick_rusqlite_for_an_error(&home_dir);
+        let conn = trick_rusqlite_with_read_only_conn(&home_dir);
         let conn_wrapped = Box::new(ConnectionWrapperReal::new(conn));
         let mut pending_payable_fingerprint = make_pending_payable_fingerprint();
         let hash = H256::from_uint(&U256::from(12345));
@@ -635,7 +625,9 @@ mod tests {
         assert_eq!(
             result,
             Err(PayableDaoError::RusqliteError(
-                "Wei change: error after invalid update command for payable of -12345 Wei to 789 with error 'attempt to write a readonly database'".to_string()
+                "Error from invalid update command for payable table and change of -12345 Wei to \
+                 'pending_payable_rowid = 789' with error 'attempt to write a readonly database'"
+                    .to_string()
             ))
         )
     }
@@ -666,7 +658,7 @@ mod tests {
         let _ = subject.transaction_confirmed(&pending_payable_fingerprint);
     }
 
-    fn how_to_trick_rusqlite_for_an_error(path: &Path) -> Connection {
+    fn trick_rusqlite_with_read_only_conn(path: &Path) -> Connection {
         let db_path = path.join("experiment.db");
         let conn = RusqliteConnection::open_with_flags(&db_path, OpenFlags::default()).unwrap();
         {
@@ -722,48 +714,19 @@ mod tests {
         flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
         let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
         let conn = ConnectionWrapperReal::new(conn);
-        let insert = |wallet: &str,
-                      balance_high_b: i64,
-                      balance_low_b: i64,
-                      last_paid_timestamp: i64,
-                      pending_payable_rowid: Option<i64>| {
-            let params: &[&dyn ToSql] = &[
-                &wallet,
-                &balance_high_b,
-                &balance_low_b,
-                &last_paid_timestamp,
-                &pending_payable_rowid,
-            ];
-            insert_single_record_into_payable(&conn, params);
+        let insert = |wallet: &str, pending_payable_rowid: Option<i64>| {
+            insert_record(
+                &conn,
+                wallet,
+                1234567890123456,
+                111_111_111,
+                pending_payable_rowid,
+            );
         };
-        insert(
-            "0x0000000000000000000000000000000000666f6f",
-            42,
-            454,
-            1111111111,
-            Some(15),
-        );
-        insert(
-            "0x0000000000000000000000000000000000626172",
-            24,
-            11111,
-            2222211111,
-            Some(16),
-        );
-        insert(
-            &make_wallet("foobar").to_string(),
-            44,
-            10000,
-            3333333333,
-            None,
-        );
-        insert(
-            &make_wallet("barfoo").to_string(),
-            458422,
-            45,
-            4444433333,
-            None,
-        );
+        insert("0x0000000000000000000000000000000000666f6f", Some(15));
+        insert(&make_wallet("foobar").to_string(), None);
+        insert("0x0000000000000000000000000000000000626172", Some(16));
+        insert(&make_wallet("barfoo").to_string(), None);
 
         let result = subject.non_pending_payables();
 
@@ -772,14 +735,14 @@ mod tests {
             vec![
                 PayableAccount {
                     wallet: make_wallet("foobar"),
-                    balance_wei: BigIntDivider::reconstitute(44, 10000) as u128,
-                    last_paid_timestamp: from_time_t(3333333333),
+                    balance_wei: 1234567890123456 as u128,
+                    last_paid_timestamp: from_time_t(111_111_111),
                     pending_payable_opt: None
                 },
                 PayableAccount {
                     wallet: make_wallet("barfoo"),
-                    balance_wei: BigIntDivider::reconstitute(458422, 45) as u128,
-                    last_paid_timestamp: from_time_t(4444433333),
+                    balance_wei: 1234567890123456 as u128,
+                    last_paid_timestamp: from_time_t(111_111_111),
                     pending_payable_opt: None
                 },
             ]
@@ -790,10 +753,10 @@ mod tests {
     #[should_panic(
         expected = "Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128"
     )]
-    fn payable_amount_panics_on_insert_when_with_overflow() {
+    fn payable_amount_panics_on_insert_with_overflow() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "payable_amount_panics_on_insert_when_with_overflow",
+            "payable_amount_panics_on_insert_with_overflow",
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
@@ -806,7 +769,8 @@ mod tests {
 
     #[test]
     fn custom_query_handles_empty_table_in_top_records_mode() {
-        let main_test_setup = |_insert: &dyn Fn(&str, i128, i64, Option<i64>)| {};
+        let main_test_setup =
+            |_conn: &dyn ConnectionWrapper, _insert: InsertRecordClosureSignature| {};
         let subject = custom_query_test_body_for_payable(
             "custom_query_handles_empty_table_in_top_records_mode",
             main_test_setup,
@@ -820,43 +784,47 @@ mod tests {
         assert_eq!(result, None)
     }
 
-    fn common_setup_of_accounts_for_tests_of_top_records(
+    macro_rules! simplified_insert {
+        ($conn: expr, $closure: expr) => {
+            |wallet: &str, wei_amount: i128, time: i64, rowid: Option<i64>| {
+                $closure($conn, wallet, wei_amount, time, rowid)
+            };
+        };
+    }
+
+    fn accounts_for_tests_of_top_records(
         now: i64,
-    ) -> Box<dyn Fn(&dyn Fn(&str, i128, i64, Option<i64>))> {
-        let timestamp1 = now - 86_401;
-        let timestamp2 = now - 86_001;
-        let timestamp3 = now - 86_000;
-        let timestamp4 = now - 86_300;
-        let timestamp5 = now - 86_401;
-        Box::new(move |insert: &dyn Fn(&str, i128, i64, Option<i64>)| {
+    ) -> Box<dyn Fn(&dyn ConnectionWrapper, InsertRecordClosureSignature)> {
+        Box::new(move |conn, insert: InsertRecordClosureSignature| {
+            let insert = simplified_insert!(conn, insert);
             insert(
                 "0x1111111111111111111111111111111111111111",
                 1_000_000_002,
-                timestamp1,
+                now - 86_401,
                 None,
             );
             insert(
                 "0x2222222222222222222222222222222222222222",
                 7_562_000_300_000,
-                timestamp2,
+                now - 86_001,
                 None,
             );
             insert(
                 "0x3333333333333333333333333333333333333333",
                 999_999_999, //balance smaller than 1 Gwei
-                timestamp3,
+                now - 86_000,
                 None,
             );
             insert(
                 "0x4444444444444444444444444444444444444444",
                 10_000_000_100,
-                timestamp4,
+                now - 86_300,
                 None,
             );
             insert(
                 "0x5555555555555555555555555555555555555555",
                 10_000_000_100,
-                timestamp5,
+                now - 86_401,
                 Some(1),
             );
         })
@@ -868,7 +836,7 @@ mod tests {
         //Two accounts differ only in debt's age but not balance which allows to check doubled ordering,
         //here by balance and then by age.
         let now = now_time_t();
-        let main_test_setup = common_setup_of_accounts_for_tests_of_top_records(now);
+        let main_test_setup = accounts_for_tests_of_top_records(now);
         let subject = custom_query_test_body_for_payable(
             "custom_query_in_top_records_mode_with_default_ordering",
             main_test_setup,
@@ -918,7 +886,7 @@ mod tests {
         //Two accounts differ only in balance but not in the debt's age which allows to check doubled ordering,
         //here by age and then by balance.
         let now = now_time_t();
-        let main_test_setup = common_setup_of_accounts_for_tests_of_top_records(now);
+        let main_test_setup = accounts_for_tests_of_top_records(now);
         let subject = custom_query_test_body_for_payable(
             "custom_query_in_top_records_mode_ordered_by_age",
             main_test_setup,
@@ -962,9 +930,13 @@ mod tests {
         );
     }
 
+    type InsertRecordClosureSignature<'b> =
+        &'b dyn for<'a> Fn(&'a dyn ConnectionWrapper, &'a str, i128, i64, Option<i64>);
+
     #[test]
     fn custom_query_handles_empty_table_in_range_mode() {
-        let main_test_setup = |_insert: &dyn Fn(&str, i128, i64, Option<i64>)| {};
+        let main_test_setup =
+            |_conn: &dyn ConnectionWrapper, _insert: InsertRecordClosureSignature| {};
         let subject = custom_query_test_body_for_payable(
             "custom_query_handles_empty_table_in_range_mode",
             main_test_setup,
@@ -986,54 +958,48 @@ mod tests {
         //Two accounts differ only in debt's age but not balance which allows to check doubled ordering,
         //by balance and then by age.
         let now = now_time_t();
-        let timestamp1 = now - 70_000;
-        let timestamp2 = now - 55_120;
-        let timestamp3 = now - 200_001;
-        let timestamp4 = now - 19_999;
-        let timestamp5 = now - 30_786;
-        let timestamp6 = now - 100_401;
-        let timestamp7 = now - 80_333;
-        let main_setup = |insert: &dyn Fn(&str, i128, i64, Option<i64>)| {
+        let main_setup = |conn: &dyn ConnectionWrapper, insert: InsertRecordClosureSignature| {
+            let insert = simplified_insert!(conn, insert);
             insert(
                 "0x1111111111111111111111111111111111111111",
-                499_999_999 * WEIS_OF_GWEI, //too small
-                timestamp1,
+                gwei_to_wei::<_, u64>(499_999_999), //too small
+                now - 70_000,
                 None,
             );
             insert(
                 "0x2222222222222222222222222222222222222222",
-                1_800_456_000 * WEIS_OF_GWEI,
-                timestamp2,
+                gwei_to_wei::<_, u64>(1_800_456_000),
+                now - 55_120,
                 Some(1),
             );
             insert(
                 "0x3333333333333333333333333333333333333333",
-                600_123_456 * WEIS_OF_GWEI,
-                timestamp3, //too old
+                gwei_to_wei::<_, u64>(600_123_456),
+                now - 200_001, //too old
                 None,
             );
             insert(
                 "0x4444444444444444444444444444444444444444",
-                1_033_456_000 * WEIS_OF_GWEI,
-                timestamp4, //too young
+                gwei_to_wei::<_, u64>(1_033_456_000_u64),
+                now - 19_999, //too young
                 None,
             );
             insert(
                 "0x5555555555555555555555555555555555555555",
-                35_000_000_001 * WEIS_OF_GWEI, //too big
-                timestamp5,
+                gwei_to_wei::<_, u64>(35_000_000_001), //too big
+                now - 30_786,
                 None,
             );
             insert(
                 "0x6666666666666666666666666666666666666666",
-                1_800_456_000 * WEIS_OF_GWEI,
-                timestamp6,
+                gwei_to_wei::<_, u64>(1_800_456_000u64),
+                now - 100_401,
                 None,
             );
             insert(
                 "0x7777777777777777777777777777777777777777",
-                2_500_647_000 * WEIS_OF_GWEI,
-                timestamp7,
+                gwei_to_wei::<_, u64>(2_500_647_000u64),
+                now - 80_333,
                 None,
             );
         };
@@ -1054,20 +1020,20 @@ mod tests {
             vec![
                 PayableAccount {
                     wallet: Wallet::new("0x7777777777777777777777777777777777777777"),
-                    balance_wei: 2_500_647_000_000_000_000,
-                    last_paid_timestamp: from_time_t(timestamp7),
+                    balance_wei: gwei_to_wei(2_500_647_000_u32),
+                    last_paid_timestamp: from_time_t(now - 80_333),
                     pending_payable_opt: None
                 },
                 PayableAccount {
                     wallet: Wallet::new("0x6666666666666666666666666666666666666666"),
-                    balance_wei: 1_800_456_000_000_000_000,
-                    last_paid_timestamp: from_time_t(timestamp6),
+                    balance_wei: gwei_to_wei(1_800_456_000_u32),
+                    last_paid_timestamp: from_time_t(now - 100_401),
                     pending_payable_opt: None
                 },
                 PayableAccount {
                     wallet: Wallet::new("0x2222222222222222222222222222222222222222"),
-                    balance_wei: 1_800_456_000_000_000_000,
-                    last_paid_timestamp: from_time_t(timestamp2),
+                    balance_wei: gwei_to_wei(1_800_456_000_u32),
+                    last_paid_timestamp: from_time_t(now - 55_120),
                     pending_payable_opt: Some(PendingPayableId {
                         rowid: 1,
                         hash: H256::from_str(
@@ -1082,18 +1048,21 @@ mod tests {
 
     #[test]
     fn range_query_does_not_display_values_from_below_1_gwei() {
-        let timestamp = now_time_t() - 5000;
-        let main_setup = |insert: &dyn Fn(&str, i128, i64, Option<i64>)| {
+        let timestamp_1 = now_time_t() - 11_001;
+        let timestamp_2 = now_time_t() - 5000;
+        let main_setup = |conn: &dyn ConnectionWrapper, insert: InsertRecordClosureSignature| {
             insert(
+                conn,
                 "0x1111111111111111111111111111111111111111",
                 400_005_601,
-                dao_utils::now_time_t() - 11_001,
+                timestamp_1,
                 None,
             );
             insert(
+                conn,
                 "0x2222222222222222222222222222222222222222",
                 30_000_300_000,
-                timestamp,
+                timestamp_2,
                 None,
             );
         };
@@ -1117,7 +1086,7 @@ mod tests {
             vec![PayableAccount {
                 wallet: Wallet::new("0x2222222222222222222222222222222222222222"),
                 balance_wei: 30_000_300_000,
-                last_paid_timestamp: from_time_t(timestamp),
+                last_paid_timestamp: from_time_t(timestamp_2),
                 pending_payable_opt: None
             },]
         )
@@ -1195,7 +1164,7 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, DbInitializationConfig::test_default())
             .unwrap();
-        let timestamp = dao_utils::now_time_t();
+        let timestamp = now_time_t();
         insert_record(
             &*conn,
             "0x1111111111111111111111111111111111111111",
@@ -1226,8 +1195,8 @@ mod tests {
     #[should_panic(
         expected = "Database is corrupt: PAYABLE table columns and/or types: (Err(FromSqlConversionFailure(0, Text, InvalidAddress)), Err(InvalidColumnIndex(1))"
     )]
-    fn form_payable_account_panics_on_database_error() {
-        assert_database_blows_up_on_an_unexpected_error(PayableDaoReal::form_payable_account);
+    fn create_payable_account_panics_on_database_error() {
+        assert_database_blows_up_on_an_unexpected_error(PayableDaoReal::create_payable_account);
     }
 
     #[test]
@@ -1237,32 +1206,13 @@ mod tests {
 
     fn custom_query_test_body_for_payable<F>(test_name: &str, main_setup_fn: F) -> PayableDaoReal
     where
-        F: Fn(&dyn Fn(&str, i128, i64, Option<i64>)),
+        F: Fn(&dyn ConnectionWrapper, InsertRecordClosureSignature),
     {
         let home_dir = ensure_node_home_directory_exists("payable_dao", test_name);
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, DbInitializationConfig::test_default())
             .unwrap();
-        let insert = |wallet: &str,
-                      wei_balance: i128,
-                      timestamp: i64,
-                      pending_payable_rowid: Option<i64>| {
-            let (high_bytes, low_bytes) = BigIntDivider::deconstruct(wei_balance);
-            let params: &[&dyn ToSql] = &[
-                &wallet,
-                &high_bytes,
-                &low_bytes,
-                &timestamp,
-                &pending_payable_rowid,
-            ];
-            eprintln!("timestamp before: {}", timestamp);
-            conn
-                .prepare("insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid) values (?,?,?,?,?)")
-                .unwrap()
-                .execute(params)
-                .unwrap();
-        };
-        main_setup_fn(&insert);
+        main_setup_fn(conn.as_ref(), &insert_record);
         let params: &[&dyn ToSql] = &[
             &String::from("0xabc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"),
             &40,

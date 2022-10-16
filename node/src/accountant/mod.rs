@@ -1472,6 +1472,7 @@ pub fn politely_checked_conversion<T: Copy + Display, S: TryFrom<T>>(num: T) -> 
     })
 }
 
+#[track_caller]
 pub fn checked_conversion<T: Copy + Display, S: TryFrom<T>>(num: T) -> S {
     politely_checked_conversion(num).unwrap_or_else(|msg| panic!("{}", msg))
 }

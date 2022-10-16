@@ -138,7 +138,7 @@ impl ReceivableDao for ReceivableDaoReal {
 
     fn new_delinquencies(
         &self,
-        system_now: SystemTime,
+        now: SystemTime,
         payment_thresholds: &PaymentThresholds,
     ) -> Vec<ReceivableAccount> {
         let slope = ThresholdUtils::slope(payment_thresholds, true);
@@ -154,9 +154,9 @@ impl ReceivableDao for ReceivableDaoReal {
                 left outer join banned b on r.wallet_address = b.wallet_address
                 where
                     r.last_received_timestamp < :sugg_and_grace
-                    and ((r.balance_high_b > biginthigh(:debt_threshold, :slope * (:sugg_and_grace - r.last_received_timestamp)))
-                        or ((r.balance_high_b = biginthigh(:debt_threshold, :slope * (:sugg_and_grace - r.last_received_timestamp)))
-                        and (r.balance_low_b > bigintlow(:debt_threshold, :slope * (:sugg_and_grace - r.last_received_timestamp)))))
+                    and ((r.balance_high_b > slope_drop_high_bytes(:debt_threshold, :slope * (:sugg_and_grace - r.last_received_timestamp)))
+                        or ((r.balance_high_b = slope_drop_high_bytes(:debt_threshold, :slope * (:sugg_and_grace - r.last_received_timestamp)))
+                        and (r.balance_low_b > slope_drop_low_bytes(:debt_threshold, :slope * (:sugg_and_grace - r.last_received_timestamp)))))
                     and ((r.balance_high_b > :permanent_debt_allowed_high_b) or ((r.balance_high_b = 0) and (r.balance_low_b > :permanent_debt_allowed_low_b)))
                     and b.wallet_address is null
             "
@@ -168,11 +168,11 @@ impl ReceivableDao for ReceivableDaoReal {
                 named_params! {
                     ":debt_threshold": checked_conversion::<u64,i64>(payment_thresholds.debt_threshold_gwei),
                     ":slope": slope,
-                    ":sugg_and_grace": payment_thresholds.sugg_and_grace(to_time_t(system_now)),
+                    ":sugg_and_grace": payment_thresholds.sugg_and_grace(to_time_t(now)),
                     ":permanent_debt_allowed_high_b": permanent_debt_allowed_high_b,
                     ":permanent_debt_allowed_low_b": permanent_debt_allowed_low_b
                 },
-                Self::form_receivable_account,
+                Self::create_receivable_account,
             )
             .expect("Couldn't retrieve new delinquencies: database corruption")
             .vigilant_flatten()
@@ -197,7 +197,7 @@ impl ReceivableDao for ReceivableDaoReal {
                 ":unban_balance_high_b": unban_balance_high_b,
                 ":unban_balance_low_b": unban_balance_low_b
             },
-            Self::form_receivable_account,
+            Self::create_receivable_account,
         )
         .expect("Couldn't retrieve new delinquencies: database corruption")
         .vigilant_flatten()
@@ -224,7 +224,7 @@ impl ReceivableDao for ReceivableDaoReal {
             Self::stm_assembler_of_receivable_cq,
             variant_top,
             variant_range,
-            Self::form_receivable_account,
+            Self::create_receivable_account,
         )
     }
 
@@ -240,7 +240,7 @@ impl ReceivableDao for ReceivableDaoReal {
             )
             .expect("Internal error");
         match stmt
-            .query_row(&[&wallet], Self::form_receivable_account)
+            .query_row(&[&wallet], Self::create_receivable_account)
             .optional()
         {
             Ok(value) => value,
@@ -269,6 +269,7 @@ impl ReceivableDaoReal {
         {
             for transaction in payments {
                 self.big_int_db_processor.execute(Either::Right(&xactn), BigIntSqlConfig::new(
+                    //the plus signs work because the 'Subtraction' enum variant will flip the sign of the first integer
                     "update receivable set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, last_received_timestamp = :last_received where wallet_address = :wallet",
                     "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, last_received_timestamp = :last_received where wallet_address = :wallet",
                     SQLParamsBuilder::default()
@@ -286,7 +287,7 @@ impl ReceivableDaoReal {
         }
     }
 
-    fn form_receivable_account(row: &Row) -> rusqlite::Result<ReceivableAccount> {
+    fn create_receivable_account(row: &Row) -> rusqlite::Result<ReceivableAccount> {
         let wallet: Result<Wallet, Error> = row.get(0);
         let balance_high_b_result = row.get(1);
         let balance_low_b_result = row.get(2);
@@ -439,11 +440,11 @@ mod tests {
             .unwrap();
         definite_dao
             .conn
-            .prepare("select biginthigh(4578745,89.7888)")
+            .prepare("select slope_drop_high_bytes(4578745,89.7888)")
             .unwrap();
         definite_dao
             .conn
-            .prepare("select bigintlow(787845,7878.0056)")
+            .prepare("select slope_drop_low_bytes(787845,7878.0056)")
             .unwrap();
         //we didn't blow up, all is good
     }
@@ -675,8 +676,10 @@ mod tests {
         subject.more_money_received(SystemTime::now(), payments);
 
         TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: ReceivableDaoReal: Payment reception failed, rolling back: \
-            RusqliteError(\"Wei change: error after invalid update command for receivable of -123456789123456789 Wei to 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa with error 'no such table: receivable'\")\n\
+            "ERROR: ReceivableDaoReal: Payment reception failed, rolling back: RusqliteError(\
+            \"Error from invalid update command for receivable table and change of -123456789123456789 \
+             Wei to 'wallet_address = 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' with error 'no such table: receivable'\")\
+            \n\
             Block #    Wallet                                     Amount            \n\
             1234567890 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 123456789123456789\n\
             2345678901 0xbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 234567891234567891\n\
@@ -1358,8 +1361,10 @@ mod tests {
     #[should_panic(
         expected = "Database is corrupt: RECEIVABLE table columns and/or types: (Err(FromSqlConversionFailure(0, Text, InvalidAddress)), Err(InvalidColumnIndex(1))"
     )]
-    fn form_receivable_account_panics_on_database_error() {
-        assert_database_blows_up_on_an_unexpected_error(ReceivableDaoReal::form_receivable_account);
+    fn create_receivable_account_panics_on_database_error() {
+        assert_database_blows_up_on_an_unexpected_error(
+            ReceivableDaoReal::create_receivable_account,
+        );
     }
 
     #[test]

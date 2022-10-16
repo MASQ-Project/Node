@@ -41,15 +41,15 @@ impl<'a, T: TableNameDAO> BigIntDbProcessor<T> {
             //SQLITE_CONSTRAINT_DATATYPE (3091),
             //the moment of Sqlite trying to store the number as REAL in a strict INT column
             Err(Error::SqliteFailure(e, _)) if e.extended_code == 3091 => {
-                eprintln!("the constraint error in detail: {}", e);
                 self.overflow_handler.update_with_overflow(conn, config)
             }
             Err(e) => Err(BigIntDbError(format!(
-                "Wei change: error after invalid {} command for {} of {} Wei to {} with error '{}'",
+                "Error from invalid {} command for {} table and change of {} Wei to '{} = {}' with error '{}'",
                 config.determine_command(),
                 T::table_name(),
                 config.balance_change(),
-                config.key_value(),
+                config.params.table_unique_key_name,
+                config.key_param_value(),
                 e
             ))),
         }
@@ -150,10 +150,11 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
         }) {
             Ok(()) => Ok(()),
             Err(e) => Err(BigIntDbError(format!(
-                "Updating balance for {} of {} Wei to {} with error '{}'",
+                "Updating balance for {} table and change of {} Wei to '{} = {}' with error '{}'",
                 T::table_name(),
                 config.balance_change(),
-                config.key_value(),
+                config.params.table_unique_key_name,
+                config.key_param_value(),
                 e
             ))),
         }
@@ -213,11 +214,11 @@ impl<'a, T: TableNameDAO> BigIntSqlConfig<'a, T> {
             &self.params.wei_change_params.low.name[1..],
             T::table_name(),
             self.params.table_unique_key_name,
-            self.key_value()
+            self.key_param_value()
         )
     }
 
-    fn key_value(&self) -> &'a dyn ExtendedParamsMarker {
+    fn key_param_value(&self) -> &'a dyn ExtendedParamsMarker {
         self.params.params_except_wei_change[0].1
     }
 
@@ -504,7 +505,7 @@ impl BigIntDivider {
     pub fn register_big_int_deconstruction_for_sqlite_connection(
         conn: &Connection,
     ) -> rusqlite::Result<()> {
-        Self::register_deconstruct_guts(conn, "biginthigh", "bigintlow")
+        Self::register_deconstruct_guts(conn, "slope_drop_high_bytes", "slope_drop_low_bytes")
     }
 
     fn register_deconstruct_guts(
@@ -1347,8 +1348,8 @@ mod tests {
         assert_eq!(
             result,
             Err(BigIntDbError(
-                "Wei change: error after invalid upsert command for test_table of 4879898145125 \
-                Wei to Joe with error 'Invalid parameter name: :balance_high_b'"
+                "Error from invalid upsert command for test_table table and change of 4879898145125 \
+                Wei to 'name = Joe' with error 'Invalid parameter name: :balance_high_b'"
                     .to_string()
             ))
         );
@@ -1509,7 +1510,14 @@ mod tests {
             .update_with_overflow(Left(conn.as_ref()), update_config);
 
         //this kind of error is impossible in the real use case but is easiest regarding an arrangement of the test
-        assert_eq!(result, Err(BigIntDbError("Updating balance for test_table of 100 Wei to Joe with error 'Query returned no rows'".to_string())));
+        assert_eq!(
+            result,
+            Err(BigIntDbError(
+                "Updating balance for test_table table and change of 100 Wei to 'name = Joe' with \
+         error 'Query returned no rows'"
+                    .to_string()
+            ))
+        );
     }
 
     #[test]
@@ -1526,7 +1534,8 @@ mod tests {
         let balance_change = Addition("balance", 100);
         let update_config = BigIntSqlConfig::new(
             "",
-            "update test_table set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where name in (:name,'Jodie')",
+            "update test_table set balance_high_b = balance_high_b + :balance_high_b, \
+            balance_low_b = balance_low_b + :balance_low_b where name in (:name,'Jodie')",
             SQLParamsBuilder::default()
                 .wei_change(balance_change)
                 .key("name", ":name", &"Joe")
@@ -1570,7 +1579,7 @@ mod tests {
         assert_eq!(
             result,
             Err(BigIntDbError(
-                "Updating balance for test_table of 100 Wei to Joe with error \
+                "Updating balance for test_table table and change of 100 Wei to 'name = Joe' with error \
         'Invalid column type Text at index: 1, name: balance_low_b'"
                     .to_string()
             ))
@@ -1762,8 +1771,8 @@ mod tests {
         .unwrap();
         let arbitrary_constant = 111222333444_i64;
         conn.execute(
-            "update test_table set computed_high_bytes = biginthigh(:my_constant, -3.143 * database_parameter),\
-        computed_low_bytes = bigintlow(:my_constant, -3.143 * database_parameter)",
+            "update test_table set computed_high_bytes = slope_drop_high_bytes(:my_constant, -3.143 * database_parameter),\
+        computed_low_bytes = slope_drop_low_bytes(:my_constant, -3.143 * database_parameter)",
             &[(":my_constant", &arbitrary_constant)],
         )
         .unwrap();
@@ -1814,7 +1823,7 @@ mod tests {
 
         let result = conn
             .execute(
-                "insert into test_table (computed_high_bytes) values (biginthigh('hello',-45.666))",
+                "insert into test_table (computed_high_bytes) values (slope_drop_high_bytes('hello',-45.666))",
                 [],
             )
             .unwrap_err();
@@ -1827,7 +1836,7 @@ mod tests {
                     extended_code: 1
                 },
                 Some(
-                    "Error from biginthigh: First argument takes only i64, not: Text([104, 101, 108, 108, 111])"
+                    "Error from slope_drop_high_bytes: First argument takes only i64, not: Text([104, 101, 108, 108, 111])"
                         .to_string()
                 )
             )
@@ -1842,7 +1851,7 @@ mod tests {
 
         let result = conn
             .execute(
-                "insert into test_table (computed_high_bytes) values (bigintlow('bye',-45.666))",
+                "insert into test_table (computed_high_bytes) values (slope_drop_low_bytes('bye',-45.666))",
                 [],
             )
             .unwrap_err();
@@ -1855,7 +1864,7 @@ mod tests {
                     extended_code: 1
                 },
                 Some(
-                    "Error from bigintlow: First argument takes only i64, not: Text([98, 121, 101])".to_string()
+                    "Error from slope_drop_low_bytes: First argument takes only i64, not: Text([98, 121, 101])".to_string()
                 )
             )
         )
@@ -1869,7 +1878,7 @@ mod tests {
         );
         let error_invoker = |bytes_type: &str| {
             let sql = format!(
-                "insert into test_table (computed_{0}_bytes) values (bigint{0}(45656,5656.23))",
+                "insert into test_table (computed_{0}_bytes) values (slope_drop_{0}_bytes(45656,5656.23))",
                 bytes_type
             );
             conn.execute(&sql, []).unwrap_err()
@@ -1881,13 +1890,15 @@ mod tests {
         assert_eq!(high_bytes_error,
                    SqliteFailure(
                        rusqlite::ffi::Error{ code: ErrorCode::Unknown, extended_code: 1 },
-                       Some("Error from biginthigh: Nonnegative slope '5656.23', while designed only for the negative numbers. Watch out for too young debts that could flip the sign".to_string())
+                       Some("Error from slope_drop_high_bytes: Nonnegative slope '5656.23', \
+                        while designed only for the negative numbers. Watch out for too young debts that could flip the sign".to_string())
                    )
         );
         assert_eq!(low_bytes_error,
                    SqliteFailure(
                        rusqlite::ffi::Error{ code: ErrorCode::Unknown, extended_code: 1 },
-                       Some("Error from bigintlow: Nonnegative slope '5656.23', while designed only for the negative numbers. Watch out for too young debts that could flip the sign".to_string())
+                       Some("Error from slope_drop_low_bytes: Nonnegative slope '5656.23', \
+                        while designed only for the negative numbers. Watch out for too young debts that could flip the sign".to_string())
                    )
         );
     }
@@ -1900,7 +1911,7 @@ mod tests {
 
         let result = conn
             .execute(
-                "insert into test_table (computed_high_bytes) values (bigintlow(15464646,7866))",
+                "insert into test_table (computed_high_bytes) values (slope_drop_low_bytes(15464646,7866))",
                 [],
             )
             .unwrap_err();
@@ -1909,7 +1920,7 @@ mod tests {
             result,
             SqliteFailure(
                 rusqlite::ffi::Error{ code: ErrorCode::Unknown, extended_code: 1 },
-                Some("Error from bigintlow: Second argument takes only a real number, not: Integer(7866)".to_string()
+                Some("Error from slope_drop_low_bytes: Second argument takes only a real number, not: Integer(7866)".to_string()
             ))
         )
     }
@@ -1920,9 +1931,12 @@ mod tests {
             "first_fn_returns_internal_error_from_create_scalar_function",
         );
 
-        let result =
-            BigIntDivider::register_deconstruct_guts(&conn, "badly\u{0000}named", "bigintlow")
-                .unwrap_err();
+        let result = BigIntDivider::register_deconstruct_guts(
+            &conn,
+            "badly\u{0000}named",
+            "slope_drop_low_bytes",
+        )
+        .unwrap_err();
 
         //not asserting on the exact fit because the error
         //would involve some unstable code at reproducing it
@@ -1938,9 +1952,12 @@ mod tests {
             "second_fn_returns_internal_error_from_create_scalar_function",
         );
 
-        let result =
-            BigIntDivider::register_deconstruct_guts(&conn, "biginthigh", "also\u{0000}badlynamed")
-                .unwrap_err();
+        let result = BigIntDivider::register_deconstruct_guts(
+            &conn,
+            "slope_drop_high_bytes",
+            "also\u{0000}badlynamed",
+        )
+        .unwrap_err();
 
         //not asserting on the exact fit because the error
         //would involve some unstable code at reproducing it

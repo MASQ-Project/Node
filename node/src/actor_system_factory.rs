@@ -1847,14 +1847,14 @@ mod tests {
         }
         fn fold_guts(previous: (bool, bool), line: String) -> (bool, bool) {
             let high = |previous: (bool, bool)| {
-                if line.contains(" biginthigh(") {
+                if line.contains(" slope_drop_high_bytes(") {
                     (true, previous.1)
                 } else {
                     previous
                 }
             };
             let low = |previous: (bool, bool)| {
-                if line.contains(" bigintlow(") {
+                if line.contains(" slope_drop_low_bytes(") {
                     (previous.0, true)
                 } else {
                     previous
@@ -1888,7 +1888,7 @@ mod tests {
                 })
                 .fold((false, false), |previous, line| fold_guts(previous, line));
         if presence_check != (true, true) {
-            panic!("about to run test checking usage of functions (biginthigh and bigintlow) which aren't out there, though, \
+            panic!("about to run test checking usage of functions (slope_drop_high_bytes and bigintlow) which aren't out there, though, \
            and so they cannot signalize troubles, leaving a falsely positive result")
         }
     }
@@ -1934,7 +1934,7 @@ mod tests {
             .unwrap();
         assert_eq!(system.run(), 0);
         //we didn't blow up, it recognized the functions
-        //this is an example of the error: "no such function: biginthigh"
+        //this is an example of the error: "no such function: slope_drop_high_bytes"
     }
 
     #[test]
