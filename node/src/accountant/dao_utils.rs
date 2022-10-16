@@ -312,6 +312,22 @@ pub trait VigilantFlatten {
 
 impl<T: Iterator<Item = rusqlite::Result<R>>, R> VigilantFlatten for T {}
 
+pub fn sum_i128_values_from_table(
+    conn: &dyn ConnectionWrapper,
+    table: &str,
+    param_name: &str,
+    value_creation: fn(&mut usize, &Row) -> rusqlite::Result<i128>,
+) -> i128 {
+    let mut row_counter = 0;
+    let select_stm = format!("select {param_name}_high_b, {param_name}_low_b from {table}");
+    conn.prepare(&select_stm)
+        .expect("select stm error")
+        .query_map([], |row| value_creation(&mut row_counter, row))
+        .expect("select query failed")
+        .vigilant_flatten()
+        .sum()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -2,6 +2,7 @@
 
 #![cfg(test)]
 
+use crate::accountant::dao_utils::VigilantFlatten;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_migrations::{DbMigrator, ExternalData};
 use itertools::Itertools;
@@ -280,7 +281,7 @@ fn query_specific_schema_information(
     table_stm
         .query_map([], |row| Ok(row.get::<usize, Option<String>>(0).unwrap()))
         .unwrap()
-        .flatten()
+        .vigilant_flatten()
         .flatten()
         .collect()
 }

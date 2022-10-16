@@ -12,7 +12,7 @@ use crate::accountant::pending_payable_dao::{
 use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
-use crate::accountant::{Accountant, PendingPayableId};
+use crate::accountant::{gwei_to_wei, Accountant, PendingPayableId};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
@@ -40,7 +40,7 @@ pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableA
             n,
             if expected_delinquent { "d" } else { "n" }
         )),
-        balance_wei: (n * 1_000_000_000) as i128,
+        balance_wei: gwei_to_wei(n),
         last_received_timestamp: from_time_t(now - (n as i64)),
     }
 }
@@ -50,7 +50,7 @@ pub fn make_payable_account(n: u64) -> PayableAccount {
     let timestamp = from_time_t(now - (n as i64));
     make_payable_account_with_recipient_and_balance_and_timestamp_opt(
         make_wallet(&format!("wallet{}", n)),
-        (n * 1_000_000_000) as u128,
+        gwei_to_wei(n),
         Some(timestamp),
     )
 }
@@ -843,7 +843,7 @@ impl MessageIdGeneratorMock {
     }
 }
 
-pub fn assert_database_blows_up_on_an_unexpected_error<F, R>(tested_fn: F)
+pub fn assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types<F, R>(tested_fn: F)
 where
     F: Fn(&Row) -> rusqlite::Result<R>,
 {

@@ -2,13 +2,12 @@
 
 use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::big_int_db_processor::{
-    collect_and_sum_i128_values_from_table, BigIntDbProcessor, BigIntDivider, BigIntSqlConfig,
-    SQLParamsBuilder, TableNameDAO,
+    BigIntDbProcessor, BigIntDivider, BigIntSqlConfig, SQLParamsBuilder, TableNameDAO,
 };
 use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
-    to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal, RangeStmConfig, TopStmConfig,
-    VigilantFlatten,
+    sum_i128_values_from_table, to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal,
+    RangeStmConfig, TopStmConfig, VigilantFlatten,
 };
 use crate::accountant::{checked_conversion, sign_conversion, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
@@ -228,10 +227,24 @@ impl PayableDao for PayableDaoReal {
     }
 
     fn total(&self) -> u128 {
-        sign_conversion::<i128, u128>(collect_and_sum_i128_values_from_table(
+        let value_creation = |row_counter: &mut usize, row: &Row| {
+            *row_counter += 1;
+            let high_bytes = row.get::<usize, i64>(0).expectv("high bytes");
+            let low_bytes = row.get::<usize, i64>(1).expectv("low_bytes");
+            let big_int = BigIntDivider::reconstitute(high_bytes, low_bytes);
+            if high_bytes < 0 {
+                panic!(
+                    "database corrupted: found negative value {} in payable table for row id {}",
+                    big_int, row_counter
+                )
+            };
+            Ok(big_int)
+        };
+        sign_conversion::<i128, u128>(sum_i128_values_from_table(
             self.conn.as_ref(),
             &Self::table_name(),
             "balance",
+            value_creation,
         ))
         .unwrap_or_else(|num| {
             panic!(
@@ -376,18 +389,17 @@ mod tests {
     use crate::accountant::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::{
-        assert_database_blows_up_on_an_unexpected_error, make_pending_payable_fingerprint,
+        assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,
+        make_pending_payable_fingerprint,
     };
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
-    use crate::sub_lib::accountant::WEIS_OF_GWEI;
     use crate::test_utils::make_wallet;
     use ethereum_types::BigEndianHash;
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::types::Value::Null;
     use rusqlite::Connection as RusqliteConnection;
     use rusqlite::{Connection, OpenFlags};
     use std::path::Path;
@@ -770,7 +782,7 @@ mod tests {
     #[test]
     fn custom_query_handles_empty_table_in_top_records_mode() {
         let main_test_setup =
-            |_conn: &dyn ConnectionWrapper, _insert: InsertRecordClosureSignature| {};
+            |_conn: &dyn ConnectionWrapper, _insert: InsertPayableClosureSignature| {};
         let subject = custom_query_test_body_for_payable(
             "custom_query_handles_empty_table_in_top_records_mode",
             main_test_setup,
@@ -784,18 +796,43 @@ mod tests {
         assert_eq!(result, None)
     }
 
+    type InsertPayableClosureSignature<'b> =
+        &'b dyn for<'a> Fn(&'a dyn ConnectionWrapper, &'a str, i128, i64, Option<i64>);
+
     macro_rules! simplified_insert {
         ($conn: expr, $closure: expr) => {
             |wallet: &str, wei_amount: i128, time: i64, rowid: Option<i64>| {
                 $closure($conn, wallet, wei_amount, time, rowid)
-            };
+            }
         };
+    }
+
+    fn insert_record(
+        conn: &dyn ConnectionWrapper,
+        wallet: &str,
+        balance: i128,
+        timestamp: i64,
+        pending_payable_rowid: Option<i64>,
+    ) {
+        let (high_bytes, low_bytes) = BigIntDivider::deconstruct(balance);
+        let params: &[&dyn ToSql] = &[
+            &wallet,
+            &high_bytes,
+            &low_bytes,
+            &timestamp,
+            &pending_payable_rowid,
+        ];
+        conn
+            .prepare("insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid) values (?, ?, ?, ?, ?)")
+            .unwrap()
+            .execute(params)
+            .unwrap();
     }
 
     fn accounts_for_tests_of_top_records(
         now: i64,
-    ) -> Box<dyn Fn(&dyn ConnectionWrapper, InsertRecordClosureSignature)> {
-        Box::new(move |conn, insert: InsertRecordClosureSignature| {
+    ) -> Box<dyn Fn(&dyn ConnectionWrapper, InsertPayableClosureSignature)> {
+        Box::new(move |conn, insert: InsertPayableClosureSignature| {
             let insert = simplified_insert!(conn, insert);
             insert(
                 "0x1111111111111111111111111111111111111111",
@@ -930,13 +967,10 @@ mod tests {
         );
     }
 
-    type InsertRecordClosureSignature<'b> =
-        &'b dyn for<'a> Fn(&'a dyn ConnectionWrapper, &'a str, i128, i64, Option<i64>);
-
     #[test]
     fn custom_query_handles_empty_table_in_range_mode() {
         let main_test_setup =
-            |_conn: &dyn ConnectionWrapper, _insert: InsertRecordClosureSignature| {};
+            |_conn: &dyn ConnectionWrapper, _insert: InsertPayableClosureSignature| {};
         let subject = custom_query_test_body_for_payable(
             "custom_query_handles_empty_table_in_range_mode",
             main_test_setup,
@@ -958,7 +992,7 @@ mod tests {
         //Two accounts differ only in debt's age but not balance which allows to check doubled ordering,
         //by balance and then by age.
         let now = now_time_t();
-        let main_setup = |conn: &dyn ConnectionWrapper, insert: InsertRecordClosureSignature| {
+        let main_setup = |conn: &dyn ConnectionWrapper, insert: InsertPayableClosureSignature| {
             let insert = simplified_insert!(conn, insert);
             insert(
                 "0x1111111111111111111111111111111111111111",
@@ -1050,7 +1084,7 @@ mod tests {
     fn range_query_does_not_display_values_from_below_1_gwei() {
         let timestamp_1 = now_time_t() - 11_001;
         let timestamp_2 = now_time_t() - 5000;
-        let main_setup = |conn: &dyn ConnectionWrapper, insert: InsertRecordClosureSignature| {
+        let main_setup = |conn: &dyn ConnectionWrapper, insert: InsertPayableClosureSignature| {
             insert(
                 conn,
                 "0x1111111111111111111111111111111111111111",
@@ -1090,28 +1124,6 @@ mod tests {
                 pending_payable_opt: None
             },]
         )
-    }
-
-    fn insert_record(
-        conn: &dyn ConnectionWrapper,
-        wallet: &str,
-        balance: i128,
-        timestamp: i64,
-        pending_payable_rowid: Option<i64>,
-    ) {
-        let (high_bytes, low_bytes) = BigIntDivider::deconstruct(balance);
-        let params: &[&dyn ToSql] = &[
-            &wallet,
-            &high_bytes,
-            &low_bytes,
-            &timestamp,
-            &pending_payable_rowid,
-        ];
-        conn
-        .prepare("insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid) values (?, ?, ?, ?, ?)")
-        .unwrap()
-        .execute(params)
-        .unwrap();
     }
 
     #[test]
@@ -1157,10 +1169,12 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "database corrupted: negative sum (-999999) in payable table")]
-    fn total_takes_negative_sum_as_error() {
+    #[should_panic(
+        expected = "database corrupted: found negative value -999999 in payable table for row id 2"
+    )]
+    fn total_takes_negative_value_as_error() {
         let home_dir =
-            ensure_node_home_directory_exists("payable_dao", "total_takes_negative_sum_as_error");
+            ensure_node_home_directory_exists("payable_dao", "total_takes_negative_value_as_error");
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, DbInitializationConfig::test_default())
             .unwrap();
@@ -1168,8 +1182,15 @@ mod tests {
         insert_record(
             &*conn,
             "0x1111111111111111111111111111111111111111",
+            123_456,
+            111_111_111,
+            None,
+        );
+        insert_record(
+            &*conn,
+            "0x2222222222222222222222222222222222222222",
             -999_999,
-            timestamp - 1000,
+            222_222_222,
             None,
         );
         let subject = PayableDaoReal::new(conn);
@@ -1196,7 +1217,9 @@ mod tests {
         expected = "Database is corrupt: PAYABLE table columns and/or types: (Err(FromSqlConversionFailure(0, Text, InvalidAddress)), Err(InvalidColumnIndex(1))"
     )]
     fn create_payable_account_panics_on_database_error() {
-        assert_database_blows_up_on_an_unexpected_error(PayableDaoReal::create_payable_account);
+        assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types(
+            PayableDaoReal::create_payable_account,
+        );
     }
 
     #[test]
@@ -1206,7 +1229,7 @@ mod tests {
 
     fn custom_query_test_body_for_payable<F>(test_name: &str, main_setup_fn: F) -> PayableDaoReal
     where
-        F: Fn(&dyn ConnectionWrapper, InsertRecordClosureSignature),
+        F: Fn(&dyn ConnectionWrapper, InsertPayableClosureSignature),
     {
         let home_dir = ensure_node_home_directory_exists("payable_dao", test_name);
         let conn = DbInitializerReal::default()

@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::big_int_db_processor::BigIntDivider;
+use crate::accountant::dao_utils::VigilantFlatten;
 use crate::blockchain::bip39::Bip39;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{DbInitializationConfig, CURRENT_SCHEMA_VERSION};
@@ -409,7 +410,7 @@ impl DatabaseMigration for Migrate_4_to_5 {
                     .get::<usize, String>(0)
                     .expect("select statement was badly prepared"))
             })?
-            .flatten()
+            .vigilant_flatten()
             .collect();
         if !unresolved_pending_transactions.is_empty() {
             warning!(utils.logger(),
@@ -612,7 +613,7 @@ impl<'a> Migrate_6_to_7_carrier<'a> {
             .expect("rusqlite internal error")
             .query_map([], |row: &Row| row.get(0))
             .expect("rusqlite internal error")
-            .flatten()
+            .vigilant_flatten()
             .collect::<Vec<i64>>();
         if !all_nontrivial_values_found.is_empty() {
             self.fill_compensatory_table(all_nontrivial_values_found, table);

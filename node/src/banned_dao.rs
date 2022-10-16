@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::dao_utils::DaoFactoryReal;
+use crate::accountant::dao_utils::{DaoFactoryReal, VigilantFlatten};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
 use lazy_static::lazy_static;
@@ -96,7 +96,7 @@ impl BannedDao for BannedDaoReal {
             .expect("Failed to prepare a statement");
         stmt.query_map([], |row| row.get(0))
             .expect("Couldn't retrieve delinquency-ban list: database corrupt")
-            .flatten()
+            .vigilant_flatten()
             .collect()
     }
 

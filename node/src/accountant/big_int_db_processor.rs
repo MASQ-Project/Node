@@ -10,7 +10,6 @@ use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::accountant::WEIS_OF_GWEI;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
-use masq_lib::utils::ExpectValue;
 use rusqlite::functions::{Context, FunctionFlags};
 use rusqlite::Error::UserFunctionError;
 use rusqlite::{Connection, Error, Statement, ToSql, Transaction};
@@ -427,28 +426,6 @@ macro_rules! insert_update_error_from {
 }
 
 insert_update_error_from!(PayableDaoError, ReceivableDaoError);
-
-pub fn collect_and_sum_i128_values_from_table(
-    conn: &dyn ConnectionWrapper,
-    table: &str,
-    parameter_name: &str,
-) -> i128 {
-    let select_stm = format!(
-        "select {0}_high_b, {0}_low_b from {1}",
-        parameter_name, table
-    );
-    conn.prepare(&select_stm)
-        .expect("select stm error")
-        .query_map([], |row| {
-            Ok(BigIntDivider::reconstitute(
-                row.get::<usize, i64>(0).expectv("high bytes"),
-                row.get::<usize, i64>(1).expectv("low_bytes"),
-            ))
-        })
-        .expect("select query failed")
-        .flatten()
-        .sum()
-}
 
 macro_rules! create_big_int_sqlite_fns {
     ($conn: expr, $flags: expr, $($sqlite_fn_name: expr),+; $($intern_fn_name: ident),+) => {

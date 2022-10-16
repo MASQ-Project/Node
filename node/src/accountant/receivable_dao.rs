@@ -1,13 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::big_int_db_processor::{
-    collect_and_sum_i128_values_from_table, BigIntDbProcessor, BigIntDivider, BigIntSqlConfig,
-    SQLParamsBuilder, TableNameDAO,
+    BigIntDbProcessor, BigIntDivider, BigIntSqlConfig, SQLParamsBuilder, TableNameDAO,
 };
 use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
-    to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal, RangeStmConfig, TopStmConfig,
-    VigilantFlatten,
+    sum_i128_values_from_table, to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal,
+    RangeStmConfig, TopStmConfig, VigilantFlatten,
 };
 use crate::accountant::receivable_dao::ReceivableDaoError::RusqliteError;
 use crate::accountant::{checked_conversion, ThresholdUtils};
@@ -229,7 +228,18 @@ impl ReceivableDao for ReceivableDaoReal {
     }
 
     fn total(&self) -> i128 {
-        collect_and_sum_i128_values_from_table(self.conn.as_ref(), &Self::table_name(), "balance")
+        let value_creation = |_: &mut usize, row: &Row| {
+            Ok(BigIntDivider::reconstitute(
+                row.get::<usize, i64>(0).expectv("high bytes"),
+                row.get::<usize, i64>(1).expectv("low_bytes"),
+            ))
+        };
+        sum_i128_values_from_table(
+            self.conn.as_ref(),
+            &Self::table_name(),
+            "balance",
+            value_creation,
+        )
     }
 
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount> {
@@ -381,8 +391,10 @@ impl TableNameDAO for ReceivableDaoReal {
 mod tests {
     use super::*;
     use crate::accountant::dao_utils::{from_time_t, now_time_t, to_time_t};
+    use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::{
-        assert_database_blows_up_on_an_unexpected_error, make_receivable_account,
+        assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,
+        make_receivable_account,
     };
     use crate::database::db_initializer::DbInitializerReal;
     use crate::database::db_initializer::{DbInitializationConfig, DbInitializer};
@@ -719,9 +731,6 @@ mod tests {
 
     #[test]
     fn new_delinquencies_unit_slope() {
-        fn wei_conversion(gwei: u64) -> i128 {
-            i128::try_from(gwei).unwrap() * WEIS_OF_GWEI
-        }
         let payment_thresholds = PaymentThresholds {
             maturity_threshold_sec: 25,
             payment_grace_period_sec: 50,
@@ -733,32 +742,32 @@ mod tests {
         let now = now_time_t();
         let mut not_delinquent_inside_grace_period = make_receivable_account(1234, false);
         not_delinquent_inside_grace_period.balance_wei =
-            wei_conversion(payment_thresholds.debt_threshold_gwei + 1);
+            gwei_to_wei(payment_thresholds.debt_threshold_gwei + 1);
         not_delinquent_inside_grace_period.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_and_grace(now) + 2);
         let mut not_delinquent_after_grace_below_slope = make_receivable_account(2345, false);
         not_delinquent_after_grace_below_slope.balance_wei =
-            wei_conversion(payment_thresholds.debt_threshold_gwei - 2);
+            gwei_to_wei(payment_thresholds.debt_threshold_gwei - 2);
         not_delinquent_after_grace_below_slope.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_and_grace(now) - 1);
         let mut delinquent_above_slope_after_grace = make_receivable_account(3456, true);
         delinquent_above_slope_after_grace.balance_wei =
-            wei_conversion(payment_thresholds.debt_threshold_gwei - 1);
+            gwei_to_wei(payment_thresholds.debt_threshold_gwei - 1);
         delinquent_above_slope_after_grace.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_and_grace(now) - 2);
         let mut not_delinquent_below_slope_before_stop = make_receivable_account(4567, false);
         not_delinquent_below_slope_before_stop.balance_wei =
-            wei_conversion(payment_thresholds.permanent_debt_allowed_gwei + 1);
+            gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1);
         not_delinquent_below_slope_before_stop.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_thru_decreasing(now) + 2);
         let mut delinquent_above_slope_before_stop = make_receivable_account(5678, true);
         delinquent_above_slope_before_stop.balance_wei =
-            wei_conversion(payment_thresholds.permanent_debt_allowed_gwei + 2);
+            gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 2);
         delinquent_above_slope_before_stop.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_thru_decreasing(now) + 1);
         let mut not_delinquent_above_slope_after_stop = make_receivable_account(6789, false);
         not_delinquent_above_slope_after_stop.balance_wei =
-            wei_conversion(payment_thresholds.permanent_debt_allowed_gwei - 1);
+            gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei - 1);
         not_delinquent_above_slope_after_stop.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_thru_decreasing(now) - 2);
         let home_dir = ensure_node_home_directory_exists("accountant", "new_delinquencies");
@@ -790,11 +799,11 @@ mod tests {
         };
         let now = now_time_t();
         let mut not_delinquent = make_receivable_account(1234, false);
-        not_delinquent.balance_wei = 105 * WEIS_OF_GWEI;
+        not_delinquent.balance_wei = gwei_to_wei(105);
         not_delinquent.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_and_grace(now) - 25);
         let mut delinquent = make_receivable_account(2345, true);
-        delinquent.balance_wei = 105 * WEIS_OF_GWEI;
+        delinquent.balance_wei = gwei_to_wei(105);
         delinquent.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_and_grace(now) - 75);
         let home_dir =
@@ -822,11 +831,11 @@ mod tests {
         };
         let now = now_time_t();
         let mut not_delinquent = make_receivable_account(1234, false);
-        not_delinquent.balance_wei = 600 * WEIS_OF_GWEI;
+        not_delinquent.balance_wei = gwei_to_wei(600);
         not_delinquent.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_and_grace(now) - 25);
         let mut delinquent = make_receivable_account(2345, true);
-        delinquent.balance_wei = 600 * WEIS_OF_GWEI;
+        delinquent.balance_wei = gwei_to_wei(600);
         delinquent.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_and_grace(now) - 75);
         let home_dir =
@@ -854,11 +863,11 @@ mod tests {
         };
         let now = now_time_t();
         let mut existing_delinquency = make_receivable_account(1234, true);
-        existing_delinquency.balance_wei = 250 * WEIS_OF_GWEI;
+        existing_delinquency.balance_wei = gwei_to_wei(250);
         existing_delinquency.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_and_grace(now) - 1);
         let mut new_delinquency = make_receivable_account(2345, true);
-        new_delinquency.balance_wei = 250 * WEIS_OF_GWEI;
+        new_delinquency.balance_wei = gwei_to_wei(250);
         new_delinquency.last_received_timestamp =
             from_time_t(payment_thresholds.sugg_and_grace(now) - 1);
         let home_dir = ensure_node_home_directory_exists(
@@ -979,9 +988,9 @@ mod tests {
             unban_below_gwei: 50,
         };
         let mut newly_non_delinquent = make_receivable_account(1234, false);
-        newly_non_delinquent.balance_wei = 25_000_000_000;
+        newly_non_delinquent.balance_wei = gwei_to_wei(25);
         let mut old_non_delinquent = make_receivable_account(2345, false);
-        old_non_delinquent.balance_wei = 25_000_000_000;
+        old_non_delinquent.balance_wei = gwei_to_wei(25);
 
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
@@ -1004,7 +1013,8 @@ mod tests {
 
     #[test]
     fn custom_query_handles_empty_table_in_top_records_mode() {
-        let main_test_setup = |_insert: &dyn Fn(&str, i128, i64)| {};
+        let main_test_setup =
+            |conn: &dyn ConnectionWrapper, _insert: InsertReceivableClosureSignature| {};
         let subject = custom_query_test_body_for_receivable(
             "custom_query_handles_empty_table_in_top_records_mode",
             main_test_setup,
@@ -1018,54 +1028,53 @@ mod tests {
         assert_eq!(result, None)
     }
 
+    type InsertReceivableClosureSignature<'b> =
+        &'b dyn for<'a> Fn(&'a dyn ConnectionWrapper, &'a str, i128, i64);
+
+    macro_rules! simplified_insert {
+        ($conn: expr, $closure: expr) => {
+            |wallet: &str, wei_amount: i128, time: i64| $closure($conn, wallet, wei_amount, time)
+        };
+    }
+
     fn common_setup_of_accounts_for_tests_of_top_records(
         now: i64,
-    ) -> Box<dyn Fn(&dyn Fn(&str, i128, i64))> {
-        let timestamp1 = now - 86_480;
-        let timestamp2 = now - 222_000;
-        let timestamp3 = now - 100_000;
-        let timestamp4 = now - 86_000;
-        let timestamp5 = now - 86_111;
-        let timestamp6 = timestamp1;
-        Box::new(move |insert: &dyn Fn(&str, i128, i64)| {
+    ) -> Box<dyn Fn(&dyn ConnectionWrapper, InsertReceivableClosureSignature)> {
+        //Accounts of balances smaller than one gwei don't qualify.
+        //Two accounts differ only in balance but not the debt's age, two other in debt's age but are same at balance.
+        //That setup allows a check of doubled ordering
+        Box::new(move |conn, insert: InsertReceivableClosureSignature| {
+            let insert = simplified_insert!(conn, insert);
             insert(
                 "0x1111111111111111111111111111111111111111",
                 1_000_000_001,
-                timestamp1,
+                now - 86_480,
             );
             insert(
                 "0x2222222222222222222222222222222222222222",
                 1_000_000_001,
-                timestamp2,
+                now - 222_000,
             );
             insert(
                 "0x3333333333333333333333333333333333333333",
-                920_655_455,
-                timestamp3,
+                990_000_000, //below 1 Gwei
+                now - 86_000,
             );
             insert(
                 "0x4444444444444444444444444444444444444444",
-                990_000_000, //below 1 Gwei
-                timestamp4,
+                1_000_000_000,
+                now - 86_111,
             );
             insert(
                 "0x5555555555555555555555555555555555555555",
-                1_000_000_000,
-                timestamp5,
-            );
-            insert(
-                "0x6666666666666666666666666666666666666666",
                 32_000_000_200,
-                timestamp6,
+                now - 86_480,
             )
         })
     }
 
     #[test]
     fn custom_query_in_top_records_mode_default_ordering() {
-        //Accounts of balances smaller than one gwei don't qualify.
-        //Two accounts differ only in debt's age but not balance which allows to check doubled ordering,
-        //here by balance and then by age.
         let now = now_time_t();
         let main_test_setup = common_setup_of_accounts_for_tests_of_top_records(now);
         let subject = custom_query_test_body_for_receivable(
@@ -1084,7 +1093,7 @@ mod tests {
             result,
             vec![
                 ReceivableAccount {
-                    wallet: Wallet::new("0x6666666666666666666666666666666666666666"),
+                    wallet: Wallet::new("0x5555555555555555555555555555555555555555"),
                     balance_wei: 32_000_000_200,
                     last_received_timestamp: from_time_t(now - 86_480),
                 },
@@ -1104,9 +1113,6 @@ mod tests {
 
     #[test]
     fn custom_query_in_top_records_mode_ordered_by_age() {
-        //Accounts of balances smaller than one gwei don't qualify.
-        //Two accounts differ only in balance but not the debt's age which allows to check doubled ordering,
-        //here by age and then by balance.
         let now = now_time_t();
         let main_test_setup = common_setup_of_accounts_for_tests_of_top_records(now);
         let subject = custom_query_test_body_for_receivable(
@@ -1130,7 +1136,7 @@ mod tests {
                     last_received_timestamp: from_time_t(now - 222_000),
                 },
                 ReceivableAccount {
-                    wallet: Wallet::new("0x6666666666666666666666666666666666666666"),
+                    wallet: Wallet::new("0x5555555555555555555555555555555555555555"),
                     balance_wei: 32_000_000_200,
                     last_received_timestamp: from_time_t(now - 86_480),
                 },
@@ -1145,7 +1151,8 @@ mod tests {
 
     #[test]
     fn custom_query_handles_empty_table_in_range_mode() {
-        let main_test_setup = |_insert: &dyn Fn(&str, i128, i64)| {};
+        let main_test_setup =
+            |_conn: &dyn ConnectionWrapper, _insert: InsertReceivableClosureSignature| {};
         let subject = custom_query_test_body_for_receivable(
             "custom_query_handles_empty_table_in_range_mode",
             main_test_setup,
@@ -1167,50 +1174,50 @@ mod tests {
         //Two accounts differ only in debt's age but not balance which allows to check doubled ordering,
         //by balance and then by age.
         let now = now_time_t();
-        let timestamp1 = now - 99_001;
-        let timestamp2 = now - 86_401;
-        let timestamp3 = now - 70_000;
-        let timestamp4 = now - 69_000;
-        let timestamp5 = now - 86_000;
-        let timestamp6 = now - 66_244;
-        let timestamp7 = now - 59_999;
-        let main_test_setup = |insert: &dyn Fn(&str, i128, i64)| {
-            insert(
-                "0x1111111111111111111111111111111111111111",
-                999_454_656 * WEIS_OF_GWEI,
-                timestamp1, //too old
-            );
-            insert(
-                "0x2222222222222222222222222222222222222222",
-                -560_001 * WEIS_OF_GWEI, //too small
-                timestamp2,
-            );
-            insert(
-                "0x3333333333333333333333333333333333333333",
-                1_000_000_230 * WEIS_OF_GWEI,
-                timestamp3,
-            );
-            insert(
-                "0x4444444444444444444444444444444444444444",
-                1_100_000_001 * WEIS_OF_GWEI, //too big
-                timestamp4,
-            );
-            insert(
-                "0x5555555555555555555555555555555555555555",
-                1_000_000_230 * WEIS_OF_GWEI,
-                timestamp5,
-            );
-            insert(
-                "0x6666666666666666666666666666666666666666",
-                1_050_444_230 * WEIS_OF_GWEI,
-                timestamp6,
-            );
-            insert(
-                "0x7777777777777777777777777777777777777777",
-                900_000_000 * WEIS_OF_GWEI,
-                timestamp7, //too young
-            );
-        };
+        let main_test_setup =
+            |conn: &dyn ConnectionWrapper, insert: InsertReceivableClosureSignature| {
+                let insert = simplified_insert!(conn, insert);
+                insert(
+                    "0x1111111111111111111111111111111111111111",
+                    gwei_to_wei(999_454_656),
+                    now - 99_001, //too old
+                );
+                insert(
+                    "0x2222222222222222222222222222222222222222",
+                    gwei_to_wei(-560_001), //too small
+                    now - 86_401,
+                );
+                insert(
+                    "0x3333333333333333333333333333333333333333",
+                    gwei_to_wei(1_000_000_230),
+                    now - 70_000,
+                );
+                insert(
+                    "0x4444444444444444444444444444444444444444",
+                    gwei_to_wei(1_100_000_001), //too big
+                    now - 69_000,
+                );
+                insert(
+                    "0x5555555555555555555555555555555555555555",
+                    gwei_to_wei(1_000_000_230),
+                    now - 86_000,
+                );
+                insert(
+                    "0x6666666666666666666666666666666666666666",
+                    gwei_to_wei(1_050_444_230),
+                    now - 66_244,
+                );
+                insert(
+                    "0x7777777777777777777777777777777777777777",
+                    gwei_to_wei(900_000_000),
+                    now - 59_999, //too young
+                );
+                insert(
+                    "0x8888888888888888888888888888888888888888",
+                    gwei_to_wei(-90),
+                    now - 66000,
+                );
+            };
         let subject =
             custom_query_test_body_for_receivable("custom_query_in_range_mode", main_test_setup);
 
@@ -1229,18 +1236,23 @@ mod tests {
             vec![
                 ReceivableAccount {
                     wallet: Wallet::new("0x6666666666666666666666666666666666666666"),
-                    balance_wei: 1_050_444_230_000_000_000,
-                    last_received_timestamp: from_time_t(timestamp6),
+                    balance_wei: gwei_to_wei(1_050_444_230),
+                    last_received_timestamp: from_time_t(now - 66_244),
                 },
                 ReceivableAccount {
                     wallet: Wallet::new("0x5555555555555555555555555555555555555555"),
-                    balance_wei: 1_000_000_230_000_000_000,
-                    last_received_timestamp: from_time_t(timestamp5),
+                    balance_wei: gwei_to_wei(1_000_000_230),
+                    last_received_timestamp: from_time_t(now - 86_000),
                 },
                 ReceivableAccount {
                     wallet: Wallet::new("0x3333333333333333333333333333333333333333"),
-                    balance_wei: 1_000_000_230_000_000_000,
-                    last_received_timestamp: from_time_t(timestamp3),
+                    balance_wei: gwei_to_wei(1_000_000_230),
+                    last_received_timestamp: from_time_t(now - 70_000),
+                },
+                ReceivableAccount {
+                    wallet: Wallet::new("0x8888888888888888888888888888888888888888"),
+                    balance_wei: gwei_to_wei(-90),
+                    last_received_timestamp: from_time_t(now - 66_000),
                 }
             ]
         );
@@ -1250,7 +1262,9 @@ mod tests {
     fn range_query_does_not_display_values_from_below_1_gwei() {
         let timestamp1 = now_time_t() - 5000;
         let timestamp2 = now_time_t() - 3232;
-        let main_setup = |insert: &dyn Fn(&str, i128, i64)| {
+        let main_setup = |conn: &dyn ConnectionWrapper,
+                          insert: InsertReceivableClosureSignature| {
+            let insert = simplified_insert!(conn, insert);
             insert(
                 "0x1111111111111111111111111111111111111111",
                 999_999_999, //smaller than 1 Gwei
@@ -1311,15 +1325,7 @@ mod tests {
             .initialize(&home_dir, true, DbInitializationConfig::test_default())
             .unwrap();
 
-        let insert = |wallet: &str, balance: i128, timestamp: i64| {
-            let (high_bytes, low_bytes) = BigIntDivider::deconstruct(balance);
-            let params: &[&dyn ToSql] = &[&wallet, &high_bytes, &low_bytes, &timestamp];
-            conn
-                .prepare("insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (?, ?, ?, ?)")
-                .unwrap()
-                .execute(params)
-                .unwrap();
-        };
+        let insert = simplified_insert!(conn.as_ref(), insert_account_by_separate_values);
         let timestamp = dao_utils::now_time_t();
         insert(
             "0x1111111111111111111111111111111111111111",
@@ -1362,7 +1368,7 @@ mod tests {
         expected = "Database is corrupt: RECEIVABLE table columns and/or types: (Err(FromSqlConversionFailure(0, Text, InvalidAddress)), Err(InvalidColumnIndex(1))"
     )]
     fn create_receivable_account_panics_on_database_error() {
-        assert_database_blows_up_on_an_unexpected_error(
+        assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types(
             ReceivableDaoReal::create_receivable_account,
         );
     }
@@ -1384,6 +1390,21 @@ mod tests {
         stmt.execute(params).unwrap();
     }
 
+    fn insert_account_by_separate_values(
+        conn: &dyn ConnectionWrapper,
+        wallet: &str,
+        balance: i128,
+        timestamp: i64,
+    ) {
+        let (high_bytes, low_bytes) = BigIntDivider::deconstruct(balance);
+        let params: &[&dyn ToSql] = &[&wallet, &high_bytes, &low_bytes, &timestamp];
+        conn
+        .prepare("insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (?, ?, ?, ?)")
+        .unwrap()
+        .execute(params)
+        .unwrap();
+    }
+
     fn add_banned_account(conn: &Box<dyn ConnectionWrapper>, account: &ReceivableAccount) {
         let mut stmt = conn
             .prepare("insert into banned (wallet_address) values (?)")
@@ -1396,7 +1417,7 @@ mod tests {
         main_test_setup: F,
     ) -> ReceivableDaoReal
     where
-        F: Fn(&dyn Fn(&str, i128, i64)),
+        F: Fn(&dyn ConnectionWrapper, InsertReceivableClosureSignature),
     {
         let conn = DbInitializerReal::default()
             .initialize(
@@ -1405,16 +1426,7 @@ mod tests {
                 DbInitializationConfig::test_default(),
             )
             .unwrap();
-        let insert = |wallet: &str, balance: i128, timestamp: i64| {
-            let (high_bytes, low_bytes) = BigIntDivider::deconstruct(balance);
-            let params: &[&dyn ToSql] = &[&wallet, &high_bytes, &low_bytes, &timestamp];
-            conn
-                .prepare("insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (?, ?, ?, ?)")
-                .unwrap()
-                .execute(params)
-                .unwrap();
-        };
-        main_test_setup(&insert);
+        main_test_setup(conn.as_ref(), &insert_account_by_separate_values);
         ReceivableDaoReal::new(conn)
     }
 }
