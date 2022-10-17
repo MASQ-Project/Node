@@ -15,6 +15,7 @@ use jsonrpc_core as rpc;
 use jsonrpc_core::Call;
 use lazy_static::lazy_static;
 use std::cell::RefCell;
+use std::collections::VecDeque;
 use std::fmt::Debug;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -26,7 +27,7 @@ use web3::{BatchTransport, Error as Web3Error, Web3};
 use web3::{RequestId, Transport};
 
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
-use crate::sub_lib::blockchain_bridge::BatchPayablesTools;
+use crate::sub_lib::blockchain_bridge::BatchPayableTools;
 
 lazy_static! {
     static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![
@@ -196,7 +197,7 @@ pub struct TestTransport {
     asserted: usize,
     prepare_params: Arc<Mutex<Vec<(String, Vec<rpc::Value>)>>>,
     send_params: Arc<Mutex<Vec<(RequestId, Call)>>>,
-    send_results: RefCell<Vec<rpc::Value>>,
+    send_results: RefCell<VecDeque<rpc::Value>>,
     send_batch_params: Arc<Mutex<Vec<Vec<(RequestId, Call)>>>>,
     send_batch_results: RefCell<Vec<Vec<Result<rpc::Value, web3::Error>>>>,
     //to check if we hold a true descendant of a certain initial instance
@@ -214,14 +215,13 @@ impl Transport for TestTransport {
     }
 
     fn send(&self, id: RequestId, request: rpc::Call) -> Self::Out {
-        todo!("drive me in again")
-        // match self.responses.borrow_mut().pop_front() {
-        //     Some(response) => Box::new(futures::finished(response)),
-        //     None => {
-        //         println!("Unexpected request (id: {:?}): {:?}", id, request);
-        //         Box::new(futures::failed(Web3Error::Unreachable))
-        //     }
-        // }
+        match self.send_results.borrow_mut().pop_front() {
+            Some(response) => Box::new(futures::finished(response)),
+            None => {
+                println!("Unexpected request (id: {:?}): {:?}", id, request);
+                Box::new(futures::failed(Web3Error::Unreachable))
+            }
+        }
     }
 }
 
@@ -248,7 +248,7 @@ impl TestTransport {
     }
 
     pub fn send_result(self, rpc_call_response: rpc::Value) -> Self {
-        self.send_results.borrow_mut().push(rpc_call_response);
+        self.send_results.borrow_mut().push_back(rpc_call_response);
         self
     }
 
@@ -279,18 +279,18 @@ pub fn make_fake_event_loop_handle() -> EventLoopHandle {
 
 #[derive(Default)]
 pub struct SendTransactionToolWrapperFactoryMock<T> {
-    make_results: RefCell<Vec<Box<dyn BatchPayablesTools<T>>>>,
+    make_results: RefCell<Vec<Box<dyn BatchPayableTools<T>>>>,
 }
 
 impl<T> SendTransactionToolWrapperFactoryMock<T> {
-    pub fn make_result(self, result: Box<dyn BatchPayablesTools<T>>) -> Self {
+    pub fn make_result(self, result: Box<dyn BatchPayableTools<T>>) -> Self {
         self.make_results.borrow_mut().push(result);
         self
     }
 }
 
 #[derive(Default)]
-pub struct BatchedPayableToolsMock<T: BatchTransport> {
+pub struct BatchPayableToolsMock<T: BatchTransport> {
     sign_transaction_params: Arc<
         Mutex<
             Vec<(
@@ -320,7 +320,7 @@ pub struct BatchedPayableToolsMock<T: BatchTransport> {
         RefCell<Vec<Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error>>>,
 }
 
-impl<T: BatchTransport> BatchPayablesTools<T> for BatchedPayableToolsMock<T> {
+impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
     fn sign_transaction(
         &self,
         transaction_params: TransactionParameters,
@@ -368,7 +368,7 @@ impl<T: BatchTransport> BatchPayablesTools<T> for BatchedPayableToolsMock<T> {
     }
 }
 
-impl<T: BatchTransport> BatchedPayableToolsMock<T> {
+impl<T: BatchTransport> BatchPayableToolsMock<T> {
     pub fn sign_transaction_params(
         mut self,
         params: &Arc<

@@ -2,7 +2,7 @@
 
 use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
 use crate::blockchain::blockchain_bridge::InitiatePPFingerprints;
-use crate::sub_lib::blockchain_bridge::{BatchPayablesTools, BatchedPayablesToolsReal};
+use crate::sub_lib::blockchain_bridge::{BatchPayableTools, BatchPayableToolsReal};
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, Recipient};
 use futures::{future, Future};
@@ -205,8 +205,8 @@ pub struct BlockchainInterfaceNonClandestine<T: BatchTransport + Debug> {
     _event_loop_handle: EventLoopHandle,
     web3: Web3<T>,
     batch_web3: Web3<Batch<T>>,
+    batch_payable_tools: Box<dyn BatchPayableTools<T>>,
     contract: Contract<T>,
-    batch_payables_tools: Box<dyn BatchPayablesTools<T>>,
 }
 
 const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]);
@@ -326,15 +326,21 @@ where
                 let nonce = last_nonce
                     .checked_add(addition)
                     .expect("unexpected ceiling");
-                self.process_account(acc, consuming_wallet, nonce, gas_price, account)
+                self.sign_transaction_for_single_account(
+                    acc,
+                    consuming_wallet,
+                    nonce,
+                    gas_price,
+                    account,
+                )
             },
         ) {
             Ok(f_inputs) => f_inputs,
-            Err(err) => todo!(),
+            Err(err) => return Err(err),
         };
 
-        let timestamp = self.batch_payables_tools.batch_wide_timestamp();
-        self.batch_payables_tools.new_payable_fingerprints(
+        let timestamp = self.batch_payable_tools.batch_wide_timestamp();
+        self.batch_payable_tools.new_payable_fingerprints(
             timestamp,
             fingerprint_recipient,
             &fingerprint_inputs,
@@ -342,7 +348,7 @@ where
 
         self.logger
             .info(|| self.transmission_log(&accounts, gas_price));
-        match self.batch_payables_tools.submit_batch(&self.batch_web3) {
+        match self.batch_payable_tools.submit_batch(&self.batch_web3) {
             Ok(responses) => Ok((
                 timestamp,
                 Self::output_data_from_joined_sources(responses, fingerprint_inputs, accounts),
@@ -411,21 +417,24 @@ where
     pub fn new(transport: T, event_loop_handle: EventLoopHandle, chain: Chain) -> Self {
         let web3 = Web3::new(transport.clone());
         let batch_web3 = Web3::new(Batch::new(transport));
+        let batch_payable_tools = Box::new(BatchPayableToolsReal::<T>::default());
         let contract =
             Contract::from_json(web3.eth(), chain.rec().contract, CONTRACT_ABI.as_bytes())
                 .expect("Unable to initialize contract.");
+
         Self {
             logger: Logger::new("BlockchainInterface"),
             chain,
             _event_loop_handle: event_loop_handle,
             web3,
             batch_web3,
+            batch_payable_tools,
             contract,
-            batch_payables_tools: Box::new(BatchedPayablesToolsReal::<T>::default()),
+
         }
     }
 
-    fn process_account(
+    fn sign_transaction_for_single_account(
         &self,
         acc: InitialPhaseBatchProcessingResult,
         consuming_wallet: &Wallet,
@@ -436,16 +445,14 @@ where
         if let Ok(fingerprints_values) = acc {
             self.logger
                 .debug(|| self.preparation_log(&account.wallet, account.balance as u64, gas_price));
-            match self.prepare_signed_transaction(
+            self.prepare_signed_transaction(
                 &account.wallet,
                 consuming_wallet,
                 account.balance as u64,
                 nonce,
                 gas_price,
-            ) {
-                Ok(tx_hash) => Ok(plus(fingerprints_values, (tx_hash, account.balance as u64))),
-                Err(err) => todo!(),
-            }
+            )
+            .map(|tx_hash| plus(fingerprints_values, (tx_hash, account.balance as u64)))
         } else {
             todo!()
         }
@@ -517,7 +524,7 @@ where
             Err(e) => return Err(PayableTransactionError::UnusableWallet(e.to_string())),
         };
 
-        let signed_tx = match self.batch_payables_tools.sign_transaction(
+        let signed_tx = match self.batch_payable_tools.sign_transaction(
             transaction_parameters,
             &self.batch_web3,
             &key,
@@ -526,7 +533,7 @@ where
             Err(e) => todo!(), //Err(PayableTransactionError::Signing(e.to_string())),
         };
 
-        self.batch_payables_tools
+        self.batch_payable_tools
             .enter_raw_transaction_to_batch(signed_tx.raw_transaction, &self.batch_web3);
 
         Ok(signed_tx.transaction_hash)
@@ -642,7 +649,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::PendingPayableFallible::{Correct, Failure};
     use crate::blockchain::test_utils::{
         make_default_signed_transaction, make_fake_event_loop_handle, make_tx_hash,
-        BatchedPayableToolsMock, TestTransport,
+        BatchPayableToolsMock, TestTransport,
     };
     use crate::database::dao_utils::from_time_t;
     use crate::sub_lib::wallet::Wallet;
@@ -1508,7 +1515,7 @@ mod tests {
                 (&second_hash.to_string()[2..]).to_string(),
             )),
         ];
-        let batch_payables_tools = BatchedPayableToolsMock::default()
+        let batch_payables_tools = BatchPayableToolsMock::default()
             .sign_transaction_params(&sign_transaction_params_arc)
             .sign_transaction_result(Ok(first_signed_transaction.clone()))
             .sign_transaction_result(Ok(second_signed_transaction.clone()))
@@ -1517,7 +1524,7 @@ mod tests {
             .enter_raw_transaction_to_batch_params(&enter_raw_transaction_to_batch_params_arc)
             .submit_batch_params(&submit_batch_params_arc)
             .submit_batch_result(Ok(rpc_responses));
-        subject.batch_payables_tools = Box::new(batch_payables_tools);
+        subject.batch_payable_tools = Box::new(batch_payables_tools);
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret);
         let gas_price = 123;
         let first_payment_amount = 50_000;
@@ -1681,7 +1688,7 @@ mod tests {
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let unimportant_recipient = Recorder::new().start().recipient();
         let consuming_wallet_secret_raw_bytes = b"my-wallet";
-        let send_transaction_tools = &BatchedPayableToolsMock::<TestTransport>::default()
+        let send_transaction_tools = &BatchPayableToolsMock::<TestTransport>::default()
             .sign_transaction_params(&sign_transaction_params_arc)
             //I don't want to set up all the mocks - I want see just the params coming in
             .sign_transaction_result(Err(Web3Error::Internal));
@@ -1690,6 +1697,7 @@ mod tests {
         let gas_price = 123;
         let nonce = U256::from(5);
 
+        todo!("you probably want to use the lower level method, for signing only");
         let _ = subject.send_payables_within_batch(
             &consuming_wallet,
             gas_price,
@@ -1755,7 +1763,7 @@ mod tests {
     #[test]
     fn send_transaction_fails_on_signing_transaction() {
         let transport = TestTransport::default();
-        let send_transaction_tools = &BatchedPayableToolsMock::<TestTransport>::default()
+        let send_transaction_tools = &BatchPayableToolsMock::<TestTransport>::default()
             .sign_transaction_result(Err(Web3Error::Signing(
                 secp256k1secrets::Error::InvalidSecretKey,
             )));
@@ -1797,7 +1805,7 @@ mod tests {
         let hash = make_tx_hash(123);
         let mut signed_transaction = make_default_signed_transaction();
         signed_transaction.transaction_hash = hash;
-        let send_transaction_tools = &BatchedPayableToolsMock::<TestTransport>::default()
+        let send_transaction_tools = &BatchPayableToolsMock::<TestTransport>::default()
             .sign_transaction_result(Ok(signed_transaction))
             .submit_batch_result(Err(Web3Error::Transport("Transaction crashed".to_string())));
         let consuming_wallet_secret_raw_bytes = b"okay-wallet";

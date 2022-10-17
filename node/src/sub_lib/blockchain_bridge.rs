@@ -67,7 +67,7 @@ pub struct SetGasPriceMsg {
     pub gas_price: String,
 }
 
-pub trait BatchPayablesTools<T>
+pub trait BatchPayableTools<T>
 where
     T: BatchTransport,
 {
@@ -93,11 +93,11 @@ where
 }
 
 #[derive(Debug)]
-pub struct BatchedPayablesToolsReal<T> {
+pub struct BatchPayableToolsReal<T> {
     phantom: PhantomData<T>,
 }
 
-impl<T: BatchTransport> Default for BatchedPayablesToolsReal<T> {
+impl<T: BatchTransport> Default for BatchPayableToolsReal<T> {
     fn default() -> Self {
         Self {
             phantom: Default::default(),
@@ -105,7 +105,7 @@ impl<T: BatchTransport> Default for BatchedPayablesToolsReal<T> {
     }
 }
 
-impl<T: BatchTransport + Debug> BatchPayablesTools<T> for BatchedPayablesToolsReal<T> {
+impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T> {
     fn sign_transaction(
         &self,
         transaction_params: TransactionParameters,
@@ -160,7 +160,7 @@ impl<T> Default for BatchedPayableToolsNull<T> {
     }
 }
 
-impl<T: BatchTransport> BatchPayablesTools<T> for BatchedPayableToolsNull<T> {
+impl<T: BatchTransport> BatchPayableTools<T> for BatchedPayableToolsNull<T> {
     fn sign_transaction(
         &self,
         _transaction_params: TransactionParameters,
@@ -202,7 +202,7 @@ mod tests {
     use crate::blockchain::blockchain_bridge::InitiatePPFingerprints;
     use crate::blockchain::test_utils::{make_tx_hash, TestTransport};
     use crate::sub_lib::blockchain_bridge::{
-        BatchPayablesTools, BatchedPayableToolsNull, BatchedPayablesToolsReal,
+        BatchPayableTools, BatchedPayableToolsNull, BatchPayableToolsReal,
     };
     use crate::test_utils::recorder::{make_blockchain_bridge_subs_from, make_recorder, Recorder};
     use actix::{Actor, System};
@@ -265,7 +265,7 @@ mod tests {
         let chief_attributes_of_payables =
             vec![(Default::default(), 5), (make_tx_hash(45466), 444444)];
 
-        let _ = BatchedPayablesToolsReal::<TestTransport>::default().new_payable_fingerprints(
+        let _ = BatchPayableToolsReal::<TestTransport>::default().new_payable_fingerprints(
             timestamp,
             &recipient,
             &chief_attributes_of_payables,
@@ -287,7 +287,7 @@ mod tests {
 
     #[test]
     fn batch_wide_timestamp_returns_current_now() {
-        let subject = BatchedPayablesToolsReal::<TestTransport>::default();
+        let subject = BatchPayableToolsReal::<TestTransport>::default();
         let before = SystemTime::now();
 
         let result = subject.batch_wide_timestamp();
