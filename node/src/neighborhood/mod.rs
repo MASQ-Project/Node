@@ -945,6 +945,7 @@ impl Neighborhood {
         &mut self,
         msg: RouteQueryMessage,
     ) -> Result<RouteQueryResponse, String> {
+        let hostname_opt = msg.hostname_opt.as_deref();
         let over = self.make_route_segment(
             self.cryptde.public_key(),
             msg.target_key_opt.as_ref(),
@@ -952,7 +953,7 @@ impl Neighborhood {
             msg.target_component,
             msg.payload_size,
             RouteDirection::Over,
-            msg.hostname_opt.clone(),
+            hostname_opt,
         )?;
         debug!(self.logger, "Route over: {:?}", over);
         let back = self.make_route_segment(
@@ -962,7 +963,7 @@ impl Neighborhood {
             msg.return_component_opt.expect("No return component"),
             msg.payload_size,
             RouteDirection::Back,
-            msg.hostname_opt,
+            hostname_opt,
         )?;
         debug!(self.logger, "Route back: {:?}", back);
         self.compose_route_query_response(over, back)
@@ -1022,7 +1023,7 @@ impl Neighborhood {
         target_component: Component,
         payload_size: usize,
         direction: RouteDirection,
-        hostname_opt: Option<String>,
+        hostname_opt: Option<&str>,
     ) -> Result<RouteSegment, String> {
         let route_opt = self.find_best_route_segment(
             origin,
@@ -1147,7 +1148,7 @@ impl Neighborhood {
         };
         let rate_undesirability = per_cores as i64 + (per_byte as i64 * payload_size as i64);
         if let LinkType::Exit(Some(hostname)) = link_type {
-            if node_record.metadata.unreachable_hosts.contains(&hostname) {
+            if node_record.metadata.unreachable_hosts.contains(hostname) {
                 return rate_undesirability + UNDESIRABLE_FOR_EXIT_PENALTY;
             }
         }
@@ -1189,7 +1190,7 @@ impl Neighborhood {
         minimum_hops: usize,
         payload_size: usize,
         direction: RouteDirection,
-        hostname_opt: Option<String>,
+        hostname_opt: Option<&str>,
     ) -> Option<Vec<&'a PublicKey>> {
         let mut minimum_undesirability = i64::MAX;
         self.routing_engine(
@@ -1218,7 +1219,7 @@ impl Neighborhood {
         payload_size: usize,
         direction: RouteDirection,
         minimum_undesirability: &mut i64,
-        hostname_opt: Option<String>,
+        hostname_opt: Option<&str>,
     ) -> Vec<ComputedRouteSegment<'a>> {
         if undesirability > *minimum_undesirability {
             return vec![];
@@ -1271,7 +1272,7 @@ impl Neighborhood {
                         hops_remaining,
                         payload_size,
                         direction,
-                        hostname_opt.clone(),
+                        hostname_opt,
                     );
 
                     self.routing_engine(
@@ -1282,7 +1283,7 @@ impl Neighborhood {
                         payload_size,
                         direction,
                         minimum_undesirability,
-                        hostname_opt.clone(),
+                        hostname_opt,
                     )
                 })
                 .collect()
@@ -1317,7 +1318,7 @@ impl Neighborhood {
         hops_remaining: usize,
         payload_size: usize,
         direction: RouteDirection,
-        hostname_opt: Option<String>,
+        hostname_opt: Option<&str>,
     ) -> i64 {
         let link_type = match (direction, target_opt) {
             (RouteDirection::Over, None) if hops_remaining == 0 => LinkType::Exit(hostname_opt),
@@ -1495,9 +1496,9 @@ pub fn regenerate_signed_gossip(
 }
 
 #[derive(PartialEq, Eq)]
-enum LinkType {
+enum LinkType<'hostname> {
     Relay,
-    Exit(Option<String>),
+    Exit(Option<&'hostname str>),
     Origin,
 }
 
@@ -3313,9 +3314,9 @@ mod tests {
     #[test]
     fn compute_undesirability_for_undesirable_for_exit_node_used_as_exit() {
         let subject = make_standard_subject();
-        let unreachable_host = String::from("somedomain.com");
+        let unreachable_host = "somedomain.com";
         let mut unreachable_hosts = HashSet::new();
-        unreachable_hosts.insert(unreachable_host.clone());
+        unreachable_hosts.insert(unreachable_host.to_string());
         let mut node_record = make_node_record(1, false);
         node_record.metadata.unreachable_hosts = unreachable_hosts;
         node_record.inner.rate_pack = RatePack {
