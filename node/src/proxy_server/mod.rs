@@ -279,7 +279,7 @@ impl ProxyServer {
                 })
                 .clone()
         };
-        let host_name = match &return_route_info.server_name {
+        let host_name = match &return_route_info.server_name_opt {
             Some(name) => name.clone(),
             None => UNSPECIFIED_SERVER.to_string(),
         };
@@ -311,7 +311,7 @@ impl ProxyServer {
                             .server_impersonator()
                             .dns_resolution_failure_response(
                                 &exit_public_key,
-                                return_route_info.server_name.clone(),
+                                return_route_info.server_name_opt.clone(),
                             ),
                     })
                     .expect("Dispatcher is dead");
@@ -555,7 +555,7 @@ impl ProxyServer {
                     return_route_id,
                     expected_services: back,
                     protocol: args.common.payload.protocol,
-                    server_name: args.common.payload.target_hostname.clone(),
+                    server_name_opt: args.common.payload.target_hostname.clone(),
                 };
                 debug!(
                     args.logger,
@@ -1449,7 +1449,7 @@ mod tests {
                 return_route_id: 1234,
                 expected_services: vec![ExpectedService::Nothing],
                 protocol: ProxyProtocol::TLS,
-                server_name: None,
+                server_name_opt: None,
             },
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
@@ -2549,7 +2549,7 @@ mod tests {
                 return_route_id: 0,
                 expected_services: vec![ExpectedService::Nothing],
                 protocol: ProxyProtocol::HTTP,
-                server_name: Some("nowhere.com".to_string())
+                server_name_opt: Some("nowhere.com".to_string())
             }
         );
         let record = recording.get_record::<StreamShutdownMsg>(1);
@@ -2824,7 +2824,7 @@ mod tests {
                 ),
             ],
             protocol: ProxyProtocol::HTTP,
-            server_name: None,
+            server_name_opt: None,
         };
 
         subject.report_response_services_consumed(&add_return_route_message, 1234, 3456);
@@ -3277,7 +3277,7 @@ mod tests {
                 return_route_id: 1234,
                 expected_services: vec![ExpectedService::Nothing],
                 protocol: ProxyProtocol::TLS,
-                server_name: None,
+                server_name_opt: None,
             },
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
@@ -3348,7 +3348,7 @@ mod tests {
                 return_route_id: 1234,
                 expected_services: vec![],
                 protocol: ProxyProtocol::HTTP,
-                server_name: None,
+                server_name_opt: None,
             },
         );
         let client_response_payload = ClientResponsePayload_0v1 {
@@ -3422,7 +3422,7 @@ mod tests {
                     ExpectedService::Nothing,
                 ],
                 protocol: ProxyProtocol::TLS,
-                server_name: None,
+                server_name_opt: None,
             },
         );
         let incoming_route_g_wallet = make_wallet("G Earning");
@@ -3454,7 +3454,7 @@ mod tests {
                     ExpectedService::Nothing,
                 ],
                 protocol: ProxyProtocol::TLS,
-                server_name: None,
+                server_name_opt: None,
             },
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
@@ -3619,7 +3619,7 @@ mod tests {
                     ),
                 ],
                 protocol: ProxyProtocol::TLS,
-                server_name: None,
+                server_name_opt: None,
             },
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
@@ -3726,7 +3726,7 @@ mod tests {
                     rate_pack(10),
                 )],
                 protocol: ProxyProtocol::HTTP,
-                server_name: Some("server.com".to_string()),
+                server_name_opt: Some("server.com".to_string()),
             })
             .unwrap();
         subject_addr.try_send(expired_cores_package).unwrap();
@@ -3797,7 +3797,7 @@ mod tests {
                     ExpectedService::Nothing,
                 ],
                 protocol: ProxyProtocol::TLS,
-                server_name: Some("server.com".to_string()),
+                server_name_opt: Some("server.com".to_string()),
             },
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
@@ -3885,7 +3885,7 @@ mod tests {
                     rate_pack(10),
                 )],
                 protocol: ProxyProtocol::HTTP,
-                server_name: Some("server.com".to_string()),
+                server_name_opt: Some("server.com".to_string()),
             },
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
@@ -3951,7 +3951,7 @@ mod tests {
                     rate_pack(10),
                 )],
                 protocol: ProxyProtocol::HTTP,
-                server_name: None,
+                server_name_opt: None,
             },
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
@@ -4010,7 +4010,7 @@ mod tests {
                     rate_pack(10),
                 )],
                 protocol: ProxyProtocol::HTTP,
-                server_name: Some("server.com".to_string()),
+                server_name_opt: Some("server.com".to_string()),
             },
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
@@ -4082,7 +4082,7 @@ mod tests {
                     rate_pack(10),
                 )],
                 protocol: ProxyProtocol::HTTP,
-                server_name: None,
+                server_name_opt: None,
             },
         );
 
@@ -4165,7 +4165,7 @@ mod tests {
                 return_route_id: 1234,
                 expected_services: vec![ExpectedService::Nothing, ExpectedService::Nothing],
                 protocol: ProxyProtocol::HTTP,
-                server_name: None,
+                server_name_opt: None,
             },
         );
         let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
@@ -4210,7 +4210,7 @@ mod tests {
                 return_route_id: 4321,
                 expected_services: vec![ExpectedService::Nothing],
                 protocol: ProxyProtocol::HTTP,
-                server_name: None,
+                server_name_opt: None,
             },
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
@@ -4400,7 +4400,7 @@ mod tests {
                     return_route_id: 1234,
                     expected_services: vec![],
                     protocol: ProxyProtocol::TLS,
-                    server_name: None,
+                    server_name_opt: None,
                 },
             );
             let subject_addr: Addr<ProxyServer> = subject.start();
