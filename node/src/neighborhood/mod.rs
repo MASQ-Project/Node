@@ -2650,8 +2650,7 @@ mod tests {
         subject.consuming_wallet_opt = None;
         // These happen to be extracted in the desired order. We could not think of a way to guarantee it.
         let desirable_exit_node = make_node_record(2345, false);
-        let mut undesirable_exit_node = make_node_record(3456, true);
-        undesirable_exit_node.set_desirable_for_exit(false);
+        let undesirable_exit_node = make_node_record(3456, true);
         let originating_node = &subject.neighborhood_database.root().clone();
         {
             let db = &mut subject.neighborhood_database;
@@ -2853,8 +2852,7 @@ mod tests {
         let q = &make_node_record(3456, true);
         let r = &make_node_record(4567, false);
         let s = &make_node_record(5678, false);
-        let mut t = make_node_record(7777, false);
-        t.set_desirable_for_exit(false);
+        let t = make_node_record(7777, false);
         {
             let db = &mut subject.neighborhood_database;
             db.add_node(q.clone()).unwrap();
@@ -3268,7 +3266,6 @@ mod tests {
     fn compute_undesirability_for_relay_nodes() {
         let subject = make_standard_subject();
         let mut node_record = make_node_record(1, false);
-        node_record.metadata.desirable_for_exit = true; // not used as exit: irrelevant
         node_record.inner.rate_pack = RatePack {
             routing_byte_rate: 100,
             routing_service_rate: 200,
@@ -3285,7 +3282,6 @@ mod tests {
     fn compute_undesirability_for_exit_nodes() {
         let subject = make_standard_subject();
         let mut node_record = make_node_record(1, false);
-        node_record.metadata.desirable_for_exit = true; // used as exit, but leave out penalty for now
         node_record.inner.rate_pack = RatePack {
             routing_byte_rate: 123456,
             routing_service_rate: 234567,
@@ -3302,7 +3298,6 @@ mod tests {
     fn compute_undesirability_for_origin() {
         let subject = make_standard_subject();
         let mut node_record = make_node_record(1, false);
-        node_record.metadata.desirable_for_exit = true; // not used as exit: irrelevant
         node_record.inner.rate_pack = RatePack {
             routing_byte_rate: 123456,
             routing_service_rate: 234567,
@@ -3322,7 +3317,6 @@ mod tests {
         let mut unreachable_hosts = HashSet::new();
         unreachable_hosts.insert(unreachable_host.clone());
         let mut node_record = make_node_record(1, false);
-        node_record.metadata.desirable_for_exit = false; // used as exit: penalty is effective
         node_record.metadata.unreachable_hosts = unreachable_hosts;
         node_record.inner.rate_pack = RatePack {
             routing_byte_rate: 123456,
