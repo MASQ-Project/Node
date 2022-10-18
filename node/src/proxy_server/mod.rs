@@ -25,10 +25,10 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{Endpoint, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage};
-use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{ExpectedService, NodeRecordMetadataMessage};
 use crate::sub_lib::neighborhood::{ExpectedServices, RatePack};
+use crate::sub_lib::neighborhood::{NRMetadataChange, RouteQueryMessage};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
@@ -58,6 +58,7 @@ use std::time::{Duration, SystemTime};
 use tokio::prelude::Future;
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
+pub const UNSPECIFIED_SERVER: &str = "<unspecified server>";
 pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);
 
 struct ProxyServerOutSubs {
@@ -280,21 +281,22 @@ impl ProxyServer {
         };
         let host_name = match &return_route_info.server_name {
             Some(name) => name.clone(),
-            None => "<unspecified server>".to_string(),
+            None => UNSPECIFIED_SERVER.to_string(),
         };
         let response = &msg.payload;
         match self.keys_and_addrs.a_to_b(&response.stream_key) {
             Some(socket_addr) => {
-                self.subs
-                    .as_ref()
-                    .expect("Neighborhood unbound in ProxyServer")
-                    .update_node_record_metadata
-                    .try_send(NodeRecordMetadataMessage {
-                        public_key: exit_public_key.clone(),
-                        unreachable_host_name_opt: Some(host_name),
-                    })
-                    .expect("Neighborhood is dead");
-
+                if host_name.ne(UNSPECIFIED_SERVER) {
+                    self.subs
+                        .as_ref()
+                        .expect("Neighborhood unbound in ProxyServer")
+                        .update_node_record_metadata
+                        .try_send(NodeRecordMetadataMessage {
+                            public_key: exit_public_key.clone(),
+                            metadata_change: NRMetadataChange::AddUnreachableHost { host_name },
+                        })
+                        .expect("Neighborhood is dead");
+                }
                 self.report_response_services_consumed(&return_route_info, 0, msg.payload_len);
 
                 self.subs
@@ -1073,6 +1075,7 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "PROXYSERVER");
+        assert_eq!(UNSPECIFIED_SERVER, "<unspecified server>");
         assert_eq!(RETURN_ROUTE_TTL, Duration::from_secs(120));
     }
 
@@ -3911,9 +3914,69 @@ mod tests {
             record,
             &NodeRecordMetadataMessage {
                 public_key: exit_public_key,
-                unreachable_host_name_opt: Some("server.com".to_string())
+                metadata_change: NRMetadataChange::AddUnreachableHost {
+                    host_name: "server.com".to_string()
+                }
             }
         );
+    }
+
+    #[test]
+    fn handle_dns_resolve_failure_does_not_sends_message_to_neighborhood_when_server_is_not_specified(
+    ) {
+        let system = System::new("test");
+        let (neighborhood_mock, _, neighborhood_log_arc) = make_recorder();
+        let cryptde = main_cryptde();
+        let mut subject = ProxyServer::new(
+            cryptde,
+            alias_cryptde(),
+            true,
+            Some(STANDARD_CONSUMING_WALLET_BALANCE),
+            false,
+        );
+        let stream_key = make_meaningless_stream_key();
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        subject
+            .keys_and_addrs
+            .insert(stream_key.clone(), socket_addr.clone());
+        let exit_public_key = PublicKey::from(&b"exit_key"[..]);
+        let exit_wallet = make_wallet("exit wallet");
+        subject.route_ids_to_return_routes.insert(
+            1234,
+            AddReturnRouteMessage {
+                return_route_id: 1234,
+                expected_services: vec![ExpectedService::Exit(
+                    exit_public_key.clone(),
+                    exit_wallet,
+                    rate_pack(10),
+                )],
+                protocol: ProxyProtocol::HTTP,
+                server_name: None,
+            },
+        );
+        let subject_addr: Addr<ProxyServer> = subject.start();
+        let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
+        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure_0v1> =
+            ExpiredCoresPackage::new(
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+                Some(make_wallet("irrelevant")),
+                return_route_with_id(cryptde, 1234),
+                dns_resolve_failure.into(),
+                0,
+            );
+        let mut peer_actors = peer_actors_builder()
+            .neighborhood(neighborhood_mock)
+            .build();
+        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        subject_addr.try_send(expired_cores_package).unwrap();
+
+        System::current().stop();
+        system.run();
+        let neighborhood_recording = neighborhood_log_arc.lock().unwrap();
+        let record_opt = neighborhood_recording.get_record_opt::<NodeRecordMetadataMessage>(0);
+        assert_eq!(record_opt, None);
     }
 
     #[test]

@@ -46,7 +46,6 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
@@ -56,6 +55,7 @@ use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, NodeDescriptor};
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
+use crate::sub_lib::neighborhood::{NRMetadataChange, NodeQueryMessage};
 use crate::sub_lib::neighborhood::{NeighborhoodSubs, NeighborhoodTools};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
@@ -337,22 +337,23 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: NodeRecordMetadataMessage, _ctx: &mut Self::Context) -> Self::Result {
-        let public_key = msg.public_key;
-        let unreachable_host = msg
-            .unreachable_host_name_opt
-            .expect("No unreachable host found");
-        let node_record = self
-            .neighborhood_database
-            .node_by_key_mut(&public_key)
-            .unwrap_or_else(|| panic!("No Node Record found for public_key: {public_key}"));
-        node_record
-            .metadata
-            .unreachable_hosts
-            .insert(unreachable_host.clone());
-        debug!(
-            self.logger,
-            "Host {unreachable_host} is marked unreachable for the node with public key {public_key}"
-        );
+        match msg.metadata_change {
+            NRMetadataChange::AddUnreachableHost { host_name } => {
+                let public_key = msg.public_key;
+                let node_record = self
+                    .neighborhood_database
+                    .node_by_key_mut(&public_key)
+                    .unwrap_or_else(|| panic!("No Node Record found for public_key: {public_key}"));
+                node_record
+                    .metadata
+                    .unreachable_hosts
+                    .insert(host_name.clone());
+                debug!(
+                    self.logger,
+                    "Host {host_name} is marked unreachable for the node with public key {public_key}"
+                );
+            }
+        }
     }
 }
 
@@ -5080,7 +5081,9 @@ mod tests {
 
         let _ = addr.try_send(NodeRecordMetadataMessage {
             public_key: public_key.clone(),
-            unreachable_host_name_opt: Some(unreachable_host.clone()),
+            metadata_change: NRMetadataChange::AddUnreachableHost {
+                host_name: unreachable_host.clone(),
+            },
         });
 
         let assertions = Box::new(move |actor: &mut Neighborhood| {
@@ -5093,7 +5096,7 @@ mod tests {
                 .unreachable_hosts
                 .contains(&unreachable_host));
             TestLogHandler::new().exists_log_matching(&format!(
-                "Host {unreachable_host} is marked unreachable for the node with public key {public_key}"
+                "Host facebook.com is marked unreachable for the node with public key ZXhpdF9ub2Rl"
             ));
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
