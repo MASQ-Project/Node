@@ -1917,9 +1917,9 @@ mod tests {
         let hash = make_tx_hash(12345);
         let sent_payable = SentPayable {
             timestamp: SystemTime::now(),
-            payable_outcomes: Err(BlockchainError::FinalPayableSendingProcessFailed {
+            payable_outcomes: Err(BlockchainError::PayableTxsDispatchFailed {
                 msg: "SQLite migraine".to_string(),
-                fingerprints_established_opt: Some(vec![hash]),
+                signed_and_saved_txs_opt: Some(vec![hash]),
             }),
             response_skeleton_opt: None,
         };
@@ -1970,9 +1970,9 @@ mod tests {
         let hash_tx_2 = make_tx_hash(12345);
         let sent_payable = SentPayable {
             timestamp: SystemTime::now(),
-            payable_outcomes: Err(BlockchainError::FinalPayableSendingProcessFailed {
+            payable_outcomes: Err(BlockchainError::PayableTxsDispatchFailed {
                 msg: "Attempt failed".to_string(),
-                fingerprints_established_opt: Some(vec![hash_tx_1, hash_tx_2]),
+                signed_and_saved_txs_opt: Some(vec![hash_tx_1, hash_tx_2]),
             }),
             response_skeleton_opt: None,
         };
@@ -3545,9 +3545,9 @@ mod tests {
         let hash = make_tx_hash(123);
         let sent_payable = SentPayable {
             timestamp: SystemTime::now(),
-            payable_outcomes: Err(BlockchainError::FinalPayableSendingProcessFailed {
+            payable_outcomes: Err(BlockchainError::PayableTxsDispatchFailed {
                 msg: "blah".to_string(),
-                fingerprints_established_opt: Some(vec![hash]),
+                signed_and_saved_txs_opt: Some(vec![hash]),
             }),
             response_skeleton_opt: None,
         };
@@ -4574,9 +4574,9 @@ mod tests {
 
     #[test]
     fn separate_errors_works_for_our_errors() {
-        let error = BlockchainError::FinalPayableSendingProcessFailed {
+        let error = BlockchainError::PayableTxsDispatchFailed {
             msg: "bad timing".to_string(),
-            fingerprints_established_opt: None,
+            signed_and_saved_txs_opt: None,
         };
         let sent_payable = SentPayable {
             timestamp: SystemTime::now(),

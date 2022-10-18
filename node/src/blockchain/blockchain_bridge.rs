@@ -444,6 +444,7 @@ impl BlockchainBridge {
     }
 
     //TODO this will be hugely different
+    // Edit: Will be deleted
     fn process_payments_inner_body(
         &self,
         payable: &PayableAccount,
@@ -610,7 +611,7 @@ mod tests {
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
             .send_payables_within_batch_result(Err(PayableTransactionError::Sending {
                 msg: "failure from exhaustion".to_string(),
-                hashes_of_transactions: vec![tx_hash],
+                hashes: vec![tx_hash],
             }));
         let consuming_wallet = make_wallet("somewallet");
         let persistent_configuration_mock =
@@ -638,9 +639,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Ok(Err(BlockchainError::FinalPayableSendingProcessFailed {
+            Ok(Err(BlockchainError::PayableTxsDispatchFailed {
                 msg: "failure from exhaustion".to_string(),
-                fingerprints_established_opt: Some(vec![transaction_hash])
+                signed_and_saved_txs_opt: Some(vec![transaction_hash])
             }))
         );
         let get_transaction_count_params = get_transaction_count_params_arc.lock().unwrap();

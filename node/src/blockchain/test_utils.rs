@@ -152,20 +152,9 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         last_nonce: U256,
         fingerprint_recipient: &Recipient<InitiatePPFingerprints>,
         accounts: Vec<PayableAccount>,
-    ) -> Result<(SystemTime, Vec<PendingPayableFallible>), PayableTransactionError> {
+    ) -> Result<(SystemTime, Vec<PendingPayableFallible>), BlockchainError> {
         todo!()
     }
-
-    // fn send_transaction<'b>(
-    //     &self,
-    //     inputs: SendTransactionInputs,
-    // ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
-    //     self.send_transaction_parameters
-    //         .lock()
-    //         .unwrap()
-    //         .push(inputs.abstract_for_assertions());
-    //     self.send_transaction_results.borrow_mut().remove(0)
-    // }
 
     fn get_eth_balance(&self, _address: &Wallet) -> Balance {
         unimplemented!()
@@ -305,7 +294,7 @@ pub struct BatchPayableToolsMock<T: BatchTransport> {
     //enter_raw_transactions_to_batch returns just the unit type
     //batch_wide_timestamp doesn't have params
     batch_wide_timestamp_results: RefCell<Vec<SystemTime>>,
-    new_payable_fingerprint_params: Arc<
+    send_new_payable_fingerprint_credentials_params: Arc<
         Mutex<
             Vec<(
                 SystemTime,
@@ -335,28 +324,31 @@ impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
         self.sign_transaction_results.borrow_mut().remove(0)
     }
 
-    fn batch_wide_timestamp(&self) -> SystemTime {
-        self.batch_wide_timestamp_results.borrow_mut().remove(0)
-    }
-
-    fn new_payable_fingerprints(
-        &self,
-        batch_wide_timestamp: SystemTime,
-        pp_fingerprint_sub: &Recipient<InitiatePPFingerprints>,
-        payable_attributes: &[(H256, u64)],
-    ) {
-        self.new_payable_fingerprint_params.lock().unwrap().push((
-            batch_wide_timestamp,
-            (*pp_fingerprint_sub).clone(),
-            payable_attributes.to_vec(),
-        ));
-    }
-
     fn enter_raw_transaction_to_batch(&self, signed_transactions: Bytes, web3: &Web3<Batch<T>>) {
         self.enter_raw_transaction_to_batch_params
             .lock()
             .unwrap()
             .push(signed_transactions);
+    }
+
+    fn batch_wide_timestamp(&self) -> SystemTime {
+        self.batch_wide_timestamp_results.borrow_mut().remove(0)
+    }
+
+    fn send_new_payable_fingerprints_credentials(
+        &self,
+        batch_wide_timestamp: SystemTime,
+        pp_fingerprint_sub: &Recipient<InitiatePPFingerprints>,
+        payable_attributes: &[(H256, u64)],
+    ) {
+        self.send_new_payable_fingerprint_credentials_params
+            .lock()
+            .unwrap()
+            .push((
+                batch_wide_timestamp,
+                (*pp_fingerprint_sub).clone(),
+                payable_attributes.to_vec(),
+            ));
     }
 
     fn submit_batch(
@@ -394,7 +386,7 @@ impl<T: BatchTransport> BatchPayableToolsMock<T> {
         self
     }
 
-    pub fn new_payable_fingerprint_params(
+    pub fn send_new_payable_fingerprint_credentials_params(
         mut self,
         params: &Arc<
             Mutex<
@@ -406,7 +398,7 @@ impl<T: BatchTransport> BatchPayableToolsMock<T> {
             >,
         >,
     ) -> Self {
-        self.new_payable_fingerprint_params = params.clone();
+        self.send_new_payable_fingerprint_credentials_params = params.clone();
         self
     }
 
