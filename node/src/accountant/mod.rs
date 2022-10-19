@@ -4011,6 +4011,8 @@ mod tests {
         let this_payable_timestamp_2 = now.add(Duration::from_millis(50));
         let payable_account_balance_1 = DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 10;
         let payable_account_balance_2 = DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 666;
+        let wallet_account_1 = make_wallet("creditor1");
+        let wallet_account_2 = make_wallet("creditor2");
         let transaction_receipt_tx_2_first_round = TransactionReceipt::default();
         let transaction_receipt_tx_1_second_round = TransactionReceipt::default();
         let transaction_receipt_tx_2_second_round = TransactionReceipt::default();
@@ -4025,8 +4027,16 @@ mod tests {
             //because we cannot have both, resolution on the high level and also of what's inside blockchain interface,
             //there is one component missing in this wholesome test - the part where we send a request for
             //a fingerprint of that payable in the DB - this happens inside send_raw_transaction()
-            .send_payables_within_batch_result(Ok((pending_tx_hash_1, past_payable_timestamp_1)))
-            .send_payables_within_batch_result(Ok((pending_tx_hash_2, past_payable_timestamp_2)))
+            .send_payables_within_batch_result(Ok(vec![
+                Correct(PendingPayable {
+                    recipient_wallet: wallet_account_1.clone(),
+                    hash: pending_tx_hash_1,
+                }),
+                Correct(PendingPayable {
+                    recipient_wallet: wallet_account_2.clone(),
+                    hash: pending_tx_hash_2,
+                }),
+            ]))
             .get_transaction_receipt_params(&get_transaction_receipt_params_arc)
             .get_transaction_receipt_result(Ok(None))
             .get_transaction_receipt_result(Ok(Some(transaction_receipt_tx_2_first_round)))
@@ -4044,14 +4054,12 @@ mod tests {
             false,
             Some(consuming_wallet),
         );
-        let wallet_account_1 = make_wallet("creditor1");
         let account_1 = PayableAccount {
             wallet: wallet_account_1.clone(),
             balance: payable_account_balance_1,
             last_paid_timestamp: past_payable_timestamp_1,
             pending_payable_opt: None,
         };
-        let wallet_account_2 = make_wallet("creditor2");
         let account_2 = PayableAccount {
             wallet: wallet_account_2.clone(),
             balance: payable_account_balance_2,

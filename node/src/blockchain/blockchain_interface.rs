@@ -104,8 +104,8 @@ pub trait BlockchainInterface<T: Transport = Http> {
         gas_price: u64,
         last_nonce: U256,
         fingerprint_recipient: &Recipient<InitiatePPFingerprints>,
-        accounts: Vec<PayableAccount>,
-    ) -> Result<(SystemTime, Vec<PendingPayableFallible>), BlockchainError>;
+        accounts: &[PayableAccount],
+    ) -> Result<Vec<PendingPayableFallible>, BlockchainError>;
 
     fn get_eth_balance(&self, address: &Wallet) -> Balance;
 
@@ -165,8 +165,8 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         _gas_price: u64,
         _last_nonce: U256,
         _fingerprint_recipient: &Recipient<InitiatePPFingerprints>,
-        _accounts: Vec<PayableAccount>,
-    ) -> Result<(SystemTime, Vec<PendingPayableFallible>), BlockchainError> {
+        _accounts: &[PayableAccount],
+    ) -> Result<Vec<PendingPayableFallible>, BlockchainError> {
         error!(self.logger, "Can't send transactions out clandestinely yet",);
         Err(BlockchainError::PayableTxsDispatchFailed {
             msg: "invalid attempt to send txs clandestinely".to_string(),
@@ -316,18 +316,22 @@ where
         gas_price: u64,
         last_nonce: U256,
         fingerprint_recipient: &Recipient<InitiatePPFingerprints>,
-        accounts: Vec<PayableAccount>,
-    ) -> Result<(SystemTime, Vec<PendingPayableFallible>), BlockchainError> {
+        accounts: &[PayableAccount],
+    ) -> Result<Vec<PendingPayableFallible>, BlockchainError> {
+        debug!(
+            self.logger,
+            "Processing batch payments dispatch from wallet: {}", consuming_wallet
+        );
         let init: (HashAndAmountResult, Option<U256>) = (Ok(vec![]), Some(last_nonce));
         let fingerprint_inputs = {
             let (result, _) = accounts.iter().fold(init, |(acc, last_nonce), account| {
-                if acc.is_ok() {
+                if let Ok(hashes_and_amounts) = acc {
                     let nonce = last_nonce
                         .expectv("last nonce")
                         .checked_add(U256::one())
                         .expect("unexpected ceiling");
                     self.sign_transaction_for_single_account(
-                        acc,
+                        hashes_and_amounts,
                         consuming_wallet,
                         nonce,
                         gas_price,
@@ -352,9 +356,10 @@ where
             .info(|| self.transmission_log(&accounts, gas_price));
 
         match self.batch_payable_tools.submit_batch(&self.batch_web3) {
-            Ok(responses) => Ok((
-                timestamp,
-                Self::output_by_joining_sources(responses, fingerprint_inputs, accounts),
+            Ok(responses) => Ok(Self::output_by_joining_sources(
+                responses,
+                fingerprint_inputs,
+                accounts,
             )),
             Err(e) => {
                 let hashes = fingerprint_inputs
@@ -448,34 +453,30 @@ where
 
     fn sign_transaction_for_single_account(
         &self,
-        results_so_far: HashAndAmountResult,
+        hashes_and_amounts: Vec<(H256, u64)>,
         consuming_wallet: &Wallet,
         nonce: U256,
         gas_price: u64,
         account: &PayableAccount,
     ) -> (HashAndAmountResult, Option<U256>) {
-        if let Ok(hashes_and_amounts) = results_so_far {
-            self.logger
-                .debug(|| self.preparation_log(&account.wallet, account.balance as u64, gas_price));
-            let transaction_processing_completed = self
-                .handle_new_transaction(
-                    &account.wallet,
-                    consuming_wallet,
-                    account.balance as u64,
-                    nonce,
-                    gas_price,
-                )
-                .map(|new_hash| plus(hashes_and_amounts, (new_hash, account.balance as u64)));
-            (transaction_processing_completed, Some(nonce))
-        } else {
-            todo!()
-        }
+        self.logger
+            .debug(|| self.preparation_log(&account.wallet, account.balance as u64, gas_price));
+        let transaction_processing_completed = self
+            .handle_new_transaction(
+                &account.wallet,
+                consuming_wallet,
+                account.balance as u64,
+                nonce,
+                gas_price,
+            )
+            .map(|new_hash| plus(hashes_and_amounts, (new_hash, account.balance as u64)));
+        (transaction_processing_completed, Some(nonce))
     }
 
     fn output_by_joining_sources(
         results: Vec<web3::transports::Result<rpc::Value>>,
         fingerprint_inputs: Vec<(H256, u64)>,
-        accounts: Vec<PayableAccount>,
+        accounts: &[PayableAccount],
     ) -> Vec<PendingPayableFallible> {
         let iterator_with_all_data = results
             .into_iter()
@@ -484,12 +485,12 @@ where
         iterator_with_all_data
             .map(|((rpc_result, (hash, _)), account)| match rpc_result {
                 Ok(_) => PendingPayableFallible::Correct(PendingPayable {
-                    recipient_wallet: account.wallet,
+                    recipient_wallet: account.wallet.clone(),
                     hash,
                 }),
                 Err(rpc_error) => PendingPayableFallible::Failure(RpcPayableFailure {
                     rpc_error,
-                    recipient_wallet: account.wallet,
+                    recipient_wallet: account.wallet.clone(),
                     hash,
                 }),
             })
@@ -1292,7 +1293,7 @@ mod tests {
                 gas_price,
                 last_nonce,
                 &fingerprint_recipient,
-                accounts_to_process,
+                &accounts_to_process,
             )
             .unwrap();
 
@@ -1339,18 +1340,17 @@ mod tests {
                 )
             ]]
         );
-        let (common_timestamp, pending_payables) = result;
         let check_expected_successful_request = |expected_hash: H256, idx: usize| {
-            let pending_payable_fallible_1 = &pending_payables[idx];
-            let pending_payable_1 = match pending_payable_fallible_1 {
+            let pending_payable_fallible = &result[idx];
+            let pending_payable = match pending_payable_fallible {
                 Correct(pp) => pp,
                 Failure(RpcPayableFailure{ rpc_error, recipient_wallet: recipient, hash }) => panic!(
                 "we expected correct pending payable but got one with rpc_error: {:?} and hash: {} for recipient: {}",
                 rpc_error, hash, recipient
-            ),
+                ),
             };
-            let hash_1 = pending_payable_1.hash;
-            assert_eq!(hash_1, expected_hash)
+            let hash = pending_payable.hash;
+            assert_eq!(hash, expected_hash)
         };
         //first successful request
         let expected_hash_1 =
@@ -1358,7 +1358,7 @@ mod tests {
                 .unwrap();
         check_expected_successful_request(expected_hash_1, 0);
         //failing request
-        let pending_payable_fallible_2 = &pending_payables[1];
+        let pending_payable_fallible_2 = &result[1];
         let (rpc_error, recipient_2, hash_2) = match pending_payable_fallible_2 {
             Correct(pp) => panic!(
                 "we expected failing pending payable but got a good one: {:?}",
@@ -1389,17 +1389,19 @@ mod tests {
             H256::from_str("5faf271e2bc8d3fe4b15ca0e0a68ef29ffef028b63c5d8c0f8ca1f3cfdca8284")
                 .unwrap();
         check_expected_successful_request(expected_hash_3, 2);
-        assert!(
-            test_timestamp_before <= common_timestamp && common_timestamp <= test_timestamp_after
-        );
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 1);
         let initiate_fingerprints_msg =
             accountant_recording.get_record::<InitiatePPFingerprints>(0);
+        let actual_common_timestamp = initiate_fingerprints_msg.batch_wide_timestamp;
+        assert!(
+            test_timestamp_before <= actual_common_timestamp
+                && actual_common_timestamp <= test_timestamp_after
+        );
         assert_eq!(
             initiate_fingerprints_msg,
             &InitiatePPFingerprints {
-                batch_wide_timestamp: common_timestamp,
+                batch_wide_timestamp: actual_common_timestamp,
                 init_params: vec![
                     (
                         H256::from_str(
@@ -1565,7 +1567,7 @@ mod tests {
             gas_price,
             nonce,
             &initiate_fingerprints_recipient,
-            vec![first_account, second_account],
+            &vec![first_account, second_account],
         );
 
         let first_resulting_pending_payable = PendingPayable {
@@ -1578,13 +1580,10 @@ mod tests {
         };
         assert_eq!(
             result,
-            Ok((
-                batch_wide_timestamp_expected,
-                vec![
-                    Correct(first_resulting_pending_payable),
-                    Correct(second_resulting_pending_payable)
-                ]
-            ))
+            Ok(vec![
+                Correct(first_resulting_pending_payable),
+                Correct(second_resulting_pending_payable)
+            ])
         );
         let mut sign_transaction_params = sign_transaction_params_arc.lock().unwrap();
         let (first_transaction_params, web3, secret) = sign_transaction_params.remove(0);
@@ -1755,8 +1754,13 @@ mod tests {
         let nonce = U256::from(123);
         let accounts = vec![make_payable_account(5555), make_payable_account(6666)];
 
-        let result =
-            subject.send_payables_within_batch(&consuming_wallet, 111, nonce, &recipient, accounts);
+        let result = subject.send_payables_within_batch(
+            &consuming_wallet,
+            111,
+            nonce,
+            &recipient,
+            &accounts,
+        );
 
         assert_eq!(
             result,
@@ -1796,7 +1800,7 @@ mod tests {
             gas_price,
             nonce,
             &recipient,
-            vec![account],
+            &vec![account],
         );
 
         System::current().stop();
@@ -1843,7 +1847,7 @@ mod tests {
             gas_price,
             nonce,
             &unimportant_recipient,
-            vec![account],
+            &vec![account],
         );
 
         assert_eq!(
@@ -2461,7 +2465,7 @@ mod tests {
         let result = BlockchainInterfaceNonClandestine::<TestTransport>::output_by_joining_sources(
             responses,
             fingerprint_inputs,
-            accounts,
+            &accounts,
         );
 
         assert_eq!(

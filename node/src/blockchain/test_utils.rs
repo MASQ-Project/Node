@@ -4,8 +4,8 @@
 
 use crate::blockchain::blockchain_bridge::InitiatePPFingerprints;
 use crate::blockchain::blockchain_interface::{
-    Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce,
-    PayableTransactionError, PendingPayableFallible, Receipt, REQUESTS_IN_PARALLEL,
+    Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce, PendingPayableFallible,
+    Receipt, REQUESTS_IN_PARALLEL,
 };
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -58,9 +58,9 @@ pub struct BlockchainInterfaceMock {
     retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
-    send_payables_within_batch_params: Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
+    send_payables_within_batch_params: Arc<Mutex<Vec<(Wallet, u64, U256, Vec<PayableAccount>)>>>,
     send_payables_within_batch_results:
-        RefCell<Vec<Result<(H256, SystemTime), PayableTransactionError>>>,
+        RefCell<Vec<Result<Vec<PendingPayableFallible>, BlockchainError>>>,
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
     get_transaction_receipt_results: RefCell<Vec<Receipt>>,
     contract_address_results: RefCell<Vec<Address>>,
@@ -84,7 +84,7 @@ impl BlockchainInterfaceMock {
 
     pub fn send_payables_within_batch_params(
         mut self,
-        params: &Arc<Mutex<Vec<(Wallet, Wallet, u64, U256, u64)>>>,
+        params: &Arc<Mutex<Vec<(Wallet, u64, U256, Vec<PayableAccount>)>>>,
     ) -> Self {
         self.send_payables_within_batch_params = params.clone();
         self
@@ -92,7 +92,7 @@ impl BlockchainInterfaceMock {
 
     pub fn send_payables_within_batch_result(
         self,
-        result: Result<(H256, SystemTime), PayableTransactionError>,
+        result: Result<Vec<PendingPayableFallible>, BlockchainError>,
     ) -> Self {
         self.send_payables_within_batch_results
             .borrow_mut()
@@ -151,9 +151,20 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         gas_price: u64,
         last_nonce: U256,
         fingerprint_recipient: &Recipient<InitiatePPFingerprints>,
-        accounts: Vec<PayableAccount>,
-    ) -> Result<(SystemTime, Vec<PendingPayableFallible>), BlockchainError> {
-        todo!()
+        accounts: &[PayableAccount],
+    ) -> Result<Vec<PendingPayableFallible>, BlockchainError> {
+        self.send_payables_within_batch_params
+            .lock()
+            .unwrap()
+            .push((
+                consuming_wallet.clone(),
+                gas_price,
+                last_nonce,
+                accounts.to_vec(),
+            ));
+        self.send_payables_within_batch_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn get_eth_balance(&self, _address: &Wallet) -> Balance {
