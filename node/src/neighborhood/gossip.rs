@@ -13,7 +13,7 @@ use crate::sub_lib::versioned_data::StepError;
 use pretty_hex::PrettyHex;
 use serde_cbor::Value;
 use serde_derive::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Debug;
 use std::fmt::Error;
@@ -179,6 +179,27 @@ impl TryInto<Vec<AccessibleGossipRecord>> for Gossip_0v1 {
             .collect())
     }
 }
+
+// impl TryInto<HashMap<NodeAddr, &AccessibleGossipRecord>> for Gossip_0v1 {
+//     type Error = String;
+//
+//     fn try_into(self) -> Result<HashMap<NodeAddr, &AccessibleGossipRecord>, Self::Error> {
+//         let mut hashmap: HashMap<NodeAddr, &AccessibleGossipRecord> = HashMap::new();
+//         for node_record in self.node_records {
+//             let node_addr = match &node_record.node_addr_opt {
+//                 Some(node_addr) => node_addr.clone(),
+//                 None => return Err(String::from("node addr not found")),
+//             };
+//             let agr = match AccessibleGossipRecord::try_from(node_record) {
+//                 Ok(agr) => agr,
+//                 Err(e) => return Err(e),
+//             };
+//             hashmap.insert(node_addr, &agr);
+//         }
+//
+//         Ok(hashmap)
+//     }
+// }
 
 #[derive(Clone)]
 pub struct DotGossipEndpoint {

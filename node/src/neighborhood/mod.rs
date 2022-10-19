@@ -8,7 +8,7 @@ pub mod neighborhood_database;
 pub mod node_record;
 pub mod overall_connection_status;
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryFrom;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
@@ -413,6 +413,16 @@ impl TryFrom<GossipNodeRecord> for AccessibleGossipRecord {
         }
     }
 }
+
+// impl<'agr> Into<HashMap<PublicKey, &'agr AccessibleGossipRecord>> for AccessibleGossipRecord {
+//     fn into(self) -> HashMap<PublicKey, &'agr AccessibleGossipRecord> {
+//         self.iter()
+//             .map(|agr| {
+//                 return (agr.inner.public_key.clone(), agr);
+//             })
+//             .collect::<HashMap<PublicKey, &AccessibleGossipRecord>>()
+//     }
+// }
 
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum RouteDirection {

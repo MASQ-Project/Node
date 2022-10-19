@@ -924,8 +924,23 @@ impl GossipHandler for StandardGossipHandler {
         gossip_source: SocketAddr,
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult {
+        // todo!("breaking the flow");
         let initial_neighborship_status =
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
+
+        let hashmap = agrs
+            .iter()
+            .map(|agr| {
+                return (agr.inner.public_key.clone(), agr);
+            })
+            .collect::<HashMap<PublicKey, &AccessibleGossipRecord>>();
+
+        // let hashmap: HashMap<PublicKey, &AccessibleGossipRecord> = agrs.into();
+
+        eprintln!("HashMap: {:?}", hashmap);
+
+        self.compute_patch(hashmap, 3, database);
+
         let mut db_changed =
             self.identify_and_add_non_introductory_new_nodes(database, &agrs, gossip_source);
         db_changed = self.identify_and_update_obsolete_nodes(database, agrs) || db_changed;
@@ -960,6 +975,41 @@ impl GossipHandler for StandardGossipHandler {
 impl StandardGossipHandler {
     fn new(logger: Logger) -> StandardGossipHandler {
         StandardGossipHandler { logger }
+    }
+
+    fn compute_patch(
+        &self,
+        agrs: HashMap<PublicKey, &AccessibleGossipRecord>,
+        minimum_hop_count: usize,
+        database: &NeighborhoodDatabase,
+    ) -> HashSet<PublicKey> {
+        let mut patch: HashSet<PublicKey> = HashSet::new();
+        fn recurse(
+            patch: &mut HashSet<PublicKey>,
+            hops_remaining: usize,
+            agr: &AccessibleGossipRecord,
+        ) {
+            if (hops_remaining > 0) && !patch.contains(agr.public_key()) {
+                patch.insert(agr.public_key());
+                let neighbors = agr
+                    .inner
+                    .neighbors
+                    .flat_map(|pk| agrs.get(pk))
+                    .collect::<Vec<&AccessibleGossipRecord>>();
+                neighbors.for_each(|neighbor| recurse(patch, hops_remaining - 1, neighbor));
+            }
+        };
+        let node_record = database.root_node();
+        patch.insert(node_record.public_key());
+        let neighbors = database.get_full_neighbors(node_record.public_key());
+        let neighbor_agrs = neighbors
+            .into_iter()
+            .map(|neighbor| agrs.get(neighbor.public_key()))
+            .collect::<Vec<&AccessibleGossipRecord>>();
+        neighbor_agrs
+            .into_iter()
+            .for_each(|agr| recurse(&mut patch, minimum_hop_count - 1, agr));
+        patch
     }
 
     fn identify_and_add_non_introductory_new_nodes(
