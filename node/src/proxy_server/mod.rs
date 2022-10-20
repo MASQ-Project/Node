@@ -3925,7 +3925,7 @@ mod tests {
     fn handle_dns_resolve_failure_does_not_sends_message_to_neighborhood_when_server_is_not_specified(
     ) {
         let system = System::new("test");
-        let (neighborhood_mock, _, neighborhood_log_arc) = make_recorder();
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
         let cryptde = main_cryptde();
         let mut subject = ProxyServer::new(
             cryptde,
@@ -3964,9 +3964,7 @@ mod tests {
                 dns_resolve_failure.into(),
                 0,
             );
-        let mut peer_actors = peer_actors_builder()
-            .neighborhood(neighborhood_mock)
-            .build();
+        let mut peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
         peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
 
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
@@ -3974,7 +3972,7 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let neighborhood_recording = neighborhood_log_arc.lock().unwrap();
+        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
         let record_opt = neighborhood_recording.get_record_opt::<NodeRecordMetadataMessage>(0);
         assert_eq!(record_opt, None);
     }

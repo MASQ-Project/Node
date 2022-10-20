@@ -344,14 +344,11 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
                     .neighborhood_database
                     .node_by_key_mut(&public_key)
                     .unwrap_or_else(|| panic!("No Node Record found for public_key: {public_key}"));
-                node_record
-                    .metadata
-                    .unreachable_hosts
-                    .insert(host_name.clone());
                 debug!(
                     self.logger,
-                    "Host {host_name} is marked unreachable for the node with public key {public_key}"
+                     "Marking host {host_name} unreachable for the Node with public key {public_key}"
                 );
+                node_record.metadata.unreachable_hosts.insert(host_name);
             }
         }
     }
