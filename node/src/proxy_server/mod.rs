@@ -58,7 +58,6 @@ use std::time::{Duration, SystemTime};
 use tokio::prelude::Future;
 
 pub const CRASH_KEY: &str = "PROXYSERVER";
-pub const UNSPECIFIED_SERVER: &str = "<unspecified server>";
 pub const RETURN_ROUTE_TTL: Duration = Duration::from_secs(120);
 
 struct ProxyServerOutSubs {
@@ -279,21 +278,20 @@ impl ProxyServer {
                 })
                 .clone()
         };
-        let host_name = match &return_route_info.server_name_opt {
-            Some(name) => name.clone(),
-            None => UNSPECIFIED_SERVER.to_string(),
-        };
+        let server_name_opt = return_route_info.server_name_opt.clone();
         let response = &msg.payload;
         match self.keys_and_addrs.a_to_b(&response.stream_key) {
             Some(socket_addr) => {
-                if host_name.ne(UNSPECIFIED_SERVER) {
+                if let Some(server_name) = server_name_opt {
                     self.subs
                         .as_ref()
                         .expect("Neighborhood unbound in ProxyServer")
                         .update_node_record_metadata
                         .try_send(NodeRecordMetadataMessage {
                             public_key: exit_public_key.clone(),
-                            metadata_change: NRMetadataChange::AddUnreachableHost { host_name },
+                            metadata_change: NRMetadataChange::AddUnreachableHost {
+                                host_name: server_name,
+                            },
                         })
                         .expect("Neighborhood is dead");
                 }
@@ -324,7 +322,7 @@ impl ProxyServer {
             None => {
                 error!(self.logger,
                     "Discarding DnsResolveFailure message for {} from an unrecognized stream key {:?}",
-                    host_name,
+                    server_name_opt.unwrap_or("<unspecified_server>".to_string()),
                     &response.stream_key
                 )
             }
@@ -1075,7 +1073,6 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "PROXYSERVER");
-        assert_eq!(UNSPECIFIED_SERVER, "<unspecified server>");
         assert_eq!(RETURN_ROUTE_TTL, Duration::from_secs(120));
     }
 
@@ -4116,7 +4113,12 @@ mod tests {
         system.run();
 
         TestLogHandler::new().exists_log_containing(
-            format!("Discarding DnsResolveFailure message for <unspecified server> from an unrecognized stream key {:?}", stream_key).as_str());
+            format!(
+                "Discarding DnsResolveFailure message for <unspecified_server> from an unrecognized stream key {:?}",
+                stream_key
+            )
+            .as_str(),
+        );
     }
 
     #[test]
