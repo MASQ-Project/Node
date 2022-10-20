@@ -24,11 +24,17 @@ pub fn linux_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr
     Ok(addresses)
 }
 
-pub struct LinuxFindRoutersCommand {}
+pub struct LinuxFindRoutersCommand {
+    command_string: String,
+}
 
 impl FindRoutersCommand for LinuxFindRoutersCommand {
     fn execute(&self) -> Result<String, String> {
-        self.execute_command("route -n")
+        match self.execute_command(&self.command_string) {
+            Ok (router) => Ok (router),
+            Err (msg) if msg.contains("No such file or directory") => Err ("Automap uses the Linux route command to find your router, but you may not have it installed. Try installing the net-tools package.".to_string()),
+            Err (msg) => Err (msg),
+        }
     }
 }
 
@@ -40,7 +46,9 @@ impl Default for LinuxFindRoutersCommand {
 
 impl LinuxFindRoutersCommand {
     pub fn new() -> Self {
-        Self {}
+        Self {
+            command_string: "route -n".to_string(),
+        }
     }
 }
 
@@ -49,6 +57,16 @@ mod tests {
     use super::*;
     use crate::mocks::FindRoutersCommandMock;
     use std::str::FromStr;
+
+    #[test]
+    fn recommends_net_tools_installation_on_error() {
+        let mut subject = LinuxFindRoutersCommand::new();
+        subject.command_string = "nonexistent -n".to_string();
+
+        let result = subject.execute();
+
+        assert_eq! (result.err(), Some("Automap uses the Linux route command to find your router, but you may not have it installed. Try installing the net-tools package.".to_string()))
+    }
 
     #[test]
     fn find_routers_works_when_there_is_a_router_to_find() {

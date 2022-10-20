@@ -4,7 +4,7 @@ use std::any::Any;
 use std::fmt::Debug;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-#[derive(Clone, Copy, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Direction {
     Request,  // 0
     Response, // 1
@@ -35,7 +35,7 @@ pub trait OpcodeData: Debug {
     fn as_any(&self) -> &dyn Any;
 }
 
-#[derive(Default, PartialEq, Debug)]
+#[derive(Default, PartialEq, Eq, Debug)]
 pub struct UnrecognizedData {}
 
 impl OpcodeData for UnrecognizedData {
@@ -62,14 +62,14 @@ pub trait Packet {
     fn marshal(&self, buffer: &mut [u8]) -> Result<usize, MarshalError>;
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ParseError {
     WrongVersion(u8),
     ShortBuffer(usize, usize),
     UnexpectedOpcode(String),
 }
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, PartialEq, Eq, Debug)]
 pub enum MarshalError {
     ShortBuffer(usize, usize),
 }

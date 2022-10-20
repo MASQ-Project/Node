@@ -42,10 +42,12 @@ impl RunModes {
     }
 
     pub fn go(&self, args: &[String], streams: &mut StdStreams<'_>) -> i32 {
+eprintln! ("go() called");
         let mode = match self.entrance_interview(args, streams) {
             Enter(mode) => mode,
             Leave(exit_code) => return exit_code,
         };
+eprintln! ("entrance interview complete ({:?}); starting mode", mode);
 
         match match mode {
             Mode::DumpConfig => self.runner.dump_config(args, streams),
@@ -235,11 +237,15 @@ struct RunnerReal {
 impl Runner for RunnerReal {
     fn run_node(&self, args: &[String], streams: &mut StdStreams<'_>) -> Result<(), RunnerError> {
         let system = System::new("main");
+eprintln! ("System started");
         let mut server_initializer = self.server_initializer_factory.make();
+eprintln! ("server_initializer created");
         server_initializer.go(streams, args)?;
+eprintln! ("server initialized; spawning");
         actix::spawn(server_initializer.map_err(|_| {
             System::current().stop_with_code(1);
         }));
+eprintln! ("Running system");
         match system.run() {
             0 => Ok(()),
             num_e => Err(RunnerError::Numeric(num_e)),

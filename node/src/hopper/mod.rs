@@ -42,6 +42,7 @@ impl Handler<BindMessage> for Hopper {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
+eprintln! ("Hopper received BindMessage");
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.consuming_service = Some(ConsumingService::new(
             self.cryptdes.main,

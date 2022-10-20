@@ -3,9 +3,9 @@
 use crate::blockchains::chains::{Chain, ChainFamily};
 use crate::constants::{
     DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_CONTRACT_CREATION_BLOCK, ETH_MAINNET_FULL_IDENTIFIER,
-    MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
-    MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
-    POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
+    MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK,
+    POLYGON_MAINNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_FULL_IDENTIFIER,
+    POLYGON_MUMBAI_FULL_IDENTIFIER,
 };
 use ethereum_types::{Address, H160};
 
@@ -93,7 +93,6 @@ mod tests {
         let test_array = [
             assert_returns_correct_record(Chain::EthMainnet, 1),
             assert_returns_correct_record(Chain::Dev, 2),
-            assert_returns_correct_record(Chain::EthRopsten, 3),
             assert_returns_correct_record(Chain::PolyMainnet, 137),
             assert_returns_correct_record(Chain::PolyMumbai, 80001),
         ];
@@ -111,7 +110,6 @@ mod tests {
             assert_from_str(Chain::PolyMainnet),
             assert_from_str(Chain::PolyMumbai),
             assert_from_str(Chain::EthMainnet),
-            assert_from_str(Chain::EthRopsten),
             assert_from_str(Chain::Dev),
         ];
         assert_exhaustive(&test_array)
@@ -134,8 +132,7 @@ mod tests {
             assert_chain_significance(0, Chain::PolyMainnet),
             assert_chain_significance(1, Chain::EthMainnet),
             assert_chain_significance(2, Chain::PolyMumbai),
-            assert_chain_significance(3, Chain::EthRopsten),
-            assert_chain_significance(4, Chain::Dev),
+            assert_chain_significance(3, Chain::Dev),
         ];
         assert_exhaustive(&test_array)
     }
@@ -175,23 +172,6 @@ mod tests {
                 contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: 0,
                 chain_family: ChainFamily::Dev
-            }
-        )
-    }
-
-    #[test]
-    fn ropsten_record_is_properly_declared() {
-        let examined_chain = Chain::EthRopsten;
-        let chain_record = return_examined(examined_chain);
-        assert_eq!(
-            chain_record,
-            &BlockchainRecord {
-                num_chain_id: 3,
-                self_id: examined_chain,
-                literal_identifier: "eth-ropsten",
-                contract: ROPSTEN_TESTNET_CONTRACT_ADDRESS,
-                contract_creation_block: ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
-                chain_family: ChainFamily::Eth
             }
         )
     }
@@ -238,7 +218,6 @@ mod tests {
     fn chain_from_chain_identifier_opt_works() {
         let test_array = [
             assert_chain_from_chain_identifier_opt("eth-mainnet", Some(Chain::EthMainnet)),
-            assert_chain_from_chain_identifier_opt("eth-ropsten", Some(Chain::EthRopsten)),
             assert_chain_from_chain_identifier_opt("dev", Some(Chain::Dev)),
             assert_chain_from_chain_identifier_opt("polygon-mainnet", Some(Chain::PolyMainnet)),
             assert_chain_from_chain_identifier_opt("polygon-mumbai", Some(Chain::PolyMumbai)),

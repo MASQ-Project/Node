@@ -91,6 +91,7 @@ impl Handler<BindMessage> for ProxyServer {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
+eprintln! ("Proxy Server received BindMessage");
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         let subs = ProxyServerOutSubs {
             dispatcher: msg.peer_actors.dispatcher.from_dispatcher_client,

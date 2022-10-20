@@ -51,6 +51,7 @@ impl Handler<BindMessage> for Dispatcher {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) {
+eprintln! ("Dispatcher received BindMessage");
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         let subs = DispatcherOutSubs {
             to_proxy_server: msg.peer_actors.proxy_server.from_dispatcher,

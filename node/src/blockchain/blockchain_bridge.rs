@@ -66,6 +66,7 @@ impl Handler<BindMessage> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, _ctx: &mut Self::Context) -> Self::Result {
+eprintln! ("BlockchainBridge received BindMessage");
         self.set_consuming_wallet_subs_opt = Some(vec![
             msg.peer_actors.neighborhood.set_consuming_wallet_sub,
             msg.peer_actors.proxy_server.set_consuming_wallet_sub,

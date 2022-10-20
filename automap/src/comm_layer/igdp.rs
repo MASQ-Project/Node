@@ -415,7 +415,7 @@ impl IgdpTransactor {
                 {
                     last_remap_attempt = now;
                     let inner = inner_arc.lock().expect("IgdpTransactor died");
-                    Self::try_remap(&change_handler, &*inner, &mapping_config);
+                    Self::try_remap(&change_handler, &*inner, mapping_config);
                 }
             }
             match rx.try_recv() {

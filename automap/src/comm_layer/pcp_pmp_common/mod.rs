@@ -29,7 +29,7 @@ pub const ROUTER_MULTICAST_PORT: u16 = 5350; // from the PCP and PMP RFCs
 pub const ROUTER_SERVER_PORT: u16 = 5351; // from the PCP and PMP RFCs
 pub const HOUSEKEEPING_THREAD_LOOP_DELAY_MILLIS: u64 = 1000;
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct MappingConfig {
     pub hole_port: u16,
     pub next_lifetime: Duration,
@@ -103,6 +103,12 @@ impl UdpSocketWrapper for NullUdpSocketWrapper {
 
     fn set_nonblocking(&self, _nonblocking: bool) -> io::Result<()> {
         Ok(())
+    }
+}
+
+impl Default for NullUdpSocketWrapper {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

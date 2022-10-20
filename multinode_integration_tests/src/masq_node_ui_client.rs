@@ -22,6 +22,12 @@ struct MASQNodeUIClientInner {
     buffer: Vec<MessageBody>,
 }
 
+impl Drop for MASQNodeUIClientInner {
+    fn drop(&mut self) {
+        self.client.shutdown().expect ("Couldn't shut down connection to UIGateway");
+    }
+}
+
 impl MASQNodeUIClient {
     pub fn new(addr: SocketAddr) -> Self {
         let url = format!("ws://{}", addr);

@@ -16,6 +16,8 @@ use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use websocket::ClientBuilder;
+use masq_lib::messages::NODE_UI_PROTOCOL;
 
 pub struct MASQNode {
     pub data_dir: PathBuf,
@@ -467,19 +469,22 @@ impl MASQNode {
 
     fn wait_for_node(&mut self, ui_port: u16) -> Result<(), String> {
         let result = await_value(Some((600, 6000)), || {
-            let address = SocketAddr::new(localhost(), ui_port);
-            match std::net::TcpStream::connect_timeout(&address, Duration::from_millis(100)) {
-                Ok(stream) => {
-                    stream.shutdown(std::net::Shutdown::Both).unwrap();
-                    Ok(())
-                }
-                Err(e) => Err(format!("Can't connect yet on port {}: {:?}", ui_port, e)),
-            }
+            let url = format!("ws://{}", SocketAddr::new (localhost(), ui_port));
+            ClientBuilder::new(url.as_str())
+                .expect("Bad URL")
+                .add_protocol(NODE_UI_PROTOCOL)
+                .connect_insecure()
         });
-        if result.is_err() {
-            self.kill().map_err(|e| format!("{:?}", e))?;
-        };
-        result
+        match result {
+            Ok(client) => {
+                client.shutdown();
+                Ok(())
+            }
+            Err(e) => match self.kill() {
+                Ok(_) => Err (format!("{:?}", e)),
+                Err(f) => Err (format!("Contact error: {:?}; Kill error: {:?}", e, f)),
+            }
+        }
     }
 
     fn ui_port_from_config_opt(config_opt: &Option<CommandConfig>) -> u16 {

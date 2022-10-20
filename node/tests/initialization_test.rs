@@ -188,22 +188,29 @@ fn started_without_explicit_chain_parameter_runs_fine() {
         .pair(
             "--neighbors",
             &format!(
-                "masq://{}:12345vhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
+                "masq://{}:12345vhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678",
                 DEFAULT_CHAIN.rec().literal_identifier
             ),
-        );
+        )
+        .pair(
+            "--log-level",
+            "debug"
+        )
+        ;
 
-    let mut node = MASQNode::start_with_blank_config(
+    let _node = MASQNode::start_with_blank_config(
         "started_without_explicit_chain_parameter_runs_fine",
         Some(config),
         true,
         true,
         false,
-        false,
+        true,
     );
 
-    node.wait_for_log("UIGateway bound", Some(5000));
-    //Node is dropped and killed
+    // Assertion: `ensure_start` flag above means we won't get here unless the Node started,
+    // which is what we want to see.
+
+    // No leaks, because when the test ends, the Node is dropped and killed
 }
 
 #[test]
@@ -220,7 +227,6 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
             false,
             true,
         );
-        node.wait_for_log("UIGateway bound", Some(5000));
         let mut client = UiConnection::new(port, NODE_UI_PROTOCOL);
         let shutdown_request = UiShutdownRequest {};
         client.send(shutdown_request);
@@ -240,6 +246,6 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
 
     let mut node = MASQNode::start_standard(test_name, None, false, true, false, false);
 
-    let regex_pattern = r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with a wrong chain name detected; expected: eth-ropsten, was: eth-mainnet";
+    let regex_pattern = r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with a wrong chain name detected; expected: polygon-mumbai, was: eth-mainnet";
     node.wait_for_log(regex_pattern, Some(1000));
 }

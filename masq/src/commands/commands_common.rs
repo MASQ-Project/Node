@@ -16,7 +16,7 @@ use std::io::Write;
 pub const STANDARD_COMMAND_TIMEOUT_MILLIS: u64 = 1000;
 pub const STANDARD_COLUMN_WIDTH: usize = 33;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub enum CommandError {
     ConnectionProblem(String),
     Transmission(String),

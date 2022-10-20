@@ -403,6 +403,7 @@ impl PcpTransactor {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn check_unsolicited_socket(
         inner_arc: &Arc<Mutex<PcpTransactorInner>>,
         unsolicited_socket: &dyn UdpSocketWrapper,
@@ -412,7 +413,7 @@ impl PcpTransactor {
         last_remapped: &mut Instant,
         change_handler: &ChangeHandler,
         logger: &Logger,
-    ) -> () {
+    ) {
         match unsolicited_socket.recv(&mut buffer[..]) {
             Ok(len) => match PcpPacket::try_from(&buffer[0..len]) {
                 Ok(packet) if packet.opcode == Opcode::Map => Self::process_unsolicited_map(
@@ -422,7 +423,7 @@ impl PcpTransactor {
                     mapping_config_opt,
                     last_remapped,
                     change_handler,
-                    &logger,
+                    logger,
                 ),
                 Ok(packet) if packet.opcode == Opcode::Announce => {
                     Self::process_unsolicited_announce(
@@ -472,7 +473,7 @@ impl PcpTransactor {
         change_handler: &ChangeHandler,
         logger: &Logger,
     ) {
-        match MappingTransactorReal::compute_mapping_result(map_packet, router_server_addr, &logger)
+        match MappingTransactorReal::compute_mapping_result(map_packet, router_server_addr, logger)
         {
             Ok((approved_lifetime, opcode_data)) => {
                 let changed = {
@@ -538,7 +539,7 @@ impl PcpTransactor {
                 match PcpTransactor::remap_port(
                     &mut inner,
                     router_server_addr,
-                    &mut mapping_config,
+                    mapping_config,
                     lifetime,
                     logger,
                 ) {
@@ -590,7 +591,7 @@ impl PcpTransactor {
         last_remapped: &mut Instant,
         change_handler: &ChangeHandler,
         logger: &Logger,
-    ) -> () {
+    ) {
         let since_last_remapped = last_remapped.elapsed();
         match mapping_config_opt {
             None => (),

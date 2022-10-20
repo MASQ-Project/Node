@@ -1145,7 +1145,7 @@ mod tests {
         init_test_logging();
         let mut transport = TestTransport::default();
         transport.add_response(json!(
-            "0xe26f2f487f5dd06c38860d410cdcede0d6e860dab2c971c7d518928c17034c8f"
+            "0xf508effd5ded2a79597f5ad4ad896f0c6db427760f64b7e3312dce3783064c5a"
         ));
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let actor_addr = accountant.start();
@@ -1186,7 +1186,7 @@ mod tests {
         let (hash, timestamp) = result;
         assert_eq!(
             hash,
-            H256::from_str("e26f2f487f5dd06c38860d410cdcede0d6e860dab2c971c7d518928c17034c8f")
+            H256::from_str("f508effd5ded2a79597f5ad4ad896f0c6db427760f64b7e3312dce3783064c5a")
                 .unwrap()
         );
         assert!(test_timestamp_before <= timestamp && timestamp <= test_timestamp_after);
@@ -1202,12 +1202,12 @@ mod tests {
         };
         assert_eq!(sent_backup, &expected_pending_payable_fingerprint);
         let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing("DEBUG: BlockchainInterface: Preparing transaction for 9000 Gwei to 0x00000000000000000000000000626c6168313233 from 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725 (chain_id: 3, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3, gas price: 120)" );
+        log_handler.exists_log_containing("DEBUG: BlockchainInterface: Preparing transaction for 9000 Gwei to 0x00000000000000000000000000626c6168313233 from 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725 (chain_id: 80001, contract: 0x9b27034acabd44223fb23d628ba4849867ce1db2, gas price: 120)" );
         log_handler.exists_log_containing(
             "INFO: BlockchainInterface: About to send transaction:\n\
         recipient: 0x00000000000000000000000000626c6168313233,\n\
         amount: 9000,\n\
-        (chain: polygon-mumbai, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3)",
+        (chain: polygon-mumbai, contract: 0x9b27034acabd44223fb23d628ba4849867ce1db2)",
         );
     }
 

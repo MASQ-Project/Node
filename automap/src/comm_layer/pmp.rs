@@ -510,6 +510,7 @@ impl ThreadGuts {
         };
     }
 
+    #[allow(clippy::needless_borrow)] // the lint that complains about this is probably bugged.
     fn process_unsolicited_map(
         &self,
         map_opcode_data: &MapOpcodeData,
@@ -521,7 +522,7 @@ impl ThreadGuts {
             Ok(socket) => {
                 if let Some(get_opcode_data) = self.execute_get_transaction(socket, &inner) {
                     self.process_get_response(
-                        &map_opcode_data,
+                        map_opcode_data,
                         &get_opcode_data,
                         &mut inner,
                         &mut mapping_config_opt,
@@ -566,7 +567,7 @@ impl ThreadGuts {
         let get_request_len = get_request
             .marshal(&mut get_request_bytes)
             .expect("Bad message format");
-        match socket.send_to(&mut get_request_bytes[0..get_request_len], self.router_addr) {
+        match socket.send_to(&get_request_bytes[0..get_request_len], self.router_addr) {
             Ok(_) => {
                 let deadline = Instant::now().add(inner.socket_read_timeout);
                 loop {

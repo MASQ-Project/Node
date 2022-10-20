@@ -1,7 +1,7 @@
 use crate::constants::{
     DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
-    HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
-    POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
+    HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT, POLYGON_MAINNET_FULL_IDENTIFIER,
+    POLYGON_MUMBAI_FULL_IDENTIFIER,
 };
 use crate::crash_point::CrashPoint;
 use clap::{App, Arg};
@@ -1049,7 +1049,6 @@ mod tests {
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMainnet);
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthMainnet);
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMumbai);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthRopsten);
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::Dev);
         assert_eq!(iterator.next(), None)
     }

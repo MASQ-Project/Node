@@ -121,9 +121,10 @@ impl CryptDE for CryptDENull {
         }
         let half_key = match base64::decode_config(descriptor_fragment, base64::URL_SAFE_NO_PAD) {
             Ok(half_key) => half_key,
-            Err(_) => {
+            Err(e) => {
                 return Err(format!(
-                    "Invalid Base64 value for public key: {}",
+                    "Invalid Base64 value ({:?}) for public key: {}",
+                    e,
                     descriptor_fragment
                 ))
             }

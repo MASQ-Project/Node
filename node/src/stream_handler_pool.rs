@@ -20,6 +20,7 @@ use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, ZERO_RATE_PACK};
 use crate::sub_lib::node_addr::NodeAddr;
+use crate::sub_lib::peer_actors::NewPublicIp;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_connector::StreamConnector;
 use crate::sub_lib::stream_connector::StreamConnectorReal;
@@ -42,7 +43,6 @@ use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
 use tokio::prelude::Future;
-use crate::sub_lib::peer_actors::NewPublicIp;
 
 // IMPORTANT: Nothing at or below the level of StreamHandlerPool should know about StreamKeys.
 // StreamKeys should exist solely between ProxyServer and ProxyClient. Many of the streams
@@ -560,15 +560,16 @@ impl StreamHandlerPool {
     }
 
     fn handle_new_ip(&mut self) {
-        #[allow (clippy::needless_collect)] // without the collect, the Borrow Checker complains
-        let stream_writer_keys = self.stream_writers.iter()
+        #[allow(clippy::needless_collect)] // without the collect, the Borrow Checker complains
+        let stream_writer_keys = self
+            .stream_writers
+            .iter()
             .map(|sw| *sw.0)
             .collect::<Vec<StreamWriterKey>>();
-        stream_writer_keys.into_iter()
-            .for_each (|key| {
-                info!(self.logger, "Removing stream to {} due to IP change", key);
-                self.stream_writers.remove (&key).expect ("Removal failed");
-            });
+        stream_writer_keys.into_iter().for_each(|key| {
+            info!(self.logger, "Removing stream to {} due to IP change", key);
+            self.stream_writers.remove(&key).expect("Removal failed");
+        });
     }
 }
 
@@ -614,7 +615,7 @@ mod tests {
     use actix::System;
     use crossbeam_channel::unbounded;
     use masq_lib::constants::HTTP_PORT;
-    use masq_lib::test_utils::logging::{init_test_logging};
+    use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use std::io::Error;
     use std::io::ErrorKind;
@@ -1754,7 +1755,7 @@ mod tests {
         init_test_logging();
         let peer_addr = SocketAddr::from_str("1.2.3.4:8005").unwrap();
         let sender_wrapper = SenderWrapperMock::new(peer_addr);
-        let system = System::new ("handling_new_ip_calls_proper_internal_method");
+        let system = System::new("handling_new_ip_calls_proper_internal_method");
         let mut subject = StreamHandlerPool::new(vec![], false);
         subject.stream_writers.insert(
             StreamWriterKey::from(peer_addr),
@@ -1763,11 +1764,17 @@ mod tests {
         let addr = subject.start();
         let recipient = addr.recipient::<NewPublicIp>();
 
-        recipient.try_send (NewPublicIp {new_ip: IpAddr::from_str("1.2.3.4").unwrap()}).unwrap();
+        recipient
+            .try_send(NewPublicIp {
+                new_ip: IpAddr::from_str("1.2.3.4").unwrap(),
+            })
+            .unwrap();
 
         System::current().stop();
         system.run();
-        TestLogHandler::new().exists_log_containing ("INFO: Dispatcher: Removing stream to 1.2.3.4:* due to IP change");
+        TestLogHandler::new().exists_log_containing(
+            "INFO: Dispatcher: Removing stream to 1.2.3.4:* due to IP change",
+        );
     }
 
     #[test]
@@ -1789,10 +1796,14 @@ mod tests {
 
         subject.handle_new_ip();
 
-        assert! (subject.stream_writers.is_empty());
+        assert!(subject.stream_writers.is_empty());
         let tlh = TestLogHandler::new();
-        tlh.exists_log_containing ("INFO: Dispatcher: Removing stream to 1.2.3.4:* due to IP change");
-        tlh.exists_log_containing ("INFO: Dispatcher: Removing stream to 2.3.4.5:* due to IP change");
+        tlh.exists_log_containing(
+            "INFO: Dispatcher: Removing stream to 1.2.3.4:* due to IP change",
+        );
+        tlh.exists_log_containing(
+            "INFO: Dispatcher: Removing stream to 2.3.4.5:* due to IP change",
+        );
     }
 
     #[test]

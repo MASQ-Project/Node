@@ -102,6 +102,7 @@ impl Handler<BindMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
+eprintln! ("Neighborhood received BindMessage");
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.hopper = Some(msg.peer_actors.hopper.from_hopper_client);
         self.hopper_no_lookup = Some(msg.peer_actors.hopper.from_hopper_client_no_lookup);
@@ -438,21 +439,27 @@ impl Neighborhood {
             MessageType::Gossip(gossip.into()),
         ).unwrap();
          */
-        let gossip = self.gossip_producer.produce_debut (&self.neighborhood_database);
+        let gossip = self
+            .gossip_producer
+            .produce_debut(&self.neighborhood_database);
         let neighbor_keys = self.neighbor_keys();
-        neighbor_keys.iter().for_each (|neighbor_key| {
+        neighbor_keys.iter().for_each(|neighbor_key| {
             // TODO: What if a neighbor doesn't have a NodeAddr (that is, is originate-only)?
-            let neighbor = self.neighborhood_database.node_by_key(neighbor_key).expect("Node disappeared");
-            let package = NoLookupIncipientCoresPackage::new (
+            let neighbor = self
+                .neighborhood_database
+                .node_by_key(neighbor_key)
+                .expect("Node disappeared");
+            let package = NoLookupIncipientCoresPackage::new(
                 self.cryptde,
                 neighbor_key,
-                neighbor.node_addr_opt().as_ref().expect ("Drive me in"),
-                MessageType::Gossip(gossip.clone().into())
-            ).expect("Could not create ICP");
+                neighbor.node_addr_opt().as_ref().expect("Drive me in"),
+                MessageType::Gossip(gossip.clone().into()),
+            )
+            .expect("Could not create ICP");
             self.hopper_no_lookup
                 .as_ref()
                 .expect("Hopper is unbound")
-                .try_send (package)
+                .try_send(package)
                 .expect("Hopper is dead");
         });
     }
@@ -1408,7 +1415,7 @@ mod tests {
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::peer_actors::PeerActors;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-    use crate::sub_lib::versioned_data::{VersionedData};
+    use crate::sub_lib::versioned_data::VersionedData;
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_wallet;
@@ -3260,22 +3267,22 @@ mod tests {
         let neighbor1 = make_node_record(1050, true);
         let neighbor2 = make_node_record(1051, true);
         let produce_debut_results_arc = Arc::new(Mutex::new(vec![]));
-        let gossip = Gossip_0v1::new (vec![]);
+        let gossip = Gossip_0v1::new(vec![]);
         let gossip_producer = GossipProducerMock::new()
             .produce_debut_params(&produce_debut_results_arc)
             .produce_debut_result(gossip.clone());
-        let system = System::new ("test");
+        let system = System::new("test");
         let (hopper, _, hopper_recording_arc) = make_recorder();
         let hopper_addr = hopper.start();
         let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&neighbor1));
         let db = &mut subject.neighborhood_database;
         let root_key = db.root().public_key().clone();
         let neighbor1_key = db.add_node(neighbor1.clone()).unwrap();
-        let neighbor2_key = db.add_node (neighbor2.clone()).unwrap();
+        let neighbor2_key = db.add_node(neighbor2.clone()).unwrap();
         db.add_arbitrary_full_neighbor(&root_key, &neighbor1_key);
         db.add_arbitrary_full_neighbor(&root_key, &neighbor2_key);
-        subject.gossip_producer = Box::new (gossip_producer);
-        subject.hopper_no_lookup = Some (hopper_addr.recipient());
+        subject.gossip_producer = Box::new(gossip_producer);
+        subject.hopper_no_lookup = Some(hopper_addr.recipient());
         let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
 
         subject.handle_new_public_ip(NewPublicIp {
@@ -3295,30 +3302,35 @@ mod tests {
         );
         let mut produce_debut_results = produce_debut_results_arc.lock().unwrap();
         let actual_database: NeighborhoodDatabase = produce_debut_results.remove(0);
-        assert_eq! (actual_database.root().public_key(), subject.neighborhood_database.root().public_key());
+        assert_eq!(
+            actual_database.root().public_key(),
+            subject.neighborhood_database.root().public_key()
+        );
         let hopper_recording = hopper_recording_arc.lock().unwrap();
         let idx_0 = hopper_recording.get_record::<NoLookupIncipientCoresPackage>(0);
         let idx_1 = hopper_recording.get_record::<NoLookupIncipientCoresPackage>(1);
-        let (actual_hopper_message_1, actual_hopper_message_2) = if idx_0.public_key == neighbor1_key {
-            (idx_0, idx_1)
-        }
-        else {
-            (idx_1, idx_0)
-        };
+        let (actual_hopper_message_1, actual_hopper_message_2) =
+            if idx_0.public_key == neighbor1_key {
+                (idx_0, idx_1)
+            } else {
+                (idx_1, idx_0)
+            };
         let expected_hopper_message_1 = NoLookupIncipientCoresPackage::new(
             subject.cryptde,
             neighbor1.public_key(),
             neighbor1.node_addr_opt().as_ref().unwrap(),
             MessageType::Gossip(gossip.clone().into()),
-        ).unwrap();
-        assert_eq! (*actual_hopper_message_1, expected_hopper_message_1);
+        )
+        .unwrap();
+        assert_eq!(*actual_hopper_message_1, expected_hopper_message_1);
         let expected_hopper_message_2 = NoLookupIncipientCoresPackage::new(
             subject.cryptde,
             neighbor2.public_key(),
             neighbor2.node_addr_opt().as_ref().unwrap(),
             MessageType::Gossip(gossip.into()),
-        ).unwrap();
-        assert_eq! (*actual_hopper_message_2, expected_hopper_message_2);
+        )
+        .unwrap();
+        assert_eq!(*actual_hopper_message_2, expected_hopper_message_2);
         TestLogHandler::new()
             .exists_log_containing("INFO: Neighborhood: Changed public IP from 1.2.3.4 to 4.3.2.1");
     }
@@ -4713,7 +4725,10 @@ mod tests {
         }
 
         fn produce_debut(&self, database: &NeighborhoodDatabase) -> Gossip_0v1 {
-            self.produce_debut_params.lock().unwrap().push(database.clone());
+            self.produce_debut_params
+                .lock()
+                .unwrap()
+                .push(database.clone());
             self.produce_debut_results.borrow_mut().remove(0)
         }
     }

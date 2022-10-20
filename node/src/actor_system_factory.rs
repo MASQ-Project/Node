@@ -69,10 +69,12 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         actor_factory: Box<dyn ActorFactory>,
         persist_config: Box<dyn PersistentConfiguration>,
     ) -> StreamHandlerPoolSubs {
+eprintln! ("Validating database chain");
         self.t.validate_database_chain(
             persist_config.as_ref(),
             config.blockchain_bridge_config.chain,
         );
+eprintln! ("Preparing initial messages");
         self.t
             .prepare_initial_messages(self.t.cryptdes(), config, persist_config, actor_factory)
     }
@@ -114,9 +116,12 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         actor_factory: Box<dyn ActorFactory>,
     ) -> StreamHandlerPoolSubs {
         let db_initializer = DbInitializerReal::default();
+eprintln! ("Starting dispatcher");
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher(&config);
+eprintln! ("Starting proxy server");
         let proxy_server_subs = actor_factory.make_and_start_proxy_server(cryptdes, &config);
         let proxy_client_subs_opt = if !config.neighborhood_config.mode.is_consume_only() {
+eprintln! ("Starting proxy client");
             Some(
                 actor_factory.make_and_start_proxy_client(ProxyClientConfig {
                     cryptde: cryptdes.main,
@@ -133,6 +138,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         } else {
             None
         };
+eprintln! ("Starting hopper");
         let hopper_subs = actor_factory.make_and_start_hopper(HopperConfig {
             cryptdes,
             per_routing_service: config
@@ -148,16 +154,22 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
             is_decentralized: config.neighborhood_config.mode.is_decentralized(),
             crashable: is_crashable(&config),
         });
+eprintln! ("Starting blockchain bridge");
         let blockchain_bridge_subs = actor_factory.make_and_start_blockchain_bridge(&config);
+eprintln! ("Starting neighborhood");
         let neighborhood_subs = actor_factory.make_and_start_neighborhood(cryptdes.main, &config);
+eprintln! ("Starting accountant");
         let accountant_subs = actor_factory.make_and_start_accountant(
             &config,
             &config.data_directory.clone(),
             &db_initializer,
             &BannedCacheLoaderReal {},
         );
+eprintln! ("Starting UI gateway");
         let ui_gateway_subs = actor_factory.make_and_start_ui_gateway(&config);
+eprintln! ("Starting stream handler pool");
         let stream_handler_pool_subs = actor_factory.make_and_start_stream_handler_pool(&config);
+eprintln! ("Starting configurator");
         let configurator_subs = actor_factory.make_and_start_configurator(&config);
 
         // collect all the subs
@@ -173,6 +185,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
             configurator: configurator_subs,
         };
 
+eprintln! ("Sending bind messages");
         //bind all the actors
         send_bind_message!(peer_actors.dispatcher, peer_actors);
         send_bind_message!(peer_actors.proxy_server, peer_actors);
@@ -185,6 +198,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         if let Some(subs) = proxy_client_subs_opt {
             send_bind_message!(subs, peer_actors);
         }
+eprintln! ("Done sending bind messages; sending pool bind messages");
         stream_handler_pool_subs
             .bind
             .try_send(PoolBindMessage {
@@ -200,10 +214,12 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
                 neighborhood_subs,
             })
             .expect("Dispatcher is dead");
+eprintln! ("Done sending pool bind messages; preparing log recipient");
 
         self.log_recipient_setter
             .prepare_log_recipient(ui_gateway_subs.node_to_ui_message_sub);
 
+eprintln! ("Starting automap");
         self.start_automap(
             &config,
             persistent_config,
@@ -213,6 +229,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
             ],
         );
 
+eprintln! ("Starting neighborhood");
         //after we've bound all the actors, send start messages to any actors that need it
         send_start_message!(peer_actors.neighborhood);
 

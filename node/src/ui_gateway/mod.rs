@@ -119,6 +119,7 @@ impl Handler<BindMessage> for UiGateway {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
+eprintln! ("UI Gateway received BindMessage");
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.incoming_message_recipients = vec![
             msg.peer_actors.accountant.ui_message_sub.clone(),

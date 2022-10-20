@@ -71,6 +71,7 @@ impl Handler<BindMessage> for ProxyClient {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
+eprintln! ("Proxy Client received BindMessage");
         debug!(self.logger, "Handling BindMessage");
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.to_hopper = Some(msg.peer_actors.hopper.from_hopper_client);

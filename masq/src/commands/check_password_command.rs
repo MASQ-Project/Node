@@ -11,7 +11,7 @@ use masq_lib::short_writeln;
 #[cfg(test)]
 use std::any::Any;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct CheckPasswordCommand {
     pub db_password_opt: Option<String>,
 }

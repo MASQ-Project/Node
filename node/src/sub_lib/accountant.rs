@@ -38,32 +38,32 @@ lazy_static! {
 }
 
 /*
-                                  +------+-- maturity_threshold_sec
-                                  |      |
+                                 +------+-- maturity_threshold_sec
+                                 |      |
 
-                                  |      |   |
-                                  |      |   |
-                                  |      |   |
-                                  |      |   |
-      debt_threshold_gwei --+-    |      +   +
-                            |     |       \   \
-                            |     |        \   \
-                            |     |         \   \
-                            |     |          \   \
-                            |     |           \   \
-                            |     |            +---+-------------     -+
-                            |     |                                    |
-                            +-  0 +------------------------------     -+
-                                 now  .  .  .  .  .  .  .  the past    |
-                                                                       |
-                                         |     |        permanent_debt_allowed_gwei,
-                                         |     |        unban_below_gwei
-                                         |     |
-                                         +-----+-- threshold_interval_sec
+                                 |      |   |
+                                 |      |   |
+                                 |      |   |
+                                 |      |   |
+     debt_threshold_gwei --+-    |      +   +
+                           |     |       \   \
+                           |     |        \   \
+                           |     |         \   \
+                           |     |          \   \
+                           |     |           \   \
+                           |     |            +---+-------------     -+
+                           |     |                                    |
+                           +-  0 +------------------------------     -+
+                                now  .  .  .  .  .  .  .  the past    |
+                                                                      |
+                                        |     |        permanent_debt_allowed_gwei,
+                                        |     |        unban_below_gwei
+                                        |     |
+                                        +-----+-- threshold_interval_sec
 
-                                               |   |
-                                               +---+-- payment_grace_period_sec
- */
+                                              |   |
+                                              +---+-- payment_grace_period_sec
+*/
 
 //please, alphabetical order
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]
