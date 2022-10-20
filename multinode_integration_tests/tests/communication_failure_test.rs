@@ -8,6 +8,11 @@ use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
 use std::convert::TryInto;
 use std::time::Duration;
+use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
+use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
+use node_lib::neighborhood::node_record::NodeRecord;
+use node_lib::sub_lib::neighborhood::{DEFAULT_RATE_PACK, RatePack};
+use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 
 #[test]
 #[ignore] // Should be removed by SC-811/GH-158
@@ -106,4 +111,35 @@ fn neighborhood_notified_of_newly_missing_node() {
         disappearing_node.main_public_key(),
         dot_graph
     );
+}
+
+fn cheap_rate_pack (decrement: u64) -> RatePack {
+    let mut result = DEFAULT_RATE_PACK;
+    result.exit_byte_rate -= decrement;
+    result.exit_service_rate -= decrement;
+    result
+}
+
+#[test]
+fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
+    let (db, relay1) = {
+        let originating_node: NodeRecord = make_node_record(1234, true);
+        let mut db: NeighborhoodDatabase = db_from_node(&originating_node);
+        let relay1 = db.add_node(make_node_record(2345, true)).unwrap();
+        let relay2 = db.add_node(make_node_record(3456, false)).unwrap();
+        let mut cheap_exit_node = make_node_record(4567, false);
+        cheap_exit_node.inner.rate_pack = cheap_rate_pack(1);
+        let cheap_exit = db.add_node(cheap_exit_node).unwrap();
+        let normal_exit = db.add_node(make_node_record(5678, false)).unwrap();
+        db.add_arbitrary_full_neighbor(originating_node.public_key(), &relay1);
+        db.add_arbitrary_full_neighbor(&relay1, &relay2);
+        db.add_arbitrary_full_neighbor(&relay2, &cheap_exit);
+        db.add_arbitrary_full_neighbor(&relay2, &normal_exit);
+        (db, relay1)
+    };
+    let mut cluster = MASQNodeCluster::start().unwrap();
+    let (_, originating_node, mut node_map)
+        = construct_neighborhood(&mut cluster, db, vec![]);
+    let relay1_mock = node_map.get(&relay1).unwrap();
+    relay1_mock.
 }
