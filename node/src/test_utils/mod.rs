@@ -293,13 +293,13 @@ pub fn rate_pack_routing_byte(base_rate: u64) -> u64 {
     base_rate + 1
 }
 pub fn rate_pack_routing(base_rate: u64) -> u64 {
-    base_rate + 2
+    base_rate + 200
 }
 pub fn rate_pack_exit_byte(base_rate: u64) -> u64 {
     base_rate + 3
 }
 pub fn rate_pack_exit(base_rate: u64) -> u64 {
-    base_rate + 4
+    base_rate + 400
 }
 
 pub fn rate_pack(base_rate: u64) -> RatePack {

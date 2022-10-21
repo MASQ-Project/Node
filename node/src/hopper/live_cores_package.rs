@@ -72,7 +72,7 @@ impl LiveCoresPackage {
     pub fn to_expired(
         &self,
         immediate_neighbor_addr: SocketAddr,
-        main_cryptde: &dyn CryptDE, // Must be the main CryptDE of the Node for which the payload is intended.
+        main_cryptde: &dyn CryptDE, // Must be the main CryptDE of the Node for which the package (not necessarily the payload) is intended.
         payload_cryptde: &dyn CryptDE, // Must be the main or alias CryptDE of the Node for which the payload is intended.
     ) -> Result<ExpiredCoresPackage<MessageType>, CodexError> {
         let top_hop = self.route.next_hop(main_cryptde)?;

@@ -1,7 +1,8 @@
 # Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #FROM debian:stable-slim
 #FROM debian:buster-slim
-FROM debian:bullseye-slim
+#FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
 RUN apt-get update && \
     apt-get install -y libc6 && \

@@ -190,6 +190,12 @@ impl CryptDENull {
         in_key_data.iter().map(|b| (*b).wrapping_add(128)).collect()
     }
 
+    pub fn extract_key_pair(key_length: usize, data: &CryptData) -> (PrivateKey, PublicKey) {
+        let private = PrivateKey::new (&data.as_slice()[0..key_length]);
+        let public = CryptDENull::public_from_private(&private);
+        (private, public)
+    }
+
     fn encode_with_key_data(key_data: &[u8], data: &PlainData) -> Result<CryptData, CryptdecError> {
         if key_data.is_empty() {
             Err(CryptdecError::EmptyKey)
@@ -708,5 +714,15 @@ mod tests {
 
         assert_eq!(subject_one.digest(), subject_two.digest());
         assert_eq!(subject_one.digest(), subject_three.digest());
+    }
+
+    #[test]
+    fn extract_key_pair_works() {
+        let data = CryptData::new (&[0x81, 0x82, 0x83, 0x84, 42, 42, 42, 42, 42]);
+
+        let (private, public) = CryptDENull::extract_key_pair(4, &data);
+
+        assert_eq! (private.as_slice(), &[0x81, 0x82, 0x83, 0x84]);
+        assert_eq! (public.as_slice(), &[1, 2, 3, 4]);
     }
 }
