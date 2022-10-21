@@ -11,6 +11,7 @@ use std::any::Any;
 use std::fmt;
 use std::iter::FromIterator;
 use std::str::FromStr;
+use masq_lib::utils::to_hex;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct PrivateKey {
@@ -32,7 +33,7 @@ impl fmt::Debug for PrivateKey {
         write!(
             f,
             "{}",
-            base64::encode_config(&self.data, base64::STANDARD_NO_PAD)
+            to_hex(self.data.as_slice())
         )
     }
 }
@@ -115,7 +116,7 @@ impl fmt::Debug for PublicKey {
         write!(
             f,
             "{}",
-            base64::encode_config(&self.data, base64::STANDARD_NO_PAD)
+            to_hex(self.data.as_slice())
         )
     }
 }
@@ -982,12 +983,12 @@ mod tests {
     }
 
     #[test]
-    fn public_key_can_be_formatted_as_base_64() {
+    fn public_key_is_displayed_as_base64_and_debugged_as_hex() {
         let subject = PublicKey::new(&b"Now is the time for all good men"[..]);
 
         let result = format!("{} {:?}", subject, subject);
 
-        assert_eq!(result, String::from ("Tm93IGlzIHRoZSB0aW1lIGZvciBhbGwgZ29vZCBtZW4 Tm93IGlzIHRoZSB0aW1lIGZvciBhbGwgZ29vZCBtZW4"));
+        assert_eq!(result, String::from ("Tm93IGlzIHRoZSB0aW1lIGZvciBhbGwgZ29vZCBtZW4 0x4E6F77206973207468652074696D6520666F7220616C6C20676F6F64206D656E"));
     }
 
     #[derive(PartialEq, Eq, Debug, Serialize, Deserialize)]

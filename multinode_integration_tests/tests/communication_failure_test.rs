@@ -126,7 +126,12 @@ fn neighborhood_notified_of_newly_missing_node() {
 
 #[test]
 fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
-    let (db, relay1, relay2, cheap_exit) = {
+    let mut cluster = MASQNodeCluster::start().unwrap();
+    // Make network:
+    // originating_node --> relay1 --> relay2 --> cheap_exit
+    //                                   |
+    //                                   +--> normal_exit
+    let (originating_node, relay1_mock, cheap_exit_key, normal_exit_key) = {
         let originating_node: NodeRecord = make_node_record(1234, true);
         let mut db: NeighborhoodDatabase = db_from_node(&originating_node);
         let relay1 = db.add_node(make_node_record(2345, true)).unwrap();
@@ -134,29 +139,28 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         let mut cheap_exit_node = make_node_record(4567, false);
         let normal_exit_node = make_node_record(5678, false);
         cheap_exit_node.inner.rate_pack = cheaper_rate_pack(normal_exit_node.rate_pack(), 1);
-        let cheap_exit = db.add_node(cheap_exit_node).unwrap();
-        let normal_exit = db.add_node(normal_exit_node).unwrap();
+        let cheap_exit_key = db.add_node(cheap_exit_node).unwrap();
+        let normal_exit_key = db.add_node(normal_exit_node).unwrap();
         db.add_arbitrary_full_neighbor(originating_node.public_key(), &relay1);
         db.add_arbitrary_full_neighbor(&relay1, &relay2);
-        db.add_arbitrary_full_neighbor(&relay2, &cheap_exit);
-        db.add_arbitrary_full_neighbor(&relay2, &normal_exit);
-        (db, relay1, relay2, cheap_exit)
+        db.add_arbitrary_full_neighbor(&relay2, &cheap_exit_key);
+        db.add_arbitrary_full_neighbor(&relay2, &normal_exit_key);
+        let (_, originating_node, mut node_map)
+            = construct_neighborhood(&mut cluster, db, vec![]);
+        let relay1_mock = node_map.remove(&relay1).unwrap();
+        (originating_node, relay1_mock, cheap_exit_key, normal_exit_key)
     };
-    let mut cluster = MASQNodeCluster::start().unwrap();
-    let (_, originating_node, node_map)
-        = construct_neighborhood(&mut cluster, db, vec![]);
-    let relay1_mock: &MASQMockNode = node_map.get(&relay1).unwrap();
     let mut client = originating_node.make_client (8080);
     let masquerader = JsonMasquerader::new();
     let originating_node_cryptde = CryptDENull::from (&originating_node.main_public_key(), TEST_DEFAULT_MULTINODE_CHAIN);
-    let relay1_cryptde = CryptDENull::from (&relay1, TEST_DEFAULT_MULTINODE_CHAIN);
-    let cheap_exit_cryptde = CryptDENull::from (&cheap_exit, TEST_DEFAULT_MULTINODE_CHAIN);
+    let relay1_cryptde = CryptDENull::from (&relay1_mock.main_public_key(), TEST_DEFAULT_MULTINODE_CHAIN);
+    let cheap_exit_cryptde = CryptDENull::from (&cheap_exit_key, TEST_DEFAULT_MULTINODE_CHAIN);
 
-    // This request should be routed through cheap_exit
+    // This request should be routed through cheap_exit because it's cheaper
     client.send_chunk("GET / HTTP/1.1\r\nHost: nonexistent.com\r\n\r\n".as_bytes());
     let (_, _, live_cores_package) = relay1_mock.wait_for_package(&masquerader, Duration::from_secs(2)).unwrap();
-    let (_, intended_exit_public_key) = CryptDENull::extract_key_pair(cheap_exit.len(), &live_cores_package.payload);
-    assert_eq! (intended_exit_public_key, cheap_exit);
+    let (_, intended_exit_public_key) = CryptDENull::extract_key_pair(cheap_exit_key.len(), &live_cores_package.payload);
+    assert_eq! (intended_exit_public_key, cheap_exit_key);
     let expired_cores_package: ExpiredCoresPackage<MessageType> = live_cores_package.to_expired(SocketAddr::from_str ("1.2.3.4:5678").unwrap(), &relay1_cryptde, &cheap_exit_cryptde).unwrap();
 
     // Respond with a DNS failure to put nonexistent.com on the unreachable-host list
@@ -188,13 +192,17 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         originating_node.socket_addr(PortSelector::First),
     ).unwrap();
 
-    // We could try another request to nonexistent.com here and verify that it's routed through normal_exit
+    // This request should be routed through normal_exit because it's unreachable through cheap_exit
+    client.send_chunk("GET / HTTP/1.1\r\nHost: nonexistent.com\r\n\r\n".as_bytes());
+    let (_, _, live_cores_package) = relay1_mock.wait_for_package(&masquerader, Duration::from_secs(2)).unwrap();
+    let (_, intended_exit_public_key) = CryptDENull::extract_key_pair(cheap_exit_key.len(), &live_cores_package.payload);
+    assert_eq! (intended_exit_public_key, normal_exit_key);
 
-    // Now request a different host; it should also be routed through cheap_exit
+    // Now request a different host; it should be routed through cheap_exit because it's cheaper
     client.send_chunk("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes());
     let (_, _, live_cores_package) = relay1_mock.wait_for_package(&masquerader, Duration::from_secs(2)).unwrap();
-    let (_, intended_exit_public_key) = CryptDENull::extract_key_pair(cheap_exit.len(), &live_cores_package.payload);
-    assert_eq! (intended_exit_public_key, cheap_exit);
+    let (_, intended_exit_public_key) = CryptDENull::extract_key_pair(cheap_exit_key.len(), &live_cores_package.payload);
+    assert_eq! (intended_exit_public_key, cheap_exit_key);
 }
 
 fn cheaper_rate_pack (base_rate_pack: &RatePack, decrement: u64) -> RatePack {

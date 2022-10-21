@@ -2626,9 +2626,9 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Each route must demand an exit service, but this route has no such demand: [Routing(cm91dGluZ19rZXlfMQ, \
+        expected = "Each route must demand an exit service, but this route has no such demand: [Routing(0x726F7574696E675F6B65795F31, \
     Wallet { kind: Address(0x00000000726f7574696e675f77616c6c65745f31) }, RatePack { routing_byte_rate: 9, \
-    routing_service_rate: 10, exit_byte_rate: 11, exit_service_rate: 12 })]"
+    routing_service_rate: 208, exit_byte_rate: 11, exit_service_rate: 408 })]"
     )]
     fn proxy_server_panics_when_exit_services_are_not_requested_in_non_zero_hop_mode() {
         let expected_services = vec![ExpectedService::Routing(
@@ -2642,11 +2642,11 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Detected more than one exit service in one-way route: [Exit(ZXhpdCBrZXkgMQ, Wallet { kind: \
+        expected = "Detected more than one exit service in one-way route: [Exit(0x65786974206B65792031, Wallet { kind: \
     Address(0x00000000000000657869742077616c6c65742031) }, RatePack { routing_byte_rate: 7, routing_service_rate: \
-    8, exit_byte_rate: 9, exit_service_rate: 10 }), Exit(ZXhpdCBrZXkgMg, Wallet { kind: \
+    206, exit_byte_rate: 9, exit_service_rate: 406 }), Exit(0x65786974206B65792032, Wallet { kind: \
     Address(0x00000000000000657869742077616c6c65742032) }, RatePack { routing_byte_rate: 6, routing_service_rate: \
-    7, exit_byte_rate: 8, exit_service_rate: 9 })]"
+    205, exit_byte_rate: 8, exit_service_rate: 405 })]"
     )]
     fn proxy_server_panics_when_there_are_more_than_one_exit_services_in_the_route() {
         let expected_services = vec![

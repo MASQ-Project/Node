@@ -953,7 +953,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("Updating a NodeRecord must not change its rate pack: 1235|1236|1237|1238 -> 0|0|0|0".to_string()),
+            Err("Updating a NodeRecord must not change its rate pack: 1235|1434|1237|1634 -> 0|0|0|0".to_string()),
         )
     }
 

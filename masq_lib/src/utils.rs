@@ -357,6 +357,12 @@ where
     fn helper_access(&mut self) -> &mut Option<T>;
 }
 
+pub fn to_hex (data: &[u8]) -> String {
+    let mut hex = "0x".to_string();
+    data.iter().for_each (|byte| hex = format! ("{}{:02X}", hex, byte));
+    hex
+}
+
 #[macro_export]
 macro_rules! short_writeln {
     ($dst:expr) => (
@@ -718,5 +724,14 @@ mod tests {
     fn type_name_of_works() {
         let result = type_name_of(running_test);
         assert_eq!(result, "masq_lib::utils::running_test")
+    }
+
+    #[test]
+    fn to_hex_works() {
+        let data = &[0x12u8, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF];
+
+        let result = to_hex (data);
+
+        assert_eq! (result, "0x1234567890ABCDEF");
     }
 }
