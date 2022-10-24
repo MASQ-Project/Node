@@ -271,7 +271,7 @@ pub fn exit_process_with_sigterm(message: &str) {
     }
 }
 
-pub fn array_of_borrows_to_vec(slice: &[&str]) -> Vec<String> {
+pub fn slice_of_strs_to_vec_of_strings(slice: &[&str]) -> Vec<String> {
     slice
         .iter()
         .map(|item| item.to_string())

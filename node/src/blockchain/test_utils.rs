@@ -4,8 +4,8 @@
 
 use crate::blockchain::blockchain_bridge::InitiatePPFingerprints;
 use crate::blockchain::blockchain_interface::{
-    Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce, PendingPayableFallible,
-    Receipt, REQUESTS_IN_PARALLEL,
+    Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce,
+    ProcessedPayableFallible, Receipt, REQUESTS_IN_PARALLEL,
 };
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -60,7 +60,7 @@ pub struct BlockchainInterfaceMock {
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
     send_payables_within_batch_params: Arc<Mutex<Vec<(Wallet, u64, U256, Vec<PayableAccount>)>>>,
     send_payables_within_batch_results:
-        RefCell<Vec<Result<Vec<PendingPayableFallible>, BlockchainError>>>,
+        RefCell<Vec<Result<Vec<ProcessedPayableFallible>, BlockchainError>>>,
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
     get_transaction_receipt_results: RefCell<Vec<Receipt>>,
     contract_address_results: RefCell<Vec<Address>>,
@@ -92,7 +92,7 @@ impl BlockchainInterfaceMock {
 
     pub fn send_payables_within_batch_result(
         self,
-        result: Result<Vec<PendingPayableFallible>, BlockchainError>,
+        result: Result<Vec<ProcessedPayableFallible>, BlockchainError>,
     ) -> Self {
         self.send_payables_within_batch_results
             .borrow_mut()
@@ -152,7 +152,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         last_nonce: U256,
         fingerprint_recipient: &Recipient<InitiatePPFingerprints>,
         accounts: &[PayableAccount],
-    ) -> Result<Vec<PendingPayableFallible>, BlockchainError> {
+    ) -> Result<Vec<ProcessedPayableFallible>, BlockchainError> {
         self.send_payables_within_batch_params
             .lock()
             .unwrap()

@@ -7,7 +7,7 @@ use crate::accountant::{
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
-    BlockchainInterfaceNonClandestine, BlockchainResult, PendingPayableFallible,
+    BlockchainInterfaceNonClandestine, BlockchainResult, ProcessedPayableFallible,
 };
 use crate::database::db_initializer::{DbInitializer, DATABASE_FILE};
 use crate::database::db_migrations::MigratorConfig;
@@ -239,34 +239,40 @@ impl BlockchainBridge {
 
     fn handle_report_accounts_payable(
         &mut self,
-        creditors_msg: &ReportAccountsPayable,
+        acn_payable_msg: &ReportAccountsPayable,
     ) -> Result<(), String> {
-        let skeleton = creditors_msg.response_skeleton_opt;
-        let processed_payments = self.start_preprocessing_payments(creditors_msg);
-        processed_payments.map(|payments| {
-            self.sent_payable_subs_opt
-                .as_ref()
-                .expect("Accountant is unbound")
-                .try_send(SentPayable {
-                    timestamp: SystemTime::now(), //TODO this is probably wrong, I have a more accurate timestamp
-                    payable_outcomes: payments,
-                    response_skeleton_opt: skeleton,
-                })
-                .expect("Accountant is dead");
-        })
+        let skeleton = acn_payable_msg.response_skeleton_opt;
+        let result_of_payments_processing = self.start_processing_payments(acn_payable_msg)?;
+        match result_of_payments_processing {
+            Ok(batch_of_results) => {
+                self.sent_payable_subs_opt
+                    .as_ref()
+                    .expect("Accountant is unbound")
+                    .try_send(SentPayable {
+                        timestamp: SystemTime::now(),
+                        payable_outcomes: Ok(batch_of_results),
+                        response_skeleton_opt: skeleton,
+                    })
+                    .expect("Accountant is dead");
+                Ok(())
+            }
+            Err(e) => Err(format!(
+                "ReportAccountsPayable: transaction processing error: {:?}",
+                e
+            )),
+        }
     }
 
-    fn start_preprocessing_payments(
+    fn start_processing_payments(
         &self,
-        creditors_msg: &ReportAccountsPayable,
-    ) -> Result<BlockchainResult<Vec<PendingPayableFallible>>, String> {
+        acn_payable_msg: &ReportAccountsPayable,
+    ) -> Result<BlockchainResult<Vec<ProcessedPayableFallible>>, String> {
         match self.consuming_wallet_opt.as_ref() {
             Some(consuming_wallet) => match self.persistent_config.gas_price() {
                 Ok(gas_price) => {
-                    Ok(self.process_payments(creditors_msg, gas_price, consuming_wallet))
+                    Ok(self.process_payments(acn_payable_msg, consuming_wallet, gas_price))
                 }
-
-                Err(err) => Err(format!("ReportAccountPayable: gas-price: {:?}", err)),
+                Err(e) => Err(format!("ReportAccountsPayable: gas-price: {:?}", e)),
             },
             None => Err(String::from("No consuming wallet specified")),
         }
@@ -386,28 +392,25 @@ impl BlockchainBridge {
         }
     }
 
-    //TODO this will become the main function
     fn process_payments(
         &self,
-        creditors_msg: &ReportAccountsPayable,
-        gas_price: u64,
+        acn_payable_msg: &ReportAccountsPayable,
         consuming_wallet: &Wallet,
-    ) -> BlockchainResult<Vec<PendingPayableFallible>> {
-        //todo change to use of a question mark
-        let executable_payments = match self.check_our_capability_to_pay(&creditors_msg.accounts) {
-            Ok(accounts) => {
-                accounts //TODO use question mark here...later
-            }
-            Err(e) => todo!(),
+        gas_price: u64,
+    ) -> BlockchainResult<Vec<ProcessedPayableFallible>> {
+        let executable_payments = match self.check_our_capability_to_pay(&acn_payable_msg.accounts)
+        {
+            Ok(accounts) => accounts,
+            Err(e) => todo!(
+                "Will be completed by driving in either GH-554 or GH-555,\
+             then transform this match into a simple question mark"
+            ),
         };
 
-        let last_nonce = match self
+        let last_nonce = self
             .blockchain_interface
-            .get_transaction_count(consuming_wallet)
-        {
-            Ok(nonce) => nonce, //TODO change to use of a question mark
-            Err(er) => todo!(),
-        };
+            .get_transaction_count(consuming_wallet)?;
+
         let fingerprint_recipient = self
             .pay_payable_confirmation
             .pp_fingerprint_sub_opt
@@ -425,11 +428,12 @@ impl BlockchainBridge {
 
     fn check_our_capability_to_pay<'a>(
         &self,
-        creditor_accounts: &'a [PayableAccount],
+        payable_accounts: &'a [PayableAccount],
     ) -> Result<&'a [PayableAccount], BlockchainError> {
         //TODO: implement GH-554 and GH-555 at this place
-        //check if this amount of accounts is the same as the original...if not, at least log it
-        Ok(creditor_accounts)
+        // also check if the resulting amount of filtered-out accounts is the same as the original...
+        // if not, log the inability to pay it all at the moment
+        Ok(payable_accounts)
     }
 }
 
@@ -446,7 +450,7 @@ mod tests {
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_bridge::PendingPayable;
-    use crate::blockchain::blockchain_interface::PendingPayableFallible::Correct;
+    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
     use crate::blockchain::blockchain_interface::{
         BlockchainError, BlockchainTransaction, RetrievedBlockchainTransactions,
     };
@@ -456,7 +460,7 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::node_test_utils::check_timestamp;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-    use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
+    use crate::test_utils::recorder::{make_recorder, peer_actors_builder, Recorder};
     use crate::test_utils::unshared_test_utils::{
         configure_default_persistent_config, prove_that_crash_request_handler_is_hooked_up, ZERO,
     };
@@ -568,7 +572,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.start_preprocessing_payments(&request);
+        let result = subject.start_processing_payments(&request);
 
         assert_eq!(result, Err("No consuming wallet specified".to_string()));
     }
@@ -678,11 +682,46 @@ mod tests {
     }
 
     #[test]
+    fn report_accounts_payable_returns_error_fetching_last_nonce() {
+        let blockchain_interface_mock = BlockchainInterfaceMock::default()
+            .get_transaction_count_result(Err(BlockchainError::QueryFailed(
+                "Eh, guys. What am I doing here, please??".to_string(),
+            )));
+        let consuming_wallet = make_wallet("somewallet");
+        let persistent_configuration_mock =
+            PersistentConfigurationMock::new().gas_price_result(Ok(3u64));
+        let mut subject = BlockchainBridge::new(
+            Box::new(blockchain_interface_mock),
+            Box::new(persistent_configuration_mock),
+            false,
+            Some(consuming_wallet.clone()),
+        );
+        let request = ReportAccountsPayable {
+            accounts: vec![PayableAccount {
+                wallet: make_wallet("blah"),
+                balance: 42,
+                last_paid_timestamp: SystemTime::now(),
+                pending_payable_opt: None,
+            }],
+            response_skeleton_opt: None,
+        };
+
+        let result = subject.process_payments(&request, &consuming_wallet, 123);
+
+        assert_eq!(
+            result,
+            Err(BlockchainError::QueryFailed(
+                "Eh, guys. What am I doing here, please??".to_string()
+            ))
+        );
+    }
+
+    #[test]
     fn report_accounts_payable_returns_error_from_sending_batch() {
         let transaction_hash = make_tx_hash(789);
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
-            .send_payables_within_batch_result(Err(BlockchainError::PayableTxsDispatchFailed {
+            .send_payables_within_batch_result(Err(BlockchainError::PayableTransactionFailed {
                 msg: "failure from exhaustion".to_string(),
                 signed_and_saved_txs_opt: Some(vec![transaction_hash]),
             }));
@@ -708,11 +747,11 @@ mod tests {
         let fingerprint_recipient = accountant.start().recipient();
         subject.pay_payable_confirmation.pp_fingerprint_sub_opt = Some(fingerprint_recipient);
 
-        let result = subject.start_preprocessing_payments(&request);
+        let result = subject.start_processing_payments(&request);
 
         assert_eq!(
             result,
-            Ok(Err(BlockchainError::PayableTxsDispatchFailed {
+            Ok(Err(BlockchainError::PayableTransactionFailed {
                 msg: "failure from exhaustion".to_string(),
                 signed_and_saved_txs_opt: Some(vec![transaction_hash])
             }))
@@ -720,7 +759,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_report_account_payable_manages_gas_price_error() {
+    fn handle_report_accounts_payable_manages_gas_price_error() {
         init_test_logging();
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_result(Ok(web3::types::U256::from(1)));
@@ -750,8 +789,48 @@ mod tests {
         );
 
         TestLogHandler::new().exists_log_containing(
-            "WARN: BlockchainBridge: ReportAccountPayable: gas-price: TransactionError",
+            "WARN: BlockchainBridge: ReportAccountsPayable: gas-price: TransactionError",
         );
+    }
+
+    #[test]
+    fn handle_report_accounts_payable_manages_late_error_from_actual_preparing_the_batch_for_sending(
+    ) {
+        let blockchain_interface_mock = BlockchainInterfaceMock::default()
+            .get_transaction_count_result(Ok(U256::from(10)))
+            .send_payables_within_batch_result(Err(BlockchainError::PayableTransactionFailed {
+                msg: "Ay, caramba!".to_string(),
+                signed_and_saved_txs_opt: None,
+            }));
+        let persistent_configuration_mock =
+            PersistentConfigurationMock::new().gas_price_result(Ok(123));
+        let consuming_wallet = make_wallet("somewallet");
+        let wannabe_accountant = Recorder::new().start().recipient();
+        let mut subject = BlockchainBridge::new(
+            Box::new(blockchain_interface_mock),
+            Box::new(persistent_configuration_mock),
+            false,
+            Some(consuming_wallet),
+        );
+        subject.pay_payable_confirmation.pp_fingerprint_sub_opt = Some(wannabe_accountant);
+        let request = ReportAccountsPayable {
+            accounts: vec![PayableAccount {
+                wallet: make_wallet("blah"),
+                balance: 42,
+                last_paid_timestamp: SystemTime::now(),
+                pending_payable_opt: None,
+            }],
+            response_skeleton_opt: None,
+        };
+
+        let result = subject.handle_report_accounts_payable(&request);
+
+        assert_eq!(
+            result,
+            Err("ReportAccountsPayable: transaction processing error: \
+        PayableTransactionFailed { msg: \"Ay, caramba!\", signed_and_saved_txs_opt: None }"
+                .to_string())
+        )
     }
 
     #[test]

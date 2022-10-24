@@ -401,7 +401,7 @@ pub mod tests {
         ByteArrayReader, ByteArrayWriter, FakeStreamHolder,
     };
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::utils::array_of_borrows_to_vec;
+    use masq_lib::utils::slice_of_strs_to_vec_of_strings;
     use std::cell::RefCell;
     use std::ops::Not;
     use std::sync::{Arc, Mutex};
@@ -702,7 +702,7 @@ pub mod tests {
             stderr,
         };
         subject
-            .go(streams, &array_of_borrows_to_vec(&["MASQNode"]))
+            .go(streams, &slice_of_strs_to_vec_of_strings(&["MASQNode"]))
             .unwrap();
         let res = subject.wait();
 
@@ -778,7 +778,7 @@ pub mod tests {
             .initialize_as_unprivileged_result(Ok(()))
             .initialize_as_privileged_params(&bootstrapper_init_privileged_params_arc)
             .initialize_as_unprivileged_params(&bootstrapper_init_unprivileged_params_arc)
-            .define_demanded_values_from_multi_config(array_of_borrows_to_vec(&[
+            .define_demanded_values_from_multi_config(slice_of_strs_to_vec_of_strings(&[
                 "dns-servers",
                 "real-user",
             ]));
@@ -787,7 +787,7 @@ pub mod tests {
             .initialize_as_unprivileged_result(Ok(()))
             .initialize_as_privileged_params(&dns_socket_server_privileged_params_arc)
             .initialize_as_unprivileged_params(&dns_socket_server_unprivileged_params_arc)
-            .define_demanded_values_from_multi_config(array_of_borrows_to_vec(&[
+            .define_demanded_values_from_multi_config(slice_of_strs_to_vec_of_strings(&[
                 "dns-servers",
                 "real-user",
             ]));
@@ -814,7 +814,7 @@ pub mod tests {
 
         let result = subject.go(
             streams,
-            &array_of_borrows_to_vec(&[
+            &slice_of_strs_to_vec_of_strings(&[
                 "MASQNode",
                 "--real-user",
                 "123:456:/home/alice",
@@ -883,7 +883,8 @@ pub mod tests {
             privilege_dropper: Box::new(privilege_dropper),
             dirs_wrapper: Box::new(make_pre_populated_mocked_directory_wrapper()),
         };
-        let args = array_of_borrows_to_vec(&["MASQNode", "--real-user", "123:123:/home/alice"]);
+        let args =
+            slice_of_strs_to_vec_of_strings(&["MASQNode", "--real-user", "123:123:/home/alice"]);
         let stderr = ByteArrayWriter::new();
         let mut holder = FakeStreamHolder::new();
         holder.stderr = stderr;

@@ -535,7 +535,7 @@ pub mod unshared_test_utils {
     #[cfg(not(feature = "no_test_share"))]
     use masq_lib::test_utils::utils::MutexIncrementInset;
     use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-    use masq_lib::utils::array_of_borrows_to_vec;
+    use masq_lib::utils::slice_of_strs_to_vec_of_strings;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::num::ParseIntError;
@@ -545,7 +545,7 @@ pub mod unshared_test_utils {
 
     pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
         let mut app_args = vec!["MASQNode".to_string()];
-        app_args.append(&mut array_of_borrows_to_vec(&args));
+        app_args.append(&mut slice_of_strs_to_vec_of_strings(&args));
         let arg_matches = app_node().get_matches_from_safe(app_args).unwrap();
         MultiConfig::new_test_only(arg_matches)
     }

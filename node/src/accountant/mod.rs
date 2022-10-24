@@ -24,9 +24,9 @@ use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::{
     InitiatePPFingerprints, PendingPayableFingerprint, RetrieveTransactions,
 };
-use crate::blockchain::blockchain_interface::PendingPayableFallible::{Correct, Failure};
+use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failure};
 use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainTransaction, PendingPayableFallible, RpcPayableFailure,
+    BlockchainError, BlockchainTransaction, ProcessedPayableFallible, RpcPayableFailure,
 };
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::dao_utils::DaoFactoryReal;
@@ -112,7 +112,7 @@ pub struct ReceivedPayments {
 #[derive(Debug, Message, PartialEq)]
 pub struct SentPayable {
     pub timestamp: SystemTime,
-    pub payable_outcomes: Result<Vec<PendingPayableFallible>, BlockchainError>,
+    pub payable_outcomes: Result<Vec<ProcessedPayableFallible>, BlockchainError>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -1025,12 +1025,12 @@ impl Accountant {
         }
     }
 
-    fn separate_errors(
-        sent_payments: &SentPayable,
-        logger: &Logger,
+    fn separate_errors<'a, 'b>(
+        sent_payments: &'a SentPayable,
+        logger: &'b Logger,
     ) -> (
         Vec<PendingPayable>,
-        Option<Either<BlockchainError, Vec<RpcPayableFailure>>>,
+        Option<Either<&'a BlockchainError, Vec<&'a RpcPayableFailure>>>,
     ) {
         match &sent_payments.payable_outcomes {
             Ok(batch_responses) => {
@@ -1046,6 +1046,7 @@ impl Accountant {
                             Failure(rpc_failure) => {
                                 todo!("log warning here about these errors and drive in the following");
                                 warning!(logger,"blaaaaaaaaaaaah");
+                                //"Outbound transaction failure due to '{:?}'. Please check your blockchain service URL configuration.", x)
                                 (so_far.0, plus(so_far.1, rpc_failure.clone()))
                             }
                         },
@@ -1053,11 +1054,12 @@ impl Accountant {
                 todo!()
             }
             Err(e) => {
-                todo!()
-                // logger.warning(|| match e {
-                //     BlockchainError::SendingPayableFailed { .. } => format!("Encountered transaction error at this end: '{:?}'", e),
-                //     x => format!("Outbound transaction failure due to '{:?}'. Please check your blockchain service URL configuration.", x)
-                // })
+                warning!(
+                    logger,
+                    "Encountered transaction error at this end: '{:?}'",
+                    e
+                );
+                (vec![], Some(Left(e)))
             }
         }
     }
@@ -1917,7 +1919,7 @@ mod tests {
         let hash = make_tx_hash(12345);
         let sent_payable = SentPayable {
             timestamp: SystemTime::now(),
-            payable_outcomes: Err(BlockchainError::PayableTxsDispatchFailed {
+            payable_outcomes: Err(BlockchainError::PayableTransactionFailed {
                 msg: "SQLite migraine".to_string(),
                 signed_and_saved_txs_opt: Some(vec![hash]),
             }),
@@ -1970,7 +1972,7 @@ mod tests {
         let hash_tx_2 = make_tx_hash(12345);
         let sent_payable = SentPayable {
             timestamp: SystemTime::now(),
-            payable_outcomes: Err(BlockchainError::PayableTxsDispatchFailed {
+            payable_outcomes: Err(BlockchainError::PayableTransactionFailed {
                 msg: "Attempt failed".to_string(),
                 signed_and_saved_txs_opt: Some(vec![hash_tx_1, hash_tx_2]),
             }),
@@ -3545,7 +3547,7 @@ mod tests {
         let hash = make_tx_hash(123);
         let sent_payable = SentPayable {
             timestamp: SystemTime::now(),
-            payable_outcomes: Err(BlockchainError::PayableTxsDispatchFailed {
+            payable_outcomes: Err(BlockchainError::PayableTransactionFailed {
                 msg: "blah".to_string(),
                 signed_and_saved_txs_opt: Some(vec![hash]),
             }),
@@ -4582,7 +4584,7 @@ mod tests {
 
     #[test]
     fn separate_errors_works_for_our_errors() {
-        let error = BlockchainError::PayableTxsDispatchFailed {
+        let error = BlockchainError::PayableTransactionFailed {
             msg: "bad timing".to_string(),
             signed_and_saved_txs_opt: None,
         };
@@ -4595,7 +4597,7 @@ mod tests {
         let (ok, err) = Accountant::separate_errors(&sent_payable, &Logger::new("test"));
 
         assert_eq!(ok, vec![]);
-        assert_eq!(err, Some(Left(error)))
+        assert_eq!(err, Some(Left(&error)))
     }
 
     #[test]
@@ -4621,7 +4623,7 @@ mod tests {
         let (ok, err) = Accountant::separate_errors(&sent_payable, &Logger::new("test"));
 
         assert_eq!(ok, vec![payable_ok]);
-        assert_eq!(err, Some(Right(vec![bad_rpc_call])))
+        assert_eq!(err, Some(Right(vec![&bad_rpc_call])))
     }
 
     #[test]
