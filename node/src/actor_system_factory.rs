@@ -40,7 +40,7 @@ use automap_lib::control_layer::automap_control::{
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::crash_point::CrashPoint;
 #[cfg(feature = "log_recipient_test")]
-use masq_lib::logger::log_broadcast_substitution_in_tests::prepare_log_recipient;
+use masq_lib::logger::log_recipient_test::prepare_log_recipient;
 #[cfg(not(feature = "log_recipient_test"))]
 use masq_lib::logger::prepare_log_recipient;
 use masq_lib::logger::Logger;
@@ -1154,21 +1154,8 @@ mod tests {
                     .add_mapping_result(Ok(())),
             )),
         );
-        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
-        let automap_control_factory = Box::new(
-            AutomapControlFactoryMock::new().make_result(Box::new (
-                AutomapControlMock::new()
-                    .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
-                    .add_mapping_params(&add_mapping_params_arc)
-                    .add_mapping_result(Ok(()))
-                    .add_mapping_result(Ok(())),
-            )),
-        );
-        let mut tools = ActorSystemFactoryToolsReal::new();
-        tools.automap_control_factory = automap_control_factory;
-        let mut subject = ActorSystemFactoryReal::new(Box::new (tools));
 
-        let _ = subject.t.prepare_initial_messages(
+        let _ = subject.prepare_initial_messages(
             make_cryptde_pair(),
             config.clone(),
             Box::new(PersistentConfigurationMock::new()),
@@ -1256,8 +1243,6 @@ mod tests {
         );
         let add_mapping_params = add_mapping_params_arc.lock().unwrap();
         assert_eq!(*add_mapping_params, vec![1234, 2345]);
-        let add_mapping_params = add_mapping_params_arc.lock().unwrap();
-        assert_eq!(*add_mapping_params, vec![1234, 2345]);
     }
 
     #[cfg(feature = "log_recipient_test")]
@@ -1278,51 +1263,6 @@ mod tests {
 
         let state_after = INITIALIZATION_COUNTER.lock().unwrap().0;
         assert_eq!(state_after, state_before + 1)
-    }
-
-    #[test]
-    #[should_panic(
-    expected = "1: IP change to 1.2.3.5 reported from ISP. We can't handle that until GH-499. Going down..."
-    )]
-    fn change_handler_panics_when_receiving_ip_change_from_isp() {
-        running_test();
-        let actor_factory = ActorFactoryMock::new();
-        let mut config = BootstrapperConfig::default();
-        config.mapping_protocol_opt = Some(AutomapProtocol::Pcp);
-        config.neighborhood_config = NeighborhoodConfig {
-            mode: NeighborhoodMode::Standard(
-                NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), &[1234]),
-                vec![],
-                rate_pack(100),
-            ),
-        };
-        let make_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut subject = make_subject_with_null_setter();
-        subject.automap_control_factory = Box::new(
-            AutomapControlFactoryMock::new()
-                .make_params(&make_params_arc)
-                .make_result(Box::new(
-                    AutomapControlMock::new()
-                        .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
-                        .get_mapping_protocol_result(Some(AutomapProtocol::Pcp))
-                        .add_mapping_result(Ok(())),
-                )),
-        );
-
-        let _ = subject.prepare_initial_messages(
-            make_cryptde_pair(),
-            config.clone(),
-            Box::new(PersistentConfigurationMock::new()),
-            Box::new(actor_factory),
-        );
-
-        let mut make_params = make_params_arc.lock().unwrap();
-        let change_handler: ChangeHandler = make_params.remove(0).1;
-        change_handler(AutomapChange::NewIp(IpAddr::from_str("1.2.3.5").unwrap()));
-
-        let system = System::new("MASQNode");
-        System::current().stop();
-        system.run();
     }
 
     #[test]
@@ -1551,6 +1491,7 @@ mod tests {
                 .make_params(&make_params_arc)
                 .make_result(Box::new (
                     AutomapControlMock::new()
+                        .get_mapping_protocol_result(Some(AutomapProtocol::Pmp))
                         .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
                         .add_mapping_result(Ok(())),
                 )),
@@ -1602,6 +1543,7 @@ mod tests {
         let mut subject = ActorSystemFactoryToolsReal::new();
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let automap_control = AutomapControlMock::new()
+            .get_mapping_protocol_result(None)
             .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
             .add_mapping_result(Ok(()));
         subject.automap_control_factory = Box::new(

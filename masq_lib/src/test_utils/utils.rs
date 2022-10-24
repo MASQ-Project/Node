@@ -61,17 +61,6 @@ pub fn to_millis(dur: &Duration) -> u64 {
 #[cfg(not(feature = "no_test_share"))]
 pub struct MutexIncrementInset(pub usize);
 
-#[cfg(feature = "log_recipient_test")]
-lazy_static! {
-    pub static ref INITIALIZATION_COUNTER: Mutex<MutexIncrementInset> =
-        Mutex::new(MutexIncrementInset(0));
-}
-
-#[cfg(feature = "log_recipient_test")]
-pub fn prepare_log_recipient(_recipient: Recipient<NodeToUiMessage>) {
-    INITIALIZATION_COUNTER.lock().unwrap().0 += 1;
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

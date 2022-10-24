@@ -430,7 +430,7 @@ fn validate_mandatory_node_addr(
     }
 }
 
-fn compute_mapping_protocol_opt(
+pub fn compute_mapping_protocol_opt(
     multi_config: &MultiConfig,
     persistent_config: &mut dyn PersistentConfiguration,
     logger: &Logger,

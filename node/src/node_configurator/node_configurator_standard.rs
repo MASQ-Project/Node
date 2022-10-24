@@ -7,7 +7,6 @@ use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight};
 use std::net::SocketAddr;
 use std::net::{IpAddr, Ipv4Addr};
@@ -38,12 +37,9 @@ use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use masq_lib::utils::WrapResult;
 use std::str::FromStr;
 use itertools::Itertools;
-use rustc_hex::FromHex;
-use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::{DEFAULT_RATE_PACK, NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
 use crate::sub_lib::node_addr::NodeAddr;
-use crate::sub_lib::wallet::Wallet;
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -320,14 +316,14 @@ fn configure_database(
                     let results = cli_configs
                         .into_iter()
                         .map(
-                            |s| match NodeDescriptor::try_from((dummy_cryptde.as_ref(), &s)) {
-                                Ok(nd) => match (chain_name.as_str(), nd.mainnet) {
+                            |s| match NodeDescriptor::try_from((dummy_cryptde.as_ref(), s.as_str())) {
+                                Ok(nd) => match (chain_name.as_str(), nd.blockchain.is_mainnet()) {
                                     (cn, true) if cn == default_chain_name => Ok(nd),
                                     (cn, false) if cn == default_chain_name => Err(ParamError::new("neighbors", "Mainnet node descriptors use '@', not ':', as the first delimiter")),
                                     (_, true) => Err(ParamError::new("neighbors", &format!("Mainnet node descriptor uses '@', but chain configured for '{}'", chain_name))),
                                     (_, false) => Ok(nd),
                                 },
-                                Err(e) => Err(ParamError::new("neighbors", &e)),
+                                Err(e) => Err(ParamError::new("neighbors", e.as_str())),
                             },
                         )
                         .collect_vec();
@@ -384,78 +380,78 @@ fn configure_database(
         )
     }
 
-    fn validate_testing_parameters(
-        mnemonic_seed_exists: bool,
-        multi_config: &MultiConfig,
-    ) -> Result<(), ConfiguratorError> {
-        let consuming_wallet_specified =
-            value_m!(multi_config, "consuming-private-key", String).is_some();
-        let earning_wallet_specified = value_m!(multi_config, "earning-wallet", String).is_some();
-        if mnemonic_seed_exists && (consuming_wallet_specified || earning_wallet_specified) {
-            let parameter = match (consuming_wallet_specified, earning_wallet_specified) {
-                (true, false) => "consuming-private-key",
-                (false, true) => "earning-wallet",
-                (true, true) => "consuming-private-key, earning-wallet",
-                (false, false) => panic!("The if statement in Rust no longer works"),
-            };
-            Err(ConfiguratorError::required(parameter, "Cannot use --consuming-private-key or --earning-wallet when database contains wallet information"))
-        } else {
-            Ok(())
-        }
-    }
+    // fn validate_testing_parameters(
+    //     mnemonic_seed_exists: bool,
+    //     multi_config: &MultiConfig,
+    // ) -> Result<(), ConfiguratorError> {
+    //     let consuming_wallet_specified =
+    //         value_m!(multi_config, "consuming-private-key", String).is_some();
+    //     let earning_wallet_specified = value_m!(multi_config, "earning-wallet", String).is_some();
+    //     if mnemonic_seed_exists && (consuming_wallet_specified || earning_wallet_specified) {
+    //         let parameter = match (consuming_wallet_specified, earning_wallet_specified) {
+    //             (true, false) => "consuming-private-key",
+    //             (false, true) => "earning-wallet",
+    //             (true, true) => "consuming-private-key, earning-wallet",
+    //             (false, false) => panic!("The if statement in Rust no longer works"),
+    //         };
+    //         Err(ConfiguratorError::required(parameter, "Cannot use --consuming-private-key or --earning-wallet when database contains wallet information"))
+    //     } else {
+    //         Ok(())
+    //     }
+    // }
 
-    fn compute_mapping_protocol_opt(
-        multi_config: &MultiConfig,
-        persistent_config: &mut dyn PersistentConfiguration,
-        logger: &Logger,
-    ) -> Option<AutomapProtocol> {
-        let persistent_mapping_protocol_opt = match persistent_config.mapping_protocol() {
-            Ok(mp_opt) => mp_opt,
-            Err(e) => {
-                warning!(
-                    logger,
-                    "Could not read mapping protocol from database: {:?}",
-                    e
-                );
-                None
-            }
-        };
-        let mapping_protocol_specified = multi_config.occurrences_of("mapping-protocol") > 0;
-        eprintln!("************** specified {:?}", mapping_protocol_specified);
-        eprintln!(
-            "**************{:?}",
-            value_m!(multi_config, "mapping-protocol", AutomapProtocol)
-        );
-        let computed_mapping_protocol_opt = match (
-            value_m!(multi_config, "mapping-protocol", AutomapProtocol),
-            persistent_mapping_protocol_opt,
-            mapping_protocol_specified,
-        ) {
-            (None, Some(persisted_mapping_protocol), false) => Some(persisted_mapping_protocol),
-            (None, _, true) => None,
-            (cmd_line_mapping_protocol_opt, _, _) => cmd_line_mapping_protocol_opt,
-        };
-        eprintln!(
-            ">>> computed_mapping_protocol_opt: {:?}",
-            computed_mapping_protocol_opt
-        );
-        if computed_mapping_protocol_opt != persistent_mapping_protocol_opt {
-            if computed_mapping_protocol_opt.is_none() {
-                debug!(logger, "Blanking mapping protocol out of the database")
-            }
-            match persistent_config.set_mapping_protocol(computed_mapping_protocol_opt) {
-                Ok(_) => (),
-                Err(e) => {
-                    warning!(
-                        logger,
-                        "Could not save mapping protocol to database: {:?}",
-                        e
-                    );
-                }
-            }
-        }
-        computed_mapping_protocol_opt
-    }
+    // fn compute_mapping_protocol_opt(
+    //     multi_config: &MultiConfig,
+    //     persistent_config: &mut dyn PersistentConfiguration,
+    //     logger: &Logger,
+    // ) -> Option<AutomapProtocol> {
+    //     let persistent_mapping_protocol_opt = match persistent_config.mapping_protocol() {
+    //         Ok(mp_opt) => mp_opt,
+    //         Err(e) => {
+    //             warning!(
+    //                 logger,
+    //                 "Could not read mapping protocol from database: {:?}",
+    //                 e
+    //             );
+    //             None
+    //         }
+    //     };
+    //     let mapping_protocol_specified = multi_config.occurrences_of("mapping-protocol") > 0;
+    //     eprintln!("************** specified {:?}", mapping_protocol_specified);
+    //     eprintln!(
+    //         "**************{:?}",
+    //         value_m!(multi_config, "mapping-protocol", AutomapProtocol)
+    //     );
+    //     let computed_mapping_protocol_opt = match (
+    //         value_m!(multi_config, "mapping-protocol", AutomapProtocol),
+    //         persistent_mapping_protocol_opt,
+    //         mapping_protocol_specified,
+    //     ) {
+    //         (None, Some(persisted_mapping_protocol), false) => Some(persisted_mapping_protocol),
+    //         (None, _, true) => None,
+    //         (cmd_line_mapping_protocol_opt, _, _) => cmd_line_mapping_protocol_opt,
+    //     };
+    //     eprintln!(
+    //         ">>> computed_mapping_protocol_opt: {:?}",
+    //         computed_mapping_protocol_opt
+    //     );
+    //     if computed_mapping_protocol_opt != persistent_mapping_protocol_opt {
+    //         if computed_mapping_protocol_opt.is_none() {
+    //             debug!(logger, "Blanking mapping protocol out of the database")
+    //         }
+    //         match persistent_config.set_mapping_protocol(computed_mapping_protocol_opt) {
+    //             Ok(_) => (),
+    //             Err(e) => {
+    //                 warning!(
+    //                     logger,
+    //                     "Could not save mapping protocol to database: {:?}",
+    //                     e
+    //                 );
+    //             }
+    //         }
+    //     }
+    //     computed_mapping_protocol_opt
+    // }
 
     fn make_neighborhood_mode(
         multi_config: &MultiConfig,
@@ -533,28 +529,28 @@ fn configure_database(
         }
     }
 
-    fn get_consuming_wallet_from_private_key(
-        multi_config: &MultiConfig,
-    ) -> Result<Option<Wallet>, ConfiguratorError> {
-        match value_m!(multi_config, "consuming-private-key", String) {
-            Some(consuming_private_key_string) => {
-                match consuming_private_key_string.from_hex::<Vec<u8>>() {
-                    Ok(raw_secret) => match Bip32ECKeyProvider::from_raw_secret(&raw_secret[..]) {
-                        Ok(keypair) => Ok(Some(Wallet::from(keypair))),
-                        Err(e) => panic!(
-                            "Internal error: bad clap validation for consuming-private-key: {:?}",
-                            e
-                        ),
-                    },
-                    Err(e) => panic!(
-                        "Internal error: bad clap validation for consuming-private-key: {:?}",
-                        e
-                    ),
-                }
-            }
-            None => Ok(None),
-        }
-    }
+    // fn get_consuming_wallet_from_private_key(
+    //     multi_config: &MultiConfig,
+    // ) -> Result<Option<Wallet>, ConfiguratorError> {
+    //     match value_m!(multi_config, "consuming-private-key", String) {
+    //         Some(consuming_private_key_string) => {
+    //             match consuming_private_key_string.from_hex::<Vec<u8>>() {
+    //                 Ok(raw_secret) => match Bip32ECKeyProvider::from_raw_secret(&raw_secret[..]) {
+    //                     Ok(keypair) => Ok(Some(Wallet::from(keypair))),
+    //                     Err(e) => panic!(
+    //                         "Internal error: bad clap validation for consuming-private-key: {:?}",
+    //                         e
+    //                     ),
+    //                 },
+    //                 Err(e) => panic!(
+    //                     "Internal error: bad clap validation for consuming-private-key: {:?}",
+    //                     e
+    //                 ),
+    //             }
+    //         }
+    //         None => Ok(None),
+    //     }
+    // }
 
     pub fn get_db_password(
         multi_config: &MultiConfig,
@@ -600,7 +596,7 @@ fn configure_database(
         use masq_lib::multi_config::{NameValueVclArg, VclArg, VirtualCommandLine};
         use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
         use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-        use masq_lib::utils::{array_of_borrows_to_vec, running_test};
+        use masq_lib::utils::{array_of_borrows_to_vec, AutomapProtocol, running_test};
         use std::sync::{Arc, Mutex};
         use rustc_hex::FromHex;
         use masq_lib::blockchains::chains::Chain;
@@ -611,7 +607,7 @@ fn configure_database(
         use crate::bootstrapper::RealUser;
         use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
         use crate::db_config::config_dao::{ConfigDaoReal};
-        use crate::node_configurator::unprivileged_parse_args_configuration::UnprivilegedParseArgsConfigurationDaoNull;
+        use crate::node_configurator::unprivileged_parse_args_configuration::{compute_mapping_protocol_opt, UnprivilegedParseArgsConfigurationDaoNull};
         use crate::node_test_utils::DirsWrapperMock;
         use crate::sub_lib::cryptde::{CryptDE, PlainData};
         use crate::sub_lib::cryptde_real::CryptDEReal;
@@ -886,6 +882,7 @@ fn configure_database(
         );
 
         let dummy_cryptde = CryptDEReal::new(DEFAULT_CHAIN);
+        let dummy_cryptde_ref: &dyn CryptDE = &dummy_cryptde;
         assert_eq!(
             result,
             Ok(NeighborhoodConfig {
@@ -893,12 +890,12 @@ fn configure_database(
                     NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[]),
                     vec![
                         NodeDescriptor::try_from((
-                            &dummy_cryptde,
+                            dummy_cryptde_ref,
                             "mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234;2345"
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
-                            &dummy_cryptde,
+                            dummy_cryptde_ref,
                             "Si06R3ulkOjJOLw1r2R9GOsY87yuinHU/IHK2FJyGnk@2.3.4.5:3456;4567"
                         ))
                         .unwrap()

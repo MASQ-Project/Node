@@ -38,6 +38,21 @@ pub fn prepare_log_recipient(recipient: Recipient<NodeToUiMessage>) {
     }
 }
 
+#[cfg(feature = "log_recipient_test")]
+pub mod log_recipient_test {
+    use super::*;
+    use crate::test_utils::utils::MutexIncrementInset;
+
+    lazy_static! {
+        pub static ref INITIALIZATION_COUNTER: Mutex<MutexIncrementInset> =
+            Mutex::new(MutexIncrementInset(0));
+    }
+
+    pub fn prepare_log_recipient(_recipient: Recipient<NodeToUiMessage>) {
+        INITIALIZATION_COUNTER.lock().unwrap().0 += 1;
+    }
+}
+
 #[derive(Clone)]
 pub struct Logger {
     name: String,
