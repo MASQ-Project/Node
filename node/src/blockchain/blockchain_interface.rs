@@ -89,7 +89,7 @@ impl Display for BlockchainError {
                         .map(|hash| format!("{:?}", hash))
                         .join(", ")
                 ),
-                None => "With no transactions in the state of readiness, none hashed.".to_string(),
+                None => "With no transactions at state of readiness, none hashed.".to_string(),
             }
         }
 
@@ -646,7 +646,7 @@ where
 }
 
 impl BlockchainError {
-    pub fn carries_transaction_hashes(&self) -> Option<Vec<H256>> {
+    pub fn carries_transaction_hashes_opt(&self) -> Option<Vec<H256>> {
         match self {
             Self::PayableTransactionFailed {
                 msg: _,
@@ -2496,37 +2496,37 @@ mod tests {
             .zip(original_errors.into_iter())
             .map(|(to_resolve, to_assert)| match &to_resolve {
                 BlockchainError::InvalidUrl => {
-                    assert_eq!(to_assert.carries_transaction_hashes(), None);
+                    assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
                     11
                 }
                 BlockchainError::InvalidAddress => {
-                    assert_eq!(to_assert.carries_transaction_hashes(), None);
+                    assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
                     22
                 }
                 BlockchainError::InvalidResponse => {
-                    assert_eq!(to_assert.carries_transaction_hashes(), None);
+                    assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
                     33
                 }
                 BlockchainError::QueryFailed(..) => {
-                    assert_eq!(to_assert.carries_transaction_hashes(), None);
+                    assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
                     44
                 }
                 BlockchainError::SignedValueConversion(..) => {
-                    assert_eq!(to_assert.carries_transaction_hashes(), None);
+                    assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
                     55
                 }
                 BlockchainError::PayableTransactionFailed {
                     signed_and_saved_txs_opt: None,
                     ..
                 } => {
-                    assert_eq!(to_assert.carries_transaction_hashes(), None);
+                    assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
                     66
                 }
                 BlockchainError::PayableTransactionFailed {
                     signed_and_saved_txs_opt: Some(vec_of_hashes),
                     ..
                 } => {
-                    let result = to_assert.carries_transaction_hashes();
+                    let result = to_assert.carries_transaction_hashes_opt();
                     let assertable_in_the_loop = result.as_ref();
                     assert_eq!(assertable_in_the_loop, Some(vec_of_hashes));
                     77
