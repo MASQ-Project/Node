@@ -90,10 +90,10 @@ impl DbInitializer for DbInitializerReal {
                 let config = self.extract_configurations(&conn);
                 match (
                     Self::is_migration_required(config.get("schema_version"))?,
-                    &init_config.should_be_suppressed,
+                    &init_config.mig_suppression_setting,
                 ) {
                     (None, _) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
-                    (Some(mismatched_version), &Suppression::No) => {
+                    (Some(mismatched_version), &MigrationSuppressed::No) => {
                         let external_params = ExternalData::from((init_config, false));
                         let migrator = Box::new(DbMigratorReal::new(external_params));
                         self.migrate_and_return_connection(
@@ -105,8 +105,10 @@ impl DbInitializer for DbInitializerReal {
                             migrator,
                         )
                     }
-                    (Some(_), &Suppression::Yes) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
-                    (Some(_), &Suppression::WithErr) => {
+                    (Some(_), &MigrationSuppressed::Yes) => {
+                        Ok(Box::new(ConnectionWrapperReal::new(conn)))
+                    }
+                    (Some(_), &MigrationSuppressed::WithErr) => {
                         Err(InitializationError::SuppressedMigration)
                     }
                 }
@@ -522,12 +524,12 @@ pub fn connection_or_panic(
 pub struct DbInitializationConfig {
     pub special_conn_setup: Vec<fn(&Connection) -> rusqlite::Result<()>>,
     //only things related to db migrations are underneath
-    pub should_be_suppressed: Suppression,
-    pub external_dataset: Option<ExternalData>,
+    pub mig_suppression_setting: MigrationSuppressed,
+    pub external_data_for_migrations: Option<ExternalData>,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
-pub enum Suppression {
+pub enum MigrationSuppressed {
     No,
     Yes,
     WithErr,
@@ -545,8 +547,8 @@ impl DbInitializationConfig {
     pub fn panic_on_migration() -> Self {
         Self {
             special_conn_setup: vec![],
-            should_be_suppressed: Suppression::No,
-            external_dataset: None,
+            mig_suppression_setting: MigrationSuppressed::No,
+            external_data_for_migrations: None,
         }
     }
 
@@ -554,24 +556,24 @@ impl DbInitializationConfig {
         //is used also if a fresh db is being created
         Self {
             special_conn_setup: vec![],
-            should_be_suppressed: Suppression::No,
-            external_dataset: Some(external_params),
+            mig_suppression_setting: MigrationSuppressed::No,
+            external_data_for_migrations: Some(external_params),
         }
     }
 
     pub fn migration_suppressed() -> Self {
         Self {
             special_conn_setup: vec![],
-            should_be_suppressed: Suppression::Yes,
-            external_dataset: None,
+            mig_suppression_setting: MigrationSuppressed::Yes,
+            external_data_for_migrations: None,
         }
     }
 
     pub fn migration_suppressed_with_error() -> Self {
         Self {
             special_conn_setup: vec![],
-            should_be_suppressed: Suppression::WithErr,
-            external_dataset: None,
+            mig_suppression_setting: MigrationSuppressed::WithErr,
+            external_data_for_migrations: None,
         }
     }
 
@@ -579,8 +581,8 @@ impl DbInitializationConfig {
     pub fn test_default() -> Self {
         Self {
             special_conn_setup: vec![],
-            should_be_suppressed: Suppression::Yes,
-            external_dataset: Some(ExternalData {
+            mig_suppression_setting: MigrationSuppressed::Yes,
+            external_data_for_migrations: Some(ExternalData {
                 chain: TEST_DEFAULT_CHAIN,
                 neighborhood_mode: NeighborhoodModeLight::Standard,
                 db_password_opt: None,
@@ -592,26 +594,25 @@ impl DbInitializationConfig {
 impl PartialEq for DbInitializationConfig {
     fn eq(&self, other: &Self) -> bool {
         (
-            self.external_dataset == other.external_dataset)
-            && (self.should_be_suppressed == other.should_be_suppressed)
+            self.external_data_for_migrations == other.external_data_for_migrations)
+            && (self.mig_suppression_setting == other.mig_suppression_setting)
             //I'm making most of this, fn pointers cannot be compared in Rust by August 2022
-            && ((self.special_conn_setup.is_empty() && other.special_conn_setup.is_empty())
-            || (self.special_conn_setup.len() == other.special_conn_setup.len())
+            && (self.special_conn_setup.len() == other.special_conn_setup.len()
         )
     }
 }
 
 impl Debug for DbInitializationConfig {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f,"DbInitializationConfig{{special_conn_setup: Addresses{:?}, should_be_suppressed: {:?}, external_data_set: {:?}}}",
+        write!(f, "DbInitializationConfig{{special_conn_setup: Addresses{:?}, should_be_suppressed: {:?}, external_data_set: {:?}}}",
                self.special_conn_setup
                    .iter()
                    //reportedly, there is no guarantee the number varies by different functions,
                    //so it rather shows how many items are in than anything else
                    .map(|pointer| *pointer as usize)
                    .collect::<Vec<_>>(),
-               self.should_be_suppressed,
-               self.external_dataset
+               self.mig_suppression_setting,
+               self.external_data_for_migrations
         )
     }
 }
@@ -745,21 +746,21 @@ mod tests {
         make_external_migration_parameters, retrieve_config_row, DbMigratorMock,
     };
     use crate::test_utils::make_wallet;
-    use itertools::Itertools;
+    use itertools::Either::{Left, Right};
+    use itertools::{Either, Itertools};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
-        node_home_directory, TEST_DEFAULT_CHAIN,
+        TEST_DEFAULT_CHAIN,
     };
     use masq_lib::utils::NeighborhoodModeLight;
     use regex::Regex;
     use rusqlite::{Error, OpenFlags};
-    use std::borrow::Borrow;
     use std::fs::File;
     use std::io::{Read, Write};
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
-    use std::ops::{Deref, Not};
+    use std::ops::Not;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use tokio::net::TcpListener;
@@ -1164,69 +1165,36 @@ mod tests {
         );
     }
 
-    fn connection_special_setup_changed_assertion<F, E>(init_conn: Option<&Connection>, modifier: F)
-    where
-        F: FnOnce() -> Option<Box<dyn ConnectionWrapper>>,
-        E: Debug,
-    {
-        fn ask_pragma(conn: &Connection) -> u16 {
-            conn.pragma_query_value(None, "busy_timeout", |row| row.get::<usize, u16>(0))
-                .unwrap()
-        }
-        fn ending_assertion(conn: &Connection, value_by_default: u16) {
-            let after = ask_pragma(conn.borrow());
-            assert_eq!(value_by_default, 5000);
-            assert_eq!(after, 12345)
-        }
-        if let Some(conn) = init_conn {
-            let value_by_default = ask_pragma(conn.borrow());
-            let mut new_wrapped_conn_opt = modifier();
-            let tx_opt = if let Some(conn) = new_wrapped_conn_opt.as_mut() {
-                Some(conn.transaction().unwrap())
-            } else {
-                None
-            };
-            let conn = match tx_opt.as_ref() {
-                Some(tx) => tx.deref(),
-                None => conn,
-            };
-            ending_assertion(conn, value_by_default)
-        } else {
-            let dir_of_example_db = node_home_directory(
-                "db_initializer",
-                "connection_special_setup_changed_assertion",
-            )
-            .join("example_db_before_creation");
-            let mut conn = DbInitializerReal::default()
-                .initialize(
-                    &dir_of_example_db,
-                    true,
-                    DbInitializationConfig::test_default(),
-                )
-                .unwrap();
-            let tx = conn.transaction().unwrap();
-            let by_default = ask_pragma(tx.deref());
-            let mut conn = modifier().unwrap();
-            let test_tx = conn.transaction().unwrap();
-            ending_assertion(test_tx.deref(), by_default)
-        }
+    const PRAGMA_CASE_SENSITIVE: &str = "case_sensitive_like";
+
+    fn assert_case_sensitiveness_has_been_switched_turned_on(
+        conn: Either<&Connection, &dyn ConnectionWrapper>,
+    ) {
+        let sql = "select 'a' like 'A'";
+        let mut stm = match conn {
+            Left(conn) => conn.prepare(sql).unwrap(),
+            Right(wrapped_conn) => wrapped_conn.prepare(sql).unwrap(),
+        };
+        let is_considered_the_same = stm
+            .query_row([], |row| Ok(row.get::<usize, bool>(0)))
+            .unwrap();
+        assert_eq!(is_considered_the_same, Ok(false));
     }
 
     #[test]
     fn add_special_setup_works() {
         let subject = DbInitializationConfig::test_default();
         let setup_fn = move |conn: &Connection| {
-            conn.pragma_update(None, "busy_timeout", 12345).unwrap();
+            conn.pragma_update(None, PRAGMA_CASE_SENSITIVE, true)
+                .unwrap();
             Ok(())
         };
         let conn = Connection::open_in_memory().unwrap();
 
         let result = subject.add_special_conn_setup(setup_fn);
 
-        connection_special_setup_changed_assertion::<_, ()>(Some(&conn), || {
-            result.special_conn_setup[0](&conn).unwrap();
-            None
-        })
+        result.special_conn_setup[0](&conn).unwrap();
+        assert_case_sensitiveness_has_been_switched_turned_on(Left(&conn))
     }
 
     #[test]
@@ -1246,47 +1214,45 @@ mod tests {
     #[test]
     fn conn_special_setup_works_at_database_creation() {
         let home_dir = ensure_node_home_directory_exists(
-            "db_initialization",
+            "db_initializer",
             "conn_special_setup_works_at_database_creation",
         );
+        let example_function = |conn: &Connection| {
+            conn.pragma_update(None, PRAGMA_CASE_SENSITIVE, true)
+                .unwrap();
+            Ok(())
+        };
         let init_config =
-            DbInitializationConfig::test_default().add_special_conn_setup(|conn: &Connection| {
-                conn.pragma_update(None, "busy_timeout", 12345).unwrap();
-                Ok(())
-            });
+            DbInitializationConfig::test_default().add_special_conn_setup(example_function);
 
-        connection_special_setup_changed_assertion::<_, ()>(None, || {
-            Some(
-                DbInitializerReal::default()
-                    .initialize(&home_dir, true, init_config)
-                    .unwrap(),
-            )
-        })
+        let assert_conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, init_config)
+            .unwrap();
+
+        assert_case_sensitiveness_has_been_switched_turned_on(Right(assert_conn.as_ref()))
     }
 
     #[test]
     fn conn_special_setup_works_at_opening_existing_database() {
         let home_dir = ensure_node_home_directory_exists(
-            "db_initialization",
+            "db_initializer",
             "conn_special_setup_works_at_opening_existing_database",
         );
-        let mut conn_wrapper = DbInitializerReal::default()
+        DbInitializerReal::default()
             .initialize(&home_dir, true, DbInitializationConfig::test_default())
             .unwrap();
-        let init_conn = conn_wrapper.transaction().unwrap();
         let init_config =
             DbInitializationConfig::test_default().add_special_conn_setup(|conn: &Connection| {
-                conn.pragma_update(None, "busy_timeout", 12345).unwrap();
+                conn.pragma_update(None, PRAGMA_CASE_SENSITIVE, true)
+                    .unwrap();
                 Ok(())
             });
 
-        connection_special_setup_changed_assertion::<_, ()>(Some(init_conn.deref()), || {
-            Some(
-                DbInitializerReal::default()
-                    .initialize(&home_dir, false, init_config)
-                    .unwrap(),
-            )
-        })
+        let assert_conn = DbInitializerReal::default()
+            .initialize(&home_dir, false, init_config)
+            .unwrap();
+
+        assert_case_sensitiveness_has_been_switched_turned_on(Right(assert_conn.as_ref()))
     }
 
     fn processing_special_setup_test_body(test_name: &str, pre_initialization: fn(&Path)) {
@@ -1532,8 +1498,8 @@ mod tests {
             DbInitializationConfig::panic_on_migration(),
             DbInitializationConfig {
                 special_conn_setup: vec![],
-                should_be_suppressed: Suppression::No,
-                external_dataset: None
+                mig_suppression_setting: MigrationSuppressed::No,
+                external_data_for_migrations: None
             }
         )
     }
@@ -1544,8 +1510,8 @@ mod tests {
             DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
             DbInitializationConfig {
                 special_conn_setup: vec![],
-                should_be_suppressed: Suppression::No,
-                external_dataset: Some(make_external_migration_parameters())
+                mig_suppression_setting: MigrationSuppressed::No,
+                external_data_for_migrations: Some(make_external_migration_parameters())
             }
         )
     }
@@ -1556,8 +1522,8 @@ mod tests {
             DbInitializationConfig::migration_suppressed(),
             DbInitializationConfig {
                 special_conn_setup: vec![],
-                should_be_suppressed: Suppression::Yes,
-                external_dataset: None
+                mig_suppression_setting: MigrationSuppressed::Yes,
+                external_data_for_migrations: None
             }
         )
     }
@@ -1568,8 +1534,8 @@ mod tests {
             DbInitializationConfig::migration_suppressed_with_error(),
             DbInitializationConfig {
                 special_conn_setup: vec![],
-                should_be_suppressed: Suppression::WithErr,
-                external_dataset: None
+                mig_suppression_setting: MigrationSuppressed::WithErr,
+                external_data_for_migrations: None
             }
         )
     }
@@ -1579,8 +1545,8 @@ mod tests {
     ) -> DbInitializationConfig {
         DbInitializationConfig {
             special_conn_setup: pointers,
-            should_be_suppressed: Suppression::No,
-            external_dataset: None,
+            mig_suppression_setting: MigrationSuppressed::No,
+            external_data_for_migrations: None,
         }
     }
 
@@ -1590,8 +1556,8 @@ mod tests {
                 5;
                 Ok(())
             }],
-            should_be_suppressed: Suppression::No,
-            external_dataset: Some(ExternalData {
+            mig_suppression_setting: MigrationSuppressed::No,
+            external_data_for_migrations: Some(ExternalData {
                 chain: Default::default(),
                 neighborhood_mode: NeighborhoodModeLight::Standard,
                 db_password_opt: None,
@@ -1616,8 +1582,8 @@ mod tests {
         let config_four = make_default_config_with_different_pointers(vec![fn_one, fn_one]);
         let config_five = DbInitializationConfig {
             special_conn_setup: vec![fn_one],
-            should_be_suppressed: Suppression::Yes,
-            external_dataset: None,
+            mig_suppression_setting: MigrationSuppressed::Yes,
+            external_data_for_migrations: None,
         };
         let config_six = make_config_with_specific_migration_arguments();
 

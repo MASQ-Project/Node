@@ -274,12 +274,14 @@ where
                                 .filter_map(|log: &Log| match log.block_number {
                                     Some(block_number) => {
                                         let amount: U256 = U256::from(log.data.0.as_slice());
-                                        let wei_amount = u128::try_from(amount);
-                                        wei_amount.ok().map(|wei_amount| BlockchainTransaction {
-                                            block_number: u64::try_from(block_number)
-                                                .expect("Internal Error"),
-                                            from: Wallet::from(log.topics[1]),
-                                            wei_amount,
+                                        let wei_amount_result = u128::try_from(amount);
+                                        wei_amount_result.ok().map(|wei_amount| {
+                                            BlockchainTransaction {
+                                                block_number: u64::try_from(block_number)
+                                                    .expect("Internal Error"),
+                                                from: Wallet::from(log.topics[1]),
+                                                wei_amount,
+                                            }
                                         })
                                     }
                                     None => None,
@@ -444,11 +446,11 @@ where
     }
 
     fn preparation_log(&self, inputs: &BlockchainTxnInputs) -> String {
-        format!("Preparing transaction for {} Wei to {} from {} (chain_id: {}, contract: {:#x}, gas price: {})",
+        format!("Preparing transaction for {} Wei to {} from {} (chain: {}, contract: {:#x}, gas price: {})",
         inputs.amount.separate_with_commas(),
         inputs.recipient,
         inputs.consuming_wallet,
-        self.chain.rec().num_chain_id,
+        self.chain.rec().literal_identifier,
         self.contract_address(),
         inputs.gas_price)
     }
@@ -1198,7 +1200,7 @@ mod tests {
         };
         assert_eq!(sent_backup, &expected_pending_payable_fingerprint);
         let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing("DEBUG: BlockchainInterface: Preparing transaction for 9,000,000,000,000 Wei to 0x00000000000000000000000000626c6168313233 from 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725 (chain_id: 3, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3, gas price: 120)" );
+        log_handler.exists_log_containing("DEBUG: BlockchainInterface: Preparing transaction for 9,000,000,000,000 Wei to 0x00000000000000000000000000626c6168313233 from 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725 (chain: eth-ropsten, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3, gas price: 120)" );
         log_handler.exists_log_containing(
             "INFO: BlockchainInterface: About to send transaction:\n\
         recipient: 0x00000000000000000000000000626c6168313233,\n\

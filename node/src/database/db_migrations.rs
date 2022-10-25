@@ -834,7 +834,7 @@ impl ExternalData {
 impl From<(DbInitializationConfig, bool)> for ExternalData {
     fn from(tuple: (DbInitializationConfig, bool)) -> Self {
         let (init_config, db_newly_created) = tuple;
-        init_config.external_dataset.unwrap_or_else(|| {
+        init_config.external_data_for_migrations.unwrap_or_else(|| {
             panic!(
                 "{}",
                 if db_newly_created {
@@ -1852,7 +1852,7 @@ mod tests {
         let mut init_config =
             DbInitializationConfig::create_or_migrate(make_external_migration_parameters());
         init_config
-            .external_dataset
+            .external_data_for_migrations
             .as_mut()
             .unwrap()
             .db_password_opt = password_opt.clone();
@@ -1943,7 +1943,7 @@ mod tests {
         let mut init_config =
             DbInitializationConfig::create_or_migrate(make_external_migration_parameters());
         init_config
-            .external_dataset
+            .external_data_for_migrations
             .as_mut()
             .unwrap()
             .db_password_opt = password_opt.clone();

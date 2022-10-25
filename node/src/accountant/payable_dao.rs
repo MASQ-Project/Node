@@ -567,7 +567,6 @@ mod tests {
         let payable_timestamp = from_time_t(199_000_000);
         let attempt = 5;
         let starting_amount = 10000;
-        let (high_bytes, low_bytes) = BigIntDivider::deconstruct(starting_amount);
         let payment = 6666;
         let wallet = make_wallet("bobble");
         {
