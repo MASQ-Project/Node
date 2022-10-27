@@ -2,6 +2,7 @@
 
 use crate::accountant::big_int_db_processor::BigIntDivider;
 use crate::accountant::dao_utils::VigilantFlatten;
+use crate::accountant::gwei_to_wei;
 use crate::blockchain::bip39::Bip39;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{DbInitializationConfig, CURRENT_SCHEMA_VERSION};
@@ -9,13 +10,12 @@ use crate::db_config::db_encryption_layer::DbEncryptionLayer;
 use crate::db_config::typed_config_layer::decode_bytes;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
 use crate::sub_lib::cryptde::PlainData;
-use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+use crate::sub_lib::neighborhood::{RatePack, DEFAULT_RATE_PACK};
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
-use rusqlite::{params_from_iter, Error, Params, Row, Transaction};
-use std::cell::RefCell;
+use rusqlite::{params_from_iter, Error, Row, ToSql, Transaction};
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
 use tiny_hderive::bip32::ExtendedPrivKey;
@@ -224,22 +224,22 @@ impl StatementObject for String {
     }
 }
 
-struct StatementWithRusqliteParams<P: Params> {
+struct StatementWithRusqliteParams {
     sql_stm: String,
-    params: RefCell<Option<P>>,
+    params: Vec<Box<dyn ToSql>>,
 }
 
-impl<P: Params> StatementObject for StatementWithRusqliteParams<P> {
+impl StatementObject for StatementWithRusqliteParams {
     fn execute(&self, transaction: &Transaction) -> rusqlite::Result<()> {
         transaction
-            .execute(&self.sql_stm, self.params.take().expectv("params"))
+            .execute(&self.sql_stm, params_from_iter(self.params.iter()))
             .map(|_| ())
     }
 }
 
-impl<P: Params> Display for StatementWithRusqliteParams<P> {
-    fn fmt(&self, _f: &mut Formatter<'_>) -> std::fmt::Result {
-        unimplemented!()
+impl Display for StatementWithRusqliteParams {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.sql_stm)
     }
 }
 
@@ -506,16 +506,13 @@ struct Migrate_6_to_7;
 
 #[allow(non_camel_case_types)]
 struct Migrate_6_to_7_carrier<'a> {
-    utils: Box<dyn MigDeclarationUtilities + 'a>,
+    utils: &'a (dyn MigDeclarationUtilities + 'a),
     statements: Vec<Box<dyn StatementObject>>,
 }
 
 impl DatabaseMigration for Migrate_6_to_7 {
-    fn migrate<'a>(
-        &self,
-        declaration_utils: Box<dyn MigDeclarationUtilities + 'a>,
-    ) -> rusqlite::Result<()> {
-        let mut migration_carrier = Migrate_6_to_7_carrier::new(declaration_utils);
+    fn migrate<'a>(&self, utils: Box<dyn MigDeclarationUtilities + 'a>) -> rusqlite::Result<()> {
+        let mut migration_carrier = Migrate_6_to_7_carrier::new(utils.as_ref());
         migration_carrier.retype_table(
             "payable",
             "balance",
@@ -543,10 +540,8 @@ impl DatabaseMigration for Migrate_6_to_7 {
                               attempt integer not null,
                               process_error text null",
         )?;
-        migration_carrier.statements.push(Box::new(format!(
-            "update config set value = '{}' where name = 'rate_pack'",
-            DEFAULT_RATE_PACK
-        )));
+
+        migration_carrier.update_rate_pack();
 
         migration_carrier.utils.execute_upon_transaction(
             &migration_carrier
@@ -563,7 +558,7 @@ impl DatabaseMigration for Migrate_6_to_7 {
 }
 
 impl<'a> Migrate_6_to_7_carrier<'a> {
-    fn new(utils: Box<dyn MigDeclarationUtilities + 'a>) -> Self {
+    fn new(utils: &'a (dyn MigDeclarationUtilities + 'a)) -> Self {
         Self {
             utils,
             statements: vec![],
@@ -574,27 +569,30 @@ impl<'a> Migrate_6_to_7_carrier<'a> {
         &mut self,
         table: &str,
         nontrivial_param_old_name: &str,
-        table_creation_lines: &str,
+        create_new_table_stm: &str,
     ) -> rusqlite::Result<()> {
         self.utils.execute_upon_transaction(&[
-            &format!("alter table {table} rename to _{table}_old", table = table),
+            &format!("alter table {table} rename to _{table}_old"),
             &format!(
-                "create table compensatory_{} (high_bytes integer null, low_bytes integer null)",
-                table
+                "create table compensatory_{table} (high_bytes integer null, low_bytes integer null)"
             ),
-            &format!("create table {} ({}) strict", table, table_creation_lines),
+            &format!("create table {table} ({create_new_table_stm}) strict"),
         ])?;
-        let param_names = Self::extract_param_names(table_creation_lines);
-        self.compose_insert_statements(table, nontrivial_param_old_name, param_names);
+        let param_names = Self::extract_param_names(create_new_table_stm);
+        self.maybe_compose_insert_stm_with_auxiliary_table_to_handle_new_big_int_data(
+            table,
+            nontrivial_param_old_name,
+            param_names,
+        );
         self.statements
-            .push(Box::new(format!("drop table _{}_old", table)));
+            .push(Box::new(format!("drop table _{table}_old")));
         Ok(())
     }
 
-    fn compose_insert_statements(
+    fn maybe_compose_insert_stm_with_auxiliary_table_to_handle_new_big_int_data(
         &mut self,
         table: &str,
-        nontrivial_param_old_name: &str,
+        big_int_params_old_names: &str,
         param_names: Vec<String>,
     ) {
         let nontrivial_params_new_names = param_names
@@ -603,23 +601,24 @@ impl<'a> Migrate_6_to_7_carrier<'a> {
             .map(|name| name.to_owned())
             .collect::<Vec<String>>();
         let (easy_params, easy_params_prepared_for_inner_join) =
-            Self::prepare_easy_params(param_names, &nontrivial_params_new_names);
-        let transaction = self.utils.transaction();
-        let all_nontrivial_values_found = transaction
+            Self::prepare_unchanged_params(param_names, &nontrivial_params_new_names);
+        let all_bug_int_values_found = self
+            .utils
+            .transaction()
             .prepare(&format!(
-                "select ({}) from _{}_old",
-                nontrivial_param_old_name, table
+                "select ({big_int_params_old_names}) from _{table}_old",
             ))
             .expect("rusqlite internal error")
             .query_map([], |row: &Row| row.get(0))
             .expect("rusqlite internal error")
             .vigilant_flatten()
             .collect::<Vec<i64>>();
-        if !all_nontrivial_values_found.is_empty() {
-            self.fill_compensatory_table(all_nontrivial_values_found, table);
+        if !all_bug_int_values_found.is_empty() {
+            self.fill_compensatory_table(all_bug_int_values_found, table);
+            let new_big_int_params = nontrivial_params_new_names.join(", ");
             let final_insert_statement = format!(
-                "insert into {0} ({1}, {2}) select {3}, R.high_bytes, R.low_bytes from _{0}_old L inner join compensatory_{0} R where L.rowid = R.rowid",
-                table, easy_params, nontrivial_params_new_names.join(", "), easy_params_prepared_for_inner_join
+                "insert into {table} ({easy_params}, {new_big_int_params}) select {easy_params_prepared_for_inner_join}, \
+                 R.high_bytes, R.low_bytes from _{table}_old L inner join compensatory_{table} R where L.rowid = R.rowid",
             );
             self.statements.push(Box::new(final_insert_statement))
         } else {
@@ -630,17 +629,13 @@ impl<'a> Migrate_6_to_7_carrier<'a> {
         };
     }
 
-    fn prepare_easy_params(
+    fn prepare_unchanged_params(
         param_names_for_select_stm: Vec<String>,
-        nontrivial_params_new_names: &[String],
+        big_int_params_names: &[String],
     ) -> (String, String) {
         let easy_params_vec = param_names_for_select_stm
             .into_iter()
-            .filter(|name| {
-                nontrivial_params_new_names
-                    .iter()
-                    .all(|n_p_n_name| name != n_p_n_name)
-            })
+            .filter(|name| !big_int_params_names.contains(name))
             .collect_vec();
         let easy_params = easy_params_vec.iter().join(", ");
         let easy_params_preformatted_for_inner_join = easy_params_vec
@@ -650,41 +645,67 @@ impl<'a> Migrate_6_to_7_carrier<'a> {
         (easy_params, easy_params_preformatted_for_inner_join)
     }
 
-    fn fill_compensatory_table(&mut self, all_nontrivial_values_found: Vec<i64>, table: &str) {
-        let statement_with_params = StatementWithRusqliteParams {
-            sql_stm: format!(
-                "insert into compensatory_{} (high_bytes, low_bytes) values {}",
-                table,
-                (0..all_nontrivial_values_found.len() - 1)
-                    .map(|_| "(?, ?),")
-                    .chain(once("(?, ?)"))
-                    .collect::<String>()
-            ),
-            params: RefCell::new(Some(params_from_iter(
-                all_nontrivial_values_found
-                    .into_iter()
-                    .flat_map(|i64_value| {
-                        let i128_value = i64_value as i128 * 1_000_000_000;
-                        let (high, low) = BigIntDivider::deconstruct(i128_value);
-                        vec![high, low]
-                    })
-                    .collect::<Vec<i64>>(),
-            ))),
-        };
-        self.statements.push(Box::new(statement_with_params));
+    fn fill_compensatory_table(&mut self, all_big_int_values_found: Vec<i64>, table: &str) {
+        const VALUE_BY_QUESTION_MARK_PAIR: &str = "(?, ?)";
+        let sql_stm = format!(
+            "insert into compensatory_{} (high_bytes, low_bytes) values {}",
+            table,
+            (0..all_big_int_values_found.len() - 1)
+                .map(|_| VALUE_BY_QUESTION_MARK_PAIR)
+                .chain(once(VALUE_BY_QUESTION_MARK_PAIR))
+                .collect::<String>()
+        );
+        let params = all_big_int_values_found
+            .into_iter()
+            .flat_map(|i64_value| {
+                let (high, low) = BigIntDivider::deconstruct(gwei_to_wei(i64_value));
+                vec![Box::new(high) as Box<dyn ToSql>, Box::new(low)]
+            })
+            .collect::<Vec<Box<dyn ToSql>>>();
+        let statement = StatementWithRusqliteParams { sql_stm, params };
+        self.statements.push(Box::new(statement));
     }
 
     fn extract_param_names(table_creation_lines: &str) -> Vec<String> {
         table_creation_lines
             .split(',')
             .map(|line| {
-                let clear_line = line.trim_start();
-                clear_line
-                    .chars()
+                let line = line.trim_start();
+                line.chars()
                     .take_while(|char| !char.is_whitespace())
                     .collect::<String>()
             })
             .collect()
+    }
+
+    fn update_rate_pack(&mut self) {
+        let transaction = self.utils.transaction();
+        let mut stm = transaction
+            .prepare("select value from config where name = 'rate_pack'")
+            .expect("stm preparation failed");
+        let old_rate_pack = stm
+            .query_row([], |row| row.get::<usize, String>(0))
+            .expect("row query failed");
+        let old_rate_pack_as_native =
+            RatePack::try_from(old_rate_pack.as_str()).unwrap_or_else(|_| {
+                panic!(
+                    "rate pack conversion failed with value: {}; database corrupt!",
+                    old_rate_pack
+                )
+            });
+        let new_rate_pack = RatePack {
+            routing_byte_rate: gwei_to_wei(old_rate_pack_as_native.routing_byte_rate),
+            routing_service_rate: gwei_to_wei(old_rate_pack_as_native.routing_service_rate),
+            exit_byte_rate: gwei_to_wei(old_rate_pack_as_native.exit_byte_rate),
+            exit_service_rate: gwei_to_wei(old_rate_pack_as_native.exit_service_rate),
+        };
+        let serialized_rate_pack = new_rate_pack.to_string();
+        let params: Vec<Box<dyn ToSql>> = vec![Box::new(serialized_rate_pack)];
+
+        self.statements.push(Box::new(StatementWithRusqliteParams {
+            sql_stm: "update config set value = ? where name = 'rate_pack'".to_string(),
+            params,
+        }))
     }
 }
 
@@ -1059,7 +1080,19 @@ mod tests {
         }
     }
 
-    const _SMART_REMINDER: () = check_schema_version_continuity();
+    #[test]
+    fn statement_with_rusqlite_params_can_display_its_stm() {
+        let subject = StatementWithRusqliteParams {
+            sql_stm: "insert into table2 (column) values (?)".to_string(),
+            params: vec![Box::new(12345)],
+        };
+
+        let stm = subject.to_string();
+
+        assert_eq!(stm, "insert into table2 (column) values (?)".to_string())
+    }
+
+    const _REMINDER_FROM_COMPILATION_TIME: () = check_schema_version_continuity();
 
     #[allow(dead_code)]
     const fn check_schema_version_continuity() {
@@ -1444,19 +1477,19 @@ mod tests {
             "INSERT INTO botanic_garden (name,count) VALUES ('sun_flowers', 100)";
         let statement_2_good = StatementWithRusqliteParams {
             sql_stm: "select * from botanic_garden".to_string(),
-            params: RefCell::new(Some({
-                let params: &[&dyn ToSql] = [].as_slice();
+            params: {
+                let params: Vec<Box<dyn ToSql>> = vec![];
                 params
-            })),
+            },
         };
         let statement_3_bad = StatementWithRusqliteParams {
             sql_stm: "select * from foo".to_string(),
-            params: RefCell::new(Some(&[&"another_whatever"])),
+            params: vec![Box::new("another_whatever")],
         };
         //we won't get down here, error from the execution of statement_3 immediately terminate the circuit
         let statement_4_demonstrative = StatementWithRusqliteParams {
             sql_stm: "select * from bar".to_string(),
-            params: RefCell::new(Some(&[&"also_whatever"])),
+            params: vec![Box::new("also_whatever")],
         };
         let set_of_sql_statements: &[&dyn StatementObject] = &[
             &statement_1_simple,
@@ -2281,7 +2314,7 @@ mod tests {
         ["payable", "receivable", "pending_payable"]
             .iter()
             .for_each(|table_name| {
-                assert_table_does_not_exist(&*conn, &format!("_{}_old", table_name))
+                assert_table_does_not_exist(&*conn, &format!("_{table_name}_old"))
             });
         assert_values_still_there_plus_pair_of_integer_columns(&*conn, "payable", |row| {
             assert_eq!(
@@ -2317,8 +2350,10 @@ mod tests {
             Ok(())
         });
         let (rate_pack, encrypted) = retrieve_config_row(&*conn, "rate_pack");
-        assert_ne!(old_rate_pack_in_gwei, DEFAULT_RATE_PACK.to_string());
-        assert_eq!(rate_pack, Some(DEFAULT_RATE_PACK.to_string()));
+        assert_eq!(
+            rate_pack,
+            Some("44000000000|50000000000|20000000000|32000000000".to_string())
+        );
         assert_eq!(encrypted, false);
     }
 
@@ -2349,7 +2384,7 @@ mod tests {
         ["payable", "receivable", "pending_payable"]
             .iter()
             .for_each(|table_name| {
-                test_log_handler.exists_log_containing(&format!("DEBUG: migration_from_6_to_7_without_any_data: Migration from 6 to 7: no data to migrate in {}", table_name));
+                test_log_handler.exists_log_containing(&format!("DEBUG: migration_from_6_to_7_without_any_data: Migration from 6 to 7: no data to migrate in {table_name}"));
             })
     }
 
@@ -2363,7 +2398,7 @@ mod tests {
         table: &str,
         expected_typed_values: fn(&Row) -> rusqlite::Result<()>,
     ) {
-        let mut statement = conn.prepare(&format!("select * from {}", table)).unwrap();
+        let mut statement = conn.prepare(&format!("select * from {table}")).unwrap();
         statement.query_row([], expected_typed_values).unwrap();
     }
 }

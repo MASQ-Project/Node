@@ -6,10 +6,11 @@ use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoError, ConfigDaoReal, ConfigDaoRecord};
+use crate::db_config::persistent_configuration::PersistentConfigError::InvalidUrl;
 use crate::db_config::secure_config_layer::{SecureConfigLayer, SecureConfigLayerError};
 use crate::db_config::typed_config_layer::{
     decode_bytes, decode_combined_params, decode_u64, encode_bytes, encode_u64,
-    TypedConfigLayerError,
+    TypedConfigLayerError, NULL_DECODER,
 };
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::cryptde::PlainData;
@@ -19,9 +20,10 @@ use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::ArbitraryIdStamp;
 use masq_lib::constants::{HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT};
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
-use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
+use masq_lib::utils::{AutomapProtocol, ExpectValue};
 use rustc_hex::{FromHex, ToHex};
+use std::any::type_name;
 use std::fmt::Display;
 use std::net::{Ipv4Addr, SocketAddrV4, TcpListener};
 use std::str::FromStr;
@@ -158,17 +160,19 @@ pub struct PersistentConfigurationReal {
 
 impl PersistentConfiguration for PersistentConfigurationReal {
     fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError> {
-        match self.get("blockchain_service_url")? {
-            None => Ok(None),
-            Some(url) => Ok(Some(url)),
-        }
+        self.normalized_get(
+            "blockchain_service_url",
+            NULL_DECODER,
+            null_type_translator_opt,
+        )
     }
 
     fn set_blockchain_service_url(&mut self, url: &str) -> Result<(), PersistentConfigError> {
-        Url::parse(url).map_err(|e| PersistentConfigError::InvalidUrl(e.to_string()))?;
-        Ok(self
-            .dao
-            .set("blockchain_service_url", Some(url.to_string()))?)
+        match Url::parse(url) {
+            Ok(_) => (),
+            Err(e) => return Err(InvalidUrl(e.to_string())),
+        };
+        self.normalized_set("blockchain_service_url", Some(url))
     }
 
     fn current_schema_version(&self) -> String {
@@ -234,37 +238,44 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         &self,
         db_password: &str,
     ) -> Result<Option<String>, PersistentConfigError> {
-        let encrypted_value_opt = self.get_record("consuming_wallet_private_key")?.value_opt;
-        if let Some(encrypted_value) = encrypted_value_opt {
-            match Bip39::decrypt_bytes(&encrypted_value, db_password) {
-                Ok(decrypted_bytes) => Ok(Some(decrypted_bytes.as_slice().to_hex())),
-                Err(Bip39Error::DecryptionFailure(_)) => Err(PersistentConfigError::PasswordError),
-                Err(e) => panic!(
-                    "Database corruption {:?}: consuming private key can't be decrypted",
-                    e
-                ),
+        let complex_type_translator = |encrypted_value_opt: Option<String>| {
+            if let Some(encrypted_value) = encrypted_value_opt {
+                match Bip39::decrypt_bytes(&encrypted_value, db_password) {
+                    Ok(decrypted_bytes) => Ok(Some(decrypted_bytes.as_slice().to_hex())),
+                    Err(Bip39Error::DecryptionFailure(_)) => {
+                        Err(PersistentConfigError::PasswordError)
+                    }
+                    Err(e) => panic!(
+                        "Database corruption {:?}: consuming private key can't be decrypted",
+                        e
+                    ),
+                }
+            } else {
+                Ok(None)
             }
-        } else {
-            Ok(None)
-        }
+        };
+        self.normalized_get(
+            "consuming_wallet_private_key",
+            NULL_DECODER,
+            complex_type_translator,
+        )
     }
 
     fn clandestine_port(&self) -> Result<u16, PersistentConfigError> {
-        let unchecked_port = match decode_u64(self.get("clandestine_port")?)? {
-            None => Self::missing_value_panic("clandestine_port"),
-            Some(port) => port,
+        let complex_type_translator = |num_opt: Option<u64>| {
+            let unchecked_port = num_opt.expectv("checked non optional value");
+            if (unchecked_port < u64::from(LOWEST_USABLE_INSECURE_PORT))
+                || (unchecked_port > u64::from(HIGHEST_USABLE_PORT))
+            {
+                panic!("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine-port <p> where <p> is an unused port.",
+                       LOWEST_USABLE_INSECURE_PORT,
+                       HIGHEST_USABLE_PORT,
+                       unchecked_port
+                );
+            }
+            Ok(unchecked_port as u16)
         };
-        if (unchecked_port < u64::from(LOWEST_USABLE_INSECURE_PORT))
-            || (unchecked_port > u64::from(HIGHEST_USABLE_PORT))
-        {
-            panic!("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine-port <p> where <p> is an unused port.",
-                LOWEST_USABLE_INSECURE_PORT,
-                HIGHEST_USABLE_PORT,
-                unchecked_port
-            );
-        }
-        let port = unchecked_port as u16;
-        Ok(port)
+        self.normalized_get("clandestine_port", decode_u64, complex_type_translator)
     }
 
     fn set_clandestine_port(&mut self, port: u16) -> Result<(), PersistentConfigError> {
@@ -280,9 +291,8 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 port
             )));
         }
-        Ok(self
-            .dao
-            .set("clandestine_port", encode_u64(Some(u64::from(port)))?)?)
+        let encoded_port = encode_u64(Some(u64::from(port)))?;
+        self.normalized_set("clandestine_port", encoded_port)
     }
 
     fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError> {
@@ -299,56 +309,55 @@ impl PersistentConfiguration for PersistentConfigurationReal {
     }
 
     fn earning_wallet_address(&self) -> Result<Option<String>, PersistentConfigError> {
-        Ok(self.get("earning_wallet_address")?)
+        self.normalized_get(
+            "earning_wallet_address",
+            NULL_DECODER,
+            null_type_translator_opt,
+        )
     }
 
     fn gas_price(&self) -> Result<u64, PersistentConfigError> {
-        match decode_u64(self.get("gas_price")?) {
-            Ok(val) => {
-                Ok(val.expect("ever-supplied gas_price value missing; database is corrupt!"))
-            }
-            Err(e) => Err(PersistentConfigError::from(e)),
-        }
+        self.normalized_get("gas_price", decode_u64, null_type_translator)
     }
 
     fn set_gas_price(&mut self, gas_price: u64) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("gas_price", gas_price)
+        self.normalized_set("gas_price", Some(gas_price))
     }
 
     fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
-        let result = self
-            .get("mapping_protocol")?
-            .map(|val| AutomapProtocol::from_str(&val));
-        match result {
+        let convertor = |str: Option<String>| match str.map(|val| AutomapProtocol::from_str(&val)) {
             None => Ok(None),
             Some(Ok(protocol)) => Ok(Some(protocol)),
             Some(Err(msg)) => Err(PersistentConfigError::DatabaseError(msg)),
-        }
+        };
+        self.normalized_get("mapping_protocol", NULL_DECODER, convertor)
     }
 
     fn set_mapping_protocol(
         &mut self,
         value: Option<AutomapProtocol>,
     ) -> Result<(), PersistentConfigError> {
-        Ok(self
-            .dao
-            .set("mapping_protocol", value.map(|v| v.to_string()))?)
+        self.normalized_set("mapping_protocol", value)
     }
 
     fn neighborhood_mode(&self) -> Result<NeighborhoodModeLight, PersistentConfigError> {
-        NeighborhoodModeLight::from_str(
-            self.get("neighborhood_mode")?
-                .expect("ever-supplied value is missing: neighborhood-mode; database is corrupt!")
-                .as_str(),
+        let primitive_decoder = NULL_DECODER;
+        let complex_type_translator = |val_opt: Option<String>| {
+            NeighborhoodModeLight::from_str(&val_opt.expectv("checked non optional value"))
+                .map_err(PersistentConfigError::UninterpretableValue)
+        };
+        self.normalized_get(
+            "neighborhood_mode",
+            primitive_decoder,
+            complex_type_translator,
         )
-        .map_err(PersistentConfigError::UninterpretableValue)
     }
 
     fn set_neighborhood_mode(
         &mut self,
         value: NeighborhoodModeLight,
     ) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("neighborhood_mode", value)
+        self.normalized_set("neighborhood_mode", Some(value))
     }
 
     fn past_neighbors(
@@ -377,23 +386,21 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 &serde_cbor::ser::to_vec(&node_descriptors).expect("Serialization failed"),
             )
         });
-        Ok(self.dao.set(
+        let past_neighbors_encripted_opt = self.scl.encrypt(
             "past_neighbors",
-            self.scl.encrypt(
-                "past_neighbors",
-                encode_bytes(plain_data_opt)?,
-                Some(db_password.to_string()),
-                &self.dao,
-            )?,
-        )?)
+            encode_bytes(plain_data_opt)?,
+            Some(db_password.to_string()),
+            &self.dao,
+        )?;
+        self.normalized_set("past_neighbors", past_neighbors_encripted_opt)
     }
 
     fn start_block(&self) -> Result<u64, PersistentConfigError> {
-        self.simple_get_method(decode_u64, "start_block")
+        self.normalized_get("start_block", decode_u64, null_type_translator)
     }
 
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("start_block", value)
+        self.normalized_set("start_block", Some(value))
     }
 
     fn set_wallet_info(
@@ -434,41 +441,38 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 earning_wallet_address.to_string(),
             ));
         }
-        self.dao.set(
+        self.normalized_set(
             "consuming_wallet_private_key",
             Some(encrypted_consuming_wallet_private_key),
         )?;
-        Ok(self.dao.set(
+        self.normalized_set(
             "earning_wallet_address",
             Some(earning_wallet_address.to_string()),
-        )?)
-    }
-
-    fn payment_thresholds(&self) -> Result<PaymentThresholds, PersistentConfigError> {
-        self.combined_params_get_method(
-            |str: &str| PaymentThresholds::try_from(str),
-            "payment_thresholds",
         )
     }
 
+    fn payment_thresholds(&self) -> Result<PaymentThresholds, PersistentConfigError> {
+        self.combined_params_getter(|str| PaymentThresholds::try_from(str), "payment_thresholds")
+    }
+
     fn set_payment_thresholds(&mut self, curves: String) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("payment_thresholds", curves)
+        self.normalized_set("payment_thresholds", Some(curves))
     }
 
     fn rate_pack(&self) -> Result<RatePack, PersistentConfigError> {
-        self.combined_params_get_method(|str: &str| RatePack::try_from(str), "rate_pack")
+        self.combined_params_getter(|str| RatePack::try_from(str), "rate_pack")
     }
 
     fn set_rate_pack(&mut self, rate_pack: String) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("rate_pack", rate_pack)
+        self.normalized_set("rate_pack", Some(rate_pack))
     }
 
     fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError> {
-        self.combined_params_get_method(|str: &str| ScanIntervals::try_from(str), "scan_intervals")
+        self.combined_params_getter(|str| ScanIntervals::try_from(str), "scan_intervals")
     }
 
     fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError> {
-        self.simple_set_method("scan_intervals", intervals)
+        self.normalized_set("scan_intervals", Some(intervals))
     }
 }
 
@@ -523,36 +527,47 @@ impl PersistentConfigurationReal {
         })
     }
 
-    fn simple_set_method<T: Display>(
+    fn normalized_set<T: Display>(
         &mut self,
         parameter_name: &str,
-        value: T,
+        value_opt: Option<T>,
     ) -> Result<(), PersistentConfigError> {
-        Ok(self.dao.set(parameter_name, Some(value.to_string()))?)
+        self.dao
+            .set(parameter_name, value_opt.map(|val| val.to_string()))?;
+        Ok(())
     }
 
-    fn simple_get_method<T>(
+    fn normalized_get<T, U, C>(
         &self,
-        decoder: fn(Option<String>) -> Result<Option<T>, TypedConfigLayerError>,
         parameter: &str,
-    ) -> Result<T, PersistentConfigError> {
-        match decoder(self.get(parameter)?)? {
-            None => Self::missing_value_panic(parameter),
-            Some(rate) => Ok(rate),
+        primitive_decoder: fn(Option<String>) -> Result<Option<T>, TypedConfigLayerError>,
+        complex_type_translator: C,
+    ) -> Result<U, PersistentConfigError>
+    where
+        C: FnOnce(Option<T>) -> Result<U, PersistentConfigError> + Copy,
+    {
+        let none_db_value_treatment = || match type_name::<U>().contains("::Option<") {
+            true => complex_type_translator(None),
+            false => Self::missing_value_panic(parameter),
+        };
+
+        match primitive_decoder(self.get(parameter)?)? {
+            None => none_db_value_treatment(),
+            Some(value) => complex_type_translator(Some(value)),
         }
     }
 
-    fn combined_params_get_method<'a, T, C>(
-        &'a self,
+    fn combined_params_getter<T, C>(
+        &self,
         values_parser: C,
-        parameter: &'a str,
+        parameter: &str,
     ) -> Result<T, PersistentConfigError>
     where
         C: Fn(&str) -> Result<T, String>,
     {
         match decode_combined_params(values_parser, self.get(parameter)?)? {
             None => Self::missing_value_panic(parameter),
-            Some(rate) => Ok(rate),
+            Some(value) => Ok(value),
         }
     }
 
@@ -562,6 +577,22 @@ impl PersistentConfigurationReal {
             parameter_name
         )
     }
+}
+
+fn null_type_translator_opt<T, U: From<T>>(
+    primitive: Option<T>,
+) -> Result<Option<U>, PersistentConfigError> {
+    Ok(primitive.map(|val| U::from(val)))
+}
+
+fn null_type_translator<T, U: From<T>>(primitive: Option<T>) -> Result<U, PersistentConfigError> {
+    Ok(U::from(primitive.unwrap_or_else(|| {
+        panic!(
+            "This type translator is to be used only for \
+     ever-supplied values: but we crashed on None of {}",
+            type_name::<T>()
+        )
+    })))
 }
 
 #[cfg(test)]
@@ -581,6 +612,7 @@ mod tests {
     use paste::paste;
     use std::convert::TryFrom;
     use std::net::SocketAddr;
+    use std::ops::Add;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use tiny_hderive::bip32::ExtendedPrivKey;
@@ -1507,7 +1539,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ever-supplied gas_price value missing; database is corrupt!")]
+    #[should_panic(expected = "ever-supplied value missing: gas_price; database is corrupt!")]
     fn gas_price_does_not_tolerate_optional_output() {
         let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             "gas_price",
@@ -1724,7 +1756,7 @@ mod tests {
         );
     }
 
-    macro_rules! persistent_config_plain_data_assertions_for_simple_get_method {
+    macro_rules! plain_data_assertions_for_normalized_get_method {
         ($parameter_name: literal,$expected_in_database: literal, $expected_result: expr) => {
             paste! {
                 let get_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1755,7 +1787,7 @@ mod tests {
         };
     }
 
-    macro_rules! persistent_config_plain_data_assertions_for_simple_set_method {
+    macro_rules! plain_data_assertions_for_normalized_set_method {
         ($parameter_name: literal,$set_value: expr) => {
             paste! {
                 let set_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1779,7 +1811,7 @@ mod tests {
         };
     }
 
-    macro_rules! getter_method_plain_data_does_not_tolerate_none_value {
+    macro_rules! getter_method_for_plain_data_does_not_tolerate_none_value {
         ($parameter_name: literal) => {
             paste! {
                 let config_dao = ConfigDaoMock::new()
@@ -1797,7 +1829,7 @@ mod tests {
 
     #[test]
     fn rate_pack_get_method_works() {
-        persistent_config_plain_data_assertions_for_simple_get_method!(
+        plain_data_assertions_for_normalized_get_method!(
             "rate_pack",
             "7|11|15|20",
             RatePack {
@@ -1811,21 +1843,18 @@ mod tests {
 
     #[test]
     fn rate_pack_set_method_works() {
-        persistent_config_plain_data_assertions_for_simple_set_method!(
-            "rate_pack",
-            "7|11|15|20".to_string()
-        );
+        plain_data_assertions_for_normalized_set_method!("rate_pack", "7|11|15|20".to_string());
     }
 
     #[test]
     #[should_panic(expected = "ever-supplied value missing: rate_pack; database is corrupt!")]
     fn rate_pack_panics_at_none_value() {
-        getter_method_plain_data_does_not_tolerate_none_value!("rate_pack");
+        getter_method_for_plain_data_does_not_tolerate_none_value!("rate_pack");
     }
 
     #[test]
     fn scan_intervals_get_method_works() {
-        persistent_config_plain_data_assertions_for_simple_get_method!(
+        plain_data_assertions_for_normalized_get_method!(
             "scan_intervals",
             "40|60|50",
             ScanIntervals {
@@ -1838,7 +1867,7 @@ mod tests {
 
     #[test]
     fn scan_interval_set_method_works() {
-        persistent_config_plain_data_assertions_for_simple_set_method!(
+        plain_data_assertions_for_normalized_set_method!(
             "scan_intervals",
             "111|123|110".to_string()
         );
@@ -1847,12 +1876,12 @@ mod tests {
     #[test]
     #[should_panic(expected = "ever-supplied value missing: scan_intervals; database is corrupt!")]
     fn scan_intervals_panics_at_none_value() {
-        getter_method_plain_data_does_not_tolerate_none_value!("scan_intervals");
+        getter_method_for_plain_data_does_not_tolerate_none_value!("scan_intervals");
     }
 
     #[test]
     fn payment_thresholds_get_method_works() {
-        persistent_config_plain_data_assertions_for_simple_get_method!(
+        plain_data_assertions_for_normalized_get_method!(
             "payment_thresholds",
             "100000|1000|1000|20000|1000|20000",
             PaymentThresholds {
@@ -1868,7 +1897,7 @@ mod tests {
 
     #[test]
     fn payment_thresholds_set_method_works() {
-        persistent_config_plain_data_assertions_for_simple_set_method!(
+        plain_data_assertions_for_normalized_set_method!(
             "payment_thresholds",
             "1050|100050|1050|1050|20040|20040".to_string()
         );
@@ -1879,7 +1908,112 @@ mod tests {
         expected = "ever-supplied value missing: payment_thresholds; database is corrupt!"
     )]
     fn payment_thresholds_panics_at_none_value() {
-        getter_method_plain_data_does_not_tolerate_none_value!("payment_thresholds");
+        getter_method_for_plain_data_does_not_tolerate_none_value!("payment_thresholds");
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "This type translator is to be used only for ever-supplied values: but we \
+     crashed on None of node_lib::sub_lib::neighborhood::NodeDescriptor"
+    )]
+    fn null_type_translator_complains_about_optional_data() {
+        let type_being_falsely_ever_supplied: Option<NodeDescriptor> = None;
+
+        let _ = null_type_translator::<_, NodeDescriptor>(type_being_falsely_ever_supplied);
+    }
+
+    fn run_act_for_testing_normalized_get_on_optional_data(
+        subject: PersistentConfigurationReal,
+    ) -> Result<Option<String>, PersistentConfigError> {
+        subject.normalized_get(
+            "random_parameter",
+            |mut string_opt| Ok(string_opt.map(|string| string.add("_I_was_decoded"))),
+            |mut string_opt| Ok(string_opt.map(|string| string.add("_I_was_translated"))),
+        )
+    }
+
+    fn run_act_for_testing_normalized_get_on_required_data(
+        subject: PersistentConfigurationReal,
+    ) -> Result<String, PersistentConfigError> {
+        subject.normalized_get(
+            "random_parameter",
+            |mut string_opt| Ok(string_opt.map(|string| string.add("_I_was_decoded"))),
+            |mut string_opt| {
+                Ok(string_opt
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "if this blows up the inner \
+             automatic mechanism isn't working"
+                        )
+                    })
+                    .add("_I_was_translated"))
+            },
+        )
+    }
+
+    #[test]
+    fn normalized_get_handles_some_for_optional_data() {
+        let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            "random_parameter",
+            Some("optional_value_returned"),
+            false,
+        )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = run_act_for_testing_normalized_get_on_optional_data(subject);
+
+        assert_eq!(
+            result,
+            Ok(Some(
+                "optional_value_returned_I_was_decoded_I_was_translated".to_string()
+            ))
+        )
+    }
+
+    #[test]
+    fn normalized_get_handles_none_for_optional_data() {
+        let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            "random_parameter",
+            None,
+            false,
+        )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = run_act_for_testing_normalized_get_on_optional_data(subject);
+
+        assert_eq!(result, Ok(None))
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "ever-supplied value missing: random_parameter; database is corrupt!"
+    )]
+    fn normalized_get_handles_none_for_ever_supplied_data() {
+        let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            "random_parameter",
+            None,
+            false,
+        )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let _ = run_act_for_testing_normalized_get_on_required_data(subject);
+    }
+
+    #[test]
+    fn normalized_get_handles_ever_supplied_data() {
+        let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
+            "random_parameter",
+            Some("required_value_returned"),
+            false,
+        )));
+        let subject = PersistentConfigurationReal::new(Box::new(config_dao));
+
+        let result = run_act_for_testing_normalized_get_on_required_data(subject);
+
+        assert_eq!(
+            result,
+            Ok("required_value_returned_I_was_decoded_I_was_translated".to_string())
+        )
     }
 
     fn list_of_config_parameters() -> Vec<String> {

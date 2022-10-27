@@ -1,7 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-#![cfg(test)]
-
 pub mod utils;
 
 use crate::utils::MASQNode;
@@ -40,12 +38,12 @@ fn ui_requests_something_and_gets_corresponding_response() {
         true,
     );
     node.wait_for_log("UIGateway bound", Some(5000));
-    let descriptor_request = UiCheckPasswordRequest {
+    let check_password_request = UiCheckPasswordRequest {
         db_password_opt: None,
     };
     let mut client = UiConnection::new(port, NODE_UI_PROTOCOL);
 
-    client.send(descriptor_request);
+    client.send(check_password_request);
     let response: UiCheckPasswordResponse = client.skip_until_received().unwrap();
 
     assert_eq!(response, UiCheckPasswordResponse { matches: true });
