@@ -71,7 +71,7 @@ use std::any::type_name;
 use std::any::Any;
 use std::default::Default;
 use std::fmt::Display;
-use std::ops::{Add, Div, Mul};
+use std::ops::{Div, Mul};
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 use thousands::Separable;
@@ -1522,7 +1522,7 @@ mod tests {
     use super::*;
     use std::cell::RefCell;
     use std::collections::HashMap;
-    use std::ops::Sub;
+    use std::ops::{Add, Sub};
     use std::panic::catch_unwind;
     use std::rc::Rc;
     use std::sync::Mutex;

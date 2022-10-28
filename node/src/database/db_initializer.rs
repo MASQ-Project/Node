@@ -1,9 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
-use crate::database::db_migrations::{DbMigrator, DbMigratorReal, ExternalData};
+use crate::database::db_migrations::{DbMigrator, DbMigratorReal};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
@@ -69,6 +70,7 @@ impl DbInitializer for DbInitializerReal {
             init_config,
         )
     }
+
     fn initialize_to_version(
         &self,
         path: &Path,
@@ -77,7 +79,11 @@ impl DbInitializer for DbInitializerReal {
         init_config: DbInitializationConfig,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
         let is_creation_necessary = Self::is_creation_necessary(path);
-        if !create_if_necessary && is_creation_necessary {
+        if !matches!(
+            init_config.init_mode,
+            InitializationMode::CreationAndMigration { .. }
+        ) && is_creation_necessary
+        {
             return Err(InitializationError::Nonexistent);
         }
         Self::create_data_directory_if_necessary(path);
@@ -86,16 +92,22 @@ impl DbInitializer for DbInitializerReal {
         match Connection::open_with_flags(database_file_path, flags) {
             Ok(conn) => {
                 eprintln!("Opened existing database at {:?}", database_file_path);
-                Self::conn_special_setup(&conn, &init_config)?;
+                Self::conn_with_special_configuration(&conn, &init_config)?;
                 let config = self.extract_configurations(&conn);
+                let found_schema_version = config.get("schema_version");
                 match (
-                    Self::is_migration_required(config.get("schema_version"))?,
-                    &init_config.mig_suppression_setting,
+                    Self::is_migration_required(found_schema_version)?,
+                    init_config.init_mode,
                 ) {
                     (None, _) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
-                    (Some(mismatched_version), &MigrationSuppressed::No) => {
-                        let external_params = ExternalData::from((init_config, false));
-                        let migrator = Box::new(DbMigratorReal::new(external_params));
+                    (Some(_), InitializationMode::MigrationBlowsUp) => {
+                        panic!("Broken code: Migrating database at inappropriate place")
+                    }
+                    (
+                        Some(mismatched_version),
+                        InitializationMode::CreationAndMigration { external_data },
+                    ) => {
+                        let migrator = Box::new(DbMigratorReal::new(external_data));
                         self.migrate_and_return_connection(
                             conn,
                             mismatched_version,
@@ -105,10 +117,10 @@ impl DbInitializer for DbInitializerReal {
                             migrator,
                         )
                     }
-                    (Some(_), &MigrationSuppressed::Yes) => {
+                    (Some(_), InitializationMode::MigrationSuppressed) => {
                         Ok(Box::new(ConnectionWrapperReal::new(conn)))
                     }
-                    (Some(_), &MigrationSuppressed::WithErr) => {
+                    (Some(_), InitializationMode::MigrationTrowsErr) => {
                         Err(InitializationError::SuppressedMigration)
                     }
                 }
@@ -120,8 +132,8 @@ impl DbInitializer for DbInitializerReal {
                 match Connection::open_with_flags(database_file_path, flags) {
                     Ok(conn) => {
                         eprintln!("Created new database at {:?}", database_file_path);
-                        Self::conn_special_setup(&conn, &init_config)?;
-                        self.create_database_tables(&conn, ExternalData::from((init_config, true)));
+                        Self::conn_with_special_configuration(&conn, &init_config)?;
+                        self.create_database_tables(&conn, ExternalData::from(init_config));
                         Ok(Box::new(ConnectionWrapperReal::new(conn)))
                     }
                     Err(e) => Err(InitializationError::SqliteError(e)),
@@ -338,7 +350,7 @@ impl DbInitializerReal {
         .expect("Can't create banned table");
     }
 
-    fn conn_special_setup(
+    fn conn_with_special_configuration(
         conn: &Connection,
         init_config: &DbInitializationConfig,
     ) -> Result<(), InitializationError> {
@@ -524,15 +536,15 @@ pub fn connection_or_panic(
 pub struct DbInitializationConfig {
     pub special_conn_setup: Vec<fn(&Connection) -> rusqlite::Result<()>>,
     //only things related to db migrations are underneath
-    pub mig_suppression_setting: MigrationSuppressed,
-    pub external_data_for_migrations: Option<ExternalData>,
+    pub init_mode: InitializationMode,
 }
 
-#[derive(PartialEq, Eq, Debug, Clone, Copy)]
-pub enum MigrationSuppressed {
-    No,
-    Yes,
-    WithErr,
+#[derive(PartialEq, Eq, Debug, Clone)]
+pub enum InitializationMode {
+    CreationAndMigration { external_data: ExternalData },
+    MigrationBlowsUp,
+    MigrationSuppressed,
+    MigrationTrowsErr,
 }
 
 impl DbInitializationConfig {
@@ -547,33 +559,29 @@ impl DbInitializationConfig {
     pub fn panic_on_migration() -> Self {
         Self {
             special_conn_setup: vec![],
-            mig_suppression_setting: MigrationSuppressed::No,
-            external_data_for_migrations: None,
+            init_mode: InitializationMode::MigrationBlowsUp,
         }
     }
 
-    pub fn create_or_migrate(external_params: ExternalData) -> Self {
+    pub fn create_or_migrate(external_data: ExternalData) -> Self {
         //is used also if a fresh db is being created
         Self {
             special_conn_setup: vec![],
-            mig_suppression_setting: MigrationSuppressed::No,
-            external_data_for_migrations: Some(external_params),
+            init_mode: InitializationMode::CreationAndMigration { external_data },
         }
     }
 
     pub fn migration_suppressed() -> Self {
         Self {
             special_conn_setup: vec![],
-            mig_suppression_setting: MigrationSuppressed::Yes,
-            external_data_for_migrations: None,
+            init_mode: InitializationMode::MigrationSuppressed,
         }
     }
 
     pub fn migration_suppressed_with_error() -> Self {
         Self {
             special_conn_setup: vec![],
-            mig_suppression_setting: MigrationSuppressed::WithErr,
-            external_data_for_migrations: None,
+            init_mode: InitializationMode::MigrationTrowsErr,
         }
     }
 
@@ -581,38 +589,67 @@ impl DbInitializationConfig {
     pub fn test_default() -> Self {
         Self {
             special_conn_setup: vec![],
-            mig_suppression_setting: MigrationSuppressed::Yes,
-            external_data_for_migrations: Some(ExternalData {
-                chain: TEST_DEFAULT_CHAIN,
-                neighborhood_mode: NeighborhoodModeLight::Standard,
-                db_password_opt: None,
-            }),
+            init_mode: InitializationMode::CreationAndMigration {
+                external_data: ExternalData {
+                    chain: TEST_DEFAULT_CHAIN,
+                    neighborhood_mode: NeighborhoodModeLight::Standard,
+                    db_password_opt: None,
+                },
+            },
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ExternalData {
+    pub chain: Chain,
+    pub neighborhood_mode: NeighborhoodModeLight,
+    pub db_password_opt: Option<String>,
+}
+
+impl ExternalData {
+    pub fn new(
+        chain: Chain,
+        neighborhood_mode: NeighborhoodModeLight,
+        db_password_opt: Option<String>,
+    ) -> Self {
+        Self {
+            chain,
+            neighborhood_mode,
+            db_password_opt,
+        }
+    }
+}
+
+impl From<DbInitializationConfig> for ExternalData {
+    fn from(init_config: DbInitializationConfig) -> Self {
+        match init_config.init_mode {
+            InitializationMode::CreationAndMigration { external_data } => external_data,
+            _ => panic!("Attempt to create new database without proper configuration"),
         }
     }
 }
 
 impl PartialEq for DbInitializationConfig {
     fn eq(&self, other: &Self) -> bool {
-        (
-            self.external_data_for_migrations == other.external_data_for_migrations)
-            && (self.mig_suppression_setting == other.mig_suppression_setting)
+        ((self.init_mode == other.init_mode)
             //I'm making most of this, fn pointers cannot be compared in Rust by August 2022
-            && (self.special_conn_setup.len() == other.special_conn_setup.len()
-        )
+            && (self.special_conn_setup.len() == other.special_conn_setup.len()))
     }
 }
 
 impl Debug for DbInitializationConfig {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "DbInitializationConfig{{special_conn_setup: Addresses{:?}, should_be_suppressed: {:?}, external_data_set: {:?}}}",
-               self.special_conn_setup
-                   .iter()
-                   //reportedly, there is no guarantee the number varies by different functions,
-                   //so it rather shows how many items are in than anything else
-                   .map(|pointer| *pointer as usize)
-                   .collect::<Vec<_>>(),
-               self.mig_suppression_setting,
-               self.external_data_for_migrations
+        write!(
+            f,
+            "DbInitializationConfig{{special_conn_setup: Addresses{:?}, init_config: {:?}}}",
+            self.special_conn_setup
+                .iter()
+                //reportedly, there is no guarantee the number varies by different functions,
+                //so it rather shows how many items are in than anything else
+                .map(|pointer| *pointer as usize)
+                .collect::<Vec<_>>(),
+            self.init_mode,
         )
     }
 }
@@ -743,9 +780,10 @@ mod tests {
         assert_create_table_stm_contains_all_parts,
         assert_index_stm_is_coupled_with_right_parameter, assert_no_index_exists_for_table,
         assert_table_created_as_strict, bring_db_0_back_to_life_and_return_connection,
-        make_external_migration_parameters, retrieve_config_row, DbMigratorMock,
+        make_external_data, retrieve_config_row, DbMigratorMock,
     };
     use crate::test_utils::make_wallet;
+    use dirs::data_dir;
     use itertools::Either::{Left, Right};
     use itertools::{Either, Itertools};
     use masq_lib::blockchains::chains::Chain;
@@ -761,6 +799,7 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
     use std::ops::Not;
+    use std::panic::catch_unwind;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use tokio::net::TcpListener;
@@ -769,44 +808,6 @@ mod tests {
     fn constants_have_correct_values() {
         assert_eq!(DATABASE_FILE, "node-data.db");
         assert_eq!(CURRENT_SCHEMA_VERSION, 7);
-    }
-
-    #[test]
-    fn db_initialize_does_not_create_if_directed_not_to_and_directory_does_not_exist() {
-        let home_dir = ensure_node_home_directory_does_not_exist(
-            "db_initializer",
-            "db_initialize_does_not_create_if_directed_not_to_and_directory_does_not_exist",
-        );
-        let subject = DbInitializerReal::default();
-
-        let result = subject.initialize(&home_dir, false, DbInitializationConfig::test_default());
-
-        assert_eq!(result.err().unwrap(), InitializationError::Nonexistent);
-        let result = Connection::open(&home_dir.join(DATABASE_FILE));
-        match result.err().unwrap() {
-            Error::SqliteFailure(_, _) => (),
-            x => panic!("Expected SqliteFailure, got {:?}", x),
-        }
-    }
-
-    #[test]
-    fn db_initialize_does_not_create_if_directed_not_to_and_database_file_does_not_exist() {
-        let home_dir = ensure_node_home_directory_exists(
-            "db_initializer",
-            "db_initialize_does_not_create_if_directed_not_to_and_database_file_does_not_exist",
-        );
-        let subject = DbInitializerReal::default();
-
-        let result = subject.initialize(&home_dir, false, DbInitializationConfig::test_default());
-
-        assert_eq!(result.err().unwrap(), InitializationError::Nonexistent);
-        let mut flags = OpenFlags::empty();
-        flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
-        let result = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags);
-        match result.err().unwrap() {
-            Error::SqliteFailure(_, _) => (),
-            x => panic!("Expected SqliteFailure, got {:?}", x),
-        }
     }
 
     #[test]
@@ -1198,7 +1199,7 @@ mod tests {
     }
 
     #[test]
-    fn conn_special_setup_retrieves_first_error_encountered() {
+    fn conn_with_special_configuration_retrieves_first_error_encountered() {
         let fn_one = |_: &_| Ok(());
         let fn_two = |_: &_| Err(Error::ExecuteReturnedResults);
         let fn_three = |_: &_| Err(Error::GetAuxWrongType);
@@ -1206,7 +1207,7 @@ mod tests {
         let init_config =
             make_default_config_with_different_pointers(vec![fn_one, fn_two, fn_three]);
 
-        let result = DbInitializerReal::conn_special_setup(&conn, &init_config);
+        let result = DbInitializerReal::conn_with_special_configuration(&conn, &init_config);
 
         assert_eq!(result, Err(SqliteError(Error::ExecuteReturnedResults)))
     }
@@ -1261,8 +1262,8 @@ mod tests {
             pre_initialization(home_dir.as_path())
         }
         let malformed_setup_function = |_: &_| Err(Error::GetAuxWrongType);
-        let init_config = DbInitializationConfig::panic_on_migration()
-            .add_special_conn_setup(malformed_setup_function);
+        let init_config =
+            DbInitializationConfig::test_default().add_special_conn_setup(malformed_setup_function);
 
         let error = DbInitializerReal::default()
             .initialize(home_dir.as_path(), true, init_config)
@@ -1433,7 +1434,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Attempt to migrate the database at an inappropriate place")]
+    #[should_panic(expected = "Broken code: Migrating database at inappropriate place")]
     fn database_migration_causes_panic_if_not_allowed() {
         let data_dir = ensure_node_home_directory_exists(
             "db_initializer",
@@ -1449,21 +1450,53 @@ mod tests {
         );
     }
 
-    #[test]
-    #[should_panic(expected = "Attempt to create a new database without proper configuration")]
-    fn database_creation_panics_if_config_is_missing() {
-        let data_dir = ensure_node_home_directory_exists(
-            "db_initializer",
-            "database_creation_panics_if_config_is_missing",
-        );
+    fn test_if_new_database_was_created(home_dir: &Path) {
+        let mut flags = OpenFlags::empty();
+        flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
+        let result = Connection::open_with_flags(home_dir.join(DATABASE_FILE), flags);
+        match result.err().unwrap() {
+            Error::SqliteFailure(_, _) => (),
+            x => panic!("Expected SqliteFailure, got {:?}", x),
+        }
+    }
+
+    fn common_body_for_testing_db_creation_under_unfavorable_conditions(data_dir: &Path) {
         let subject = DbInitializerReal::default();
 
-        let _ = subject.initialize(
-            &data_dir,
-            true,
-            //suppressed doesn't contain a populated config; only 'create_or_migrate()' does
+        [
+            DbInitializationConfig::panic_on_migration(),
             DbInitializationConfig::migration_suppressed(),
+            DbInitializationConfig::migration_suppressed_with_error(),
+        ]
+        .into_iter()
+        .for_each(|init_config| {
+            let result = subject.initialize(data_dir, true, init_config);
+
+            assert_eq!(result.err().unwrap(), InitializationError::Nonexistent);
+            test_if_new_database_was_created(data_dir)
+        })
+    }
+
+    #[test]
+    fn db_initialize_does_not_create_if_directed_not_to_via_initialization_config_and_directory_does_not_exist(
+    ) {
+        let data_dir = ensure_node_home_directory_does_not_exist(
+            "db_initializer",
+            "db_initialize_does_not_create_if_directed_not_to_via_initialization_config_and_directory_does_not_exist",
         );
+
+        common_body_for_testing_db_creation_under_unfavorable_conditions(&data_dir)
+    }
+
+    #[test]
+    fn db_initialize_does_not_create_if_directed_not_to_via_initialization_config_and_database_file_does_not_exist(
+    ) {
+        let data_dir = ensure_node_home_directory_exists(
+            "db_initializer",
+            "db_initialize_does_not_create_if_directed_not_to_via_initialization_config_and_database_file_does_not_exist",
+        );
+
+        common_body_for_testing_db_creation_under_unfavorable_conditions(&data_dir)
     }
 
     #[test]
@@ -1498,8 +1531,7 @@ mod tests {
             DbInitializationConfig::panic_on_migration(),
             DbInitializationConfig {
                 special_conn_setup: vec![],
-                mig_suppression_setting: MigrationSuppressed::No,
-                external_data_for_migrations: None
+                init_mode: InitializationMode::MigrationBlowsUp,
             }
         )
     }
@@ -1507,11 +1539,12 @@ mod tests {
     #[test]
     fn create_or_migrate_properly_set() {
         assert_eq!(
-            DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
+            DbInitializationConfig::create_or_migrate(make_external_data()),
             DbInitializationConfig {
                 special_conn_setup: vec![],
-                mig_suppression_setting: MigrationSuppressed::No,
-                external_data_for_migrations: Some(make_external_migration_parameters())
+                init_mode: InitializationMode::CreationAndMigration {
+                    external_data: make_external_data()
+                },
             }
         )
     }
@@ -1522,8 +1555,7 @@ mod tests {
             DbInitializationConfig::migration_suppressed(),
             DbInitializationConfig {
                 special_conn_setup: vec![],
-                mig_suppression_setting: MigrationSuppressed::Yes,
-                external_data_for_migrations: None
+                init_mode: InitializationMode::MigrationSuppressed,
             }
         )
     }
@@ -1534,8 +1566,7 @@ mod tests {
             DbInitializationConfig::migration_suppressed_with_error(),
             DbInitializationConfig {
                 special_conn_setup: vec![],
-                mig_suppression_setting: MigrationSuppressed::WithErr,
-                external_data_for_migrations: None
+                init_mode: InitializationMode::MigrationTrowsErr,
             }
         )
     }
@@ -1545,8 +1576,7 @@ mod tests {
     ) -> DbInitializationConfig {
         DbInitializationConfig {
             special_conn_setup: pointers,
-            mig_suppression_setting: MigrationSuppressed::No,
-            external_data_for_migrations: None,
+            init_mode: InitializationMode::MigrationBlowsUp,
         }
     }
 
@@ -1556,12 +1586,13 @@ mod tests {
                 5;
                 Ok(())
             }],
-            mig_suppression_setting: MigrationSuppressed::No,
-            external_data_for_migrations: Some(ExternalData {
-                chain: Default::default(),
-                neighborhood_mode: NeighborhoodModeLight::Standard,
-                db_password_opt: None,
-            }),
+            init_mode: InitializationMode::CreationAndMigration {
+                external_data: ExternalData {
+                    chain: Default::default(),
+                    neighborhood_mode: NeighborhoodModeLight::Standard,
+                    db_password_opt: None,
+                },
+            },
         }
     }
 
@@ -1582,8 +1613,7 @@ mod tests {
         let config_four = make_default_config_with_different_pointers(vec![fn_one, fn_one]);
         let config_five = DbInitializationConfig {
             special_conn_setup: vec![fn_one],
-            mig_suppression_setting: MigrationSuppressed::Yes,
-            external_data_for_migrations: None,
+            init_mode: InitializationMode::MigrationSuppressed,
         };
         let config_six = make_config_with_specific_migration_arguments();
 
@@ -1617,14 +1647,17 @@ mod tests {
         assert!(
             config_one_debug.contains("DbInitializationConfig{special_conn_setup: Addresses[")
                 && config_one_debug.contains(
-                    "], should_be_suppressed: No, external_data_set: Some(ExternalData \
-            { chain: PolyMainnet, neighborhood_mode: Standard, db_password_opt: None })}"
-                )
+                    "], init_config: CreationAndMigration { external_data: ExternalData \
+            { chain: PolyMainnet, neighborhood_mode: Standard, db_password_opt: None } }}"
+                ),
+            "instead, the first printed message contained: {}",
+            config_one_debug
         );
         assert!(
             config_two_debug.contains("DbInitializationConfig{special_conn_setup: Addresses[")
-                && config_two_debug
-                    .contains("], should_be_suppressed: No, external_data_set: None}")
+                && config_two_debug.contains("], init_config: MigrationBlowsUp}"),
+            "instead, the second printed message contained: {}",
+            config_two_debug
         );
         assert!(regex_one.is_match(&config_one_debug));
         assert!(regex_two.is_match(&config_two_debug))

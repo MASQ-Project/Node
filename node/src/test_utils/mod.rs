@@ -919,7 +919,7 @@ pub mod unshared_test_utils {
         () => {
             #[cfg(test)]
             fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-                //no necessity to implemented it for all impls of the trait this is to be a member of
+                //no necessity to implement it for all impls of the trait this is to be a member of
                 intentionally_blank!()
             }
         };

@@ -5,7 +5,9 @@ use crate::accountant::dao_utils::VigilantFlatten;
 use crate::accountant::gwei_to_wei;
 use crate::blockchain::bip39::Bip39;
 use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::database::db_initializer::{DbInitializationConfig, CURRENT_SCHEMA_VERSION};
+use crate::database::db_initializer::{
+    DbInitializationConfig, ExternalData, InitializationMode, CURRENT_SCHEMA_VERSION,
+};
 use crate::db_config::db_encryption_layer::DbEncryptionLayer;
 use crate::db_config::typed_config_layer::decode_bytes;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
@@ -831,43 +833,6 @@ impl DbMigratorReal {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct ExternalData {
-    pub chain: Chain,
-    pub neighborhood_mode: NeighborhoodModeLight,
-    pub db_password_opt: Option<String>,
-}
-
-impl ExternalData {
-    pub fn new(
-        chain: Chain,
-        neighborhood_mode: NeighborhoodModeLight,
-        db_password_opt: Option<String>,
-    ) -> Self {
-        Self {
-            chain,
-            neighborhood_mode,
-            db_password_opt,
-        }
-    }
-}
-
-impl From<(DbInitializationConfig, bool)> for ExternalData {
-    fn from(tuple: (DbInitializationConfig, bool)) -> Self {
-        let (init_config, db_newly_created) = tuple;
-        init_config.external_data_for_migrations.unwrap_or_else(|| {
-            panic!(
-                "{}",
-                if db_newly_created {
-                    "Attempt to create a new database without proper configuration"
-                } else {
-                    "Attempt to migrate the database at an inappropriate place"
-                }
-            )
-        })
-    }
-}
-
 #[derive(Debug)]
 struct InterimMigrationPlaceholder(usize);
 
@@ -891,11 +856,12 @@ mod tests {
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::{
-        DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION, DATABASE_FILE,
+        DbInitializer, DbInitializerReal, ExternalData, InitializationMode, CURRENT_SCHEMA_VERSION,
+        DATABASE_FILE,
     };
     use crate::database::db_migrations::{
         DBMigrationUtilities, DBMigrationUtilitiesReal, DatabaseMigration, DbInitializationConfig,
-        DbMigrator, ExternalData, MigDeclarationUtilities, Migrate_0_to_1, StatementObject,
+        DbMigrator, MigDeclarationUtilities, Migrate_0_to_1, StatementObject,
         StatementWithRusqliteParams,
     };
     use crate::database::db_migrations::{DBMigratorInnerConfiguration, DbMigratorReal};
@@ -912,7 +878,7 @@ mod tests {
         assert_create_table_stm_contains_all_parts,
         assert_index_stm_is_coupled_with_right_parameter, assert_no_index_exists_for_table,
         assert_table_does_not_exist, bring_db_0_back_to_life_and_return_connection,
-        make_external_migration_parameters,
+        make_external_data,
     };
     use crate::test_utils::database_utils::{assert_table_created_as_strict, retrieve_config_row};
     use crate::test_utils::make_wallet;
@@ -932,6 +898,7 @@ mod tests {
     use std::fmt::Debug;
     use std::fs::create_dir_all;
     use std::iter::once;
+    use std::mem::swap;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -1106,7 +1073,7 @@ mod tests {
 
     #[test]
     fn migrate_database_handles_an_error_from_creating_the_root_transaction() {
-        let subject = DbMigratorReal::new(make_external_migration_parameters());
+        let subject = DbMigratorReal::new(make_external_data());
         let mismatched_schema = 0;
         let target_version = 5; //irrelevant
         let connection = ConnectionWrapperMock::default()
@@ -1130,7 +1097,7 @@ mod tests {
         let mig_config = DBMigratorInnerConfiguration::new();
         let migration_utilities =
             DBMigrationUtilitiesReal::new(&mut conn_wrapper, mig_config).unwrap();
-        let subject = DbMigratorReal::new(make_external_migration_parameters());
+        let subject = DbMigratorReal::new(make_external_data());
 
         let captured_panic = catch_unwind(AssertUnwindSafe(|| {
             subject.initiate_migrations(
@@ -1271,7 +1238,7 @@ mod tests {
             ))
             .update_schema_version_result(Err(Error::InvalidQuery))
             .update_schema_version_params(&update_schema_version_params_arc);
-        let subject = DbMigratorReal::new(make_external_migration_parameters());
+        let subject = DbMigratorReal::new(make_external_data());
 
         let result = subject.migrate_semi_automated(
             &mut migration_record,
@@ -1296,7 +1263,7 @@ mod tests {
             .make_mig_declaration_utils_result(Box::new(migrate_declaration_utils));
         let mismatched_schema = 0;
         let target_version = 5; //not relevant
-        let subject = DbMigratorReal::new(make_external_migration_parameters());
+        let subject = DbMigratorReal::new(make_external_data());
 
         let result = subject.initiate_migrations(
             mismatched_schema,
@@ -1331,7 +1298,7 @@ mod tests {
             },
         )
         .unwrap();
-        let mut external_parameters = make_external_migration_parameters();
+        let mut external_parameters = make_external_data();
         external_parameters.db_password_opt = Some("booga".to_string());
         let logger = Logger::new("test_logger");
         let subject = utils.make_mig_declaration_utils(&external_parameters, &logger);
@@ -1355,7 +1322,7 @@ mod tests {
             },
         )
         .unwrap();
-        let external_parameters = make_external_migration_parameters();
+        let external_parameters = make_external_data();
         let logger = Logger::new("test_logger");
         let subject = utils.make_mig_declaration_utils(&external_parameters, &logger);
 
@@ -1393,7 +1360,7 @@ mod tests {
         ];
         let mut connection_wrapper = ConnectionWrapperReal::new(connection);
         let config = DBMigratorInnerConfiguration::new();
-        let external_parameters = make_external_migration_parameters();
+        let external_parameters = make_external_data();
         let subject = DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap();
 
         let result = subject
@@ -1439,7 +1406,7 @@ mod tests {
             &[&statement_1, &statement_2, &statement_3];
         let mut connection_wrapper = ConnectionWrapperReal::new(connection);
         let config = DBMigratorInnerConfiguration::new();
-        let external_parameters = make_external_migration_parameters();
+        let external_parameters = make_external_data();
         let subject = DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap();
 
         let result = subject
@@ -1499,7 +1466,7 @@ mod tests {
         ];
         let mut conn_wrapper = ConnectionWrapperReal::new(conn);
         let config = DBMigratorInnerConfiguration::new();
-        let external_params = make_external_migration_parameters();
+        let external_params = make_external_data();
         let subject = DBMigrationUtilitiesReal::new(&mut conn_wrapper, config).unwrap();
 
         let result = subject
@@ -1577,7 +1544,7 @@ mod tests {
             db_configuration_table: "test".to_string(),
             current_schema_version: 5,
         };
-        let subject = DbMigratorReal::new(make_external_migration_parameters());
+        let subject = DbMigratorReal::new(make_external_data());
         let mismatched_schema = 2;
         let target_version = 5;
 
@@ -1645,7 +1612,7 @@ mod tests {
             db_configuration_table: "test".to_string(),
             current_schema_version: 5,
         };
-        let subject = DbMigratorReal::new(make_external_migration_parameters());
+        let subject = DbMigratorReal::new(make_external_data());
         let mismatched_schema = 0;
         let target_version = 3;
 
@@ -1687,7 +1654,7 @@ mod tests {
             .update_schema_version_result(Ok(()))
             .commit_result(Ok(()));
         let target_version = 5; //not relevant
-        let subject = DbMigratorReal::new(make_external_migration_parameters());
+        let subject = DbMigratorReal::new(make_external_data());
 
         let result = subject.initiate_migrations(
             outdated_schema,
@@ -1747,7 +1714,7 @@ mod tests {
             .update_schema_version_result(Ok(()))
             .update_schema_version_result(Ok(()))
             .commit_result(Err("Committing transaction failed".to_string()));
-        let subject = DbMigratorReal::new(make_external_migration_parameters());
+        let subject = DbMigratorReal::new(make_external_data());
 
         let result =
             subject.initiate_migrations(0, 2, Box::new(migration_utils), list_of_migrations);
@@ -1774,7 +1741,7 @@ mod tests {
             &dir_path,
             1,
             false,
-            DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
+            DbInitializationConfig::create_or_migrate(make_external_data()),
         );
         let connection = result.unwrap();
         let (mp_value, mp_encrypted) = retrieve_config_row(connection.as_ref(), "mapping_protocol");
@@ -1802,7 +1769,7 @@ mod tests {
                     &dir_path,
                     start_at,
                     true,
-                    DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
+                    DbInitializationConfig::create_or_migrate(make_external_data()),
                 )
                 .unwrap();
         }
@@ -1811,7 +1778,7 @@ mod tests {
             &dir_path,
             start_at + 1,
             false,
-            DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
+            DbInitializationConfig::create_or_migrate(make_external_data()),
         );
 
         let connection = result.unwrap();
@@ -1842,7 +1809,7 @@ mod tests {
                     &dir_path,
                     start_at,
                     true,
-                    DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
+                    DbInitializationConfig::create_or_migrate(make_external_data()),
                 )
                 .unwrap();
         }
@@ -1882,13 +1849,9 @@ mod tests {
         let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
         let password_opt = &Some("password".to_string());
         let subject = DbInitializerReal::default();
-        let mut init_config =
-            DbInitializationConfig::create_or_migrate(make_external_migration_parameters());
-        init_config
-            .external_data_for_migrations
-            .as_mut()
-            .unwrap()
-            .db_password_opt = password_opt.clone();
+        let mut external_data = make_external_data();
+        external_data.db_password_opt = password_opt.as_ref().cloned();
+        let mut init_config = DbInitializationConfig::create_or_migrate(external_data);
         let original_private_key = {
             let schema3_conn = subject
                 .initialize_to_version(&data_path, 3, true, init_config.clone())
@@ -1973,13 +1936,9 @@ mod tests {
         let _ = bring_db_0_back_to_life_and_return_connection(&db_path);
         let password_opt = &Some("password".to_string());
         let subject = DbInitializerReal::default();
-        let mut init_config =
-            DbInitializationConfig::create_or_migrate(make_external_migration_parameters());
-        init_config
-            .external_data_for_migrations
-            .as_mut()
-            .unwrap()
-            .db_password_opt = password_opt.clone();
+        let mut external_data = make_external_data();
+        external_data.db_password_opt = password_opt.as_ref().cloned();
+        let mut init_config = DbInitializationConfig::create_or_migrate(external_data);
 
         let mut schema4_conn = subject
             .initialize_to_version(&data_path, 4, false, init_config)
@@ -2015,7 +1974,7 @@ mod tests {
                 &dir_path,
                 start_at,
                 true,
-                DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
+                DbInitializationConfig::create_or_migrate(make_external_data()),
             )
             .unwrap();
         let wallet_1 = make_wallet("scotland_yard");
@@ -2094,7 +2053,7 @@ mod tests {
                     &dir_path,
                     start_at,
                     true,
-                    DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
+                    DbInitializationConfig::create_or_migrate(make_external_data()),
                 )
                 .unwrap();
         }
@@ -2216,7 +2175,7 @@ mod tests {
                     &dir_path,
                     5,
                     true,
-                    DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
+                    DbInitializationConfig::create_or_migrate(make_external_data()),
                 )
                 .unwrap();
         }
@@ -2225,7 +2184,7 @@ mod tests {
             &dir_path,
             6,
             false,
-            DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
+            DbInitializationConfig::create_or_migrate(make_external_data()),
         );
 
         let connection = result.unwrap();
@@ -2257,7 +2216,7 @@ mod tests {
                 &dir_path,
                 6,
                 true,
-                DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
+                DbInitializationConfig::create_or_migrate(make_external_data()),
             )
             .unwrap();
         insert_value(&*pre_db_conn,"insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) \
@@ -2280,7 +2239,7 @@ mod tests {
                 &dir_path,
                 7,
                 false,
-                DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
+                DbInitializationConfig::create_or_migrate(make_external_data()),
             )
             .unwrap();
 
@@ -2372,10 +2331,10 @@ mod tests {
                 &dir_path,
                 6,
                 true,
-                DbInitializationConfig::create_or_migrate(make_external_migration_parameters()),
+                DbInitializationConfig::create_or_migrate(make_external_data()),
             )
             .unwrap();
-        let mut subject = DbMigratorReal::new(make_external_migration_parameters());
+        let mut subject = DbMigratorReal::new(make_external_data());
         subject.logger = Logger::new("migration_from_6_to_7_without_any_data");
 
         subject.migrate_database(6, 7, conn).unwrap();

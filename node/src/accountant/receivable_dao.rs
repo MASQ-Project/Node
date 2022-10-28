@@ -396,9 +396,8 @@ mod tests {
         assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,
         make_receivable_account,
     };
-    use crate::database::db_initializer::DbInitializerReal;
     use crate::database::db_initializer::{DbInitializationConfig, DbInitializer};
-    use crate::database::db_migrations::ExternalData;
+    use crate::database::db_initializer::{DbInitializerReal, ExternalData};
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_wallet;
@@ -1013,8 +1012,7 @@ mod tests {
 
     #[test]
     fn custom_query_handles_empty_table_in_top_records_mode() {
-        let main_test_setup =
-            |conn: &dyn ConnectionWrapper, _insert: InsertReceivableClosureSignature| {};
+        let main_test_setup = |_conn: &dyn ConnectionWrapper, _insert: InsertReceivableHelperFn| {};
         let subject = custom_query_test_body_for_receivable(
             "custom_query_handles_empty_table_in_top_records_mode",
             main_test_setup,
@@ -1028,7 +1026,7 @@ mod tests {
         assert_eq!(result, None)
     }
 
-    type InsertReceivableClosureSignature<'b> =
+    type InsertReceivableHelperFn<'b> =
         &'b dyn for<'a> Fn(&'a dyn ConnectionWrapper, &'a str, i128, i64);
 
     macro_rules! simplified_insert {
@@ -1039,11 +1037,11 @@ mod tests {
 
     fn common_setup_of_accounts_for_tests_of_top_records(
         now: i64,
-    ) -> Box<dyn Fn(&dyn ConnectionWrapper, InsertReceivableClosureSignature)> {
+    ) -> Box<dyn Fn(&dyn ConnectionWrapper, InsertReceivableHelperFn)> {
         //Accounts of balances smaller than one gwei don't qualify.
         //Two accounts differ only in balance but not the debt's age, two other in debt's age but are same at balance.
         //That setup allows a check of doubled ordering
-        Box::new(move |conn, insert: InsertReceivableClosureSignature| {
+        Box::new(move |conn, insert: InsertReceivableHelperFn| {
             let insert = simplified_insert!(conn, insert);
             insert(
                 "0x1111111111111111111111111111111111111111",
@@ -1151,8 +1149,7 @@ mod tests {
 
     #[test]
     fn custom_query_handles_empty_table_in_range_mode() {
-        let main_test_setup =
-            |_conn: &dyn ConnectionWrapper, _insert: InsertReceivableClosureSignature| {};
+        let main_test_setup = |_conn: &dyn ConnectionWrapper, _insert: InsertReceivableHelperFn| {};
         let subject = custom_query_test_body_for_receivable(
             "custom_query_handles_empty_table_in_range_mode",
             main_test_setup,
@@ -1174,50 +1171,49 @@ mod tests {
         //Two accounts differ only in debt's age but not balance which allows to check doubled ordering,
         //by balance and then by age.
         let now = now_time_t();
-        let main_test_setup =
-            |conn: &dyn ConnectionWrapper, insert: InsertReceivableClosureSignature| {
-                let insert = simplified_insert!(conn, insert);
-                insert(
-                    "0x1111111111111111111111111111111111111111",
-                    gwei_to_wei(999_454_656),
-                    now - 99_001, //too old
-                );
-                insert(
-                    "0x2222222222222222222222222222222222222222",
-                    gwei_to_wei(-560_001), //too small
-                    now - 86_401,
-                );
-                insert(
-                    "0x3333333333333333333333333333333333333333",
-                    gwei_to_wei(1_000_000_230),
-                    now - 70_000,
-                );
-                insert(
-                    "0x4444444444444444444444444444444444444444",
-                    gwei_to_wei(1_100_000_001), //too big
-                    now - 69_000,
-                );
-                insert(
-                    "0x5555555555555555555555555555555555555555",
-                    gwei_to_wei(1_000_000_230),
-                    now - 86_000,
-                );
-                insert(
-                    "0x6666666666666666666666666666666666666666",
-                    gwei_to_wei(1_050_444_230),
-                    now - 66_244,
-                );
-                insert(
-                    "0x7777777777777777777777777777777777777777",
-                    gwei_to_wei(900_000_000),
-                    now - 59_999, //too young
-                );
-                insert(
-                    "0x8888888888888888888888888888888888888888",
-                    gwei_to_wei(-90),
-                    now - 66000,
-                );
-            };
+        let main_test_setup = |conn: &dyn ConnectionWrapper, insert: InsertReceivableHelperFn| {
+            let insert = simplified_insert!(conn, insert);
+            insert(
+                "0x1111111111111111111111111111111111111111",
+                gwei_to_wei(999_454_656),
+                now - 99_001, //too old
+            );
+            insert(
+                "0x2222222222222222222222222222222222222222",
+                gwei_to_wei(-560_001), //too small
+                now - 86_401,
+            );
+            insert(
+                "0x3333333333333333333333333333333333333333",
+                gwei_to_wei(1_000_000_230),
+                now - 70_000,
+            );
+            insert(
+                "0x4444444444444444444444444444444444444444",
+                gwei_to_wei(1_100_000_001), //too big
+                now - 69_000,
+            );
+            insert(
+                "0x5555555555555555555555555555555555555555",
+                gwei_to_wei(1_000_000_230),
+                now - 86_000,
+            );
+            insert(
+                "0x6666666666666666666666666666666666666666",
+                gwei_to_wei(1_050_444_230),
+                now - 66_244,
+            );
+            insert(
+                "0x7777777777777777777777777777777777777777",
+                gwei_to_wei(900_000_000),
+                now - 59_999, //too young
+            );
+            insert(
+                "0x8888888888888888888888888888888888888888",
+                gwei_to_wei(-90),
+                now - 66000,
+            );
+        };
         let subject =
             custom_query_test_body_for_receivable("custom_query_in_range_mode", main_test_setup);
 
@@ -1262,8 +1258,7 @@ mod tests {
     fn range_query_does_not_display_values_from_below_1_gwei() {
         let timestamp1 = now_time_t() - 5000;
         let timestamp2 = now_time_t() - 3232;
-        let main_setup = |conn: &dyn ConnectionWrapper,
-                          insert: InsertReceivableClosureSignature| {
+        let main_setup = |conn: &dyn ConnectionWrapper, insert: InsertReceivableHelperFn| {
             let insert = simplified_insert!(conn, insert);
             insert(
                 "0x1111111111111111111111111111111111111111",
@@ -1417,7 +1412,7 @@ mod tests {
         main_test_setup: F,
     ) -> ReceivableDaoReal
     where
-        F: Fn(&dyn ConnectionWrapper, InsertReceivableClosureSignature),
+        F: Fn(&dyn ConnectionWrapper, InsertReceivableHelperFn),
     {
         let conn = DbInitializerReal::default()
             .initialize(

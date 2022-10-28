@@ -780,8 +780,7 @@ mod tests {
 
     #[test]
     fn custom_query_handles_empty_table_in_top_records_mode() {
-        let main_test_setup =
-            |_conn: &dyn ConnectionWrapper, _insert: InsertPayableClosureSignature| {};
+        let main_test_setup = |_conn: &dyn ConnectionWrapper, _insert: InsertPayableHelperFn| {};
         let subject = custom_query_test_body_for_payable(
             "custom_query_handles_empty_table_in_top_records_mode",
             main_test_setup,
@@ -795,7 +794,7 @@ mod tests {
         assert_eq!(result, None)
     }
 
-    type InsertPayableClosureSignature<'b> =
+    type InsertPayableHelperFn<'b> =
         &'b dyn for<'a> Fn(&'a dyn ConnectionWrapper, &'a str, i128, i64, Option<i64>);
 
     macro_rules! simplified_insert {
@@ -830,8 +829,8 @@ mod tests {
 
     fn accounts_for_tests_of_top_records(
         now: i64,
-    ) -> Box<dyn Fn(&dyn ConnectionWrapper, InsertPayableClosureSignature)> {
-        Box::new(move |conn, insert: InsertPayableClosureSignature| {
+    ) -> Box<dyn Fn(&dyn ConnectionWrapper, InsertPayableHelperFn)> {
+        Box::new(move |conn, insert: InsertPayableHelperFn| {
             let insert = simplified_insert!(conn, insert);
             insert(
                 "0x1111111111111111111111111111111111111111",
@@ -968,8 +967,7 @@ mod tests {
 
     #[test]
     fn custom_query_handles_empty_table_in_range_mode() {
-        let main_test_setup =
-            |_conn: &dyn ConnectionWrapper, _insert: InsertPayableClosureSignature| {};
+        let main_test_setup = |_conn: &dyn ConnectionWrapper, _insert: InsertPayableHelperFn| {};
         let subject = custom_query_test_body_for_payable(
             "custom_query_handles_empty_table_in_range_mode",
             main_test_setup,
@@ -991,7 +989,7 @@ mod tests {
         //Two accounts differ only in debt's age but not balance which allows to check doubled ordering,
         //by balance and then by age.
         let now = now_time_t();
-        let main_setup = |conn: &dyn ConnectionWrapper, insert: InsertPayableClosureSignature| {
+        let main_setup = |conn: &dyn ConnectionWrapper, insert: InsertPayableHelperFn| {
             let insert = simplified_insert!(conn, insert);
             insert(
                 "0x1111111111111111111111111111111111111111",
@@ -1083,7 +1081,7 @@ mod tests {
     fn range_query_does_not_display_values_from_below_1_gwei() {
         let timestamp_1 = now_time_t() - 11_001;
         let timestamp_2 = now_time_t() - 5000;
-        let main_setup = |conn: &dyn ConnectionWrapper, insert: InsertPayableClosureSignature| {
+        let main_setup = |conn: &dyn ConnectionWrapper, insert: InsertPayableHelperFn| {
             insert(
                 conn,
                 "0x1111111111111111111111111111111111111111",
@@ -1177,7 +1175,6 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, DbInitializationConfig::test_default())
             .unwrap();
-        let timestamp = now_time_t();
         insert_record(
             &*conn,
             "0x1111111111111111111111111111111111111111",
@@ -1228,7 +1225,7 @@ mod tests {
 
     fn custom_query_test_body_for_payable<F>(test_name: &str, main_setup_fn: F) -> PayableDaoReal
     where
-        F: Fn(&dyn ConnectionWrapper, InsertPayableClosureSignature),
+        F: Fn(&dyn ConnectionWrapper, InsertPayableHelperFn),
     {
         let home_dir = ensure_node_home_directory_exists("payable_dao", test_name);
         let conn = DbInitializerReal::default()

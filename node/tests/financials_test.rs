@@ -55,20 +55,12 @@ fn financials_command_retrieves_payable_and_receivable_records() {
         .unwrap();
     let mut node = MASQNode::start_standard(
         "financials_command_retrieves_payable_and_receivable_records",
-        Some(
-            CommandConfig::new()
-                .pair("--ui-port", &port.to_string())
-                .pair(
-                    "--data-directory",
-                    home_dir.into_os_string().to_str().unwrap(),
-                ),
-        ),
+        Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
         false,
         true,
         false,
         true,
     );
-    node.wait_for_log("UIGateway bound", Some(5000));
     let financials_request = UiFinancialsRequest {
         stats_required: false,
         top_records_opt: Some(TopRecordsConfig {
@@ -78,10 +70,12 @@ fn financials_command_retrieves_payable_and_receivable_records() {
         custom_queries_opt: None,
     };
     let mut client = UiConnection::new(port, NODE_UI_PROTOCOL);
+    let before = SystemTime::now();
 
     client.send(financials_request);
     let response: UiFinancialsResponse = client.skip_until_received().unwrap();
 
+    let after = SystemTime::now();
     assert_eq!(response.stats_opt, None);
     let query_results = response.query_results_opt.unwrap();
     let payable = query_results.payable_opt.unwrap();
@@ -96,12 +90,17 @@ fn financials_command_retrieves_payable_and_receivable_records() {
     assert_eq!(receivable[0].balance_gwei, amount_receivable_1 as i64);
     assert_eq!(receivable[1].wallet, wallet_receivable_2.to_string());
     assert_eq!(receivable[1].balance_gwei, amount_receivable_2 as i64);
+    let act_phase_time_period = after.duration_since(before).unwrap().as_secs() + 1;
     let age_payable = payable[0].age_s;
-    assert!(678 <= age_payable && age_payable <= 678 + 5);
+    assert!(678 >= age_payable && age_payable <= (age_payable + act_phase_time_period));
     let age_receivable_1 = receivable[0].age_s;
-    assert!(age_receivable_1 <= 0 + 5);
+    assert!(
+        0 >= age_receivable_1 && age_receivable_1 <= (age_receivable_1 + act_phase_time_period)
+    );
     let age_receivable_2 = receivable[1].age_s;
-    assert!(1111 <= age_receivable_2 && age_receivable_2 <= 1111 + 5);
+    assert!(
+        1111 >= age_receivable_2 && age_receivable_2 <= (age_receivable_2 + act_phase_time_period)
+    );
     client.send(UiShutdownRequest {});
     node.wait_for_exit();
 }

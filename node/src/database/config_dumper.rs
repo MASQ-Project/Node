@@ -157,8 +157,7 @@ mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
-    use crate::database::db_initializer::CURRENT_SCHEMA_VERSION;
-    use crate::database::db_migrations::ExternalData;
+    use crate::database::db_initializer::{ExternalData, CURRENT_SCHEMA_VERSION};
     use crate::db_config::config_dao::ConfigDao;
     use crate::db_config::persistent_configuration::{
         PersistentConfiguration, PersistentConfigurationReal,

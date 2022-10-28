@@ -4,14 +4,13 @@
 
 use crate::accountant::dao_utils::VigilantFlatten;
 use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::database::db_migrations::{DbMigrator, ExternalData};
-use itertools::Itertools;
+use crate::database::db_initializer::ExternalData;
+use crate::database::db_migrations::DbMigrator;
 use masq_lib::logger::Logger;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::NeighborhoodModeLight;
 use rusqlite::{Connection, Error};
 use std::cell::RefCell;
-use std::collections::HashSet;
 use std::env::current_dir;
 use std::fs::{remove_file, File};
 use std::io::Read;
@@ -117,20 +116,9 @@ pub fn assert_table_does_not_exist(conn: &dyn ConnectionWrapper, table_name: &st
 pub fn assert_create_table_stm_contains_all_parts(
     conn: &dyn ConnectionWrapper,
     table_name: &str,
-    expected_sql_chopped: &[&[&str]],
+    expected_sql_chopped: ExpectedLinesOfSQLChoppedIntoWords,
 ) {
     assert_sql_lines_contain_parts_exhaustive(
-        parse_sql_to_pieces(&fetch_table_sql(conn, table_name)),
-        expected_sql_chopped,
-    )
-}
-
-pub fn assert_create_table_stm_contains_some_parts(
-    conn: &dyn ConnectionWrapper,
-    table_name: &str,
-    expected_sql_chopped: &[&[&str]],
-) {
-    assert_sql_lines_contain_parts_non_exhaustive(
         parse_sql_to_pieces(&fetch_table_sql(conn, table_name)),
         expected_sql_chopped,
     )
@@ -139,7 +127,7 @@ pub fn assert_create_table_stm_contains_some_parts(
 pub fn assert_index_stm_is_coupled_with_right_parameter(
     conn: &dyn ConnectionWrapper,
     index_name: &str,
-    expected_sql_chopped: &[&[&str]],
+    expected_sql_chopped: ExpectedLinesOfSQLChoppedIntoWords,
 ) {
     assert_sql_lines_contain_parts_exhaustive(
         parse_sql_to_pieces(&fetch_index_sql(conn, index_name)),
@@ -177,65 +165,59 @@ pub fn assert_table_created_as_strict(conn: &dyn ConnectionWrapper, table_name: 
 }
 
 fn zippered<'a>(
-    actual: &'a Vec<HashSet<String>>,
-    expected: &[&[&str]],
-) -> Vec<(Vec<HashSet<String>>, &'a HashSet<String>)> {
-    once(prepare_expected_set_of_hashsets(expected))
-        .cycle()
-        .zip(actual.iter())
-        .collect()
-}
-
-fn assert_sql_lines_contain_parts_exhaustive(actual: Vec<HashSet<String>>, expected: &[&[&str]]) {
-    zippered(&actual, expected).iter().for_each(|tuple| {
-        assert!(
-            contains_particular_hashset(tuple),
-            "part of the fetched statement (one line) that cannot be found \
-                     in the template (key words unsorted): {:?}",
-            tuple.1
-        )
-    })
-}
-
-fn assert_sql_lines_contain_parts_non_exhaustive(
-    actual: Vec<HashSet<String>>,
-    expected: &[&[&str]],
-) {
-    assert_eq!(
-        zippered(&actual, expected)
-            .iter()
-            .any(contains_particular_hashset),
-        true,
-        "No line contains words of any demanded line '{:?}' in this examined input: {:?}",
+    actual: &'a Vec<Vec<String>>,
+    expected: ExpectedLinesOfSQLChoppedIntoWords,
+) -> Vec<(SQLLinesChoppedIntoWords, &'a Vec<String>)> {
+    once(prepare_expected_vectors_of_words_including_sorting(
         expected,
-        actual
-    )
+    ))
+    .cycle()
+    .zip(actual.iter())
+    .collect()
 }
 
-fn contains_particular_hashset(input: &(Vec<HashSet<String>>, &HashSet<String>)) -> bool {
-    let (expected, single_actual_hash_set) = input;
-    expected
+fn assert_sql_lines_contain_parts_exhaustive(
+    actual: SQLLinesChoppedIntoWords,
+    expected: ExpectedLinesOfSQLChoppedIntoWords,
+) {
+    zippered(&actual, expected)
         .iter()
-        .find(|hash_set_expected| {
-            single_actual_hash_set
-                .symmetric_difference(&hash_set_expected)
-                .collect_vec()
-                .is_empty()
-        })
-        .is_some()
+        .for_each(|(left, right)| contains_particular_list_of_key_words((left, right)))
 }
 
-fn prepare_expected_set_of_hashsets<'a>(expected: &'a [&'a [&'a str]]) -> Vec<HashSet<String>> {
+fn contains_particular_list_of_key_words(input: (&SQLLinesChoppedIntoWords, &[String])) {
+    let (expected, single_actual_vec_of_words) = input;
+    let mut found = 0_u16;
+    expected.iter().for_each(|vec_of_words_expected| {
+        if single_actual_vec_of_words == vec_of_words_expected {
+            found += 1
+        }
+    });
+    assert_eq!(found,1, "We found {} occurrences of the searched line in the tested sql although only a one is considered correct", found)
+}
+
+fn prepare_expected_vectors_of_words_including_sorting(
+    expected: ExpectedLinesOfSQLChoppedIntoWords,
+) -> SQLLinesChoppedIntoWords {
     expected
         .into_iter()
         .map(|slice_of_strs| {
-            HashSet::from_iter(slice_of_strs.into_iter().map(|str| str.to_string()))
+            let mut one_line = slice_of_strs
+                .into_iter()
+                .map(|word| word.to_string())
+                .collect::<Vec<String>>();
+            one_line.sort();
+            one_line
         })
         .collect()
 }
 
+type SQLLinesChoppedIntoWords = Vec<Vec<String>>;
+
+type ExpectedLinesOfSQLChoppedIntoWords<'a> = &'a [&'a [&'a str]];
+
 //prepares collections of isolated key words from a column declaration, by lines
-fn parse_sql_to_pieces(sql: &str) -> Vec<HashSet<String>> {
+fn parse_sql_to_pieces(sql: &str) -> SQLLinesChoppedIntoWords {
     let body: String = sql
         .chars()
         .skip_while(|char| char != &'(')
@@ -244,12 +226,14 @@ fn parse_sql_to_pieces(sql: &str) -> Vec<HashSet<String>> {
         .collect();
     let lines = body.split(',');
     lines
-        .map(|line| {
-            HashSet::from_iter(
-                line.split(|char: char| char.is_whitespace())
-                    .filter(|chunk| !chunk.is_empty())
-                    .map(|chunk| chunk.to_string()),
-            )
+        .map(|sql_line| {
+            let mut vec_of_words = sql_line
+                .split(|char: char| char.is_whitespace())
+                .filter(|chunk| !chunk.is_empty())
+                .map(|chunk| chunk.to_string())
+                .collect::<Vec<String>>();
+            vec_of_words.sort();
+            vec_of_words
         })
         .collect()
 }
@@ -308,7 +292,7 @@ fn select_desired_sql_element(found_elements: Vec<String>, searched_element_name
     searched_element.remove(0)
 }
 
-pub fn make_external_migration_parameters() -> ExternalData {
+pub fn make_external_data() -> ExternalData {
     ExternalData {
         chain: TEST_DEFAULT_CHAIN,
         neighborhood_mode: NeighborhoodModeLight::Standard,

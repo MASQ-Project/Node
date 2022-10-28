@@ -1927,8 +1927,8 @@ mod tests {
     ) -> Result<Option<String>, PersistentConfigError> {
         subject.normalized_get(
             "random_parameter",
-            |mut string_opt| Ok(string_opt.map(|string| string.add("_I_was_decoded"))),
-            |mut string_opt| Ok(string_opt.map(|string| string.add("_I_was_translated"))),
+            |string_opt| Ok(string_opt.map(|string| string.add("_I_was_decoded"))),
+            |string_opt| Ok(string_opt.map(|string| string.add("_I_was_translated"))),
         )
     }
 
@@ -1937,8 +1937,8 @@ mod tests {
     ) -> Result<String, PersistentConfigError> {
         subject.normalized_get(
             "random_parameter",
-            |mut string_opt| Ok(string_opt.map(|string| string.add("_I_was_decoded"))),
-            |mut string_opt| {
+            |string_opt| Ok(string_opt.map(|string| string.add("_I_was_decoded"))),
+            |string_opt| {
                 Ok(string_opt
                     .unwrap_or_else(|| {
                         panic!(

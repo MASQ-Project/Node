@@ -189,6 +189,7 @@ impl MASQNode {
         limit_ms: Option<u64>,
     ) -> Vec<Vec<String>> {
         let logfile_path = Self::path_to_logfile(logfile_dir);
+
         let do_with_log_output = |log_output: &String, regex: &Regex| -> Option<Vec<Vec<String>>> {
             let captures = regex
                 .captures_iter(&log_output[..])
@@ -211,6 +212,7 @@ impl MASQNode {
                 .collect::<Vec<Vec<String>>>();
             Some(structured_captures)
         };
+
         Self::wait_for_log_at_directory(
             pattern,
             logfile_path.as_ref(),
