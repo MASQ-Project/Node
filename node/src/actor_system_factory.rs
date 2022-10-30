@@ -39,9 +39,6 @@ use automap_lib::control_layer::automap_control::{
 };
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::crash_point::CrashPoint;
-#[cfg(feature = "log_recipient_test")]
-use masq_lib::logger::log_recipient_test::prepare_log_recipient;
-#[cfg(not(feature = "log_recipient_test"))]
 use masq_lib::logger::prepare_log_recipient;
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
@@ -618,7 +615,7 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
-    use crate::test_utils::make_wallet;
+    use crate::test_utils::{alias_cryptde_null, main_cryptde_null, make_wallet};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{
         make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from,
@@ -657,6 +654,8 @@ mod tests {
     use std::time::Duration;
     use lazy_static::lazy_static;
     use automap_lib::mocks::{parameterizable_automap_control, TransactorMock};
+    use masq_lib::logger::LOG_RECIPIENT_OPT;
+    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
 
     lazy_static! {
         static ref ROUTER_IP: IpAddr = IpAddr::from_str("1.2.3.4").unwrap();
@@ -1073,10 +1072,10 @@ mod tests {
             },
         };
         let persistent_config =
-            PersistentConfigurationMock::default().chain_name_result("eth-ropsten".to_string());
+            PersistentConfigurationMock::default().chain_name_result("polygon-mumbai".to_string());
         Bootstrapper::pub_initialize_cryptdes_for_testing(
-            &Some(main_cryptde()),
-            &Some(alias_cryptde()),
+            Some(main_cryptde_null()),
+            Some(alias_cryptde_null()),
         );
         let mut tools = make_subject_with_null_setter();
         tools.automap_control_factory = Box::new(
@@ -1245,24 +1244,26 @@ mod tests {
         assert_eq!(*add_mapping_params, vec![1234, 2345]);
     }
 
-    #[cfg(feature = "log_recipient_test")]
     #[test]
     fn prepare_initial_messages_initiates_global_log_recipient() {
-        let _guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
         running_test();
+        let _guard = EnvironmentGuard::new();
+        let _ = LOG_RECIPIENT_OPT.lock().unwrap().take(); // just so that it's empty
         let actor_factory = ActorFactoryMock::new();
         let mut config = BootstrapperConfig::default();
         config.neighborhood_config = NeighborhoodConfig {
             mode: NeighborhoodMode::ConsumeOnly(vec![]),
         };
         let subject = ActorSystemFactoryToolsReal::new();
-        let state_before = INITIALIZATION_COUNTER.lock().unwrap().0;
 
-        let _ =
-            subject.prepare_initial_messages(make_cryptde_pair(), config, Box::new(actor_factory));
+        let _ = subject.prepare_initial_messages(
+            make_cryptde_pair(),
+            config,
+            Box::new (PersistentConfigurationMock::new()),
+            Box::new(actor_factory),
+        );
 
-        let state_after = INITIALIZATION_COUNTER.lock().unwrap().0;
-        assert_eq!(state_after, state_before + 1)
+        assert! (LOG_RECIPIENT_OPT.lock().unwrap().is_some());
     }
 
     #[test]
@@ -1482,7 +1483,6 @@ mod tests {
             },
             node_descriptor: Default::default(),
         };
-        let subject = make_subject_with_null_setter();
         let system = System::new("MASQNode");
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let mut tools = ActorSystemFactoryToolsReal::new();
@@ -1496,7 +1496,7 @@ mod tests {
                         .add_mapping_result(Ok(())),
                 )),
         );
-        let mut subject = ActorSystemFactoryReal::new(Box::new (tools));
+        let subject = ActorSystemFactoryReal::new(Box::new (tools));
 
         let _ = subject.t.prepare_initial_messages(
             make_cryptde_pair(),
@@ -1830,7 +1830,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Database with a wrong chain name detected; expected: eth-ropsten, was: eth-mainnet"
+        expected = "Database with a wrong chain name detected; expected: polygon-mumbai, was: eth-mainnet"
     )]
     fn make_and_start_actors_does_not_tolerate_differences_in_setup_chain_and_database_chain() {
         let mut bootstrapper_config = BootstrapperConfig::new();
@@ -1838,8 +1838,8 @@ mod tests {
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("eth-mainnet".to_string());
         Bootstrapper::pub_initialize_cryptdes_for_testing(
-            &Some(main_cryptde().clone()),
-            &Some(alias_cryptde().clone()),
+            Some(main_cryptde_null()),
+            Some(alias_cryptde_null()),
         );
         let subject = ActorSystemFactoryReal::new(Box::new(ActorSystemFactoryToolsReal::new()));
 

@@ -1,6 +1,6 @@
 use crate::constants::{
     DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
-    ETH_ROPSTEN_FULL_IDENTIFIER, HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
+    HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
     POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
 };
 use crate::crash_point::CrashPoint;
@@ -10,7 +10,7 @@ use lazy_static::lazy_static;
 pub const BLOCKCHAIN_SERVICE_HELP: &str =
     "The Ethereum client you wish to use to provide Blockchain \
      exit services from your MASQ Node (e.g. http://localhost:8545, \
-     https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
+     https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
      https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID";
 pub const CHAIN_HELP: &str =
     "The blockchain network MASQ Node will configure itself to use. You must ensure the \
@@ -61,8 +61,7 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
      on startup. A Node descriptor looks similar to one of these:\n\n\
      masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
      masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
-     masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-     masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
+     masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504/3922\n\
      Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
      and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
      a configuration with multiple clandestine ports.\n\n\
@@ -70,7 +69,7 @@ pub const NEIGHBORS_HELP: &str = "One or more Node descriptors for running Nodes
      should be enclosed by quotes. No default value is available; \
      if you don't specify a neighbor, your Node will start without being connected to any MASQ \
      Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
-     --neighbors is meaningless in --neighborhood-mode zero-hop.";
+     --neighbors is not valid for --neighborhood-mode zero-hop.";
 
 // generated valid encoded keys for future needs
 // UJNoZW5p/PDVqEjpr3b+8jZ/93yPG8i5dOAgE1bhK+A
@@ -235,7 +234,6 @@ pub fn official_chain_names() -> &'static [&'static str] {
         POLYGON_MAINNET_FULL_IDENTIFIER,
         ETH_MAINNET_FULL_IDENTIFIER,
         POLYGON_MUMBAI_FULL_IDENTIFIER,
-        ETH_ROPSTEN_FULL_IDENTIFIER,
         DEV_CHAIN_FULL_IDENTIFIER,
     ]
 }
@@ -639,7 +637,7 @@ mod tests {
             BLOCKCHAIN_SERVICE_HELP,
             "The Ethereum client you wish to use to provide Blockchain \
              exit services from your MASQ Node (e.g. http://localhost:8545, \
-             https://ropsten.infura.io/v3/YOUR-PROJECT-ID, https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
+             https://mainnet.infura.io/v3/YOUR-PROJECT-ID), \
              https://polygon-mainnet.infura.io/v3/YOUR-PROJECT-ID"
         );
         assert_eq!(
@@ -712,8 +710,7 @@ mod tests {
              on startup. A Node descriptor looks similar to one of these:\n\n\
                   masq://polygon-mainnet:d2U3Dv1BqtS5t_Zz3mt9_sCl7AgxUlnkB4jOMElylrU@172.50.48.6:9342\n\
                   masq://eth-mainnet:gBviQbjOS3e5ReFQCvIhUM3i02d1zPleo1iXg_EN6zQ@86.75.30.9:5542\n\
-                  masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504\n\
-                  masq://eth-ropsten:OHsC2CAm4rmfCkaFfiynwxflUgVTJRb2oY5mWxNCQkY@150.60.42.72:6642/4789/5254\n\n\
+                  masq://polygon-mumbai:A6PGHT3rRjaeFpD_rFi3qGEXAVPq7bJDfEUZpZaIyq8@14.10.50.6:10504/3922\n\
              Notice each of the different chain identifiers in the masq protocol prefix - they determine a family of chains \
              and also the network the descriptor belongs to (mainnet or a testnet). See also the last descriptor which shows \
              a configuration with multiple clandestine ports.\n\n\
@@ -721,7 +718,7 @@ mod tests {
              should be enclosed by quotes. No default value is available; \
              if you don't specify a neighbor, your Node will start without being connected to any MASQ \
              Network, although other Nodes will be able to connect to yours if they know your Node's descriptor. \
-             --neighbors is meaningless in --neighborhood-mode zero-hop."
+             --neighbors is not valid for --neighborhood-mode zero-hop."
         );
         assert_eq!(
             NEIGHBORHOOD_MODE_HELP,
@@ -959,46 +956,28 @@ mod tests {
     }
 
     #[test]
-    fn validate_gas_price_zero() {
-        let result = common_validators::validate_gas_price("0".to_string());
+    fn validate_gas_prices() {
+        let prices = [
+            "0",
+            "1",
+            "18446744073709551615",
+            "18446744073709551616",
+            "not a decimal number",
+            "0x0",
+        ];
 
-        assert_eq!(result, Err(String::from("0")));
-    }
+        let results = prices.into_iter()
+            .map (|price| common_validators::validate_gas_price(price.to_string()))
+            .collect::<Vec<Result<(), String>>>();
 
-    #[test]
-    fn validate_gas_price_normal_ropsten() {
-        let result = common_validators::validate_gas_price("2".to_string());
-
-        assert_eq!(result, Ok(()));
-    }
-
-    #[test]
-    fn validate_gas_price_normal_mainnet() {
-        let result = common_validators::validate_gas_price("20".to_string());
-
-        assert_eq!(result, Ok(()));
-    }
-
-    #[test]
-    fn validate_gas_price_max() {
-        let max = 0xFFFFFFFFFFFFFFFFu64;
-        let max_string = max.to_string();
-        let result = common_validators::validate_gas_price(max_string);
-        assert_eq!(Ok(()), result);
-    }
-
-    #[test]
-    fn validate_gas_price_not_digits_fails() {
-        let result = common_validators::validate_gas_price("not".to_string());
-
-        assert_eq!(result, Err(String::from("not")));
-    }
-
-    #[test]
-    fn validate_gas_price_hex_fails() {
-        let result = common_validators::validate_gas_price("0x0".to_string());
-
-        assert_eq!(result, Err(String::from("0x0")));
+        assert_eq! (results, vec![
+            Err("0".to_string()),                    // 0
+            Ok(()),                                  // 1
+            Ok(()),                                  // 18446744073709551615
+            Err("18446744073709551616".to_string()), // 18446744073709551616
+            Err("not a decimal number".to_string()), // not a decimal number
+            Err("0x0".to_string()),                  // 0x0
+        ]);
     }
 
     #[test]
@@ -1050,7 +1029,6 @@ mod tests {
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMainnet);
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthMainnet);
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::PolyMumbai);
-        assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::EthRopsten);
         assert_eq!(Chain::from(*iterator.next().unwrap()), Chain::Dev);
         assert_eq!(iterator.next(), None)
     }

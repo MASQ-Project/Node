@@ -1058,7 +1058,7 @@ mod tests {
                 &updated_db_path_dir,
                 true,
                 MigratorConfig::create_or_migrate(ExternalData::new(
-                    Chain::EthRopsten,
+                    Chain::PolyMumbai,
                     NeighborhoodModeLight::Standard,
                     Some("password".to_string()),
                 )),
@@ -1072,9 +1072,6 @@ mod tests {
             )
             .unwrap();
 
-        // db_password_opt: Some("password".to_string()),
-        // chain: Chain::EthRopsten,
-        // neighborhood_mode: NeighborhoodModeLight::Standard,
         let conn_updated = Connection::open_with_flags(
             &updated_db_path_dir.join(DATABASE_FILE),
             OpenFlags::SQLITE_OPEN_READ_ONLY,

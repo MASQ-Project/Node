@@ -454,6 +454,7 @@ mod tests {
     use std::collections::HashSet;
     use std::iter::FromIterator;
     use std::sync::{Arc, Mutex};
+    use masq_lib::utils::running_test;
 
     #[test]
     fn constants_have_correct_values() {
@@ -795,6 +796,7 @@ mod tests {
 
     #[test]
     fn setup_judges_node_not_running_when_port_and_pid_are_set_but_os_says_different() {
+        running_test();
         let _clap_guard = ClapGuard::new();
         let data_dir = ensure_node_home_directory_exists(
             "daemon",

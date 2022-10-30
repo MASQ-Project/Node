@@ -3,15 +3,14 @@
 use crate::blockchains::chains::{Chain, ChainFamily};
 use crate::constants::{
     DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_CONTRACT_CREATION_BLOCK, ETH_MAINNET_FULL_IDENTIFIER,
-    ETH_ROPSTEN_FULL_IDENTIFIER, MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
+    MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
     MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
     POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
-    ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
 };
 use ethereum_types::{Address, H160};
 
 //chains are ordered by their significance for the community of users (the order reflects in some error or help messages)
-pub const CHAINS: [BlockchainRecord; 5] = [
+pub const CHAINS: [BlockchainRecord; 4] = [
     BlockchainRecord {
         self_id: Chain::PolyMainnet,
         num_chain_id: 137,
@@ -37,14 +36,6 @@ pub const CHAINS: [BlockchainRecord; 5] = [
         contract_creation_block: MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK,
     },
     BlockchainRecord {
-        self_id: Chain::EthRopsten,
-        num_chain_id: 3,
-        chain_family: ChainFamily::Eth,
-        literal_identifier: ETH_ROPSTEN_FULL_IDENTIFIER,
-        contract: ROPSTEN_TESTNET_CONTRACT_ADDRESS,
-        contract_creation_block: ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
-    },
-    BlockchainRecord {
         self_id: Chain::Dev,
         num_chain_id: 2,
         chain_family: ChainFamily::Dev,
@@ -63,12 +54,6 @@ pub struct BlockchainRecord {
     pub contract: Address,
     pub contract_creation_block: u64,
 }
-
-// SHRD (Ropsten)
-const ROPSTEN_TESTNET_CONTRACT_ADDRESS: Address = H160([
-    0x38, 0x4d, 0xec, 0x25, 0xe0, 0x3f, 0x94, 0x93, 0x17, 0x67, 0xce, 0x4c, 0x35, 0x56, 0x16, 0x84,
-    0x68, 0xba, 0x24, 0xc3,
-]);
 
 const MULTINODE_TESTNET_CONTRACT_ADDRESS: Address = H160([
     0x59, 0x88, 0x2e, 0x4a, 0x8f, 0x5d, 0x24, 0x64, 0x3d, 0x4d, 0xda, 0x42, 0x29, 0x22, 0xa8, 0x70,
@@ -108,7 +93,6 @@ mod tests {
         let test_array = [
             assert_returns_correct_record(Chain::EthMainnet, 1),
             assert_returns_correct_record(Chain::Dev, 2),
-            assert_returns_correct_record(Chain::EthRopsten, 3),
             assert_returns_correct_record(Chain::PolyMainnet, 137),
             assert_returns_correct_record(Chain::PolyMumbai, 80001),
         ];
@@ -126,7 +110,6 @@ mod tests {
             assert_from_str(Chain::PolyMainnet),
             assert_from_str(Chain::PolyMumbai),
             assert_from_str(Chain::EthMainnet),
-            assert_from_str(Chain::EthRopsten),
             assert_from_str(Chain::Dev),
         ];
         assert_exhaustive(&test_array)
@@ -149,7 +132,6 @@ mod tests {
             assert_chain_significance(0, Chain::PolyMainnet),
             assert_chain_significance(1, Chain::EthMainnet),
             assert_chain_significance(2, Chain::PolyMumbai),
-            assert_chain_significance(3, Chain::EthRopsten),
             assert_chain_significance(4, Chain::Dev),
         ];
         assert_exhaustive(&test_array)
@@ -190,23 +172,6 @@ mod tests {
                 contract: MULTINODE_TESTNET_CONTRACT_ADDRESS,
                 contract_creation_block: 0,
                 chain_family: ChainFamily::Dev
-            }
-        )
-    }
-
-    #[test]
-    fn ropsten_record_is_properly_declared() {
-        let examined_chain = Chain::EthRopsten;
-        let chain_record = return_examined(examined_chain);
-        assert_eq!(
-            chain_record,
-            &BlockchainRecord {
-                num_chain_id: 3,
-                self_id: examined_chain,
-                literal_identifier: "eth-ropsten",
-                contract: ROPSTEN_TESTNET_CONTRACT_ADDRESS,
-                contract_creation_block: ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK,
-                chain_family: ChainFamily::Eth
             }
         )
     }
@@ -253,7 +218,6 @@ mod tests {
     fn chain_from_chain_identifier_opt_works() {
         let test_array = [
             assert_chain_from_chain_identifier_opt("eth-mainnet", Some(Chain::EthMainnet)),
-            assert_chain_from_chain_identifier_opt("eth-ropsten", Some(Chain::EthRopsten)),
             assert_chain_from_chain_identifier_opt("dev", Some(Chain::Dev)),
             assert_chain_from_chain_identifier_opt("polygon-mainnet", Some(Chain::PolyMainnet)),
             assert_chain_from_chain_identifier_opt("polygon-mumbai", Some(Chain::PolyMumbai)),

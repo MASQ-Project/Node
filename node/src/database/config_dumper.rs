@@ -264,12 +264,12 @@ mod tests {
                     Some(vec![
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-ropsten:QUJDREVGRw@1.2.3.4:1234",
+                            "masq://polygon-mumbai:QUJDREVGRw@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-ropsten:QkNERUZHSA@2.3.4.5:2345",
+                            "masq://polygon-mumbai:QkNERUZHSA@2.3.4.5:2345",
                         ))
                         .unwrap(),
                     ]),
@@ -383,12 +383,12 @@ mod tests {
                     Some(vec![
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-ropsten:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
+                            "masq://polygon-mumbai:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-ropsten:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
+                            "masq://polygon-mumbai:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
                         ))
                         .unwrap(),
                     ]),
@@ -432,9 +432,9 @@ mod tests {
             "0x0123456789012345678901234567890123456789",
             &map,
         );
-        assert_value("chainName", "eth-ropsten", &map);
+        assert_value("chainName", "polygon-mumbai", &map);
         assert_value("gasPrice", "1", &map);
-        assert_value("pastNeighbors", "masq://eth-ropsten:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234,masq://eth-ropsten:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345", &map);
+        assert_value("pastNeighbors", "masq://polygon-mumbai:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234,masq://polygon-mumbai:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345", &map);
         assert_value("neighborhoodMode", "consume-only", &map);
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
         assert_value(
@@ -492,12 +492,12 @@ mod tests {
                     Some(vec![
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-ropsten:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
+                            "masq://polygon-mumbai:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-ropsten:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
+                            "masq://polygon-mumbai:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
                         ))
                         .unwrap(),
                     ]),

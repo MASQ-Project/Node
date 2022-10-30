@@ -788,16 +788,16 @@ impl ValueRetriever for MappingProtocol {
 
     fn computed_default(
         &self,
-        _bootstrapper_config: &BootstrapperConfig,
+        bootstrapper_config: &BootstrapperConfig,
         persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        let persistent_config_value_opt = match persistent_config.mapping_protocol() {
-            Ok(protocol_opt) => protocol_opt,
-            Err(_) => None,
-        };
-        persistent_config_value_opt
-            .map(|protocol| (protocol.to_string().to_lowercase(), Configured))
+        match (bootstrapper_config.mapping_protocol_opt, persistent_config.mapping_protocol()) {
+            (_, Err(e)) => todo! ("Error retrieving mapping protocol from database: {:?}", e),
+            (Some (from_config), _) => Some ((from_config.to_string().to_lowercase(), Configured)),
+            (None, Ok(Some (from_database))) => Some ((from_database.to_string().to_lowercase(), Configured)),
+            (None, Ok(None)) => None
+        }
     }
 }
 
@@ -1038,7 +1038,7 @@ fn value_retrievers(dirs_wrapper: &dyn DirsWrapper) -> Vec<Box<dyn ValueRetrieve
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::bootstrapper::RealUser;
+    use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::daemon::dns_inspector::dns_inspector::DnsInspector;
     use crate::daemon::dns_inspector::DnsInspectionError;
     use crate::daemon::setup_reporter;
@@ -1061,7 +1061,7 @@ mod tests {
         make_persistent_config_real_with_config_dao_null,
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
-    use crate::test_utils::{assert_string_contains, main_cryptde, rate_pack};
+    use crate::test_utils::{alias_cryptde_null, assert_string_contains, main_cryptde, main_cryptde_null, rate_pack};
     use masq_lib::blockchains::chains::Chain as Blockchain;
     use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
@@ -1159,6 +1159,7 @@ mod tests {
     #[test]
     fn get_modified_setup_database_populated_only_requireds_set() {
         let _guard = EnvironmentGuard::new();
+        Bootstrapper::pub_initialize_cryptdes_for_testing(Some(main_cryptde_null()), Some(alias_cryptde_null()));
         let home_dir = ensure_node_home_directory_exists(
             "setup_reporter",
             "get_modified_setup_database_populated_only_requireds_set",
@@ -1179,7 +1180,7 @@ mod tests {
             .unwrap();
         config.set_gas_price(1234567890).unwrap();
         let neighbor1 = NodeDescriptor {
-            encryption_public_key: PublicKey::new(b"ABCD"),
+            encryption_public_key: PublicKey::new(b"ABCD0000111111112222222233333333"),
             blockchain: Blockchain::EthMainnet,
             node_addr_opt: Some(NodeAddr::new(
                 &IpAddr::from_str("1.2.3.4").unwrap(),
@@ -1187,7 +1188,7 @@ mod tests {
             )),
         };
         let neighbor2 = NodeDescriptor {
-            encryption_public_key: PublicKey::new(b"EFGH"),
+            encryption_public_key: PublicKey::new(b"EFGH0000111111112222222233333333"),
             blockchain: Blockchain::EthMainnet,
             node_addr_opt: Some(NodeAddr::new(
                 &IpAddr::from_str("5.6.7.8").unwrap(),
@@ -1243,7 +1244,7 @@ mod tests {
             ("neighborhood-mode", "standard", UiSetupResponseValueStatus::Default),
             (
                 "neighbors",
-                "masq://eth-mainnet:QUJDRA@1.2.3.4:1234,masq://eth-mainnet:RUZHSA@5.6.7.8:5678",
+                "masq://eth-mainnet:QUJDRDAwMDAxMTExMTExMTIyMjIyMjIyMzMzMzMzMzM@1.2.3.4:1234,masq://eth-mainnet:RUZHSDAwMDAxMTExMTExMTIyMjIyMjIyMzMzMzMzMzM@5.6.7.8:5678",
                 Configured,
             ),
             (
@@ -1305,7 +1306,7 @@ mod tests {
             ("log-level", "error", Set),
             ("mapping-protocol", "pmp", Set),
             ("neighborhood-mode", "originate-only", Set),
-            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("neighbors", "masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
@@ -1334,7 +1335,7 @@ mod tests {
             ("log-level", "error", Set),
             ("mapping-protocol", "pmp", Set),
             ("neighborhood-mode", "originate-only", Set),
-            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("neighbors", "masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Set),
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
@@ -1373,7 +1374,7 @@ mod tests {
             ("log-level", "error"),
             ("mapping-protocol", "igdp"),
             ("neighborhood-mode", "originate-only"),
-            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("neighbors", "masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
             ("payment-thresholds","1234|50000|1000|1000|15000|15000"),
             ("rate-pack","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
@@ -1406,7 +1407,7 @@ mod tests {
             ("log-level", "error", Set),
             ("mapping-protocol", "igdp", Set),
             ("neighborhood-mode", "originate-only", Set),
-            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
+            ("neighbors", "masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Set),
             ("payment-thresholds","1234|50000|1000|1000|15000|15000",Set),
             ("rate-pack","1|3|3|8",Set),
             #[cfg(not(target_os = "windows"))]
@@ -1446,7 +1447,7 @@ mod tests {
             ("MASQ_LOG_LEVEL", "error"),
             ("MASQ_MAPPING_PROTOCOL", "pmp"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
-            ("MASQ_NEIGHBORS", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("MASQ_NEIGHBORS", "masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
             ("MASQ_PAYMENT_THRESHOLDS","1234|50000|1000|1234|19000|20000"),
             ("MASQ_RATE_PACK","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
@@ -1477,7 +1478,7 @@ mod tests {
             ("log-level", "error", Configured),
             ("mapping-protocol", "pmp", Configured),
             ("neighborhood-mode", "originate-only", Configured),
-            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
+            ("neighbors", "masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
             ("payment-thresholds","1234|50000|1000|1234|19000|20000",Configured),
             ("rate-pack","1|3|3|8",Configured),
             #[cfg(not(target_os = "windows"))]
@@ -1546,14 +1547,14 @@ mod tests {
                 .write_all(b"scan-intervals = \"111|100|99\"\n")
                 .unwrap()
         }
-        let ropsten_dir = data_root
+        let testnet_dir = data_root
             .join("MASQ")
             .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
         {
-            std::fs::create_dir_all(ropsten_dir.clone()).unwrap();
-            let mut config_file = File::create(ropsten_dir.join("config.toml")).unwrap();
+            std::fs::create_dir_all(testnet_dir.clone()).unwrap();
+            let mut config_file = File::create(testnet_dir.join("config.toml")).unwrap();
             config_file
-                .write_all(b"blockchain-service-url = \"https://www.ropsten.com\"\n")
+                .write_all(b"blockchain-service-url = \"https://www.mumbai.com\"\n")
                 .unwrap();
             config_file
                 .write_all(b"clandestine-port = \"8877\"\n")
@@ -1562,7 +1563,7 @@ mod tests {
             config_file.write_all(b"consuming-private-key = \"FFEEDDCCBBAA99887766554433221100FFEEDDCCBBAA99887766554433221100\"\n").unwrap();
             config_file.write_all(b"crash-point = \"None\"\n").unwrap();
             config_file
-                .write_all(b"db-password = \"ropstenPassword\"\n")
+                .write_all(b"db-password = \"mumbaiPassword\"\n")
                 .unwrap();
             config_file
                 .write_all(b"dns-servers = \"8.7.6.5\"\n")
@@ -1610,7 +1611,7 @@ mod tests {
         let expected_result = vec![
             (
                 "blockchain-service-url",
-                "https://www.ropsten.com",
+                "https://www.mumbai.com",
                 Configured,
             ),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
@@ -1624,10 +1625,10 @@ mod tests {
             ("crash-point", "None", Configured),
             (
                 "data-directory",
-                &ropsten_dir.to_string_lossy().to_string(),
+                &testnet_dir.to_string_lossy().to_string(),
                 UiSetupResponseValueStatus::Default,
             ),
-            ("db-password", "ropstenPassword", Configured),
+            ("db-password", "mumbaiPassword", Configured),
             ("dns-servers", "8.7.6.5", Configured),
             (
                 "earning-wallet",
@@ -1691,7 +1692,7 @@ mod tests {
             ("MASQ_LOG_LEVEL", "error"),
             ("MASQ_MAPPING_PROTOCOL", "pcp"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
-            ("MASQ_NEIGHBORS", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
+            ("MASQ_NEIGHBORS", "masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
             ("MASQ_PAYMENT_THRESHOLDS","1234|50000|1000|1000|20000|20000"),
             ("MASQ_RATE_PACK","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
@@ -1751,7 +1752,7 @@ mod tests {
             ("neighborhood-mode", "consume-only", Set),
             (
                 "neighbors",
-                "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@9.10.11.12:9101",
+                "masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@9.10.11.12:9101",
                 Set,
             ),
             ("payment-thresholds", "4321|66666|777|987|123456|124444", Set),
@@ -1786,7 +1787,7 @@ mod tests {
             ("log-level", "error", Configured),
             ("mapping-protocol", "pcp", Configured),
             ("neighborhood-mode", "originate-only", Configured),
-            ("neighbors", "masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://eth-ropsten:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
+            ("neighbors", "masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
             ("payment-thresholds","1234|50000|1000|1000|20000|20000",Configured),
             ("rate-pack","1|3|3|8",Configured),
             #[cfg(not(target_os = "windows"))]
@@ -2428,7 +2429,7 @@ mod tests {
         let data_directory =
             ensure_node_home_directory_exists("setup_reporter", "mapping_protocol_is_blanked_out");
         let conn = DbInitializerReal::default()
-            .initialize(&data_directory, true, MigratorConfig::panic_on_migration())
+            .initialize(&data_directory, true, MigratorConfig::test_default())
             .unwrap();
         let mut persist_config = PersistentConfigurationReal::from(conn);
         persist_config
@@ -2436,13 +2437,14 @@ mod tests {
             .unwrap();
 
         let setup = vec![
-            // no config-file setting
+            // blanked-out config-file setting
             UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
             UiSetupResponseValue::new(
                 "data-directory",
                 &data_directory.to_string_lossy().to_string(),
                 Set,
             ),
+            UiSetupResponseValue::new("mapping-protocol", "", Set),
         ]
         .into_iter()
         .map(|uisrv| (uisrv.name.clone(), uisrv))
@@ -2455,10 +2457,7 @@ mod tests {
             )
             .0;
 
-        assert_eq!(
-            result.get("mapping-protocol").unwrap(),
-            &UiSetupResponseValue::new("mapping-protocol", "", Blank)
-        );
+        assert_eq!(result.get("mapping-protocol"), None);
     }
 
     #[test]
@@ -2922,6 +2921,7 @@ mod tests {
 
     #[test]
     fn neighbors_computed_default_persistent_config_present_password_present_values_present() {
+        Bootstrapper::pub_initialize_cryptdes_for_testing(None, None);
         let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .past_neighbors_params(&past_neighbors_params_arc)

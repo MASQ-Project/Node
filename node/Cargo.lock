@@ -855,13 +855,13 @@ dependencies = [
 
 [[package]]
 name = "ethsign"
-version = "0.7.3"
+version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b656fefa0b59f41b39000532c69359e927c0f1850186808ccf1586734ac3365f"
+checksum = "4dfbd5e7c2bd7ab6758207318f4b89028d11f927219a340d9e638bf0038046b4"
 dependencies = [
  "ethsign-crypto",
  "libsecp256k1 0.3.5",
- "rand 0.7.3",
+ "rand 0.8.4",
  "rustc-hex",
  "serde",
  "zeroize",

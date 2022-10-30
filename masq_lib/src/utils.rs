@@ -237,7 +237,7 @@ fn set_test_data_message(message: &str) {
     running_test_data.panic_message = Some(message.to_string());
 }
 
-fn test_is_running() -> bool {
+pub fn test_is_running() -> bool {
     RUNNING_TEST_DATA
         .lock()
         .expect("Thread died unexpectedly")

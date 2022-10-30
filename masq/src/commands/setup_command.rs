@@ -139,7 +139,7 @@ mod tests {
     use crate::command_factory::{CommandFactory, CommandFactoryReal};
     use crate::communications::broadcast_handler::StreamFactory;
     use crate::test_utils::mocks::{CommandContextMock, TerminalPassiveMock, TestStreamFactory};
-    use masq_lib::constants::ETH_ROPSTEN_FULL_IDENTIFIER;
+    use masq_lib::constants::{POLYGON_MUMBAI_FULL_IDENTIFIER};
     use masq_lib::messages::ToMessageBody;
     use masq_lib::messages::UiSetupResponseValueStatus::{Configured, Default, Set};
     use masq_lib::messages::{UiSetupRequest, UiSetupResponse, UiSetupResponseValue};
@@ -179,7 +179,7 @@ mod tests {
             .transact_result(Ok(UiSetupResponse {
                 running: false,
                 values: vec![
-                    UiSetupResponseValue::new("chain", "eth-ropsten", Configured),
+                    UiSetupResponseValue::new("chain", "polygon-mumbai", Configured),
                     UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
                     UiSetupResponseValue::new(
                         "neighbors",
@@ -202,7 +202,7 @@ mod tests {
                 "zero-hop".to_string(),
                 "--log-level".to_string(),
                 "--chain".to_string(),
-                "eth-ropsten".to_string(),
+                "polygon-mumbai".to_string(),
                 "--scan-intervals".to_string(),
                 "123|111|228".to_string(),
                 "--scans".to_string(),
@@ -235,7 +235,7 @@ mod tests {
         );
         assert_eq! (stdout_arc.lock().unwrap().get_string(),
 "NAME                          VALUE                                                            STATUS\n\
-chain                         eth-ropsten                                                      Configured\n\
+chain                         polygon-mumbai                                                   Configured\n\
 neighborhood-mode             zero-hop                                                         Set\n\
 neighbors                     masq://eth-mainnet:95VjByq5tEUUpDcczA__zXWGE6-7YFEvzN4CDVoPbWw@13.23.13.23:4545 Set\n\
 scan-intervals                123|111|228                                                      Set\n\
@@ -252,7 +252,7 @@ scans                         off                                               
             .transact_result(Ok(UiSetupResponse {
                 running: true,
                 values: vec![
-                    UiSetupResponseValue::new("chain", ETH_ROPSTEN_FULL_IDENTIFIER, Set),
+                    UiSetupResponseValue::new("chain", POLYGON_MUMBAI_FULL_IDENTIFIER, Set),
                     UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Configured),
                     UiSetupResponseValue::new("clandestine-port", "8534", Default),
                 ],
@@ -268,7 +268,7 @@ scans                         off                                               
                 "--neighborhood-mode".to_string(),
                 "zero-hop".to_string(),
                 "--chain".to_string(),
-                "eth-ropsten".to_string(),
+                "polygon-mumbai".to_string(),
                 "--clandestine-port".to_string(),
                 "8534".to_string(),
                 "--log-level".to_string(),
@@ -284,7 +284,7 @@ scans                         off                                               
             vec![(
                 UiSetupRequest {
                     values: vec![
-                        UiSetupRequestValue::new("chain", "eth-ropsten"),
+                        UiSetupRequestValue::new("chain", "polygon-mumbai"),
                         UiSetupRequestValue::new("clandestine-port", "8534"),
                         UiSetupRequestValue::clear("log-level"),
                         UiSetupRequestValue::new("neighborhood-mode", "zero-hop"),
@@ -296,7 +296,7 @@ scans                         off                                               
         );
         assert_eq! (stdout_arc.lock().unwrap().get_string(),
 "NAME                          VALUE                                                            STATUS\n\
-chain                         eth-ropsten                                                      Set\n\
+chain                         polygon-mumbai                                                   Set\n\
 clandestine-port              8534                                                             Default\n\
 neighborhood-mode             zero-hop                                                         Configured\n\
 \n\
@@ -313,7 +313,7 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
         let message = UiSetupBroadcast {
             running: false,
             values: vec![
-                UiSetupResponseValue::new("chain", "eth-ropsten", Set),
+                UiSetupResponseValue::new("chain", "polygon-mumbai", Set),
                 UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Configured),
                 UiSetupResponseValue::new("clandestine-port", "8534", Default),
             ],
@@ -330,7 +330,7 @@ NOTE: no changes were made to the setup because the Node is currently running.\n
 Daemon setup has changed:\n\
 \n\
 NAME                          VALUE                                                            STATUS\n\
-chain                         eth-ropsten                                                      Set\n\
+chain                         polygon-mumbai                                                   Set\n\
 clandestine-port              8534                                                             Default\n\
 neighborhood-mode             zero-hop                                                         Configured\n\
 \n\

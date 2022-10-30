@@ -777,7 +777,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "ever-supplied clandestine_port value missing: clandestine_port; database is corrupt!"
+        expected = "ever-supplied value missing: clandestine_port; database is corrupt!"
     )]
     fn clandestine_port_panics_if_none_got_from_database() {
         let config_dao = ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
@@ -1470,7 +1470,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "ever-supplied start_block value missing: start_block; database is corrupt!")]
+    #[should_panic(expected = "ever-supplied value missing: start_block; database is corrupt!")]
     fn start_block_does_not_tolerate_optional_output() {
         let config_dao = Box::new(ConfigDaoMock::new().get_result(Ok(ConfigDaoRecord::new(
             "start_block",
@@ -1558,7 +1558,7 @@ mod tests {
         let node_descriptors = vec![
             NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234"))
                 .unwrap(),
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"))
+            NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mumbai:AgMEBQ@2.3.4.5:2345"))
                 .unwrap(),
         ];
         let node_descriptors_bytes =
@@ -1600,7 +1600,7 @@ mod tests {
         let node_descriptors = vec![
             NodeDescriptor::try_from((main_cryptde(), "masq://eth-mainnet:AQIDBA@1.2.3.4:1234"))
                 .unwrap(),
-            NodeDescriptor::try_from((main_cryptde(), "masq://eth-ropsten:AgMEBQ@2.3.4.5:2345"))
+            NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mumbai:AgMEBQ@2.3.4.5:2345"))
                 .unwrap(),
         ];
         let set_params_arc = Arc::new(Mutex::new(vec![]));

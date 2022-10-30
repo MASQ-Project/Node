@@ -179,12 +179,12 @@ pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
 }
 
 // All initialization that doesn't specifically require lack of privilege should be done here.
-    pub fn privileged_parse_args(
-        dirs_wrapper: &dyn DirsWrapper,
-        multi_config: &MultiConfig,
-        privileged_config: &mut BootstrapperConfig,
-    ) -> Result<(), ConfiguratorError> {
-        let (real_user, data_directory_opt, chain) =
+pub fn privileged_parse_args(
+    dirs_wrapper: &dyn DirsWrapper,
+    multi_config: &MultiConfig,
+    privileged_config: &mut BootstrapperConfig,
+) -> Result<(), ConfiguratorError> {
+    let (real_user, data_directory_opt, chain) =
         real_user_data_directory_opt_and_chain(dirs_wrapper, multi_config);
     let directory =
         data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
@@ -215,6 +215,15 @@ pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
     privileged_config.crash_point =
         value_m!(multi_config, "crash-point", CrashPoint).unwrap_or(CrashPoint::None);
 
+    handle_fake_public_key_if_supplied(multi_config, privileged_config);
+
+    Ok(())
+}
+
+fn handle_fake_public_key_if_supplied(
+    multi_config: &MultiConfig,
+    privileged_config: &mut BootstrapperConfig,
+) {
     if let Some(public_key_str) = value_m!(multi_config, "fake-public-key", String) {
         let (main_public_key, alias_public_key) = match base64::decode(&public_key_str) {
             Ok(mut key) => {
@@ -236,7 +245,6 @@ pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
         privileged_config.main_cryptde_null_opt = Some(main_cryptde_null);
         privileged_config.alias_cryptde_null_opt = Some(alias_cryptde_null);
     }
-    Ok(())
 }
 
 fn configure_database(
@@ -318,8 +326,9 @@ fn configure_database(
                         .map(
                             |s| match NodeDescriptor::try_from((dummy_cryptde.as_ref(), s.as_str())) {
                                 Ok(nd) => match (chain_name.as_str(), nd.blockchain.is_mainnet()) {
+                                    // TODO: It seems like this should be written to match is_mainnet on chain and node descriptor, with no respect for defaulting.
                                     (cn, true) if cn == default_chain_name => Ok(nd),
-                                    (cn, false) if cn == default_chain_name => Err(ParamError::new("neighbors", "Mainnet node descriptors use '@', not ':', as the first delimiter")),
+                                    (cn, false) if cn == default_chain_name => Err(ParamError::new("neighbors", &format!("Chain is {}, neighbor Node descriptor is {}; mainnet Node descriptors should use '@', not ':', to separate public key from IP address", cn, s))),
                                     (_, true) => Err(ParamError::new("neighbors", &format!("Mainnet node descriptor uses '@', but chain configured for '{}'", chain_name))),
                                     (_, false) => Ok(nd),
                                 },
@@ -593,7 +602,7 @@ fn configure_database(
         use crate::sub_lib::utils::make_new_test_multi_config;
         use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
         use crate::test_utils::{ArgsBuilder, assert_string_contains, main_cryptde, make_default_persistent_configuration};
-        use masq_lib::multi_config::{NameValueVclArg, VclArg, VirtualCommandLine};
+        use masq_lib::multi_config::{VirtualCommandLine};
         use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
         use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
         use masq_lib::utils::{array_of_borrows_to_vec, AutomapProtocol, running_test};
@@ -728,13 +737,8 @@ fn configure_database(
 
         assert_eq!(
             result,
-            Err(NotPresent.into_configurator_error("db-password"))
+            Err(PersistentConfigError::TransactionError.into_configurator_error("neighborhood-mode"))
         );
-        // let change_password_params = change_password_params_arc.lock().unwrap();
-        // assert_eq!(
-        //     *change_password_params,
-        //     vec![(None, "password".to_string())]
-        // )
     }
 
     #[test]
@@ -745,7 +749,7 @@ fn configure_database(
         )
         .unwrap();
         let logger = Logger::new("test");
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = PersistentConfigurationMock::new()
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)));
 
         let result =
@@ -786,10 +790,10 @@ fn configure_database(
 
     #[test]
     fn compute_mapping_protocol_blanks_database_if_command_line_with_missing_value() {
-        let multi_config = make_simplified_multi_config(["MASQNode", "--mapping-protocol"]);
+        let multi_config = make_simplified_multi_config(["--mapping-protocol"]);
         let logger = Logger::new("test");
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = PersistentConfigurationMock::new()
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)))
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
             .set_mapping_protocol_result(Ok(()));
@@ -805,9 +809,9 @@ fn configure_database(
     #[test]
     fn compute_mapping_protocol_does_not_resave_entry_if_no_change() {
         let multi_config =
-            make_simplified_multi_config(["MASQNode", "--mapping-protocol", "igdp"]);
+            make_simplified_multi_config(["--mapping-protocol", "igdp"]);
         let logger = Logger::new("test");
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = PersistentConfigurationMock::new()
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)));
 
         let result =
@@ -818,28 +822,21 @@ fn configure_database(
     }
 
     #[test]
+    #[should_panic (expected = "Error retrieving mapping protocol from CONFIG table")]
     fn compute_mapping_protocol_logs_and_uses_none_if_saved_mapping_protocol_cannot_be_read() {
-        init_test_logging();
-        let multi_config = make_simplified_multi_config(["MASQNode"]);
+        let multi_config = make_simplified_multi_config([]);
         let logger = Logger::new("BAD_MP_READ");
-        let mut persistent_config = make_default_persistent_configuration()
+        let mut persistent_config = PersistentConfigurationMock::new()
             .mapping_protocol_result(Err(NotPresent));
 
-        let result =
-            compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
-
-        assert_eq!(result, None);
-        // No result provided for .set_mapping_protocol; if it's called, the panic will fail this test
-        TestLogHandler::new().exists_log_containing(
-            "WARN: BAD_MP_READ: Could not read mapping protocol from database: NotPresent",
-        );
+        compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
     }
 
     #[test]
     fn compute_mapping_protocol_logs_and_moves_on_if_mapping_protocol_cannot_be_saved() {
         init_test_logging();
         let multi_config =
-            make_simplified_multi_config(["MASQNode", "--mapping-protocol", "IGDP"]);
+            make_simplified_multi_config(["--mapping-protocol", "IGDP"]);
         let logger = Logger::new("BAD_MP_WRITE");
         let mut persistent_config = make_default_persistent_configuration()
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
@@ -869,7 +866,7 @@ fn configure_database(
                     .param("--ip", "1.2.3.4")
                     .param(
                         "--neighbors",
-                        "mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234;2345,Si06R3ulkOjJOLw1r2R9GOsY87yuinHU/IHK2FJyGnk@2.3.4.5:3456;4567",
+                        "masq://polygon-mainnet:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234/2345,masq://polygon-mainnet:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU_IHK2FJyGnk@2.3.4.5:3456/4567",
                     )
                     .into(),
             ))]
@@ -891,12 +888,12 @@ fn configure_database(
                     vec![
                         NodeDescriptor::try_from((
                             dummy_cryptde_ref,
-                            "mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234;2345"
+                            "masq://polygon-mainnet:mhtjjdMt7Gyoebtb1yiK0hdaUx6j84noHdaAHeDR1S4@1.2.3.4:1234/2345"
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
                             dummy_cryptde_ref,
-                            "Si06R3ulkOjJOLw1r2R9GOsY87yuinHU/IHK2FJyGnk@2.3.4.5:3456;4567"
+                            "masq://polygon-mainnet:Si06R3ulkOjJOLw1r2R9GOsY87yuinHU_IHK2FJyGnk@2.3.4.5:3456/4567"
                         ))
                         .unwrap()
                     ],
@@ -916,7 +913,7 @@ fn configure_database(
                     .param("--neighborhood-mode", "standard")
                     .param(
                         "--neighbors",
-                        "QmlsbA@1.2.3.4:1234;2345,VGVk@2.3.4.5:3456;4567",
+                        "masq://polygon-mainnet:QmlsbA@1.2.3.4:1234/2345,masq://polygon-mainnet:VGVk@2.3.4.5:3456/4567",
                     )
                     .param("--fake-public-key", "booga")
                     .into(),
@@ -949,7 +946,7 @@ fn configure_database(
                     .param("--neighborhood-mode", "originate-only")
                     .param(
                         "--neighbors",
-                        "QmlsbA@1.2.3.4:1234;2345,VGVk@2.3.4.5:3456;4567",
+                        "masq://polygon-mainnet:QmlsbA@1.2.3.4:1234/2345,masq://polygon-mainnet:VGVk@2.3.4.5:3456/4567",
                     )
                     .param("--fake-public-key", "booga")
                     .into(),
@@ -968,8 +965,8 @@ fn configure_database(
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::OriginateOnly(
                     vec![
-                        NodeDescriptor::try_from((main_cryptde(), "QmlsbA@1.2.3.4:1234;2345")).unwrap(),
-                        NodeDescriptor::try_from((main_cryptde(), "VGVk@2.3.4.5:3456;4567")).unwrap()
+                        NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mainnet:QmlsbA@1.2.3.4:1234/2345")).unwrap(),
+                        NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mainnet:VGVk@2.3.4.5:3456/4567")).unwrap()
                     ],
                     DEFAULT_RATE_PACK
                 )
@@ -1009,7 +1006,7 @@ fn configure_database(
                     .param("--neighborhood-mode", "consume-only")
                     .param(
                         "--neighbors",
-                        "QmlsbA@1.2.3.4:1234;2345,VGVk@2.3.4.5:3456;4567",
+                        "masq://polygon-mainnet:QmlsbA@1.2.3.4:1234/2345,masq://polygon-mainnet:VGVk@2.3.4.5:3456/4567",
                     )
                     .param("--fake-public-key", "booga")
                     .into(),
@@ -1027,8 +1024,8 @@ fn configure_database(
             result,
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![
-                    NodeDescriptor::try_from((main_cryptde(), "QmlsbA@1.2.3.4:1234;2345")).unwrap(),
-                    NodeDescriptor::try_from((main_cryptde(), "VGVk@2.3.4.5:3456;4567")).unwrap()
+                    NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mainnet:QmlsbA@1.2.3.4:1234/2345")).unwrap(),
+                    NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mainnet:VGVk@2.3.4.5:3456/4567")).unwrap()
                 ],)
             })
         );
@@ -1132,9 +1129,10 @@ fn configure_database(
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
                     .param("--neighborhood-mode", "zero-hop")
+                    .param("--chain", "polygon-mumbai")
                     .param(
                         "--neighbors",
-                        "QmlsbA@1.2.3.4:1234;2345,VGVk@2.3.4.5:3456;4567",
+                        "masq://polygon-mumbai:QmlsbA@1.2.3.4:1234/2345,masq://polygon-mumbai:VGVk@2.3.4.5:3456/4567",
                     )
                     .param("--fake-public-key", "booga")
                     .into(),
@@ -1258,11 +1256,11 @@ fn configure_database(
             Some(ConfiguratorError::new(vec![
                 ParamError::new(
                     "neighbors",
-                    "Should be <public key>[@ | :]<node address>, not 'ooga'"
+                    "Prefix or more missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'ooga'"
                 ),
                 ParamError::new(
                     "neighbors",
-                    "Should be <public key>[@ | :]<node address>, not 'booga'"
+                    "Prefix or more missing. Should be 'masq://<chain identifier>:<public key>@<node address>', not 'booga'"
                 ),
             ]))
         );
@@ -1518,70 +1516,9 @@ fn configure_database(
     }
 
     #[test]
-    fn unprivileged_parse_args_with_mapping_protocol_both_on_command_line_and_in_database() {
-        running_test();
-        let args = ArgsBuilder::new().param("--mapping-protocol", "pmp");
-        let mut config = BootstrapperConfig::new();
-        let vcls: Vec<Box<dyn VirtualCommandLine>> =
-            vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
-        let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut persistent_config = make_default_persistent_configuration()
-            .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
-            .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
-            .set_mapping_protocol_result(Ok(()));
-
-        privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
-
-        assert_eq!(config.mapping_protocol_opt, Some(AutomapProtocol::Pmp));
-        let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
-        assert_eq!(
-            config.data_directory,
-            PathBuf::from("/home/booga/.local/share/MASQ")
-                .join(DEFAULT_CHAIN.rec().literal_identifier)
-        );
-
-        #[cfg(target_os = "macos")]
-        assert_eq!(
-            config.data_directory,
-            PathBuf::from("/home/booga/Library/Application Support/MASQ")
-                .join(DEFAULT_CHAIN.rec().literal_identifier)
-        );
-    }
-
-    #[test]
-    fn unprivileged_parse_args_with_invalid_consuming_wallet_private_key_reacts_correctly() {
-        running_test();
-        let home_directory = ensure_node_home_directory_exists(
-            "node_configurator",
-            "parse_args_with_invalid_consuming_wallet_private_key_panics_correctly",
-        );
-
-        let args = ArgsBuilder::new().param("--data-directory", home_directory.to_str().unwrap());
-        let vcl_args: Vec<Box<dyn VclArg>> = vec![Box::new(NameValueVclArg::new(
-            &"--consuming-private-key",
-            &"not valid hex",
-        ))];
-
-        let faux_environment = CommandLineVcl::from(vcl_args);
-
-        let vcls: Vec<Box<dyn VirtualCommandLine>> = vec![
-            Box::new(faux_environment),
-            Box::new(CommandLineVcl::new(args.into())),
-        ];
-
-        let result = make_new_test_multi_config(&app_node(), vcls).err().unwrap();
-
-        assert_eq!(
-            result,
-            ConfiguratorError::required("consuming-private-key", "Invalid value: not valid hex")
-        )
-    }
-
-    #[test]
     fn get_db_password_shortcuts_if_its_already_gotten() {
         running_test();
-        let args = ["program"];
+        let args = [];
         let multi_config = make_simplified_multi_config(args);
         let mut config = BootstrapperConfig::new();
         let mut persistent_config =
@@ -1609,7 +1546,7 @@ fn configure_database(
     #[test]
     fn get_db_password_handles_database_write_error() {
         running_test();
-        let args = ["command", "--db-password", "password"];
+        let args = ["--db-password", "password"];
         let multi_config = make_simplified_multi_config(args);
         let mut config = BootstrapperConfig::new();
         let mut persistent_config = make_default_persistent_configuration()
@@ -1694,7 +1631,7 @@ fn configure_database(
     }
 
     #[test]
-    fn privileged_configuration_accepts_network_chain_selection_for_ropsten() {
+    fn privileged_configuration_accepts_network_chain_selection_for_testnet() {
         running_test();
         let subject = NodeConfiguratorStandardPrivileged::new();
         let args = [
@@ -1733,7 +1670,7 @@ fn configure_database(
     }
 
     #[test]
-    fn privileged_configuration_accepts_ropsten_network_chain_selection() {
+    fn privileged_configuration_accepts_testnet_chain_selection() {
         running_test();
         let subject = NodeConfiguratorStandardPrivileged::new();
         let args = [
@@ -1875,6 +1812,7 @@ fn configure_database(
         let mut persistent_config = PersistentConfigurationMock::new()
             .earning_wallet_address_result(Ok(Some(earning_address.to_string())))
             .set_gas_price_result(Ok(()))
+            .set_neighborhood_mode_result(Ok(()))
             .set_clandestine_port_params(&set_clandestine_port_params_arc)
             .set_clandestine_port_result(Ok(()));
 

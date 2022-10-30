@@ -843,7 +843,8 @@ mod tests {
     use masq_lib::utils::{derivation_path, AutomapProtocol, NeighborhoodModeLight};
     use rustc_hex::FromHex;
     use tiny_hderive::bip32::ExtendedPrivKey;
-    use crate::test_utils::main_cryptde;
+    use crate::bootstrapper::Bootstrapper;
+    use crate::test_utils::{main_cryptde, make_meaningless_public_key};
 
     #[test]
     fn constants_have_correct_values() {
@@ -2181,13 +2182,13 @@ mod tests {
         let node_descriptor = NodeDescriptor::from((
             &public_key,
             &node_addr,
-            Chain::EthRopsten,
+            Chain::PolyMumbai,
             main_cryptde() as &dyn CryptDE,
         ));
         let persistent_config = PersistentConfigurationMock::new()
             .blockchain_service_url_result(Ok(None))
             .check_password_result(Ok(true))
-            .chain_name_result("ropsten".to_string())
+            .chain_name_result("polygon-mumbai".to_string())
             .current_schema_version_result("3")
             .clandestine_port_result(Ok(1234))
             .gas_price_result(Ok(2345))
@@ -2216,7 +2217,7 @@ mod tests {
                 blockchain_service_url_opt: None,
                 current_schema_version: "3".to_string(),
                 clandestine_port: 1234,
-                chain_name: "ropsten".to_string(),
+                chain_name: "polygon-mumbai".to_string(),
                 gas_price: 2345,
                 neighborhood_mode: String::from("standard"),
                 consuming_wallet_private_key_opt: None,
@@ -2287,6 +2288,7 @@ mod tests {
 
     #[test]
     fn configuration_works_with_secrets() {
+        Bootstrapper::pub_initialize_cryptdes_for_testing(None, None);
         let consuming_wallet_private_key_params_arc = Arc::new(Mutex::new(vec![]));
         let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
         let consuming_wallet_private_key =
@@ -2303,18 +2305,18 @@ mod tests {
             .address()
         );
         let earning_wallet_address = "4a5e43b54c6C56Ebf7".to_string();
-        let public_key = PK::from(&b"xaca4sf4a56"[..]);
+        let public_key = make_meaningless_public_key();
         let node_addr = NodeAddr::from_str("1.2.1.3:4545").unwrap();
         let node_descriptor = NodeDescriptor::from((
             &public_key,
             &node_addr,
-            Chain::EthRopsten,
+            Chain::PolyMumbai,
             main_cryptde() as &dyn CryptDE,
         ));
         let persistent_config = PersistentConfigurationMock::new()
             .blockchain_service_url_result(Ok(None))
             .check_password_result(Ok(true))
-            .chain_name_result("ropsten".to_string())
+            .chain_name_result("polygon-mumbai".to_string())
             .current_schema_version_result("3")
             .clandestine_port_result(Ok(1234))
             .gas_price_result(Ok(2345))
@@ -2346,7 +2348,7 @@ mod tests {
                 blockchain_service_url_opt: None,
                 current_schema_version: "3".to_string(),
                 clandestine_port: 1234,
-                chain_name: "ropsten".to_string(),
+                chain_name: "polygon-mumbai".to_string(),
                 gas_price: 2345,
                 neighborhood_mode: String::from("consume-only"),
                 consuming_wallet_private_key_opt: Some(consuming_wallet_private_key),
@@ -2417,7 +2419,7 @@ mod tests {
             .blockchain_service_url_result(Ok(None))
             .current_schema_version_result("1.2.3")
             .clandestine_port_result(Ok(1234))
-            .chain_name_result("ropsten".to_string())
+            .chain_name_result("polyton-mumbai".to_string())
             .gas_price_result(Ok(2345))
             .earning_wallet_address_result(Ok(Some(
                 "0x0123456789012345678901234567890123456789".to_string(),

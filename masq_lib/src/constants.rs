@@ -17,7 +17,6 @@ pub const CURRENT_LOGFILE_NAME: &str = "MASQNode_rCURRENT.log";
 pub const MASQ_PROMPT: &str = "masq> ";
 
 pub const ETH_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 11_170_708;
-pub const ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
 pub const MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 0;
 pub const POLYGON_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 14_863_650;
 pub const MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 24_638_838;
@@ -69,7 +68,6 @@ pub const POLYGON_MAINNET_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK
 pub const POLYGON_MUMBAI_FULL_IDENTIFIER: &str = concatcp!(POLYGON_FAMILY, LINK, "mumbai");
 pub const DEV_CHAIN_FULL_IDENTIFIER: &str = "dev";
 pub const ETH_MAINNET_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, MAINNET);
-pub const ETH_ROPSTEN_FULL_IDENTIFIER: &str = concatcp!(ETH_FAMILY, LINK, "ropsten");
 
 #[cfg(test)]
 mod tests {
@@ -89,7 +87,6 @@ mod tests {
         assert_eq!(CURRENT_LOGFILE_NAME, "MASQNode_rCURRENT.log");
         assert_eq!(MASQ_PROMPT, "masq> ");
         assert_eq!(ETH_MAINNET_CONTRACT_CREATION_BLOCK, 11_170_708);
-        assert_eq!(ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK, 8_688_171);
         assert_eq!(MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, 0);
         assert_eq!(POLYGON_MAINNET_CONTRACT_CREATION_BLOCK, 14_863_650);
         assert_eq!(MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, 24_638_838);
@@ -128,6 +125,5 @@ mod tests {
         assert_eq!(POLYGON_MUMBAI_FULL_IDENTIFIER, "polygon-mumbai");
         assert_eq!(DEV_CHAIN_FULL_IDENTIFIER, "dev");
         assert_eq!(ETH_MAINNET_FULL_IDENTIFIER, "eth-mainnet");
-        assert_eq!(ETH_ROPSTEN_FULL_IDENTIFIER, "eth-ropsten");
     }
 }

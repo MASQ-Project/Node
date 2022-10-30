@@ -1587,7 +1587,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Neighbor masq://eth-ropsten:AQIDBA@1.2.3.4:1234 is not on the mainnet blockchain"
+        expected = "Neighbor masq://polygon-mumbai:AQIDBA@1.2.3.4:1234 is not on the mainnet blockchain"
     )]
     fn cant_create_mainnet_neighborhood_with_non_mainnet_neighbors() {
         let cryptde = main_cryptde();
@@ -1596,7 +1596,7 @@ mod tests {
             NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![NodeDescriptor::try_from((
                     cryptde,
-                    "masq://eth-ropsten:AQIDBA@1.2.3.4:1234",
+                    "masq://polygon-mumbai:AQIDBA@1.2.3.4:1234",
                 ))
                 .unwrap()]),
             },
@@ -1766,10 +1766,10 @@ mod tests {
                     mode: NeighborhoodMode::Standard(
                         this_node_addr.clone(),
                         vec![
-                            NodeDescriptor::from((&one_neighbor_node, Chain::EthRopsten, cryptde)),
+                            NodeDescriptor::from((&one_neighbor_node, Chain::PolyMumbai, cryptde)),
                             NodeDescriptor::from((
                                 &another_neighbor_node,
-                                Chain::EthRopsten,
+                                Chain::PolyMumbai,
                                 cryptde,
                             )),
                         ],
@@ -1800,8 +1800,8 @@ mod tests {
         assert_eq!(
             subject.overall_connection_status,
             OverallConnectionStatus::new(vec![
-                NodeDescriptor::from((&one_neighbor_node, Chain::EthRopsten, cryptde,)),
-                NodeDescriptor::from((&another_neighbor_node, Chain::EthRopsten, cryptde,))
+                NodeDescriptor::from((&one_neighbor_node, Chain::PolyMumbai, cryptde,)),
+                NodeDescriptor::from((&another_neighbor_node, Chain::PolyMumbai, cryptde,))
             ])
         );
     }
@@ -2341,10 +2341,10 @@ mod tests {
                     mode: NeighborhoodMode::Standard(
                         this_node_addr.clone(),
                         vec![
-                            NodeDescriptor::from((&one_neighbor_node, Chain::EthRopsten, cryptde)),
+                            NodeDescriptor::from((&one_neighbor_node, Chain::PolyMumbai, cryptde)),
                             NodeDescriptor::from((
                                 &another_neighbor_node,
-                                Chain::EthRopsten,
+                                Chain::PolyMumbai,
                                 cryptde,
                             )),
                         ],
@@ -2416,7 +2416,7 @@ mod tests {
                         vec![NodeDescriptor::from((
                             &PublicKey::new(&b"booga"[..]),
                             &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
-                            Chain::EthRopsten,
+                            Chain::PolyMumbai,
                             cryptde,
                         ))],
                         rate_pack(100),
@@ -2503,7 +2503,7 @@ mod tests {
                         vec![NodeDescriptor::from((
                             &PublicKey::new(&b"booga"[..]),
                             &NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[1234, 2345]),
-                            Chain::EthRopsten,
+                            Chain::PolyMumbai,
                             cryptde,
                         ))],
                         rate_pack(100),
@@ -2543,7 +2543,7 @@ mod tests {
                         node_record.node_addr_opt().unwrap(),
                         vec![NodeDescriptor::from((
                             &node_record,
-                            Chain::EthRopsten,
+                            Chain::PolyMumbai,
                             cryptde,
                         ))],
                         rate_pack(100),
@@ -3988,10 +3988,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "The Node cannot currently tolerate IP changes from the ISP, so...down we go."
-    )]
-    fn handle_new_public_ip_kills_the_whole_node_until_we_can_gossip_the_change() {
+    fn handle_new_public_ip_does_not_kill_the_whole_node() {
         running_test();
         let subject_node = make_global_cryptde_node_record(1234, true);
         let neighbor = make_node_record(1050, true);
@@ -4398,7 +4395,7 @@ mod tests {
         let cryptde: &dyn CryptDE = main_cryptde();
         let debut_target = NodeDescriptor::try_from((
             main_cryptde(), // Used to provide default cryptde
-            "masq://eth-ropsten:AQIDBA@1.2.3.4:1234",
+            "masq://polygon-mumbai:AQIDBA@1.2.3.4:1234",
         ))
         .unwrap();
         let (hopper, _, hopper_recording) = make_recorder();
@@ -4530,7 +4527,7 @@ mod tests {
 
     fn node_record_to_neighbor_config(node_record_ref: &NodeRecord) -> NodeDescriptor {
         let cryptde: &dyn CryptDE = main_cryptde();
-        NodeDescriptor::from((node_record_ref, Chain::EthRopsten, cryptde))
+        NodeDescriptor::from((node_record_ref, Chain::PolyMumbai, cryptde))
     }
 
     #[test]
@@ -4596,7 +4593,7 @@ mod tests {
                                     &IpAddr::from_str("1.2.3.4").unwrap(),
                                     &[1234, 2345],
                                 ),
-                                Chain::EthRopsten,
+                                Chain::PolyMumbai,
                                 cryptde,
                             ))],
                             rate_pack(100),
@@ -4723,7 +4720,7 @@ mod tests {
                                     &IpAddr::from_str("1.2.3.4").unwrap(),
                                     &[1234, 2345],
                                 ),
-                                Chain::EthRopsten,
+                                Chain::PolyMumbai,
                                 cryptde,
                             ))],
                             rate_pack(100),
@@ -4786,7 +4783,7 @@ mod tests {
                         node_record.node_addr_opt().unwrap(),
                         vec![NodeDescriptor::from((
                             &node_record,
-                            Chain::EthRopsten,
+                            Chain::PolyMumbai,
                             cryptde,
                         ))],
                         rate_pack(100),

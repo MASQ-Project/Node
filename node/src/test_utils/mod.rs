@@ -62,18 +62,24 @@ use web3::types::{Address, U256};
 use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
 lazy_static! {
-    static ref MAIN_CRYPTDE_NULL: Box<dyn CryptDE + 'static> =
-        Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN));
-    static ref ALIAS_CRYPTDE_NULL: Box<dyn CryptDE + 'static> =
-        Box::new(CryptDENull::new(TEST_DEFAULT_CHAIN));
+    static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(TEST_DEFAULT_CHAIN);
+    static ref ALIAS_CRYPTDE_NULL: CryptDENull = CryptDENull::new(TEST_DEFAULT_CHAIN);
+}
+
+pub fn main_cryptde_null() -> &'static CryptDENull {
+    &MAIN_CRYPTDE_NULL
 }
 
 pub fn main_cryptde() -> &'static dyn CryptDE {
-    MAIN_CRYPTDE_NULL.as_ref()
+    main_cryptde_null()
+}
+
+pub fn alias_cryptde_null() -> &'static CryptDENull {
+    &ALIAS_CRYPTDE_NULL
 }
 
 pub fn alias_cryptde() -> &'static dyn CryptDE {
-    ALIAS_CRYPTDE_NULL.as_ref()
+    alias_cryptde_null()
 }
 
 pub fn make_cryptde_pair() -> CryptDEPair {
@@ -196,7 +202,7 @@ pub fn make_meaningless_route() -> Route {
 }
 
 pub fn make_meaningless_public_key() -> PublicKey {
-    PublicKey::new(&make_garbage_data(8))
+    PublicKey::new(&make_garbage_data(32))
 }
 
 pub fn make_meaningless_wallet_private_key() -> PlainData {
@@ -210,10 +216,6 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
 
 pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
     PersistentConfigurationMock::new()
-        // .earning_wallet_from_address_result(Ok(None))
-        // .consuming_wallet_derivation_path_result(Ok(None))
-        // .mnemonic_seed_result(Ok(None))
-        // .mnemonic_seed_exists_result(Ok(false))
         .past_neighbors_result(Ok(None))
         .gas_price_result(Ok(1))
         .mapping_protocol_result(Ok(None))

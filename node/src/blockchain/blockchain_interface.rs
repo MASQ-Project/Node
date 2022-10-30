@@ -1181,7 +1181,7 @@ mod tests {
         let system = System::new("can transfer tokens test");
         System::current().stop();
         assert_eq!(system.run(), 0);
-        transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a901851bf08eb00082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0d4ecb2865f6a0370689be2e956cc272f7718cb360160f5a51756264ba1cc23fca005a3920e27680135e032bb23f4026a2e91c680866047cf9bbadee23ab8ab5ca2""#)]);
+        transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8ad01851bf08eb00083011680949b27034acabd44223fb23d628ba4849867ce1db280b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900083027126a0a2b0575e27cc95821fc518fb63e7ce0a0a095df23a9dc68c8b78fe2452b576caa067b910cb27b8aca68e6569fa2c8f1d48dd5a44b899ea4a68a6c818fc2f2afb96""#)]);
         transport.assert_no_more_requests();
         let (hash, timestamp) = result;
         assert_eq!(
@@ -1195,19 +1195,20 @@ mod tests {
         let expected_pending_payable_fingerprint = PendingPayableFingerprint {
             rowid_opt: None,
             timestamp,
-            hash,
+            hash: H256::from_str("f508effd5ded2a79597f5ad4ad896f0c6db427760f64b7e3312dce3783064c5a")
+                .unwrap(),
             attempt_opt: None,
             amount: amount as u64,
             process_error: None,
         };
         assert_eq!(sent_backup, &expected_pending_payable_fingerprint);
         let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing("DEBUG: BlockchainInterface: Preparing transaction for 9000 Gwei to 0x00000000000000000000000000626c6168313233 from 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725 (chain_id: 3, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3, gas price: 120)" );
+        log_handler.exists_log_containing("DEBUG: BlockchainInterface: Preparing transaction for 9000 Gwei to 0x00000000000000000000000000626c6168313233 from 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725 (chain_id: 80001, contract: 0x9b27034acabd44223fb23d628ba4849867ce1db2, gas price: 120)" );
         log_handler.exists_log_containing(
             "INFO: BlockchainInterface: About to send transaction:\n\
         recipient: 0x00000000000000000000000000626c6168313233,\n\
         amount: 9000,\n\
-        (chain: eth-ropsten, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3)",
+        (chain: polygon-mumbai, contract: 0x9b27034acabd44223fb23d628ba4849867ce1db2)",
         );
     }
 
@@ -1313,10 +1314,6 @@ mod tests {
         );
         assert_eq!(
             BlockchainInterfaceNonClandestine::<Http>::base_gas_limit(Chain::EthMainnet),
-            55_000
-        );
-        assert_eq!(
-            BlockchainInterfaceNonClandestine::<Http>::base_gas_limit(Chain::EthRopsten),
             55_000
         );
         assert_eq!(
@@ -1598,17 +1595,6 @@ mod tests {
         assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)
     }
 
-    //with a real confirmation through a transaction sent with this data to the network
-    #[test]
-    fn non_clandestine_signing_a_transaction_works_for_eth_ropsten() {
-        let chain = Chain::EthRopsten;
-        let nonce = 1; //must stay like this!
-        let signed_transaction_data = "f8a90185199c82cc0082dee894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb0000000000000000000000007788df76bbd9a0c7c3e5bf0f77bb28c60a167a7b000000000000000000000000000000000000000000000000000000e8d4a510002aa0635fbb3652e1c3063afac6ffdf47220e0431825015aef7daff9251694e449bfca00b2ed6d556bd030ac75291bf58817da15a891cd027a4c261bb80b51f33b78adf";
-        let in_bytes = decode_hex(signed_transaction_data).unwrap();
-
-        assert_that_signed_transactions_agrees_with_template(chain, nonce, &in_bytes)
-    }
-
     //not confirmed on the real network
     #[test]
     fn non_clandestine_signing_a_transaction_for_polygon_mainnet() {
@@ -1683,41 +1669,6 @@ mod tests {
             ][..],
         ];
         assert_signature(Chain::EthMainnet, signatures)
-    }
-
-    //an adapted test from old times when we had our own signing method
-    //I don't have data for the new chains so I omit them in this kind of tests
-    #[test]
-    fn signs_various_transactions_for_ropsten() {
-        let signatures = &[
-            &[
-                248, 108, 9, 133, 4, 168, 23, 200, 0, 130, 82, 8, 148, 53, 53, 53, 53, 53, 53, 53,
-                53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 53, 136, 13, 224, 182, 179, 167,
-                100, 0, 0, 128, 41, 160, 8, 220, 80, 201, 100, 41, 178, 35, 151, 227, 210, 85, 27,
-                41, 27, 82, 217, 176, 64, 92, 205, 10, 195, 169, 66, 91, 213, 199, 124, 52, 3, 192,
-                160, 94, 220, 102, 179, 128, 78, 150, 78, 230, 117, 10, 10, 32, 108, 241, 50, 19,
-                148, 198, 6, 147, 110, 175, 70, 157, 72, 31, 216, 193, 229, 151, 115,
-            ][..],
-            &[
-                248, 106, 128, 134, 213, 86, 152, 55, 36, 49, 131, 30, 132, 128, 148, 240, 16, 159,
-                200, 223, 40, 48, 39, 182, 40, 92, 200, 137, 245, 170, 98, 78, 172, 31, 85, 132,
-                59, 154, 202, 0, 128, 41, 160, 186, 65, 161, 205, 173, 93, 185, 43, 220, 161, 63,
-                65, 19, 229, 65, 186, 247, 197, 132, 141, 184, 196, 6, 117, 225, 181, 8, 81, 198,
-                102, 150, 198, 160, 112, 126, 42, 201, 234, 236, 168, 183, 30, 214, 145, 115, 201,
-                45, 191, 46, 3, 113, 53, 80, 203, 164, 210, 112, 42, 182, 136, 223, 125, 232, 21,
-                205,
-            ][..],
-            &[
-                248, 117, 128, 134, 9, 24, 78, 114, 160, 0, 130, 39, 16, 128, 128, 164, 127, 116,
-                101, 115, 116, 50, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 96, 0, 87, 41, 160, 146, 204, 57, 32, 218, 236, 59, 94, 106, 72,
-                174, 211, 223, 160, 122, 186, 126, 44, 200, 41, 222, 117, 117, 177, 189, 78, 203,
-                8, 172, 155, 219, 66, 160, 83, 82, 37, 6, 243, 61, 188, 102, 176, 132, 102, 74,
-                111, 180, 105, 33, 122, 106, 109, 73, 180, 65, 10, 117, 175, 190, 19, 196, 17, 128,
-                193, 75,
-            ][..],
-        ];
-        assert_signature(Chain::EthRopsten, signatures)
     }
 
     #[derive(Deserialize)]

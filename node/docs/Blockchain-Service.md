@@ -2,12 +2,11 @@
 
 ### What is a blockchain service URL?
 
-A blockchain service url is a URL that MASQ Node uses to interact with various blockchains, either the Mumbai and Ropsten
-testnets or Polygon and Ethereum mainnets. On mainnets, MASQ uses the MASQ token; on testnets, it uses a test token.
+A blockchain service url is a URL that MASQ Node uses to interact with various blockchains, either the Mumbai
+testnet or the Polygon and Ethereum mainnets. On mainnets, MASQ uses the MASQ token; on testnets, it uses a test token.
 
 #### MASQ Node software supports connections to the following blockchains:
 **Ethereum**
-- [x] Ropsten testnet
 - [x] Ethereum mainnet
 
 **Polygon**

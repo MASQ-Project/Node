@@ -240,6 +240,6 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
 
     let mut node = MASQNode::start_standard(test_name, None, false, true, false, false);
 
-    let regex_pattern = r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with a wrong chain name detected; expected: eth-ropsten, was: eth-mainnet";
+    let regex_pattern = r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with a wrong chain name detected; expected: polygon-mumbai, was: eth-mainnet";
     node.wait_for_log(regex_pattern, Some(1000));
 }
