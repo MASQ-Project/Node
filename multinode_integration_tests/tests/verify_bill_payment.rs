@@ -18,9 +18,8 @@ use node_lib::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceNonClandestine, REQUESTS_IN_PARALLEL,
 };
 use node_lib::database::db_initializer::{
-    DbInitializationConfig, DbInitializer, DbInitializerReal,
+    DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,
 };
-use node_lib::database::db_migrations::ExternalData;
 use node_lib::sub_lib::accountant::{PaymentThresholds, WEIS_OF_GWEI};
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
@@ -104,7 +103,6 @@ fn verify_bill_payment() {
     let consuming_node_connection = DbInitializerReal::default()
         .initialize(
             Path::new(&consuming_node_path),
-            true,
             make_init_config(cluster.chain),
         )
         .unwrap();
@@ -143,7 +141,6 @@ fn verify_bill_payment() {
     let serving_node_1_connection = DbInitializerReal::default()
         .initialize(
             Path::new(&serving_node_1_path),
-            true,
             make_init_config(cluster.chain),
         )
         .unwrap();
@@ -159,7 +156,6 @@ fn verify_bill_payment() {
     let serving_node_2_connection = DbInitializerReal::default()
         .initialize(
             Path::new(&serving_node_2_path),
-            true,
             make_init_config(cluster.chain),
         )
         .unwrap();
@@ -175,7 +171,6 @@ fn verify_bill_payment() {
     let serving_node_3_connection = DbInitializerReal::default()
         .initialize(
             Path::new(&serving_node_3_path),
-            true,
             make_init_config(cluster.chain),
         )
         .unwrap();
@@ -424,7 +419,7 @@ fn build_config(
 
 fn expire_payables(path: PathBuf) {
     let conn = DbInitializerReal::default()
-        .initialize(&path, true, DbInitializationConfig::panic_on_migration())
+        .initialize(&path, DbInitializationConfig::panic_on_migration())
         .unwrap();
     let mut statement = conn
         .prepare("update payable set last_paid_timestamp = 0 where pending_payable_rowid is null")
@@ -439,7 +434,7 @@ fn expire_payables(path: PathBuf) {
 
 fn expire_receivables(path: PathBuf) {
     let conn = DbInitializerReal::default()
-        .initialize(&path, true, DbInitializationConfig::panic_on_migration())
+        .initialize(&path, DbInitializationConfig::panic_on_migration())
         .unwrap();
     let mut statement = conn
         .prepare("update receivable set last_received_timestamp = 0")
