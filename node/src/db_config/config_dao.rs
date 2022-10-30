@@ -165,7 +165,7 @@ mod tests {
             ensure_node_home_directory_exists("config_dao", "get_all_returns_multiple_results");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, DbInitializationConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
 
@@ -201,7 +201,7 @@ mod tests {
         );
         let subject = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, DbInitializationConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
 
@@ -215,7 +215,7 @@ mod tests {
         let home_dir = ensure_node_home_directory_exists("config_dao", "set_and_get_work");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, DbInitializationConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
         let modified_value = ConfigDaoRecord::new(
@@ -244,7 +244,7 @@ mod tests {
         );
         let subject = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, DbInitializationConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
 
@@ -261,7 +261,7 @@ mod tests {
         );
         let subject = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, DbInitializationConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
         let _ = subject.set("schema_version", None).unwrap();

@@ -1396,11 +1396,7 @@ mod tests {
         running_test();
         let config_dao: Box<dyn ConfigDao> = Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(
-                    &home_dir.clone(),
-                    true,
-                    DbInitializationConfig::test_default(),
-                )
+                .initialize(&home_dir.clone(), DbInitializationConfig::test_default())
                 .unwrap(),
         ));
         let consuming_private_key_text =

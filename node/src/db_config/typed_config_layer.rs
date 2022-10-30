@@ -10,8 +10,7 @@ pub enum TypedConfigLayerError {
     BadCombinedParamsFormat(String),
 }
 
-pub const NULL_DECODER: fn(Option<String>) -> Result<Option<String>, TypedConfigLayerError> =
-    |x| Ok(x);
+pub const NULL_DECODER: fn(Option<String>) -> Result<Option<String>, TypedConfigLayerError> = Ok;
 
 pub fn decode_u64(string_opt: Option<String>) -> Result<Option<u64>, TypedConfigLayerError> {
     match string_opt {

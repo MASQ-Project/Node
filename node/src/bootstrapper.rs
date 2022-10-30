@@ -505,7 +505,6 @@ impl ConfiguredByPrivilege for Bootstrapper {
             Box::new(ActorFactoryReal {}),
             initialize_database(
                 &self.config.data_directory,
-                false,
                 DbInitializationConfig::panic_on_migration(),
             ),
         );
@@ -614,7 +613,6 @@ impl Bootstrapper {
                 let conn = DbInitializerReal::default()
                     .initialize(
                         &self.config.data_directory,
-                        false,
                         DbInitializationConfig::panic_on_migration(),
                     )
                     .expect("Cannot initialize database");
@@ -1784,7 +1782,7 @@ mod tests {
             "set_up_clandestine_port_handles_specified_port_in_standard_mode",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, true, DbInitializationConfig::test_default())
+            .initialize(&data_dir, DbInitializationConfig::test_default())
             .unwrap();
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
@@ -1858,7 +1856,7 @@ mod tests {
             "set_up_clandestine_port_handles_unspecified_port_in_standard_mode",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, true, DbInitializationConfig::test_default())
+            .initialize(&data_dir, DbInitializationConfig::test_default())
             .unwrap();
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config = NeighborhoodConfig {

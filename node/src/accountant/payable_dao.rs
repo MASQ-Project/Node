@@ -7,7 +7,7 @@ use crate::accountant::big_int_db_processor::{
 use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
     sum_i128_values_from_table, to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal,
-    RangeStmConfig, TopStmConfig, VigilantFlatten,
+    RangeStmConfig, TopStmConfig, VigilantRusqliteFlatten,
 };
 use crate::accountant::{checked_conversion, sign_conversion, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
@@ -416,7 +416,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let status = {
             let boxed_conn = DbInitializerReal::default()
-                .initialize(&home_dir, true, DbInitializationConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap();
             let subject = PayableDaoReal::new(boxed_conn);
 
@@ -439,7 +439,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let now = SystemTime::now();
         let boxed_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = {
             let subject = PayableDaoReal::new(boxed_conn);
@@ -469,7 +469,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, DbInitializationConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
 
@@ -485,7 +485,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let pending_payable_rowid = 656;
         let boxed_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         {
             insert_record(&*boxed_conn, &wallet.to_string(), 5000, 150_000_000, None);
@@ -525,7 +525,7 @@ mod tests {
         let wallet = make_wallet("booga");
         let rowid = 656;
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = PayableDaoReal::new(conn);
 
@@ -559,7 +559,7 @@ mod tests {
         let home_dir =
             ensure_node_home_directory_exists("payable_dao", "transaction_confirmed_works");
         let boxed_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let hash = H256::from_uint(&U256::from(12345));
         let rowid = 789;
@@ -655,7 +655,7 @@ mod tests {
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, DbInitializationConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
         let mut pending_payable_fingerprint = make_pending_payable_fingerprint();
@@ -701,7 +701,7 @@ mod tests {
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, DbInitializationConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
 
@@ -718,7 +718,7 @@ mod tests {
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, DbInitializationConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
         let mut flags = OpenFlags::empty();
@@ -771,7 +771,7 @@ mod tests {
         );
         let subject = PayableDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, DbInitializationConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
 
@@ -1127,7 +1127,7 @@ mod tests {
     fn total_works() {
         let home_dir = ensure_node_home_directory_exists("payable_dao", "total_works");
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let timestamp = dao_utils::now_time_t();
         insert_record(
@@ -1173,7 +1173,7 @@ mod tests {
         let home_dir =
             ensure_node_home_directory_exists("payable_dao", "total_takes_negative_value_as_error");
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         insert_record(
             &*conn,
@@ -1199,7 +1199,7 @@ mod tests {
         let home_dir =
             ensure_node_home_directory_exists("payable_dao", "correctly_totals_zero_records");
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = PayableDaoReal::new(conn);
 
@@ -1229,7 +1229,7 @@ mod tests {
     {
         let home_dir = ensure_node_home_directory_exists("payable_dao", test_name);
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         main_setup_fn(conn.as_ref(), &insert_record);
         let params: &[&dyn ToSql] = &[

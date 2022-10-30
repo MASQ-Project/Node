@@ -66,11 +66,10 @@ pub fn determine_config_file_path(
 
 pub fn initialize_database(
     data_directory: &Path,
-    create_if_necessary: bool,
     migrator_config: DbInitializationConfig,
 ) -> Box<dyn PersistentConfiguration> {
     let conn = DbInitializerReal::default()
-        .initialize(data_directory, create_if_necessary, migrator_config)
+        .initialize(data_directory, migrator_config)
         .unwrap_or_else(|e| {
             panic!(
                 "Can't initialize database at {:?}: {:?}",

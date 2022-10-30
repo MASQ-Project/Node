@@ -207,7 +207,7 @@ mod tests {
         );
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&data_dir, true, DbInitializationConfig::test_default())
+            .initialize(&data_dir, DbInitializationConfig::test_default())
             .unwrap();
         let real_config_dao = ConfigDaoReal::new(conn);
         let subject = ConfigDaoNull::default();

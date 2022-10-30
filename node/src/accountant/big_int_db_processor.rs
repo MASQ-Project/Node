@@ -31,7 +31,7 @@ impl<'a, T: TableNameDAO> BigIntDbProcessor<T> {
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
         let main_sql = config.main_sql;
-        let mut stm = Self::prepare_statement(conn, &main_sql);
+        let mut stm = Self::prepare_statement(conn, main_sql);
         let params = config
             .params
             .pure_rusqlite_params_with_wei_params((&config.params.wei_change_params).into());
@@ -119,7 +119,7 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
                     );
                     let update_sql = config.overflow_update_clause;
                     let mut update_stm =
-                        BigIntDbProcessor::<T>::prepare_statement(conn, &update_sql);
+                        BigIntDbProcessor::<T>::prepare_statement(conn, update_sql);
                     let wei_update_array = [
                         (
                             requested_wei_change.high.name.as_str(),

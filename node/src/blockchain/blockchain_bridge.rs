@@ -208,7 +208,6 @@ impl BlockchainBridge {
             db_initializer
                 .initialize(
                     &data_directory,
-                    true,
                     DbInitializationConfig::panic_on_migration(),
                 )
                 .unwrap_or_else(|_| {

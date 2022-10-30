@@ -99,7 +99,6 @@ impl Configurator {
         let conn = initializer
             .initialize(
                 &data_directory,
-                false,
                 DbInitializationConfig::panic_on_migration(),
             )
             .expect("Couldn't initialize database");
@@ -859,7 +858,7 @@ mod tests {
             ensure_node_home_directory_exists("configurator", "constructor_connects_with_database");
         let verifier = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&data_dir, true, DbInitializationConfig::test_default())
+                .initialize(&data_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         )));
         let (recorder, _, _) = make_recorder();

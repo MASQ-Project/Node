@@ -417,7 +417,6 @@ impl SetupReporterReal {
         let initializer = DbInitializerReal::default();
         match initializer.initialize(
             data_directory,
-            false,
             DbInitializationConfig::migration_suppressed_with_error(),
         ) {
             Ok(conn) => {
@@ -1156,7 +1155,7 @@ mod tests {
         );
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let mut config = PersistentConfigurationReal::from(conn);
         config.change_password(None, "password").unwrap();
@@ -2060,11 +2059,11 @@ mod tests {
     }
 
     #[test]
-    fn run_configuration_without_existing_database_implies_config_dao_null_to_use() {
+    fn run_configuration_without_existing_database_implies_config_dao_null_to_be_used() {
         let _guard = EnvironmentGuard::new();
         let home_dir = ensure_node_home_directory_exists(
             "setup_reporter",
-            "run_configuration_without_existing_database_implies_config_dao_null_to_use",
+            "run_configuration_without_existing_database_implies_config_dao_null_to_be_used",
         );
         let current_default_gas_price = DEFAULT_GAS_PRICE;
         let gas_price_for_set_attempt = current_default_gas_price + 78;
@@ -2077,7 +2076,7 @@ mod tests {
             subject.run_configuration(&multi_config, &home_dir);
 
         let error = DbInitializerReal::default()
-            .initialize(&home_dir, false, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::panic_on_migration())
             .unwrap_err();
         assert_eq!(error, InitializationError::Nonexistent);
         assert_eq!(

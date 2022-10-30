@@ -457,11 +457,7 @@ impl Accountant {
     }
 
     pub fn dao_factory(data_directory: &Path) -> DaoFactoryReal {
-        DaoFactoryReal::new(
-            data_directory,
-            false,
-            DbInitializationConfig::panic_on_migration(),
-        )
+        DaoFactoryReal::new(data_directory, DbInitializationConfig::panic_on_migration())
     }
 
     fn handle_scan_message(

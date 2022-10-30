@@ -551,7 +551,6 @@ impl Neighborhood {
             let conn = db_initializer
                 .initialize(
                     &self.data_directory,
-                    false,
                     DbInitializationConfig::panic_on_migration(),
                 )
                 .expect("Neighborhood could not connect to database");
@@ -1716,7 +1715,7 @@ mod tests {
         );
         {
             let _ = DbInitializerReal::default()
-                .initialize(&data_dir, true, DbInitializationConfig::test_default())
+                .initialize(&data_dir, DbInitializationConfig::test_default())
                 .unwrap();
         }
         let cryptde = main_cryptde();
@@ -4377,7 +4376,7 @@ mod tests {
         );
         {
             let _ = DbInitializerReal::default()
-                .initialize(&data_dir, true, DbInitializationConfig::test_default())
+                .initialize(&data_dir, DbInitializationConfig::test_default())
                 .unwrap();
         }
         let cryptde: &dyn CryptDE = main_cryptde();

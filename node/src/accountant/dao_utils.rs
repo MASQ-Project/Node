@@ -41,19 +41,13 @@ pub fn from_time_t(time_t: i64) -> SystemTime {
 
 pub struct DaoFactoryReal {
     pub data_directory: PathBuf,
-    pub create_if_necessary: bool,
     pub init_config: RefCell<Option<DbInitializationConfig>>,
 }
 
 impl DaoFactoryReal {
-    pub fn new(
-        data_directory: &Path,
-        create_if_necessary: bool,
-        init_config: DbInitializationConfig,
-    ) -> Self {
+    pub fn new(data_directory: &Path, init_config: DbInitializationConfig) -> Self {
         Self {
             data_directory: data_directory.to_path_buf(),
-            create_if_necessary,
             init_config: RefCell::new(Some(init_config)),
         }
     }
@@ -62,7 +56,6 @@ impl DaoFactoryReal {
         connection_or_panic(
             &DbInitializerReal::default(),
             &self.data_directory,
-            self.create_if_necessary,
             self.init_config.take().expectv("Db init config"),
         )
     }
@@ -299,7 +292,8 @@ fn to_age(timestamp: SystemTime) -> u64 {
     (to_time_t(SystemTime::now()) - to_time_t(timestamp)) as u64
 }
 
-pub trait VigilantFlatten {
+#[allow(clippy::type_complexity)]
+pub trait VigilantRusqliteFlatten {
     fn vigilant_flatten<R>(
         self,
     ) -> FlatMap<Self, rusqlite::Result<R>, fn(rusqlite::Result<R>) -> rusqlite::Result<R>>
@@ -310,7 +304,7 @@ pub trait VigilantFlatten {
     }
 }
 
-impl<T: Iterator<Item = rusqlite::Result<R>>, R> VigilantFlatten for T {}
+impl<T: Iterator<Item = rusqlite::Result<R>>, R> VigilantRusqliteFlatten for T {}
 
 pub fn sum_i128_values_from_table(
     conn: &dyn ConnectionWrapper,
@@ -337,20 +331,7 @@ mod tests {
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::types::{ToSqlOutput, Value};
     use rusqlite::{Connection, OpenFlags};
-    use std::str::FromStr;
     use std::time::UNIX_EPOCH;
-
-    #[test]
-    #[should_panic(expected = "Failed to connect to database at \"nonexistent")]
-    fn connection_panics_if_connection_cannot_be_made() {
-        let subject = DaoFactoryReal::new(
-            &PathBuf::from_str("nonexistent").unwrap(),
-            false,
-            DbInitializationConfig::test_default(),
-        );
-
-        let _ = subject.make_connection();
-    }
 
     #[test]
     fn set_age_constraints_works() {

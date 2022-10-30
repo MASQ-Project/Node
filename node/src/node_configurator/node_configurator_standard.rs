@@ -83,7 +83,6 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
     ) -> Result<BootstrapperConfig, ConfiguratorError> {
         let mut persistent_config = initialize_database(
             &self.privileged_config.data_directory,
-            true,
             DbInitializationConfig::create_or_migrate(ExternalData::from((self, multi_config))),
         );
         let mut unprivileged_config = BootstrapperConfig::new();
@@ -322,11 +321,7 @@ mod tests {
         .unwrap()];
         {
             let conn = DbInitializerReal::default()
-                .initialize(
-                    home_dir.as_path(),
-                    true,
-                    DbInitializationConfig::test_default(),
-                )
+                .initialize(home_dir.as_path(), DbInitializationConfig::test_default())
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
             persistent_config.change_password(None, "password").unwrap();
@@ -471,11 +466,7 @@ mod tests {
         );
         let mut persistent_config = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(
-                    &home_dir.clone(),
-                    true,
-                    DbInitializationConfig::test_default(),
-                )
+                .initialize(&home_dir.clone(), DbInitializationConfig::test_default())
                 .unwrap(),
         )));
         let consuming_private_key =

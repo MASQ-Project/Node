@@ -1,7 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::big_int_db_processor::BigIntDivider;
-use crate::accountant::dao_utils::{from_time_t, to_time_t, DaoFactoryReal, VigilantFlatten};
+use crate::accountant::dao_utils::{
+    from_time_t, to_time_t, DaoFactoryReal, VigilantRusqliteFlatten,
+};
 use crate::accountant::{checked_conversion, sign_conversion};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -206,7 +208,7 @@ mod tests {
             "insert_fingerprint_happy_path",
         );
         let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let hash = H256::from_uint(&U256::from(45466));
         let amount = 55556;
@@ -237,7 +239,7 @@ mod tests {
             ensure_node_home_directory_exists("pending_payable_dao", "insert_fingerprint_sad_path");
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, true, DbInitializationConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap();
         }
         let conn_read_only = Connection::open_with_flags(
@@ -268,7 +270,7 @@ mod tests {
             "fingerprint_rowid_when_record_reachable",
         );
         let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = PendingPayableDaoReal::new(wrapped_conn);
         let timestamp = from_time_t(195_000_000);
@@ -292,7 +294,7 @@ mod tests {
             "fingerprint_rowid_when_nonexistent_record",
         );
         let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         {
             let mut stm = wrapped_conn
@@ -317,7 +319,7 @@ mod tests {
             "return_all_fingerprints_works_when_no_records_with_errors_marks",
         );
         let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = PendingPayableDaoReal::new(wrapped_conn);
         let timestamp_1 = from_time_t(195_000_000);
@@ -369,7 +371,7 @@ mod tests {
             "return_all_fingerprints_works_when_some_records_with_errors_marks",
         );
         let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = PendingPayableDaoReal::new(wrapped_conn);
         let timestamp = from_time_t(198_000_000);
@@ -412,7 +414,7 @@ mod tests {
             "delete_fingerprint_happy_path",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let hash = H256::from_uint(&U256::from(666666));
         let rowid = 1;
@@ -444,7 +446,7 @@ mod tests {
             ensure_node_home_directory_exists("pending_payable_dao", "delete_fingerprint_sad_path");
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, true, DbInitializationConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap();
         }
         let conn_read_only = Connection::open_with_flags(
@@ -473,7 +475,7 @@ mod tests {
             "update_fingerprint_after_scan_cycle_works",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let hash = H256::from_uint(&U256::from(666));
         let amount = 1234;
@@ -511,7 +513,7 @@ mod tests {
         );
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, true, DbInitializationConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap();
         }
         let conn_read_only = Connection::open_with_flags(
@@ -537,7 +539,7 @@ mod tests {
         let home_dir =
             ensure_node_home_directory_exists("pending_payable_dao", "mark_failure_works");
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let hash = H256::from_uint(&U256::from(666));
         let amount = 1234;
@@ -594,7 +596,7 @@ mod tests {
             ensure_node_home_directory_exists("pending_payable_dao", "mark_failure_sad_path");
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, true, DbInitializationConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap();
         }
         let conn_read_only = Connection::open_with_flags(

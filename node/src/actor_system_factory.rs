@@ -451,7 +451,6 @@ impl ActorFactory for ActorFactoryReal {
         banned_cache_loader.load(connection_or_panic(
             db_initializer,
             data_directory,
-            false,
             DbInitializationConfig::panic_on_migration(),
         ));
         let cloned_config = config.clone();
@@ -1904,11 +1903,7 @@ mod tests {
         );
         let accountant_config = make_populated_accountant_config_with_defaults();
         let _ = DbInitializerReal::default()
-            .initialize(
-                data_dir.as_ref(),
-                true,
-                DbInitializationConfig::test_default(),
-            )
+            .initialize(data_dir.as_ref(), DbInitializationConfig::test_default())
             .unwrap();
         let mut b_config = bc_from_ac_plus_earning_wallet(accountant_config, make_wallet("mine"));
         b_config.data_directory = data_dir;

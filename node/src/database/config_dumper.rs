@@ -123,8 +123,10 @@ fn translate_bytes(json_name: &str, input: PlainData, cryptde: &dyn CryptDE) -> 
 
 fn make_config_dao(data_directory: &Path, init_config: DbInitializationConfig) -> ConfigDaoReal {
     let conn = DbInitializerReal::default()
-        .initialize(data_directory, false, init_config)
-        .unwrap_or_else(|e| if e == InitializationError::Nonexistent {panic!("Could not find database at: {}. Would be created when the Node firstly operates. Running --dump-config before has no effect",data_directory.to_string_lossy())} else {
+        .initialize(data_directory,init_config)
+        .unwrap_or_else(|e| if e == InitializationError::Nonexistent {panic!("\
+        Could not find database at: {}. It is created when the Node operates the first time. Running \
+          --dump-config before that has no effect",data_directory.to_string_lossy())} else {
             panic!(
                 "Can't initialize database at {:?}: {:?}",
                 data_directory.join(DATABASE_FILE),
@@ -198,7 +200,14 @@ mod tests {
         .unwrap_err();
 
         let string_panic = caught_panic.downcast_ref::<String>().unwrap();
-        assert_eq!(string_panic,&format!("Could not find database at: {}. Would be created when the Node firstly operates. Running --dump-config before has no effect",data_dir.to_str().unwrap()));
+        assert_eq!(
+            string_panic,
+            &format!(
+                "Could not find database at: {}. It is created when the Node \
+         operates the first time. Running --dump-config before that has no effect",
+                data_dir.to_str().unwrap()
+            )
+        );
         let err = File::open(&data_dir.join(DATABASE_FILE)).unwrap_err();
         assert_eq!(err.kind(), ErrorKind::NotFound)
     }
@@ -226,7 +235,8 @@ mod tests {
 
         assert!(result.is_ok());
         let schema_version_after = dao.get("schema_version").unwrap().value_opt.unwrap();
-        assert_eq!(schema_version_before, schema_version_after)
+        assert_eq!(schema_version_before, schema_version_after);
+        assert_eq!(holder.stderr.get_bytes().is_empty(), true);
     }
 
     #[test]
@@ -243,7 +253,6 @@ mod tests {
             let conn = DbInitializerReal::default()
                 .initialize(
                     &data_dir,
-                    true,
                     DbInitializationConfig::create_or_migrate(ExternalData::new(
                         TEST_DEFAULT_CHAIN,
                         NeighborhoodModeLight::ZeroHop,
@@ -299,11 +308,7 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(
-                &data_dir,
-                false,
-                DbInitializationConfig::panic_on_migration(),
-            )
+            .initialize(&data_dir, DbInitializationConfig::panic_on_migration())
             .unwrap();
         let dao = ConfigDaoReal::new(conn);
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
@@ -366,7 +371,6 @@ mod tests {
             let conn = DbInitializerReal::default()
                 .initialize(
                     &data_dir,
-                    true,
                     DbInitializationConfig::create_or_migrate(ExternalData::new(
                         TEST_DEFAULT_CHAIN,
                         NeighborhoodModeLight::ConsumeOnly,
@@ -423,11 +427,7 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(
-                &data_dir,
-                false,
-                DbInitializationConfig::panic_on_migration(),
-            )
+            .initialize(&data_dir, DbInitializationConfig::panic_on_migration())
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
@@ -479,7 +479,6 @@ mod tests {
             let conn = DbInitializerReal::default()
                 .initialize(
                     &data_dir,
-                    true,
                     DbInitializationConfig::create_or_migrate(ExternalData::new(
                         TEST_DEFAULT_CHAIN,
                         NeighborhoodModeLight::Standard,
@@ -536,11 +535,7 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(
-                &data_dir,
-                false,
-                DbInitializationConfig::panic_on_migration(),
-            )
+            .initialize(&data_dir, DbInitializationConfig::panic_on_migration())
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);

@@ -2022,7 +2022,7 @@ mod tests {
             "current_config_table_schema",
         );
         let db_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let mut statement = db_conn.prepare("select name from config").unwrap();
         statement

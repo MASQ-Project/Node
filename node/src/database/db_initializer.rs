@@ -11,7 +11,6 @@ use masq_lib::constants::{
 use masq_lib::logger::Logger;
 #[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-#[cfg(test)]
 use masq_lib::utils::NeighborhoodModeLight;
 use rand::prelude::*;
 use rusqlite::Error::InvalidColumnType;
@@ -40,7 +39,6 @@ pub trait DbInitializer {
     fn initialize(
         &self,
         path: &Path,
-        create_if_necessary: bool,
         init_config: DbInitializationConfig,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
 
@@ -48,7 +46,6 @@ pub trait DbInitializer {
         &self,
         path: &Path,
         target_version: usize,
-        create_if_necessary: bool,
         init_config: DbInitializationConfig,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError>;
 }
@@ -60,22 +57,15 @@ impl DbInitializer for DbInitializerReal {
     fn initialize(
         &self,
         path: &Path,
-        create_if_necessary: bool,
         init_config: DbInitializationConfig,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
-        self.initialize_to_version(
-            path,
-            CURRENT_SCHEMA_VERSION,
-            create_if_necessary,
-            init_config,
-        )
+        self.initialize_to_version(path, CURRENT_SCHEMA_VERSION, init_config)
     }
 
     fn initialize_to_version(
         &self,
         path: &Path,
         target_version: usize,
-        create_if_necessary: bool,
         init_config: DbInitializationConfig,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
         let is_creation_necessary = Self::is_creation_necessary(path);
@@ -92,7 +82,7 @@ impl DbInitializer for DbInitializerReal {
         match Connection::open_with_flags(database_file_path, flags) {
             Ok(conn) => {
                 eprintln!("Opened existing database at {:?}", database_file_path);
-                Self::conn_with_special_configuration(&conn, &init_config)?;
+                Self::special_conn_configuration(&conn, &init_config)?;
                 let config = self.extract_configurations(&conn);
                 let found_schema_version = config.get("schema_version");
                 match (
@@ -100,7 +90,7 @@ impl DbInitializer for DbInitializerReal {
                     init_config.init_mode,
                 ) {
                     (None, _) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
-                    (Some(_), InitializationMode::MigrationBlowsUp) => {
+                    (Some(_), InitializationMode::CreationBannedMigrationPanics) => {
                         panic!("Broken code: Migrating database at inappropriate place")
                     }
                     (
@@ -117,10 +107,10 @@ impl DbInitializer for DbInitializerReal {
                             migrator,
                         )
                     }
-                    (Some(_), InitializationMode::MigrationSuppressed) => {
+                    (Some(_), InitializationMode::CreationBannedMigrationSuppressed) => {
                         Ok(Box::new(ConnectionWrapperReal::new(conn)))
                     }
-                    (Some(_), InitializationMode::MigrationTrowsErr) => {
+                    (Some(_), InitializationMode::CreationBannedMigrationThrowsErr) => {
                         Err(InitializationError::SuppressedMigration)
                     }
                 }
@@ -132,7 +122,7 @@ impl DbInitializer for DbInitializerReal {
                 match Connection::open_with_flags(database_file_path, flags) {
                     Ok(conn) => {
                         eprintln!("Created new database at {:?}", database_file_path);
-                        Self::conn_with_special_configuration(&conn, &init_config)?;
+                        Self::special_conn_configuration(&conn, &init_config)?;
                         self.create_database_tables(&conn, ExternalData::from(init_config));
                         Ok(Box::new(ConnectionWrapperReal::new(conn)))
                     }
@@ -294,13 +284,12 @@ impl DbInitializerReal {
     }
 
     fn create_pending_payable_table(&self, conn: &Connection) {
-        //TODO the rowid argument could be left out? I removed that already...but what about VACUUM command from sqlite??
-        // will we want to start using it?
         conn.execute(
             "create table if not exists pending_payable (
+                    rowid integer primary key,
                     transaction_hash text not null,
-                    amount_low_b integer not null,
                     amount_high_b integer not null,
+                    amount_low_b integer not null,
                     payable_timestamp integer not null,
                     attempt integer not null,
                     process_error text null
@@ -350,15 +339,15 @@ impl DbInitializerReal {
         .expect("Can't create banned table");
     }
 
-    fn conn_with_special_configuration(
+    fn special_conn_configuration(
         conn: &Connection,
         init_config: &DbInitializationConfig,
     ) -> Result<(), InitializationError> {
-        if init_config.special_conn_setup.is_empty() {
+        if init_config.special_conn_configuration.is_empty() {
             Ok(())
         } else {
             match init_config
-                .special_conn_setup
+                .special_conn_configuration
                 .iter()
                 .try_for_each(|setup_fn| setup_fn(conn))
             {
@@ -519,11 +508,10 @@ impl DbInitializerReal {
 pub fn connection_or_panic(
     db_initializer: &dyn DbInitializer,
     path: &Path,
-    create_if_necessary: bool,
     init_config: DbInitializationConfig,
 ) -> Box<dyn ConnectionWrapper> {
     db_initializer
-        .initialize(path, create_if_necessary, init_config)
+        .initialize(path, init_config)
         .unwrap_or_else(|_| {
             panic!(
                 "Failed to connect to database at {:?}",
@@ -534,7 +522,7 @@ pub fn connection_or_panic(
 
 #[derive(Clone)]
 pub struct DbInitializationConfig {
-    pub special_conn_setup: Vec<fn(&Connection) -> rusqlite::Result<()>>,
+    pub special_conn_configuration: Vec<fn(&Connection) -> rusqlite::Result<()>>,
     //only things related to db migrations are underneath
     pub init_mode: InitializationMode,
 }
@@ -542,9 +530,9 @@ pub struct DbInitializationConfig {
 #[derive(PartialEq, Eq, Debug, Clone)]
 pub enum InitializationMode {
     CreationAndMigration { external_data: ExternalData },
-    MigrationBlowsUp,
-    MigrationSuppressed,
-    MigrationTrowsErr,
+    CreationBannedMigrationPanics,
+    CreationBannedMigrationSuppressed,
+    CreationBannedMigrationThrowsErr,
 }
 
 impl DbInitializationConfig {
@@ -552,43 +540,46 @@ impl DbInitializationConfig {
         mut self,
         setter: fn(&Connection) -> rusqlite::Result<()>,
     ) -> Self {
-        self.special_conn_setup.push(setter);
+        self.special_conn_configuration.push(setter);
         self
     }
 
     pub fn panic_on_migration() -> Self {
         Self {
-            special_conn_setup: vec![],
-            init_mode: InitializationMode::MigrationBlowsUp,
+            special_conn_configuration: vec![],
+            init_mode: InitializationMode::CreationBannedMigrationPanics,
         }
     }
 
+    //standard way of Node to create a new db, possibly only one real occurrence ever
     pub fn create_or_migrate(external_data: ExternalData) -> Self {
-        //is used also if a fresh db is being created
         Self {
-            special_conn_setup: vec![],
+            special_conn_configuration: vec![],
             init_mode: InitializationMode::CreationAndMigration { external_data },
         }
     }
 
+    //used in the config dumper
     pub fn migration_suppressed() -> Self {
         Self {
-            special_conn_setup: vec![],
-            init_mode: InitializationMode::MigrationSuppressed,
+            special_conn_configuration: vec![],
+            init_mode: InitializationMode::CreationBannedMigrationSuppressed,
         }
     }
 
+    //it makes Daemon ignore db configuration until the Node
+    //starts up and manage the migration on its own
     pub fn migration_suppressed_with_error() -> Self {
         Self {
-            special_conn_setup: vec![],
-            init_mode: InitializationMode::MigrationTrowsErr,
+            special_conn_configuration: vec![],
+            init_mode: InitializationMode::CreationBannedMigrationThrowsErr,
         }
     }
 
     #[cfg(test)]
     pub fn test_default() -> Self {
         Self {
-            special_conn_setup: vec![],
+            special_conn_configuration: vec![],
             init_mode: InitializationMode::CreationAndMigration {
                 external_data: ExternalData {
                     chain: TEST_DEFAULT_CHAIN,
@@ -632,9 +623,9 @@ impl From<DbInitializationConfig> for ExternalData {
 
 impl PartialEq for DbInitializationConfig {
     fn eq(&self, other: &Self) -> bool {
-        ((self.init_mode == other.init_mode)
+        (self.init_mode == other.init_mode)
             //I'm making most of this, fn pointers cannot be compared in Rust by August 2022
-            && (self.special_conn_setup.len() == other.special_conn_setup.len()))
+            && (self.special_conn_configuration.len() == other.special_conn_configuration.len())
     }
 }
 
@@ -643,7 +634,7 @@ impl Debug for DbInitializationConfig {
         write!(
             f,
             "DbInitializationConfig{{special_conn_setup: Addresses{:?}, init_config: {:?}}}",
-            self.special_conn_setup
+            self.special_conn_configuration
                 .iter()
                 //reportedly, there is no guarantee the number varies by different functions,
                 //so it rather shows how many items are in than anything else
@@ -713,7 +704,7 @@ pub mod test_utils {
 
     #[derive(Default)]
     pub struct DbInitializerMock {
-        pub initialize_params: Arc<Mutex<Vec<(PathBuf, bool, DbInitializationConfig)>>>,
+        pub initialize_params: Arc<Mutex<Vec<(PathBuf, DbInitializationConfig)>>>,
         pub initialize_results:
             RefCell<Vec<Result<Box<dyn ConnectionWrapper>, InitializationError>>>,
     }
@@ -722,14 +713,12 @@ pub mod test_utils {
         fn initialize(
             &self,
             path: &Path,
-            create_if_necessary: bool,
             init_config: DbInitializationConfig,
         ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
-            self.initialize_params.lock().unwrap().push((
-                path.to_path_buf(),
-                create_if_necessary,
-                init_config,
-            ));
+            self.initialize_params
+                .lock()
+                .unwrap()
+                .push((path.to_path_buf(), init_config));
             self.initialize_results.borrow_mut().remove(0)
         }
 
@@ -738,7 +727,6 @@ pub mod test_utils {
             &self,
             path: &Path,
             target_version: usize,
-            create_if_necessary: bool,
             init_config: DbInitializationConfig,
         ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
             intentionally_blank!()
@@ -755,7 +743,7 @@ pub mod test_utils {
 
         pub fn initialize_parameters(
             mut self,
-            parameters: Arc<Mutex<Vec<(PathBuf, bool, DbInitializationConfig)>>>,
+            parameters: Arc<Mutex<Vec<(PathBuf, DbInitializationConfig)>>>,
         ) -> DbInitializerMock {
             self.initialize_params = parameters;
             self
@@ -783,7 +771,6 @@ mod tests {
         make_external_data, retrieve_config_row, DbMigratorMock,
     };
     use crate::test_utils::make_wallet;
-    use dirs::data_dir;
     use itertools::Either::{Left, Right};
     use itertools::{Either, Itertools};
     use masq_lib::blockchains::chains::Chain;
@@ -799,7 +786,6 @@ mod tests {
     use std::io::{Read, Write};
     use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
     use std::ops::Not;
-    use std::panic::catch_unwind;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use tokio::net::TcpListener;
@@ -819,7 +805,7 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         let conn = subject
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
 
         let mut stmt = conn
@@ -844,13 +830,14 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         let conn = subject
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
 
         let mut stmt = conn.prepare("select rowid, transaction_hash, amount_high_b, amount_low_b, payable_timestamp, attempt, process_error from pending_payable").unwrap();
         let mut payable_contents = stmt.query_map([], |_| Ok(42)).unwrap();
         assert!(payable_contents.next().is_none());
         let expected_key_words: &[&[&str]] = &[
+            &["rowid", "integer", "primary", "key"],
             &["transaction_hash", "text", "not", "null"],
             &["amount_high_b", "integer", "not", "null"],
             &["amount_low_b", "integer", "not", "null"],
@@ -876,7 +863,7 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         let conn = subject
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
 
         let mut stmt = conn.prepare ("select wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid from payable").unwrap ();
@@ -903,7 +890,7 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         let conn = subject
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
 
         let mut stmt = conn
@@ -932,7 +919,7 @@ mod tests {
         let subject = DbInitializerReal::default();
 
         let conn = subject
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
 
         let mut stmt = conn.prepare("select wallet_address from banned").unwrap();
@@ -994,7 +981,7 @@ mod tests {
         let subject = DbInitializerReal::default();
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, true, DbInitializationConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap();
         }
         {
@@ -1009,11 +996,7 @@ mod tests {
         }
 
         subject
-            .initialize(
-                &home_dir,
-                true,
-                DbInitializationConfig::panic_on_migration(),
-            )
+            .initialize(&home_dir, DbInitializationConfig::panic_on_migration())
             .unwrap();
 
         let mut flags = OpenFlags::empty();
@@ -1112,7 +1095,7 @@ mod tests {
         );
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, true, DbInitializationConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap();
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
@@ -1122,11 +1105,7 @@ mod tests {
         }
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize(
-            &home_dir,
-            true,
-            DbInitializationConfig::panic_on_migration(),
-        );
+        let result = subject.initialize(&home_dir, DbInitializationConfig::panic_on_migration());
 
         assert_eq!(
             result.err().unwrap(),
@@ -1146,7 +1125,7 @@ mod tests {
         );
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, true, DbInitializationConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap();
             let mut flags = OpenFlags::empty();
             flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
@@ -1159,11 +1138,7 @@ mod tests {
         }
         let subject = DbInitializerReal::default();
 
-        let _ = subject.initialize(
-            &home_dir,
-            true,
-            DbInitializationConfig::panic_on_migration(),
-        );
+        let _ = subject.initialize(&home_dir, DbInitializationConfig::panic_on_migration());
     }
 
     const PRAGMA_CASE_SENSITIVE: &str = "case_sensitive_like";
@@ -1194,12 +1169,12 @@ mod tests {
 
         let result = subject.add_special_conn_setup(setup_fn);
 
-        result.special_conn_setup[0](&conn).unwrap();
+        result.special_conn_configuration[0](&conn).unwrap();
         assert_case_sensitiveness_has_been_switched_turned_on(Left(&conn))
     }
 
     #[test]
-    fn conn_with_special_configuration_retrieves_first_error_encountered() {
+    fn special_conn_configuration_retrieves_first_error_encountered() {
         let fn_one = |_: &_| Ok(());
         let fn_two = |_: &_| Err(Error::ExecuteReturnedResults);
         let fn_three = |_: &_| Err(Error::GetAuxWrongType);
@@ -1207,7 +1182,7 @@ mod tests {
         let init_config =
             make_default_config_with_different_pointers(vec![fn_one, fn_two, fn_three]);
 
-        let result = DbInitializerReal::conn_with_special_configuration(&conn, &init_config);
+        let result = DbInitializerReal::special_conn_configuration(&conn, &init_config);
 
         assert_eq!(result, Err(SqliteError(Error::ExecuteReturnedResults)))
     }
@@ -1227,7 +1202,7 @@ mod tests {
             DbInitializationConfig::test_default().add_special_conn_setup(example_function);
 
         let assert_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, init_config)
+            .initialize(&home_dir, init_config)
             .unwrap();
 
         assert_case_sensitiveness_has_been_switched_turned_on(Right(assert_conn.as_ref()))
@@ -1240,7 +1215,7 @@ mod tests {
             "conn_special_setup_works_at_opening_existing_database",
         );
         DbInitializerReal::default()
-            .initialize(&home_dir, true, DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let init_config =
             DbInitializationConfig::test_default().add_special_conn_setup(|conn: &Connection| {
@@ -1250,7 +1225,7 @@ mod tests {
             });
 
         let assert_conn = DbInitializerReal::default()
-            .initialize(&home_dir, false, init_config)
+            .initialize(&home_dir, init_config)
             .unwrap();
 
         assert_case_sensitiveness_has_been_switched_turned_on(Right(assert_conn.as_ref()))
@@ -1266,7 +1241,7 @@ mod tests {
             DbInitializationConfig::test_default().add_special_conn_setup(malformed_setup_function);
 
         let error = DbInitializerReal::default()
-            .initialize(home_dir.as_path(), true, init_config)
+            .initialize(home_dir.as_path(), init_config)
             .unwrap_err();
 
         assert_eq!(
@@ -1281,7 +1256,7 @@ mod tests {
             "processing_special_setup_to_the_connection_goes_wrong_on_new_database",
             |path| {
                 DbInitializerReal::default()
-                    .initialize(path, true, DbInitializationConfig::test_default())
+                    .initialize(path, DbInitializationConfig::test_default())
                     .unwrap();
             },
         )
@@ -1314,7 +1289,6 @@ mod tests {
         let _ = subject
             .initialize(
                 &updated_db_path_dir,
-                true,
                 DbInitializationConfig::create_or_migrate(ExternalData::new(
                     Chain::EthRopsten,
                     NeighborhoodModeLight::Standard,
@@ -1325,7 +1299,6 @@ mod tests {
         let _ = subject
             .initialize(
                 &from_scratch_db_path_dir,
-                true,
                 DbInitializationConfig::test_default(),
             )
             .unwrap();
@@ -1421,11 +1394,7 @@ mod tests {
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         let subject = DbInitializerReal::default();
 
-        let result = subject.initialize(
-            &data_dir,
-            false,
-            DbInitializationConfig::migration_suppressed(),
-        );
+        let result = subject.initialize(&data_dir, DbInitializationConfig::migration_suppressed());
 
         let wrapped_connection = result.unwrap();
         let (schema_version_after, _) =
@@ -1443,11 +1412,7 @@ mod tests {
         let _ = bring_db_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
         let subject = DbInitializerReal::default();
 
-        let _ = subject.initialize(
-            &data_dir,
-            false,
-            DbInitializationConfig::panic_on_migration(),
-        );
+        let _ = subject.initialize(&data_dir, DbInitializationConfig::panic_on_migration());
     }
 
     fn test_if_new_database_was_created(home_dir: &Path) {
@@ -1470,7 +1435,7 @@ mod tests {
         ]
         .into_iter()
         .for_each(|init_config| {
-            let result = subject.initialize(data_dir, true, init_config);
+            let result = subject.initialize(data_dir, init_config);
 
             assert_eq!(result.err().unwrap(), InitializationError::Nonexistent);
             test_if_new_database_was_created(data_dir)
@@ -1512,7 +1477,6 @@ mod tests {
 
         let result = subject.initialize(
             &data_dir,
-            false,
             DbInitializationConfig::migration_suppressed_with_error(),
         );
 
@@ -1530,8 +1494,8 @@ mod tests {
         assert_eq!(
             DbInitializationConfig::panic_on_migration(),
             DbInitializationConfig {
-                special_conn_setup: vec![],
-                init_mode: InitializationMode::MigrationBlowsUp,
+                special_conn_configuration: vec![],
+                init_mode: InitializationMode::CreationBannedMigrationPanics,
             }
         )
     }
@@ -1541,7 +1505,7 @@ mod tests {
         assert_eq!(
             DbInitializationConfig::create_or_migrate(make_external_data()),
             DbInitializationConfig {
-                special_conn_setup: vec![],
+                special_conn_configuration: vec![],
                 init_mode: InitializationMode::CreationAndMigration {
                     external_data: make_external_data()
                 },
@@ -1554,8 +1518,8 @@ mod tests {
         assert_eq!(
             DbInitializationConfig::migration_suppressed(),
             DbInitializationConfig {
-                special_conn_setup: vec![],
-                init_mode: InitializationMode::MigrationSuppressed,
+                special_conn_configuration: vec![],
+                init_mode: InitializationMode::CreationBannedMigrationSuppressed,
             }
         )
     }
@@ -1565,8 +1529,8 @@ mod tests {
         assert_eq!(
             DbInitializationConfig::migration_suppressed_with_error(),
             DbInitializationConfig {
-                special_conn_setup: vec![],
-                init_mode: InitializationMode::MigrationTrowsErr,
+                special_conn_configuration: vec![],
+                init_mode: InitializationMode::CreationBannedMigrationThrowsErr,
             }
         )
     }
@@ -1575,14 +1539,14 @@ mod tests {
         pointers: Vec<fn(&Connection) -> rusqlite::Result<()>>,
     ) -> DbInitializationConfig {
         DbInitializationConfig {
-            special_conn_setup: pointers,
-            init_mode: InitializationMode::MigrationBlowsUp,
+            special_conn_configuration: pointers,
+            init_mode: InitializationMode::CreationBannedMigrationPanics,
         }
     }
 
     fn make_config_with_specific_migration_arguments() -> DbInitializationConfig {
         DbInitializationConfig {
-            special_conn_setup: vec![|_: &_| {
+            special_conn_configuration: vec![|_: &_| {
                 5;
                 Ok(())
             }],
@@ -1612,8 +1576,8 @@ mod tests {
         let config_three = make_default_config_with_different_pointers(vec![]);
         let config_four = make_default_config_with_different_pointers(vec![fn_one, fn_one]);
         let config_five = DbInitializationConfig {
-            special_conn_setup: vec![fn_one],
-            init_mode: InitializationMode::MigrationSuppressed,
+            special_conn_configuration: vec![fn_one],
+            init_mode: InitializationMode::CreationBannedMigrationSuppressed,
         };
         let config_six = make_config_with_specific_migration_arguments();
 
@@ -1655,7 +1619,7 @@ mod tests {
         );
         assert!(
             config_two_debug.contains("DbInitializationConfig{special_conn_setup: Addresses[")
-                && config_two_debug.contains("], init_config: MigrationBlowsUp}"),
+                && config_two_debug.contains("], init_config: CreationBannedMigrationPanics}"),
             "instead, the second printed message contained: {}",
             config_two_debug
         );
