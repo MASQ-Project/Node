@@ -14,7 +14,7 @@ pub struct CrashCommand {
 
 const CRASH_COMMAND_ABOUT: &str =
     "Causes an element of the Node to crash with a specified message. \
-     Only valid if the Node has been started with '--crash-point message'";
+     Only valid if the Node has been started with '--crash-point message'.";
 const ACTOR_ARG_HELP: &str = "Name of actor inside the Node that should be made to crash.";
 const MESSAGE_ARG_HELP: &str = "Panic message that should be produced by the crash.";
 const ACTOR_ARG_POSSIBLE_VALUES: [&str; 5] = [

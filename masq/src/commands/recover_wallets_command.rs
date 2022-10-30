@@ -132,7 +132,7 @@ const MNEMONIC_PHRASE_ARG_HELP: &str =
     "The mnemonic phrase upon which the consuming wallet (and possibly the earning wallet) is based. \
      Surround with double quotes.";
 const PASSPHRASE_ARG_HELP: &str =
-    "An additional word--any word--to place at the end of the mnemonic phrase to recover the wallet pair";
+    "An additional word--any word--to place at the end of the mnemonic phrase to recover the wallet pair.";
 const LANGUAGE_ARG_HELP: &str = "The language in which the wallets' mnemonic phrase is written.";
 const CONSUMING_PATH_ARG_HELP: &str =
     "Derivation that was used to generate the consuming wallet from which your bills will be paid. \

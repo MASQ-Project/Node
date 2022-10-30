@@ -16,7 +16,6 @@ use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
 use num::CheckedMul;
 use regex::{Captures, Regex};
-use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::default::Default;
 use std::fmt::{Debug, Display};
@@ -45,19 +44,19 @@ const WALLET_ADDRESS_LENGTH: usize = 42;
 #[derive(Debug, PartialEq)]
 pub struct FinancialsCommand {
     stats_required: bool,
+    gwei_precision: bool,
     top_records_opt: Option<TopRecordsConfig>,
     custom_queries_opt: Option<CustomQueryInput>,
-    gwei_precision: bool,
 }
 
 #[derive(Debug, PartialEq)]
 struct CustomQueryInput {
-    query: RefCell<Option<CustomQueries>>,
-    users_payable_format_opt: Option<UsersOriginalLiteralRanges>,
-    users_receivable_format_opt: Option<UsersOriginalLiteralRanges>,
+    query: CustomQueries,
+    users_payable_format_opt: Option<UserOriginalTypingOfRanges>,
+    users_receivable_format_opt: Option<UserOriginalTypingOfRanges>,
 }
 
-type UsersOriginalLiteralRanges = ((String, String), (String, String));
+type UserOriginalTypingOfRanges = ((String, String), (String, String));
 
 pub fn financials_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("financials")
@@ -151,10 +150,7 @@ impl Command for FinancialsCommand {
         let input = UiFinancialsRequest {
             stats_required: self.stats_required,
             top_records_opt: self.top_records_opt,
-            custom_queries_opt: self
-                .custom_queries_opt
-                .as_ref()
-                .map(|queries| queries.query.take().expectv("custom query")),
+            custom_queries_opt: self.custom_queries_opt.as_ref().map(|cq| cq.query.clone()),
         };
         let output: Result<UiFinancialsResponse, CommandError> =
             transaction(input, context, STANDARD_COMMAND_TIMEOUT_MILLIS);
@@ -207,7 +203,7 @@ macro_rules! process_records_after_their_flight_home {
 
 struct RangeQueryInputs<T> {
     num_values: RangeQuery<T>,
-    captured_literal_input: UsersOriginalLiteralRanges,
+    captured_literal_input: UserOriginalTypingOfRanges,
 }
 
 impl FinancialsCommand {
@@ -230,10 +226,10 @@ impl FinancialsCommand {
                 let (receivable_opt, users_receivable_format_opt) =
                     Self::from_inputs_separated(receivable_range_inputs_opt);
                 Some(CustomQueryInput {
-                    query: RefCell::new(Some(CustomQueries {
+                    query: CustomQueries {
                         payable_opt,
                         receivable_opt,
-                    })),
+                    },
                     users_payable_format_opt,
                     users_receivable_format_opt,
                 })
@@ -249,7 +245,7 @@ impl FinancialsCommand {
 
     fn from_inputs_separated<T>(
         composed_parameters_opt: Option<RangeQueryInputs<T>>,
-    ) -> (Option<RangeQuery<T>>, Option<UsersOriginalLiteralRanges>) {
+    ) -> (Option<RangeQuery<T>>, Option<UserOriginalTypingOfRanges>) {
         composed_parameters_opt
             .map(|inputs| (Some(inputs.num_values), Some(inputs.captured_literal_input)))
             .unwrap_or_default()
@@ -502,7 +498,7 @@ impl FinancialsCommand {
     fn title_for_custom_query(
         stdout: &mut dyn Write,
         table_type: &str,
-        user_written_ranges: &UsersOriginalLiteralRanges,
+        user_written_ranges: &UserOriginalTypingOfRanges,
     ) {
         let (age_range, balance_range) = Self::correct_users_writing_if_needed(user_written_ranges);
         short_writeln!(
@@ -515,7 +511,7 @@ impl FinancialsCommand {
     }
 
     fn correct_users_writing_if_needed(
-        user_ranges: &UsersOriginalLiteralRanges,
+        user_ranges: &UserOriginalTypingOfRanges,
     ) -> (String, String) {
         fn handle_captures_of_number_components(captures: Captures) -> [Option<String>; 3] {
             let fetch_group = |idx: usize| -> Option<String> {
@@ -529,7 +525,7 @@ impl FinancialsCommand {
             ]
         }
         fn assemble_segments_into_single_number(strings: [Option<String>; 3]) -> String {
-            strings.into_iter().flat_map(|str_opt| str_opt).collect()
+            strings.into_iter().flatten().collect()
         }
         fn compose_ranges(mut numbers: VecDeque<String>) -> (String, String) {
             if numbers.get(3).expectv("fourth element").is_empty() {
@@ -613,9 +609,9 @@ impl FinancialsCommand {
         let preformatted_subset = &accounts
             .iter()
             .enumerate()
-            .map(|(idx, account)| account.into_string_values(idx + 1, headings.is_gwei))
+            .map(|(idx, account)| account.string_values(idx + 1, headings.is_gwei))
             .collect::<Vec<_>>();
-        let optimal_widths = Self::width_precise_calculation(headings, &preformatted_subset);
+        let optimal_widths = Self::width_precise_calculation(headings, preformatted_subset);
         let zipped_inputs = &Self::zip_them(headings.words.as_slice(), &optimal_widths);
         Self::write_column_formatted(stdout, zipped_inputs);
         preformatted_subset.iter().for_each(|account| {
@@ -807,11 +803,11 @@ struct HeadingsHolder {
 }
 
 trait StringValuesFormattableAccount {
-    fn into_string_values(&self, ordinal_num: usize, is_gwei: bool) -> Vec<String>;
+    fn string_values(&self, ordinal_num: usize, is_gwei: bool) -> Vec<String>;
 }
 
 impl StringValuesFormattableAccount for UiPayableAccount {
-    fn into_string_values(&self, ordinal_num: usize, is_gwei: bool) -> Vec<String> {
+    fn string_values(&self, ordinal_num: usize, is_gwei: bool) -> Vec<String> {
         vec![
             ordinal_num.to_string(),
             self.wallet.to_string(),
@@ -827,7 +823,7 @@ impl StringValuesFormattableAccount for UiPayableAccount {
 }
 
 impl StringValuesFormattableAccount for UiReceivableAccount {
-    fn into_string_values(&self, ordinal_num: usize, is_gwei: bool) -> Vec<String> {
+    fn string_values(&self, ordinal_num: usize, is_gwei: bool) -> Vec<String> {
         vec![
             ordinal_num.to_string(),
             self.wallet.to_string(),
@@ -1404,7 +1400,7 @@ mod tests {
                 stats_required: true,
                 top_records_opt: None,
                 custom_queries_opt: Some(CustomQueryInput {
-                    query: RefCell::new(Some(CustomQueries {
+                    query: CustomQueries {
                         payable_opt: None,
                         receivable_opt: Some(RangeQuery {
                             min_age_s: 5000,
@@ -1412,7 +1408,7 @@ mod tests {
                             min_amount_gwei: 40000000000,
                             max_amount_gwei: 50000000000
                         })
-                    })),
+                    },
                     users_payable_format_opt: None,
                     users_receivable_format_opt: Some(transpose_inputs_to_nested_tuples([
                         "05000", "0010000", "040", "050"
@@ -1435,7 +1431,7 @@ mod tests {
                 stats_required: true,
                 top_records_opt: None,
                 custom_queries_opt: Some(CustomQueryInput {
-                    query: RefCell::new(Some(CustomQueries {
+                    query: CustomQueries {
                         payable_opt: None,
                         receivable_opt: Some(RangeQuery {
                             min_age_s: 5000,
@@ -1443,7 +1439,7 @@ mod tests {
                             min_amount_gwei: -50000000000,
                             max_amount_gwei: -40000000000
                         })
-                    })),
+                    },
                     users_payable_format_opt: None,
                     users_receivable_format_opt: Some(transpose_inputs_to_nested_tuples([
                         "5000", "10000", "-050", "-040"
@@ -1512,7 +1508,7 @@ mod tests {
     }
 
     impl StringValuesFormattableAccount for TestAccount {
-        fn into_string_values(&self, ordinal_num: usize, _gwei: bool) -> Vec<String> {
+        fn string_values(&self, ordinal_num: usize, _gwei: bool) -> Vec<String> {
             vec![
                 ordinal_num.to_string(),
                 self.a.to_string(),
@@ -1553,7 +1549,7 @@ mod tests {
         let preformatted_subset = &vec_of_accounts
             .iter()
             .enumerate()
-            .map(|(idx, account)| account.into_string_values(idx, false))
+            .map(|(idx, account)| account.string_values(idx, false))
             .collect::<Vec<_>>();
 
         let result = FinancialsCommand::figure_out_max_widths(&preformatted_subset);

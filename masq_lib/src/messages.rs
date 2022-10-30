@@ -848,9 +848,6 @@ mod tests {
     use super::*;
     use crate::messages::UiMessageError::{DeserializationError, PayloadError, UnexpectedMessage};
     use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
-    use serde::de::Error;
-    use serde::Deserializer;
-    use serde_json::json;
 
     #[test]
     fn constants_have_correct_values() {

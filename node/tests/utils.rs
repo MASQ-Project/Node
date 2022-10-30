@@ -544,6 +544,6 @@ fn node_command() -> String {
 
 pub fn make_conn(home_dir: &Path) -> Box<dyn ConnectionWrapper> {
     DbInitializerReal::default()
-        .initialize(home_dir, true, DbInitializationConfig::panic_on_migration())
+        .initialize(home_dir, DbInitializationConfig::panic_on_migration())
         .unwrap()
 }
