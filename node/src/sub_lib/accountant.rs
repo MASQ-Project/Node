@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::accountant::{ReceivedPayments, ReportTransactionReceipts, ScanError, SentPayable};
-use crate::blockchain::blockchain_bridge::InitiatePPFingerprints;
+use crate::blockchain::blockchain_bridge::ReportNewPendingPayableFingerprints;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Message;
@@ -83,7 +83,7 @@ pub struct AccountantSubs {
     pub report_routing_service_consumed: Recipient<ReportRoutingServiceConsumedMessage>,
     pub report_exit_service_consumed: Recipient<ReportExitServiceConsumedMessage>,
     pub report_new_payments: Recipient<ReceivedPayments>,
-    pub init_pending_payable_fingerprints: Recipient<InitiatePPFingerprints>,
+    pub init_pending_payable_fingerprints: Recipient<ReportNewPendingPayableFingerprints>,
     pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,
     pub report_sent_payments: Recipient<SentPayable>,
     pub scan_errors: Recipient<ScanError>,

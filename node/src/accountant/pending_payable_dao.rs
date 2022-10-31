@@ -4,9 +4,11 @@ use crate::accountant::unsigned_to_signed;
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils::{from_time_t, to_time_t, DaoFactoryReal};
+use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
 use rusqlite::types::Value::Null;
 use rusqlite::{Row, ToSql};
+use std::iter::once;
 use std::str::FromStr;
 use std::time::SystemTime;
 use web3::types::H256;
@@ -22,13 +24,12 @@ pub enum PendingPayableDaoError {
 }
 
 pub trait PendingPayableDao {
-    fn fingerprint_rowid(&self, transaction_hash: H256) -> Option<u64>;
+    fn fingerprints_rowids(&self, hashes: &[H256]) -> Vec<(Option<u64>, H256)>;
     fn return_all_fingerprints(&self) -> Vec<PendingPayableFingerprint>;
-    fn insert_new_fingerprint(
+    fn insert_new_fingerprints(
         &self,
-        transaction_hash: H256,
-        amount: u64,
-        timestamp: SystemTime,
+        hashes_and_amounts: &[(H256, u64)],
+        batch_wide_timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError>;
     fn delete_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError>;
     fn update_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError>;
@@ -36,7 +37,7 @@ pub trait PendingPayableDao {
 }
 
 impl PendingPayableDao for PendingPayableDaoReal<'_> {
-    fn fingerprint_rowid(&self, transaction_hash: H256) -> Option<u64> {
+    fn fingerprints_rowids(&self, hashes: &[H256]) -> Vec<(Option<u64>, H256)> {
         todo!(
             "you might want to rewrite this to fetch all rowids for set of hashes at one operation"
         );
@@ -44,13 +45,13 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             .conn
             .prepare("select rowid from pending_payable where transaction_hash = ?")
             .expect("Internal error");
-        match stm.query_row(&[&format!("{:?}", transaction_hash)], |row| {
+        match stm.query_row(&[&format!("{:?}", hashes)], |row| {
             let rowid: i64 = row.get(0).expectv("rowid_opt");
             Ok(rowid)
         }) {
-            Err(e) if e == rusqlite::Error::QueryReturnedNoRows => None,
+            Err(e) if e == rusqlite::Error::QueryReturnedNoRows => todo!(), //None,
             Err(e) => panic!("Internal error: {}", e),
-            Ok(signed) => Some(u64::try_from(signed).expect("SQlite counts up to i64:MAX")),
+            Ok(signed) => todo!(), //Some(u64::try_from(signed).expect("SQlite counts up to i64:MAX")),
         }
     }
 
@@ -65,7 +66,8 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             Ok(PendingPayableFingerprint {
                 rowid_opt: Some(rowid),
                 timestamp: from_time_t(timestamp),
-                hash: H256::from_str(&transaction_hash[2..]).expectv("string hash"),
+                hash: H256::from_str(&transaction_hash[2..])
+                    .unwrap_or_else(|_| todo!("{}", transaction_hash)),
                 attempt_opt: Some(attempt),
                 amount,
                 process_error: None,
@@ -79,25 +81,34 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         .collect()
     }
 
-    fn insert_new_fingerprint(
+    fn insert_new_fingerprints(
         &self,
-        transaction_hash: H256,
-        amount: u64,
-        timestamp: SystemTime,
+        hashes_and_amounts: &[(H256, u64)],
+        batch_wide_timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError> {
-        let signed_amount =
-            unsigned_to_signed(amount).map_err(PendingPayableDaoError::SignConversionError)?;
-        let mut stm = self.conn.prepare("insert into pending_payable (transaction_hash, amount, payable_timestamp, attempt, process_error) values (?,?,?,?,?)").expect("Internal error");
-        let params: &[&dyn ToSql] = &[
-            &format!("{:?}", transaction_hash),
-            &signed_amount,
-            &to_time_t(timestamp),
-            &1,
-            &Null,
-        ];
-        match stm.execute(params) {
-            Ok(1) => Ok(()),
-            Ok(x) => panic!("expected a single row inserted but: {}", x),
+        let timestamp_as_time_t = to_time_t(batch_wide_timestamp);
+        let insert_sql =
+            format!("insert into pending_payable (transaction_hash, amount, payable_timestamp, attempt, process_error) values {}",
+                    hashes_and_amounts
+                        .iter()
+                        .map(|(hash, amount)|
+                                     format!("('{:?}', {}, {}, 1, null)", hash, unsigned_to_signed(*amount).unwrap_or_else(|_|todo!()), timestamp_as_time_t)
+                         )
+                        .join(", ")
+        );
+        match self
+            .conn
+            .prepare(&insert_sql)
+            .expect("Internal error")
+            .execute([])
+        {
+            Ok(x) if x == hashes_and_amounts.len() => Ok(()),
+            //untested panic
+            Ok(x) => panic!(
+                "expected {} of changed rows but got {}",
+                hashes_and_amounts.len(),
+                x
+            ),
             Err(e) => Err(PendingPayableDaoError::InsertionFailed(e.to_string())),
         }
     }
@@ -197,41 +208,58 @@ mod tests {
     use web3::types::H256;
 
     #[test]
-    fn insert_fingerprint_happy_path() {
+    fn insert_new_fingerprints_happy_path() {
         let home_dir = ensure_node_home_directory_exists(
             "pending_payable_dao",
-            "insert_fingerprint_happy_path",
+            "insert_new_fingerprints_happy_path",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
-        let hash = make_tx_hash(45466);
-        let amount = 55556;
-        let timestamp = from_time_t(200_000_000);
+        let hash_1 = make_tx_hash(4546);
+        let amount_1 = 55556;
+        let hash_2 = make_tx_hash(6789);
+        let amount_2 = 44445;
+        let batch_wide_timestamp = from_time_t(200_000_000);
         let subject = PendingPayableDaoReal::new(wrapped_conn);
 
         let _ = subject
-            .insert_new_fingerprint(hash, amount, timestamp)
+            .insert_new_fingerprints(
+                &[(hash_1, amount_1), (hash_2, amount_2)],
+                batch_wide_timestamp,
+            )
             .unwrap();
 
         let records = subject.return_all_fingerprints();
         assert_eq!(
             records,
-            vec![PendingPayableFingerprint {
-                rowid_opt: Some(1),
-                timestamp,
-                hash,
-                attempt_opt: Some(1),
-                amount,
-                process_error: None
-            }]
+            vec![
+                PendingPayableFingerprint {
+                    rowid_opt: Some(1),
+                    timestamp: batch_wide_timestamp,
+                    hash: hash_1,
+                    attempt_opt: Some(1),
+                    amount: amount_1,
+                    process_error: None
+                },
+                PendingPayableFingerprint {
+                    rowid_opt: Some(2),
+                    timestamp: batch_wide_timestamp,
+                    hash: hash_2,
+                    attempt_opt: Some(1),
+                    amount: amount_2,
+                    process_error: None
+                }
+            ]
         )
     }
 
     #[test]
-    fn insert_fingerprint_sad_path() {
-        let home_dir =
-            ensure_node_home_directory_exists("pending_payable_dao", "insert_fingerprint_sad_path");
+    fn insert_fingerprints_sad_path() {
+        let home_dir = ensure_node_home_directory_exists(
+            "pending_payable_dao",
+            "insert_fingerprints_sad_path",
+        );
         {
             DbInitializerReal::default()
                 .initialize(&home_dir, true, MigratorConfig::test_default())
@@ -248,7 +276,7 @@ mod tests {
         let timestamp = from_time_t(200_000_000);
         let subject = PendingPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.insert_new_fingerprint(hash, amount, timestamp);
+        let result = subject.insert_new_fingerprints(&[(hash, amount)], timestamp);
 
         assert_eq!(
             result,
@@ -259,27 +287,28 @@ mod tests {
     }
 
     #[test]
-    fn fingerprint_rowid_when_record_reachable() {
+    fn fingerprint_rowid_when_records_reachable() {
         let home_dir = ensure_node_home_directory_exists(
             "pending_payable_dao",
-            "fingerprint_rowid_when_record_reachable",
+            "fingerprint_rowid_when_records_reachable",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         let subject = PendingPayableDaoReal::new(wrapped_conn);
         let timestamp = from_time_t(195_000_000);
-        let hash = make_tx_hash(11119);
-        let amount = 787;
+        let hash_1 = make_tx_hash(1111);
+        let hash_2 = make_tx_hash(3333);
+        let fingerprints_init_input = vec![(hash_1, 4567), (hash_2, 6789)];
         {
             subject
-                .insert_new_fingerprint(hash, amount, timestamp)
+                .insert_new_fingerprints(&fingerprints_init_input, timestamp)
                 .unwrap();
         }
 
-        let result = subject.fingerprint_rowid(hash);
+        let result = subject.fingerprints_rowids(&[hash_1, hash_2]);
 
-        assert_eq!(result, Some(1))
+        assert_eq!(result, vec![(Some(1), hash_1), (Some(2), hash_2)])
     }
 
     #[test]
@@ -302,9 +331,9 @@ mod tests {
         let subject = PendingPayableDaoReal::new(wrapped_conn);
         let hash = make_tx_hash(11119);
 
-        let result = subject.fingerprint_rowid(hash);
+        let result = subject.fingerprints_rowids(&[hash]);
 
-        assert_eq!(result, None)
+        assert_eq!(result, vec![(None, hash)])
     }
 
     #[test]
@@ -317,20 +346,17 @@ mod tests {
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         let subject = PendingPayableDaoReal::new(wrapped_conn);
-        let timestamp_1 = from_time_t(195_000_000);
+        let batch_wide_timestamp = from_time_t(195_000_000);
         let hash_1 = make_tx_hash(11119);
         let amount_1 = 787;
-        let timestamp_2 = from_time_t(198_000_000);
         let hash_2 = make_tx_hash(10000);
         let amount_2 = 333;
         {
             subject
-                .insert_new_fingerprint(hash_1, amount_1, timestamp_1)
-                .unwrap();
-        }
-        {
-            subject
-                .insert_new_fingerprint(hash_2, amount_2, timestamp_2)
+                .insert_new_fingerprints(
+                    &[(hash_1, amount_1), (hash_2, amount_2)],
+                    batch_wide_timestamp,
+                )
                 .unwrap();
         }
 
@@ -341,7 +367,7 @@ mod tests {
             vec![
                 PendingPayableFingerprint {
                     rowid_opt: Some(1),
-                    timestamp: timestamp_1,
+                    timestamp: batch_wide_timestamp,
                     hash: hash_1,
                     attempt_opt: Some(1),
                     amount: amount_1,
@@ -349,7 +375,7 @@ mod tests {
                 },
                 PendingPayableFingerprint {
                     rowid_opt: Some(2),
-                    timestamp: timestamp_2,
+                    timestamp: batch_wide_timestamp,
                     hash: hash_2,
                     attempt_opt: Some(1),
                     amount: amount_2,
@@ -374,13 +400,9 @@ mod tests {
         let amount = 333;
         {
             subject
-                .insert_new_fingerprint(make_tx_hash(11119), 2000, SystemTime::now())
+                .insert_new_fingerprints(&[(make_tx_hash(11119), 2000), (hash, amount)], timestamp)
                 .unwrap();
-            //we know that the previous record has a rowid=1, so we don't need to ask
             subject.mark_failure(1).unwrap();
-            subject
-                .insert_new_fingerprint(hash, amount, timestamp)
-                .unwrap();
         }
 
         let result = subject.return_all_fingerprints();
@@ -412,9 +434,8 @@ mod tests {
         let subject = PendingPayableDaoReal::new(conn);
         {
             subject
-                .insert_new_fingerprint(hash, 5555, SystemTime::now())
+                .insert_new_fingerprints(&[(hash, 5555)], SystemTime::now())
                 .unwrap();
-            assert!(subject.fingerprint_rowid(hash).is_some())
         }
 
         let result = subject.delete_fingerprint(rowid);
@@ -474,7 +495,7 @@ mod tests {
         let subject = PendingPayableDaoReal::new(conn);
         {
             subject
-                .insert_new_fingerprint(hash, amount, timestamp)
+                .insert_new_fingerprints(&[(hash, amount)], timestamp)
                 .unwrap();
         }
         let mut all_records_before = subject.return_all_fingerprints();
@@ -538,7 +559,7 @@ mod tests {
         let subject = PendingPayableDaoReal::new(conn);
         {
             subject
-                .insert_new_fingerprint(hash, amount, timestamp)
+                .insert_new_fingerprints(&[(hash, amount)], timestamp)
                 .unwrap();
         }
         let assert_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();

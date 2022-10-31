@@ -2,7 +2,7 @@
 
 use crate::accountant::payable_dao::PayableAccount;
 use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
-use crate::blockchain::blockchain_bridge::InitiatePPFingerprints;
+use crate::blockchain::blockchain_bridge::ReportNewPendingPayableFingerprints;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
@@ -82,7 +82,7 @@ where
     fn send_new_payable_fingerprints_credentials(
         &self,
         batch_wide_timestamp: SystemTime,
-        pp_fingerprint_sub: &Recipient<InitiatePPFingerprints>,
+        pp_fingerprint_sub: &Recipient<ReportNewPendingPayableFingerprints>,
         payable_attributes: &[(H256, u64)],
     );
     fn submit_batch(
@@ -128,11 +128,11 @@ impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T
     fn send_new_payable_fingerprints_credentials(
         &self,
         batch_wide_timestamp: SystemTime,
-        pp_fingerprint_sub: &Recipient<InitiatePPFingerprints>,
+        pp_fingerprint_sub: &Recipient<ReportNewPendingPayableFingerprints>,
         chief_payable_attributes: &[(H256, u64)],
     ) {
         pp_fingerprint_sub
-            .try_send(InitiatePPFingerprints {
+            .try_send(ReportNewPendingPayableFingerprints {
                 batch_wide_timestamp,
                 init_params: chief_payable_attributes.to_vec(),
             })
@@ -149,7 +149,7 @@ impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T
 
 #[cfg(test)]
 mod tests {
-    use crate::blockchain::blockchain_bridge::InitiatePPFingerprints;
+    use crate::blockchain::blockchain_bridge::ReportNewPendingPayableFingerprints;
     use crate::blockchain::test_utils::{make_tx_hash, TestTransport};
     use crate::sub_lib::blockchain_bridge::{BatchPayableTools, BatchPayableToolsReal};
     use crate::test_utils::recorder::{make_blockchain_bridge_subs_from, make_recorder, Recorder};
@@ -175,10 +175,10 @@ mod tests {
         System::current().stop();
         assert_eq!(system.run(), 0);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let message = accountant_recording.get_record::<InitiatePPFingerprints>(0);
+        let message = accountant_recording.get_record::<ReportNewPendingPayableFingerprints>(0);
         assert_eq!(
             message,
-            &InitiatePPFingerprints {
+            &ReportNewPendingPayableFingerprints {
                 batch_wide_timestamp: timestamp,
                 init_params: chief_attributes_of_payables
             }

@@ -54,7 +54,7 @@ pub struct BlockchainBridge<T: Transport = Http> {
 }
 
 struct TransactionConfirmationTools {
-    pp_fingerprint_sub_opt: Option<Recipient<InitiatePPFingerprints>>,
+    pp_fingerprint_sub_opt: Option<Recipient<ReportNewPendingPayableFingerprints>>,
     report_transaction_receipts_sub_opt: Option<Recipient<ReportTransactionReceipts>>,
 }
 
@@ -144,7 +144,7 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
 }
 
 #[derive(Debug, PartialEq, Eq, Message)]
-pub struct InitiatePPFingerprints {
+pub struct ReportNewPendingPayableFingerprints {
     pub batch_wide_timestamp: SystemTime,
     pub init_params: Vec<(H256, u64)>,
 }
