@@ -1,9 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchains::chains::Chain;
+use std::fs;
 use std::path::PathBuf;
 use std::time::Duration;
-use std::fs;
 
 pub const TEST_DEFAULT_CHAIN: Chain = Chain::PolyMumbai;
 pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;

@@ -435,13 +435,14 @@ pub fn compute_mapping_protocol_opt(
     persistent_config: &mut dyn PersistentConfiguration,
     logger: &Logger,
 ) -> Option<AutomapProtocol> {
-    let persistent_mapping_protocol_opt = persistent_config.mapping_protocol()
-        .expect ("Error retrieving mapping protocol from CONFIG table");
+    let persistent_mapping_protocol_opt = persistent_config
+        .mapping_protocol()
+        .expect("Error retrieving mapping protocol from CONFIG table");
     let mapping_protocol_specified = multi_config.occurrences_of("mapping-protocol") > 0;
     let computed_mapping_protocol_opt = match (
         value_m!(multi_config, "mapping-protocol", AutomapProtocol), // command line
         persistent_mapping_protocol_opt,                             // database
-        mapping_protocol_specified,                                  // was a value given on the command line?
+        mapping_protocol_specified, // was a value given on the command line?
     ) {
         (None, Some(persisted_mapping_protocol), false) => Some(persisted_mapping_protocol),
         (None, _, true) => None,

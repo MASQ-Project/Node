@@ -29,17 +29,19 @@ use crate::node_configurator::{
 use crate::server_initializer::GatheredParams;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::cryptde_null::CryptDENull;
+use crate::sub_lib::cryptde_real::CryptDEReal;
+use crate::sub_lib::neighborhood::{
+    NeighborhoodConfig, NeighborhoodMode, NodeDescriptor, DEFAULT_RATE_PACK,
+};
+use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
+use itertools::Itertools;
 use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::make_arg_matches_accesible;
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use masq_lib::utils::WrapResult;
 use std::str::FromStr;
-use itertools::Itertools;
-use crate::sub_lib::cryptde_real::CryptDEReal;
-use crate::sub_lib::neighborhood::{DEFAULT_RATE_PACK, NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
-use crate::sub_lib::node_addr::NodeAddr;
 
 pub struct NodeConfiguratorStandardPrivileged {
     dirs_wrapper: Box<dyn DirsWrapper>,
@@ -275,53 +277,53 @@ fn configure_database(
     Ok(())
 }
 
-    pub fn make_neighborhood_config(
-        multi_config: &MultiConfig,
-        persistent_config_opt: Option<&mut dyn PersistentConfiguration>,
-        unprivileged_config: &mut BootstrapperConfig,
-    ) -> Result<NeighborhoodConfig, ConfiguratorError> {
-        let neighbor_configs: Vec<NodeDescriptor> = {
-            match convert_ci_configs(multi_config)? {
-                Some(configs) => configs,
-                None => match persistent_config_opt {
-                    Some(persistent_config) => {
-                        get_past_neighbors(multi_config, persistent_config, unprivileged_config)?
-                    }
-                    None => vec![],
-                },
-            }
-        };
-        match make_neighborhood_mode(multi_config, neighbor_configs) {
-            Ok(mode) => Ok(NeighborhoodConfig { mode }),
-            Err(e) => Err(e),
+pub fn make_neighborhood_config(
+    multi_config: &MultiConfig,
+    persistent_config_opt: Option<&mut dyn PersistentConfiguration>,
+    unprivileged_config: &mut BootstrapperConfig,
+) -> Result<NeighborhoodConfig, ConfiguratorError> {
+    let neighbor_configs: Vec<NodeDescriptor> = {
+        match convert_ci_configs(multi_config)? {
+            Some(configs) => configs,
+            None => match persistent_config_opt {
+                Some(persistent_config) => {
+                    get_past_neighbors(multi_config, persistent_config, unprivileged_config)?
+                }
+                None => vec![],
+            },
         }
+    };
+    match make_neighborhood_mode(multi_config, neighbor_configs) {
+        Ok(mode) => Ok(NeighborhoodConfig { mode }),
+        Err(e) => Err(e),
     }
+}
 
-    #[allow(clippy::collapsible_if)]
-    pub fn convert_ci_configs(
-        multi_config: &MultiConfig,
-    ) -> Result<Option<Vec<NodeDescriptor>>, ConfiguratorError> {
-        match value_m!(multi_config, "neighbors", String) {
-            None => Ok(None),
-            Some(joined_configs) => {
-                let cli_configs: Vec<String> = joined_configs
-                    .split(',')
-                    .map(|s| s.to_string())
-                    .collect_vec();
-                if cli_configs.is_empty() {
-                    Ok(None)
-                } else {
-                    let dummy_cryptde: Box<dyn CryptDE> = {
-                        if value_m!(multi_config, "fake-public-key", String) == None {
-                            Box::new(CryptDEReal::new(DEFAULT_CHAIN))
-                        } else {
-                            Box::new(CryptDENull::new(DEFAULT_CHAIN))
-                        }
-                    };
-                    let chain_name = value_m!(multi_config, "chain", String)
-                        .unwrap_or_else(|| DEFAULT_CHAIN.rec().literal_identifier.to_string());
-                    let default_chain_name = DEFAULT_CHAIN.rec().literal_identifier;
-                    let results = cli_configs
+#[allow(clippy::collapsible_if)]
+pub fn convert_ci_configs(
+    multi_config: &MultiConfig,
+) -> Result<Option<Vec<NodeDescriptor>>, ConfiguratorError> {
+    match value_m!(multi_config, "neighbors", String) {
+        None => Ok(None),
+        Some(joined_configs) => {
+            let cli_configs: Vec<String> = joined_configs
+                .split(',')
+                .map(|s| s.to_string())
+                .collect_vec();
+            if cli_configs.is_empty() {
+                Ok(None)
+            } else {
+                let dummy_cryptde: Box<dyn CryptDE> = {
+                    if value_m!(multi_config, "fake-public-key", String) == None {
+                        Box::new(CryptDEReal::new(DEFAULT_CHAIN))
+                    } else {
+                        Box::new(CryptDENull::new(DEFAULT_CHAIN))
+                    }
+                };
+                let chain_name = value_m!(multi_config, "chain", String)
+                    .unwrap_or_else(|| DEFAULT_CHAIN.rec().literal_identifier.to_string());
+                let default_chain_name = DEFAULT_CHAIN.rec().literal_identifier;
+                let results = cli_configs
                         .into_iter()
                         .map(
                             |s| match NodeDescriptor::try_from((dummy_cryptde.as_ref(), s.as_str())) {
@@ -336,297 +338,309 @@ fn configure_database(
                             },
                         )
                         .collect_vec();
-                    let errors = results
-                        .clone()
-                        .into_iter()
-                        .flat_map(|result| match result {
-                            Err(e) => Some(e),
-                            Ok(_) => None,
-                        })
-                        .collect::<Vec<ParamError>>();
-                    if errors.is_empty() {
-                        Ok(Some(
-                            results
-                                .into_iter()
-                                .filter(|result| result.is_ok())
-                                .map(|result| result.expect("Error materialized"))
-                                .collect::<Vec<NodeDescriptor>>(),
-                        ))
-                    } else {
-                        Err(ConfiguratorError::new(errors))
-                    }
-                }
-            }
-        }
-    }
-
-    pub fn get_past_neighbors(
-        multi_config: &MultiConfig,
-        persistent_config: &mut dyn PersistentConfiguration,
-        unprivileged_config: &mut BootstrapperConfig,
-    ) -> Result<Vec<NodeDescriptor>, ConfiguratorError> {
-        Ok(
-            match &get_db_password(multi_config, unprivileged_config, persistent_config)?
-            {
-                Some(db_password) => match persistent_config.past_neighbors(db_password) {
-                    Ok(Some(past_neighbors)) => past_neighbors,
-                    Ok(None) => vec![],
-                    Err(PersistentConfigError::PasswordError) => {
-                        return Err(ConfiguratorError::new(vec![ParamError::new(
-                            "db-password",
-                            "PasswordError",
-                        )]))
-                    }
-                    Err(e) => {
-                        return Err(ConfiguratorError::new(vec![ParamError::new(
-                            "[past neighbors]",
-                            &format!("{:?}", e),
-                        )]))
-                    }
-                },
-                None => vec![],
-            },
-        )
-    }
-
-    // fn validate_testing_parameters(
-    //     mnemonic_seed_exists: bool,
-    //     multi_config: &MultiConfig,
-    // ) -> Result<(), ConfiguratorError> {
-    //     let consuming_wallet_specified =
-    //         value_m!(multi_config, "consuming-private-key", String).is_some();
-    //     let earning_wallet_specified = value_m!(multi_config, "earning-wallet", String).is_some();
-    //     if mnemonic_seed_exists && (consuming_wallet_specified || earning_wallet_specified) {
-    //         let parameter = match (consuming_wallet_specified, earning_wallet_specified) {
-    //             (true, false) => "consuming-private-key",
-    //             (false, true) => "earning-wallet",
-    //             (true, true) => "consuming-private-key, earning-wallet",
-    //             (false, false) => panic!("The if statement in Rust no longer works"),
-    //         };
-    //         Err(ConfiguratorError::required(parameter, "Cannot use --consuming-private-key or --earning-wallet when database contains wallet information"))
-    //     } else {
-    //         Ok(())
-    //     }
-    // }
-
-    // fn compute_mapping_protocol_opt(
-    //     multi_config: &MultiConfig,
-    //     persistent_config: &mut dyn PersistentConfiguration,
-    //     logger: &Logger,
-    // ) -> Option<AutomapProtocol> {
-    //     let persistent_mapping_protocol_opt = match persistent_config.mapping_protocol() {
-    //         Ok(mp_opt) => mp_opt,
-    //         Err(e) => {
-    //             warning!(
-    //                 logger,
-    //                 "Could not read mapping protocol from database: {:?}",
-    //                 e
-    //             );
-    //             None
-    //         }
-    //     };
-    //     let mapping_protocol_specified = multi_config.occurrences_of("mapping-protocol") > 0;
-    //     eprintln!("************** specified {:?}", mapping_protocol_specified);
-    //     eprintln!(
-    //         "**************{:?}",
-    //         value_m!(multi_config, "mapping-protocol", AutomapProtocol)
-    //     );
-    //     let computed_mapping_protocol_opt = match (
-    //         value_m!(multi_config, "mapping-protocol", AutomapProtocol),
-    //         persistent_mapping_protocol_opt,
-    //         mapping_protocol_specified,
-    //     ) {
-    //         (None, Some(persisted_mapping_protocol), false) => Some(persisted_mapping_protocol),
-    //         (None, _, true) => None,
-    //         (cmd_line_mapping_protocol_opt, _, _) => cmd_line_mapping_protocol_opt,
-    //     };
-    //     eprintln!(
-    //         ">>> computed_mapping_protocol_opt: {:?}",
-    //         computed_mapping_protocol_opt
-    //     );
-    //     if computed_mapping_protocol_opt != persistent_mapping_protocol_opt {
-    //         if computed_mapping_protocol_opt.is_none() {
-    //             debug!(logger, "Blanking mapping protocol out of the database")
-    //         }
-    //         match persistent_config.set_mapping_protocol(computed_mapping_protocol_opt) {
-    //             Ok(_) => (),
-    //             Err(e) => {
-    //                 warning!(
-    //                     logger,
-    //                     "Could not save mapping protocol to database: {:?}",
-    //                     e
-    //                 );
-    //             }
-    //         }
-    //     }
-    //     computed_mapping_protocol_opt
-    // }
-
-    fn make_neighborhood_mode(
-        multi_config: &MultiConfig,
-        neighbor_configs: Vec<NodeDescriptor>,
-    ) -> Result<NeighborhoodMode, ConfiguratorError> {
-        let neighborhood_mode_opt = value_m!(multi_config, "neighborhood-mode", String);
-        match neighborhood_mode_opt {
-            Some(ref s) if s == "standard" => {
-                neighborhood_mode_standard(multi_config, neighbor_configs)
-            }
-            Some(ref s) if s == "originate-only" => {
-                if neighbor_configs.is_empty() {
-                    Err(ConfiguratorError::required("neighborhood-mode", "Node cannot run as --neighborhood-mode originate-only without --neighbors specified"))
-                } else {
-                    Ok(NeighborhoodMode::OriginateOnly(
-                        neighbor_configs,
-                        DEFAULT_RATE_PACK,
-                    ))
-                }
-            }
-            Some(ref s) if s == "consume-only" => {
-                let mut errors = ConfiguratorError::new(vec![]);
-                if neighbor_configs.is_empty() {
-                    errors = errors.another_required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only without --neighbors specified");
-                }
-                if value_m!(multi_config, "dns-servers", String).is_some() {
-                    errors = errors.another_required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only if --dns-servers is specified");
-                }
-                if !errors.is_empty() {
-                    Err(errors)
-                } else {
-                    Ok(NeighborhoodMode::ConsumeOnly(neighbor_configs))
-                }
-            }
-            Some(ref s) if s == "zero-hop" => {
-                if !neighbor_configs.is_empty() {
-                    Err(ConfiguratorError::required("neighborhood-mode", "Node cannot run as --neighborhood-mode zero-hop if --neighbors is specified"))
-                } else if value_m!(multi_config, "ip", IpAddr).is_some() {
-                    Err(ConfiguratorError::required(
-                        "neighborhood-mode",
-                        "Node cannot run as --neighborhood-mode zero-hop if --ip is specified",
+                let errors = results
+                    .clone()
+                    .into_iter()
+                    .flat_map(|result| match result {
+                        Err(e) => Some(e),
+                        Ok(_) => None,
+                    })
+                    .collect::<Vec<ParamError>>();
+                if errors.is_empty() {
+                    Ok(Some(
+                        results
+                            .into_iter()
+                            .filter(|result| result.is_ok())
+                            .map(|result| result.expect("Error materialized"))
+                            .collect::<Vec<NodeDescriptor>>(),
                     ))
                 } else {
-                    Ok(NeighborhoodMode::ZeroHop)
+                    Err(ConfiguratorError::new(errors))
                 }
             }
-            // These two cases are untestable
-            Some(ref s) => panic!(
-                "--neighborhood-mode {} has not been properly provided for in the code",
-                s
-            ),
-            None => neighborhood_mode_standard(multi_config, neighbor_configs),
         }
     }
+}
 
-    fn neighborhood_mode_standard(
-        multi_config: &MultiConfig,
-        neighbor_configs: Vec<NodeDescriptor>,
-    ) -> Result<NeighborhoodMode, ConfiguratorError> {
-        let ip = get_public_ip(multi_config)?;
-        Ok(NeighborhoodMode::Standard(
-            NodeAddr::new(&ip, &[]),
-            neighbor_configs,
-            DEFAULT_RATE_PACK,
-        ))
-    }
-
-    pub fn get_public_ip(multi_config: &MultiConfig) -> Result<IpAddr, ConfiguratorError> {
-        match value_m!(multi_config, "ip", String) {
-            Some(ip_str) => match IpAddr::from_str(&ip_str) {
-                Ok(ip_addr) => Ok(ip_addr),
-                Err(_) => todo!("Drive in a better error message"), //Err(ConfiguratorError::required("ip", &format! ("blockety blip: '{}'", ip_str),
+pub fn get_past_neighbors(
+    multi_config: &MultiConfig,
+    persistent_config: &mut dyn PersistentConfiguration,
+    unprivileged_config: &mut BootstrapperConfig,
+) -> Result<Vec<NodeDescriptor>, ConfiguratorError> {
+    Ok(
+        match &get_db_password(multi_config, unprivileged_config, persistent_config)? {
+            Some(db_password) => match persistent_config.past_neighbors(db_password) {
+                Ok(Some(past_neighbors)) => past_neighbors,
+                Ok(None) => vec![],
+                Err(PersistentConfigError::PasswordError) => {
+                    return Err(ConfiguratorError::new(vec![ParamError::new(
+                        "db-password",
+                        "PasswordError",
+                    )]))
+                }
+                Err(e) => {
+                    return Err(ConfiguratorError::new(vec![ParamError::new(
+                        "[past neighbors]",
+                        &format!("{:?}", e),
+                    )]))
+                }
             },
-            None => Ok(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))), // sentinel: means "Try Automap"
+            None => vec![],
+        },
+    )
+}
+
+// fn validate_testing_parameters(
+//     mnemonic_seed_exists: bool,
+//     multi_config: &MultiConfig,
+// ) -> Result<(), ConfiguratorError> {
+//     let consuming_wallet_specified =
+//         value_m!(multi_config, "consuming-private-key", String).is_some();
+//     let earning_wallet_specified = value_m!(multi_config, "earning-wallet", String).is_some();
+//     if mnemonic_seed_exists && (consuming_wallet_specified || earning_wallet_specified) {
+//         let parameter = match (consuming_wallet_specified, earning_wallet_specified) {
+//             (true, false) => "consuming-private-key",
+//             (false, true) => "earning-wallet",
+//             (true, true) => "consuming-private-key, earning-wallet",
+//             (false, false) => panic!("The if statement in Rust no longer works"),
+//         };
+//         Err(ConfiguratorError::required(parameter, "Cannot use --consuming-private-key or --earning-wallet when database contains wallet information"))
+//     } else {
+//         Ok(())
+//     }
+// }
+
+// fn compute_mapping_protocol_opt(
+//     multi_config: &MultiConfig,
+//     persistent_config: &mut dyn PersistentConfiguration,
+//     logger: &Logger,
+// ) -> Option<AutomapProtocol> {
+//     let persistent_mapping_protocol_opt = match persistent_config.mapping_protocol() {
+//         Ok(mp_opt) => mp_opt,
+//         Err(e) => {
+//             warning!(
+//                 logger,
+//                 "Could not read mapping protocol from database: {:?}",
+//                 e
+//             );
+//             None
+//         }
+//     };
+//     let mapping_protocol_specified = multi_config.occurrences_of("mapping-protocol") > 0;
+//     eprintln!("************** specified {:?}", mapping_protocol_specified);
+//     eprintln!(
+//         "**************{:?}",
+//         value_m!(multi_config, "mapping-protocol", AutomapProtocol)
+//     );
+//     let computed_mapping_protocol_opt = match (
+//         value_m!(multi_config, "mapping-protocol", AutomapProtocol),
+//         persistent_mapping_protocol_opt,
+//         mapping_protocol_specified,
+//     ) {
+//         (None, Some(persisted_mapping_protocol), false) => Some(persisted_mapping_protocol),
+//         (None, _, true) => None,
+//         (cmd_line_mapping_protocol_opt, _, _) => cmd_line_mapping_protocol_opt,
+//     };
+//     eprintln!(
+//         ">>> computed_mapping_protocol_opt: {:?}",
+//         computed_mapping_protocol_opt
+//     );
+//     if computed_mapping_protocol_opt != persistent_mapping_protocol_opt {
+//         if computed_mapping_protocol_opt.is_none() {
+//             debug!(logger, "Blanking mapping protocol out of the database")
+//         }
+//         match persistent_config.set_mapping_protocol(computed_mapping_protocol_opt) {
+//             Ok(_) => (),
+//             Err(e) => {
+//                 warning!(
+//                     logger,
+//                     "Could not save mapping protocol to database: {:?}",
+//                     e
+//                 );
+//             }
+//         }
+//     }
+//     computed_mapping_protocol_opt
+// }
+
+fn make_neighborhood_mode(
+    multi_config: &MultiConfig,
+    neighbor_configs: Vec<NodeDescriptor>,
+) -> Result<NeighborhoodMode, ConfiguratorError> {
+    let neighborhood_mode_opt = value_m!(multi_config, "neighborhood-mode", String);
+    match neighborhood_mode_opt {
+        Some(ref s) if s == "standard" => {
+            neighborhood_mode_standard(multi_config, neighbor_configs)
         }
-    }
-
-    // fn get_consuming_wallet_from_private_key(
-    //     multi_config: &MultiConfig,
-    // ) -> Result<Option<Wallet>, ConfiguratorError> {
-    //     match value_m!(multi_config, "consuming-private-key", String) {
-    //         Some(consuming_private_key_string) => {
-    //             match consuming_private_key_string.from_hex::<Vec<u8>>() {
-    //                 Ok(raw_secret) => match Bip32ECKeyProvider::from_raw_secret(&raw_secret[..]) {
-    //                     Ok(keypair) => Ok(Some(Wallet::from(keypair))),
-    //                     Err(e) => panic!(
-    //                         "Internal error: bad clap validation for consuming-private-key: {:?}",
-    //                         e
-    //                     ),
-    //                 },
-    //                 Err(e) => panic!(
-    //                     "Internal error: bad clap validation for consuming-private-key: {:?}",
-    //                     e
-    //                 ),
-    //             }
-    //         }
-    //         None => Ok(None),
-    //     }
-    // }
-
-    pub fn get_db_password(
-        multi_config: &MultiConfig,
-        config: &mut BootstrapperConfig,
-        persistent_config: &mut dyn PersistentConfiguration,
-    ) -> Result<Option<String>, ConfiguratorError> {
-        if let Some(db_password) = &config.db_password_opt {
-            return Ok(Some(db_password.clone()));
+        Some(ref s) if s == "originate-only" => {
+            if neighbor_configs.is_empty() {
+                Err(ConfiguratorError::required("neighborhood-mode", "Node cannot run as --neighborhood-mode originate-only without --neighbors specified"))
+            } else {
+                Ok(NeighborhoodMode::OriginateOnly(
+                    neighbor_configs,
+                    DEFAULT_RATE_PACK,
+                ))
+            }
         }
-        let db_password_opt = value_m!(multi_config, "db-password", String);
-        if let Some(db_password) = &db_password_opt {
-            set_db_password_at_first_mention(db_password, persistent_config)?;
-            config.db_password_opt = Some(db_password.clone());
-        };
-        Ok(db_password_opt)
+        Some(ref s) if s == "consume-only" => {
+            let mut errors = ConfiguratorError::new(vec![]);
+            if neighbor_configs.is_empty() {
+                errors = errors.another_required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only without --neighbors specified");
+            }
+            if value_m!(multi_config, "dns-servers", String).is_some() {
+                errors = errors.another_required("neighborhood-mode", "Node cannot run as --neighborhood-mode consume-only if --dns-servers is specified");
+            }
+            if !errors.is_empty() {
+                Err(errors)
+            } else {
+                Ok(NeighborhoodMode::ConsumeOnly(neighbor_configs))
+            }
+        }
+        Some(ref s) if s == "zero-hop" => {
+            if !neighbor_configs.is_empty() {
+                Err(ConfiguratorError::required(
+                    "neighborhood-mode",
+                    "Node cannot run as --neighborhood-mode zero-hop if --neighbors is specified",
+                ))
+            } else if value_m!(multi_config, "ip", IpAddr).is_some() {
+                Err(ConfiguratorError::required(
+                    "neighborhood-mode",
+                    "Node cannot run as --neighborhood-mode zero-hop if --ip is specified",
+                ))
+            } else {
+                Ok(NeighborhoodMode::ZeroHop)
+            }
+        }
+        // These two cases are untestable
+        Some(ref s) => panic!(
+            "--neighborhood-mode {} has not been properly provided for in the code",
+            s
+        ),
+        None => neighborhood_mode_standard(multi_config, neighbor_configs),
     }
+}
 
-    fn set_db_password_at_first_mention(
-        db_password: &str,
-        persistent_config: &mut dyn PersistentConfiguration,
-    ) -> Result<bool, ConfiguratorError> {
-        match persistent_config.check_password(None) {
-            Ok(true) => match persistent_config.change_password(None, db_password) {
-                Ok(_) => Ok(true),
-                Err(e) => Err(e.into_configurator_error("db-password")),
-            },
-            Ok(false) => Ok(false),
+fn neighborhood_mode_standard(
+    multi_config: &MultiConfig,
+    neighbor_configs: Vec<NodeDescriptor>,
+) -> Result<NeighborhoodMode, ConfiguratorError> {
+    let ip = get_public_ip(multi_config)?;
+    Ok(NeighborhoodMode::Standard(
+        NodeAddr::new(&ip, &[]),
+        neighbor_configs,
+        DEFAULT_RATE_PACK,
+    ))
+}
+
+pub fn get_public_ip(multi_config: &MultiConfig) -> Result<IpAddr, ConfiguratorError> {
+    match value_m!(multi_config, "ip", String) {
+        Some(ip_str) => match IpAddr::from_str(&ip_str) {
+            Ok(ip_addr) => Ok(ip_addr),
+            Err(_) => todo!("Drive in a better error message"), //Err(ConfiguratorError::required("ip", &format! ("blockety blip: '{}'", ip_str),
+        },
+        None => Ok(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0))), // sentinel: means "Try Automap"
+    }
+}
+
+// fn get_consuming_wallet_from_private_key(
+//     multi_config: &MultiConfig,
+// ) -> Result<Option<Wallet>, ConfiguratorError> {
+//     match value_m!(multi_config, "consuming-private-key", String) {
+//         Some(consuming_private_key_string) => {
+//             match consuming_private_key_string.from_hex::<Vec<u8>>() {
+//                 Ok(raw_secret) => match Bip32ECKeyProvider::from_raw_secret(&raw_secret[..]) {
+//                     Ok(keypair) => Ok(Some(Wallet::from(keypair))),
+//                     Err(e) => panic!(
+//                         "Internal error: bad clap validation for consuming-private-key: {:?}",
+//                         e
+//                     ),
+//                 },
+//                 Err(e) => panic!(
+//                     "Internal error: bad clap validation for consuming-private-key: {:?}",
+//                     e
+//                 ),
+//             }
+//         }
+//         None => Ok(None),
+//     }
+// }
+
+pub fn get_db_password(
+    multi_config: &MultiConfig,
+    config: &mut BootstrapperConfig,
+    persistent_config: &mut dyn PersistentConfiguration,
+) -> Result<Option<String>, ConfiguratorError> {
+    if let Some(db_password) = &config.db_password_opt {
+        return Ok(Some(db_password.clone()));
+    }
+    let db_password_opt = value_m!(multi_config, "db-password", String);
+    if let Some(db_password) = &db_password_opt {
+        set_db_password_at_first_mention(db_password, persistent_config)?;
+        config.db_password_opt = Some(db_password.clone());
+    };
+    Ok(db_password_opt)
+}
+
+fn set_db_password_at_first_mention(
+    db_password: &str,
+    persistent_config: &mut dyn PersistentConfiguration,
+) -> Result<bool, ConfiguratorError> {
+    match persistent_config.check_password(None) {
+        Ok(true) => match persistent_config.change_password(None, db_password) {
+            Ok(_) => Ok(true),
             Err(e) => Err(e.into_configurator_error("db-password")),
-        }
+        },
+        Ok(false) => Ok(false),
+        Err(e) => Err(e.into_configurator_error("db-password")),
     }
+}
 
-    #[cfg(test)]
-    mod tests {
-        use std::fs::File;
-        use std::io::Write;
-        use std::path::PathBuf;
-        use super::*;
-        use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfigurationReal};
-        use crate::db_config::persistent_configuration::PersistentConfigError::NotPresent;
-        use crate::sub_lib::utils::make_new_test_multi_config;
-        use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
-        use crate::test_utils::{ArgsBuilder, assert_string_contains, main_cryptde, make_default_persistent_configuration};
-        use masq_lib::multi_config::{VirtualCommandLine};
-        use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-        use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-        use masq_lib::utils::{array_of_borrows_to_vec, AutomapProtocol, running_test};
-        use std::sync::{Arc, Mutex};
-        use rustc_hex::FromHex;
-        use masq_lib::blockchains::chains::Chain;
-        use masq_lib::constants::{DEFAULT_CHAIN};
-        use masq_lib::shared_schema::ParamError;
-        use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
-        use crate::blockchain::bip32::Bip32ECKeyProvider;
-        use crate::bootstrapper::RealUser;
-        use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-        use crate::db_config::config_dao::{ConfigDaoReal};
-        use crate::node_configurator::unprivileged_parse_args_configuration::{compute_mapping_protocol_opt, UnprivilegedParseArgsConfigurationDaoNull};
-        use crate::node_test_utils::DirsWrapperMock;
-        use crate::sub_lib::cryptde::{CryptDE, PlainData};
-        use crate::sub_lib::cryptde_real::CryptDEReal;
-        use crate::sub_lib::neighborhood::{DEFAULT_RATE_PACK, NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
-        use crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
-        use crate::sub_lib::node_addr::NodeAddr;
-        use crate::sub_lib::wallet::Wallet;
-        use crate::test_utils::unshared_test_utils::{make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config};
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::blockchain::bip32::Bip32ECKeyProvider;
+    use crate::bootstrapper::RealUser;
+    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
+    use crate::db_config::config_dao::ConfigDaoReal;
+    use crate::db_config::persistent_configuration::PersistentConfigError::NotPresent;
+    use crate::db_config::persistent_configuration::{
+        PersistentConfigError, PersistentConfigurationReal,
+    };
+    use crate::node_configurator::unprivileged_parse_args_configuration::{
+        compute_mapping_protocol_opt, UnprivilegedParseArgsConfigurationDaoNull,
+    };
+    use crate::node_test_utils::DirsWrapperMock;
+    use crate::sub_lib::cryptde::{CryptDE, PlainData};
+    use crate::sub_lib::cryptde_real::CryptDEReal;
+    use crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
+    use crate::sub_lib::neighborhood::{
+        NeighborhoodConfig, NeighborhoodMode, NodeDescriptor, DEFAULT_RATE_PACK,
+    };
+    use crate::sub_lib::node_addr::NodeAddr;
+    use crate::sub_lib::utils::make_new_test_multi_config;
+    use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
+    use crate::test_utils::unshared_test_utils::{
+        make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
+    };
+    use crate::test_utils::{
+        assert_string_contains, main_cryptde, make_default_persistent_configuration, ArgsBuilder,
+    };
+    use masq_lib::blockchains::chains::Chain;
+    use masq_lib::constants::DEFAULT_CHAIN;
+    use masq_lib::multi_config::VirtualCommandLine;
+    use masq_lib::shared_schema::ParamError;
+    use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
+    use masq_lib::utils::{array_of_borrows_to_vec, running_test, AutomapProtocol};
+    use rustc_hex::FromHex;
+    use std::fs::File;
+    use std::io::Write;
+    use std::path::PathBuf;
+    use std::sync::{Arc, Mutex};
 
-        #[test]
+    #[test]
     fn node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real() {
         let home_dir = ensure_node_home_directory_exists(
             "node_configurator_standard",
@@ -737,7 +751,8 @@ fn configure_database(
 
         assert_eq!(
             result,
-            Err(PersistentConfigError::TransactionError.into_configurator_error("neighborhood-mode"))
+            Err(PersistentConfigError::TransactionError
+                .into_configurator_error("neighborhood-mode"))
         );
     }
 
@@ -752,8 +767,7 @@ fn configure_database(
         let mut persistent_config = PersistentConfigurationMock::new()
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pmp)));
 
-        let result =
-            compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
+        let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
         assert_eq!(result, Some(AutomapProtocol::Pmp));
         // No result provided for .set_mapping_protocol; if it's called, the panic will fail this test
@@ -777,8 +791,7 @@ fn configure_database(
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
             .set_mapping_protocol_result(Ok(()));
 
-        let result =
-            compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
+        let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
         assert_eq!(result, Some(AutomapProtocol::Igdp));
         let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
@@ -798,8 +811,7 @@ fn configure_database(
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
             .set_mapping_protocol_result(Ok(()));
 
-        let result =
-            compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
+        let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
         assert_eq!(result, None);
         let set_mapping_protocol_params = set_mapping_protocol_params_arc.lock().unwrap();
@@ -808,26 +820,24 @@ fn configure_database(
 
     #[test]
     fn compute_mapping_protocol_does_not_resave_entry_if_no_change() {
-        let multi_config =
-            make_simplified_multi_config(["--mapping-protocol", "igdp"]);
+        let multi_config = make_simplified_multi_config(["--mapping-protocol", "igdp"]);
         let logger = Logger::new("test");
         let mut persistent_config = PersistentConfigurationMock::new()
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Igdp)));
 
-        let result =
-            compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
+        let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
         assert_eq!(result, Some(AutomapProtocol::Igdp));
         // No result provided for .set_mapping_protocol; if it's called, the panic will fail this test
     }
 
     #[test]
-    #[should_panic (expected = "Error retrieving mapping protocol from CONFIG table")]
+    #[should_panic(expected = "Error retrieving mapping protocol from CONFIG table")]
     fn compute_mapping_protocol_logs_and_uses_none_if_saved_mapping_protocol_cannot_be_read() {
         let multi_config = make_simplified_multi_config([]);
         let logger = Logger::new("BAD_MP_READ");
-        let mut persistent_config = PersistentConfigurationMock::new()
-            .mapping_protocol_result(Err(NotPresent));
+        let mut persistent_config =
+            PersistentConfigurationMock::new().mapping_protocol_result(Err(NotPresent));
 
         compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
     }
@@ -835,15 +845,13 @@ fn configure_database(
     #[test]
     fn compute_mapping_protocol_logs_and_moves_on_if_mapping_protocol_cannot_be_saved() {
         init_test_logging();
-        let multi_config =
-            make_simplified_multi_config(["--mapping-protocol", "IGDP"]);
+        let multi_config = make_simplified_multi_config(["--mapping-protocol", "IGDP"]);
         let logger = Logger::new("BAD_MP_WRITE");
         let mut persistent_config = make_default_persistent_configuration()
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
             .set_mapping_protocol_result(Err(NotPresent));
 
-        let result =
-            compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
+        let result = compute_mapping_protocol_opt(&multi_config, &mut persistent_config, &logger);
 
         assert_eq!(result, Some(AutomapProtocol::Igdp));
         TestLogHandler::new().exists_log_containing(
@@ -965,8 +973,16 @@ fn configure_database(
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::OriginateOnly(
                     vec![
-                        NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mainnet:QmlsbA@1.2.3.4:1234/2345")).unwrap(),
-                        NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mainnet:VGVk@2.3.4.5:3456/4567")).unwrap()
+                        NodeDescriptor::try_from((
+                            main_cryptde(),
+                            "masq://polygon-mainnet:QmlsbA@1.2.3.4:1234/2345"
+                        ))
+                        .unwrap(),
+                        NodeDescriptor::try_from((
+                            main_cryptde(),
+                            "masq://polygon-mainnet:VGVk@2.3.4.5:3456/4567"
+                        ))
+                        .unwrap()
                     ],
                     DEFAULT_RATE_PACK
                 )
@@ -1024,8 +1040,16 @@ fn configure_database(
             result,
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![
-                    NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mainnet:QmlsbA@1.2.3.4:1234/2345")).unwrap(),
-                    NodeDescriptor::try_from((main_cryptde(), "masq://polygon-mainnet:VGVk@2.3.4.5:3456/4567")).unwrap()
+                    NodeDescriptor::try_from((
+                        main_cryptde(),
+                        "masq://polygon-mainnet:QmlsbA@1.2.3.4:1234/2345"
+                    ))
+                    .unwrap(),
+                    NodeDescriptor::try_from((
+                        main_cryptde(),
+                        "masq://polygon-mainnet:VGVk@2.3.4.5:3456/4567"
+                    ))
+                    .unwrap()
                 ],)
             })
         );
@@ -1084,12 +1108,7 @@ fn configure_database(
             &mut BootstrapperConfig::new(),
         );
 
-        assert_eq!(
-            result,
-            Ok(NeighborhoodConfig {
-                mode: ZeroHop
-            })
-        );
+        assert_eq!(result, Ok(NeighborhoodConfig { mode: ZeroHop }));
     }
 
     #[test]
@@ -1339,7 +1358,7 @@ fn configure_database(
                 &multi_config,
                 &mut bootstrapper_config,
                 &mut persistent_config,
-            &Logger::new("test logger"),
+                &Logger::new("test logger"),
             )
             .unwrap();
         let consuming_private_key_bytes: Vec<u8> = consuming_private_key.from_hex().unwrap();
@@ -1477,7 +1496,8 @@ fn configure_database(
         #[cfg(target_os = "linux")]
         assert_eq!(
             config.data_directory,
-            PathBuf::from("/home/booga/.local/share/MASQ").join(DEFAULT_CHAIN.rec().literal_identifier)
+            PathBuf::from("/home/booga/.local/share/MASQ")
+                .join(DEFAULT_CHAIN.rec().literal_identifier)
         );
 
         #[cfg(target_os = "macos")]
@@ -1806,7 +1826,8 @@ fn configure_database(
         let consuming_private_key_text =
             "ABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EFABCD00EF";
         let consuming_private_key = PlainData::from_str(consuming_private_key_text).unwrap();
-        let keypair = Bip32ECKeyProvider::from_raw_secret(consuming_private_key.as_slice()).unwrap();
+        let keypair =
+            Bip32ECKeyProvider::from_raw_secret(consuming_private_key.as_slice()).unwrap();
         config.consuming_wallet_opt = Some(Wallet::from(keypair));
         let set_clandestine_port_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = PersistentConfigurationMock::new()

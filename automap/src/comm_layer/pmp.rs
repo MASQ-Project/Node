@@ -1494,7 +1494,7 @@ mod tests {
             .unwrap();
         thread::sleep(Duration::from_millis(50)); // wait for first announcement read to time out
         let announcement_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        todo! ("Replace this with a multicast socket");
+        todo!("Replace this with a multicast socket");
         let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), announce_port)).unwrap();
         announce_socket.set_broadcast(true).unwrap();
         announce_socket
@@ -1573,7 +1573,7 @@ mod tests {
         .unwrap();
         assert!(subject.housekeeper_commander_opt.is_some());
         let announcement_receive_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        todo! ("Replace this with a multicast socket");
+        todo!("Replace this with a multicast socket");
         let announcement_send_socket =
             UdpSocket::bind(SocketAddr::new(localhost(), announcement_send_port)).unwrap();
         announcement_send_socket
@@ -1638,7 +1638,7 @@ mod tests {
         .unwrap();
         assert!(subject.housekeeper_commander_opt.is_some());
         let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        todo! ("Replace this with a multicast socket");
+        todo!("Replace this with a multicast socket");
         let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), announce_port)).unwrap();
         announce_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))

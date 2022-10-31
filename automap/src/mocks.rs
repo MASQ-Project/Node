@@ -4,23 +4,25 @@ use crate::comm_layer::pcp_pmp_common::{
     FindRoutersCommand, FreePortFactory, UdpSocketWrapper, UdpSocketWrapperFactory,
 };
 use crate::comm_layer::{AutomapError, HousekeepingThreadCommand, LocalIpFinder, Transactor};
-use std::cell::RefCell;
-use std::io::ErrorKind;
-use std::net::{IpAddr, SocketAddr, Ipv4Addr, UdpSocket};
-use std::sync::{Arc, Mutex, MutexGuard};
-use std::time::Duration;
-use std::{io, thread};
-use std::any::Any;
+use crate::control_layer::automap_control::{
+    replace_transactor, AutomapControlReal, ChangeHandler,
+};
 use crossbeam_channel::Sender;
 use lazy_static::lazy_static;
 use masq_lib::utils::AutomapProtocol;
-use crate::control_layer::automap_control::{AutomapControlReal, ChangeHandler, replace_transactor};
+use std::any::Any;
+use std::cell::RefCell;
+use std::io::ErrorKind;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
 use std::str::FromStr;
+use std::sync::{Arc, Mutex, MutexGuard};
+use std::time::Duration;
+use std::{io, thread};
 
 lazy_static! {
     pub static ref ROUTER_IP: IpAddr = IpAddr::from_str("1.2.3.4").unwrap();
     pub static ref PUBLIC_IP: IpAddr = IpAddr::from_str("2.3.4.5").unwrap();
-    static ref MULTICAST_GROUPS_ACTIVE: Arc<Mutex<[u64; 4]>> = Arc::new (Mutex::new ([3, 0, 0, 0]));
+    static ref MULTICAST_GROUPS_ACTIVE: Arc<Mutex<[u64; 4]>> = Arc::new(Mutex::new([3, 0, 0, 0]));
 }
 
 pub struct TestMulticastSocketHolder {
@@ -31,58 +33,62 @@ pub struct TestMulticastSocketHolder {
 impl Drop for TestMulticastSocketHolder {
     fn drop(&mut self) {
         let ip = TestMulticastSocketHolder::ip_from_bit(self.group);
-        self.socket.leave_multicast_v4(&ip, &Ipv4Addr::new (0, 0, 0, 0)).unwrap();
+        self.socket
+            .leave_multicast_v4(&ip, &Ipv4Addr::new(0, 0, 0, 0))
+            .unwrap();
         let mut guard = MULTICAST_GROUPS_ACTIVE.lock().unwrap();
         TestMulticastSocketHolder::clear_bit(&mut guard, self.group);
     }
 }
 
 impl TestMulticastSocketHolder {
-    pub fn checkout () -> TestMulticastSocketHolder {
+    pub fn checkout() -> TestMulticastSocketHolder {
         let group = Self::allocate_bit();
         let multicast = Self::ip_from_bit(group);
-        let socket = UdpSocket::bind ("0.0.0.0:0").unwrap();
-        socket.join_multicast_v4(&multicast, &Ipv4Addr::new (0, 0, 0, 0)).unwrap();
+        let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
+        socket
+            .join_multicast_v4(&multicast, &Ipv4Addr::new(0, 0, 0, 0))
+            .unwrap();
         Self { socket, group }
     }
 
-    fn allocate_bit () -> u8 {
+    fn allocate_bit() -> u8 {
         let mut guard = MULTICAST_GROUPS_ACTIVE.lock().unwrap();
         let mut bit_idx = 0u8;
         while bit_idx <= 254 {
             if !Self::bit_at(&guard, bit_idx) {
-                Self::set_bit (&mut guard, bit_idx);
-                return bit_idx
+                Self::set_bit(&mut guard, bit_idx);
+                return bit_idx;
             }
             bit_idx += 1;
         }
-        panic! ("All test multicast groups are occupied");
+        panic!("All test multicast groups are occupied");
     }
 
-    fn bit_at (guard: &MutexGuard<[u64; 4]>, bit_idx: u8) -> bool {
+    fn bit_at(guard: &MutexGuard<[u64; 4]>, bit_idx: u8) -> bool {
         let (idx, mask) = Self::idx_and_mask_from_bit_idx(bit_idx);
         ((**guard)[idx] & mask) > 0
     }
 
-    fn set_bit (guard: &mut MutexGuard<[u64; 4]>, bit_idx: u8) {
+    fn set_bit(guard: &mut MutexGuard<[u64; 4]>, bit_idx: u8) {
         let (idx, mask) = Self::idx_and_mask_from_bit_idx(bit_idx);
         (**guard)[idx] |= mask;
     }
 
-    fn clear_bit (guard: &mut MutexGuard<[u64; 4]>, bit_idx: u8) {
+    fn clear_bit(guard: &mut MutexGuard<[u64; 4]>, bit_idx: u8) {
         let (idx, mask) = Self::idx_and_mask_from_bit_idx(bit_idx);
         (**guard)[idx] &= !mask;
     }
 
-    fn ip_from_bit (bit_idx: u8) -> Ipv4Addr {
-        Ipv4Addr::new (224, 0, 0, bit_idx)
+    fn ip_from_bit(bit_idx: u8) -> Ipv4Addr {
+        Ipv4Addr::new(224, 0, 0, bit_idx)
     }
 
-    fn _bit_idx_from_ip (ip: Ipv4Addr) -> u8 {
+    fn _bit_idx_from_ip(ip: Ipv4Addr) -> u8 {
         ip.octets()[3]
     }
 
-    fn idx_and_mask_from_bit_idx (bit_idx: u8) -> (usize, u64) {
+    fn idx_and_mask_from_bit_idx(bit_idx: u8) -> (usize, u64) {
         let idx = bit_idx >> 6;
         let pos = bit_idx & 0x3F;
         let mask = 1u64 << pos;
@@ -217,8 +223,16 @@ impl UdpSocketWrapperFactory for UdpSocketWrapperFactoryMock {
         self.make_results.borrow_mut().remove(0)
     }
 
-    fn make_multicast(&self, multicast_group: u8, port: u16, interface: Ipv4Addr) -> io::Result<Box<dyn UdpSocketWrapper>> {
-        self.make_multicast_params.lock().unwrap().push((multicast_group, port, interface));
+    fn make_multicast(
+        &self,
+        multicast_group: u8,
+        port: u16,
+        interface: Ipv4Addr,
+    ) -> io::Result<Box<dyn UdpSocketWrapper>> {
+        self.make_multicast_params
+            .lock()
+            .unwrap()
+            .push((multicast_group, port, interface));
         self.make_multicast_results.borrow_mut().remove(0)
     }
 }
@@ -252,7 +266,7 @@ impl UdpSocketWrapperFactoryMock {
         self
     }
 
-    #[allow (clippy::type_complexity)]
+    #[allow(clippy::type_complexity)]
     pub fn make_multicast_params(mut self, params: &Arc<Mutex<Vec<(u8, u16, Ipv4Addr)>>>) -> Self {
         self.make_multicast_params = params.clone();
         self

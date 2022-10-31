@@ -1195,8 +1195,10 @@ mod tests {
         let expected_pending_payable_fingerprint = PendingPayableFingerprint {
             rowid_opt: None,
             timestamp,
-            hash: H256::from_str("f508effd5ded2a79597f5ad4ad896f0c6db427760f64b7e3312dce3783064c5a")
-                .unwrap(),
+            hash: H256::from_str(
+                "f508effd5ded2a79597f5ad4ad896f0c6db427760f64b7e3312dce3783064c5a",
+            )
+            .unwrap(),
             attempt_opt: None,
             amount: amount as u64,
             process_error: None,

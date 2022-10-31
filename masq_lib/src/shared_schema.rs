@@ -1,7 +1,7 @@
 use crate::constants::{
     DEFAULT_GAS_PRICE, DEFAULT_UI_PORT, DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_FULL_IDENTIFIER,
-    HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT,
-    POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
+    HIGHEST_USABLE_PORT, LOWEST_USABLE_INSECURE_PORT, POLYGON_MAINNET_FULL_IDENTIFIER,
+    POLYGON_MUMBAI_FULL_IDENTIFIER,
 };
 use crate::crash_point::CrashPoint;
 use clap::{App, Arg};
@@ -966,18 +966,22 @@ mod tests {
             "0x0",
         ];
 
-        let results = prices.into_iter()
-            .map (|price| common_validators::validate_gas_price(price.to_string()))
+        let results = prices
+            .into_iter()
+            .map(|price| common_validators::validate_gas_price(price.to_string()))
             .collect::<Vec<Result<(), String>>>();
 
-        assert_eq! (results, vec![
-            Err("0".to_string()),                    // 0
-            Ok(()),                                  // 1
-            Ok(()),                                  // 18446744073709551615
-            Err("18446744073709551616".to_string()), // 18446744073709551616
-            Err("not a decimal number".to_string()), // not a decimal number
-            Err("0x0".to_string()),                  // 0x0
-        ]);
+        assert_eq!(
+            results,
+            vec![
+                Err("0".to_string()),                    // 0
+                Ok(()),                                  // 1
+                Ok(()),                                  // 18446744073709551615
+                Err("18446744073709551616".to_string()), // 18446744073709551616
+                Err("not a decimal number".to_string()), // not a decimal number
+                Err("0x0".to_string()),                  // 0x0
+            ]
+        );
     }
 
     #[test]

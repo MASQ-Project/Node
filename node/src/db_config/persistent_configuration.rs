@@ -280,7 +280,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
                 port
             )));
         }
-        Ok(self.dao.set("clandestine_port", encode_u64(Some(u64::from(port)))?)?)
+        Ok(self
+            .dao
+            .set("clandestine_port", encode_u64(Some(u64::from(port)))?)?)
     }
 
     fn earning_wallet(&self) -> Result<Option<Wallet>, PersistentConfigError> {

@@ -353,7 +353,7 @@ pub fn replace_transactor(
 mod tests {
     use super::*;
     use crate::comm_layer::Transactor;
-    use crate::mocks::{PUBLIC_IP, ROUTER_IP, TransactorMock};
+    use crate::mocks::{TransactorMock, PUBLIC_IP, ROUTER_IP};
     use crossbeam_channel::{unbounded, TryRecvError};
     use std::cell::RefCell;
     use std::net::IpAddr;
@@ -488,10 +488,7 @@ mod tests {
         let mut subject = make_fully_populated_subject();
         subject.usual_protocol_opt = None;
         let protocol_log_arc = Arc::new(Mutex::new(vec![]));
-        let experiment = make_logging_experiment(
-            protocol_log_arc.clone(),
-            AutomapProtocol::Pmp
-        );
+        let experiment = make_logging_experiment(protocol_log_arc.clone(), AutomapProtocol::Pmp);
 
         let result = subject.choose_working_protocol(experiment);
 
@@ -522,10 +519,7 @@ mod tests {
         let mut subject = replace_transactor(subject, transactor);
         subject.usual_protocol_opt = Some(AutomapProtocol::Pmp);
         let protocol_log_arc = Arc::new(Mutex::new(vec![]));
-        let experiment = make_logging_experiment(
-            protocol_log_arc.clone(),
-            AutomapProtocol::Pmp
-        );
+        let experiment = make_logging_experiment(protocol_log_arc.clone(), AutomapProtocol::Pmp);
 
         let result = subject.choose_working_protocol(experiment);
 
@@ -546,10 +540,7 @@ mod tests {
         let mut subject = make_fully_populated_subject();
         subject.usual_protocol_opt = Some(AutomapProtocol::Pmp);
         let protocol_log_arc = Arc::new(Mutex::new(vec![]));
-        let experiment = make_logging_experiment(
-            protocol_log_arc.clone(),
-            AutomapProtocol::Igdp
-        );
+        let experiment = make_logging_experiment(protocol_log_arc.clone(), AutomapProtocol::Igdp);
 
         let result = subject.choose_working_protocol(experiment);
 
@@ -1374,7 +1365,7 @@ mod tests {
 
     fn make_logging_experiment(
         protocol_log_arc: Arc<Mutex<Vec<AutomapProtocol>>>,
-        expected_protocol: AutomapProtocol
+        expected_protocol: AutomapProtocol,
     ) -> TransactorExperiment<String> {
         Box::new(move |t, _router_ip| {
             protocol_log_arc.lock().unwrap().push(t.protocol());

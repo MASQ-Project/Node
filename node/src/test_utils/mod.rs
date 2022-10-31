@@ -1,5 +1,4 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-#![cfg(test)]
 
 #[macro_use]
 pub mod channel_wrapper_mocks;
@@ -35,11 +34,12 @@ use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
+use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
-use masq_lib::test_utils::utils::{TEST_DEFAULT_CHAIN, to_millis};
+use masq_lib::test_utils::utils::{to_millis, TEST_DEFAULT_CHAIN};
 use regex::Regex;
 use rustc_hex::ToHex;
 use serde_derive::{Deserialize, Serialize};
@@ -52,14 +52,12 @@ use std::io::ErrorKind;
 use std::io::Read;
 use std::iter::repeat;
 use std::net::SocketAddr;
-use std::net::{Shutdown, TcpStream};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
 use web3::types::{Address, U256};
-use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 
 lazy_static! {
     static ref MAIN_CRYPTDE_NULL: CryptDENull = CryptDENull::new(TEST_DEFAULT_CHAIN);
@@ -467,11 +465,6 @@ pub fn read_until_timeout(stream: &mut dyn Read) -> Vec<u8> {
     response
 }
 
-pub fn handle_connection_error(stream: TcpStream) {
-    let _ = stream.shutdown(Shutdown::Both).is_ok();
-    thread::sleep(Duration::from_millis(5000));
-}
-
 pub fn dummy_address_to_hex(dummy_address: &str) -> String {
     let s = if dummy_address.len() > 20 {
         &dummy_address[..20]
@@ -543,6 +536,7 @@ pub mod unshared_test_utils {
     use lazy_static::lazy_static;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
+    use masq_lib::test_utils::utils::MutexIncrementInset;
     #[cfg(not(feature = "no_test_share"))]
     use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
     use masq_lib::utils::array_of_borrows_to_vec;
@@ -553,7 +547,6 @@ pub mod unshared_test_utils {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-    use masq_lib::test_utils::utils::MutexIncrementInset;
 
     #[derive(Message)]
     pub struct AssertionsMessage<A: Actor> {

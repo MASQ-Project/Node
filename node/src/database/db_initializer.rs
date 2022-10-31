@@ -617,8 +617,8 @@ mod tests {
         bring_db_0_back_to_life_and_return_connection, retrieve_config_row, DbMigratorMock,
     };
     use itertools::Itertools;
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::blockchains::chains::Chain;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{
         ensure_node_home_directory_does_not_exist, ensure_node_home_directory_exists,
         TEST_DEFAULT_CHAIN,

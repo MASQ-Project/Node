@@ -9,7 +9,7 @@ use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fmt;
-use std::fmt::{Debug};
+use std::fmt::Debug;
 use std::str::FromStr;
 
 pub const NODE_UI_PROTOCOL: &str = "MASQNode-UIv2";

@@ -15,7 +15,7 @@ use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::bootstrapper::CryptDEPair;
 use crate::database::db_initializer::{connection_or_panic, DbInitializer, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
-use crate::db_config::persistent_configuration::{PersistentConfiguration};
+use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::node_configurator::configurator::Configurator;
 use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
@@ -31,8 +31,8 @@ use crate::sub_lib::proxy_client::ProxyClientConfig;
 use crate::sub_lib::proxy_client::ProxyClientSubs;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
+use actix::Arbiter;
 use actix::{Addr, Recipient};
-use actix::{Arbiter};
 use automap_lib::comm_layer::AutomapError;
 use automap_lib::control_layer::automap_control::{
     AutomapChange, AutomapControl, AutomapControlReal, ChangeHandler,
@@ -78,9 +78,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
 
 impl ActorSystemFactoryReal {
     pub fn new(tools: Box<dyn ActorSystemFactoryTools>) -> Self {
-        Self {
-            t: tools
-        }
+        Self { t: tools }
     }
 }
 
@@ -607,7 +605,7 @@ mod tests {
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
-    use crate::sub_lib::neighborhood::{NeighborhoodMode};
+    use crate::sub_lib::neighborhood::NeighborhoodMode;
     use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::node_addr::NodeAddr;
@@ -615,7 +613,6 @@ mod tests {
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
-    use crate::test_utils::{alias_cryptde_null, main_cryptde_null, make_wallet};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{
         make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from,
@@ -628,19 +625,24 @@ mod tests {
         make_populated_accountant_config_with_defaults, ArbitraryIdStamp, SystemKillerActor,
     };
     use crate::test_utils::{alias_cryptde, rate_pack};
+    use crate::test_utils::{alias_cryptde_null, main_cryptde_null, make_wallet};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
     use actix::{Actor, Arbiter, System};
     use automap_lib::control_layer::automap_control::AutomapChange;
+    use automap_lib::mocks::{parameterizable_automap_control, TransactorMock};
     use crossbeam_channel::unbounded;
+    use lazy_static::lazy_static;
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
+    use masq_lib::logger::LOG_RECIPIENT_OPT;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
-    use masq_lib::test_utils::utils::{TEST_DEFAULT_CHAIN};
+    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::ui_gateway::NodeFromUiMessage;
-    use masq_lib::utils::AutomapProtocol::Igdp;
     use masq_lib::utils::running_test;
+    use masq_lib::utils::AutomapProtocol::Igdp;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::convert::TryFrom;
@@ -652,10 +654,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use lazy_static::lazy_static;
-    use automap_lib::mocks::{parameterizable_automap_control, TransactorMock};
-    use masq_lib::logger::LOG_RECIPIENT_OPT;
-    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
 
     lazy_static! {
         static ref ROUTER_IP: IpAddr = IpAddr::from_str("1.2.3.4").unwrap();
@@ -1259,11 +1257,11 @@ mod tests {
         let _ = subject.prepare_initial_messages(
             make_cryptde_pair(),
             config,
-            Box::new (PersistentConfigurationMock::new()),
+            Box::new(PersistentConfigurationMock::new()),
             Box::new(actor_factory),
         );
 
-        assert! (LOG_RECIPIENT_OPT.lock().unwrap().is_some());
+        assert!(LOG_RECIPIENT_OPT.lock().unwrap().is_some());
     }
 
     #[test]
@@ -1312,8 +1310,7 @@ mod tests {
     #[test]
     fn automap_protocol_is_not_saved_if_indifferent_from_last_time() {
         let config_entry = Some(Igdp);
-        let automap_control =
-            AutomapControlMock::default().get_mapping_protocol_result(Some(Igdp));
+        let automap_control = AutomapControlMock::default().get_mapping_protocol_result(Some(Igdp));
 
         ActorSystemFactoryToolsReal::maybe_save_usual_protocol(
             &automap_control,
@@ -1331,8 +1328,7 @@ mod tests {
             .set_mapping_protocol_params(&set_mapping_protocol_params_arc)
             .set_mapping_protocol_result(Ok(()));
         let config_entry = Some(AutomapProtocol::Pmp);
-        let automap_control =
-            AutomapControlMock::default().get_mapping_protocol_result(Some(Igdp));
+        let automap_control = AutomapControlMock::default().get_mapping_protocol_result(Some(Igdp));
 
         ActorSystemFactoryToolsReal::maybe_save_usual_protocol(
             &automap_control,
@@ -1346,7 +1342,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-    expected = "entered unreachable code: get_public_ip would've returned AllProtocolsFailed first"
+        expected = "entered unreachable code: get_public_ip would've returned AllProtocolsFailed first"
     )]
     fn automap_usual_protocol_beginning_with_some_and_then_none_is_not_possible() {
         let config_entry = Some(AutomapProtocol::Pmp);
@@ -1440,7 +1436,7 @@ mod tests {
             DEFAULT_RATE_PACK,
         );
 
-        subject.start_automap(&config, Box::new (persistent_config),vec![]);
+        subject.start_automap(&config, Box::new(persistent_config), vec![]);
 
         let system = System::new("test");
         System::current().stop();
@@ -1489,14 +1485,14 @@ mod tests {
         tools.automap_control_factory = Box::new(
             AutomapControlFactoryMock::new()
                 .make_params(&make_params_arc)
-                .make_result(Box::new (
+                .make_result(Box::new(
                     AutomapControlMock::new()
                         .get_mapping_protocol_result(Some(AutomapProtocol::Pmp))
                         .get_public_ip_result(Ok(IpAddr::from_str("1.2.3.4").unwrap()))
                         .add_mapping_result(Ok(())),
                 )),
         );
-        let subject = ActorSystemFactoryReal::new(Box::new (tools));
+        let subject = ActorSystemFactoryReal::new(Box::new(tools));
 
         let _ = subject.t.prepare_initial_messages(
             make_cryptde_pair(),
@@ -1531,7 +1527,7 @@ mod tests {
 
         subject.start_automap(
             &config,
-            Box::new (PersistentConfigurationMock::new()),
+            Box::new(PersistentConfigurationMock::new()),
             vec![new_ip_recipient],
         );
 
@@ -1549,7 +1545,7 @@ mod tests {
         subject.automap_control_factory = Box::new(
             AutomapControlFactoryMock::new()
                 .make_params(&make_params_arc)
-                .make_result(Box::new (automap_control)),
+                .make_result(Box::new(automap_control)),
         );
         let mut config = BootstrapperConfig::default();
         config.mapping_protocol_opt = None;
@@ -1561,7 +1557,11 @@ mod tests {
         let (recorder, _, recording_arc) = make_recorder();
         let new_ip_recipient = recorder.start().recipient();
 
-        subject.start_automap(&config, Box::new (PersistentConfigurationMock::new()), vec![new_ip_recipient]);
+        subject.start_automap(
+            &config,
+            Box::new(PersistentConfigurationMock::new()),
+            vec![new_ip_recipient],
+        );
 
         let make_params = make_params_arc.lock().unwrap();
         assert_eq!(make_params[0].0, None);
@@ -1612,7 +1612,7 @@ mod tests {
             DEFAULT_RATE_PACK,
         );
 
-        subject.start_automap(&config, Box::new (persistent_configuration), vec![]);
+        subject.start_automap(&config, Box::new(persistent_configuration), vec![]);
 
         let make_params = make_params_arc.lock().unwrap();
         assert_eq!(make_params[0].0, None);
@@ -1646,7 +1646,7 @@ mod tests {
 
         subject.start_automap(
             &config,
-            Box::new (PersistentConfigurationMock::new()),
+            Box::new(PersistentConfigurationMock::new()),
             vec![],
         );
 
@@ -1730,8 +1730,8 @@ mod tests {
     }
 
     fn panic_in_arbiter_thread_versus_system<F>(actor_initialization: Box<F>, actor_crash_key: &str)
-        where
-            F: FnOnce() -> Recipient<NodeFromUiMessage>,
+    where
+        F: FnOnce() -> Recipient<NodeFromUiMessage>,
     {
         let system = System::new("test");
         let killer = SystemKillerActor::new(Duration::from_millis(1500));

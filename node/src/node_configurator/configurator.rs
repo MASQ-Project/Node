@@ -19,6 +19,7 @@ use masq_lib::ui_gateway::{
 
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::bip39::Bip39;
+use crate::bootstrapper::main_cryptde_ref;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -39,7 +40,6 @@ use masq_lib::logger::Logger;
 use masq_lib::utils::derivation_path;
 use rustc_hex::{FromHex, ToHex};
 use tiny_hderive::bip32::ExtendedPrivKey;
-use crate::bootstrapper::main_cryptde_ref;
 
 pub const CRASH_KEY: &str = "CONFIGURATOR";
 
@@ -826,6 +826,7 @@ mod tests {
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::bip39::Bip39;
     use crate::blockchain::test_utils::make_meaningless_phrase_words;
+    use crate::bootstrapper::Bootstrapper;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
     use crate::sub_lib::cryptde::PublicKey as PK;
@@ -836,6 +837,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::{
         configure_default_persistent_config, prove_that_crash_request_handler_is_hooked_up, ZERO,
     };
+    use crate::test_utils::{main_cryptde, make_meaningless_public_key};
     use bip39::{Language, Mnemonic};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::MISSING_DATA;
@@ -843,8 +845,6 @@ mod tests {
     use masq_lib::utils::{derivation_path, AutomapProtocol, NeighborhoodModeLight};
     use rustc_hex::FromHex;
     use tiny_hderive::bip32::ExtendedPrivKey;
-    use crate::bootstrapper::Bootstrapper;
-    use crate::test_utils::{main_cryptde, make_meaningless_public_key};
 
     #[test]
     fn constants_have_correct_values() {

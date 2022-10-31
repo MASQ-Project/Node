@@ -3,9 +3,9 @@
 use crate::blockchains::chains::{Chain, ChainFamily};
 use crate::constants::{
     DEV_CHAIN_FULL_IDENTIFIER, ETH_MAINNET_CONTRACT_CREATION_BLOCK, ETH_MAINNET_FULL_IDENTIFIER,
-    MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK,
-    MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_CONTRACT_CREATION_BLOCK,
-    POLYGON_MAINNET_FULL_IDENTIFIER, POLYGON_MUMBAI_FULL_IDENTIFIER,
+    MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK,
+    POLYGON_MAINNET_CONTRACT_CREATION_BLOCK, POLYGON_MAINNET_FULL_IDENTIFIER,
+    POLYGON_MUMBAI_FULL_IDENTIFIER,
 };
 use ethereum_types::{Address, H160};
 
@@ -132,7 +132,7 @@ mod tests {
             assert_chain_significance(0, Chain::PolyMainnet),
             assert_chain_significance(1, Chain::EthMainnet),
             assert_chain_significance(2, Chain::PolyMumbai),
-            assert_chain_significance(4, Chain::Dev),
+            assert_chain_significance(3, Chain::Dev),
         ];
         assert_exhaustive(&test_array)
     }

@@ -450,11 +450,11 @@ mod tests {
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::ui_gateway::MessageTarget::AllExcept;
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
+    use masq_lib::utils::running_test;
     use std::cell::RefCell;
     use std::collections::HashSet;
     use std::iter::FromIterator;
     use std::sync::{Arc, Mutex};
-    use masq_lib::utils::running_test;
 
     #[test]
     fn constants_have_correct_values() {

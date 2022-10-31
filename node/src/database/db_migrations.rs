@@ -7,6 +7,7 @@ use crate::db_config::db_encryption_layer::DbEncryptionLayer;
 use crate::db_config::typed_config_layer::decode_bytes;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
 use crate::sub_lib::cryptde::PlainData;
+use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
@@ -16,7 +17,6 @@ use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
 use rusqlite::{Error, Transaction};
 use std::fmt::Debug;
 use tiny_hderive::bip32::ExtendedPrivKey;
-use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 
 pub trait DbMigrator {
     fn migrate_database(

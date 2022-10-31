@@ -74,7 +74,12 @@ impl UdpSocketReal {
 
 pub trait UdpSocketWrapperFactory: Send {
     fn make(&self, addr: SocketAddr) -> io::Result<Box<dyn UdpSocketWrapper>>;
-    fn make_multicast(&self, multicast_group: u8, port: u16, interface: Ipv4Addr) -> io::Result<Box<dyn UdpSocketWrapper>>;
+    fn make_multicast(
+        &self,
+        multicast_group: u8,
+        port: u16,
+        interface: Ipv4Addr,
+    ) -> io::Result<Box<dyn UdpSocketWrapper>>;
 }
 
 pub struct UdpSocketFactoryReal {}
@@ -84,11 +89,16 @@ impl UdpSocketWrapperFactory for UdpSocketFactoryReal {
         Ok(Box::new(UdpSocketReal::new(UdpSocket::bind(addr)?)))
     }
 
-    fn make_multicast(&self, multicast_group: u8, port: u16, interface: Ipv4Addr) -> io::Result<Box<dyn UdpSocketWrapper>> {
-        let delegate = UdpSocket::bind (SocketAddr::new (IpAddr::V4(interface), port))?;
-        let multicast = Ipv4Addr::new (224, 0, 0, multicast_group);
+    fn make_multicast(
+        &self,
+        multicast_group: u8,
+        port: u16,
+        interface: Ipv4Addr,
+    ) -> io::Result<Box<dyn UdpSocketWrapper>> {
+        let delegate = UdpSocket::bind(SocketAddr::new(IpAddr::V4(interface), port))?;
+        let multicast = Ipv4Addr::new(224, 0, 0, multicast_group);
         delegate.join_multicast_v4(&multicast, &interface)?;
-        Ok(Box::new (UdpSocketReal::new (delegate)))
+        Ok(Box::new(UdpSocketReal::new(delegate)))
     }
 }
 

@@ -58,7 +58,7 @@ pub enum AutomapError {
     TransactionFailure(String),
     AllProtocolsFailed(Vec<(AutomapProtocol, AutomapError)>),
     HousekeeperAlreadyRunning, // possibly shouldn't kill the system; investigate
-    HousekeeperCrashed, // possibly shouldn't kill the system; investigate
+    HousekeeperCrashed,        // possibly shouldn't kill the system; investigate
 }
 
 impl AutomapError {

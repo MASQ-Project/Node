@@ -1,10 +1,10 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory,
-                                        FreePortFactoryReal, MappingConfig, UdpSocketFactoryReal,
-                                        UdpSocketWrapper, UdpSocketWrapperFactory,
-                                        ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT,
-                                        ANNOUNCEMENT_MULTICAST_GROUP};
+use crate::comm_layer::pcp_pmp_common::{
+    find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig,
+    UdpSocketFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory, ANNOUNCEMENT_MULTICAST_GROUP,
+    ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT,
+};
 use crate::comm_layer::{
     AutomapError, AutomapErrorCause, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal,
     Transactor,
@@ -280,15 +280,19 @@ impl PcpTransactor {
         // let socket_addr = SocketAddr::new(ip_addr, self.announcement_multicast_group);
         let socket_result = {
             let factories = &self.inner().factories;
-            factories.socket_factory.make_multicast(self.announcement_multicast_group, 0, Ipv4Addr::UNSPECIFIED)
+            factories.socket_factory.make_multicast(
+                self.announcement_multicast_group,
+                0,
+                Ipv4Addr::UNSPECIFIED,
+            )
         };
         let socket = match socket_result {
             Ok(s) => s,
             Err(e) => {
                 return Err(AutomapError::SocketBindingError(
                     format!("{:?}", e),
-                    SocketAddr::new (IpAddr::V4 (multicast), 0), // TODO: Correct this
-                ))
+                    SocketAddr::new(IpAddr::V4(multicast), 0), // TODO: Correct this
+                ));
             }
         };
         Ok(socket)
@@ -665,6 +669,7 @@ mod tests {
     use super::*;
     use crate::comm_layer::pcp_pmp_common::ROUTER_PORT;
     use crate::comm_layer::{AutomapErrorCause, LocalIpFinder};
+    use crate::mocks::TestMulticastSocketHolder;
     use crate::mocks::{
         FreePortFactoryMock, LocalIpFinderMock, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock,
     };
@@ -676,17 +681,16 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::utils::{find_free_port, localhost};
     use pretty_hex::*;
+    use socket2::{Domain, Socket, Type};
     use std::cell::RefCell;
     use std::collections::HashSet;
     use std::io::ErrorKind;
+    use std::mem::MaybeUninit;
     use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::{io, thread};
-    use crate::mocks::TestMulticastSocketHolder;
-    use socket2::{Socket, Domain, Type};
-    use std::mem::MaybeUninit;
 
     pub struct MappingNonceFactoryMock {
         make_results: RefCell<Vec<[u8; 12]>>,
@@ -2214,26 +2218,37 @@ mod tests {
     #[test]
     fn play_with_multicast() {
         // make three sockets
-        let multicast_ip = Ipv4Addr::new (224, 0, 0, 122);
+        let multicast_ip = Ipv4Addr::new(224, 0, 0, 122);
         let multicast_port = find_free_port();
-        let multicast_address = SocketAddr::new (IpAddr::V4(multicast_ip), multicast_port);
+        let multicast_address = SocketAddr::new(IpAddr::V4(multicast_ip), multicast_port);
         let make_socket = || {
-            let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP)).unwrap();
-            socket.set_read_timeout(Some (Duration::from_secs(1))).unwrap();
+            let socket =
+                Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP)).unwrap();
+            socket
+                .set_read_timeout(Some(Duration::from_secs(1)))
+                .unwrap();
             socket.set_reuse_port(true).unwrap();
             socket.set_reuse_address(true).unwrap();
-            socket.join_multicast_v4(&multicast_ip, &Ipv4Addr::UNSPECIFIED).unwrap();
+            socket
+                .join_multicast_v4(&multicast_ip, &Ipv4Addr::UNSPECIFIED)
+                .unwrap();
             socket
         };
-        let socket_sender = UdpSocket::bind (SocketAddr::new (localhost(), 0)).unwrap();
-        socket_sender.join_multicast_v4(&multicast_ip, &Ipv4Addr::UNSPECIFIED).unwrap();
+        let socket_sender = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
+        socket_sender
+            .join_multicast_v4(&multicast_ip, &Ipv4Addr::UNSPECIFIED)
+            .unwrap();
         let socket_receiver_1 = make_socket();
         let socket_receiver_2 = make_socket();
         let message = b"Taxation is theft!";
-        socket_sender.send_to (message, multicast_address).unwrap();
+        socket_sender.send_to(message, multicast_address).unwrap();
         let mut buf = [MaybeUninit::uninit(); 100];
-        let (size, source) = socket_receiver_1.recv_from (&mut buf).unwrap();
-        let bytes = buf.to_vec().into_iter().map (|muc| unsafe {muc.assume_init()}).collect::<Vec<u8>>();
-        assert_eq! (bytes, message.to_vec());
+        let (size, source) = socket_receiver_1.recv_from(&mut buf).unwrap();
+        let bytes = buf
+            .to_vec()
+            .into_iter()
+            .map(|muc| unsafe { muc.assume_init() })
+            .collect::<Vec<u8>>();
+        assert_eq!(bytes, message.to_vec());
     }
 }

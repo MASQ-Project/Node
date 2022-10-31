@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::apps::app_head;
-use crate::bootstrapper::{BootstrapperConfig, main_cryptde_ref};
+use crate::bootstrapper::{main_cryptde_ref, BootstrapperConfig};
 use crate::daemon::dns_inspector::dns_inspector_factory::{
     DnsInspectorFactory, DnsInspectorFactoryReal,
 };
@@ -130,9 +130,8 @@ impl SetupReporter for SetupReporterReal {
             .keys()
             .map(|item| item.to_owned())
             .collect_vec();
-        let (configured_setup, error_opt) = self.calculate_configured_setup(
-            &all_but_configured,
-            &data_directory);
+        let (configured_setup, error_opt) =
+            self.calculate_configured_setup(&all_but_configured, &data_directory);
         if let Some(error) = error_opt {
             error_so_far.extend(error);
         }
@@ -212,7 +211,11 @@ impl SetupReporterReal {
                         let value = os_str.to_str().expect("expected valid UTF-8");
                         Some((
                             name.to_string(),
-                            UiSetupResponseValue::new(name, value, UiSetupResponseValueStatus::Default),
+                            UiSetupResponseValue::new(
+                                name,
+                                value,
+                                UiSetupResponseValueStatus::Default,
+                            ),
                         ))
                     }
                     None => None,
@@ -318,7 +321,9 @@ impl SetupReporterReal {
             .collect::<SetupCluster>();
         match setup.get_mut("config-file") {
             // special case because of early processing
-            Some(uisrv) if &uisrv.value == "config.toml" => uisrv.status = UiSetupResponseValueStatus::Default,
+            Some(uisrv) if &uisrv.value == "config.toml" => {
+                uisrv.status = UiSetupResponseValueStatus::Default
+            }
             _ => (),
         };
         if error_so_far.param_errors.is_empty() {
@@ -535,7 +540,10 @@ impl ValueRetriever for Chain {
         _persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        Some((DEFAULT_CHAIN.rec().literal_identifier.to_string(), UiSetupResponseValueStatus::Default))
+        Some((
+            DEFAULT_CHAIN.rec().literal_identifier.to_string(),
+            UiSetupResponseValueStatus::Default,
+        ))
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
@@ -747,10 +755,9 @@ impl ValueRetriever for Ip {
             {
                 Some(("".to_string(), Blank))
             }
-            NeighborhoodModeEnum::Standard(node_addr, _, _) => Some((
-                node_addr.ip_addr().to_string(),
-                Set,
-            )),
+            NeighborhoodModeEnum::Standard(node_addr, _, _) => {
+                Some((node_addr.ip_addr().to_string(), Set))
+            }
             _ => Some(("".to_string(), Blank)),
         }
     }
@@ -792,11 +799,16 @@ impl ValueRetriever for MappingProtocol {
         persistent_config: &dyn PersistentConfiguration,
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
-        match (bootstrapper_config.mapping_protocol_opt, persistent_config.mapping_protocol()) {
-            (_, Err(e)) => todo! ("Error retrieving mapping protocol from database: {:?}", e),
-            (Some (from_config), _) => Some ((from_config.to_string().to_lowercase(), Configured)),
-            (None, Ok(Some (from_database))) => Some ((from_database.to_string().to_lowercase(), Configured)),
-            (None, Ok(None)) => None
+        match (
+            bootstrapper_config.mapping_protocol_opt,
+            persistent_config.mapping_protocol(),
+        ) {
+            (_, Err(e)) => todo!("Error retrieving mapping protocol from database: {:?}", e),
+            (Some(from_config), _) => Some((from_config.to_string().to_lowercase(), Configured)),
+            (None, Ok(Some(from_database))) => {
+                Some((from_database.to_string().to_lowercase(), Configured))
+            }
+            (None, Ok(None)) => None,
         }
     }
 }
@@ -1061,7 +1073,9 @@ mod tests {
         make_persistent_config_real_with_config_dao_null,
         make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
     };
-    use crate::test_utils::{alias_cryptde_null, assert_string_contains, main_cryptde, main_cryptde_null, rate_pack};
+    use crate::test_utils::{
+        alias_cryptde_null, assert_string_contains, main_cryptde, main_cryptde_null, rate_pack,
+    };
     use masq_lib::blockchains::chains::Chain as Blockchain;
     use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
@@ -1159,7 +1173,10 @@ mod tests {
     #[test]
     fn get_modified_setup_database_populated_only_requireds_set() {
         let _guard = EnvironmentGuard::new();
-        Bootstrapper::pub_initialize_cryptdes_for_testing(Some(main_cryptde_null()), Some(alias_cryptde_null()));
+        Bootstrapper::pub_initialize_cryptdes_for_testing(
+            Some(main_cryptde_null()),
+            Some(alias_cryptde_null()),
+        );
         let home_dir = ensure_node_home_directory_exists(
             "setup_reporter",
             "get_modified_setup_database_populated_only_requireds_set",
@@ -1616,7 +1633,11 @@ mod tests {
             ),
             ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
             ("clandestine-port", "8877", Configured),
-            ("config-file", "config.toml", UiSetupResponseValueStatus::Default),
+            (
+                "config-file",
+                "config.toml",
+                UiSetupResponseValueStatus::Default,
+            ),
             (
                 "consuming-private-key",
                 "FFEEDDCCBBAA99887766554433221100FFEEDDCCBBAA99887766554433221100",
@@ -1822,7 +1843,11 @@ mod tests {
             .join(DEFAULT_CHAIN.rec().literal_identifier);
         let existing_setup = setup_cluster_from(vec![
             ("neighborhood-mode", "zero-hop", Set),
-            ("chain", DEFAULT_CHAIN.rec().literal_identifier, UiSetupResponseValueStatus::Default),
+            (
+                "chain",
+                DEFAULT_CHAIN.rec().literal_identifier,
+                UiSetupResponseValueStatus::Default,
+            ),
             (
                 "data-directory",
                 &current_data_dir.to_string_lossy().to_string(),
@@ -1871,9 +1896,21 @@ mod tests {
             .join(DEFAULT_CHAIN.rec().literal_identifier);
         let existing_setup = setup_cluster_from(vec![
             ("blockchain-service-url", "", Required),
-            ("chain", DEFAULT_CHAIN.rec().literal_identifier, UiSetupResponseValueStatus::Default),
-            ("clandestine-port", "7788", UiSetupResponseValueStatus::Default),
-            ("config-file", "config.toml", UiSetupResponseValueStatus::Default),
+            (
+                "chain",
+                DEFAULT_CHAIN.rec().literal_identifier,
+                UiSetupResponseValueStatus::Default,
+            ),
+            (
+                "clandestine-port",
+                "7788",
+                UiSetupResponseValueStatus::Default,
+            ),
+            (
+                "config-file",
+                "config.toml",
+                UiSetupResponseValueStatus::Default,
+            ),
             ("consuming-private-key", "", Blank),
             (
                 "data-directory",
@@ -1881,7 +1918,11 @@ mod tests {
                 UiSetupResponseValueStatus::Default,
             ),
             ("db-password", "", Required),
-            ("dns-servers", "1.1.1.1", UiSetupResponseValueStatus::Default),
+            (
+                "dns-servers",
+                "1.1.1.1",
+                UiSetupResponseValueStatus::Default,
+            ),
             (
                 "earning-wallet",
                 "0x47fb8671db83008d382c2e6ea67fa377378c0cea",
@@ -1943,8 +1984,16 @@ mod tests {
                 BlockChain::PolyMumbai.rec().literal_identifier,
                 Set,
             ),
-            ("clandestine-port", "7788", UiSetupResponseValueStatus::Default),
-            ("config-file", "config.toml", UiSetupResponseValueStatus::Default),
+            (
+                "clandestine-port",
+                "7788",
+                UiSetupResponseValueStatus::Default,
+            ),
+            (
+                "config-file",
+                "config.toml",
+                UiSetupResponseValueStatus::Default,
+            ),
             ("consuming-private-key", "", Blank),
             (
                 "data-directory",
@@ -1952,7 +2001,11 @@ mod tests {
                 UiSetupResponseValueStatus::Default,
             ),
             ("db-password", "", Required),
-            ("dns-servers", "1.1.1.1", UiSetupResponseValueStatus::Default),
+            (
+                "dns-servers",
+                "1.1.1.1",
+                UiSetupResponseValueStatus::Default,
+            ),
             (
                 "earning-wallet",
                 "0x47fb8671db83008d382c2e6ea67fa377378c0cea",
@@ -2008,7 +2061,11 @@ mod tests {
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_before, "0");
         let existing_setup = setup_cluster_from(vec![
-            ("chain", DEFAULT_CHAIN.rec().literal_identifier, UiSetupResponseValueStatus::Default),
+            (
+                "chain",
+                DEFAULT_CHAIN.rec().literal_identifier,
+                UiSetupResponseValueStatus::Default,
+            ),
             (
                 "data-directory",
                 &data_dir.to_string_lossy().to_string(),
@@ -2192,7 +2249,11 @@ mod tests {
         .for_each(|(name, value)| std::env::set_var(name, value));
         let setup = setup_cluster_from(vec![
             ("chain", "dev", Configured),
-            ("data-directory", "setup_dir", UiSetupResponseValueStatus::Default),
+            (
+                "data-directory",
+                "setup_dir",
+                UiSetupResponseValueStatus::Default,
+            ),
             ("real-user", "1111:1111:agoob", Configured),
         ]);
 
@@ -2250,7 +2311,11 @@ mod tests {
             .for_each(|(name, value): (&str, &str)| std::env::set_var(name, value));
         let setup = setup_cluster_from(vec![
             ("chain", "dev", Configured),
-            ("data-directory", "setup_dir", UiSetupResponseValueStatus::Default),
+            (
+                "data-directory",
+                "setup_dir",
+                UiSetupResponseValueStatus::Default,
+            ),
             ("real-user", "1111:1111:agoob", Configured),
         ]);
 
@@ -2282,9 +2347,7 @@ mod tests {
 
         assert_eq!(
             real_user_opt,
-            Some(
-                RealUser::new(None, None, None).populate(&DirsWrapperReal {})
-            )
+            Some(RealUser::new(None, None, None).populate(&DirsWrapperReal {}))
         );
         assert_eq!(data_directory_opt, None);
         assert_eq!(chain, DEFAULT_CHAIN);
@@ -2317,7 +2380,11 @@ mod tests {
         let actual_chain = result.get("chain").unwrap();
         assert_eq!(
             actual_chain,
-            &UiSetupResponseValue::new("chain", DEFAULT_CHAIN.rec().literal_identifier, UiSetupResponseValueStatus::Default)
+            &UiSetupResponseValue::new(
+                "chain",
+                DEFAULT_CHAIN.rec().literal_identifier,
+                UiSetupResponseValueStatus::Default
+            )
         );
     }
 
@@ -2451,10 +2518,7 @@ mod tests {
         .collect();
 
         let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
-            .calculate_configured_setup(
-                &setup,
-                &data_directory,
-            )
+            .calculate_configured_setup(&setup, &data_directory)
             .0;
 
         assert_eq!(result.get("mapping-protocol"), None);
@@ -2608,7 +2672,10 @@ mod tests {
 
         assert_eq!(
             result,
-            Some((DEFAULT_CHAIN.rec().literal_identifier.to_string(), UiSetupResponseValueStatus::Default))
+            Some((
+                DEFAULT_CHAIN.rec().literal_identifier.to_string(),
+                UiSetupResponseValueStatus::Default
+            ))
         );
     }
 
@@ -2659,7 +2726,10 @@ mod tests {
             &None,
         );
 
-        assert_eq!(result, Some((expected, UiSetupResponseValueStatus::Default)))
+        assert_eq!(
+            result,
+            Some((expected, UiSetupResponseValueStatus::Default))
+        )
     }
 
     #[test]
@@ -2745,7 +2815,13 @@ mod tests {
             &None,
         );
 
-        assert_eq!(result, Some(("192.168.0.1,8.8.8.8".to_string(), UiSetupResponseValueStatus::Default)))
+        assert_eq!(
+            result,
+            Some((
+                "192.168.0.1,8.8.8.8".to_string(),
+                UiSetupResponseValueStatus::Default
+            ))
+        )
     }
 
     #[test]
@@ -2787,7 +2863,10 @@ mod tests {
             &None,
         );
 
-        assert_eq!(result, Some(("57".to_string(), UiSetupResponseValueStatus::Default)))
+        assert_eq!(
+            result,
+            Some(("57".to_string(), UiSetupResponseValueStatus::Default))
+        )
     }
 
     #[test]
@@ -2800,7 +2879,10 @@ mod tests {
             &None,
         );
 
-        assert_eq!(result, Some(("1".to_string(), UiSetupResponseValueStatus::Default)))
+        assert_eq!(
+            result,
+            Some(("1".to_string(), UiSetupResponseValueStatus::Default))
+        )
     }
 
     #[test]
@@ -2862,7 +2944,10 @@ mod tests {
             &None,
         );
 
-        assert_eq!(result, Some(("warn".to_string(), UiSetupResponseValueStatus::Default)))
+        assert_eq!(
+            result,
+            Some(("warn".to_string(), UiSetupResponseValueStatus::Default))
+        )
     }
 
     #[test]
@@ -2897,11 +2982,7 @@ mod tests {
         let mut bootstrapper_config = BootstrapperConfig::new();
         bootstrapper_config.mapping_protocol_opt = Some(AutomapProtocol::Pcp);
 
-        let result = subject.computed_default(
-            &bootstrapper_config,
-            &persistent_config,
-            &None,
-        );
+        let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
 
         assert_eq!(result, Some(("pcp".to_string(), Configured)))
     }
@@ -2916,7 +2997,10 @@ mod tests {
             &None,
         );
 
-        assert_eq!(result, Some(("standard".to_string(), UiSetupResponseValueStatus::Default)))
+        assert_eq!(
+            result,
+            Some(("standard".to_string(), UiSetupResponseValueStatus::Default))
+        )
     }
 
     #[test]
@@ -3060,7 +3144,13 @@ mod tests {
 
         let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
 
-        assert_eq!(result, Some((DEFAULT_RATE_PACK.to_string(), UiSetupResponseValueStatus::Default)))
+        assert_eq!(
+            result,
+            Some((
+                DEFAULT_RATE_PACK.to_string(),
+                UiSetupResponseValueStatus::Default
+            ))
+        )
     }
 
     #[test]
@@ -3119,7 +3209,10 @@ mod tests {
             &None,
         );
 
-        assert_eq!(result, Some(("on".to_string(), UiSetupResponseValueStatus::Default)));
+        assert_eq!(
+            result,
+            Some(("on".to_string(), UiSetupResponseValueStatus::Default))
+        );
     }
 
     #[test]
@@ -3210,7 +3303,10 @@ mod tests {
 
         let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
 
-        assert_eq!(result, Some((default.to_string(), UiSetupResponseValueStatus::Default)))
+        assert_eq!(
+            result,
+            Some((default.to_string(), UiSetupResponseValueStatus::Default))
+        )
     }
 
     fn assert_computed_default_when_persistent_config_unequal_to_default<T, C>(
@@ -3351,10 +3447,7 @@ mod tests {
         assert_eq!(MappingProtocol {}.is_required(&params), false);
         assert_eq!(NeighborhoodMode {}.is_required(&params), true);
         assert_eq!(Neighbors {}.is_required(&params), true);
-        assert_eq!(
-            PaymentThresholds {}.is_required(&params),
-            true
-        );
+        assert_eq!(PaymentThresholds {}.is_required(&params), true);
         assert_eq!(ScanIntervals {}.is_required(&params), true);
         assert_eq!(
             setup_reporter::RealUser::default().is_required(&params),
@@ -3383,10 +3476,7 @@ mod tests {
         assert_eq!(MappingProtocol {}.value_name(), "mapping-protocol");
         assert_eq!(NeighborhoodMode {}.value_name(), "neighborhood-mode");
         assert_eq!(Neighbors {}.value_name(), "neighbors");
-        assert_eq!(
-            PaymentThresholds {}.value_name(),
-            "payment-thresholds"
-        );
+        assert_eq!(PaymentThresholds {}.value_name(), "payment-thresholds");
         assert_eq!(RatePack {}.value_name(), "rate-pack");
         assert_eq!(ScanIntervals {}.value_name(), "scan-intervals");
         assert_eq!(

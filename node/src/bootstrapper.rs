@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::actor_system_factory::ActorSystemFactoryReal;
+use crate::actor_system_factory::ActorSystemFactoryToolsReal;
 use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactory};
-use crate::actor_system_factory::{ActorSystemFactoryToolsReal};
 use crate::crash_test_dummy::CrashTestDummy;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
@@ -480,9 +480,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
             NodeConfiguratorStandardUnprivileged::new(&self.config).configure(multi_config)?;
         self.config.merge_unprivileged(unprivileged_config);
         let _ = self.set_up_clandestine_port();
-        let cryptdes = Bootstrapper::initialize_cryptdes(
-            &self.config
-        );
+        let cryptdes = Bootstrapper::initialize_cryptdes(&self.config);
         let node_descriptor = Bootstrapper::make_local_descriptor(
             cryptdes.main,
             self.config.neighborhood_config.mode.node_addr_opt(),
@@ -547,14 +545,14 @@ impl Bootstrapper {
             Self::initialize_single_cryptde(
                 &config.main_cryptde_null_opt,
                 &mut MAIN_CRYPTDE_BOX_OPT,
-                config.blockchain_bridge_config.chain
+                config.blockchain_bridge_config.chain,
             )
         };
         unsafe {
             Self::initialize_single_cryptde(
                 &config.alias_cryptde_null_opt,
                 &mut ALIAS_CRYPTDE_BOX_OPT,
-                config.blockchain_bridge_config.chain
+                config.blockchain_bridge_config.chain,
             )
         }
         CryptDEPair::default()
@@ -705,7 +703,7 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::socket_server::ConfiguredByPrivilege;
     use crate::sub_lib::stream_connector::ConnectionInfo;
-    use crate::test_utils::{main_cryptde, main_cryptde_null};
+    use crate::test_utils::make_wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::RecordAwaiter;
@@ -716,7 +714,7 @@ mod tests {
         make_populated_accountant_config_with_defaults, make_simplified_multi_config,
     };
     use crate::test_utils::{assert_contains, rate_pack};
-    use crate::test_utils::{make_wallet};
+    use crate::test_utils::{main_cryptde, main_cryptde_null};
     use actix::Recipient;
     use actix::System;
     use crossbeam_channel::unbounded;
@@ -1482,8 +1480,7 @@ mod tests {
         let cryptde_null = main_cryptde_null();
         let cryptde_null_public_key = cryptde_null.public_key().clone();
 
-        let cryptdes =
-            Bootstrapper::pub_initialize_cryptdes_for_testing(Some(cryptde_null), None);
+        let cryptdes = Bootstrapper::pub_initialize_cryptdes_for_testing(Some(cryptde_null), None);
 
         assert_eq!(cryptdes.main.public_key(), &cryptde_null_public_key);
         assert_eq!(main_cryptde_ref().public_key(), cryptdes.main.public_key());

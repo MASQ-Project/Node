@@ -1,5 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::bootstrapper::{Bootstrapper, main_cryptde_ref};
+use crate::bootstrapper::{main_cryptde_ref, Bootstrapper};
 use crate::stream_messages::{PoolBindMessage, RemovedStreamType};
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};

@@ -5,9 +5,10 @@ pub mod utils;
 
 use node_lib::test_utils::read_until_timeout;
 use std::io::Write;
-use std::net::SocketAddr;
 use std::net::TcpStream;
+use std::net::{Shutdown, SocketAddr};
 use std::str::FromStr;
+use std::thread;
 use std::time::Duration;
 
 // 'node' below must not be named '_' alone or disappear, or the MASQNode will be immediately reclaimed.
@@ -38,4 +39,9 @@ fn http_through_node_integration() {
         "{}",
         response
     );
+}
+
+pub fn handle_connection_error(stream: TcpStream) {
+    let _ = stream.shutdown(Shutdown::Both).is_ok();
+    thread::sleep(Duration::from_millis(5000));
 }

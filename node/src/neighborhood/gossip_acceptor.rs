@@ -9,8 +9,8 @@ use crate::sub_lib::neighborhood::{
     ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1,
 };
 use crate::sub_lib::node_addr::NodeAddr;
-use masq_lib::logger::Logger;
 use actix::Recipient;
+use masq_lib::logger::Logger;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};

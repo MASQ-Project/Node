@@ -3,6 +3,7 @@ use crate::messages::SerializableLogLevel;
 use crate::messages::{ToMessageBody, UiLogBroadcast};
 use crate::ui_gateway::MessageTarget;
 use crate::ui_gateway::NodeToUiMessage;
+use crate::utils::test_is_running;
 use actix::Recipient;
 use lazy_static::lazy_static;
 use log::logger;
@@ -15,7 +16,6 @@ use std::sync::Mutex;
 use std::{io, thread};
 use time::format_description::parse;
 use time::OffsetDateTime;
-use crate::utils::test_is_running;
 
 const UI_MESSAGE_LOG_LEVEL: Level = Level::Info;
 const TIME_FORMATTING_STRING: &str =
@@ -31,10 +31,9 @@ pub fn prepare_log_recipient(recipient: Recipient<NodeToUiMessage>) {
         .expect("log recipient poisoned")
         .replace(recipient)
         .is_some()
+        && !test_is_running()
     {
-        if !test_is_running() {
-            panic!("Log recipient should be initiated only once")
-        }
+        panic!("Log recipient should be initiated only once")
     }
 }
 
@@ -267,7 +266,6 @@ mod tests {
     use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
     use actix::{Actor, AsyncContext, Context, Handler, Message, System};
     use crossbeam_channel::{unbounded, Sender};
-    use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex, MutexGuard};
     use std::thread;
     use std::thread::{JoinHandle, ThreadId};
@@ -794,7 +792,7 @@ mod tests {
     // because one or more of those other tests uses running_test(). When running_test() is active,
     // prepare_log_recipient() won't panic properly.
     #[test]
-    #[should_panic (expected = "Log recipient should be initiated only once")]
+    #[should_panic(expected = "Log recipient should be initiated only once")]
     fn prepare_log_recipient_should_be_called_only_once_panic() {
         let _guard = prepare_test_environment();
         let ui_gateway = TestUiGateway::new(0, &Arc::new(Mutex::new(vec![])));
@@ -852,8 +850,8 @@ mod tests {
 
     fn prepare_test_environment<'a>() -> MutexGuard<'a, ()> {
         let guard = match TEST_LOG_RECIPIENT_GUARD.lock() {
-            Ok (g) => g,
-            Err (poisonError) => poisonError.into_inner(),
+            Ok(g) => g,
+            Err(poison_error) => poison_error.into_inner(),
         };
         LOG_RECIPIENT_OPT
             .lock()
