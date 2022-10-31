@@ -46,7 +46,6 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
@@ -56,6 +55,7 @@ use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, NodeDescriptor};
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
+use crate::sub_lib::neighborhood::{NRMetadataChange, NodeQueryMessage};
 use crate::sub_lib::neighborhood::{NeighborhoodSubs, NeighborhoodTools};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
@@ -337,22 +337,20 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: NodeRecordMetadataMessage, _ctx: &mut Self::Context) -> Self::Result {
-        let public_key = msg.public_key;
-        let unreachable_host = msg
-            .unreachable_host_name_opt
-            .expect("No unreachable host found");
-        let node_record = self
-            .neighborhood_database
-            .node_by_key_mut(&public_key)
-            .unwrap_or_else(|| panic!("No Node Record found for public_key: {public_key}"));
-        node_record
-            .metadata
-            .unreachable_hosts
-            .insert(unreachable_host.clone());
-        debug!(
-            self.logger,
-            "Host {unreachable_host} is marked unreachable for the node with public key {public_key}"
-        );
+        match msg.metadata_change {
+            NRMetadataChange::AddUnreachableHost { host_name } => {
+                let public_key = msg.public_key;
+                let node_record = self
+                    .neighborhood_database
+                    .node_by_key_mut(&public_key)
+                    .unwrap_or_else(|| panic!("No Node Record found for public_key: {public_key}"));
+                debug!(
+                    self.logger,
+                     "Marking host {host_name} unreachable for the Node with public key {public_key}"
+                );
+                node_record.metadata.unreachable_hosts.insert(host_name);
+            }
+        }
     }
 }
 
@@ -944,6 +942,7 @@ impl Neighborhood {
         &mut self,
         msg: RouteQueryMessage,
     ) -> Result<RouteQueryResponse, String> {
+        let hostname_opt = msg.hostname_opt.as_deref();
         let over = self.make_route_segment(
             self.cryptde.public_key(),
             msg.target_key_opt.as_ref(),
@@ -951,7 +950,7 @@ impl Neighborhood {
             msg.target_component,
             msg.payload_size,
             RouteDirection::Over,
-            msg.hostname_opt.clone(),
+            hostname_opt,
         )?;
         debug!(self.logger, "Route over: {:?}", over);
         let back = self.make_route_segment(
@@ -961,7 +960,7 @@ impl Neighborhood {
             msg.return_component_opt.expect("No return component"),
             msg.payload_size,
             RouteDirection::Back,
-            msg.hostname_opt,
+            hostname_opt,
         )?;
         debug!(self.logger, "Route back: {:?}", back);
         self.compose_route_query_response(over, back)
@@ -1021,7 +1020,7 @@ impl Neighborhood {
         target_component: Component,
         payload_size: usize,
         direction: RouteDirection,
-        hostname_opt: Option<String>,
+        hostname_opt: Option<&str>,
     ) -> Result<RouteSegment, String> {
         let route_opt = self.find_best_route_segment(
             origin,
@@ -1146,7 +1145,7 @@ impl Neighborhood {
         };
         let rate_undesirability = per_cores as i64 + (per_byte as i64 * payload_size as i64);
         if let LinkType::Exit(Some(hostname)) = link_type {
-            if node_record.metadata.unreachable_hosts.contains(&hostname) {
+            if node_record.metadata.unreachable_hosts.contains(hostname) {
                 return rate_undesirability + UNDESIRABLE_FOR_EXIT_PENALTY;
             }
         }
@@ -1188,7 +1187,7 @@ impl Neighborhood {
         minimum_hops: usize,
         payload_size: usize,
         direction: RouteDirection,
-        hostname_opt: Option<String>,
+        hostname_opt: Option<&str>,
     ) -> Option<Vec<&'a PublicKey>> {
         let mut minimum_undesirability = i64::MAX;
         self.routing_engine(
@@ -1217,7 +1216,7 @@ impl Neighborhood {
         payload_size: usize,
         direction: RouteDirection,
         minimum_undesirability: &mut i64,
-        hostname_opt: Option<String>,
+        hostname_opt: Option<&str>,
     ) -> Vec<ComputedRouteSegment<'a>> {
         if undesirability > *minimum_undesirability {
             return vec![];
@@ -1270,7 +1269,7 @@ impl Neighborhood {
                         hops_remaining,
                         payload_size,
                         direction,
-                        hostname_opt.clone(),
+                        hostname_opt,
                     );
 
                     self.routing_engine(
@@ -1281,7 +1280,7 @@ impl Neighborhood {
                         payload_size,
                         direction,
                         minimum_undesirability,
-                        hostname_opt.clone(),
+                        hostname_opt,
                     )
                 })
                 .collect()
@@ -1316,7 +1315,7 @@ impl Neighborhood {
         hops_remaining: usize,
         payload_size: usize,
         direction: RouteDirection,
-        hostname_opt: Option<String>,
+        hostname_opt: Option<&str>,
     ) -> i64 {
         let link_type = match (direction, target_opt) {
             (RouteDirection::Over, None) if hops_remaining == 0 => LinkType::Exit(hostname_opt),
@@ -1494,9 +1493,9 @@ pub fn regenerate_signed_gossip(
 }
 
 #[derive(PartialEq, Eq)]
-enum LinkType {
+enum LinkType<'hostname> {
     Relay,
-    Exit(Option<String>),
+    Exit(Option<&'hostname str>),
     Origin,
 }
 
@@ -2649,8 +2648,7 @@ mod tests {
         subject.consuming_wallet_opt = None;
         // These happen to be extracted in the desired order. We could not think of a way to guarantee it.
         let desirable_exit_node = make_node_record(2345, false);
-        let mut undesirable_exit_node = make_node_record(3456, true);
-        undesirable_exit_node.set_desirable_for_exit(false);
+        let undesirable_exit_node = make_node_record(3456, true);
         let originating_node = &subject.neighborhood_database.root().clone();
         {
             let db = &mut subject.neighborhood_database;
@@ -2852,8 +2850,7 @@ mod tests {
         let q = &make_node_record(3456, true);
         let r = &make_node_record(4567, false);
         let s = &make_node_record(5678, false);
-        let mut t = make_node_record(7777, false);
-        t.set_desirable_for_exit(false);
+        let t = make_node_record(7777, false);
         {
             let db = &mut subject.neighborhood_database;
             db.add_node(q.clone()).unwrap();
@@ -3267,7 +3264,6 @@ mod tests {
     fn compute_undesirability_for_relay_nodes() {
         let subject = make_standard_subject();
         let mut node_record = make_node_record(1, false);
-        node_record.metadata.desirable_for_exit = true; // not used as exit: irrelevant
         node_record.inner.rate_pack = RatePack {
             routing_byte_rate: 100,
             routing_service_rate: 200,
@@ -3284,7 +3280,6 @@ mod tests {
     fn compute_undesirability_for_exit_nodes() {
         let subject = make_standard_subject();
         let mut node_record = make_node_record(1, false);
-        node_record.metadata.desirable_for_exit = true; // used as exit, but leave out penalty for now
         node_record.inner.rate_pack = RatePack {
             routing_byte_rate: 123456,
             routing_service_rate: 234567,
@@ -3301,7 +3296,6 @@ mod tests {
     fn compute_undesirability_for_origin() {
         let subject = make_standard_subject();
         let mut node_record = make_node_record(1, false);
-        node_record.metadata.desirable_for_exit = true; // not used as exit: irrelevant
         node_record.inner.rate_pack = RatePack {
             routing_byte_rate: 123456,
             routing_service_rate: 234567,
@@ -3317,11 +3311,10 @@ mod tests {
     #[test]
     fn compute_undesirability_for_undesirable_for_exit_node_used_as_exit() {
         let subject = make_standard_subject();
-        let unreachable_host = String::from("somedomain.com");
+        let unreachable_host = "somedomain.com";
         let mut unreachable_hosts = HashSet::new();
-        unreachable_hosts.insert(unreachable_host.clone());
+        unreachable_hosts.insert(unreachable_host.to_string());
         let mut node_record = make_node_record(1, false);
-        node_record.metadata.desirable_for_exit = false; // used as exit: penalty is effective
         node_record.metadata.unreachable_hosts = unreachable_hosts;
         node_record.inner.rate_pack = RatePack {
             routing_byte_rate: 123456,
@@ -5080,7 +5073,9 @@ mod tests {
 
         let _ = addr.try_send(NodeRecordMetadataMessage {
             public_key: public_key.clone(),
-            unreachable_host_name_opt: Some(unreachable_host.clone()),
+            metadata_change: NRMetadataChange::AddUnreachableHost {
+                host_name: unreachable_host.clone(),
+            },
         });
 
         let assertions = Box::new(move |actor: &mut Neighborhood| {
@@ -5093,7 +5088,7 @@ mod tests {
                 .unreachable_hosts
                 .contains(&unreachable_host));
             TestLogHandler::new().exists_log_matching(&format!(
-                "Host {unreachable_host} is marked unreachable for the node with public key {public_key}"
+                "Host facebook.com is marked unreachable for the node with public key ZXhpdF9ub2Rl"
             ));
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();

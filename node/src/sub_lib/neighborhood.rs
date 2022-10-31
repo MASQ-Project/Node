@@ -511,7 +511,12 @@ pub struct AskAboutDebutGossipMessage {
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
 pub struct NodeRecordMetadataMessage {
     pub public_key: PublicKey,
-    pub unreachable_host_name_opt: Option<String>,
+    pub metadata_change: NRMetadataChange,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NRMetadataChange {
+    AddUnreachableHost { host_name: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

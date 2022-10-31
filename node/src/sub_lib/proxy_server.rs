@@ -60,7 +60,7 @@ pub struct AddReturnRouteMessage {
     pub return_route_id: u32,
     pub expected_services: Vec<ExpectedService>,
     pub protocol: ProxyProtocol,
-    pub server_name: Option<String>,
+    pub server_name_opt: Option<String>,
 }
 
 #[derive(Message, Debug, PartialEq, Eq)]

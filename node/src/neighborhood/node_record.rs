@@ -244,14 +244,6 @@ impl NodeRecord {
         &self.inner.rate_pack
     }
 
-    pub fn is_desirable_for_exit(&self) -> bool {
-        self.metadata.desirable_for_exit
-    }
-
-    pub fn set_desirable_for_exit(&mut self, is_desirable_for_exit: bool) {
-        self.metadata.desirable_for_exit = is_desirable_for_exit
-    }
-
     pub fn update(&mut self, agr: AccessibleGossipRecord) -> Result<(), String> {
         if &agr.inner.public_key != self.public_key() {
             return Err(format!(
@@ -326,7 +318,6 @@ impl TryFrom<&GossipNodeRecord> for NodeRecord {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 #[allow(non_camel_case_types)]
 pub struct NodeRecordMetadata {
-    pub desirable_for_exit: bool,
     pub last_update: u32,
     pub node_addr_opt: Option<NodeAddr>,
     pub unreachable_hosts: HashSet<String>,
@@ -335,7 +326,6 @@ pub struct NodeRecordMetadata {
 impl NodeRecordMetadata {
     pub fn new() -> NodeRecordMetadata {
         NodeRecordMetadata {
-            desirable_for_exit: true,
             last_update: time_t_timestamp(),
             node_addr_opt: None,
             unreachable_hosts: Default::default(),
@@ -804,36 +794,6 @@ mod tests {
         assert_eq!(
             this_node.earning_wallet(),
             Wallet::from_str("0x546900db8d6e0937497133d1ae6fdf5f4b75bcd0").unwrap()
-        );
-    }
-
-    #[test]
-    fn set_desirable_when_no_change_from_default() {
-        let mut this_node = make_node_record(5432, true);
-
-        assert!(
-            this_node.is_desirable_for_exit(),
-            "initial state should have been desirable"
-        );
-        this_node.set_desirable_for_exit(true);
-        assert!(
-            this_node.is_desirable_for_exit(),
-            "Should be desirable after being set to true."
-        );
-    }
-
-    #[test]
-    fn set_desirable_to_false() {
-        let mut this_node = make_node_record(5432, true);
-
-        assert!(
-            this_node.is_desirable_for_exit(),
-            "initial state should have been desirable"
-        );
-        this_node.set_desirable_for_exit(false);
-        assert!(
-            !this_node.is_desirable_for_exit(),
-            "Should be undesirable after being set to false."
         );
     }
 
