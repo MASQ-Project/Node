@@ -265,7 +265,7 @@ pub struct PayableDaoMock {
     more_money_payable_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     non_pending_payables_params: Arc<Mutex<Vec<()>>>,
     non_pending_payables_results: RefCell<Vec<Vec<PayableAccount>>>,
-    mark_pending_payable_rowid_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
+    mark_pending_payable_rowid_parameters: Arc<Mutex<Vec<Vec<(Wallet, u64)>>>>,
     mark_pending_payable_rowid_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     transaction_confirmed_params: Arc<Mutex<Vec<PendingPayableFingerprint>>>,
     transaction_confirmed_results: RefCell<Vec<Result<(), PayableDaoError>>>,
@@ -291,15 +291,19 @@ impl PayableDao for PayableDaoMock {
         self.more_money_payable_results.borrow_mut().remove(0)
     }
 
-    fn mark_pending_payable_rowid(
+    fn mark_pending_payables_rowids(
         &self,
-        wallet: &Wallet,
-        pending_payable_rowid: u64,
+        wallets_and_rowids: &[(&Wallet, u64)],
     ) -> Result<(), PayableDaoError> {
         self.mark_pending_payable_rowid_parameters
             .lock()
             .unwrap()
-            .push((wallet.clone(), pending_payable_rowid));
+            .push(
+                wallets_and_rowids
+                    .iter()
+                    .map(|(wallet, id)| ((*wallet).clone(), *id))
+                    .collect(),
+            );
         self.mark_pending_payable_rowid_results
             .borrow_mut()
             .remove(0)
@@ -370,7 +374,7 @@ impl PayableDaoMock {
 
     pub fn mark_pending_payable_rowid_params(
         mut self,
-        parameters: &Arc<Mutex<Vec<(Wallet, u64)>>>,
+        parameters: &Arc<Mutex<Vec<Vec<(Wallet, u64)>>>>,
     ) -> Self {
         self.mark_pending_payable_rowid_parameters = parameters.clone();
         self
@@ -727,12 +731,12 @@ impl PendingPayableDao for PendingPayableDaoMock {
 }
 
 impl PendingPayableDaoMock {
-    pub fn fingerprint_rowid_params(mut self, params: &Arc<Mutex<Vec<Vec<H256>>>>) -> Self {
+    pub fn fingerprints_rowids_params(mut self, params: &Arc<Mutex<Vec<Vec<H256>>>>) -> Self {
         self.fingerprint_rowid_params = params.clone();
         self
     }
 
-    pub fn fingerprint_rowid_result(self, result: Vec<(Option<u64>, H256)>) -> Self {
+    pub fn fingerprints_rowids_result(self, result: Vec<(Option<u64>, H256)>) -> Self {
         self.fingerprint_rowid_results.borrow_mut().push(result);
         self
     }

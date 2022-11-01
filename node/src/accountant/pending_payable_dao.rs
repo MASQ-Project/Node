@@ -8,6 +8,7 @@ use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
 use rusqlite::types::Value::Null;
 use rusqlite::{Row, ToSql};
+use std::collections::HashMap;
 use std::iter::once;
 use std::str::FromStr;
 use std::time::SystemTime;
@@ -38,25 +39,44 @@ pub trait PendingPayableDao {
 
 impl PendingPayableDao for PendingPayableDaoReal<'_> {
     fn fingerprints_rowids(&self, hashes: &[H256]) -> Vec<(Option<u64>, H256)> {
-        todo!(
-            "you might want to rewrite this to fetch all rowids for set of hashes at one operation"
+        let sql = format!(
+            "select transaction_hash, rowid from pending_payable where transaction_hash = {}",
+            hashes.iter().map(|hash| format!("{:?}", hash)).join(" or ")
         );
-        let mut stm = self
+        let mut all_found_records = self
             .conn
-            .prepare("select rowid from pending_payable where transaction_hash = ?")
-            .expect("Internal error");
-        match stm.query_row(&[&format!("{:?}", hashes)], |row| {
-            let rowid: i64 = row.get(0).expectv("rowid_opt");
-            Ok(rowid)
-        }) {
-            Err(e) if e == rusqlite::Error::QueryReturnedNoRows => todo!(), //None,
-            Err(e) => panic!("Internal error: {}", e),
-            Ok(signed) => todo!(), //Some(u64::try_from(signed).expect("SQlite counts up to i64:MAX")),
-        }
+            .prepare(&sql)
+            .expect("Internal error")
+            .query_map([], |row| {
+                let str_hash: String = row.get(0).expectv("hash");
+                let hash = H256::from_str(&str_hash[2..]).unwrap_or_else(|_| todo!("{}", str_hash));
+                let rowid: i64 = row.get(1).expectv("rowid");
+                Ok((hash, rowid))
+            })
+            .expect("map query failed")
+            .flatten()
+            .collect::<HashMap<H256, i64>>();
+        hashes
+            .into_iter()
+            .map(|hash| {
+                (
+                    all_found_records
+                        .remove(hash)
+                        .map(|rowid| u64::try_from(rowid).expect("SQlite counts up to i64:MAX")),
+                    *hash,
+                )
+            })
+            .collect()
     }
 
     fn return_all_fingerprints(&self) -> Vec<PendingPayableFingerprint> {
-        let mut stm = self.conn.prepare("select rowid, transaction_hash, amount, payable_timestamp, attempt from pending_payable where process_error is null").expect("Internal error");
+        let mut stm = self
+            .conn
+            .prepare(
+                "select rowid, transaction_hash, amount, \
+         payable_timestamp, attempt from pending_payable where process_error is null",
+            )
+            .expect("Internal error");
         stm.query_map([], |row| {
             let rowid: u64 = Self::get_with_expect(row, 0);
             let transaction_hash: String = Self::get_with_expect(row, 1);
@@ -320,14 +340,6 @@ mod tests {
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
-        {
-            let mut stm = wrapped_conn
-                .prepare("select * from pending_payable")
-                .unwrap();
-            let res = stm.query_row([], |_row| Ok(()));
-            let err = res.unwrap_err();
-            assert_eq!(err, Error::QueryReturnedNoRows);
-        }
         let subject = PendingPayableDaoReal::new(wrapped_conn);
         let hash = make_tx_hash(11119);
 

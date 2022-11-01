@@ -6,6 +6,7 @@ use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
 use crate::database::dao_utils::{to_time_t, DaoFactoryReal};
 use crate::sub_lib::wallet::Wallet;
+use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
 use rusqlite::types::{ToSql, Type};
 use rusqlite::Error;
@@ -51,10 +52,9 @@ pub trait PayableDao: Debug + Send {
         amount: u64,
     ) -> Result<(), PayableDaoError>;
 
-    fn mark_pending_payable_rowid(
+    fn mark_pending_payables_rowids(
         &self,
-        wallet: &Wallet,
-        pending_payable_rowid: u64,
+        wallets_and_rowids: &[(&Wallet, u64)],
     ) -> Result<(), PayableDaoError>;
 
     fn transaction_confirmed(
@@ -103,25 +103,27 @@ impl PayableDao for PayableDaoReal {
         }
     }
 
-    fn mark_pending_payable_rowid(
+    fn mark_pending_payables_rowids(
         &self,
-        wallet: &Wallet,
-        pending_payable_rowid: u64,
+        wallets_and_rowids: &[(&Wallet, u64)],
     ) -> Result<(), PayableDaoError> {
-        let mut stm = self
-            .conn
-            .prepare("update payable set pending_payable_rowid=? where wallet_address=?")
-            .expect("Internal Error");
-        let params: &[&dyn ToSql] = &[
-            &i64::try_from(pending_payable_rowid)
-                .expect("SQLite counts up to i64::MAX; should never happen"),
-            wallet,
-        ];
-        match stm.execute(params) {
-            Ok(1) => Ok(()),
-            Ok(num) => panic!(
-                "Marking pending payable rowid for {}: affected {} rows but expected 1",
-                wallet, num
+        let sql = format!(
+            "update payable set pending_payable_rowid = case {} end",
+            wallets_and_rowids
+                .iter()
+                .map(|(wallet, rowid)| format!("when wallet_address = '{}' then {}", wallet, rowid))
+                .join("\n")
+        );
+        match self.conn.prepare(&sql).expect("Internal Error").execute([]) {
+            Ok(x) if x == wallets_and_rowids.len() => Ok(()),
+            Ok(x) => panic!(
+                "Marking pending payable rowid for wallets {} affected {} rows but expected {}",
+                wallets_and_rowids
+                    .iter()
+                    .map(|(wallet, _)| wallet.to_string())
+                    .join(", "),
+                x,
+                wallets_and_rowids.len()
             ),
             Err(e) => Err(PayableDaoError::RusqliteError(e.to_string())),
         }
@@ -420,53 +422,78 @@ mod tests {
     }
 
     #[test]
-    fn mark_pending_payment_marks_a_pending_transaction_for_a_new_address() {
+    fn mark_pending_payables_marks_pending_transactions_for_new_addresses() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "mark_pending_payment_marks_a_pending_transaction_for_a_new_address",
+            "mark_pending_payables_marks_pending_transactions_for_new_addresses",
         );
-        let wallet = make_wallet("booga");
-        let pending_payable_rowid = 656;
+        let wallet_1 = make_wallet("booga");
+        let pending_payable_rowid_1 = 656;
+        let wallet_2 = make_wallet("bagaboo");
+        let pending_payable_rowid_2 = 657;
         let boxed_conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         let secondary_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
         {
-            let mut stm = boxed_conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp) values (?,?,?)").unwrap();
-            let params: &[&dyn ToSql] = &[&wallet, &5000, &150_000_000];
+            let mut stm = boxed_conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp) values (?,?,?), (?,?,?)").unwrap();
+            let params: &[&dyn ToSql] = &[
+                &wallet_1,
+                &5000,
+                &150_000_000,
+                &wallet_2,
+                &6789,
+                &151_000_000,
+            ];
             stm.execute(params).unwrap();
         }
         let subject = PayableDaoReal::new(boxed_conn);
-        let before_account_status = account_status(&secondary_conn, &wallet).unwrap();
-        let before_expected_status = PayableAccount {
-            wallet: wallet.clone(),
-            balance: 5000,
-            last_paid_timestamp: from_time_t(150_000_000),
-            pending_payable_opt: None,
-        };
-        assert_eq!(before_account_status, before_expected_status.clone());
 
         subject
-            .mark_pending_payable_rowid(&wallet, pending_payable_rowid)
+            .mark_pending_payables_rowids(&[
+                (&wallet_1, pending_payable_rowid_1),
+                (&wallet_2, pending_payable_rowid_2),
+            ])
             .unwrap();
 
-        let after_account_status = account_status(&secondary_conn, &wallet).unwrap();
-        let mut after_expected_status = before_expected_status;
-        after_expected_status.pending_payable_opt = Some(PendingPayableId {
-            rowid: pending_payable_rowid,
-            hash: make_tx_hash(0), //garbage
-        });
-        assert_eq!(after_account_status, after_expected_status)
+        let account_statuses = [&wallet_1, &wallet_2]
+            .iter()
+            .map(|wallet| account_status(&secondary_conn, wallet).unwrap())
+            .collect::<Vec<PayableAccount>>();
+        assert_eq!(
+            account_statuses,
+            vec![
+                PayableAccount {
+                    wallet: wallet_1,
+                    balance: 5000,
+                    last_paid_timestamp: from_time_t(150_000_000),
+                    pending_payable_opt: Some(PendingPayableId {
+                        rowid: pending_payable_rowid_1,
+                        hash: Default::default()
+                    }),
+                },
+                //notice the hashes are garbage, but generated by a test method not knowing doing better
+                PayableAccount {
+                    wallet: wallet_2,
+                    balance: 6789,
+                    last_paid_timestamp: from_time_t(151_000_000),
+                    pending_payable_opt: Some(PendingPayableId {
+                        rowid: pending_payable_rowid_2,
+                        hash: Default::default()
+                    })
+                }
+            ]
+        )
     }
 
     #[test]
     #[should_panic(
-        expected = "Marking pending payable rowid for 0x000000000000000000000000000000626f6f6761: affected 0 rows but expected 1"
+        expected = "Marking pending payable rowid for wallets 0x000000000000000000000000000000626f6f6761 affected 0 rows but expected 1"
     )]
-    fn mark_pending_payment_returned_different_row_count_than_expected() {
+    fn mark_pending_payables_rowids_returned_different_row_count_than_expected() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "mark_pending_payment_returned_different_row_count_than_expected",
+            "mark_pending_payables_rowids_returned_different_row_count_than_expected",
         );
         let wallet = make_wallet("booga");
         let rowid = 656;
@@ -475,14 +502,14 @@ mod tests {
             .unwrap();
         let subject = PayableDaoReal::new(conn);
 
-        let _ = subject.mark_pending_payable_rowid(&wallet, rowid);
+        let _ = subject.mark_pending_payables_rowids(&[(&wallet, rowid)]);
     }
 
     #[test]
-    fn mark_pending_payment_handles_general_sql_error() {
+    fn mark_pending_payables_rowids_handles_general_sql_error() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "mark_pending_payment_handles_general_sql_error",
+            "mark_pending_payables_rowids_handles_general_sql_error",
         );
         let wallet = make_wallet("booga");
         let rowid = 656;
@@ -490,7 +517,7 @@ mod tests {
         let conn_wrapped = ConnectionWrapperReal::new(conn);
         let subject = PayableDaoReal::new(Box::new(conn_wrapped));
 
-        let result = subject.mark_pending_payable_rowid(&wallet, rowid);
+        let result = subject.mark_pending_payables_rowids(&[(&wallet, rowid)]);
 
         assert_eq!(
             result,
