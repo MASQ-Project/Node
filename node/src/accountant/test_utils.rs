@@ -669,7 +669,7 @@ pub fn bc_from_ac_plus_wallets(
 pub struct PendingPayableDaoMock {
     fingerprint_rowid_params: Arc<Mutex<Vec<Vec<H256>>>>,
     fingerprint_rowid_results: RefCell<Vec<Vec<(Option<u64>, H256)>>>,
-    delete_fingerprint_params: Arc<Mutex<Vec<u64>>>,
+    delete_fingerprint_params: Arc<Mutex<Vec<Vec<u64>>>>,
     delete_fingerprint_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
     insert_fingerprint_params: Arc<Mutex<Vec<(Vec<(H256, u64)>, SystemTime)>>>,
     insert_fingerprint_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
@@ -714,8 +714,11 @@ impl PendingPayableDao for PendingPayableDaoMock {
         self.insert_fingerprint_results.borrow_mut().remove(0)
     }
 
-    fn delete_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError> {
-        self.delete_fingerprint_params.lock().unwrap().push(id);
+    fn delete_fingerprints(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError> {
+        self.delete_fingerprint_params
+            .lock()
+            .unwrap()
+            .push(ids.to_vec());
         self.delete_fingerprint_results.borrow_mut().remove(0)
     }
 
@@ -754,7 +757,7 @@ impl PendingPayableDaoMock {
         self
     }
 
-    pub fn delete_fingerprint_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
+    pub fn delete_fingerprint_params(mut self, params: &Arc<Mutex<Vec<Vec<u64>>>>) -> Self {
         self.delete_fingerprint_params = params.clone();
         self
     }

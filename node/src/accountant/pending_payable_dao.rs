@@ -6,7 +6,7 @@ use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils::{from_time_t, to_time_t, DaoFactoryReal};
 use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
-use rusqlite::{Row};
+use rusqlite::Row;
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::time::SystemTime;
@@ -30,7 +30,7 @@ pub trait PendingPayableDao {
         hashes_and_amounts: &[(H256, u64)],
         batch_wide_timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError>;
-    fn delete_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError>;
+    fn delete_fingerprints(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError>;
     fn update_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError>;
     fn mark_failure(&self, id: u64) -> Result<(), PendingPayableDaoError>;
 }
@@ -131,17 +131,21 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         }
     }
 
-    fn delete_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError> {
-        let signed_id =
-            unsigned_to_signed(id).expect("SQLite counts up to i64::MAX; should never happen");
-        let mut stm = self
+    fn delete_fingerprints(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError> {
+        let sql = format!(
+            "delete from pending_payable where rowid in ({})",
+            ids.iter().map(|id| id.to_string()).join(", ")
+        );
+        match self
             .conn
-            .prepare("delete from pending_payable where rowid = ?")
-            .expect("Internal error");
-        match stm.execute(&[&signed_id]) {
-            Ok(1) => Ok(()),
+            .prepare(&sql)
+            .expect("delete command wrong")
+            .execute([])
+        {
+            Ok(x) if x == ids.len() => Ok(()),
             Ok(num) => panic!(
-                "payment fingerprint: delete: one row should've been deleted but the result is {}",
+                "deleting fingerprint, expected {} to be changed, but the actual number is {}",
+                ids.len(),
                 num
             ),
             Err(e) => Err(PendingPayableDaoError::RecordDeletion(e.to_string())),
@@ -158,7 +162,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         match stm.execute(&[&signed_id]) {
             Ok(1) => Ok(()),
             Ok(num) => panic!(
-                "payment fingerprint: update: one row should've been updated but the result is {}",
+                "updating fingerprint: one row should've been updated but the result is {}",
                 num
             ),
             Err(e) => Err(PendingPayableDaoError::UpdateFailed(e.to_string())),
@@ -175,7 +179,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         match stm.execute(&[&signed_id]) {
             Ok(1) => Ok(()),
             Ok(num) => panic!(
-                "payment fingerprint: mark failure: one row should've been updated but the result is {}",
+                "marking failure for fingerprint: one row should've been updated but the result is {}",
                 num
             ),
             Err(e) => Err(PendingPayableDaoError::ErrorMarkFailed(e.to_string())),
@@ -212,7 +216,6 @@ mod tests {
     use crate::accountant::pending_payable_dao::{
         PendingPayableDao, PendingPayableDaoError, PendingPayableDaoReal,
     };
-    use crate::accountant::unsigned_to_signed;
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
@@ -220,7 +223,7 @@ mod tests {
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
     use crate::database::db_migrations::MigratorConfig;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::{Connection, Error, OpenFlags, Row};
+    use rusqlite::{Connection, OpenFlags};
     use std::str::FromStr;
     use std::time::SystemTime;
     use web3::types::H256;
@@ -431,35 +434,30 @@ mod tests {
     }
 
     #[test]
-    fn delete_fingerprint_happy_path() {
+    fn delete_fingerprints_happy_path() {
         let home_dir = ensure_node_home_directory_exists(
             "pending_payable_dao",
-            "delete_fingerprint_happy_path",
+            "delete_fingerprints_happy_path",
         );
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
-        let hash = make_tx_hash(666666);
-        let rowid = 1;
+        let hash_1 = make_tx_hash(666666);
+        let rowid_1 = 1;
+        let hash_2 = make_tx_hash(444444);
+        let rowid_2 = 2;
         let subject = PendingPayableDaoReal::new(conn);
         {
             subject
-                .insert_new_fingerprints(&[(hash, 5555)], SystemTime::now())
+                .insert_new_fingerprints(&[(hash_1, 5555), (hash_2, 2222)], SystemTime::now())
                 .unwrap();
         }
 
-        let result = subject.delete_fingerprint(rowid);
+        let result = subject.delete_fingerprints(&[rowid_1, rowid_2]);
 
         assert_eq!(result, Ok(()));
-        let conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
-        let signed_row_id = unsigned_to_signed(rowid).unwrap();
-        let mut stm2 = conn
-            .prepare("select * from pending_payable where rowid = ?")
-            .unwrap();
-        let query_result_err = stm2
-            .query_row(&[&signed_row_id], |_row: &Row| Ok(()))
-            .unwrap_err();
-        assert_eq!(query_result_err, Error::QueryReturnedNoRows);
+        let records_in_the_db = subject.return_all_fingerprints();
+        assert!(records_in_the_db.is_empty())
     }
 
     #[test]
@@ -480,7 +478,7 @@ mod tests {
         let rowid = 45;
         let subject = PendingPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.delete_fingerprint(rowid);
+        let result = subject.delete_fingerprints(&[rowid]);
 
         assert_eq!(
             result,
@@ -488,6 +486,30 @@ mod tests {
                 "attempt to write a readonly database".to_string()
             ))
         )
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "deleting fingerprint, expected 2 to be changed, but the actual number is 1"
+    )]
+    fn delete_fingerprint_changed_different_number_of_rows_than_expected() {
+        let home_dir = ensure_node_home_directory_exists(
+            "pending_payable_dao",
+            "delete_fingerprint_changed_different_number_of_rows_than_expected",
+        );
+        let conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let rowid_1 = 1;
+        let rowid_2 = 2;
+        let subject = PendingPayableDaoReal::new(conn);
+        {
+            subject
+                .insert_new_fingerprints(&[(make_tx_hash(666666), 5555)], SystemTime::now())
+                .unwrap();
+        }
+
+        let _ = subject.delete_fingerprints(&[rowid_1, rowid_2]);
     }
 
     #[test]
