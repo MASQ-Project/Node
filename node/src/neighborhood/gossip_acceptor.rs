@@ -942,7 +942,7 @@ impl GossipHandler for StandardGossipHandler {
 
         let root_node = database.root();
         let mut patch: HashSet<PublicKey> = HashSet::new();
-        self.compute_patch(&mut patch, root_node.public_key(), &hashmap, 3, database);
+        self.compute_patch(&mut patch, root_node.public_key(), &hashmap, 3);
 
         let mut db_changed =
             self.identify_and_add_non_introductory_new_nodes(database, &agrs, gossip_source);
@@ -986,17 +986,23 @@ impl StandardGossipHandler {
         node: &PublicKey,
         agrs: &HashMap<PublicKey, &AccessibleGossipRecord>,
         hops_remaining: usize,
-        database: &NeighborhoodDatabase,
+        // database: &NeighborhoodDatabase,
     ) {
         if (hops_remaining > 0) && !patch.contains(node) {
             patch.insert(node.clone());
-            let agr = agrs
-                .get(node)
-                .expect(&format!("No agr found for public key {:?}", node))
-                .deref()
-                .clone();
+            let agr = match agrs.get(node) {
+                Some(agr) => {
+                    eprintln!(
+                        "AGR found for Node with public key {:?}",
+                        agr.inner.public_key
+                    );
+                    agr.deref().clone()
+                }
+                None => panic!("No AGR found for public key {:?}", node),
+            };
+
             agr.inner.neighbors.iter().for_each(|public_key| {
-                self.compute_patch(patch, public_key, agrs, hops_remaining - 1, database)
+                self.compute_patch(patch, public_key, agrs, hops_remaining - 1)
             });
         }
     }
@@ -2260,6 +2266,63 @@ mod tests {
         assert_eq!(system.run(), 0);
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
+    }
+
+    #[test]
+    fn standard_gossip_handler_can_compute_patch() {
+        /*
+            For 3 hops, a patch originating from Node A will consist of only Node A, B, C and D
+                                  A---B---C---D---E
+        */
+
+        let subject = StandardGossipHandler::new(Logger::new("test"));
+        let mut patch: HashSet<PublicKey> = HashSet::new();
+        let node_a = make_node_record(1111, true);
+        let node_b = make_node_record(2222, true);
+        let node_c = make_node_record(3333, false);
+        let node_d = make_node_record(4444, false);
+        let node_e = make_node_record(5555, false);
+        let mut node_a_db = db_from_node(&node_a);
+
+        let nodes = vec![
+            node_a.public_key().clone(),
+            node_b.public_key().clone(),
+            node_c.public_key().clone(),
+            node_d.public_key().clone(),
+            node_e.public_key().clone(),
+        ];
+        eprintln!("Nodes: {:?}", nodes);
+
+        node_a_db.add_node(node_b.clone()).unwrap();
+        node_a_db.add_node(node_c.clone()).unwrap();
+        node_a_db.add_node(node_d.clone()).unwrap();
+        node_a_db.add_node(node_e.clone()).unwrap();
+        node_a_db.add_arbitrary_full_neighbor(node_a.public_key(), node_b.public_key());
+        node_a_db.add_arbitrary_full_neighbor(node_b.public_key(), node_c.public_key());
+        node_a_db.add_arbitrary_full_neighbor(node_c.public_key(), node_d.public_key());
+        node_a_db.add_arbitrary_full_neighbor(node_d.public_key(), node_e.public_key());
+        let gossip = GossipBuilder::new(&node_a_db)
+            .node(node_a.public_key(), true)
+            .build();
+        let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+        let hashmap = agrs
+            .iter()
+            .map(|agr| {
+                return (agr.inner.public_key.clone(), agr);
+            })
+            .collect::<HashMap<PublicKey, &AccessibleGossipRecord>>();
+
+        subject.compute_patch(&mut patch, node_a.public_key(), &hashmap, 3);
+
+        let expected_hashset = vec![
+            node_a.public_key().clone(),
+            node_b.public_key().clone(),
+            node_c.public_key().clone(),
+            node_d.public_key().clone(),
+        ]
+        .into_iter()
+        .collect::<HashSet<PublicKey>>();
+        assert_eq!(patch, expected_hashset);
     }
 
     #[test]
