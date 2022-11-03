@@ -190,6 +190,8 @@ pub trait MASQNode: Any {
     fn signing_cryptde(&self) -> Option<&dyn CryptDE>;
     // A reference to this MASQNode's main public key.
     fn main_public_key(&self) -> &PublicKey;
+    // A reference to this MASQNode's alias public key.
+    fn alias_public_key(&self) -> &PublicKey;
     // This is the IP address of the container in which the Node is running.
     fn ip_address(&self) -> IpAddr;
     fn port_list(&self) -> Vec<u16>;

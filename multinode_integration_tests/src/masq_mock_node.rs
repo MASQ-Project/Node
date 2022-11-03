@@ -98,6 +98,10 @@ impl MASQNode for MASQMockNode {
         self.signing_cryptde().unwrap().public_key()
     }
 
+    fn alias_public_key(&self) -> &PublicKey {
+        self.alias_cryptde_null().unwrap().public_key()
+    }
+
     fn ip_address(&self) -> IpAddr {
         self.guts.node_addr.ip_addr()
     }

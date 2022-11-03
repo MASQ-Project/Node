@@ -152,7 +152,6 @@ impl Route {
         if let Some(error) = Route::validate_route_segments(&over, &back) {
             return Err(CodexError::RoutingError(error));
         }
-        eprintln!("{:?}", contract_address);
         let over_component = over.recipient;
         let over_keys = over.keys.iter();
 
@@ -194,7 +193,7 @@ impl Route {
                 last_key = Some(next_key.clone());
                 LiveHop::new(
                     next_key,
-                    consuming_wallet_opt.clone().map(|w| {
+                    consuming_wallet_opt.as_ref().map(|w| {
                         w.as_payer(
                             &current_key,
                             &contract_address_opt.unwrap_or_else(Address::zero),
@@ -371,21 +370,6 @@ mod tests {
         assert_eq!(
             subject.id(cryptde),
             Err("Response route did not contain a return route ID".to_string())
-        );
-    }
-
-    #[test]
-    fn id_returns_error_when_the_id_fails_to_decrypt() {
-        let cryptde1 = CryptDENull::from(&PublicKey::new(b"key a"), TEST_DEFAULT_CHAIN);
-        let cryptde2 = CryptDENull::from(&PublicKey::new(b"key b"), TEST_DEFAULT_CHAIN);
-
-        let subject = Route {
-            hops: vec![Route::encrypt_return_route_id(42, &cryptde1)],
-        };
-
-        assert_eq!(
-            subject.id(&cryptde2),
-            Err("DecryptionError(OpeningFailed)".to_string())
         );
     }
 

@@ -1143,13 +1143,14 @@ impl Neighborhood {
             ),
             LinkType::Origin => (0, 0),
         };
-        let rate_undesirability = per_cores as i64 + (per_byte as i64 * payload_size as i64);
+        let mut rate_undesirability = per_cores as i64 + (per_byte as i64 * payload_size as i64);
+        trace! (self.logger, "To {:?}: initial undesirability of {} + ({} * {}) = {}", node_record.public_key(), per_cores, per_byte, payload_size, rate_undesirability);
         if let LinkType::Exit(Some(hostname)) = link_type {
             if node_record.metadata.unreachable_hosts.contains(hostname) {
-                return rate_undesirability + UNDESIRABLE_FOR_EXIT_PENALTY;
+                trace! (self.logger, "To {:?}: unreachable host {}; undesirability {} + {} = {}", node_record.public_key(), hostname, rate_undesirability, UNDESIRABLE_FOR_EXIT_PENALTY, rate_undesirability + UNDESIRABLE_FOR_EXIT_PENALTY);
+                rate_undesirability += UNDESIRABLE_FOR_EXIT_PENALTY;
             }
         }
-
         rate_undesirability
     }
 
@@ -1219,6 +1220,8 @@ impl Neighborhood {
         hostname_opt: Option<&str>,
     ) -> Vec<ComputedRouteSegment<'a>> {
         if undesirability > *minimum_undesirability {
+            trace! (self.logger, "Undesirability {} is already greater than minimum_undesirability {}: abandoning possibility {:?}",
+                undesirability, minimum_undesirability, prefix);
             return vec![];
         }
         let first_node_key = prefix.first().expect("Empty prefix");
@@ -1235,12 +1238,14 @@ impl Neighborhood {
                 previous_node.public_key(),
             )
         {
+            trace! (self.logger, "Found working possibility with undesirability {}: {:?}", undesirability, prefix);
             if undesirability < *minimum_undesirability {
                 *minimum_undesirability = undesirability;
             }
             vec![ComputedRouteSegment::new(prefix, undesirability)]
         } else if (hops_remaining == 0) && target_opt.is_none() {
             // don't continue a targetless search past the minimum hop count
+            trace! (self.logger, "Broke hop-count minimum - abandoning: {:?}", prefix);
             vec![]
         } else {
             // Go through all the neighbors and compute shorter routes through all the ones we're not already using.
@@ -5088,7 +5093,7 @@ mod tests {
                 .unreachable_hosts
                 .contains(&unreachable_host));
             TestLogHandler::new().exists_log_matching(&format!(
-                "Host facebook.com is marked unreachable for the node with public key ZXhpdF9ub2Rl"
+                "DEBUG: Neighborhood: Marking host facebook.com unreachable for the Node with public key ZXhpdF9ub2Rl"
             ));
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();

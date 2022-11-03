@@ -57,6 +57,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use rand::RngCore;
 use web3::types::{Address, U256};
 
 lazy_static! {
@@ -181,12 +182,22 @@ pub fn make_meaningless_message_type() -> MessageType {
     DnsResolveFailure_0v1::new(make_meaningless_stream_key()).into()
 }
 
+pub fn make_route(public_keys: Vec<&PublicKey>) -> Route {
+    Route::one_way(
+        RouteSegment::new(public_keys, Component::ProxyClient),
+        main_cryptde(),
+        Some(make_paying_wallet(b"irrelevant")),
+        Some(TEST_DEFAULT_CHAIN.rec().contract),
+    )
+    .unwrap()
+}
+
 pub fn make_meaningless_route() -> Route {
     Route::one_way(
         RouteSegment::new(
             vec![
-                &PublicKey::new(&b"ooga"[..]),
-                &PublicKey::new(&b"booga"[..]),
+                &make_meaningless_public_key(),
+                &make_meaningless_public_key(),
             ],
             Component::ProxyClient,
         ),
@@ -198,7 +209,7 @@ pub fn make_meaningless_route() -> Route {
 }
 
 pub fn make_meaningless_public_key() -> PublicKey {
-    PublicKey::new(&make_garbage_data(8))
+    PublicKey::new(&make_garbage_data(main_cryptde().public_key().len()))
 }
 
 pub fn make_meaningless_wallet_private_key() -> PlainData {
@@ -258,7 +269,9 @@ pub fn encrypt_return_route_id(return_route_id: u32, cryptde: &dyn CryptDE) -> C
 }
 
 pub fn make_garbage_data(bytes: usize) -> Vec<u8> {
-    vec![0; bytes]
+    let mut data = vec![0; bytes];
+    rand::thread_rng().fill_bytes(&mut data);
+    data
 }
 
 pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRequestPayload_0v1 {
@@ -271,7 +284,7 @@ pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientReques
         target_hostname: Some("example.com".to_string()),
         target_port: HTTP_PORT,
         protocol: ProxyProtocol::HTTP,
-        originator_public_key: cryptde.public_key().clone(),
+        originator_alias_public_key: cryptde.public_key().clone(),
     }
 }
 

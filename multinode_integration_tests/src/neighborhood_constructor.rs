@@ -67,6 +67,7 @@ pub fn construct_neighborhood(
             .consuming_wallet_info(make_consuming_wallet_info(
                 model_db.root().public_key().to_string().as_str(),
             ))
+            .rate_pack(model_db.root().inner.rate_pack)
             .chain(cluster.chain)
             .build(),
     );
@@ -213,7 +214,6 @@ fn modify_node(
         None => model_node.node_addr_opt(),
     };
     gossip_node.metadata.node_addr_opt = node_addr_opt;
-    gossip_node.inner.rate_pack = DEFAULT_RATE_PACK;
     gossip_node.inner.version = 2;
     gossip_node.inner.neighbors = model_node
         .half_neighbor_keys()
