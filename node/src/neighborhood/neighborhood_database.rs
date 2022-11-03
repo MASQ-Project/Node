@@ -19,6 +19,7 @@ use std::fmt::Debug;
 use std::fmt::Error;
 use std::fmt::Formatter;
 use std::net::IpAddr;
+use std::ops::Deref;
 
 pub const ISOLATED_NODE_GRACE_PERIOD_SECS: u32 = 30;
 
@@ -106,6 +107,13 @@ impl NeighborhoodDatabase {
 
     pub fn has_full_neighbor(&self, from: &PublicKey, to: &PublicKey) -> bool {
         self.has_half_neighbor(from, to) && self.has_half_neighbor(to, from)
+    }
+
+    pub fn get_all_neighbors(&self) -> HashSet<&PublicKey> {
+        self.by_public_key
+            .keys()
+            .filter(|public_key| self.has_full_neighbor(&self.this_node, public_key))
+            .collect::<HashSet<&PublicKey>>()
     }
 
     pub fn gossip_target_degree(&self, target: &PublicKey) -> usize {
@@ -679,6 +687,42 @@ mod tests {
         let result = subject.add_half_neighbor(other_node.public_key());
 
         assert_eq!(Ok(false), result, "add_arbitrary_neighbor done goofed");
+    }
+
+    #[test]
+    fn can_retrieve_all_full_neighbors() {
+        let root_node = make_node_record(1111, true);
+        let full_neighbor_1 = make_node_record(2222, true);
+        let full_neighbor_2 = make_node_record(3333, true);
+        let full_neighbor_3 = make_node_record(4444, true);
+        let half_neighbor_1 = make_node_record(5555, false);
+        let half_neighbor_2 = make_node_record(6666, false);
+        let some_node = make_node_record(7777, false);
+        let mut subject = db_from_node(&root_node);
+        subject.add_node(full_neighbor_1.clone());
+        subject.add_node(full_neighbor_2.clone());
+        subject.add_node(full_neighbor_3.clone());
+        subject.add_node(half_neighbor_1.clone());
+        subject.add_node(half_neighbor_2.clone());
+        subject.add_node(some_node.clone());
+        subject.add_arbitrary_full_neighbor(root_node.public_key(), full_neighbor_1.public_key());
+        subject.add_arbitrary_full_neighbor(root_node.public_key(), full_neighbor_2.public_key());
+        subject.add_arbitrary_full_neighbor(root_node.public_key(), full_neighbor_3.public_key());
+        subject.add_arbitrary_half_neighbor(root_node.public_key(), half_neighbor_1.public_key());
+        subject.add_arbitrary_half_neighbor(root_node.public_key(), half_neighbor_2.public_key());
+
+        let result = subject.get_all_neighbors();
+
+        assert_eq!(
+            result,
+            vec![
+                full_neighbor_1.public_key().clone(),
+                full_neighbor_2.public_key().clone(),
+                full_neighbor_3.public_key().clone()
+            ]
+            .iter()
+            .collect::<HashSet<&PublicKey>>()
+        );
     }
 
     #[test]

@@ -942,7 +942,7 @@ impl GossipHandler for StandardGossipHandler {
 
         let root_node = database.root();
         let mut patch: HashSet<PublicKey> = HashSet::new();
-        self.compute_patch(&mut patch, root_node.public_key(), &hashmap, 3);
+        self.compute_patch(&mut patch, root_node.public_key(), &hashmap, 3, &database);
 
         let mut db_changed =
             self.identify_and_add_non_introductory_new_nodes(database, &agrs, gossip_source);
@@ -986,24 +986,39 @@ impl StandardGossipHandler {
         node: &PublicKey,
         agrs: &HashMap<PublicKey, &AccessibleGossipRecord>,
         hops_remaining: usize,
-        // database: &NeighborhoodDatabase,
+        database: &NeighborhoodDatabase,
     ) {
         patch.insert(node.clone());
         if hops_remaining > 0 {
-            match agrs.get(node) {
-                Some(agr) => {
-                    let neighbors = agr.deref().clone().inner.neighbors;
-                    for neighbor in &neighbors {
-                        if !patch.contains(neighbor) {
-                            self.compute_patch(patch, neighbor, agrs, hops_remaining - 1)
-                        }
+            if patch.len() == 1 {
+                let neighbors = database.get_all_neighbors();
+                for neighbor in neighbors {
+                    if !patch.contains(neighbor) {
+                        self.compute_patch(patch, neighbor, agrs, hops_remaining - 1, database)
                     }
                 }
-                None => warning!(
-                    self.logger,
-                    "AGR records are insufficient. No AGR found for public key {:?}",
-                    node
-                ),
+            } else {
+                match agrs.get(node) {
+                    Some(agr) => {
+                        let neighbors = agr.deref().clone().inner.neighbors;
+                        for neighbor in &neighbors {
+                            if !patch.contains(neighbor) {
+                                self.compute_patch(
+                                    patch,
+                                    neighbor,
+                                    agrs,
+                                    hops_remaining - 1,
+                                    database,
+                                )
+                            }
+                        }
+                    }
+                    None => warning!(
+                        self.logger,
+                        "AGR records are insufficient. No AGR found for public key {:?}",
+                        node
+                    ),
+                }
             }
         }
     }
@@ -2303,7 +2318,7 @@ mod tests {
         node_a_db.add_arbitrary_full_neighbor(node_c.public_key(), node_d.public_key());
         node_a_db.add_arbitrary_full_neighbor(node_d.public_key(), node_e.public_key());
         let gossip = GossipBuilder::new(&node_a_db)
-            .node(node_a.public_key(), false)
+            // .node(node_a.public_key(), false)
             .node(node_b.public_key(), false)
             .node(node_c.public_key(), false)
             .node(node_d.public_key(), false)
@@ -2324,7 +2339,7 @@ mod tests {
             })
             .collect::<HashMap<PublicKey, &AccessibleGossipRecord>>();
 
-        subject.compute_patch(&mut patch, node_a.public_key(), &hashmap, 3);
+        subject.compute_patch(&mut patch, node_a.public_key(), &hashmap, 3, &node_a_db);
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
