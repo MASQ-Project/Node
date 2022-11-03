@@ -990,34 +990,22 @@ impl StandardGossipHandler {
     ) {
         patch.insert(node.clone());
         if hops_remaining > 0 {
-            if patch.len() == 1 {
-                let neighbors = database.get_all_neighbors();
-                for neighbor in neighbors {
-                    if !patch.contains(neighbor) {
-                        self.compute_patch(patch, neighbor, agrs, hops_remaining - 1, database)
-                    }
-                }
+            let neighbors = if patch.len() == 1 {
+                database.get_all_neighbors()
             } else {
-                match agrs.get(node) {
-                    Some(agr) => {
-                        let neighbors = agr.deref().clone().inner.neighbors;
-                        for neighbor in &neighbors {
-                            if !patch.contains(neighbor) {
-                                self.compute_patch(
-                                    patch,
-                                    neighbor,
-                                    agrs,
-                                    hops_remaining - 1,
-                                    database,
-                                )
-                            }
-                        }
-                    }
-                    None => warning!(
-                        self.logger,
-                        "AGR records are insufficient. No AGR found for public key {:?}",
-                        node
-                    ),
+                agrs.get(node)
+                    .unwrap_or_else(|| {
+                        panic!(
+                            "AGR records are insufficient. No AGR found for public key {:?}",
+                            node
+                        )
+                    })
+                    .get_all_neighbors()
+            };
+
+            for neighbor in neighbors {
+                if !patch.contains(neighbor) {
+                    self.compute_patch(patch, neighbor, agrs, hops_remaining - 1, database)
                 }
             }
         }

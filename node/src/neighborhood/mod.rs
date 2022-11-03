@@ -396,6 +396,10 @@ impl AccessibleGossipRecord {
         self.signed_gossip = signed_gossip;
         self.signature = signature;
     }
+
+    pub fn get_all_neighbors(&self) -> HashSet<&PublicKey> {
+        self.inner.neighbors.iter().collect::<HashSet<&PublicKey>>()
+    }
 }
 
 impl TryFrom<GossipNodeRecord> for AccessibleGossipRecord {
