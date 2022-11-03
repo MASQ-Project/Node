@@ -59,10 +59,8 @@ pub trait PayableDao: Debug + Send {
 
     fn transaction_confirmed(
         &self,
-        payment: &PendingPayableFingerprint,
+        actual_payments: &[PendingPayableFingerprint],
     ) -> Result<(), PayableDaoError>;
-
-    //there used to be method 'accountant_status' but was turned into test utility since never used in the production code
 
     fn non_pending_payables(&self) -> Vec<PayableAccount>;
 
@@ -131,16 +129,17 @@ impl PayableDao for PayableDaoReal {
 
     fn transaction_confirmed(
         &self,
-        fingerprint: &PendingPayableFingerprint,
+        fingerprints: &[PendingPayableFingerprint],
     ) -> Result<(), PayableDaoError> {
-        let signed_amount =
-            unsigned_to_signed(fingerprint.amount).map_err(PayableDaoError::SignConversion)?;
-        self.try_decrease_balance(
-            fingerprint.rowid_opt.expectv("initialized rowid"),
-            signed_amount,
-            fingerprint.timestamp,
-        )
-        .map_err(PayableDaoError::RusqliteError)
+        todo!()
+        // let signed_amount =
+        //     unsigned_to_signed(fingerprint.amount).map_err(PayableDaoError::SignConversion)?;
+        // self.try_decrease_balance(
+        //     fingerprint.rowid_opt.expectv("initialized rowid"),
+        //     signed_amount,
+        //     fingerprint.timestamp,
+        // )
+        // .map_err(PayableDaoError::RusqliteError)
     }
 
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
@@ -558,56 +557,74 @@ mod tests {
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         let secondary_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
-        let hash = make_tx_hash(12345);
-        let rowid = 789;
-        let previous_timestamp = from_time_t(190_000_000);
-        let payable_timestamp = from_time_t(199_000_000);
-        let attempt = 5;
-        let starting_amount = 10000;
-        let payment = 6666;
-        let wallet = make_wallet("bobble");
+        let hash_1 = make_tx_hash(12345);
+        let rowid_1 = 789;
+        let previous_timestamp_1 = from_time_t(190_000_000);
+        let payable_timestamp_1 = from_time_t(199_000_000);
+        let starting_amount_1 = 10000;
+        let payment_1 = 6666;
+        let wallet_1 = make_wallet("bobble");
+        let hash_2 = make_tx_hash(54321);
+        let rowid_2 = 792;
+        let previous_timestamp_2 = from_time_t(187_100_000);
+        let payable_timestamp_2 = from_time_t(191_333_000);
+        let starting_amount_2 = 200;
+        let payment_2 = 20000000;
+        let wallet_2 = make_wallet("booble bobble");
         {
             create_account_with_pending_payment(
                 boxed_conn.as_ref(),
-                &wallet,
-                starting_amount,
-                previous_timestamp,
-                rowid,
+                &wallet_1,
+                starting_amount_1,
+                previous_timestamp_1,
+                rowid_1,
+            );
+            create_account_with_pending_payment(
+                boxed_conn.as_ref(),
+                &wallet_2,
+                starting_amount_2,
+                previous_timestamp_2,
+                rowid_2,
             )
         }
         let subject = PayableDaoReal::new(boxed_conn);
-        let status_before = account_status(&secondary_conn, &wallet);
-        assert_eq!(
-            status_before,
-            Some(PayableAccount {
-                wallet: wallet.clone(),
-                balance: starting_amount,
-                last_paid_timestamp: previous_timestamp,
-                pending_payable_opt: Some(PendingPayableId {
-                    rowid,
-                    hash: make_tx_hash(0)
-                }) //hash is just garbage
-            })
-        );
-        let pending_payable_fingerprint = PendingPayableFingerprint {
-            rowid_opt: Some(rowid),
-            timestamp: payable_timestamp,
-            hash,
-            attempt_opt: Some(attempt),
-            amount: payment as u64,
+        let fingerprint_1 = PendingPayableFingerprint {
+            rowid_opt: Some(rowid_1),
+            timestamp: payable_timestamp_1,
+            hash: hash_1,
+            attempt_opt: Some(1),
+            amount: payment_1 as u64,
+            process_error: None,
+        };
+        let fingerprint_2 = PendingPayableFingerprint {
+            rowid_opt: Some(rowid_2),
+            timestamp: payable_timestamp_1,
+            hash: hash_2,
+            attempt_opt: Some(1),
+            amount: payment_2 as u64,
             process_error: None,
         };
 
-        let result = subject.transaction_confirmed(&pending_payable_fingerprint);
+        let result = subject.transaction_confirmed(&[fingerprint_1, fingerprint_2]);
 
         assert_eq!(result, Ok(()));
-        let status_after = account_status(&secondary_conn, &wallet);
+        let account_1 = account_status(&secondary_conn, &wallet_1);
         assert_eq!(
-            status_after,
+            account_1,
             Some(PayableAccount {
-                wallet,
-                balance: starting_amount - payment,
-                last_paid_timestamp: payable_timestamp,
+                wallet: wallet_1,
+                balance: starting_amount_1 - payment_1,
+                last_paid_timestamp: payable_timestamp_1,
+                pending_payable_opt: None
+            })
+        );
+        let account_2 = account_status(&secondary_conn, &wallet_2);
+        assert_eq!(
+            account_2,
+            Some(PayableAccount {
+                wallet: wallet_2,
+                balance: starting_amount_2 - payment_2,
+                last_paid_timestamp: payable_timestamp_2,
                 pending_payable_opt: None
             })
         )
@@ -628,7 +645,7 @@ mod tests {
         pending_payable_fingerprint.rowid_opt = Some(rowid);
         let subject = PayableDaoReal::new(Box::new(conn_wrapped));
 
-        let result = subject.transaction_confirmed(&pending_payable_fingerprint);
+        let result = subject.transaction_confirmed(&[pending_payable_fingerprint]);
 
         assert_eq!(
             result,
@@ -658,7 +675,7 @@ mod tests {
         pending_payable_fingerprint.amount = u64::MAX;
         //The overflow occurs before we start modifying the payable account so I decided not to create an example in the database
 
-        let result = subject.transaction_confirmed(&pending_payable_fingerprint);
+        let result = subject.transaction_confirmed(&[pending_payable_fingerprint]);
 
         assert_eq!(result, Err(PayableDaoError::SignConversion(u64::MAX)))
     }

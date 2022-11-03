@@ -267,7 +267,7 @@ pub struct PayableDaoMock {
     non_pending_payables_results: RefCell<Vec<Vec<PayableAccount>>>,
     mark_pending_payable_rowid_parameters: Arc<Mutex<Vec<Vec<(Wallet, u64)>>>>,
     mark_pending_payable_rowid_results: RefCell<Vec<Result<(), PayableDaoError>>>,
-    transaction_confirmed_params: Arc<Mutex<Vec<PendingPayableFingerprint>>>,
+    transaction_confirmed_params: Arc<Mutex<Vec<Vec<PendingPayableFingerprint>>>>,
     transaction_confirmed_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     transaction_canceled_params: Arc<Mutex<Vec<PendingPayableId>>>,
     transaction_canceled_results: RefCell<Vec<Result<(), PayableDaoError>>>,
@@ -311,12 +311,12 @@ impl PayableDao for PayableDaoMock {
 
     fn transaction_confirmed(
         &self,
-        payment: &PendingPayableFingerprint,
+        fingerprints: &[PendingPayableFingerprint],
     ) -> Result<(), PayableDaoError> {
         self.transaction_confirmed_params
             .lock()
             .unwrap()
-            .push(payment.clone());
+            .push(fingerprints.to_vec());
         self.transaction_confirmed_results.borrow_mut().remove(0)
     }
 
@@ -389,7 +389,7 @@ impl PayableDaoMock {
 
     pub fn transaction_confirmed_params(
         mut self,
-        params: &Arc<Mutex<Vec<PendingPayableFingerprint>>>,
+        params: &Arc<Mutex<Vec<Vec<PendingPayableFingerprint>>>>,
     ) -> Self {
         self.transaction_confirmed_params = params.clone();
         self
@@ -789,12 +789,12 @@ impl PendingPayableDaoMock {
         self
     }
 
-    pub fn update_fingerprint_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
+    pub fn update_fingerprints_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
         self.update_fingerprint_params = params.clone();
         self
     }
 
-    pub fn update_fingerprint_results(self, result: Result<(), PendingPayableDaoError>) -> Self {
+    pub fn update_fingerprints_results(self, result: Result<(), PendingPayableDaoError>) -> Self {
         self.update_fingerprint_results.borrow_mut().push(result);
         self
     }
