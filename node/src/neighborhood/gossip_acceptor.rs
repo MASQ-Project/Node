@@ -990,18 +990,20 @@ impl StandardGossipHandler {
     ) {
         patch.insert(node.clone());
         if hops_remaining > 0 {
-            if let Some(agr) = agrs.get(node) {
-                let agr = agr.deref().clone();
-                agr.inner.neighbors.iter().for_each(|neighbor| {
-                    if !patch.contains(neighbor) {
-                        self.compute_patch(patch, neighbor, agrs, hops_remaining - 1)
+            match agrs.get(node) {
+                Some(agr) => {
+                    let neighbors = agr.deref().clone().inner.neighbors;
+                    for neighbor in &neighbors {
+                        if !patch.contains(neighbor) {
+                            self.compute_patch(patch, neighbor, agrs, hops_remaining - 1)
+                        }
                     }
-                });
-            } else {
-                panic!(
+                }
+                None => warning!(
+                    self.logger,
                     "AGR records are insufficient. No AGR found for public key {:?}",
                     node
-                )
+                ),
             }
         }
     }
