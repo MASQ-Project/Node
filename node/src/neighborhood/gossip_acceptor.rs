@@ -988,22 +988,25 @@ impl StandardGossipHandler {
         hops_remaining: usize,
         // database: &NeighborhoodDatabase,
     ) {
-        if (hops_remaining > 0) && !patch.contains(node) {
+        if (hops_remaining >= 0) && !patch.contains(node) {
             patch.insert(node.clone());
-            let agr = match agrs.get(node) {
-                Some(agr) => {
-                    eprintln!(
-                        "AGR found for Node with public key {:?}",
-                        agr.inner.public_key
-                    );
-                    agr.deref().clone()
-                }
-                None => panic!("No AGR found for public key {:?}", node),
-            };
+            if hops_remaining > 0 {
+                let agr = match agrs.get(node) {
+                    Some(agr) => {
+                        eprintln!(
+                            "AGR found for Node with public key {:?}",
+                            agr.inner.public_key
+                        );
+                        agr.deref().clone()
+                    }
+                    None => panic!("No AGR found for public key {:?}", node),
+                };
 
-            agr.inner.neighbors.iter().for_each(|public_key| {
-                self.compute_patch(patch, public_key, agrs, hops_remaining - 1)
-            });
+                agr.inner.neighbors.iter().for_each(|public_key| {
+                    eprintln!("Making a recursive call to neighbor: {:?}", public_key);
+                    self.compute_patch(patch, public_key, agrs, hops_remaining - 1)
+                });
+            }
         }
     }
 
@@ -2302,9 +2305,20 @@ mod tests {
         node_a_db.add_arbitrary_full_neighbor(node_c.public_key(), node_d.public_key());
         node_a_db.add_arbitrary_full_neighbor(node_d.public_key(), node_e.public_key());
         let gossip = GossipBuilder::new(&node_a_db)
-            .node(node_a.public_key(), true)
+            .node(node_a.public_key(), false)
+            .node(node_b.public_key(), false)
+            .node(node_c.public_key(), false)
+            .node(node_d.public_key(), false)
+            .node(node_e.public_key(), false)
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+        for agr in &agrs {
+            eprintln!(
+                "AGR found with public key: {:?}, which has neighbors: {:?}",
+                agr.inner.public_key, agr.inner.neighbors
+            )
+        }
+        // eprintln!("AGRS: {:?}", agrs);
         let hashmap = agrs
             .iter()
             .map(|agr| {
