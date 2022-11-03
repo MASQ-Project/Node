@@ -988,26 +988,26 @@ impl StandardGossipHandler {
         hops_remaining: usize,
         // database: &NeighborhoodDatabase,
     ) {
-        if (hops_remaining >= 0) && !patch.contains(node) {
-            patch.insert(node.clone());
-            if hops_remaining > 0 {
-                let agr = match agrs.get(node) {
-                    Some(agr) => {
-                        eprintln!(
-                            "AGR found for Node with public key {:?}",
-                            agr.inner.public_key
-                        );
-                        agr.deref().clone()
-                    }
-                    None => panic!("No AGR found for public key {:?}", node),
-                };
-
-                agr.inner.neighbors.iter().for_each(|public_key| {
-                    eprintln!("Making a recursive call to neighbor: {:?}", public_key);
-                    self.compute_patch(patch, public_key, agrs, hops_remaining - 1)
-                });
+        patch.insert(node.clone());
+        let agr = match agrs.get(node) {
+            Some(agr) => {
+                eprintln!(
+                    "AGR found for Node with public key {:?}",
+                    agr.inner.public_key
+                );
+                agr.deref().clone()
             }
-        }
+            None => panic!(
+                "AGR records are insufficient. No AGR found for public key {:?}",
+                node
+            ),
+        };
+
+        agr.inner.neighbors.iter().for_each(|neighbor| {
+            if hops_remaining > 0 && !patch.contains(neighbor) {
+                self.compute_patch(patch, neighbor, agrs, hops_remaining - 1)
+            }
+        });
     }
 
     fn identify_and_add_non_introductory_new_nodes(
