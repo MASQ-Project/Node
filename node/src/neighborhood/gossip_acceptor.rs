@@ -925,7 +925,6 @@ impl GossipHandler for StandardGossipHandler {
         gossip_source: SocketAddr,
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult {
-        // todo!("breaking the flow");
         let initial_neighborship_status =
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
 
@@ -991,6 +990,7 @@ impl StandardGossipHandler {
         patch.insert(node.clone());
         if hops_remaining > 0 {
             let neighbors = if patch.len() == 1 {
+                // Root Node
                 database.get_all_neighbors()
             } else {
                 agrs.get(node)
@@ -2287,16 +2287,6 @@ mod tests {
         let node_d = make_node_record(4444, false);
         let node_e = make_node_record(5555, false);
         let mut node_a_db = db_from_node(&node_a);
-
-        let nodes = vec![
-            node_a.public_key().clone(),
-            node_b.public_key().clone(),
-            node_c.public_key().clone(),
-            node_d.public_key().clone(),
-            node_e.public_key().clone(),
-        ];
-        eprintln!("Nodes: {:?}", nodes);
-
         node_a_db.add_node(node_b.clone()).unwrap();
         node_a_db.add_node(node_c.clone()).unwrap();
         node_a_db.add_node(node_d.clone()).unwrap();
@@ -2306,20 +2296,31 @@ mod tests {
         node_a_db.add_arbitrary_full_neighbor(node_c.public_key(), node_d.public_key());
         node_a_db.add_arbitrary_full_neighbor(node_d.public_key(), node_e.public_key());
         let gossip = GossipBuilder::new(&node_a_db)
-            // .node(node_a.public_key(), false)
             .node(node_b.public_key(), false)
             .node(node_c.public_key(), false)
             .node(node_d.public_key(), false)
             .node(node_e.public_key(), false)
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+
+        //----------------------- Debugging -----------------------------
+        let nodes = vec![
+            node_a.public_key().clone(),
+            node_b.public_key().clone(),
+            node_c.public_key().clone(),
+            node_d.public_key().clone(),
+            node_e.public_key().clone(),
+        ];
+        eprintln!("Nodes: {:?}", nodes);
+
         for agr in &agrs {
             eprintln!(
                 "AGR found with public key: {:?}, which has neighbors: {:?}",
                 agr.inner.public_key, agr.inner.neighbors
             )
         }
-        // eprintln!("AGRS: {:?}", agrs);
+        //----------------------------------------------------------------
+
         let hashmap = agrs
             .iter()
             .map(|agr| {
