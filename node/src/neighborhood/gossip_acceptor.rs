@@ -993,14 +993,16 @@ impl StandardGossipHandler {
                 // Root Node
                 database.get_all_neighbors()
             } else {
-                agrs.get(node)
-                    .unwrap_or_else(|| {
-                        panic!(
-                            "AGR records are insufficient. No AGR found for public key {:?}",
-                            node
-                        )
-                    })
-                    .get_all_neighbors()
+                match agrs.get(node) {
+                    Some(agr) => agr.get_all_neighbors(),
+                    None => {
+                        error!(
+                            self.logger,
+                            "AGR records are insufficient. No AGR found for public key {:?}", node
+                        );
+                        HashSet::new()
+                    }
+                }
             };
 
             for neighbor in neighbors {
@@ -1289,6 +1291,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
     use actix::{Actor, System};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::convert::TryInto;
     use std::ops::{Add, Sub};
@@ -2339,6 +2342,90 @@ mod tests {
         .into_iter()
         .collect::<HashSet<PublicKey>>();
         assert_eq!(patch, expected_hashset);
+    }
+
+    #[test]
+    fn standard_gossip_handler_can_handle_node_for_which_agr_is_not_found_while_computing_patch() {
+        /*
+            For 3 hops, a patch originating from Node A will consist of only Node A, X, B, C and D
+                                  A---B---C---D---E
+                                  |
+                                  X
+            In this test, we won't provide AGR for Node X and the compute_patch() is still able to
+            add Node X inside the patch (since it's a neighbor) and is also able to log that it
+            failed to find the AGR for it.
+        */
+
+        init_test_logging();
+        let subject = StandardGossipHandler::new(Logger::new("test"));
+        let mut patch: HashSet<PublicKey> = HashSet::new();
+        let node_a = make_node_record(1111, true);
+        let node_b = make_node_record(2222, true);
+        let node_c = make_node_record(3333, false);
+        let node_d = make_node_record(4444, false);
+        let node_e = make_node_record(5555, false);
+        let node_x = make_node_record(6666, false);
+        let mut node_a_db = db_from_node(&node_a);
+        node_a_db.add_node(node_b.clone()).unwrap();
+        node_a_db.add_node(node_c.clone()).unwrap();
+        node_a_db.add_node(node_d.clone()).unwrap();
+        node_a_db.add_node(node_e.clone()).unwrap();
+        node_a_db.add_node(node_x.clone()).unwrap();
+        node_a_db.add_arbitrary_full_neighbor(node_a.public_key(), node_b.public_key());
+        node_a_db.add_arbitrary_full_neighbor(node_a.public_key(), node_x.public_key());
+        node_a_db.add_arbitrary_full_neighbor(node_b.public_key(), node_c.public_key());
+        node_a_db.add_arbitrary_full_neighbor(node_c.public_key(), node_d.public_key());
+        node_a_db.add_arbitrary_full_neighbor(node_d.public_key(), node_e.public_key());
+        let gossip = GossipBuilder::new(&node_a_db)
+            .node(node_b.public_key(), false)
+            .node(node_c.public_key(), false)
+            .node(node_d.public_key(), false)
+            .node(node_e.public_key(), false)
+            .build();
+        let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+
+        //----------------------- Debugging -----------------------------
+        let nodes = vec![
+            node_a.public_key().clone(),
+            node_b.public_key().clone(),
+            node_c.public_key().clone(),
+            node_d.public_key().clone(),
+            node_e.public_key().clone(),
+            node_x.public_key().clone(),
+        ];
+        eprintln!("Nodes: {:?}", nodes);
+
+        for agr in &agrs {
+            eprintln!(
+                "AGR found with public key: {:?}, which has neighbors: {:?}",
+                agr.inner.public_key, agr.inner.neighbors
+            )
+        }
+        //----------------------------------------------------------------
+
+        let hashmap = agrs
+            .iter()
+            .map(|agr| {
+                return (agr.inner.public_key.clone(), agr);
+            })
+            .collect::<HashMap<PublicKey, &AccessibleGossipRecord>>();
+
+        subject.compute_patch(&mut patch, node_a.public_key(), &hashmap, 3, &node_a_db);
+
+        let expected_hashset = vec![
+            node_a.public_key().clone(),
+            node_x.public_key().clone(),
+            node_b.public_key().clone(),
+            node_c.public_key().clone(),
+            node_d.public_key().clone(),
+        ]
+        .into_iter()
+        .collect::<HashSet<PublicKey>>();
+        assert_eq!(patch, expected_hashset);
+        TestLogHandler::new().exists_log_matching(&format!(
+            "AGR records are insufficient. No AGR found for public key {:?}",
+            node_x.public_key()
+        ));
     }
 
     #[test]
