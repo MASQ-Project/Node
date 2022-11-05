@@ -31,7 +31,7 @@ pub trait PendingPayableDao {
         batch_wide_timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError>;
     fn delete_fingerprints(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError>;
-    fn update_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError>;
+    fn update_fingerprints(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError>;
     fn mark_failure(&self, id: u64) -> Result<(), PendingPayableDaoError>;
 }
 
@@ -72,7 +72,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             .conn
             .prepare(
                 "select rowid, transaction_hash, amount, \
-         payable_timestamp, attempt from pending_payable where process_error is null",
+                 payable_timestamp, attempt from pending_payable where process_error is null",
             )
             .expect("Internal error");
         stm.query_map([], |row| {
@@ -134,7 +134,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
     fn delete_fingerprints(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError> {
         let sql = format!(
             "delete from pending_payable where rowid in ({})",
-            ids.iter().map(|id| id.to_string()).join(", ")
+            Self::serialize_ids(ids)
         );
         match self
             .conn
@@ -152,19 +152,18 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         }
     }
 
-    fn update_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError> {
-        let signed_id =
-            unsigned_to_signed(id).expect("SQLite counts up to i64::MAX; should never happen");
-        let mut stm = self
-            .conn
-            .prepare("update pending_payable set attempt = attempt + 1 where rowid = ?")
-            .expect("Internal error");
-        match stm.execute(&[&signed_id]) {
-            Ok(1) => Ok(()),
-            Ok(num) => panic!(
-                "updating fingerprint: one row should've been updated but the result is {}",
-                num
-            ),
+    fn update_fingerprints(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError> {
+        let sql = format!(
+            "update pending_payable set attempt = attempt + 1 where rowid in ({})",
+            Self::serialize_ids(ids)
+        );
+        match self.conn.prepare(&sql).expect("Internal error").execute([]) {
+            Ok(num) if num == ids.len() => Ok(()),
+            Ok(num) => todo!(),
+            //     panic!(
+            //     "updating fingerprint: one row should've been updated but the result is {}",
+            //     num
+            // ),
             Err(e) => Err(PendingPayableDaoError::UpdateFailed(e.to_string())),
         }
     }
@@ -206,8 +205,13 @@ impl<'a> PendingPayableDaoReal<'a> {
     pub fn new(conn: Box<dyn ConnectionWrapper + 'a>) -> Self {
         Self { conn }
     }
+
     fn get_with_expect<T: rusqlite::types::FromSql>(row: &Row, index: usize) -> T {
         row.get(index).expect("database is corrupt")
+    }
+
+    fn serialize_ids(ids: &[u64]) -> String {
+        ids.iter().map(|id| id.to_string()).join(", ")
     }
 }
 
@@ -521,32 +525,29 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
-        let hash = make_tx_hash(666);
-        let amount = 1234;
+        let hash_1 = make_tx_hash(579);
+        let amount_1 = 1234;
+        let hash_2 = make_tx_hash(456);
+        let amount_2 = 6789;
         let timestamp = from_time_t(190_000_000);
         let subject = PendingPayableDaoReal::new(conn);
         {
             subject
-                .insert_new_fingerprints(&[(hash, amount)], timestamp)
+                .insert_new_fingerprints(&[(hash_1, amount_1), (hash_2, amount_2)], timestamp)
                 .unwrap();
         }
-        let mut all_records_before = subject.return_all_fingerprints();
-        assert_eq!(all_records_before.len(), 1);
-        let mut record_before = all_records_before.remove(0);
-        assert_eq!(record_before.hash, hash);
-        assert_eq!(record_before.rowid_opt.unwrap(), 1);
-        assert_eq!(record_before.attempt_opt.unwrap(), 1);
-        assert_eq!(record_before.process_error, None);
-        assert_eq!(record_before.timestamp, timestamp);
 
-        let result = subject.update_fingerprint(1);
+        let result = subject.update_fingerprints(&[1, 2]);
 
         assert_eq!(result, Ok(()));
-        let mut all_records_after = subject.return_all_fingerprints();
-        assert_eq!(all_records_after.len(), 1);
-        let backup_after = all_records_after.remove(0);
-        record_before.attempt_opt = Some(2);
-        assert_eq!(record_before, backup_after)
+        let mut all_records = subject.return_all_fingerprints();
+        assert_eq!(all_records.len(), 2);
+        let record_1 = all_records.remove(0);
+        assert_eq!(record_1.hash, hash_1);
+        assert_eq!(record_1.attempt_opt, Some(2));
+        let record_2 = all_records.remove(0);
+        assert_eq!(record_2.hash, hash_2);
+        assert_eq!(record_2.attempt_opt, Some(2));
     }
 
     #[test]
@@ -568,7 +569,7 @@ mod tests {
         let wrapped_conn = ConnectionWrapperReal::new(conn_read_only);
         let subject = PendingPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.update_fingerprint(1);
+        let result = subject.update_fingerprints(&[1]);
 
         assert_eq!(
             result,

@@ -57,7 +57,7 @@ pub trait PayableDao: Debug + Send {
         wallets_and_rowids: &[(&Wallet, u64)],
     ) -> Result<(), PayableDaoError>;
 
-    fn transaction_confirmed(
+    fn transactions_confirmed(
         &self,
         actual_payments: &[PendingPayableFingerprint],
     ) -> Result<(), PayableDaoError>;
@@ -127,19 +127,20 @@ impl PayableDao for PayableDaoReal {
         }
     }
 
-    fn transaction_confirmed(
+    fn transactions_confirmed(
         &self,
         fingerprints: &[PendingPayableFingerprint],
     ) -> Result<(), PayableDaoError> {
-        todo!()
-        // let signed_amount =
-        //     unsigned_to_signed(fingerprint.amount).map_err(PayableDaoError::SignConversion)?;
-        // self.try_decrease_balance(
-        //     fingerprint.rowid_opt.expectv("initialized rowid"),
-        //     signed_amount,
-        //     fingerprint.timestamp,
-        // )
-        // .map_err(PayableDaoError::RusqliteError)
+        fingerprints.iter().try_for_each(|fgp| {
+            let amount = unsigned_to_signed(fgp.amount).map_err(PayableDaoError::SignConversion)?;
+
+            self.try_decrease_balance(
+                fgp.rowid_opt.expectv("initialized rowid"),
+                amount,
+                fgp.timestamp,
+            )
+            .map_err(PayableDaoError::RusqliteError)
+        })
     }
 
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
@@ -549,48 +550,51 @@ mod tests {
         assert_eq!(row_changed, 1);
     }
 
-    #[test]
-    fn transaction_confirmed_works() {
-        let home_dir =
-            ensure_node_home_directory_exists("payable_dao", "transaction_confirmed_works");
-        let boxed_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
-            .unwrap();
-        let secondary_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
+    struct TestSetupValuesHolder {
+        fingerprint_1: PendingPayableFingerprint,
+        fingerprint_2: PendingPayableFingerprint,
+        wallet_1: Wallet,
+        wallet_2: Wallet,
+        starting_amount_1: i64,
+        starting_amount_2: i64,
+    }
+
+    fn make_fingerprint_paiar_and_insert_initial_payable_records(
+        conn: &dyn ConnectionWrapper,
+    ) -> TestSetupValuesHolder {
         let hash_1 = make_tx_hash(12345);
         let rowid_1 = 789;
         let previous_timestamp_1 = from_time_t(190_000_000);
-        let payable_timestamp_1 = from_time_t(199_000_000);
+        let new_payable_timestamp_1 = from_time_t(199_000_000);
         let starting_amount_1 = 10000;
         let payment_1 = 6666;
         let wallet_1 = make_wallet("bobble");
         let hash_2 = make_tx_hash(54321);
         let rowid_2 = 792;
         let previous_timestamp_2 = from_time_t(187_100_000);
-        let payable_timestamp_2 = from_time_t(191_333_000);
+        let new_payable_timestamp_2 = from_time_t(191_333_000);
         let starting_amount_2 = 200;
         let payment_2 = 20000000;
         let wallet_2 = make_wallet("booble bobble");
         {
             create_account_with_pending_payment(
-                boxed_conn.as_ref(),
+                conn,
                 &wallet_1,
                 starting_amount_1,
                 previous_timestamp_1,
                 rowid_1,
             );
             create_account_with_pending_payment(
-                boxed_conn.as_ref(),
+                conn,
                 &wallet_2,
                 starting_amount_2,
                 previous_timestamp_2,
                 rowid_2,
             )
         }
-        let subject = PayableDaoReal::new(boxed_conn);
         let fingerprint_1 = PendingPayableFingerprint {
             rowid_opt: Some(rowid_1),
-            timestamp: payable_timestamp_1,
+            timestamp: new_payable_timestamp_1,
             hash: hash_1,
             attempt_opt: Some(1),
             amount: payment_1 as u64,
@@ -598,36 +602,54 @@ mod tests {
         };
         let fingerprint_2 = PendingPayableFingerprint {
             rowid_opt: Some(rowid_2),
-            timestamp: payable_timestamp_1,
+            timestamp: new_payable_timestamp_2,
             hash: hash_2,
             attempt_opt: Some(1),
             amount: payment_2 as u64,
             process_error: None,
         };
+        TestSetupValuesHolder {
+            fingerprint_1,
+            fingerprint_2,
+            wallet_1,
+            wallet_2,
+            starting_amount_1,
+            starting_amount_2,
+        }
+    }
 
-        let result = subject.transaction_confirmed(&[fingerprint_1, fingerprint_2]);
+    #[test]
+    fn transaction_confirmed_works() {
+        let home_dir =
+            ensure_node_home_directory_exists("payable_dao", "transaction_confirmed_works");
+        let boxed_conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let setup_holder =
+            make_fingerprint_paiar_and_insert_initial_payable_records(boxed_conn.as_ref());
+        let subject = PayableDaoReal::new(boxed_conn);
+        let expected_account_1 = PayableAccount {
+            wallet: setup_holder.wallet_1.clone(),
+            balance: setup_holder.starting_amount_1 - setup_holder.fingerprint_1.amount as i64,
+            last_paid_timestamp: setup_holder.fingerprint_1.timestamp,
+            pending_payable_opt: None,
+        };
+        let expected_account_2 = PayableAccount {
+            wallet: setup_holder.wallet_2.clone(),
+            balance: setup_holder.starting_amount_2 - setup_holder.fingerprint_2.amount as i64,
+            last_paid_timestamp: setup_holder.fingerprint_2.timestamp,
+            pending_payable_opt: None,
+        };
+
+        let result = subject
+            .transactions_confirmed(&[setup_holder.fingerprint_1, setup_holder.fingerprint_2]);
 
         assert_eq!(result, Ok(()));
-        let account_1 = account_status(&secondary_conn, &wallet_1);
-        assert_eq!(
-            account_1,
-            Some(PayableAccount {
-                wallet: wallet_1,
-                balance: starting_amount_1 - payment_1,
-                last_paid_timestamp: payable_timestamp_1,
-                pending_payable_opt: None
-            })
-        );
-        let account_2 = account_status(&secondary_conn, &wallet_2);
-        assert_eq!(
-            account_2,
-            Some(PayableAccount {
-                wallet: wallet_2,
-                balance: starting_amount_2 - payment_2,
-                last_paid_timestamp: payable_timestamp_2,
-                pending_payable_opt: None
-            })
-        )
+        let secondary_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
+        let account_1_opt = account_status(&secondary_conn, &setup_holder.wallet_1);
+        assert_eq!(account_1_opt, Some(expected_account_1));
+        let account_2_opt = account_status(&secondary_conn, &setup_holder.wallet_2);
+        assert_eq!(account_2_opt, Some(expected_account_2))
     }
 
     #[test]
@@ -645,7 +667,7 @@ mod tests {
         pending_payable_fingerprint.rowid_opt = Some(rowid);
         let subject = PayableDaoReal::new(Box::new(conn_wrapped));
 
-        let result = subject.transaction_confirmed(&[pending_payable_fingerprint]);
+        let result = subject.transactions_confirmed(&[pending_payable_fingerprint]);
 
         assert_eq!(
             result,
@@ -675,9 +697,53 @@ mod tests {
         pending_payable_fingerprint.amount = u64::MAX;
         //The overflow occurs before we start modifying the payable account so I decided not to create an example in the database
 
-        let result = subject.transaction_confirmed(&[pending_payable_fingerprint]);
+        let result = subject.transactions_confirmed(&[pending_payable_fingerprint]);
 
         assert_eq!(result, Err(PayableDaoError::SignConversion(u64::MAX)))
+    }
+
+    #[test]
+    fn transaction_confirmed_returns_error_from_another_cycle_which_happens_to_fail() {
+        let home_dir = ensure_node_home_directory_exists(
+            "payable_dao",
+            "transaction_confirmed_returns_error_from_another_cycle_which_happens_to_fail",
+        );
+        let conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        let setup_holder = make_fingerprint_paiar_and_insert_initial_payable_records(conn.as_ref());
+        let subject = PayableDaoReal::new(conn);
+        let expected_account_1 = PayableAccount {
+            wallet: setup_holder.wallet_1.clone(),
+            balance: setup_holder.starting_amount_1 - setup_holder.fingerprint_1.amount as i64,
+            last_paid_timestamp: setup_holder.fingerprint_1.timestamp,
+            pending_payable_opt: None,
+        };
+        let new_payment_timestamp_2 = setup_holder.fingerprint_2.timestamp;
+        let mut fingerprint_2 = setup_holder.fingerprint_2;
+        fingerprint_2.amount = u64::MAX;
+
+        let result = subject.transactions_confirmed(&[setup_holder.fingerprint_1, fingerprint_2]);
+
+        assert_eq!(result, Err(PayableDaoError::SignConversion(u64::MAX)));
+        let secondary_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
+        let account_1_opt = account_status(&secondary_conn, &setup_holder.wallet_1);
+        assert_eq!(account_1_opt, Some(expected_account_1));
+        let account_2_opt = account_status(&secondary_conn, &setup_holder.wallet_2);
+        assert_eq!(
+            account_2_opt,
+            Some(PayableAccount {
+                wallet: setup_holder.wallet_2,
+                balance: setup_holder.starting_amount_2,
+                last_paid_timestamp: from_time_t(187_100_000),
+                pending_payable_opt: Some(PendingPayableId {
+                    rowid: 792,
+                    hash: H256::default()
+                })
+            })
+        );
+        //negation
+        assert_ne!(new_payment_timestamp_2, from_time_t(187_100_000))
     }
 
     fn how_to_trick_rusqlite_for_an_error(path: &Path) -> Connection {

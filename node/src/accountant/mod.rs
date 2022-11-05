@@ -1306,10 +1306,10 @@ impl Accountant {
         }
 
         if !fingerprints.is_empty() {
-            if let Err(e) = self.payable_dao.transaction_confirmed(&fingerprints) {
+            if let Err(e) = self.payable_dao.transactions_confirmed(&fingerprints) {
                 panic!(
-                    "Was unable to uncheck pending payable '{}' after confirmation due to '{:?}'",
-                    todo!("drive me in"), /*msg.pending_payable_fingerprint.hash*/
+                    "Was unable to uncheck pending payables {} during their confirmation due to {:?}",
+                    serialized_hashes(&fingerprints),
                     e
                 )
             } else {
@@ -1319,33 +1319,32 @@ impl Accountant {
                     .map(|fingerprint| fingerprint.rowid_opt.expectv("initialized rowid"))
                     .collect::<Vec<u64>>();
                 if let Err(e) = self.pending_payable_dao.delete_fingerprints(&rowids) {
-                    panic!("Was unable to delete payable fingerprint '{}' after successful transaction due to '{:?}'",
-                        todo!() /*msg.pending_payable_fingerprint.hash*/,
-                        e)
+                    panic!("Was unable to delete payable fingerprints {} for successful transactions due to {:?}",
+                        serialized_hashes(&fingerprints), e)
                 } else {
                     info!(
-                    self.logger,
-                    "Transaction {:?} has gone through the whole confirmation process succeeding",
-                    todo!("drive me in") /*msg.pending_payable_fingerprint.hash*/
-                )
+                        self.logger,
+                        "Transactions {} went through the whole confirmation process succeeding",
+                        serialized_hashes(&fingerprints)
+                    )
                 }
             }
         }
     }
 
-    //TODO maybe a fn pointer from the previous
     fn add_to_the_total_of_paid_payable(
         &mut self,
         fingerprints: &[PendingPayableFingerprint],
-        debug_msg_helper: fn(&[PendingPayableFingerprint]) -> String,
+        serialized_hashes: fn(&[PendingPayableFingerprint]) -> String,
     ) {
-        todo!();
-        // self.financial_statistics.total_paid_payable += pending_payable_fingerprint.amount;
-        // debug!(
-        //         self.logger,
-        //         "Confirmation of transaction {}; record for payable was modified",
-        //         todo!("drive me in") /*msg.pending_payable_fingerprint.hash*/
-        //     );
+        fingerprints.iter().for_each(|fingerprint| {
+            self.financial_statistics.total_paid_payable += fingerprint.amount
+        });
+        debug!(
+            self.logger,
+            "Confirmation of transactions {}; record for total paid payable was modified",
+            serialized_hashes(fingerprints)
+        );
     }
 
     fn cancel_transactions(&self, ids: Vec<PendingPayableId>) {
@@ -1366,22 +1365,20 @@ impl Accountant {
 
     fn update_fingerprints(&self, ids: Vec<PendingPayableId>) {
         if !ids.is_empty() {
-            todo!()
+            let rowids = ids.iter().map(|id| id.rowid).collect::<Vec<u64>>();
+            match self.pending_payable_dao.update_fingerprints(&rowids) {
+                Ok(_) => trace!(
+                    self.logger,
+                    "Updated records for rowids: {} ",
+                    serialize_rowids(&rowids)
+                ),
+                Err(e) => panic!(
+                    "Failure on updating payable fingerprints {} due to {:?}",
+                    ids.iter().map(|id| format!("{:?}", id.hash)).join(", "),
+                    e
+                ),
+            }
         }
-        // match self
-        //     .pending_payable_dao
-        //     .update_fingerprint(ids.rowid)
-        // {
-        //     Ok(_) => trace!(
-        //         self.logger,
-        //         "Updated record for rowid: {} ",
-        //         ids.rowid
-        //     ),
-        //     Err(e) => panic!(
-        //         "Failure on updating payable fingerprint '{:?}' due to {:?}",
-        //         ids.hash, e
-        //     ),
-        // }
     }
 
     fn handle_new_pending_payable_fingerprints(&self, msg: ReportNewPendingPayableFingerprints) {
@@ -1420,6 +1417,10 @@ enum PayableTransactingErrorEnum {
 
 pub fn unsigned_to_signed(unsigned: u64) -> Result<i64, u64> {
     i64::try_from(unsigned).map_err(|_| unsigned)
+}
+
+pub fn serialize_rowids(ids: &[u64]) -> String {
+    ids.iter().map(|id| id.to_string()).join(", ")
 }
 
 fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
@@ -2102,7 +2103,7 @@ mod tests {
         let hash_3 = make_tx_hash(8765);
         let pending_payable_dao = PendingPayableDaoMock::default()
             .fingerprints_rowids_result(vec![(Some(333), hash_1), (None, hash_2), (None, hash_3)])
-            .delete_fingerprint_result(Ok(()));
+            .delete_fingerprints_result(Ok(()));
         let accountant = AccountantBuilder::default()
             .pending_payable_dao(pending_payable_dao)
             .build();
@@ -2157,8 +2158,8 @@ mod tests {
                 (Some(second_incomplete_transaction_rowid), hash_tx_2),
             ])
             .delete_fingerprint_params(&delete_fingerprint_params_arc)
-            .delete_fingerprint_result(Ok(()))
-            .delete_fingerprint_result(Ok(()));
+            .delete_fingerprints_result(Ok(()))
+            .delete_fingerprints_result(Ok(()));
         let subject = AccountantBuilder::default()
             .pending_payable_dao(pending_payable_dao)
             .build();
@@ -3785,7 +3786,7 @@ mod tests {
         };
         let pending_payable_dao = PendingPayableDaoMock::default()
             .fingerprints_rowids_result(vec![(Some(rowid_1), hash_1), (Some(rowid_2), hash_2)])
-            .delete_fingerprint_result(Err(PendingPayableDaoError::RecordDeletion(
+            .delete_fingerprints_result(Err(PendingPayableDaoError::RecordDeletion(
                 "we slept over without an alarm set".to_string(),
             )));
         let subject = AccountantBuilder::default()
@@ -3829,7 +3830,7 @@ mod tests {
             ])
             .fingerprints_rowids_result(vec![(Some(error_payable_rowid_2), error_payable_hash_2)])
             .delete_fingerprint_params(&delete_fingerprint_params_arc)
-            .delete_fingerprint_result(Ok(()));
+            .delete_fingerprints_result(Ok(()));
         let subject = AccountantBuilder::default()
             .payable_dao(
                 PayableDaoMock::new()
@@ -3910,35 +3911,46 @@ mod tests {
         let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let delete_pending_payable_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao = PayableDaoMock::default()
-            .transaction_confirmed_params(&transaction_confirmed_params_arc)
-            .transaction_confirmed_result(Ok(()));
+            .transactions_confirmed_params(&transaction_confirmed_params_arc)
+            .transactions_confirmed_result(Ok(()));
         let pending_payable_dao = PendingPayableDaoMock::default()
             .delete_fingerprint_params(&delete_pending_payable_fingerprint_params_arc)
-            .delete_fingerprint_result(Ok(()));
+            .delete_fingerprints_result(Ok(()));
         let mut subject = AccountantBuilder::default()
             .payable_dao(payable_dao)
             .pending_payable_dao(pending_payable_dao)
             .build();
-        let tx_hash = H256::from("sometransactionhash".keccak256());
-        let amount = 4567;
-        let timestamp_from_time_of_payment = from_time_t(200_000_000);
-        let rowid = 2;
-        let pending_payable_fingerprint = PendingPayableFingerprint {
-            rowid_opt: Some(rowid),
-            timestamp: timestamp_from_time_of_payment,
-            hash: tx_hash,
+        let rowid_1 = 2;
+        let pending_payable_fingerprint_1 = PendingPayableFingerprint {
+            rowid_opt: Some(rowid_1),
+            timestamp: from_time_t(199_000_000),
+            hash: H256::from("some_hash".keccak256()),
             attempt_opt: Some(1),
-            amount,
+            amount: 4567,
+            process_error: None,
+        };
+        let rowid_2 = 5;
+        let pending_payable_fingerprint_2 = PendingPayableFingerprint {
+            rowid_opt: Some(rowid_2),
+            timestamp: from_time_t(200_000_000),
+            hash: H256::from("different_hash".keccak256()),
+            attempt_opt: Some(1),
+            amount: 5555,
             process_error: None,
         };
 
-        subject.confirm_transactions(vec![pending_payable_fingerprint.clone()]);
-        todo!("mayabe add more txs at the moment");
+        subject.confirm_transactions(vec![
+            pending_payable_fingerprint_1.clone(),
+            pending_payable_fingerprint_2.clone(),
+        ]);
 
         let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
         assert_eq!(
             *transaction_confirmed_params,
-            vec![vec![pending_payable_fingerprint]]
+            vec![vec![
+                pending_payable_fingerprint_1,
+                pending_payable_fingerprint_2
+            ]]
         );
         let delete_pending_payable_fingerprint_params =
             delete_pending_payable_fingerprint_params_arc
@@ -3946,22 +3958,25 @@ mod tests {
                 .unwrap();
         assert_eq!(
             *delete_pending_payable_fingerprint_params,
-            vec![vec![rowid]]
+            vec![vec![rowid_1, rowid_2]]
         );
         let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing("DEBUG: Accountant: Confirmation of transaction 0x051a…8c19; record for payable was modified");
-        log_handler.exists_log_containing("INFO: Accountant: Transaction 0x051aae12b9595ccaa43c2eabfd5b86347c37fa0988167165b0b17b23fcaa8c19 has gone through the whole confirmation process succeeding");
+        log_handler.exists_log_containing("DEBUG: Accountant: Confirmation of transactions 0xf1b05f6ad99d9548555cfb6274489a8f021e10000e828d7e23cbc3e009ed5c7f, \
+         0xd4089b39b14acdb44e7f85ce4fa40a47a50061dafb3190ff4ad206ffb64956a7; record for total paid payable was modified");
+        log_handler.exists_log_containing("INFO: Accountant: Transactions 0xf1b05f6ad99d9548555cfb6274489a8f021e10000e828d7e23cbc3e009ed5c7f, \
+         0xd4089b39b14acdb44e7f85ce4fa40a47a50061dafb3190ff4ad206ffb64956a7 went through the whole confirmation process succeeding");
     }
 
     #[test]
     #[should_panic(
-        expected = "Was unable to uncheck pending payable '0x0000…0315' after confirmation due to 'RusqliteError(\"record change not successful\")"
+        expected = "Was unable to uncheck pending payables 0x0000000000000000000000000000000000000000000000000000000000000315 \
+         during their confirmation due to RusqliteError(\"record change not successful\")"
     )]
     fn confirm_transactions_panics_on_unchecking_payable_table() {
         init_test_logging();
         let hash = make_tx_hash(789);
         let rowid = 3;
-        let payable_dao = PayableDaoMock::new().transaction_confirmed_result(Err(
+        let payable_dao = PayableDaoMock::new().transactions_confirmed_result(Err(
             PayableDaoError::RusqliteError("record change not successful".to_string()),
         ));
         let mut subject = AccountantBuilder::default()
@@ -3976,16 +3991,17 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Was unable to delete payable fingerprint '0x0000…0315' after successful transaction due to 'RecordDeletion(\"the database is fooling around with us\")'"
+        expected = "Was unable to delete payable fingerprints 0x0000000000000000000000000000000000000000000000000000000000000315 \
+         for successful transactions due to RecordDeletion(\"the database likes fooling around with us\")"
     )]
     fn confirm_transactions_panics_on_deleting_pending_payable_fingerprint() {
         init_test_logging();
         let hash = make_tx_hash(789);
         let rowid = 3;
-        let payable_dao = PayableDaoMock::new().transaction_confirmed_result(Ok(()));
-        let pending_payable_dao = PendingPayableDaoMock::default().delete_fingerprint_result(Err(
+        let payable_dao = PayableDaoMock::new().transactions_confirmed_result(Ok(()));
+        let pending_payable_dao = PendingPayableDaoMock::default().delete_fingerprints_result(Err(
             PendingPayableDaoError::RecordDeletion(
-                "the database is fooling around with us".to_string(),
+                "the database likes fooling around with us".to_string(),
             ),
         ));
         let mut subject = AccountantBuilder::default()
@@ -4333,8 +4349,8 @@ mod tests {
             .mark_pending_payable_rowid_params(&mark_pending_payable_params_arc)
             .mark_pending_payable_rowid_result(Ok(()))
             .mark_pending_payable_rowid_result(Ok(()))
-            .transaction_confirmed_params(&transaction_confirmed_params_arc)
-            .transaction_confirmed_result(Ok(()));
+            .transactions_confirmed_params(&transaction_confirmed_params_arc)
+            .transactions_confirmed_result(Ok(()));
         let bootstrapper_config = bc_from_ac_plus_earning_wallet(
             AccountantConfig {
                 scan_intervals: ScanIntervals {
@@ -4402,9 +4418,9 @@ mod tests {
                 fingerprint_2_third_round,
             ])
             .return_all_fingerprints_result(vec![fingerprint_2_fourth_round.clone()])
-            .insert_fingerprint_params(&insert_fingerprint_params_arc)
-            .insert_fingerprint_result(Ok(()))
-            .insert_fingerprint_result(Ok(()))
+            .insert_fingerprints_params(&insert_fingerprint_params_arc)
+            .insert_fingerprints_result(Ok(()))
+            .insert_fingerprints_result(Ok(()))
             .fingerprints_rowids_result(vec![
                 (Some(rowid_for_account_1), pending_tx_hash_1),
                 (Some(rowid_for_account_2), pending_tx_hash_2),
@@ -4421,7 +4437,7 @@ mod tests {
             .mark_failure_result(Ok(()))
             .delete_fingerprint_params(&delete_record_params_arc)
             //this is used during confirmation of the successful one
-            .delete_fingerprint_result(Ok(()));
+            .delete_fingerprints_result(Ok(()));
         pending_payable_dao.have_return_all_fingerprints_shut_down_the_system = true;
         let accountant_addr = Arbiter::builder()
             .stop_system_on_panic(true)
@@ -4490,13 +4506,13 @@ mod tests {
         let update_backup_after_cycle_params = update_fingerprint_params_arc.lock().unwrap();
         assert_eq!(
             *update_backup_after_cycle_params,
-            vec![
+            vec![vec![
                 rowid_for_account_1,
                 rowid_for_account_2,
                 rowid_for_account_1,
                 rowid_for_account_2,
                 rowid_for_account_2
-            ]
+            ]]
         );
         let mark_failure_params = mark_failure_params_arc.lock().unwrap();
         assert_eq!(*mark_failure_params, vec![rowid_for_account_1]);
@@ -4569,12 +4585,24 @@ mod tests {
                 confirmed: vec![]
             }
         );
-        TestLogHandler::new().exists_log_matching("DEBUG: Accountant: Interpreting a receipt for transaction '0x0000…0913' but none was given; attempt 3, 100\\d\\dms since sending");
+        TestLogHandler::new().exists_log_matching(
+            "DEBUG: Accountant: Interpreting a receipt for \
+         transaction '0x0000…0913' but none was given; attempt 3, 100\\d\\dms since sending",
+        );
     }
 
     #[test]
     fn accountant_receives_reported_transaction_receipts_and_processes_them_all() {
-        let mut subject = AccountantBuilder::default().build();
+        let transactions_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
+        let payable_dao = PayableDaoMock::default()
+            .transactions_confirmed_params(&transactions_confirmed_params_arc)
+            .transactions_confirmed_result(Ok(()));
+        let pending_payable_dao =
+            PendingPayableDaoMock::default().delete_fingerprints_result(Ok(()));
+        let mut subject = AccountantBuilder::default()
+            .payable_dao(payable_dao)
+            .pending_payable_dao(pending_payable_dao)
+            .build();
         let subject_addr = subject.start();
         let transaction_hash_1 = make_tx_hash(4545);
         let mut transaction_receipt_1 = TransactionReceipt::default();
@@ -4608,24 +4636,16 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let _ = subject_addr.try_send(msg).unwrap();
+        subject_addr.try_send(msg).unwrap();
 
         let system = System::new("processing reported receipts");
         System::current().stop();
         system.run();
-        todo!("assert on dao fns")
-        //let notify_handle_params = notify_handle_params_arc.lock().unwrap();
-        // assert_eq!(
-        //     *notify_handle_params,
-        //     vec![
-        //         ConfirmPendingTransaction {
-        //             pending_payable_fingerprint: fingerprint_1
-        //         },
-        //         ConfirmPendingTransaction {
-        //             pending_payable_fingerprint: fingerprint_2
-        //         }
-        //     ]
-        // );
+        let transactions_confirmed_params = transactions_confirmed_params_arc.lock().unwrap();
+        assert_eq!(
+            *transactions_confirmed_params,
+            vec![vec![fingerprint_1, fingerprint_2]]
+        );
     }
 
     #[test]
@@ -4782,8 +4802,8 @@ mod tests {
         init_test_logging();
         let insert_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payment_dao = PendingPayableDaoMock::default()
-            .insert_fingerprint_params(&insert_fingerprint_params_arc)
-            .insert_fingerprint_result(Ok(()));
+            .insert_fingerprints_params(&insert_fingerprint_params_arc)
+            .insert_fingerprints_result(Ok(()));
         let subject = AccountantBuilder::default()
             .pending_payable_dao(pending_payment_dao)
             .build();
@@ -4843,8 +4863,8 @@ mod tests {
         init_test_logging();
         let insert_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payable_dao = PendingPayableDaoMock::default()
-            .insert_fingerprint_params(&insert_fingerprint_params_arc)
-            .insert_fingerprint_result(Err(PendingPayableDaoError::InsertionFailed(
+            .insert_fingerprints_params(&insert_fingerprint_params_arc)
+            .insert_fingerprints_result(Err(PendingPayableDaoError::InsertionFailed(
                 "Crashed".to_string(),
             )));
         let amount = 2345;
@@ -5016,7 +5036,7 @@ mod tests {
     }
 
     #[test]
-    fn update_payable_fingerprint_happy_path() {
+    fn update_fingerprints_happy_path() {
         let update_after_cycle_params_arc = Arc::new(Mutex::new(vec![]));
         let hash_1 = make_tx_hash(444888);
         let rowid_1 = 3456;
@@ -5040,15 +5060,15 @@ mod tests {
         let _ = subject.update_fingerprints(vec![transaction_id_1, transaction_id_2]);
 
         let update_after_cycle_params = update_after_cycle_params_arc.lock().unwrap();
-        assert_eq!(*update_after_cycle_params, vec![rowid_1, rowid_2])
+        assert_eq!(*update_after_cycle_params, vec![vec![rowid_1, rowid_2]])
     }
 
     #[test]
     #[should_panic(
-        expected = "Failure on updating payable fingerprints '0x000000000000000000000000000000000000000000000000000000000006c9d8' \
+        expected = "Failure on updating payable fingerprints 0x000000000000000000000000000000000000000000000000000000000006c9d8 \
          due to UpdateFailed(\"yeah, bad\")"
     )]
-    fn update_payable_fingerprint_sad_path() {
+    fn update_fingerprints_sad_path() {
         let hash = make_tx_hash(444888);
         let rowid = 3456;
         let pending_payable_dao =
@@ -5149,7 +5169,7 @@ mod tests {
     #[test]
     fn total_paid_payable_rises_with_each_bill_paid() {
         let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
-        let fingerprint = PendingPayableFingerprint {
+        let fingerprint_1 = PendingPayableFingerprint {
             rowid_opt: Some(5),
             timestamp: from_time_t(189_999_888),
             hash: make_tx_hash(56789),
@@ -5157,25 +5177,38 @@ mod tests {
             amount: 5478,
             process_error: None,
         };
+        let fingerprint_2 = PendingPayableFingerprint {
+            rowid_opt: Some(6),
+            timestamp: from_time_t(200_000_011),
+            hash: make_tx_hash(33333),
+            attempt_opt: Some(1),
+            amount: 6543,
+            process_error: None,
+        };
         let mut pending_payable_dao =
-            PendingPayableDaoMock::default().delete_fingerprint_result(Ok(()));
+            PendingPayableDaoMock::default().delete_fingerprints_result(Ok(()));
         let payable_dao = PayableDaoMock::default()
-            .transaction_confirmed_params(&transaction_confirmed_params_arc)
-            .transaction_confirmed_result(Ok(()))
-            .transaction_confirmed_result(Ok(()));
+            .transactions_confirmed_params(&transaction_confirmed_params_arc)
+            .transactions_confirmed_result(Ok(()))
+            .transactions_confirmed_result(Ok(()));
         pending_payable_dao.have_return_all_fingerprints_shut_down_the_system = true;
         let mut subject = AccountantBuilder::default()
             .pending_payable_dao(pending_payable_dao)
             .payable_dao(payable_dao)
             .build();
         subject.financial_statistics.total_paid_payable += 1111;
-        todo!("should I have a test checking if it works for multiple txs as well?");
 
-        subject.confirm_transactions(vec![fingerprint.clone()]);
+        subject.confirm_transactions(vec![fingerprint_1.clone(), fingerprint_2.clone()]);
 
-        assert_eq!(subject.financial_statistics.total_paid_payable, 1111 + 5478);
+        assert_eq!(
+            subject.financial_statistics.total_paid_payable,
+            1111 + 5478 + 6543
+        );
         let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
-        assert_eq!(*transaction_confirmed_params, vec![vec![fingerprint]])
+        assert_eq!(
+            *transaction_confirmed_params,
+            vec![vec![fingerprint_1, fingerprint_2]]
+        )
     }
 
     #[test]
