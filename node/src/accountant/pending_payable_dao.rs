@@ -81,7 +81,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             let timestamp: i64 = Self::get_with_expect(row, 3);
             let attempt: u16 = Self::get_with_expect(row, 4);
             Ok(PendingPayableFingerprint {
-                rowid_opt: Some(rowid),
+                rowid,
                 timestamp: from_time_t(timestamp),
                 hash: H256::from_str(&transaction_hash[2..]).unwrap_or_else(|e| {
                     panic!(
@@ -89,7 +89,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
                         transaction_hash, e
                     )
                 }),
-                attempt_opt: Some(attempt),
+                attempt,
                 amount,
                 process_error: None,
             })
@@ -267,18 +267,18 @@ mod tests {
             records,
             vec![
                 PendingPayableFingerprint {
-                    rowid_opt: Some(1),
+                    rowid: 1,
                     timestamp: batch_wide_timestamp,
                     hash: hash_1,
-                    attempt_opt: Some(1),
+                    attempt: 1,
                     amount: amount_1,
                     process_error: None
                 },
                 PendingPayableFingerprint {
-                    rowid_opt: Some(2),
+                    rowid: 2,
                     timestamp: batch_wide_timestamp,
                     hash: hash_2,
-                    attempt_opt: Some(1),
+                    attempt: 1,
                     amount: amount_2,
                     process_error: None
                 }
@@ -390,18 +390,18 @@ mod tests {
             result,
             vec![
                 PendingPayableFingerprint {
-                    rowid_opt: Some(1),
+                    rowid: 1,
                     timestamp: batch_wide_timestamp,
                     hash: hash_1,
-                    attempt_opt: Some(1),
+                    attempt: 1,
                     amount: amount_1,
                     process_error: None
                 },
                 PendingPayableFingerprint {
-                    rowid_opt: Some(2),
+                    rowid: 2,
                     timestamp: batch_wide_timestamp,
                     hash: hash_2,
-                    attempt_opt: Some(1),
+                    attempt: 1,
                     amount: amount_2,
                     process_error: None
                 }
@@ -434,10 +434,10 @@ mod tests {
         assert_eq!(
             result,
             vec![PendingPayableFingerprint {
-                rowid_opt: Some(2),
+                rowid: 2,
                 timestamp,
                 hash,
-                attempt_opt: Some(1),
+                attempt: 1,
                 amount,
                 process_error: None
             }]
@@ -577,10 +577,10 @@ mod tests {
         assert_eq!(all_records.len(), 2);
         let record_1 = all_records.remove(0);
         assert_eq!(record_1.hash, hash_1);
-        assert_eq!(record_1.attempt_opt, Some(2));
+        assert_eq!(record_1.attempt, 2);
         let record_2 = all_records.remove(0);
         assert_eq!(record_2.hash, hash_2);
-        assert_eq!(record_2.attempt_opt, Some(2));
+        assert_eq!(record_2.attempt, 2);
     }
 
     #[test]
@@ -662,10 +662,10 @@ mod tests {
                 let attempt: u16 = row.get(4).unwrap();
                 let process_error: Option<String> = row.get(5).unwrap();
                 Ok(PendingPayableFingerprint {
-                    rowid_opt: Some(rowid),
+                    rowid,
                     timestamp: from_time_t(timestamp),
                     hash: H256::from_str(&transaction_hash[2..]).unwrap(),
-                    attempt_opt: Some(attempt),
+                    attempt,
                     amount,
                     process_error,
                 })
@@ -676,8 +676,8 @@ mod tests {
         assert_eq!(found_fingerprints.len(), 1);
         let actual_fingerprint = found_fingerprints.remove(0);
         assert_eq!(actual_fingerprint.hash, hash);
-        assert_eq!(actual_fingerprint.rowid_opt.unwrap(), 1);
-        assert_eq!(actual_fingerprint.attempt_opt.unwrap(), 1);
+        assert_eq!(actual_fingerprint.rowid, 1);
+        assert_eq!(actual_fingerprint.attempt, 1);
         assert_eq!(actual_fingerprint.process_error, Some("ERROR".to_string()));
         assert_eq!(actual_fingerprint.timestamp, timestamp);
     }

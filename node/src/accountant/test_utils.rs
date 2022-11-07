@@ -835,10 +835,10 @@ impl PendingPayableDaoFactoryMock {
 
 pub fn make_pending_payable_fingerprint() -> PendingPayableFingerprint {
     PendingPayableFingerprint {
-        rowid_opt: Some(33),
+        rowid: 33,
         timestamp: from_time_t(222_222_222),
         hash: make_tx_hash(456),
-        attempt_opt: Some(1),
+        attempt: 1,
         amount: 12345,
         process_error: None,
     }

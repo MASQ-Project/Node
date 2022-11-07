@@ -696,7 +696,6 @@ mod tests {
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
     };
     use crate::blockchain::bip32::Bip32ECKeyProvider;
-    use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failure};
     use crate::blockchain::test_utils::{
         make_default_signed_transaction, make_fake_event_loop_handle, make_tx_hash,
@@ -1487,21 +1486,6 @@ mod tests {
         0x0000000000000000000000000000000077393837   33355666\n\
         \n",
         );
-    }
-
-    fn set_up_pp_fingerprint(
-        timestamp: SystemTime,
-        hash: H256,
-        amount: u64,
-    ) -> PendingPayableFingerprint {
-        PendingPayableFingerprint {
-            rowid_opt: None,
-            timestamp,
-            hash,
-            attempt_opt: None,
-            amount,
-            process_error: None,
-        }
     }
 
     #[test]

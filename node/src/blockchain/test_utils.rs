@@ -194,9 +194,8 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 
 #[derive(Debug, Default, Clone)]
 pub struct TestTransport {
-    asserted: usize,
     prepare_params: Arc<Mutex<Vec<(String, Vec<rpc::Value>)>>>,
-    send_params: Arc<Mutex<Vec<(RequestId, Call)>>>,
+    _send_params: Arc<Mutex<Vec<(RequestId, Call)>>>,
     send_results: RefCell<VecDeque<rpc::Value>>,
     send_batch_params: Arc<Mutex<Vec<Vec<(RequestId, Call)>>>>,
     send_batch_results: RefCell<Vec<Vec<Result<rpc::Value, web3::Error>>>>,

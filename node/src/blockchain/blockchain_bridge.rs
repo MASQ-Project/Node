@@ -151,10 +151,10 @@ pub struct ReportNewPendingPayableFingerprints {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PendingPayableFingerprint {
-    pub rowid_opt: Option<u64>, //None when initialized //TODO no need to be yet optional
+    pub rowid: u64,
     pub timestamp: SystemTime,
     pub hash: H256,
-    pub attempt_opt: Option<u16>, //None when initialized //TODO no need to be yet optional
+    pub attempt: u16,
     pub amount: u64,
     pub process_error: Option<String>,
 }
@@ -841,10 +841,10 @@ mod tests {
         let hash_1 = pending_payable_fingerprint_1.hash;
         let hash_2 = make_tx_hash(78989);
         let pending_payable_fingerprint_2 = PendingPayableFingerprint {
-            rowid_opt: Some(456),
+            rowid: 456,
             timestamp: SystemTime::now(),
             hash: hash_2,
-            attempt_opt: Some(3),
+            attempt: 3,
             amount: 4565,
             process_error: None,
         };
@@ -948,26 +948,26 @@ mod tests {
         let mut fingerprint_1 = make_pending_payable_fingerprint();
         fingerprint_1.hash = hash_1;
         let fingerprint_2 = PendingPayableFingerprint {
-            rowid_opt: Some(454),
+            rowid: 454,
             timestamp: SystemTime::now(),
             hash: hash_2,
-            attempt_opt: Some(3),
+            attempt: 3,
             amount: 3333,
             process_error: None,
         };
         let fingerprint_3 = PendingPayableFingerprint {
-            rowid_opt: Some(456),
+            rowid: 456,
             timestamp: SystemTime::now(),
             hash: hash_3,
-            attempt_opt: Some(3),
+            attempt: 3,
             amount: 4565,
             process_error: None,
         };
         let fingerprint_4 = PendingPayableFingerprint {
-            rowid_opt: Some(450),
+            rowid: 450,
             timestamp: from_time_t(230_000_000),
             hash: hash_4,
-            attempt_opt: Some(1),
+            attempt: 1,
             amount: 7879,
             process_error: None,
         };
@@ -1052,18 +1052,18 @@ mod tests {
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
         let hash_1 = make_tx_hash(111334);
         let fingerprint_1 = PendingPayableFingerprint {
-            rowid_opt: Some(454),
+            rowid: 454,
             timestamp: SystemTime::now(),
             hash: hash_1,
-            attempt_opt: Some(3),
+            attempt: 3,
             amount: 3333,
             process_error: None,
         };
         let fingerprint_2 = PendingPayableFingerprint {
-            rowid_opt: Some(456),
+            rowid: 456,
             timestamp: SystemTime::now(),
             hash: make_tx_hash(222444),
-            attempt_opt: Some(3),
+            attempt: 3,
             amount: 4565,
             process_error: None,
         };

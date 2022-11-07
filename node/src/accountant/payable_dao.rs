@@ -134,12 +134,8 @@ impl PayableDao for PayableDaoReal {
         fingerprints.iter().try_for_each(|fgp| {
             let amount = unsigned_to_signed(fgp.amount).map_err(PayableDaoError::SignConversion)?;
 
-            self.try_decrease_balance(
-                fgp.rowid_opt.expectv("initialized rowid"),
-                amount,
-                fgp.timestamp,
-            )
-            .map_err(PayableDaoError::RusqliteError)
+            self.try_decrease_balance(fgp.rowid, amount, fgp.timestamp)
+                .map_err(PayableDaoError::RusqliteError)
         })
     }
 
@@ -593,18 +589,18 @@ mod tests {
             )
         }
         let fingerprint_1 = PendingPayableFingerprint {
-            rowid_opt: Some(rowid_1),
+            rowid: rowid_1,
             timestamp: new_payable_timestamp_1,
             hash: hash_1,
-            attempt_opt: Some(1),
+            attempt: 1,
             amount: payment_1 as u64,
             process_error: None,
         };
         let fingerprint_2 = PendingPayableFingerprint {
-            rowid_opt: Some(rowid_2),
+            rowid: rowid_2,
             timestamp: new_payable_timestamp_2,
             hash: hash_2,
-            attempt_opt: Some(1),
+            attempt: 1,
             amount: payment_2 as u64,
             process_error: None,
         };
@@ -664,7 +660,7 @@ mod tests {
         let hash = make_tx_hash(12345);
         let rowid = 789;
         pending_payable_fingerprint.hash = hash;
-        pending_payable_fingerprint.rowid_opt = Some(rowid);
+        pending_payable_fingerprint.rowid = rowid;
         let subject = PayableDaoReal::new(Box::new(conn_wrapped));
 
         let result = subject.transactions_confirmed(&[pending_payable_fingerprint]);
@@ -693,7 +689,7 @@ mod tests {
         let hash = make_tx_hash(12345);
         let rowid = 789;
         pending_payable_fingerprint.hash = hash;
-        pending_payable_fingerprint.rowid_opt = Some(rowid);
+        pending_payable_fingerprint.rowid = rowid;
         pending_payable_fingerprint.amount = u64::MAX;
         //The overflow occurs before we start modifying the payable account so I decided not to create an example in the database
 
