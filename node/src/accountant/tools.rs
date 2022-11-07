@@ -2,10 +2,10 @@
 
 pub(in crate::accountant) mod accountant_tools {
     use crate::accountant::{
-        Accountant, CancelFailedPendingTransaction, RequestTransactionReceipts, ResponseSkeleton,
-        ScanForPayables, ScanForPendingPayables, ScanForReceivables,
+        Accountant, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
+        ScanForPendingPayables, ScanForReceivables,
     };
-    use crate::sub_lib::utils::{NotifyHandle, NotifyLaterHandle};
+    use crate::sub_lib::utils::NotifyLaterHandle;
     use actix::{Context, Recipient};
     #[cfg(test)]
     use std::any::Any;
@@ -127,8 +127,6 @@ pub(in crate::accountant) mod accountant_tools {
         pub notify_later_scan_for_payable: Box<dyn NotifyLaterHandle<ScanForPayables, Accountant>>,
         pub notify_later_scan_for_receivable:
             Box<dyn NotifyLaterHandle<ScanForReceivables, Accountant>>,
-        pub notify_cancel_failed_transaction:
-            Box<dyn NotifyHandle<CancelFailedPendingTransaction, Accountant>>,
         pub request_transaction_receipts_subs_opt: Option<Recipient<RequestTransactionReceipts>>,
     }
 }

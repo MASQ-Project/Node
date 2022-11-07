@@ -673,12 +673,12 @@ pub struct PendingPayableDaoMock {
     fingerprints_rowids_results: RefCell<Vec<Vec<(Option<u64>, H256)>>>,
     delete_fingerprints_params: Arc<Mutex<Vec<Vec<u64>>>>,
     delete_fingerprints_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
-    insert_fingerprints_params: Arc<Mutex<Vec<(Vec<(H256, u64)>, SystemTime)>>>,
-    insert_fingerprints_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
+    insert_new_fingerprints_params: Arc<Mutex<Vec<(Vec<(H256, u64)>, SystemTime)>>>,
+    insert_new_fingerprints_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
     update_fingerprints_params: Arc<Mutex<Vec<Vec<u64>>>>,
     update_fingerprints_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
-    mark_failure_params: Arc<Mutex<Vec<u64>>>,
-    mark_failure_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
+    mark_failures_params: Arc<Mutex<Vec<Vec<u64>>>>,
+    mark_failures_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
     return_all_fingerprints_params: Arc<Mutex<Vec<()>>>,
     return_all_fingerprints_results: RefCell<Vec<Vec<PendingPayableFingerprint>>>,
     pub have_return_all_fingerprints_shut_down_the_system: bool,
@@ -709,11 +709,11 @@ impl PendingPayableDao for PendingPayableDaoMock {
         hashes_and_amounts: &[(H256, u64)],
         batch_wide_timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError> {
-        self.insert_fingerprints_params
+        self.insert_new_fingerprints_params
             .lock()
             .unwrap()
             .push((hashes_and_amounts.to_vec(), batch_wide_timestamp));
-        self.insert_fingerprints_results.borrow_mut().remove(0)
+        self.insert_new_fingerprints_results.borrow_mut().remove(0)
     }
 
     fn delete_fingerprints(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError> {
@@ -732,9 +732,9 @@ impl PendingPayableDao for PendingPayableDaoMock {
         self.update_fingerprints_results.borrow_mut().remove(0)
     }
 
-    fn mark_failure(&self, id: u64) -> Result<(), PendingPayableDaoError> {
-        self.mark_failure_params.lock().unwrap().push(id);
-        self.mark_failure_results.borrow_mut().remove(0)
+    fn mark_failures(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError> {
+        self.mark_failures_params.lock().unwrap().push(ids.to_vec());
+        self.mark_failures_results.borrow_mut().remove(0)
     }
 }
 
@@ -753,12 +753,14 @@ impl PendingPayableDaoMock {
         mut self,
         params: &Arc<Mutex<Vec<(Vec<(H256, u64)>, SystemTime)>>>,
     ) -> Self {
-        self.insert_fingerprints_params = params.clone();
+        self.insert_new_fingerprints_params = params.clone();
         self
     }
 
     pub fn insert_fingerprints_result(self, result: Result<(), PendingPayableDaoError>) -> Self {
-        self.insert_fingerprints_results.borrow_mut().push(result);
+        self.insert_new_fingerprints_results
+            .borrow_mut()
+            .push(result);
         self
     }
 
@@ -784,13 +786,13 @@ impl PendingPayableDaoMock {
         self
     }
 
-    pub fn mark_failure_params(mut self, params: &Arc<Mutex<Vec<u64>>>) -> Self {
-        self.mark_failure_params = params.clone();
+    pub fn mark_failures_params(mut self, params: &Arc<Mutex<Vec<Vec<u64>>>>) -> Self {
+        self.mark_failures_params = params.clone();
         self
     }
 
-    pub fn mark_failure_result(self, result: Result<(), PendingPayableDaoError>) -> Self {
-        self.mark_failure_results.borrow_mut().push(result);
+    pub fn mark_failures_result(self, result: Result<(), PendingPayableDaoError>) -> Self {
+        self.mark_failures_results.borrow_mut().push(result);
         self
     }
 

@@ -89,7 +89,7 @@ impl Display for BlockchainError {
                         .map(|hash| format!("{:?}", hash))
                         .join(", ")
                 ),
-                None => "With no transactions at state of readiness, none hashed.".to_string(),
+                None => "With no transactions in the state of readiness, none hashed.".to_string(),
             }
         }
 
@@ -1282,7 +1282,7 @@ mod tests {
             })),
             Ok(json!("...unnecessarily important hash...")),
         ];
-        let mut transport = TestTransport::default()
+        let transport = TestTransport::default()
             .send_batch_params(&send_batch_params_arc)
             .send_batch_result(expected_batch_responses);
         let (accountant, _, accountant_recording_arc) = make_recorder();
@@ -2211,7 +2211,7 @@ mod tests {
     #[test]
     fn blockchain_interface_non_clandestine_can_fetch_nonce() {
         let prepare_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut transport = TestTransport::default()
+        let transport = TestTransport::default()
             .prepare_params(&prepare_params_arc)
             .send_result(json!(
                 "0x0000000000000000000000000000000000000000000000000000000000000001"
@@ -2357,7 +2357,6 @@ mod tests {
 
     #[test]
     fn conversion_between_errors_work() {
-        let hash = make_tx_hash(4555);
         let original_errors = [
             PayableTransactionError::UnusableWallet("wallet error".to_string()),
             PayableTransactionError::Signing("signature error".to_string()),

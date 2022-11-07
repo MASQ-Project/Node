@@ -690,7 +690,7 @@ mod tests {
         let consuming_wallet = make_wallet("somewallet");
         let persistent_configuration_mock =
             PersistentConfigurationMock::new().gas_price_result(Ok(3u64));
-        let mut subject = BlockchainBridge::new(
+        let subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(persistent_configuration_mock),
             false,
