@@ -2280,6 +2280,8 @@ mod tests {
         /*
             For 3 hops, a patch originating from Node A will consist of only Node A, B, C and D
                                   A---B---C---D---E
+            What does this test proves:
+            The distance of A and E is more than 3 hops, hence E is being excluded.
         */
 
         let subject = StandardGossipHandler::new(Logger::new("test"));
@@ -2338,6 +2340,86 @@ mod tests {
             node_b.public_key().clone(),
             node_c.public_key().clone(),
             node_d.public_key().clone(),
+        ]
+        .into_iter()
+        .collect::<HashSet<PublicKey>>();
+        assert_eq!(patch, expected_hashset);
+    }
+
+    #[test]
+    fn standard_gossip_handler_computes_neighbors_from_database_and_neighbors_of_neighbors_from_agrs(
+    ) {
+        /*
+            For 3 hops, a patch originating from Node A will consist of only Node A, B, C and D
+                                  A---B---C---D
+                                      |
+                                      Y
+            What does this test proves:
+            1) To find neighbors, we'll look into the root node's database. (For Example, A---B).
+            2) To find neighbors of neighbors, we'll look into the AGRs. (For Example, B---Y, B---C, and C---D).
+        */
+
+        let subject = StandardGossipHandler::new(Logger::new("test"));
+        let mut patch: HashSet<PublicKey> = HashSet::new();
+        let node_a = make_node_record(1111, true);
+        let node_b = make_node_record(2222, true);
+        let node_c = make_node_record(3333, false);
+        let node_d = make_node_record(4444, false);
+        let node_y = make_node_record(5555, false);
+        let mut node_a_db = db_from_node(&node_a);
+        node_a_db.add_node(node_b.clone()).unwrap();
+        node_a_db.add_arbitrary_full_neighbor(node_a.public_key(), node_b.public_key());
+        let mut node_b_db = db_from_node(&node_b);
+        node_b_db.add_node(node_a.clone()).unwrap();
+        node_b_db.add_node(node_y.clone()).unwrap();
+        node_b_db.add_node(node_c.clone()).unwrap();
+        node_b_db.add_node(node_d.clone()).unwrap();
+        node_b_db.add_arbitrary_full_neighbor(node_b.public_key(), node_a.public_key());
+        node_b_db.add_arbitrary_full_neighbor(node_b.public_key(), node_y.public_key());
+        node_b_db.add_arbitrary_full_neighbor(node_b.public_key(), node_c.public_key());
+        node_b_db.add_arbitrary_full_neighbor(node_c.public_key(), node_d.public_key());
+
+        let gossip = GossipBuilder::new(&node_b_db)
+            .node(node_b.public_key(), false)
+            .node(node_c.public_key(), false)
+            .node(node_d.public_key(), false)
+            .node(node_y.public_key(), false)
+            .build();
+        let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+
+        //----------------------- Debugging -----------------------------
+        let nodes = vec![
+            node_a.public_key().clone(),
+            node_b.public_key().clone(),
+            node_c.public_key().clone(),
+            node_d.public_key().clone(),
+            node_y.public_key().clone(),
+        ];
+        eprintln!("Nodes: {:?}", nodes);
+
+        for agr in &agrs {
+            eprintln!(
+                "AGR found with public key: {:?}, which has neighbors: {:?}",
+                agr.inner.public_key, agr.inner.neighbors
+            )
+        }
+        //----------------------------------------------------------------
+
+        let hashmap = agrs
+            .iter()
+            .map(|agr| {
+                return (agr.inner.public_key.clone(), agr);
+            })
+            .collect::<HashMap<PublicKey, &AccessibleGossipRecord>>();
+
+        subject.compute_patch(&mut patch, node_a.public_key(), &hashmap, 3, &node_a_db);
+
+        let expected_hashset = vec![
+            node_a.public_key().clone(),
+            node_b.public_key().clone(),
+            node_c.public_key().clone(),
+            node_d.public_key().clone(),
+            node_y.public_key().clone(),
         ]
         .into_iter()
         .collect::<HashSet<PublicKey>>();
