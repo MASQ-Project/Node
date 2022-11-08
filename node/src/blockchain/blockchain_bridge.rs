@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
+use crate::accountant::payable_dao::PayableAccount;
 use crate::accountant::{
     ReceivedPayments, ResponseSkeleton, ScanError, SentPayable, SkeletonOptHolder,
 };
@@ -54,7 +54,7 @@ pub struct BlockchainBridge<T: Transport = Http> {
 }
 
 struct TransactionConfirmationTools {
-    pp_fingerprint_sub_opt: Option<Recipient<ReportNewPendingPayableFingerprints>>,
+    pp_fingerprint_sub_opt: Option<Recipient<NewPendingPayableFingerprints>>,
     report_transaction_receipts_sub_opt: Option<Recipient<ReportTransactionReceipts>>,
 }
 
@@ -143,8 +143,8 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
     }
 }
 
-#[derive(Debug, PartialEq, Eq, Message)]
-pub struct ReportNewPendingPayableFingerprints {
+#[derive(Debug, Clone, PartialEq, Eq, Message)]
+pub struct NewPendingPayableFingerprints {
     pub batch_wide_timestamp: SystemTime,
     pub init_params: Vec<(H256, u64)>,
 }
@@ -401,10 +401,7 @@ impl BlockchainBridge {
         let executable_payments = match self.check_our_capability_to_pay(&acn_payable_msg.accounts)
         {
             Ok(accounts) => accounts,
-            Err(e) => todo!(
-                "Will be completed by driving in either GH-554 or GH-555,\
-             then transform this match into a simple question mark"
-            ),
+            Err(_e) => todo!("Will be completed by driving in either GH-554 or GH-555, then transform this match into a simple question mark"),
         };
 
         let last_nonce = self
@@ -446,10 +443,9 @@ struct PendingTxInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::payable_dao::PayableAccount;
+    use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
-    use crate::blockchain::blockchain_bridge::PendingPayable;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
     use crate::blockchain::blockchain_interface::{
         BlockchainError, BlockchainTransaction, RetrievedBlockchainTransactions,
@@ -582,14 +578,14 @@ mod tests {
         let system =
             System::new("report_accounts_payable_sends_transactions_to_blockchain_interface");
         let get_transaction_count_params_arc = Arc::new(Mutex::new(vec![]));
-        let send_transaction_params_arc = Arc::new(Mutex::new(vec![]));
+        let send_payables_within_batch_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let wallet_account_1 = make_wallet("blah");
         let wallet_account_2 = make_wallet("foo");
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_params(&get_transaction_count_params_arc)
             .get_transaction_count_result(Ok(U256::from(1u64)))
-            .send_payables_within_batch_params(&send_transaction_params_arc)
+            .send_payables_within_batch_params(&send_payables_within_batch_params_arc)
             .send_payables_within_batch_result(Ok(vec![
                 Correct(PendingPayable {
                     recipient_wallet: wallet_account_1.clone(),
@@ -643,9 +639,10 @@ mod tests {
         System::current().stop();
         system.run();
         let after = SystemTime::now();
-        let send_transaction_params = send_transaction_params_arc.lock().unwrap();
+        let send_payables_within_batch_params =
+            send_payables_within_batch_params_arc.lock().unwrap();
         assert_eq!(
-            *send_transaction_params,
+            *send_payables_within_batch_params,
             vec![(
                 consuming_wallet.clone(),
                 expected_gas_price,
@@ -655,9 +652,9 @@ mod tests {
         );
         let get_transaction_count_params = get_transaction_count_params_arc.lock().unwrap();
         assert_eq!(*get_transaction_count_params, vec![consuming_wallet]);
-        let accountant_received_payment = accountant_recording_arc.lock().unwrap();
-        assert_eq!(accountant_received_payment.len(), 1);
-        let sent_payments_msg = accountant_received_payment.get_record::<SentPayable>(0);
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_recording.len(), 1);
+        let sent_payments_msg = accountant_recording.get_record::<SentPayable>(0);
         check_timestamp(before, sent_payments_msg.timestamp, after);
         assert_eq!(
             *sent_payments_msg,

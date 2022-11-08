@@ -21,7 +21,7 @@ use crate::database::dao_utils;
 use crate::database::dao_utils::{from_time_t, to_time_t};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
-use crate::sub_lib::accountant::{AccountantConfig, PaymentThresholds};
+use crate::sub_lib::accountant::{AccountantConfig, MessageIdGenerator, PaymentThresholds};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
@@ -349,7 +349,7 @@ impl PayableDaoMock {
         PayableDaoMock::default()
     }
 
-    pub fn more_money_payable_parameters(
+    pub fn more_money_payable_params(
         mut self,
         parameters: Arc<Mutex<Vec<(SystemTime, Wallet, u64)>>>,
     ) -> Self {
@@ -841,6 +841,24 @@ pub fn make_pending_payable_fingerprint() -> PendingPayableFingerprint {
         attempt: 1,
         amount: 12345,
         process_error: None,
+    }
+}
+
+#[derive(Default)]
+pub struct MessageIdGeneratorMock {
+    ids: RefCell<Vec<u32>>,
+}
+
+impl MessageIdGenerator for MessageIdGeneratorMock {
+    fn id(&self) -> u32 {
+        self.ids.borrow_mut().remove(0)
+    }
+}
+
+impl MessageIdGeneratorMock {
+    pub fn id_result(self, id: u32) -> Self {
+        self.ids.borrow_mut().push(id);
+        self
     }
 }
 

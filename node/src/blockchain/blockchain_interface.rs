@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
-use crate::blockchain::blockchain_bridge::ReportNewPendingPayableFingerprints;
+use crate::blockchain::blockchain_bridge::NewPendingPayableFingerprints;
 use crate::blockchain::blockchain_interface::BlockchainError::{
     InvalidAddress, InvalidResponse, InvalidUrl, PayableTransactionFailed, QueryFailed,
     SignedValueConversion,
@@ -12,16 +12,15 @@ use actix::{Message, Recipient};
 use futures::{future, Future};
 use itertools::Either::{Left, Right};
 use itertools::Itertools;
-use jsonrpc_core as rpc;
 use masq_lib::blockchains::chains::{Chain, ChainFamily};
 use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::logger::Logger;
 use masq_lib::utils::{plus, ExpectValue};
+use serde_json::Value;
 use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
-use std::time::SystemTime;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{
@@ -84,10 +83,7 @@ impl Display for BlockchainError {
             match hashes_opt {
                 Some(hashes) => format!(
                     "With fully prepared transactions, each registered. Those are: {}.",
-                    hashes
-                        .into_iter()
-                        .map(|hash| format!("{:?}", hash))
-                        .join(", ")
+                    hashes.iter().map(|hash| format!("{:?}", hash)).join(", ")
                 ),
                 None => "With no transactions in the state of readiness, none hashed.".to_string(),
             }
@@ -139,7 +135,7 @@ pub trait BlockchainInterface<T: Transport = Http> {
         consuming_wallet: &Wallet,
         gas_price: u64,
         last_nonce: U256,
-        fingerprint_recipient: &Recipient<ReportNewPendingPayableFingerprints>,
+        fingerprint_recipient: &Recipient<NewPendingPayableFingerprints>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, BlockchainError>;
 
@@ -200,7 +196,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         _consuming_wallet: &Wallet,
         _gas_price: u64,
         _last_nonce: U256,
-        _fingerprint_recipient: &Recipient<ReportNewPendingPayableFingerprints>,
+        _fingerprint_recipient: &Recipient<NewPendingPayableFingerprints>,
         _accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, BlockchainError> {
         error!(self.logger, "Can't send transactions out clandestinely yet",);
@@ -351,7 +347,7 @@ where
         consuming_wallet: &Wallet,
         gas_price: u64,
         last_nonce_on_the_blockchain: U256,
-        fingerprint_recipient: &Recipient<ReportNewPendingPayableFingerprints>,
+        fingerprint_recipient: &Recipient<NewPendingPayableFingerprints>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, BlockchainError> {
         let init: (HashAndAmountResult, Option<U256>) =
@@ -389,7 +385,7 @@ where
             );
 
         self.logger
-            .info(|| self.transmission_log(&accounts, gas_price));
+            .info(|| self.transmission_log(accounts, gas_price));
 
         match self.batch_payable_tools.submit_batch(&self.batch_web3) {
             Ok(responses) => Ok(Self::output_by_joining_sources(
@@ -510,14 +506,14 @@ where
     }
 
     fn output_by_joining_sources(
-        results: Vec<web3::transports::Result<rpc::Value>>,
+        results: Vec<web3::transports::Result<Value>>,
         fingerprint_inputs: Vec<(H256, u64)>,
         accounts: &[PayableAccount],
     ) -> Vec<ProcessedPayableFallible> {
         let iterator_with_all_data = results
             .into_iter()
             .zip(fingerprint_inputs.into_iter())
-            .zip(accounts.into_iter());
+            .zip(accounts.iter());
         iterator_with_all_data
             .map(|((rpc_result, (hash, _)), account)| match rpc_result {
                 Ok(_) => ProcessedPayableFallible::Correct(PendingPayable {
@@ -726,7 +722,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
-    use std::time::{Duration, Instant};
+    use std::time::{Duration, Instant, SystemTime};
     use web3::transports::Http;
     use web3::types::H2048;
     use web3::Error as Web3Error;
@@ -1286,7 +1282,7 @@ mod tests {
             .send_batch_result(expected_batch_responses);
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let actor_addr = accountant.start();
-        let fingerprint_recipient = recipient!(actor_addr, ReportNewPendingPayableFingerprints);
+        let fingerprint_recipient = recipient!(actor_addr, NewPendingPayableFingerprints);
         let logger = Logger::new("sending_batch_payments");
         let mut subject = BlockchainInterfaceNonClandestine::new(
             transport.clone(),
@@ -1422,7 +1418,7 @@ mod tests {
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 1);
         let initiate_fingerprints_msg =
-            accountant_recording.get_record::<ReportNewPendingPayableFingerprints>(0);
+            accountant_recording.get_record::<NewPendingPayableFingerprints>(0);
         let actual_common_timestamp = initiate_fingerprints_msg.batch_wide_timestamp;
         assert!(
             test_timestamp_before <= actual_common_timestamp
@@ -1430,7 +1426,7 @@ mod tests {
         );
         assert_eq!(
             initiate_fingerprints_msg,
-            &ReportNewPendingPayableFingerprints {
+            &NewPendingPayableFingerprints {
                 batch_wide_timestamp: actual_common_timestamp,
                 init_params: vec![
                     (
@@ -1490,7 +1486,6 @@ mod tests {
 
     #[test]
     fn non_clandestine_interface_send_payables_in_batch_components_are_used_together_properly() {
-        //a bit higher functionalities are mocked here, enabling params assertions on larger units
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let enter_raw_transaction_to_batch_params_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1552,12 +1547,8 @@ mod tests {
         let nonce = U256::from(4);
         //technically, the jason value at positive responses doesn't matter, we only check the result and take errors if any came back
         let rpc_responses = vec![
-            Ok(jsonrpc_core::Value::String(
-                (&first_hash.to_string()[2..]).to_string(),
-            )),
-            Ok(jsonrpc_core::Value::String(
-                (&second_hash.to_string()[2..]).to_string(),
-            )),
+            Ok(Value::String((&first_hash.to_string()[2..]).to_string())),
+            Ok(Value::String((&second_hash.to_string()[2..]).to_string())),
         ];
         let batch_payables_tools = BatchPayableToolsMock::default()
             .sign_transaction_params(&sign_transaction_params_arc)
@@ -1595,11 +1586,11 @@ mod tests {
         );
 
         let first_resulting_pending_payable = PendingPayable {
-            recipient_wallet: first_creditor_wallet,
+            recipient_wallet: first_creditor_wallet.clone(),
             hash: first_hash,
         };
         let second_resulting_pending_payable = PendingPayable {
-            recipient_wallet: second_creditor_wallet,
+            recipient_wallet: second_creditor_wallet.clone(),
             hash: second_hash,
         };
         assert_eq!(
@@ -1624,9 +1615,10 @@ mod tests {
             (&Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret.keccak256()).unwrap())
                 .into()
         );
-        let (second_transaction_params, web3, secret) = sign_transaction_params.remove(0);
+        let (second_transaction_params, web3_from_st_call, secret) =
+            sign_transaction_params.remove(0);
         assert_eq!(second_transaction_params, second_tx_parameters);
-        check_web3_origin(&web3);
+        check_web3_origin(&web3_from_st_call);
         assert_eq!(
             secret,
             (&Bip32ECKeyProvider::from_raw_secret(&consuming_wallet_secret.keccak256()).unwrap())
@@ -1644,13 +1636,30 @@ mod tests {
                 (second_hash, second_payment_amount as u64)
             ]
         );
+        let mut enter_raw_transaction_to_batch_params =
+            enter_raw_transaction_to_batch_params_arc.lock().unwrap();
+        let (bytes_first_payment, web3_from_ertb_call_1) =
+            enter_raw_transaction_to_batch_params.remove(0);
+        check_web3_origin(&web3_from_ertb_call_1);
+        assert_eq!(
+            bytes_first_payment,
+            first_signed_transaction.raw_transaction
+        );
+        let (bytes_second_payment, web3_from_ertb_call_2) =
+            enter_raw_transaction_to_batch_params.remove(0);
+        check_web3_origin(&web3_from_ertb_call_2);
+        assert_eq!(
+            bytes_second_payment,
+            second_signed_transaction.raw_transaction
+        );
+        assert_eq!(enter_raw_transaction_to_batch_params.len(), 0);
         let submit_batch_params = submit_batch_params_arc.lock().unwrap();
-        let web3 = &submit_batch_params[0];
+        let web3_from_sb_call = &submit_batch_params[0];
         assert_eq!(submit_batch_params.len(), 1);
-        check_web3_origin(&web3);
+        check_web3_origin(&web3_from_sb_call);
         assert!(accountant_recording_arc.lock().unwrap().is_empty());
         let system = System::new("non_clandestine_interface_send_payables_in_batch_components_are_used_together_properly");
-        let probe_message = ReportNewPendingPayableFingerprints {
+        let probe_message = NewPendingPayableFingerprints {
             batch_wide_timestamp: SystemTime::now(),
             init_params: vec![],
         };
@@ -2229,12 +2238,10 @@ mod tests {
     #[test]
     fn blockchain_interface_non_clandestine_can_fetch_transaction_receipt() {
         let port = find_free_port();
-        thread::spawn(move || {
-            Server::new(|_req, mut rsp| {
-                Ok(rsp.body(br#"{"jsonrpc":"2.0","id":2,"result":{"transactionHash":"0xa128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e","blockHash":"0x6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18","blockNumber":"0xb0328d","contractAddress":null,"cumulativeGasUsed":"0x60ef","effectiveGasPrice":"0x22ecb25c00","from":"0x7424d05b59647119b01ff81e2d3987b6c358bf9c","gasUsed":"0x60ef","logs":[],"logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000","status":"0x0","to":"0x384dec25e03f94931767ce4c3556168468ba24c3","transactionIndex":"0x0","type":"0x0"}}"#.to_vec())?)
-            })
-                .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
-        });
+        let _test_server = TestServer::start (port, vec![
+            br#"{"jsonrpc":"2.0","id":2,"result":{"transactionHash":"0xa128f9ca1e705cc20a936a24a7fa1df73bad6e0aaf58e8e6ffcc154a7cff6e0e","blockHash":"0x6d0abccae617442c26104c2bc63d1bc05e1e002e555aec4ab62a46e826b18f18","blockNumber":"0xb0328d","contractAddress":null,"cumulativeGasUsed":"0x60ef","effectiveGasPrice":"0x22ecb25c00","from":"0x7424d05b59647119b01ff81e2d3987b6c358bf9c","gasUsed":"0x60ef","logs":[],"logsBloom":"0x00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000000000000000000000000000000080000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000800000000000000000000000000000000000","status":"0x0","to":"0x384dec25e03f94931767ce4c3556168468ba24c3","transactionIndex":"0x0","type":"0x0"}}"#
+                .to_vec()
+        ]);
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
             REQUESTS_IN_PARALLEL,

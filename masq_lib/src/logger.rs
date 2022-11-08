@@ -16,8 +16,13 @@ use log::Metadata;
 #[allow(unused_imports)]
 use log::Record;
 use std::sync::Mutex;
+use std::{io, thread};
+use time::format_description::parse;
+use time::OffsetDateTime;
 
 const UI_MESSAGE_LOG_LEVEL: Level = Level::Info;
+const TIME_FORMATTING_STRING: &str =
+    "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]";
 
 lazy_static! {
     pub static ref LOG_RECIPIENT_OPT: Mutex<Option<Recipient<NodeToUiMessage>>> = Mutex::new(None);
@@ -217,6 +222,25 @@ impl From<Level> for SerializableLogLevel {
     }
 }
 
+pub fn real_format_function(
+    write: &mut dyn io::Write,
+    timestamp: OffsetDateTime,
+    record: &Record,
+) -> Result<(), io::Error> {
+    let timestamp = timestamp
+        .format(&parse(TIME_FORMATTING_STRING).expect("Unable to parse the formatting type."))
+        .expect("Unable to format date and time.");
+    let thread_id_str = format!("{:?}", thread::current().id());
+    let thread_id = &thread_id_str[9..(thread_id_str.len() - 1)];
+    let level = record.level();
+    let name = record.module_path().unwrap_or("<unnamed>");
+    write.write_fmt(format_args!(
+        "{} Thd{}: {}: {}: ",
+        timestamp, thread_id, level, name
+    ))?;
+    write.write_fmt(*record.args())
+}
+
 #[cfg(feature = "log_recipient_test")]
 lazy_static! {
     pub static ref INITIALIZATION_COUNTER: Mutex<MutexIncrementInset> =
@@ -239,7 +263,7 @@ impl Logger {
         level <= self.level_limit
     }
 
-    pub fn set_level_for_a_test(&mut self, level: Level) {
+    pub fn set_level_for_test(&mut self, level: Level) {
         self.level_limit = level
     }
 }
@@ -257,14 +281,14 @@ mod tests {
     use crate::test_utils::logging::TestLogHandler;
     use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
     use actix::{Actor, AsyncContext, Context, Handler, Message, System};
-    use chrono::format::StrftimeItems;
-    use chrono::{DateTime, Local};
     use crossbeam_channel::{unbounded, Sender};
     use std::panic::{catch_unwind, AssertUnwindSafe};
-    use std::sync::{Arc, Barrier, Mutex, MutexGuard};
+    use std::sync::{Arc, Mutex, MutexGuard};
     use std::thread;
     use std::thread::{JoinHandle, ThreadId};
     use std::time::{Duration, SystemTime};
+    use time::format_description::parse;
+    use time::OffsetDateTime;
 
     struct TestUiGateway {
         received_messages: Arc<Mutex<Vec<NodeToUiMessage>>>,
@@ -313,33 +337,20 @@ mod tests {
         }
     }
 
-    #[derive(Message)]
-    struct DoAllAtOnce {
-        vec_container_arc: Arc<Mutex<Option<Vec<JoinHandle<()>>>>>,
+    fn overloading_function<C>(
+        closure: C,
+        join_handles_container: &mut Vec<JoinHandle<()>>,
         factor: usize,
-    }
-
-    impl Handler<DoAllAtOnce> for TestUiGateway {
-        type Result = ();
-
-        fn handle(&mut self, msg: DoAllAtOnce, _ctx: &mut Self::Context) -> Self::Result {
-            overloading_function(send_message_to_recipient, msg)
-        }
-    }
-
-    fn overloading_function<C>(closure: C, msg: DoAllAtOnce)
-    where
+    ) where
         C: Fn() + Send + 'static + Clone,
     {
-        let mut join_handles_container_opt = msg.vec_container_arc.lock().unwrap();
-        let join_handles_container = join_handles_container_opt.as_mut().unwrap();
-        let barrier_arc = Arc::new(Barrier::new(msg.factor));
-        (0..msg.factor).for_each(|_| {
-            let barrier_arc_clone = Arc::clone(&barrier_arc);
+        (0..factor).for_each(|_| {
             let closure_clone = closure.clone();
             join_handles_container.push(thread::spawn(move || {
-                barrier_arc_clone.wait();
-                (0..msg.factor).for_each(|_| closure_clone())
+                (0..factor).for_each(|_| {
+                    thread::sleep(Duration::from_millis(10));
+                    closure_clone()
+                })
             }))
         });
     }
@@ -356,16 +367,20 @@ mod tests {
     }
 
     fn send_message_to_recipient() {
-        let recipient = LOG_RECIPIENT_OPT.lock().unwrap();
-        recipient.as_ref().unwrap().try_send(create_msg()).unwrap()
+        let recipient = LOG_RECIPIENT_OPT
+            .lock()
+            .expect("SMTR: failed to lock LOG_RECIPIENT_OPT");
+        recipient
+            .as_ref()
+            .expect("SMTR: failed to get ref for recipient")
+            .try_send(create_msg())
+            .expect("SMTR: failed to send message")
     }
 
-    fn see_about_join_handles(container: &mut MutexGuard<Option<Vec<JoinHandle<()>>>>) {
+    fn see_about_join_handles(container: Vec<JoinHandle<()>>) {
         container
-            .take()
-            .unwrap()
             .into_iter()
-            .for_each(|handle| handle.join().unwrap());
+            .for_each(|handle| handle.join().unwrap())
     }
 
     lazy_static! {
@@ -374,7 +389,9 @@ mod tests {
 
     #[test]
     fn transmit_log_handles_overloading_by_sending_msgs_from_multiple_threads() {
-        let _test_guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
+        let _test_guard = TEST_LOG_RECIPIENT_GUARD
+            .lock()
+            .expect("Unable to lock TEST_LOG_RECIPIENT_GUARD");
         let msgs_in_total = 10000;
         let factor = match f64::sqrt(msgs_in_total as f64) {
             x if x.fract() == 0.0 => x as usize,
@@ -384,10 +401,10 @@ mod tests {
         //to send the given number of messages, in this case using a crossbeam channel.
         //The outcome is going to be a template in the final assertion where we want to check
         //an efficiency of the overloaded actix recipient combined with a mutex
-        let container_for_join_handles = Arc::new(Mutex::new(Some(Vec::new())));
+        let mut container_for_join_handles = Vec::new();
         let (tx, rx) = unbounded();
         {
-            SENDER.lock().unwrap().replace(tx);
+            SENDER.lock().expect("Unable to lock SENDER").replace(tx);
         }
         let (template_before, template_after) = {
             let before = SystemTime::now();
@@ -401,14 +418,13 @@ mod tests {
                         .send(create_msg())
                         .unwrap();
                 },
-                DoAllAtOnce {
-                    vec_container_arc: container_for_join_handles.clone(),
-                    factor,
-                },
+                &mut container_for_join_handles,
+                factor,
             );
+
             let mut counter = 0;
             loop {
-                rx.recv().unwrap();
+                rx.recv().expect("Unable to call recv() on rx");
                 counter += 1;
                 if counter == msgs_in_total {
                     break;
@@ -417,26 +433,28 @@ mod tests {
             let after = SystemTime::now();
             (before, after)
         };
-        let mut open_container_for_join_handles = container_for_join_handles.lock().unwrap();
-        see_about_join_handles(&mut open_container_for_join_handles);
-        open_container_for_join_handles.replace(Vec::new());
-        drop(open_container_for_join_handles);
-        let time_example_of_similar_labour =
-            template_after.duration_since(template_before).unwrap();
+        see_about_join_handles(container_for_join_handles);
+        let mut container_for_join_handles = vec![];
+        let time_example_of_similar_labour = template_after
+            .duration_since(template_before)
+            .expect("Unable to unwrap the duration_sice for template after");
         let recording_arc = Arc::new(Mutex::new(vec![]));
         let fake_ui_gateway = TestUiGateway::new(msgs_in_total, &recording_arc);
         let system = System::new("test_system");
         let addr = fake_ui_gateway.start();
         let recipient = addr.clone().recipient();
         {
-            LOG_RECIPIENT_OPT.lock().unwrap().replace(recipient);
+            LOG_RECIPIENT_OPT
+                .lock()
+                .expect("Unable to lock LOG_RECIPIENT_OPT")
+                .replace(recipient);
         }
 
-        addr.try_send(DoAllAtOnce {
-            vec_container_arc: container_for_join_handles.clone(),
+        overloading_function(
+            send_message_to_recipient,
+            &mut container_for_join_handles,
             factor,
-        })
-        .unwrap();
+        );
 
         let (actual_start, actual_end) = {
             let start = SystemTime::now();
@@ -444,12 +462,13 @@ mod tests {
             let end = SystemTime::now();
             (start, end)
         };
-        let mut open_container_for_join_handles = container_for_join_handles.lock().unwrap();
-        see_about_join_handles(&mut open_container_for_join_handles);
+        see_about_join_handles(container_for_join_handles);
         //we have now two samples and can go to compare them
-        let recording = recording_arc.lock().unwrap();
+        let recording = recording_arc.lock().expect("Unable to lock recording arc");
         assert_eq!(recording.len(), msgs_in_total);
-        let measured = actual_end.duration_since(actual_start).unwrap();
+        let measured = actual_end
+            .duration_since(actual_start)
+            .expect("Unable to run duration_since on actual_end");
         let safe_estimation = (time_example_of_similar_labour / 2) * 5;
         eprintln!("measured {:?}, template {:?}", measured, safe_estimation);
         //a flexible requirement that should pass on a slow machine as well
@@ -457,8 +476,13 @@ mod tests {
     }
 
     fn prepare_test_environment<'a>() -> MutexGuard<'a, ()> {
-        let guard = TEST_LOG_RECIPIENT_GUARD.lock().unwrap();
-        LOG_RECIPIENT_OPT.lock().unwrap().take();
+        let guard = TEST_LOG_RECIPIENT_GUARD
+            .lock()
+            .expect("Unable to lock TEST_LOG_RECIPIENT_GUARD");
+        LOG_RECIPIENT_OPT
+            .lock()
+            .expect("Unable to lock LOG_RECIPIENT_OPT")
+            .take();
         guard
     }
 
@@ -662,10 +686,10 @@ mod tests {
         let one_logger = Logger::new("logger_format_is_correct_one");
         let another_logger = Logger::new("logger_format_is_correct_another");
 
-        let before = SystemTime::now();
+        let before = OffsetDateTime::now_utc();
         error!(one_logger, "one log");
         error!(another_logger, "another log");
-        let after = SystemTime::now();
+        let after = OffsetDateTime::now_utc();
 
         let tlh = TestLogHandler::new();
         let prefix_len = "0000-00-00T00:00:00.000".len();
@@ -678,8 +702,8 @@ mod tests {
             " Thd{}: ERROR: logger_format_is_correct_another: another log",
             thread_id_as_string(thread_id)
         )));
-        let before_str = timestamp_as_string(&before);
-        let after_str = timestamp_as_string(&after);
+        let before_str = timestamp_as_string(before);
+        let after_str = timestamp_as_string(after);
         assert_between(&one_log[..prefix_len], &before_str, &after_str);
         assert_between(&another_log[..prefix_len], &before_str, &after_str);
     }
@@ -848,10 +872,10 @@ mod tests {
         tlh.exists_log_containing("error! 42");
     }
 
-    fn timestamp_as_string(timestamp: &SystemTime) -> String {
-        let date_time: DateTime<Local> = DateTime::from(timestamp.clone());
-        let fmt = StrftimeItems::new("%Y-%m-%dT%H:%M:%S%.3f");
-        date_time.format_with_items(fmt).to_string()
+    fn timestamp_as_string(timestamp: OffsetDateTime) -> String {
+        timestamp
+            .format(&parse(TIME_FORMATTING_STRING).unwrap())
+            .unwrap()
     }
 
     fn thread_id_as_string(thread_id: ThreadId) -> String {
@@ -861,17 +885,9 @@ mod tests {
 
     fn assert_between(candidate: &str, before: &str, after: &str) {
         assert_eq!(
-            candidate >= before,
+            candidate >= before && candidate <= after,
             true,
-            "{} is before the interval {} - {}",
-            candidate,
-            before,
-            after,
-        );
-        assert_eq!(
-            candidate <= after,
-            true,
-            "{} is after the interval {} - {}",
+            "{} is outside the interval {} - {}",
             candidate,
             before,
             after,

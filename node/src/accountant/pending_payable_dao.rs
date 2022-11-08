@@ -54,7 +54,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             .flatten()
             .collect::<HashMap<H256, i64>>();
         hashes
-            .into_iter()
+            .iter()
             .map(|hash| {
                 (
                     all_found_records

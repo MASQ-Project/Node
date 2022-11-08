@@ -14,14 +14,15 @@ use flexi_logger::{
 use futures::try_ready;
 use lazy_static::lazy_static;
 use masq_lib::command::StdStreams;
+use masq_lib::logger::real_format_function;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
-use masq_lib::test_utils::utils::real_format_function;
 use std::any::Any;
 use std::io;
 use std::panic::{Location, PanicInfo};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
+use time::OffsetDateTime;
 use tokio::prelude::{Async, Future};
 
 pub struct ServerInitializerReal {
@@ -265,10 +266,10 @@ fn panic_hook(panic_info: AltPanicInfo) {
 // DeferredNow can't be constructed in a test; therefore this function is untestable.
 fn format_function(
     write: &mut dyn io::Write,
-    now: &mut DeferredNow,
+    _now: &mut DeferredNow,
     record: &Record,
 ) -> Result<(), io::Error> {
-    real_format_function(write, now.now(), record)
+    real_format_function(write, OffsetDateTime::now_utc(), record)
 }
 
 #[cfg(test)]

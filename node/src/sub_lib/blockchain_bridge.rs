@@ -2,15 +2,15 @@
 
 use crate::accountant::payable_dao::PayableAccount;
 use crate::accountant::{RequestTransactionReceipts, ResponseSkeleton, SkeletonOptHolder};
-use crate::blockchain::blockchain_bridge::ReportNewPendingPayableFingerprints;
+use crate::blockchain::blockchain_bridge::NewPendingPayableFingerprints;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::sub_lib::peer_actors::BindMessage;
 use actix::Message;
 use actix::Recipient;
 use ethereum_types::H256;
-use jsonrpc_core as rpc;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
+use serde_json::Value;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
 use std::marker::PhantomData;
@@ -82,13 +82,13 @@ where
     fn send_new_payable_fingerprints_credentials(
         &self,
         batch_wide_timestamp: SystemTime,
-        pp_fingerprint_sub: &Recipient<ReportNewPendingPayableFingerprints>,
+        pp_fingerprint_sub: &Recipient<NewPendingPayableFingerprints>,
         payable_attributes: &[(H256, u64)],
     );
     fn submit_batch(
         &self,
         web3: &Web3<Batch<T>>,
-    ) -> Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error>;
+    ) -> Result<Vec<web3::transports::Result<Value>>, Web3Error>;
     //calls internally 'send_batch()' that takes more parameters
 }
 
@@ -128,11 +128,11 @@ impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T
     fn send_new_payable_fingerprints_credentials(
         &self,
         batch_wide_timestamp: SystemTime,
-        pp_fingerprint_sub: &Recipient<ReportNewPendingPayableFingerprints>,
+        pp_fingerprint_sub: &Recipient<NewPendingPayableFingerprints>,
         chief_payable_attributes: &[(H256, u64)],
     ) {
         pp_fingerprint_sub
-            .try_send(ReportNewPendingPayableFingerprints {
+            .try_send(NewPendingPayableFingerprints {
                 batch_wide_timestamp,
                 init_params: chief_payable_attributes.to_vec(),
             })
@@ -142,14 +142,14 @@ impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T
     fn submit_batch(
         &self,
         web3: &Web3<Batch<T>>,
-    ) -> Result<Vec<web3::transports::Result<rpc::Value>>, Web3Error> {
+    ) -> Result<Vec<web3::transports::Result<Value>>, Web3Error> {
         web3.transport().submit_batch().wait()
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use crate::blockchain::blockchain_bridge::ReportNewPendingPayableFingerprints;
+    use crate::blockchain::blockchain_bridge::NewPendingPayableFingerprints;
     use crate::blockchain::test_utils::{make_tx_hash, TestTransport};
     use crate::sub_lib::blockchain_bridge::{BatchPayableTools, BatchPayableToolsReal};
     use crate::test_utils::recorder::{make_blockchain_bridge_subs_from, make_recorder, Recorder};
@@ -175,10 +175,10 @@ mod tests {
         System::current().stop();
         assert_eq!(system.run(), 0);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let message = accountant_recording.get_record::<ReportNewPendingPayableFingerprints>(0);
+        let message = accountant_recording.get_record::<NewPendingPayableFingerprints>(0);
         assert_eq!(
             message,
-            &ReportNewPendingPayableFingerprints {
+            &NewPendingPayableFingerprints {
                 batch_wide_timestamp: timestamp,
                 init_params: chief_attributes_of_payables
             }

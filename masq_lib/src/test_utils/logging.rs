@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::logger::real_format_function;
 use crate::test_utils::fake_stream_holder::ByteArrayWriter;
-use crate::test_utils::utils::{real_format_function, to_millis};
-use chrono::DateTime;
+use crate::test_utils::utils::to_millis;
 use lazy_static::lazy_static;
 use log::set_logger;
 use log::Log;
@@ -11,14 +11,14 @@ use regex::Regex;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
+use std::time::Duration;
 use std::time::Instant;
-use std::time::{Duration, SystemTime};
+use time::OffsetDateTime;
 
 lazy_static! {
     static ref TEST_LOGS_ARC: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(vec![]));
 }
 
-// static mut TEST_LOGS_ARC: Option<Arc<Mutex<Vec<String>>>> = None;
 static TEST_LOGGER: TestLogger = TestLogger {};
 
 #[derive(Default)]
@@ -246,8 +246,8 @@ impl Log for TestLogger {
 
     fn log(&self, record: &Record<'_>) {
         let mut buffer = ByteArrayWriter::new();
-        let now = DateTime::from(SystemTime::now());
-        real_format_function(&mut buffer, &now, record).unwrap();
+        let now = OffsetDateTime::now_utc();
+        real_format_function(&mut buffer, now, record).unwrap();
         TestLogHandler::new().add_log(buffer.get_string());
     }
 
