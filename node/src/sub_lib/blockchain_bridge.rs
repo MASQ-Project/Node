@@ -89,7 +89,6 @@ where
         &self,
         web3: &Web3<Batch<T>>,
     ) -> Result<Vec<web3::transports::Result<Value>>, Web3Error>;
-    //calls internally 'send_batch()' that takes more parameters
 }
 
 #[derive(Debug)]

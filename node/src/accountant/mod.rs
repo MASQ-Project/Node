@@ -113,8 +113,7 @@ pub struct ReceivedPayments {
 
 #[derive(Debug, Message, PartialEq)]
 pub struct SentPayable {
-    pub timestamp: SystemTime,
-    pub payable_outcomes: Result<Vec<ProcessedPayableFallible>, BlockchainError>,
+    pub payment_outcome: Result<Vec<ProcessedPayableFallible>, BlockchainError>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -833,7 +832,7 @@ impl Accountant {
                 .collect::<Vec<H256>>();
             warning!(
                 self.logger,
-                "Throwing out failed transactions {} but with a missing record",
+                "Throwing out failed transactions {} with missing records",
                 serialized_hashes(&hashes_of_nonexistent),
             )
         }
@@ -843,7 +842,7 @@ impl Accountant {
                 .into_iter()
                 .map(|(ever_some_rowid, hash)| (ever_some_rowid.expectv("validated rowid"), hash))
                 .unzip();
-            debug!(
+            warning!(
                 self.logger,
                 "Deleting existing fingerprints for failed transactions {}",
                 serialized_hashes(&hashes)
@@ -1010,7 +1009,7 @@ impl Accountant {
         sent_payables: &'a SentPayable,
         logger: &'b Logger,
     ) -> (Vec<&'a PendingPayable>, Option<PayableTransactingErrorEnum>) {
-        match &sent_payables.payable_outcomes {
+        match &sent_payables.payment_outcome {
             Ok(individual_batch_responses) => {
                 if individual_batch_responses.is_empty() {
                     panic!("Broken code: An empty vector of processed payments claiming to be an Ok value")
@@ -1022,7 +1021,11 @@ impl Accountant {
                 (oks, errs_opt)
             }
             Err(e) => {
-                warning!(logger, "Catching local error: {}", e);
+                warning!(
+                    logger,
+                    "Registered a failed process to be screened for persisted data after: {}",
+                    e
+                );
 
                 (vec![], Some(LocallyCausedError(e.clone())))
             }
@@ -1875,8 +1878,7 @@ mod tests {
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let sent_payable = SentPayable {
-            timestamp: SystemTime::now(),
-            payable_outcomes: Ok(vec![Correct(PendingPayable {
+            payment_outcome: Ok(vec![Correct(PendingPayable {
                 recipient_wallet: make_wallet("blah"),
                 hash: Default::default(),
             })]),
@@ -2030,8 +2032,7 @@ mod tests {
             .build();
         let expected_payable = PendingPayable::new(expected_wallet.clone(), expected_hash.clone());
         let sent_payable = SentPayable {
-            timestamp: SystemTime::now(),
-            payable_outcomes: Ok(vec![Correct(expected_payable.clone())]),
+            payment_outcome: Ok(vec![Correct(expected_payable.clone())]),
             response_skeleton_opt: None,
         };
         let subject = accountant.start();
@@ -2065,8 +2066,7 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let sent_payable = SentPayable {
-            timestamp: SystemTime::now(),
-            payable_outcomes: Err(BlockchainError::PayableTransactionFailed {
+            payment_outcome: Err(BlockchainError::PayableTransactionFailed {
                 msg: "SQLite migraine".to_string(),
                 signed_and_saved_txs_opt: Some(vec![hash_1, hash_2, hash_3]),
             }),
@@ -2086,14 +2086,14 @@ mod tests {
             hash_1
         ));
         log_handler.exists_log_containing(
-            "WARN: Accountant: Catching local error: Blockchain error: \
-             Processing batch requests: SQLite migraine. With fully prepared transactions, \
-              each registered. Those are: 0x000000000000000000000000000000000000000000000000000000000001b669, \
+            "WARN: Accountant: Registered a failed process to be screened for persisted data after: \
+             Blockchain error: Processing batch requests: SQLite migraine. With fully prepared transactions, each registered. Those are: \
+               0x000000000000000000000000000000000000000000000000000000000001b669, \
               0x0000000000000000000000000000000000000000000000000000000000003039, \
                0x000000000000000000000000000000000000000000000000000000000000223d.");
         log_handler.exists_log_containing(
             "WARN: Accountant: Throwing out failed transactions 0x0000000000000000000000000000000000000000000000000000000000003039, \
-             0x000000000000000000000000000000000000000000000000000000000000223d but with a missing record",
+             0x000000000000000000000000000000000000000000000000000000000000223d with missing records",
         );
     }
 
@@ -2122,8 +2122,7 @@ mod tests {
             .build();
         subject.logger = Logger::new("handle_sent_payable_discovers_failed_transactions_and_pending_payable_fingerprints_were_really_created");
         let sent_payable = SentPayable {
-            timestamp: SystemTime::now(),
-            payable_outcomes: Err(BlockchainError::PayableTransactionFailed {
+            payment_outcome: Err(BlockchainError::PayableTransactionFailed {
                 msg: "Attempt failed".to_string(),
                 signed_and_saved_txs_opt: Some(vec![hash_tx_1, hash_tx_2]),
             }),
@@ -2152,10 +2151,10 @@ mod tests {
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing("WARN: handle_sent_payable_discovers_failed_transactions_and_pending_payable_fingerprints_were_really_created: \
-         Catching local error: Blockchain error: Processing batch requests: Attempt failed. With fully prepared transactions, each registered. Those are: \
+         Registered a failed process to be screened for persisted data after: Blockchain error: Processing batch requests: Attempt failed. With fully prepared transactions, each registered. Those are: \
            0x00000000000000000000000000000000000000000000000000000000000015b3, 0x0000000000000000000000000000000000000000000000000000000000003039.");
         log_handler.exists_log_containing(
-            "DEBUG: handle_sent_payable_discovers_failed_transactions_and_pending_payable_fingerprints_were_really_created: \
+            "WARN: handle_sent_payable_discovers_failed_transactions_and_pending_payable_fingerprints_were_really_created: \
             Deleting existing fingerprints for failed transactions 0x00000000000000000000000000000000000000000000000000000000000015b3, \
             0x0000000000000000000000000000000000000000000000000000000000003039",
         );
@@ -2170,8 +2169,7 @@ mod tests {
         let system = System::new("handle_sent_payable_receives_ok_results_with_an_empty_vector");
         let subject = AccountantBuilder::default().build();
         let sent_payable = SentPayable {
-            timestamp: SystemTime::now(),
-            payable_outcomes: Ok(vec![]),
+            payment_outcome: Ok(vec![]),
             response_skeleton_opt: None,
         };
         let subject_addr = subject.start();
@@ -2210,7 +2208,7 @@ mod tests {
         assert_eq!(panic_message, "Database corrupt: payable fingerprint deletion for transactions 0x000000000000000000000000000000000000000000000000000000000000b26e has stayed \
         undone due to RecordDeletion(\"Another failure. Really ???\")");
         TestLogHandler::new().exists_log_containing("WARN: discard_failed_transactions_with_possible_fingerprints_logs_missing_rowids_then_hits_panic_at_fingerprint_deletion: \
-        Throwing out failed transactions 0x00000000000000000000000000000000000000000000000000000000000004d2 but with a missing record");
+        Throwing out failed transactions 0x00000000000000000000000000000000000000000000000000000000000004d2 with missing records");
     }
 
     #[test]
@@ -3793,8 +3791,7 @@ mod tests {
         let rowid_2 = 6;
         let hash_2 = make_tx_hash(789);
         let sent_payable = SentPayable {
-            timestamp: SystemTime::now(),
-            payable_outcomes: Err(BlockchainError::PayableTransactionFailed {
+            payment_outcome: Err(BlockchainError::PayableTransactionFailed {
                 msg: "blah".to_string(),
                 signed_and_saved_txs_opt: Some(vec![hash_1, hash_2]),
             }),
@@ -3819,7 +3816,6 @@ mod tests {
         let fingerprints_rowids_params_arc = Arc::new(Mutex::new(vec![]));
         let mark_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
         let delete_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
-        let now_system = SystemTime::now();
         let payable_hash_1 = make_tx_hash(111);
         let payable_rowid_1 = 125;
         let wallet_1 = make_wallet("tralala");
@@ -3857,8 +3853,7 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let sent_payable = SentPayable {
-            timestamp: now_system,
-            payable_outcomes: Ok(vec![
+            payment_outcome: Ok(vec![
                 Correct(pending_payable_1),
                 Failure(error_payable_2),
                 Correct(pending_payable_3),
@@ -3896,15 +3891,14 @@ mod tests {
            Please check your blockchain service URL configuration");
         log_handler.exists_log_containing("DEBUG: Accountant: Payables 0x000000000000000000000000000000000000000000000000000000000000006f, \
          0x000000000000000000000000000000000000000000000000000000000000014d have been marked as pending in the payable table");
-        log_handler.exists_log_containing("DEBUG: Accountant: Deleting existing fingerprints for failed transactions 0x00000000000000000000000000000000000000000000000000000000000000de");
+        log_handler.exists_log_containing("WARN: Accountant: Deleting existing fingerprints for failed transactions 0x00000000000000000000000000000000000000000000000000000000000000de");
     }
 
     #[test]
     fn handle_sent_payable_handles_error_born_too_early_to_see_transaction_hash() {
         init_test_logging();
         let sent_payable = SentPayable {
-            timestamp: SystemTime::now(),
-            payable_outcomes: Err(BlockchainError::PayableTransactionFailed {
+            payment_outcome: Err(BlockchainError::PayableTransactionFailed {
                 msg: "Some error".to_string(),
                 signed_and_saved_txs_opt: None,
             }),
@@ -4911,8 +4905,7 @@ mod tests {
             hash: make_tx_hash(123),
         };
         let sent_payable = SentPayable {
-            timestamp: SystemTime::now(),
-            payable_outcomes: Ok(vec![Correct(correct_payment.clone())]),
+            payment_outcome: Ok(vec![Correct(correct_payment.clone())]),
             response_skeleton_opt: None,
         };
 
@@ -4930,8 +4923,7 @@ mod tests {
             signed_and_saved_txs_opt: None,
         };
         let sent_payable = SentPayable {
-            timestamp: SystemTime::now(),
-            payable_outcomes: Err(error.clone()),
+            payment_outcome: Err(error.clone()),
             response_skeleton_opt: None,
         };
 
@@ -4939,7 +4931,7 @@ mod tests {
 
         assert!(oks.is_empty());
         assert_eq!(errs, Some(LocallyCausedError(error)));
-        TestLogHandler::new().exists_log_containing("WARN: test_logger: Catching local error: \
+        TestLogHandler::new().exists_log_containing("WARN: test_logger: Registered a failed process to be screened for persisted data after: \
          Blockchain error: Processing batch requests: bad timing. With no transactions in the state of readiness, none hashed");
     }
 
@@ -4956,8 +4948,7 @@ mod tests {
             hash: make_tx_hash(789),
         };
         let sent_payable = SentPayable {
-            timestamp: SystemTime::now(),
-            payable_outcomes: Ok(vec![
+            payment_outcome: Ok(vec![
                 Correct(payable_ok.clone()),
                 Failure(bad_rpc_call.clone()),
             ]),
