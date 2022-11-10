@@ -23,7 +23,6 @@ use node_lib::sub_lib::versioned_data::VersionedData;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use std::str::FromStr;
 use node_lib::sub_lib::dispatcher::Component;
-use node_lib::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use node_lib::sub_lib::wallet::Wallet;
 
 #[test]
@@ -143,7 +142,7 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         let cheap_exit_key = db.add_node(cheap_exit_node).unwrap();
         let normal_exit_key = db.add_node(normal_exit_node).unwrap();
         db.add_arbitrary_full_neighbor(originating_node.public_key(), &relay1_key);
-        db.add_arbitrary_full_neighbor(&relay1_key, &relay2_key);
+        db.add_arbitrary_full_neighbor(&relay1_key, &relay2_key); // Why does this end up being just 1 <- 2 instead of 1 <-> 2?
         db.add_arbitrary_full_neighbor(&relay2_key, &cheap_exit_key);
         db.add_arbitrary_full_neighbor(&relay2_key, &normal_exit_key);
         let (_, originating_node, mut node_map)

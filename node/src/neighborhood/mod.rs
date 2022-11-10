@@ -1191,7 +1191,7 @@ impl Neighborhood {
         hostname_opt: Option<&str>,
     ) -> Option<Vec<&'a PublicKey>> {
         let mut minimum_undesirability = i64::MAX;
-        self.routing_engine(
+        let result = self.routing_engine(
             vec![source],
             0,
             target_opt,
@@ -1204,7 +1204,13 @@ impl Neighborhood {
         .into_iter()
         .filter(|cr| cr.undesirability <= minimum_undesirability)
         .map(|cr| cr.nodes)
-        .next()
+        .next();
+        trace!(
+            self.logger,
+            "find_best_route_segment (source: {:?}, target_opt: {:?}, minimum_hops: {}, payload_size: {}, direction: {:?}, hostname_opt: {:?}) -> {:?}",
+            source, target_opt, minimum_hops, payload_size, direction, hostname_opt, result
+        );
+        result
     }
 
     #[allow(clippy::too_many_arguments)]

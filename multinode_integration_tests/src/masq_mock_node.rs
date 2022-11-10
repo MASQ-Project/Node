@@ -372,18 +372,9 @@ impl MASQMockNode {
                 let incoming_cores_package = match package.to_expired(
                     from,
                     self.main_cryptde_null().unwrap(),
-                    self.alias_cryptde_null().unwrap(),
+                    self.main_cryptde_null().unwrap(),
                 ) {
                     Ok(icp) => icp,
-                    Err(CodexError::DecryptionError(CryptdecError::OpeningFailed)) => match package
-                        .to_expired(
-                            from,
-                            self.main_cryptde_null().unwrap(),
-                            self.main_cryptde_null().unwrap(),
-                        ) {
-                        Ok(icp) => icp,
-                        Err(e) => panic!("Couldn't expire LiveCoresPackage: {:?}", e),
-                    },
                     Err(e) => panic!("Couldn't expire LiveCoresPackage: {:?}", e),
                 };
                 match incoming_cores_package.payload {
