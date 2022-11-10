@@ -265,8 +265,8 @@ pub struct PayableDaoMock {
     more_money_payable_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     non_pending_payables_params: Arc<Mutex<Vec<()>>>,
     non_pending_payables_results: RefCell<Vec<Vec<PayableAccount>>>,
-    mark_pending_payable_rowid_parameters: Arc<Mutex<Vec<Vec<(Wallet, u64)>>>>,
-    mark_pending_payable_rowid_results: RefCell<Vec<Result<(), PayableDaoError>>>,
+    mark_pending_payables_rowids_params: Arc<Mutex<Vec<Vec<(Wallet, u64)>>>>,
+    mark_pending_payables_rowids_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     transactions_confirmed_params: Arc<Mutex<Vec<Vec<PendingPayableFingerprint>>>>,
     transactions_confirmed_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     transaction_canceled_params: Arc<Mutex<Vec<PendingPayableId>>>,
@@ -295,7 +295,7 @@ impl PayableDao for PayableDaoMock {
         &self,
         wallets_and_rowids: &[(&Wallet, u64)],
     ) -> Result<(), PayableDaoError> {
-        self.mark_pending_payable_rowid_parameters
+        self.mark_pending_payables_rowids_params
             .lock()
             .unwrap()
             .push(
@@ -304,7 +304,7 @@ impl PayableDao for PayableDaoMock {
                     .map(|(wallet, id)| ((*wallet).clone(), *id))
                     .collect(),
             );
-        self.mark_pending_payable_rowid_results
+        self.mark_pending_payables_rowids_results
             .borrow_mut()
             .remove(0)
     }
@@ -351,9 +351,9 @@ impl PayableDaoMock {
 
     pub fn more_money_payable_params(
         mut self,
-        parameters: Arc<Mutex<Vec<(SystemTime, Wallet, u64)>>>,
+        params: Arc<Mutex<Vec<(SystemTime, Wallet, u64)>>>,
     ) -> Self {
-        self.more_money_payable_parameters = parameters;
+        self.more_money_payable_parameters = params;
         self
     }
 
@@ -372,16 +372,16 @@ impl PayableDaoMock {
         self
     }
 
-    pub fn mark_pending_payable_rowid_params(
+    pub fn mark_pending_payables_rowids_params(
         mut self,
-        parameters: &Arc<Mutex<Vec<Vec<(Wallet, u64)>>>>,
+        params: &Arc<Mutex<Vec<Vec<(Wallet, u64)>>>>,
     ) -> Self {
-        self.mark_pending_payable_rowid_parameters = parameters.clone();
+        self.mark_pending_payables_rowids_params = params.clone();
         self
     }
 
-    pub fn mark_pending_payable_rowid_result(self, result: Result<(), PayableDaoError>) -> Self {
-        self.mark_pending_payable_rowid_results
+    pub fn mark_pending_payables_rowids_result(self, result: Result<(), PayableDaoError>) -> Self {
+        self.mark_pending_payables_rowids_results
             .borrow_mut()
             .push(result);
         self

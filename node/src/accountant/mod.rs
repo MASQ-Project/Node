@@ -1866,7 +1866,7 @@ mod tests {
         );
         let pending_payable_dao = PendingPayableDaoMock::default()
             .fingerprints_rowids_result(vec![(Some(1), Default::default())]);
-        let payable_dao = PayableDaoMock::default().mark_pending_payable_rowid_result(Ok(()));
+        let payable_dao = PayableDaoMock::default().mark_pending_payables_rowids_result(Ok(()));
         let subject = AccountantBuilder::default()
             .pending_payable_dao(pending_payable_dao)
             .payable_dao(payable_dao)
@@ -2019,8 +2019,8 @@ mod tests {
             .fingerprints_rowids_params(&fingerprints_rowids_params_arc)
             .fingerprints_rowids_result(vec![(Some(expected_rowid), expected_hash)]);
         let payable_dao = PayableDaoMock::new()
-            .mark_pending_payable_rowid_params(&mark_pending_payable_rowid_params_arc)
-            .mark_pending_payable_rowid_result(Ok(()));
+            .mark_pending_payables_rowids_params(&mark_pending_payable_rowid_params_arc)
+            .mark_pending_payables_rowids_result(Ok(()));
         let system = System::new("accountant_calls_payable_dao_to_mark_pending_payable");
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_ac_plus_earning_wallet(
@@ -3735,8 +3735,9 @@ mod tests {
     ) {
         let payable_1 = PendingPayable::new(make_wallet("blah111"), hash_1);
         let payable_2 = PendingPayable::new(make_wallet("blah222"), hash_2);
-        let payable_dao = PayableDaoMock::new()
-            .mark_pending_payable_rowid_result(Err(PayableDaoError::SignConversion(9999999999999)));
+        let payable_dao = PayableDaoMock::new().mark_pending_payables_rowids_result(Err(
+            PayableDaoError::SignConversion(9999999999999),
+        ));
         let mut subject = AccountantBuilder::default()
             .payable_dao(payable_dao)
             .pending_payable_dao(pending_payable_dao)
@@ -3846,9 +3847,9 @@ mod tests {
         let subject = AccountantBuilder::default()
             .payable_dao(
                 PayableDaoMock::new()
-                    .mark_pending_payable_rowid_params(&mark_pending_payables_params_arc)
-                    .mark_pending_payable_rowid_result(Ok(()))
-                    .mark_pending_payable_rowid_result(Ok(())),
+                    .mark_pending_payables_rowids_params(&mark_pending_payables_params_arc)
+                    .mark_pending_payables_rowids_result(Ok(()))
+                    .mark_pending_payables_rowids_result(Ok(())),
             )
             .pending_payable_dao(pending_payable_dao)
             .build();
@@ -3929,7 +3930,7 @@ mod tests {
         let pending_payable_dao = PendingPayableDaoMock::default()
             .fingerprints_rowids_result(vec![(None, hash_1), (None, hash_2)]);
         let subject = AccountantBuilder::default()
-            .payable_dao(PayableDaoMock::new().mark_pending_payable_rowid_result(Ok(())))
+            .payable_dao(PayableDaoMock::new().mark_pending_payables_rowids_result(Ok(())))
             .pending_payable_dao(pending_payable_dao)
             .build();
 
@@ -4052,7 +4053,7 @@ mod tests {
 
         subject.cancel_transactions(vec![])
 
-        //pending payable DAO didn't cause a panic which means we skipped the actual process
+        //mocked pending payable DAO didn't panic which means we skipped the actual process
     }
 
     #[test]
@@ -4376,9 +4377,8 @@ mod tests {
         let payable_dao = PayableDaoMock::new()
             .non_pending_payables_params(&non_pending_payables_params_arc)
             .non_pending_payables_result(vec![account_1, account_2])
-            .mark_pending_payable_rowid_params(&mark_pending_payable_params_arc)
-            .mark_pending_payable_rowid_result(Ok(()))
-            .mark_pending_payable_rowid_result(Ok(()))
+            .mark_pending_payables_rowids_params(&mark_pending_payable_params_arc)
+            .mark_pending_payables_rowids_result(Ok(()))
             .transactions_confirmed_params(&transaction_confirmed_params_arc)
             .transactions_confirmed_result(Ok(()));
         let bootstrapper_config = bc_from_ac_plus_earning_wallet(
@@ -4450,7 +4450,6 @@ mod tests {
             .return_all_fingerprints_result(vec![fingerprint_2_fourth_round.clone()])
             .insert_fingerprints_params(&insert_fingerprint_params_arc)
             .insert_fingerprints_result(Ok(()))
-            .insert_fingerprints_result(Ok(()))
             .fingerprints_rowids_result(vec![
                 (Some(rowid_for_account_1), pending_tx_hash_1),
                 (Some(rowid_for_account_2), pending_tx_hash_2),
@@ -4459,11 +4458,8 @@ mod tests {
             .update_fingerprints_results(Ok(()))
             .update_fingerprints_results(Ok(()))
             .update_fingerprints_results(Ok(()))
-            .update_fingerprints_results(Ok(()))
-            .update_fingerprints_results(Ok(()))
             .mark_failures_params(&mark_failure_params_arc)
             //we don't have a better solution yet, so we mark this down
-            .mark_failures_result(Ok(()))
             .mark_failures_result(Ok(()))
             .delete_fingerprint_params(&delete_record_params_arc)
             //this is used during confirmation of the successful one
@@ -4679,7 +4675,7 @@ mod tests {
 
         subject.confirm_transactions(vec![])
 
-        //payable DAO didn't cause a panic which means we skipped the actual process
+        //mocked payable DAO didn't panic which means we skipped the actual process
     }
 
     #[test]
@@ -5040,7 +5036,7 @@ mod tests {
 
         subject.update_fingerprints(vec![])
 
-        //pending payable DAO didn't cause a panic which means we skipped the actual process
+        //mocked pending payable DAO didn't panic which means we skipped the actual process
     }
 
     #[test]

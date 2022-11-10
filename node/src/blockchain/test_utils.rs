@@ -199,7 +199,7 @@ pub struct TestTransport {
     send_results: RefCell<VecDeque<rpc::Value>>,
     send_batch_params: Arc<Mutex<Vec<Vec<(RequestId, Call)>>>>,
     send_batch_results: RefCell<Vec<Vec<Result<rpc::Value, web3::Error>>>>,
-    //to check if we hold a true descendant of a certain initial instance
+    //to check inheritance from a certain descendant, be proving a relation with reference counting
     reference_counter_opt: Option<Arc<()>>,
 }
 

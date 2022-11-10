@@ -713,10 +713,10 @@ mod tests {
     #[should_panic(
         expected = "Database corrupt: marking failure at fingerprints: expected to change 2 rows but did 0"
     )]
-    fn mark_failure_row_change_count_panic() {
+    fn mark_failures_panics_on_wrong_row_change_count() {
         let home_dir = ensure_node_home_directory_exists(
             "pending_payable_dao",
-            "mark_failure_row_change_count_panic",
+            "mark_failures_panics_on_wrong_row_change_count",
         );
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())

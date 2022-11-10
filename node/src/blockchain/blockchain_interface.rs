@@ -79,7 +79,7 @@ pub enum PayableTransactionError {
 
 impl Display for BlockchainError {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        fn hash_existence_details(hashes_opt: &Option<Vec<H256>>) -> String {
+        fn interpret_existence_for_hashes(hashes_opt: &Option<Vec<H256>>) -> String {
             match hashes_opt {
                 Some(hashes) => format!(
                     "With fully prepared transactions, each registered. Those are: {}.",
@@ -103,7 +103,7 @@ impl Display for BlockchainError {
             } => Right(format!(
                 "Processing batch requests: {}. {}",
                 msg,
-                hash_existence_details(signed_and_saved_txs_opt)
+                interpret_existence_for_hashes(signed_and_saved_txs_opt)
             )),
         };
         write!(f, "Blockchain error: {}", specific_err_type_ending)
@@ -1262,12 +1262,12 @@ mod tests {
 
     #[test]
     fn blockchain_interface_non_clandestine_can_transfer_tokens_in_batch() {
-        //in this case the code is exercised utmost at the layer of web3 functions, but the transport layer is mocked
+        //exercising also the layer of web3 functions, but the transport layer is mocked
         init_test_logging();
         let send_batch_params_arc = Arc::new(Mutex::new(vec![]));
-        //we compute the hashes ourselves and so we ignore the same ones in the response
-        //we use the OKs as indicators of success though...
-        //and the eventual rpc errors come from here too...
+        //we compute the hashes ourselves during the batch preparation and so we don't care about
+        //the same ones coming back with the response; we use the OKs as indicators of success though...
+        //and, of course, the eventual rpc errors origin in the response too...
         let expected_batch_responses = vec![
             Ok(json!("...unnecessarily important hash...")),
             Err(web3::Error::Rpc(Error {

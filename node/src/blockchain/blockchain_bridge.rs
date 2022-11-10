@@ -54,7 +54,7 @@ pub struct BlockchainBridge<T: Transport = Http> {
 }
 
 struct TransactionConfirmationTools {
-    pp_fingerprint_sub_opt: Option<Recipient<NewPendingPayableFingerprints>>,
+    new_pp_fingerprints_sub_opt: Option<Recipient<NewPendingPayableFingerprints>>,
     report_transaction_receipts_sub_opt: Option<Recipient<ReportTransactionReceipts>>,
 }
 
@@ -70,7 +70,7 @@ impl Handler<BindMessage> for BlockchainBridge {
             msg.peer_actors.neighborhood.set_consuming_wallet_sub,
             msg.peer_actors.proxy_server.set_consuming_wallet_sub,
         ]);
-        self.pay_payable_confirmation.pp_fingerprint_sub_opt =
+        self.pay_payable_confirmation.new_pp_fingerprints_sub_opt =
             Some(msg.peer_actors.accountant.init_pending_payable_fingerprints);
         self.pay_payable_confirmation
             .report_transaction_receipts_sub_opt =
@@ -185,7 +185,7 @@ impl BlockchainBridge {
             crashable,
             logger: Logger::new("BlockchainBridge"),
             pay_payable_confirmation: TransactionConfirmationTools {
-                pp_fingerprint_sub_opt: None,
+                new_pp_fingerprints_sub_opt: None,
                 report_transaction_receipts_sub_opt: None,
             },
         }
@@ -406,7 +406,7 @@ impl BlockchainBridge {
 
         let fingerprint_recipient = self
             .pay_payable_confirmation
-            .pp_fingerprint_sub_opt
+            .new_pp_fingerprints_sub_opt
             .as_ref()
             .expect("Accountant unbound");
 
@@ -805,7 +805,7 @@ mod tests {
         };
         let (accountant, _, _) = make_recorder();
         let fingerprint_recipient = accountant.start().recipient();
-        subject.pay_payable_confirmation.pp_fingerprint_sub_opt = Some(fingerprint_recipient);
+        subject.pay_payable_confirmation.new_pp_fingerprints_sub_opt = Some(fingerprint_recipient);
 
         let result = subject.start_processing_payments(&request);
 
