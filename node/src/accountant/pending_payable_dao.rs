@@ -37,8 +37,11 @@ pub trait PendingPayableDao {
 impl PendingPayableDao for PendingPayableDaoReal<'_> {
     fn fingerprints_rowids(&self, hashes: &[H256]) -> Vec<(Option<u64>, H256)> {
         let sql = format!(
-            "select transaction_hash, rowid from pending_payable where transaction_hash = {}",
-            hashes.iter().map(|hash| format!("{:?}", hash)).join(" or ")
+            "select transaction_hash, rowid from pending_payable where {}",
+            hashes
+                .iter()
+                .map(|hash| format!("transaction_hash = '{:?}'", hash))
+                .join(" or ")
         );
         let mut all_found_records = self
             .conn
@@ -46,7 +49,8 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             .expect("Internal error")
             .query_map([], |row| {
                 let str_hash: String = row.get(0).expectv("hash");
-                let hash = H256::from_str(&str_hash[2..]).expect("input hash ensures right result");
+                let hash =
+                    H256::from_str(&str_hash[2..]).expect("insert method ensures right results");
                 let rowid: i64 = row.get(1).expectv("rowid");
                 Ok((hash, rowid))
             })
@@ -329,8 +333,14 @@ mod tests {
             .unwrap();
         let subject = PendingPayableDaoReal::new(wrapped_conn);
         let timestamp = from_time_t(195_000_000);
-        let hash_1 = make_tx_hash(1111);
-        let hash_2 = make_tx_hash(3333);
+        //important to have full range tx hashes, because SqLite has a tendency to convert the string understood as a hex to an integer and
+        //then complain about its excessive size if not treated explicitly as string in the select statement
+        let hash_1 =
+            H256::from_str("b4bc263278d3a82a652a8d73a6bfd8ec0ba1a63923bbb4f38147fb8a943da26a")
+                .unwrap();
+        let hash_2 =
+            H256::from_str("5a2909e7bb71943c82a94d9beb04e230351541fc14619ee8bb9b7372ea88ba39")
+                .unwrap();
         let fingerprints_init_input = vec![(hash_1, 4567), (hash_2, 6789)];
         {
             subject

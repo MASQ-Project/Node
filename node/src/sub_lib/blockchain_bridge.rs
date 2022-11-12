@@ -82,7 +82,7 @@ where
     fn send_new_payable_fingerprints_credentials(
         &self,
         batch_wide_timestamp: SystemTime,
-        pp_fingerprint_sub: &Recipient<NewPendingPayableFingerprints>,
+        new_pp_fingerprints_sub: &Recipient<NewPendingPayableFingerprints>,
         payable_attributes: &[(H256, u64)],
     );
     fn submit_batch(

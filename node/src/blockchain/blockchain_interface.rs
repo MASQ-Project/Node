@@ -4,7 +4,6 @@ use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
 use crate::blockchain::blockchain_bridge::NewPendingPayableFingerprints;
 use crate::blockchain::blockchain_interface::BlockchainError::{
     InvalidAddress, InvalidResponse, InvalidUrl, PayableTransactionFailed, QueryFailed,
-    SignedValueConversion,
 };
 use crate::sub_lib::blockchain_bridge::{BatchPayableTools, BatchPayableToolsReal};
 use crate::sub_lib::wallet::Wallet;
@@ -63,7 +62,6 @@ pub enum BlockchainError {
     InvalidAddress,
     InvalidResponse,
     QueryFailed(String),
-    SignedValueConversion(i64),
     PayableTransactionFailed {
         msg: String,
         signed_and_saved_txs_opt: Option<Vec<H256>>,
@@ -79,34 +77,34 @@ pub enum PayableTransactionError {
 
 impl Display for BlockchainError {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        fn interpret_existence_for_hashes(hashes_opt: &Option<Vec<H256>>) -> String {
+        fn interpret_existence_of_hashes(hashes_opt: &Option<Vec<H256>>) -> String {
             match hashes_opt {
                 Some(hashes) => format!(
-                    "With fully prepared transactions, each registered. Those are: {}.",
-                    hashes.iter().map(|hash| format!("{:?}", hash)).join(", ")
+                    "With signed transactions, each registered: {}.",
+                    serialize_hashes(hashes)
                 ),
-                None => "With no transactions in the state of readiness, none hashed.".to_string(),
+                None => "Without prepared transactions, no hashes to report.".to_string(),
             }
         }
+        fn serialize_hashes(hashes: &[H256]) -> String {
+            hashes.iter().map(|hash| format!("{:?}", hash)).join(", ")
+        }
 
-        let specific_err_type_ending = match self {
+        let err_type_spec = match self {
             InvalidUrl => Left("Invalid url."),
             InvalidAddress => Left("Invalid address."),
             InvalidResponse => Left("Invalid response."),
             QueryFailed(msg) => Right(format!("Query failed: {}.", msg)),
-            SignedValueConversion(msg) => {
-                Right(format!("Signed value conversion failed on: {}.", msg))
-            }
             PayableTransactionFailed {
                 msg,
                 signed_and_saved_txs_opt,
             } => Right(format!(
-                "Processing batch requests: {}. {}",
+                "Batch processing: \"{}\". {}",
                 msg,
-                interpret_existence_for_hashes(signed_and_saved_txs_opt)
+                interpret_existence_of_hashes(signed_and_saved_txs_opt)
             )),
         };
-        write!(f, "Blockchain error: {}", specific_err_type_ending)
+        write!(f, "Blockchain error: {}", err_type_spec)
     }
 }
 
@@ -346,64 +344,43 @@ where
         &self,
         consuming_wallet: &Wallet,
         gas_price: u64,
-        last_nonce_on_the_blockchain: U256,
-        fingerprint_recipient: &Recipient<NewPendingPayableFingerprints>,
+        pending_nonce: U256,
+        fingerprints_recipient: &Recipient<NewPendingPayableFingerprints>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, BlockchainError> {
-        let init: (HashAndAmountResult, Option<U256>) =
-            (Ok(vec![]), Some(last_nonce_on_the_blockchain));
-        let fingerprint_inputs = {
-            debug!(self.logger, "Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
-                consuming_wallet, self.chain.rec().contract, self.chain.rec().num_chain_id, gas_price);
+        debug!(
+            self.logger,
+            "Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
+            consuming_wallet,
+            self.chain.rec().contract,
+            self.chain.rec().num_chain_id,
+            gas_price
+        );
 
-            let (result, _) = accounts.iter().fold(init, |(acc, last_nonce), account| {
-                if let Ok(hashes_and_amounts) = acc {
-                    let nonce = last_nonce
-                        .expectv("last nonce")
-                        .checked_add(U256::one())
-                        .expect("unexpected ceiling");
-                    self.sign_transaction_for_single_account(
-                        hashes_and_amounts,
-                        consuming_wallet,
-                        nonce,
-                        gas_price,
-                        account,
-                    )
-                } else {
-                    (acc, None)
-                }
-            });
-            result
-        }?;
-
+        let hashes_and_paid_amounts = self.sign_and_register_multiple_payments(
+            consuming_wallet,
+            gas_price,
+            pending_nonce,
+            accounts,
+        )?;
         let timestamp = self.batch_payable_tools.batch_wide_timestamp();
         self.batch_payable_tools
             .send_new_payable_fingerprints_credentials(
                 timestamp,
-                fingerprint_recipient,
-                &fingerprint_inputs,
+                fingerprints_recipient,
+                &hashes_and_paid_amounts,
             );
 
         self.logger
             .info(|| self.transmission_log(accounts, gas_price));
 
         match self.batch_payable_tools.submit_batch(&self.batch_web3) {
-            Ok(responses) => Ok(Self::output_by_joining_sources(
+            Ok(responses) => Ok(Self::merged_output_data(
                 responses,
-                fingerprint_inputs,
+                hashes_and_paid_amounts,
                 accounts,
             )),
-            Err(e) => {
-                let hashes = fingerprint_inputs
-                    .into_iter()
-                    .map(|(hash, _)| hash)
-                    .collect();
-                Err(PayableTransactionError::Sending {
-                    msg: e.to_string(),
-                    hashes,
-                }
-                .into())
-            }
+            Err(e) => Err(Self::error_with_hashes(e, hashes_and_paid_amounts)),
         }
     }
 
@@ -431,7 +408,7 @@ where
     fn get_transaction_count(&self, wallet: &Wallet) -> Nonce {
         self.web3
             .eth()
-            .transaction_count(wallet.address(), Some(BlockNumber::Latest))
+            .transaction_count(wallet.address(), Some(BlockNumber::Pending))
             .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
     }
@@ -483,36 +460,76 @@ where
         }
     }
 
-    fn sign_transaction_for_single_account(
+    fn sign_and_register_multiple_payments(
+        &self,
+        consuming_wallet: &Wallet,
+        gas_price: u64,
+        pending_nonce: U256,
+        accounts: &[PayableAccount],
+    ) -> HashAndAmountResult {
+        let init: (HashAndAmountResult, Option<U256>) = (Ok(vec![]), Some(pending_nonce));
+
+        let (result, _) = accounts
+            .iter()
+            .fold(init, |(acc, pending_nonce_opt), account| {
+                if let Ok(hashes_and_amounts) = acc {
+                    let nonce = pending_nonce_opt.expectv("pending nonce");
+                    (
+                        self.sign_and_register_single_payment(
+                            hashes_and_amounts,
+                            consuming_wallet,
+                            nonce,
+                            gas_price,
+                            account,
+                        ),
+                        Some(Self::advance_used_nonce(nonce)),
+                    )
+                } else {
+                    (acc, None)
+                }
+            });
+        result
+    }
+
+    fn sign_and_register_single_payment(
         &self,
         hashes_and_amounts: Vec<(H256, u64)>,
         consuming_wallet: &Wallet,
         nonce: U256,
         gas_price: u64,
         account: &PayableAccount,
-    ) -> (HashAndAmountResult, Option<U256>) {
-        self.logger
-            .debug(|| self.preparation_log(&account.wallet, account.balance as u64, nonce));
-        let transaction_processing_completed = self
-            .handle_new_transaction(
-                &account.wallet,
-                consuming_wallet,
-                account.balance as u64,
-                nonce,
-                gas_price,
-            )
-            .map(|new_hash| plus(hashes_and_amounts, (new_hash, account.balance as u64)));
-        (transaction_processing_completed, Some(nonce))
+    ) -> HashAndAmountResult {
+        debug!(
+            self.logger,
+            "Preparing payment of {} Gwei to {} with nonce {}", //TODO fix this later to Wei
+            account.balance,
+            account.wallet,
+            nonce
+        );
+        self.handle_new_transaction(
+            &account.wallet,
+            consuming_wallet,
+            account.balance as u64,
+            nonce,
+            gas_price,
+        )
+        .map(|new_hash| plus(hashes_and_amounts, (new_hash, account.balance as u64)))
     }
 
-    fn output_by_joining_sources(
-        results: Vec<web3::transports::Result<Value>>,
-        fingerprint_inputs: Vec<(H256, u64)>,
+    fn advance_used_nonce(current_nonce: U256) -> U256 {
+        current_nonce
+            .checked_add(U256::one())
+            .expect("unexpected limits")
+    }
+
+    fn merged_output_data(
+        responses: Vec<web3::transports::Result<Value>>,
+        hashes_and_paid_amounts: Vec<(H256, u64)>,
         accounts: &[PayableAccount],
     ) -> Vec<ProcessedPayableFallible> {
-        let iterator_with_all_data = results
+        let iterator_with_all_data = responses
             .into_iter()
-            .zip(fingerprint_inputs.into_iter())
+            .zip(hashes_and_paid_amounts.into_iter())
             .zip(accounts.iter());
         iterator_with_all_data
             .map(|((rpc_result, (hash, _)), account)| match rpc_result {
@@ -527,6 +544,21 @@ where
                 }),
             })
             .collect()
+    }
+
+    fn error_with_hashes(
+        error: Error,
+        hashes_and_paid_amounts: Vec<(H256, u64)>,
+    ) -> BlockchainError {
+        let hashes = hashes_and_paid_amounts
+            .into_iter()
+            .map(|(hash, _)| hash)
+            .collect();
+        PayableTransactionError::Sending {
+            msg: error.to_string(),
+            hashes,
+        }
+        .into()
     }
 
     fn handle_new_transaction<'a>(
@@ -591,13 +623,6 @@ where
             .map_err(|e| PayableTransactionError::Signing(e.to_string()))
     }
 
-    fn preparation_log(&self, recipient: &Wallet, amount: u64, nonce: U256) -> String {
-        format!(
-            "Preparing payment of {} Gwei to {} with nonce {}", //TODO fix this later to Wei
-            amount, recipient, nonce
-        )
-    }
-
     fn transmission_log(&self, accounts: &[PayableAccount], gas_price: u64) -> String {
         let chain_name = self
             .chain
@@ -621,10 +646,7 @@ where
         let body = accounts
             .iter()
             .map(|account| format!("{}   {}\n", account.wallet, account.balance));
-        introduction
-            .chain(body)
-            .chain(once("\n".to_string()))
-            .collect()
+        introduction.chain(body).collect()
     }
 
     fn base_gas_limit(chain: Chain) -> u64 {
@@ -1309,7 +1331,7 @@ mod tests {
             amount_3,
             None,
         );
-        let last_nonce = U256::from(6);
+        let pending_nonce = U256::from(6);
         let accounts_to_process = vec![account_1, account_2, account_3];
         let consuming_wallet = make_paying_wallet(b"gdasgsa");
         let test_timestamp_before = SystemTime::now();
@@ -1318,7 +1340,7 @@ mod tests {
             .send_payables_within_batch(
                 &consuming_wallet,
                 gas_price,
-                last_nonce,
+                pending_nonce,
                 &fingerprint_recipient,
                 &accounts_to_process,
             )
@@ -1337,9 +1359,9 @@ mod tests {
                     Call::MethodCall(MethodCall {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
-                        params: Params::Array(vec![Value::String("0xf8a907851bf08eb00082db6894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
-        00000000000000000000000000000000000000000000000000000773132330000000000000000000000000000000000000000000000000c7d713b49da00002aa0114ad6e8b99356\
-        cdabd669034790ab000e607ce599adff740c481f160d0491b9a0094e53ac6d0eb4390cf157e0effa3c8e909b7831f87b268c38173826b776edad".to_string())]),
+                        params: Params::Array(vec![Value::String("0xf8a906851bf08eb00082db6894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
+        00000000000000000000000000000000000000000000000000000773132330000000000000000000000000000000000000000000000000c7d713b49da00002aa060b9f375c06f56\
+        41951606643d76ef999d32ae02f6b6cd62c9275ebdaa36a390a0199c3d8644c428efd5e0e0698c031172ac6873037d90dcca36a1fbf2e67960ff".to_string())]),
                         id: Id::Num(1)
                     })
                 ),
@@ -1348,9 +1370,9 @@ mod tests {
                     Call::MethodCall(MethodCall {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
-                        params: Params::Array(vec![Value::String("0xf8a908851bf08eb00082dba894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
-        0000000000000000000000000000000000000000000000000000077353535000000000000000000000000000000000000000000000000018abef77dc1060029a008aff49170a09f\
-        cb5b830c134c177343192df7584e893dbf399e3361a2e5cf0ca02a2ca0e6b574343c8a47f1ecf5948d1e649beb43a4cca144f91502d28a70e825".to_string())]),
+                        params: Params::Array(vec![Value::String("0xf8a907851bf08eb00082dba894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
+        0000000000000000000000000000000000000000000000000000077353535000000000000000000000000000000000000000000000000018abef77dc106002aa0b8e6f40ca31fb2\
+        0fab191bb87b4dd1194e854205e2471a0a46cb14feee8718bea066c439c9129703904f96b12404cb8321e1ec79b64a415995982c2f5485ee413d".to_string())]),
                         id: Id::Num(1)
                     })
                 ),
@@ -1359,9 +1381,9 @@ mod tests {
                     Call::MethodCall(MethodCall {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
-                        params: Params::Array(vec![Value::String("0xf8a909851bf08eb00082db6894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
-        0000000000000000000000000000000000000000000000000000077393837000000000000000000000000000000000000000000000000007680cd2f2d34002aa0f816d73289035f\
-        2aad6ca41e36cdbedf5a481e54a6d92f84d499bd1533824e8ca01040ae3fb884bebc2cc6368d0104b2d1aea8692728add3aa169e549e48d0a83d".to_string())]),
+                        params: Params::Array(vec![Value::String("0xf8a908851bf08eb00082db6894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
+        0000000000000000000000000000000000000000000000000000077393837000000000000000000000000000000000000000000000000007680cd2f2d34002aa02d300cc8ba7b63\
+        b0147727c824a54a7db9ec083273be52a32bdca72657a3e310a042a17224b35e7036d84976a23fbe8b1a488b2bcabed1e4a2b0b03f0c9bbc38e9".to_string())]),
                         id: Id::Num(1)
                     })
                 )
@@ -1380,7 +1402,7 @@ mod tests {
         };
         //first successful request
         let expected_hash_1 =
-            H256::from_str("b91b16e213475c64b0e1fc3633192113671842e7b3daa558f47ba05196e46c17")
+            H256::from_str("26e5e0cec02023e40faff67e88e3cf48a98574b5f9fdafc03ef42cad96dae1c1")
                 .unwrap();
         check_expected_successful_request(expected_hash_1, 0);
         //failing request
@@ -1406,13 +1428,13 @@ mod tests {
         );
         assert_eq!(
             hash_2,
-            &H256::from_str("56bdf43306fbba900927487172c94d03367d482e5443d502c8479883ffaff991")
+            &H256::from_str("17990f09f6cd6474ba0ed4e980a8f509c3f867cbc6691928f9b08ddd58da1adc")
                 .unwrap()
         );
         assert_eq!(recipient_2, &make_wallet("w555"));
         //second_succeeding_request
         let expected_hash_3 =
-            H256::from_str("5faf271e2bc8d3fe4b15ca0e0a68ef29ffef028b63c5d8c0f8ca1f3cfdca8284")
+            H256::from_str("a472e3b81bc167140a217447d9701e9ed2b65252f1428f7779acc3710a9ede44")
                 .unwrap();
         check_expected_successful_request(expected_hash_3, 2);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
@@ -1431,21 +1453,21 @@ mod tests {
                 init_params: vec![
                     (
                         H256::from_str(
-                            "b91b16e213475c64b0e1fc3633192113671842e7b3daa558f47ba05196e46c17"
+                            "26e5e0cec02023e40faff67e88e3cf48a98574b5f9fdafc03ef42cad96dae1c1"
                         )
                         .unwrap(),
                         900000000
                     ),
                     (
                         H256::from_str(
-                            "56bdf43306fbba900927487172c94d03367d482e5443d502c8479883ffaff991"
+                            "17990f09f6cd6474ba0ed4e980a8f509c3f867cbc6691928f9b08ddd58da1adc"
                         )
                         .unwrap(),
                         111111111
                     ),
                     (
                         H256::from_str(
-                            "5faf271e2bc8d3fe4b15ca0e0a68ef29ffef028b63c5d8c0f8ca1f3cfdca8284"
+                            "a472e3b81bc167140a217447d9701e9ed2b65252f1428f7779acc3710a9ede44"
                         )
                         .unwrap(),
                         33355666
@@ -1459,15 +1481,15 @@ mod tests {
           0x384dec25e03f94931767ce4c3556168468ba24c3, chain_id: 3, gas_price: 120");
         log_handler.exists_log_containing(
             "DEBUG: sending_batch_payments: Preparing payment of 900000000 Gwei \
-        to 0x0000000000000000000000000000000077313233 with nonce 7",
+        to 0x0000000000000000000000000000000077313233 with nonce 6",
         );
         log_handler.exists_log_containing(
             "DEBUG: sending_batch_payments: Preparing payment of 111111111 Gwei \
-        to 0x0000000000000000000000000000000077353535 with nonce 8",
+        to 0x0000000000000000000000000000000077353535 with nonce 7",
         );
         log_handler.exists_log_containing(
             "DEBUG: sending_batch_payments: Preparing payment of 33355666 Gwei \
-        to 0x0000000000000000000000000000000077393837 with nonce 9",
+        to 0x0000000000000000000000000000000077393837 with nonce 8",
         );
         log_handler.exists_log_containing(
             "INFO: sending_batch_payments: Paying to creditors...\n\
@@ -1479,8 +1501,7 @@ mod tests {
         [wallet address]                             [payment in Gwei]\n\
         0x0000000000000000000000000000000077313233   900000000\n\
         0x0000000000000000000000000000000077353535   111111111\n\
-        0x0000000000000000000000000000000077393837   33355666\n\
-        \n",
+        0x0000000000000000000000000000000077393837   33355666\n",
         );
     }
 
@@ -1505,7 +1526,7 @@ mod tests {
             Chain::EthMainnet,
         );
         let first_tx_parameters = TransactionParameters {
-            nonce: Some(U256::from(5)),
+            nonce: Some(U256::from(4)),
             to: Some(subject.contract_address()),
             gas: U256::from(56_552),
             gas_price: Some(U256::from(123000000000_u64)),
@@ -1524,7 +1545,7 @@ mod tests {
             .wait()
             .unwrap();
         let second_tx_parameters = TransactionParameters {
-            nonce: Some(U256::from(6)),
+            nonce: Some(U256::from(5)),
             to: Some(subject.contract_address()),
             gas: U256::from(56_552),
             gas_price: Some(U256::from(123000000000_u64)),
@@ -1544,8 +1565,8 @@ mod tests {
             .unwrap();
         let first_hash = first_signed_transaction.transaction_hash;
         let second_hash = second_signed_transaction.transaction_hash;
-        let nonce = U256::from(4);
-        //technically, the jason value at positive responses doesn't matter, we only check the result and take errors if any came back
+        let pending_nonce = U256::from(4);
+        //technically, the jason values in those positive responses don't matter, we only check the result and take errors if any came back
         let rpc_responses = vec![
             Ok(Value::String((&first_hash.to_string()[2..]).to_string())),
             Ok(Value::String((&second_hash.to_string()[2..]).to_string())),
@@ -1580,7 +1601,7 @@ mod tests {
         let result = subject.send_payables_within_batch(
             &consuming_wallet,
             gas_price,
-            nonce,
+            pending_nonce,
             &initiate_fingerprints_recipient,
             &vec![first_account, second_account],
         );
@@ -2230,7 +2251,7 @@ mod tests {
             actual_arguments,
             vec![
                 String::from(r#""0x5c361ba8d82fcf0e5538b2a823e9d457a2296725""#),
-                String::from(r#""latest""#),
+                String::from(r#""pending""#),
             ]
         )
     }
@@ -2398,7 +2419,7 @@ mod tests {
         assert_eq!(check, vec![11, 22, 33])
     }
 
-    fn blockchain_errors_test_array() -> [BlockchainError; 7] {
+    fn blockchain_errors_test_array() -> [BlockchainError; 6] {
         [
             BlockchainError::InvalidUrl,
             BlockchainError::InvalidAddress,
@@ -2406,13 +2427,12 @@ mod tests {
             BlockchainError::QueryFailed(
                 "Don't query so often, it gives me a headache".to_string(),
             ),
-            BlockchainError::SignedValueConversion(33333333333333),
             BlockchainError::PayableTransactionFailed {
                 msg: "Signing phase: Look at your signature, it's a mess!".to_string(),
                 signed_and_saved_txs_opt: None,
             },
             BlockchainError::PayableTransactionFailed {
-                msg: "Sending phase: No luck. I tried, I swear, I did, so hard".to_string(),
+                msg: "Sending phase: No luck. I tried, I swear".to_string(),
                 signed_and_saved_txs_opt: Some(vec![make_tx_hash(555), make_tx_hash(777)]),
             },
         ]
@@ -2426,54 +2446,49 @@ mod tests {
 
         let displayed_errors = original_errors
             .iter()
-            .inspect(|err| eprintln!("{:?}", err))
             .map(|to_resolve| {
-                eprintln!("{:?}", to_resolve);
                 let clone = to_resolve.clone();
                 match clone {
                     BlockchainError::InvalidUrl => (to_resolve.to_string(), 11),
                     BlockchainError::InvalidAddress => (to_resolve.to_string(), 22),
                     BlockchainError::InvalidResponse => (to_resolve.to_string(), 33),
                     BlockchainError::QueryFailed(..) => (to_resolve.to_string(), 44),
-                    BlockchainError::SignedValueConversion(..) => (to_resolve.to_string(), 55),
                     BlockchainError::PayableTransactionFailed {
                         signed_and_saved_txs_opt: None,
                         ..
-                    } => (to_resolve.to_string(), 66),
+                    } => (to_resolve.to_string(), 55),
                     BlockchainError::PayableTransactionFailed {
                         signed_and_saved_txs_opt: Some(_),
                         ..
-                    } => (to_resolve.to_string(), 77),
+                    } => (to_resolve.to_string(), 66),
                 }
             })
-            .inspect(|items| eprintln!("{:?}", items))
             .collect::<Vec<(String, u16)>>();
 
         let formal_comprehensiveness_check = displayed_errors
             .iter()
             .map(|(_, num_check)| *num_check)
             .collect::<Vec<u16>>();
-        assert_eq!(
-            formal_comprehensiveness_check,
-            vec![11, 22, 33, 44, 55, 66, 77]
-        );
+        assert_eq!(formal_comprehensiveness_check, vec![11, 22, 33, 44, 55, 66]);
         let actual_error_msgs = displayed_errors
             .into_iter()
             .map(|(msg, _)| msg)
             .collect::<Vec<String>>();
-        assert_eq!(actual_error_msgs,slice_of_strs_to_vec_of_strings(&[
+        assert_eq!(
+            actual_error_msgs,
+            slice_of_strs_to_vec_of_strings(&[
                 "Blockchain error: Invalid url.",
                 "Blockchain error: Invalid address.",
                 "Blockchain error: Invalid response.",
                 "Blockchain error: Query failed: Don't query so often, it gives me a headache.",
-                "Blockchain error: Signed value conversion failed on: 33333333333333.",
-                "Blockchain error: Processing batch requests: Signing phase: Look at your signature, \
-                 it's a mess!. With no transactions in the state of readiness, none hashed.",
-                "Blockchain error: Processing batch requests: Sending phase: No luck. \
-                 I tried, I swear, I did, so hard. With fully prepared transactions, each registered. \
-                 Those are: 0x000000000000000000000000000000000000000000000000000000000000022b, \
+                "Blockchain error: Batch processing: \"Signing phase: Look at your signature, \
+                 it's a mess!\". Without prepared transactions, no hashes to report.",
+                "Blockchain error: Batch processing: \"Sending phase: No luck. \
+                 I tried, I swear\". With signed transactions, each registered: \
+                  0x000000000000000000000000000000000000000000000000000000000000022b, \
                   0x0000000000000000000000000000000000000000000000000000000000000309."
-            ]))
+            ])
+        )
     }
 
     #[test]
@@ -2501,16 +2516,12 @@ mod tests {
                     assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
                     44
                 }
-                BlockchainError::SignedValueConversion(..) => {
-                    assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
-                    55
-                }
                 BlockchainError::PayableTransactionFailed {
                     signed_and_saved_txs_opt: None,
                     ..
                 } => {
                     assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
-                    66
+                    55
                 }
                 BlockchainError::PayableTransactionFailed {
                     signed_and_saved_txs_opt: Some(vec_of_hashes),
@@ -2519,12 +2530,22 @@ mod tests {
                     let result = to_assert.carries_transaction_hashes_opt();
                     let assertable_in_the_loop = result.as_ref();
                     assert_eq!(assertable_in_the_loop, Some(vec_of_hashes));
-                    77
+                    66
                 }
             })
             .collect();
 
-        assert_eq!(check, vec![11, 22, 33, 44, 55, 66, 77])
+        assert_eq!(check, vec![11, 22, 33, 44, 55, 66])
+    }
+
+    #[test]
+    fn advance_used_nonce() {
+        let initial_nonce = U256::from(55);
+
+        let result =
+            BlockchainInterfaceNonClandestine::<TestTransport>::advance_used_nonce(initial_nonce);
+
+        assert_eq!(result, U256::from(56))
     }
 
     #[test]
@@ -2553,7 +2574,7 @@ mod tests {
             })),
         ];
 
-        let result = BlockchainInterfaceNonClandestine::<TestTransport>::output_by_joining_sources(
+        let result = BlockchainInterfaceNonClandestine::<TestTransport>::merged_output_data(
             responses,
             fingerprint_inputs,
             &accounts,

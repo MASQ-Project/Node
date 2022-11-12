@@ -405,19 +405,18 @@ fn build_config(
     payment_thresholds: PaymentThresholds,
     wallet_derivation_path: String,
 ) -> (NodeStartupConfig, Wallet) {
-    let (serving_node_wallet, serving_node_secret) =
-        make_node_wallet(seed, wallet_derivation_path.as_str());
+    let (node_wallet, node_secret) = make_node_wallet(seed, wallet_derivation_path.as_str());
     let config = NodeStartupConfigBuilder::standard()
         .blockchain_service_url(server_url_holder.url())
         .chain(Chain::Dev)
         .payment_thresholds(payment_thresholds)
-        .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(serving_node_secret))
+        .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(node_secret))
         .earning_wallet_info(EarningWalletInfo::Address(format!(
             "{}",
-            serving_node_wallet.clone()
+            node_wallet.clone()
         )))
         .build();
-    (config, serving_node_wallet)
+    (config, node_wallet)
 }
 
 fn expire_payables(path: PathBuf) {

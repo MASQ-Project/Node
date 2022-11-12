@@ -2087,7 +2087,7 @@ mod tests {
         ));
         log_handler.exists_log_containing(
             "WARN: Accountant: Registered a failed process to be screened for persisted data after: \
-             Blockchain error: Processing batch requests: SQLite migraine. With fully prepared transactions, each registered. Those are: \
+             Blockchain error: Batch processing: \"SQLite migraine\". With signed transactions, each registered: \
                0x000000000000000000000000000000000000000000000000000000000001b669, \
               0x0000000000000000000000000000000000000000000000000000000000003039, \
                0x000000000000000000000000000000000000000000000000000000000000223d.");
@@ -2151,7 +2151,7 @@ mod tests {
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing("WARN: handle_sent_payable_discovers_failed_transactions_and_pending_payable_fingerprints_were_really_created: \
-         Registered a failed process to be screened for persisted data after: Blockchain error: Processing batch requests: Attempt failed. With fully prepared transactions, each registered. Those are: \
+         Registered a failed process to be screened for persisted data after: Blockchain error: Batch processing: \"Attempt failed\". With signed transactions, each registered: \
            0x00000000000000000000000000000000000000000000000000000000000015b3, 0x0000000000000000000000000000000000000000000000000000000000003039.");
         log_handler.exists_log_containing(
             "WARN: handle_sent_payable_discovers_failed_transactions_and_pending_payable_fingerprints_were_really_created: \
@@ -4928,7 +4928,7 @@ mod tests {
         assert!(oks.is_empty());
         assert_eq!(errs, Some(LocallyCausedError(error)));
         TestLogHandler::new().exists_log_containing("WARN: test_logger: Registered a failed process to be screened for persisted data after: \
-         Blockchain error: Processing batch requests: bad timing. With no transactions in the state of readiness, none hashed");
+         Blockchain error: Batch processing: \"bad timing\". Without prepared transactions, no hashes to report");
     }
 
     #[test]

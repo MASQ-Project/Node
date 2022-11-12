@@ -736,8 +736,8 @@ mod tests {
         assert_eq!(*scan_error_msg, ScanError{
             scan_type: ScanType::Payables,
             response_skeleton: ResponseSkeleton { client_id: 1234, context_id: 4321 },
-            msg: format!("ReportAccountsPayable: Blockchain error: Processing batch requests: {}. With fully prepared transactions, \
-              each registered. Those are: 0x00000000000000000000000000000000000000000000000000000000000000de.", expected_error_msg)
+            msg: format!("ReportAccountsPayable: Blockchain error: Batch processing: \"{}\". With signed transactions, \
+              each registered: 0x00000000000000000000000000000000000000000000000000000000000000de.", expected_error_msg)
         })
     }
 
