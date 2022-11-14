@@ -4,16 +4,16 @@ use crate::accountant::{unsigned_to_signed, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
-use crate::database::dao_utils::{to_time_t, DaoFactoryReal};
+use crate::database::dao_utils::{changed_rows_or_query_error, to_time_t, DaoFactoryReal};
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
 use rusqlite::types::{ToSql, Type};
-use rusqlite::Error;
+use rusqlite::{Error, Row};
 use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::SystemTime;
-use web3::types::H256;
+use web3::types::{Res, H256};
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {
@@ -105,24 +105,39 @@ impl PayableDao for PayableDaoReal {
         &self,
         wallets_and_rowids: &[(&Wallet, u64)],
     ) -> Result<(), PayableDaoError> {
-        let sql = format!(
-            "update payable set pending_payable_rowid = case {} end",
-            wallets_and_rowids
+        fn collect_feedback(row: &Row) -> Result<Option<()>, rusqlite::Error> {
+            row.get::<usize, Option<u64>>(0)
+                .map(|id_opt| id_opt.map(|_| ()))
+        }
+        fn rows_changed_counter(takes: Vec<Option<()>>) -> usize {
+            takes.iter().flatten().count()
+        }
+
+        let sql = {
+            let when_clauses_of_case_stm = wallets_and_rowids
                 .iter()
                 .map(|(wallet, rowid)| format!("when wallet_address = '{}' then {}", wallet, rowid))
-                .join("\n")
-        );
-        match self.conn.prepare(&sql).expect("Internal Error").execute([]) {
-            Ok(x) if x == wallets_and_rowids.len() => Ok(()),
-            Ok(x) => panic!(
-                "Marking pending payable rowid for wallets {} affected {} rows but expected {}",
-                wallets_and_rowids
-                    .iter()
-                    .map(|(wallet, _)| wallet.to_string())
-                    .join(", "),
-                x,
-                wallets_and_rowids.len()
-            ),
+                .join("\n");
+            format!(
+            "update payable set pending_payable_rowid = case {} end returning pending_payable_rowid", when_clauses_of_case_stm
+            )
+        };
+        let mut stm = self.conn.prepare(&sql).expect("Internal Error");
+
+        match changed_rows_or_query_error(stm.query_map([], collect_feedback), rows_changed_counter)
+        {
+            Ok(num) => match num {
+                num if num == wallets_and_rowids.len() => Ok(()),
+                num => panic!(
+                    "Marking pending payable rowid for wallets {} affected {} rows but expected {}",
+                    wallets_and_rowids
+                        .iter()
+                        .map(|(wallet, _)| wallet.to_string())
+                        .join(", "),
+                    num,
+                    wallets_and_rowids.len()
+                ),
+            },
             Err(e) => Err(PayableDaoError::RusqliteError(e.to_string())),
         }
     }
@@ -432,8 +447,13 @@ mod tests {
             .unwrap();
         let secondary_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
         {
-            let mut stm = boxed_conn.prepare("insert into payable (wallet_address, balance, last_paid_timestamp) values (?,?,?), (?,?,?)").unwrap();
+            let insert = "insert into payable (wallet_address, balance, \
+             last_paid_timestamp) values (?, ?, ?), (?, ?, ?), (?, ?, ?)";
+            let mut stm = boxed_conn.prepare(insert).unwrap();
             let params: &[&dyn ToSql] = &[
+                &make_wallet("wallet"),
+                &12345,
+                &149_000_000,
                 &wallet_1,
                 &5000,
                 &150_000_000,
