@@ -342,6 +342,7 @@ mod tests {
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::Connection as RusqliteConnection;
     use rusqlite::{Connection, OpenFlags};
+    use std::ops::RangeInclusive;
     use std::path::Path;
 
     #[test]
@@ -502,6 +503,120 @@ mod tests {
                 }
             ]
         )
+    }
+
+    #[test]
+    fn performance_test_for_mark_pending_payable_rowids() {
+        //the case statement used in the multi record SQL forces going through all records; it might be better to test the performance;
+        //this test compares time needed for updates done via a) separate db calls b) a single db call using a case statement
+        const RANGE_OF_ATTEMPTS: RangeInclusive<usize> = 1..=20;
+        fn make_wallet_from_idx(idx: usize) -> String {
+            format!("0x{:0>40}", idx)
+        }
+        fn initiate_starting_records(conn: &dyn ConnectionWrapper) {
+            let set_of_values = RANGE_OF_ATTEMPTS
+                .map(|idx| format!("('{}', 1000, 12345, null)", make_wallet_from_idx(idx)))
+                .join(", ");
+            let sql = format!("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values {}", set_of_values);
+            let _ = conn.prepare(&sql).unwrap().execute([]).unwrap();
+        }
+        fn task_completion_assertion(conn: &dyn ConnectionWrapper) {
+            let sql = "select wallet_address, pending_payable_rowid from payable where pending_payable_rowid not null";
+            conn.prepare(sql)
+                .unwrap()
+                .query_map([], |row| {
+                    Ok((
+                        row.get::<usize, String>(0).unwrap(),
+                        row.get::<usize, Option<i64>>(1).unwrap(),
+                    ))
+                })
+                .unwrap()
+                .flatten()
+                .enumerate()
+                .map(|(idx, (wallet, rowid_opt))| {
+                    let rowid_as_usize = rowid_opt.unwrap() as usize;
+                    assert_eq!(rowid_as_usize, (idx + 1) * 2);
+                    assert_eq!(wallet, make_wallet_from_idx(rowid_as_usize));
+                    ()
+                })
+                .count();
+        }
+
+        let test_home_folder = ensure_node_home_directory_exists(
+            "payable_dao",
+            "performance_test_for_mark_pending_payable_rowids",
+        );
+        let db_for_separate_calls = DbInitializerReal::default()
+            .initialize(
+                test_home_folder.join("separate_calls").as_path(),
+                true,
+                MigratorConfig::test_default(),
+            )
+            .unwrap();
+        initiate_starting_records(db_for_separate_calls.as_ref());
+        let update_call = |idx: usize| {
+            let _ = db_for_separate_calls
+                .prepare("update payable set pending_payable_rowid = ? where wallet_address = ?")
+                .unwrap()
+                .execute(&[&idx as &dyn ToSql, &make_wallet_from_idx(idx)])
+                .unwrap();
+        };
+        let separate_calls_start = SystemTime::now();
+
+        RANGE_OF_ATTEMPTS.for_each(|attempt| {
+            if attempt % 2 == 0 {
+                update_call(attempt)
+            }
+        });
+
+        let separate_calls_end = SystemTime::now();
+        task_completion_assertion(db_for_separate_calls.as_ref());
+        let separate_calls_attempt_duration = separate_calls_end
+            .duration_since(separate_calls_start)
+            .unwrap();
+
+        ////
+
+        let single_call_path = test_home_folder.join("single_call");
+        let db_for_single_call = DbInitializerReal::default()
+            .initialize(
+                single_call_path.as_path(),
+                true,
+                MigratorConfig::test_default(),
+            )
+            .unwrap();
+        initiate_starting_records(db_for_single_call.as_ref());
+        let dao = PayableDaoReal::new(db_for_single_call);
+        let generated_owned_args = RANGE_OF_ATTEMPTS
+            .flat_map(|idx| {
+                if idx % 2 == 0 {
+                    Some((
+                        Wallet::from_str(&make_wallet_from_idx(idx)).unwrap(),
+                        idx as u64,
+                    ))
+                } else {
+                    None
+                }
+            })
+            .collect::<Vec<_>>();
+        let args = generated_owned_args
+            .iter()
+            .map(|(wallet, id)| (wallet, *id))
+            .collect::<Vec<(&Wallet, u64)>>();
+        let single_call_start = SystemTime::now();
+
+        dao.mark_pending_payables_rowids(&args).unwrap();
+
+        let single_call_end = SystemTime::now();
+        let conn = Connection::open(single_call_path.join(DATABASE_FILE)).unwrap();
+        let wrapped_conn = ConnectionWrapperReal::new(conn);
+        task_completion_assertion(&wrapped_conn);
+        let single_call_attempt_duration =
+            single_call_end.duration_since(single_call_start).unwrap();
+
+        ////
+
+        assert!(single_call_attempt_duration < separate_calls_attempt_duration * 9)
     }
 
     #[test]
