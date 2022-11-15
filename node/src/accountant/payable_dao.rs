@@ -4,7 +4,7 @@ use crate::accountant::{unsigned_to_signed, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
-use crate::database::dao_utils::{changed_rows_or_query_error, to_time_t, DaoFactoryReal};
+use crate::database::dao_utils::{multi_update_rows_changed, to_time_t, DaoFactoryReal};
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
@@ -13,7 +13,7 @@ use rusqlite::{Error, Row};
 use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::SystemTime;
-use web3::types::{Res, H256};
+use web3::types::H256;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {
@@ -124,8 +124,8 @@ impl PayableDao for PayableDaoReal {
         };
         let mut stm = self.conn.prepare(&sql).expect("Internal Error");
 
-        match changed_rows_or_query_error(stm.query_map([], collect_feedback), rows_changed_counter)
-        {
+        let returning_clause_feedback = stm.query_map([], collect_feedback);
+        match multi_update_rows_changed(returning_clause_feedback, rows_changed_counter) {
             Ok(num) => match num {
                 num if num == wallets_and_rowids.len() => Ok(()),
                 num => panic!(
@@ -434,6 +434,8 @@ mod tests {
 
     #[test]
     fn mark_pending_payables_marks_pending_transactions_for_new_addresses() {
+        //the extra unchanged record checks the safety of right count of changed rows;
+        //experienced serious troubles in the past
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
             "mark_pending_payables_marks_pending_transactions_for_new_addresses",

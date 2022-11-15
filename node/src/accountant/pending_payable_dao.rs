@@ -487,22 +487,28 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
-        let hash_1 = make_tx_hash(666666);
-        let rowid_1 = 1;
-        let hash_2 = make_tx_hash(444444);
-        let rowid_2 = 2;
         let subject = PendingPayableDaoReal::new(conn);
         {
             subject
-                .insert_new_fingerprints(&[(hash_1, 5555), (hash_2, 2222)], SystemTime::now())
+                .insert_new_fingerprints(
+                    &[
+                        (make_tx_hash(1234), 1111),
+                        (make_tx_hash(2345), 5555),
+                        (make_tx_hash(3456), 2222),
+                    ],
+                    SystemTime::now(),
+                )
                 .unwrap();
         }
 
-        let result = subject.delete_fingerprints(&[rowid_1, rowid_2]);
+        let result = subject.delete_fingerprints(&[2, 3]);
 
         assert_eq!(result, Ok(()));
-        let records_in_the_db = subject.return_all_fingerprints();
-        assert!(records_in_the_db.is_empty())
+        let mut records_in_the_db = subject.return_all_fingerprints();
+        assert_eq!(records_in_the_db.len(), 1);
+        let remaining_record = records_in_the_db.remove(0);
+        assert_eq!(remaining_record.hash, make_tx_hash(1234));
+        assert_eq!(remaining_record.rowid, 1)
     }
 
     #[test]
@@ -568,29 +574,34 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
-        let hash_1 = make_tx_hash(579);
-        let amount_1 = 1234;
+        let hash_1 = make_tx_hash(345);
         let hash_2 = make_tx_hash(456);
-        let amount_2 = 6789;
+        let hash_3 = make_tx_hash(567);
         let timestamp = from_time_t(190_000_000);
         let subject = PendingPayableDaoReal::new(conn);
         {
             subject
-                .insert_new_fingerprints(&[(hash_1, amount_1), (hash_2, amount_2)], timestamp)
+                .insert_new_fingerprints(
+                    &[(hash_1, 1122), (hash_2, 2233), (hash_3, 3344)],
+                    timestamp,
+                )
                 .unwrap();
         }
 
-        let result = subject.update_fingerprints(&[1, 2]);
+        let result = subject.update_fingerprints(&[2, 3]);
 
         assert_eq!(result, Ok(()));
         let mut all_records = subject.return_all_fingerprints();
-        assert_eq!(all_records.len(), 2);
+        assert_eq!(all_records.len(), 3);
         let record_1 = all_records.remove(0);
         assert_eq!(record_1.hash, hash_1);
-        assert_eq!(record_1.attempt, 2);
+        assert_eq!(record_1.attempt, 1);
         let record_2 = all_records.remove(0);
         assert_eq!(record_2.hash, hash_2);
         assert_eq!(record_2.attempt, 2);
+        let record_3 = all_records.remove(0);
+        assert_eq!(record_3.hash, hash_3);
+        assert_eq!(record_3.attempt, 2);
     }
 
     #[test]
@@ -646,17 +657,19 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
-        let hash = make_tx_hash(666);
-        let amount = 1234;
+        let hash_1 = make_tx_hash(555);
+        let amount_1 = 1234;
+        let hash_2 = make_tx_hash(666);
+        let amount_2 = 2345;
         let timestamp = from_time_t(190_000_000);
         let subject = PendingPayableDaoReal::new(conn);
         {
             subject
-                .insert_new_fingerprints(&[(hash, amount)], timestamp)
+                .insert_new_fingerprints(&[(hash_1, amount_1), (hash_2, amount_2)], timestamp)
                 .unwrap();
         }
 
-        let result = subject.mark_failures(&[1]);
+        let result = subject.mark_failures(&[2]);
 
         assert_eq!(result, Ok(()));
         let assert_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
@@ -683,13 +696,31 @@ mod tests {
             .unwrap()
             .flatten()
             .collect::<Vec<PendingPayableFingerprint>>();
-        assert_eq!(found_fingerprints.len(), 1);
-        let actual_fingerprint = found_fingerprints.remove(0);
-        assert_eq!(actual_fingerprint.hash, hash);
-        assert_eq!(actual_fingerprint.rowid, 1);
-        assert_eq!(actual_fingerprint.attempt, 1);
-        assert_eq!(actual_fingerprint.process_error, Some("ERROR".to_string()));
-        assert_eq!(actual_fingerprint.timestamp, timestamp);
+        assert_eq!(found_fingerprints.len(), 2);
+        let unchanged_fingerprint = found_fingerprints.remove(0);
+        assert_eq!(
+            unchanged_fingerprint,
+            PendingPayableFingerprint {
+                rowid: 1,
+                timestamp,
+                hash: hash_1,
+                attempt: 1,
+                amount: amount_1,
+                process_error: None
+            }
+        );
+        let changed_fingerprint = found_fingerprints.remove(0);
+        assert_eq!(
+            changed_fingerprint,
+            PendingPayableFingerprint {
+                rowid: 2,
+                timestamp,
+                hash: hash_2,
+                attempt: 1,
+                amount: amount_2,
+                process_error: Some("ERROR".to_string())
+            }
+        )
     }
 
     #[test]

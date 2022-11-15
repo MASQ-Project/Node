@@ -55,7 +55,7 @@ impl DaoFactoryReal {
     }
 }
 
-pub fn changed_rows_or_query_error<T: Debug>(
+pub fn multi_update_rows_changed<T: Debug>(
     results: Result<impl Iterator<Item = Result<T, rusqlite::Error>>, rusqlite::Error>,
     rows_changed_counter: fn(Vec<T>) -> usize,
 ) -> Result<usize, rusqlite::Error> {
@@ -88,7 +88,7 @@ pub fn changed_rows_or_query_error<T: Debug>(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use actix::fut::ok;
+    use std::option::IntoIter;
     use std::str::FromStr;
 
     #[test]
@@ -104,40 +104,39 @@ mod tests {
     }
 
     #[test]
-    fn changed_rows_or_query_error_returns_the_number() {
+    fn multi_update_rows_changed_returns_the_number() {
         let random_collection_of_changed_data = vec![Ok(5_i64), Ok(111), Ok(4321)];
         let iterator = random_collection_of_changed_data.into_iter();
-
-        let result = changed_rows_or_query_error(iterator, |ok_vec| ok_vec.len());
+        let result = multi_update_rows_changed(Ok(iterator), |ok_vec| ok_vec.len());
 
         assert_eq!(result, Ok(3))
     }
 
     #[test]
-    fn changed_rows_or_query_error_suspects_0_if_nothing_changed() {
+    fn multi_update_rows_changed_suspects_0_if_nothing_changed() {
         let random_collection_of_changed_data: Vec<Result<i64, _>> = vec![];
         let iterator = random_collection_of_changed_data.into_iter();
 
-        let result = changed_rows_or_query_error(iterator, |ok_vec| ok_vec.len());
+        let result = multi_update_rows_changed(Ok(iterator), |ok_vec| ok_vec.len());
 
         assert_eq!(result, Ok(0))
     }
 
     #[test]
-    fn changed_rows_or_query_error_returns_the_error() {
+    fn multi_update_rows_changed_returns_the_error() {
         //it's important to note that the real situation can only be a single error, not more errors
         let random_collection_of_changed_data: Vec<Result<i64, _>> =
             vec![Err(rusqlite::Error::QueryReturnedNoRows)];
         let iterator = random_collection_of_changed_data.into_iter();
 
-        let result = changed_rows_or_query_error(iterator, |ok_vec| ok_vec.len());
+        let result = multi_update_rows_changed(Ok(iterator), |ok_vec| ok_vec.len());
 
         assert_eq!(result, Err(rusqlite::Error::QueryReturnedNoRows))
     }
 
     #[test]
     #[should_panic(
-        expected = "broken code: we expect to get maximally a single error but got: [Err(QueryReturnedNoRows), Err(InvalidQuery)]"
+        expected = "broken code: we expect to get maximally a single error but got: [QueryReturnedNoRows, InvalidQuery]"
     )]
     fn more_than_one_error_is_considered_a_malformation() {
         //it's important to note that the real situation can only be a single error, not more errors
@@ -147,6 +146,17 @@ mod tests {
         ];
         let iterator = random_collection_of_changed_data.into_iter();
 
-        let _ = changed_rows_or_query_error(iterator, |ok_vec| ok_vec.len());
+        let _ = multi_update_rows_changed(Ok(iterator), |ok_vec| ok_vec.len());
+    }
+
+    #[test]
+    #[should_panic(expected = "query failed on binding: InvalidParameterName(\"blah\")")]
+    fn the_first_contact_rusqlite_error_just_panics_as_it_belongs_with_the_querys_args_binding() {
+        let _ = multi_update_rows_changed(
+            Err::<IntoIter<Result<i64, rusqlite::Error>>, _>(
+                rusqlite::Error::InvalidParameterName("blah".to_string()),
+            ),
+            |ok_vec: Vec<i64>| ok_vec.len(),
+        );
     }
 }
