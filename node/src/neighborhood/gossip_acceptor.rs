@@ -937,11 +937,13 @@ impl GossipHandler for StandardGossipHandler {
 
         // let hashmap: HashMap<PublicKey, &AccessibleGossipRecord> = agrs.into();
 
-        eprintln!("HashMap: {:?}", hashmap);
+        eprintln!("HashMap: {:?}", hashmap.keys());
 
         let root_node = database.root();
         let mut patch: HashSet<PublicKey> = HashSet::new();
         self.compute_patch(&mut patch, root_node.public_key(), &hashmap, 3, &database);
+
+        eprintln!("Patch: {:?}", patch);
 
         let mut db_changed =
             self.identify_and_add_non_introductory_new_nodes(database, &agrs, gossip_source);
@@ -2505,6 +2507,92 @@ mod tests {
             test_name,
             node_x.public_key()
         ));
+    }
+
+    #[test]
+    fn standard_gossip_handler_will_ignore_gossips_from_outside_the_patch() {
+        /*
+            Over here, root node is A and patch contains [A, B, C, D].
+                                  A---B---C---D---E---F
+                                  |___________||______|
+
+            The node B sends a gossip to A.
+                                  A <---- B
+            Node B tells Node A about the full neighborship of E and F.
+            Since, the relation between E and F is outside the patch, standard gossip handler
+            will not perform any database changes and will mark the gossip as ignored.
+
+        */
+
+        let cryptde = main_cryptde();
+        let (cpm_recipient, _) = make_cpm_recipient();
+        let subject = StandardGossipHandler::new(Logger::new("test"));
+        let mut patch: HashSet<PublicKey> = HashSet::new();
+        let node_a = make_node_record(1111, true);
+        let node_b = make_node_record(2222, true);
+        let node_c = make_node_record(3333, false);
+        let node_d = make_node_record(4444, false);
+        let node_e = make_node_record(5555, false);
+        let node_f = make_node_record(6666, false);
+        let mut node_a_db = db_from_node(&node_a);
+        node_a_db.add_node(node_b.clone()).unwrap();
+        node_a_db.add_node(node_c.clone()).unwrap();
+        node_a_db.add_node(node_d.clone()).unwrap();
+        node_a_db.add_node(node_e.clone()).unwrap();
+        node_a_db.add_arbitrary_full_neighbor(node_a.public_key(), node_b.public_key());
+        node_a_db.add_arbitrary_full_neighbor(node_b.public_key(), node_c.public_key());
+        node_a_db.add_arbitrary_full_neighbor(node_c.public_key(), node_d.public_key());
+        node_a_db.add_arbitrary_full_neighbor(node_d.public_key(), node_e.public_key());
+        let gossip_source: SocketAddr = node_b.node_addr_opt().unwrap().into();
+        let mut node_b_db = db_from_node(&node_b);
+        node_b_db.add_node(node_a.clone()).unwrap();
+        node_b_db.add_node(node_c.clone()).unwrap();
+        node_b_db.add_node(node_d.clone()).unwrap();
+        node_b_db.add_node(node_e.clone()).unwrap();
+        node_b_db.add_node(node_f.clone()).unwrap();
+        node_b_db.add_arbitrary_full_neighbor(node_a.public_key(), node_b.public_key());
+        node_b_db.add_arbitrary_full_neighbor(node_b.public_key(), node_c.public_key());
+        node_b_db.add_arbitrary_full_neighbor(node_c.public_key(), node_d.public_key());
+        node_b_db.add_arbitrary_full_neighbor(node_d.public_key(), node_e.public_key());
+        node_b_db.add_arbitrary_full_neighbor(node_e.public_key(), node_f.public_key());
+        let gossip = GossipBuilder::new(&node_b_db)
+            .node(node_b.public_key(), true)
+            .node(node_c.public_key(), false)
+            .node(node_d.public_key(), false)
+            .node(node_e.public_key(), false)
+            .node(node_f.public_key(), false)
+            .build();
+        let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+
+        //----------------------- Debugging -----------------------------
+        let nodes = vec![
+            node_a.public_key().clone(),
+            node_b.public_key().clone(),
+            node_c.public_key().clone(),
+            node_d.public_key().clone(),
+            node_e.public_key().clone(),
+            node_f.public_key().clone(),
+        ];
+        eprintln!("Nodes: {:?}", nodes);
+
+        for agr in &agrs {
+            eprintln!(
+                "AGR found with public key: {:?}, which has neighbors: {:?}",
+                agr.inner.public_key, agr.inner.neighbors
+            )
+        }
+        //----------------------------------------------------------------
+
+        let hashmap = agrs
+            .iter()
+            .map(|agr| {
+                return (agr.inner.public_key.clone(), agr);
+            })
+            .collect::<HashMap<PublicKey, &AccessibleGossipRecord>>();
+
+        let result = subject.handle(cryptde, &mut node_a_db, agrs, gossip_source, &cpm_recipient);
+
+        assert_eq!(result, GossipAcceptanceResult::Ignored);
     }
 
     #[test]
