@@ -12,7 +12,7 @@ use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
 use rusqlite::functions::{Context, FunctionFlags};
 use rusqlite::Error::UserFunctionError;
-use rusqlite::{Connection, Error, Statement, ToSql, Transaction};
+use rusqlite::{Connection, Error, Row, Statement, ToSql, Transaction};
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
 use std::marker::PhantomData;
@@ -21,7 +21,6 @@ use std::ops::Neg;
 #[derive(Debug)]
 pub struct BigIntDbProcessor<T: TableNameDAO> {
     overflow_handler: Box<dyn UpdateOverflowHandler<T>>,
-    phantom: PhantomData<T>,
 }
 
 impl<'a, T: TableNameDAO> BigIntDbProcessor<T> {
@@ -34,7 +33,7 @@ impl<'a, T: TableNameDAO> BigIntDbProcessor<T> {
         let mut stm = Self::prepare_statement(conn, main_sql);
         let params = config
             .params
-            .pure_rusqlite_params_with_wei_params((&config.params.wei_change_params).into());
+            .merge_pure_rusqlite_and_wei_params((&config.params.wei_change_params).into());
         match stm.execute(params.as_slice()) {
             Ok(_) => Ok(()),
             //SQLITE_CONSTRAINT_DATATYPE (3091),
@@ -59,7 +58,6 @@ impl<T: TableNameDAO + 'static> Default for BigIntDbProcessor<T> {
     fn default() -> BigIntDbProcessor<T> {
         Self {
             overflow_handler: Box::new(UpdateOverflowHandlerReal::default()),
-            phantom: Default::default(),
         }
     }
 }
@@ -104,49 +102,40 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
         conn: Either<&dyn ConnectionWrapper, &Transaction>,
         config: BigIntSqlConfig<'a, T>,
     ) -> Result<(), BigIntDbError> {
-        let select_sql = config.select_sql();
-        let mut select_stm = BigIntDbProcessor::<T>::prepare_statement(conn, &select_sql);
-        match select_stm.query_row([], |row| {
+        let update_divided_integer = |row: &Row| -> Result<(), rusqlite::Error> {
             let high_bytes_result = row.get::<usize, i64>(0);
             let low_bytes_result = row.get::<usize, i64>(1);
+
             match [high_bytes_result, low_bytes_result] {
-                [Ok(previous_high_bytes), Ok(previous_low_bytes)] => {
+                [Ok(former_high_bytes), Ok(former_low_bytes)] => {
                     let requested_wei_change = &config.params.wei_change_params;
-                    let (high_bytes_correction, low_bytes_correction) = Self::correct_bytes(
-                        previous_high_bytes,
-                        previous_low_bytes,
+                    let (high_bytes_corrected, low_bytes_corrected) = Self::correct_bytes(
+                        former_high_bytes,
+                        former_low_bytes,
                         requested_wei_change,
                     );
-                    let update_sql = config.overflow_update_clause;
-                    let mut update_stm =
-                        BigIntDbProcessor::<T>::prepare_statement(conn, update_sql);
-                    let wei_update_array = [
+                    let wei_update_array: [(&str, &dyn ToSql); 2] = [
                         (
                             requested_wei_change.high.name.as_str(),
-                            &high_bytes_correction as &dyn ToSql,
+                            &high_bytes_corrected,
                         ),
-                        (
-                            requested_wei_change.low.name.as_str(),
-                            &low_bytes_correction as &dyn ToSql,
-                        ),
+                        (requested_wei_change.low.name.as_str(), &low_bytes_corrected),
                     ];
-                    let params = config
+
+                    let execute_params = config
                         .params
-                        .pure_rusqlite_params_with_wei_params(wei_update_array);
-                    match update_stm
-                        .execute(&*params)
-                        .expect("correction-for update sql has wrong logic")
-                    {
-                        1 => Ok(()),
-                        x => unreachable!(
-                            "This code was written to handle one changed row a time, not {}",
-                            x
-                        ),
-                    }
+                        .merge_pure_rusqlite_and_wei_params(wei_update_array);
+
+                    Self::execute_update(conn, &config, &execute_params);
+                    Ok(())
                 }
-                two_results => Self::return_first_error(two_results),
+                array_of_results => Self::return_first_error(array_of_results),
             }
-        }) {
+        };
+
+        let select_sql = config.select_sql();
+        let mut select_stm = BigIntDbProcessor::<T>::prepare_statement(conn, &select_sql);
+        match select_stm.query_row([], update_divided_integer) {
             Ok(()) => Ok(()),
             Err(e) => Err(BigIntDbError(format!(
                 "Updating balance for {} table and change of {} Wei to '{} = {}' with error '{}'",
@@ -161,13 +150,30 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
 }
 
 impl<T: TableNameDAO + Debug> UpdateOverflowHandlerReal<T> {
+    fn execute_update<'a>(
+        conn: Either<&dyn ConnectionWrapper, &Transaction>,
+        config: &BigIntSqlConfig<'a, T>,
+        execute_params: &[(&str, &dyn ToSql)],
+    ) {
+        match BigIntDbProcessor::<T>::prepare_statement(conn, config.overflow_update_clause)
+            .execute(execute_params)
+            .expect("logic broken given the previous non-overflow call accepted right")
+        {
+            1 => (),
+            x => panic!(
+                "Broken code: this code was written to handle one changed row a time, not {}",
+                x
+            ),
+        }
+    }
+
     fn correct_bytes(
-        previous_high_bytes: i64,
-        previous_low_bytes: i64,
+        former_high_bytes: i64,
+        former_low_bytes: i64,
         requested_wei_change: &WeisMakingTheChange,
     ) -> (i64, i64) {
-        let high_bytes_correction = previous_high_bytes + requested_wei_change.high.value + 1;
-        let low_bytes_correction = ((previous_low_bytes as i128
+        let high_bytes_correction = former_high_bytes + requested_wei_change.high.value + 1;
+        let low_bytes_correction = ((former_low_bytes as i128
             + requested_wei_change.low.value as i128)
             & 0x7FFFFFFFFFFFFFFF) as i64;
         (high_bytes_correction, low_bytes_correction)
@@ -233,8 +239,14 @@ impl<'a, T: TableNameDAO> BigIntSqlConfig<'a, T> {
             .skip_while(|char| char.is_whitespace())
             .take_while(|char| !char.is_whitespace())
             .collect::<String>();
-        match keyword.trim() {
-            "insert" => "upsert".to_string(),
+        match keyword.as_str() {
+            "insert" => {
+                if self.main_sql.contains("update") {
+                    "upsert".to_string()
+                } else {
+                    panic!("Sql with simple insert. The processor of big integers is correctly used only if combined with update")
+                }
+            }
             "update" => keyword,
             _ => panic!(
                 "broken code: unexpected or misplaced command \"{}\" \
@@ -383,7 +395,7 @@ impl<'a> From<&'a WeisMakingTheChange> for [(&'a str, &'a dyn ToSql); 2] {
 }
 
 impl<'a> SQLParams<'a> {
-    fn pure_rusqlite_params_with_wei_params(
+    fn merge_pure_rusqlite_and_wei_params(
         &'a self,
         wei_change_params: [(&'a str, &'a dyn ToSql); 2],
     ) -> Vec<(&'a str, &'a dyn ToSql)> {
@@ -519,8 +531,8 @@ impl BigIntDivider {
                 Err(UserFunctionError(Box::new(InvalidInputValue(
                     fn_name.to_string(),
                     format!(
-                        "Nonnegative slope '{}', while designed only for the negative numbers. \
-                         Watch out for too young debts that could flip the sign",
+                        "Nonnegative slope {}; delinquency slope must be negative, \
+                         since debts must become more delinquent over time.",
                         actual_decrease_wei
                     ),
                 ))))
@@ -791,6 +803,21 @@ mod tests {
 
     #[test]
     #[should_panic(
+        expected = "Sql with simple insert. The processor of big integers is correctly used only if combined with update"
+    )]
+    fn determine_command_does_not_now_simple_insert() {
+        let subject: BigIntSqlConfig<'_, DummyDao> = BigIntSqlConfig {
+            main_sql: "insert into table (blah) values ('double blah')",
+            overflow_update_clause: "update with overflow sql",
+            params: make_empty_sql_params(),
+            phantom: Default::default(),
+        };
+
+        let _ = subject.determine_command();
+    }
+
+    #[test]
+    #[should_panic(
         expected = "broken code: unexpected or misplaced command \"some\" in upsert or update, respectively"
     )]
     fn determine_command_panics_if_unknown_command() {
@@ -872,7 +899,6 @@ mod tests {
     fn analyse_sql_commands_execution_without_details_of_overflow(
         test_name: &str,
         main_sql: &str,
-        overflow_update_clause: &str,
         requested_wei_change: WeiChange,
         init_record: i128,
     ) -> ConventionalUpsertUpdateAnalysisData {
@@ -888,7 +914,7 @@ mod tests {
                 Left(conn),
                 BigIntSqlConfig::new(
                     main_sql,
-                    overflow_update_clause,
+                    "",
                     SQLParamsBuilder::default()
                         .key("name", ":name", &"Joe")
                         .wei_change(requested_wei_change.clone())
@@ -991,7 +1017,6 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "update_alone_works_for_addition",
             STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
-            "",
             Addition("balance", wei_change as u128),
             initial,
         );
@@ -1017,7 +1042,6 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "update_alone_works_for_addition_with_overflow",
             STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
-            "",
             Addition("balance", wei_change as u128),
             initial,
         );
@@ -1044,7 +1068,6 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "update_alone_works_for_subtraction",
             STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
-            "",
             Subtraction("balance", wei_change.abs() as u128),
             initial,
         );
@@ -1056,7 +1079,7 @@ mod tests {
                 was_update_with_overflow: false,
                 final_database_values: ReadFinalRow {
                     high_bytes: 54,
-                    low_bytes: 9223372036854775806,
+                    low_bytes: i64::MAX - 1,
                     as_i128: initial - (-wei_change)
                 }
             }
@@ -1071,7 +1094,6 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "update_alone_works_for_subtraction_with_overflow",
             STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
-            "",
             Subtraction("balance", wei_change.abs() as u128),
             initial,
         );
@@ -1102,7 +1124,6 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "early_return_for_successful_insert_works",
             STANDARD_EXAMPLE_OF_INSERT_CLAUSE,
-            "",
             Addition("balance", wei_change as u128),
             initial,
         );
@@ -1128,7 +1149,6 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "early_return_for_successful_insert_works_for_subtraction",
             STANDARD_EXAMPLE_OF_INSERT_CLAUSE,
-            "",
             Subtraction("balance", wei_change.abs() as u128),
             initial,
         );
@@ -1158,7 +1178,6 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "insert_blocked_simple_update_succeeds_for_addition",
             STANDARD_EXAMPLE_OF_INSERT_WITH_CONFLICT_CLAUSE,
-            "",
             Addition("balance", wei_change as u128),
             initial,
         );
@@ -1184,7 +1203,6 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "insert_blocked_simple_update_succeeds_for_subtraction",
             STANDARD_EXAMPLE_OF_INSERT_WITH_CONFLICT_CLAUSE,
-            "",
             Subtraction("balance", wei_change.abs() as u128),
             initial,
         );
@@ -1211,7 +1229,6 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "insert_blocked_update_with_overflow_for_addition",
             STANDARD_EXAMPLE_OF_INSERT_WITH_CONFLICT_CLAUSE,
-            STANDARD_EXAMPLE_OF_OVERFLOW_UPDATE_CLAUSE,
             Addition("balance", wei_change as u128),
             initial,
         );
@@ -1238,7 +1255,6 @@ mod tests {
         let result = analyse_sql_commands_execution_without_details_of_overflow(
             "insert_blocked_update_with_overflow_for_subtraction",
             STANDARD_EXAMPLE_OF_INSERT_WITH_CONFLICT_CLAUSE,
-            STANDARD_EXAMPLE_OF_OVERFLOW_UPDATE_CLAUSE,
             Subtraction("balance", wei_change.abs() as u128),
             initial,
         );
@@ -1311,7 +1327,7 @@ mod tests {
         let subject = BigIntDbProcessor::<DummyDao>::default();
         let balance_change = Addition("balance", 4879898145125);
         let config = BigIntSqlConfig::new(
-            "insert into test_table (name, balance_high_b, balance_low_b) values (:name, :balance_a, :balance_b) on conflict (name) do \
+            "insert into test_table (name, balance_high_b, balance_low_b) values (:name, :balance_wrong_a, :balance_wrong_b) on conflict (name) do \
              update set balance_high_b = balance_high_b + 5, balance_low_b = balance_low_b + 10 where name = :name",
             "",
             SQLParamsBuilder::default()
@@ -1499,7 +1515,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "unreachable code: This code was written to handle one changed row a time, not 2"
+        expected = "Broken code: this code was written to handle one changed row a time, not 2"
     )]
     fn update_with_overflow_is_designed_to_handle_one_record_a_time() {
         let conn = initiate_simple_connection_and_test_table(
@@ -1512,7 +1528,7 @@ mod tests {
         let update_config = BigIntSqlConfig::new(
             "",
             "update test_table set balance_high_b = balance_high_b + :balance_high_b, \
-            balance_low_b = balance_low_b + :balance_low_b where name in (:name,'Jodie')",
+            balance_low_b = balance_low_b + :balance_low_b where name in (:name, 'Jodie')",
             SQLParamsBuilder::default()
                 .wei_change(balance_change)
                 .key("name", ":name", &"Joe")
@@ -1864,19 +1880,33 @@ mod tests {
         let high_bytes_error = error_invoker("high");
         let low_bytes_error = error_invoker("low");
 
-        assert_eq!(high_bytes_error,
-                   SqliteFailure(
-                       rusqlite::ffi::Error{ code: ErrorCode::Unknown, extended_code: 1 },
-                       Some("Error from slope_drop_high_bytes: Nonnegative slope '5656.23', \
-                        while designed only for the negative numbers. Watch out for too young debts that could flip the sign".to_string())
-                   )
+        assert_eq!(
+            high_bytes_error,
+            SqliteFailure(
+                rusqlite::ffi::Error {
+                    code: ErrorCode::Unknown,
+                    extended_code: 1
+                },
+                Some(
+                    "Error from slope_drop_high_bytes: Nonnegative slope 5656.23; delinquency \
+                        slope must be negative, since debts must become more delinquent over time."
+                        .to_string()
+                )
+            )
         );
-        assert_eq!(low_bytes_error,
-                   SqliteFailure(
-                       rusqlite::ffi::Error{ code: ErrorCode::Unknown, extended_code: 1 },
-                       Some("Error from slope_drop_low_bytes: Nonnegative slope '5656.23', \
-                        while designed only for the negative numbers. Watch out for too young debts that could flip the sign".to_string())
-                   )
+        assert_eq!(
+            low_bytes_error,
+            SqliteFailure(
+                rusqlite::ffi::Error {
+                    code: ErrorCode::Unknown,
+                    extended_code: 1
+                },
+                Some(
+                    "Error from slope_drop_low_bytes: Nonnegative slope 5656.23; delinquency \
+                       slope must be negative, since debts must become more delinquent over time."
+                        .to_string()
+                )
+            )
         );
     }
 

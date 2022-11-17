@@ -1839,6 +1839,7 @@ dependencies = [
  "masq_lib",
  "nix 0.23.1",
  "num",
+ "paste",
  "regex",
  "thousands",
  "time 0.3.11",

@@ -37,6 +37,7 @@ libc = "0.2.107"
 libsecp256k1 = "0.7.0"
 log = "0.4.14"
 masq_lib = { path = "../masq_lib"}
+paste = "1.0.6"
 pretty-hex = "0.2.1"
 primitive-types = {version = "0.5.0", default-features = false, features = ["default", "rlp", "serde"]}
 rand = {version = "0.8.4", features = ["getrandom", "small_rng"]}
@@ -64,7 +65,6 @@ unindent = "0.1.7"
 web3 = {version = "0.11.0", default-features = false, features = ["http", "tls"]}
 websocket = {version = "0.26.2", default-features = false, features = ["async", "sync"]}
 secp256k1secrets = {package = "secp256k1", version = "0.17.2"}
-paste = "1.0.6"
 
 [target.'cfg(target_os = "macos")'.dependencies]
 system-configuration = "0.4.0"
