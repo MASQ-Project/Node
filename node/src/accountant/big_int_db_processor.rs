@@ -1407,7 +1407,6 @@ mod tests {
     fn update_with_overflow_for_addition() {
         let initial_high_bytes = 4555;
         let initial_low_bytes = i64::MAX - 55;
-        //signed just to make the test more unconditional
         let balance_change_signed = i64::MAX as i128 * 4; //36893488147419103228;
 
         let result = update_with_overflow_shared_test_body(
@@ -1420,7 +1419,7 @@ mod tests {
         assert_eq!(
             result,
             UpdateWithOverflowSummary {
-                balance_change_decomposed: (3, 9223372036854775804),
+                balance_change_decomposed: (0x3, 0x7FFFFFFFFFFFFFFC),
                 final_read_high_bytes: 4555 + 3 + SINGLE_UNIT_FROM_OVERFLOW,
                 final_read_low_bytes: 9223372036854775804 - 55 - SINGLE_UNIT_FROM_OVERFLOW,
                 math_operation_expected_result: BigIntDivider::reconstitute(4555, i64::MAX - 55)
@@ -1433,7 +1432,7 @@ mod tests {
     fn update_with_overflow_for_subtraction_from_positive_num() {
         let initial_high_bytes = 4555;
         let initial_low_bytes = 55;
-        //signed just to make the test more unconditional
+        //sign on the value is eliminated later, but the test setup uses it
         let balance_change_signed = -41;
 
         let result = update_with_overflow_shared_test_body(
@@ -1458,7 +1457,7 @@ mod tests {
     fn update_with_overflow_for_subtraction_from_negative_num() {
         let initial_high_bytes = -3000;
         let initial_low_bytes = 666333;
-        //signed just to make the test more unconditional
+        //sign on the value is eliminated later, but the test setup uses it
         let balance_change_signed = -1217485108864830961090;
 
         let result = update_with_overflow_shared_test_body(

@@ -586,13 +586,13 @@ impl Accountant {
     }
 
     fn payable_exceeded_threshold(&self, payable: &PayableAccount) -> Option<u128> {
-        let time_since_last_paid = SystemTime::now()
+        let debt_age = SystemTime::now()
             .duration_since(payable.last_paid_timestamp)
             .expect("Internal error")
             .as_secs();
 
         if self.payable_threshold_gauge.is_innocent_age(
-            time_since_last_paid,
+            debt_age,
             self.config.payment_thresholds.maturity_threshold_sec as u64,
         ) {
             return None;
@@ -607,10 +607,7 @@ impl Accountant {
 
         let threshold = gwei_to_wei(
             self.payable_threshold_gauge
-                .calculate_payout_threshold_in_gwei(
-                    &self.config.payment_thresholds,
-                    time_since_last_paid,
-                ),
+                .calculate_payout_threshold_in_gwei(&self.config.payment_thresholds, debt_age),
         );
         if payable.balance_wei > threshold {
             Some(threshold)
@@ -1385,9 +1382,9 @@ impl PayableThresholdsGauge for PayableThresholdsGaugeReal {
     fn calculate_payout_threshold_in_gwei(
         &self,
         payment_thresholds: &PaymentThresholds,
-        x: u64,
+        debt_age: u64,
     ) -> u64 {
-        ThresholdUtils::calculate_sloped_threshold_by_time(payment_thresholds, x) as u64
+        ThresholdUtils::calculate_finite_debt_limit_by_age(payment_thresholds, debt_age) as u64
     }
     as_any_impl!();
 }
@@ -1406,11 +1403,11 @@ impl ThresholdUtils {
         }
     }
 
-    fn calculate_sloped_threshold_by_time(
+    fn calculate_finite_debt_limit_by_age(
         payment_thresholds: &PaymentThresholds,
-        time: u64,
+        debt_age_in_sec: u64,
     ) -> f64 {
-        if Self::test_if_lies_after_the_slope(time, payment_thresholds) {
+        if Self::qualifies_for_permanent_debt_limit(debt_age_in_sec, payment_thresholds) {
             return payment_thresholds.permanent_debt_allowed_gwei as f64;
         };
         let m = ThresholdUtils::slope(payment_thresholds, false);
@@ -1419,8 +1416,8 @@ impl ThresholdUtils {
             ThresholdUtils::convert(payment_thresholds.maturity_threshold_sec),
             ThresholdUtils::convert(payment_thresholds.debt_threshold_gwei),
         );
-        let y = m * time as f64 + b;
-        Self::test_valid_scope(y, payment_thresholds, time);
+        let y = m * debt_age_in_sec as f64 + b;
+        Self::test_valid_scope(y, payment_thresholds, debt_age_in_sec);
         y
     }
 
@@ -1443,7 +1440,10 @@ impl ThresholdUtils {
         };
     }
 
-    fn test_if_lies_after_the_slope(time: u64, payment_thresholds: &PaymentThresholds) -> bool {
+    fn qualifies_for_permanent_debt_limit(
+        time: u64,
+        payment_thresholds: &PaymentThresholds,
+    ) -> bool {
         time > (payment_thresholds.maturity_threshold_sec
             + payment_thresholds.threshold_interval_sec)
     }
@@ -4221,80 +4221,89 @@ mod tests {
         )
     }
 
+    fn gap_tester(payment_thresholds: &PaymentThresholds) -> Option<u64> {
+        let cached = (0_u64..20).map(|to_add| {
+            ThresholdUtils::calculate_finite_debt_limit_by_age(&payment_thresholds, 1500 + to_add)
+                as u64
+        });
+        let mut counts_of_unique_elements: HashMap<u64, usize> = HashMap::new();
+        cached.for_each(|point_height| {
+            counts_of_unique_elements
+                .entry(point_height)
+                .and_modify(|q| *q += 1)
+                .or_insert(1);
+        });
+        let mut counts_of_groups_of_the_same_size: HashMap<usize, usize> = HashMap::new();
+        counts_of_unique_elements.values().for_each(|unique_count| {
+            counts_of_groups_of_the_same_size
+                .entry(*unique_count)
+                .and_modify(|q| *q += 1)
+                .or_insert(1);
+        });
+        let mut sortable = counts_of_groups_of_the_same_size
+            .drain()
+            .collect::<Vec<_>>();
+        sortable.sort_by_key(|(_key, count)| *count);
+        let (biggest_groups_size, occurrence) = sortable.last().expect("no values to analyze");
+        //checking if the sample of undistorted results (consist size groups) has enough weight compared to 20 tries from the beginning
+        if biggest_groups_size * occurrence >= 15 {
+            Some(*biggest_groups_size as u64)
+        } else {
+            panic!("couldn't provide a relevant amount of data for the analysis")
+        }
+    }
+
+    fn test_height_granularity_with_advancing_time(
+        test_scope: &str,
+        payment_thresholds: &PaymentThresholds,
+        seconds_between_height_change: u64,
+    ) {
+        let finding_under_135_degree = gap_tester(&payment_thresholds);
+
+        if let Some(seconds_needed_for_smallest_detected_change_in_height) =
+            finding_under_135_degree
+        {
+            assert_eq!(seconds_needed_for_smallest_detected_change_in_height, seconds_between_height_change,
+                       "while testing {} we expected that these thresholds: {:?} will require only {} s until we see the height change but computed {} s instead",
+                       test_scope, payment_thresholds, seconds_between_height_change, seconds_needed_for_smallest_detected_change_in_height)
+        } else {
+            panic!(
+                "while testing {}, we waited for some finding but got none",
+                test_scope
+            )
+        }
+    }
+
     #[test]
     fn testing_granularity_calculate_sloped_threshold_by_time() {
-        fn gap_tester(payment_thresholds: &PaymentThresholds) -> Option<u64> {
-            let cached = (0_u64..20).map(|to_add| {
-                ThresholdUtils::calculate_sloped_threshold_by_time(
-                    &payment_thresholds,
-                    1000 + to_add,
-                ) as u64
-            });
-            let mut counts_of_unique_elements: HashMap<u64, usize> = HashMap::new();
-            cached.for_each(|point_height| {
-                counts_of_unique_elements
-                    .entry(point_height)
-                    .and_modify(|q| *q += 1)
-                    .or_insert(1);
-            });
-            let mut counts_of_same_size_count_groups: HashMap<usize, usize> = HashMap::new();
-            counts_of_unique_elements.values().for_each(|unique_count| {
-                counts_of_same_size_count_groups
-                    .entry(*unique_count)
-                    .and_modify(|q| *q += 1)
-                    .or_insert(1);
-            });
-            let mut sortable = counts_of_same_size_count_groups.drain().collect::<Vec<_>>();
-            sortable.sort_by_key(|(_key, count)| *count);
-            let (biggest_groups_size, occurrence) = sortable.last().expect("no values to analyze");
-            //checking if the sample has enough weight compared to 20 picked elements at the beginning
-            if biggest_groups_size * occurrence >= 15 {
-                Some(*biggest_groups_size as u64)
-            } else {
-                panic!("test cannot provide relevant enough information")
-            }
-        }
+        let payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 1000,
+            payment_grace_period_sec: 0,
+            permanent_debt_allowed_gwei: 100,
+            debt_threshold_gwei: 10_000,
+            threshold_interval_sec: 10_000,
+            unban_below_gwei: 100,
+        };
 
-        {
-            let payment_thresholds = PaymentThresholds {
-                maturity_threshold_sec: 100,
-                payment_grace_period_sec: 0,
-                permanent_debt_allowed_gwei: 100,
-                debt_threshold_gwei: 10_000,
-                threshold_interval_sec: 10_000,
-                unban_below_gwei: 100,
-            };
+        test_height_granularity_with_advancing_time("135° slope", &payment_thresholds, 1);
 
-            let finding_under_135_degree = gap_tester(&payment_thresholds);
+        let payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 1000,
+            payment_grace_period_sec: 0,
+            permanent_debt_allowed_gwei: 100,
+            debt_threshold_gwei: 5_773,
+            threshold_interval_sec: 10_000,
+            unban_below_gwei: 100,
+        };
 
-            if let Some(seconds_needed_for_smallest_detected_change_in_height) =
-                finding_under_135_degree
-            {
-                assert_eq!(seconds_needed_for_smallest_detected_change_in_height, 1)
-            } else {
-                panic!("while testing 135° slope, we waited for some finding but got none")
-            }
-        }
-        {
-            let payment_thresholds = PaymentThresholds {
-                maturity_threshold_sec: 100,
-                payment_grace_period_sec: 0,
-                permanent_debt_allowed_gwei: 100,
-                debt_threshold_gwei: 5_773,
-                threshold_interval_sec: 10_000,
-                unban_below_gwei: 100,
-            };
+        test_height_granularity_with_advancing_time("150° slope", &payment_thresholds, 2);
+    }
 
-            let finding_under_150_degree = gap_tester(&payment_thresholds);
+    #[test]
+    fn checking_chosen_values_for_the_payment_thresholds_defaults_on_height_values_granularity() {
+        let payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
 
-            if let Some(seconds_needed_for_smallest_detected_change_in_height) =
-                finding_under_150_degree
-            {
-                assert_eq!(seconds_needed_for_smallest_detected_change_in_height, 2)
-            } else {
-                panic!("while testing 150° slope, we waited for some finding but got none")
-            }
-        }
+        test_height_granularity_with_advancing_time("default thresholds", &payment_thresholds, 1);
     }
 
     #[test]
@@ -4320,7 +4329,7 @@ mod tests {
     fn not_enough_time_passed_brings_slope_value_out_of_range_with_panic() {
         fn test_panic(payment_thresholds: &PaymentThresholds) {
             let panic = catch_unwind(|| {
-                ThresholdUtils::calculate_sloped_threshold_by_time(
+                ThresholdUtils::calculate_finite_debt_limit_by_age(
                     payment_thresholds,
                     payment_thresholds.maturity_threshold_sec,
                 )
@@ -4376,17 +4385,17 @@ mod tests {
             unban_below_gwei: 0,
         };
 
-        let right_at_the_end = ThresholdUtils::calculate_sloped_threshold_by_time(
+        let right_at_the_end = ThresholdUtils::calculate_finite_debt_limit_by_age(
             &payment_thresholds,
             payment_thresholds.maturity_threshold_sec
                 + payment_thresholds.threshold_interval_sec
                 + 1,
         ) as u64;
-        let a_certain_distance_further = ThresholdUtils::calculate_sloped_threshold_by_time(
+        let a_certain_distance_further = ThresholdUtils::calculate_finite_debt_limit_by_age(
             &payment_thresholds,
             payment_thresholds.maturity_threshold_sec
                 + payment_thresholds.threshold_interval_sec
-                + 333,
+                + 123,
         ) as u64;
 
         assert_eq!(
@@ -5351,7 +5360,7 @@ mod tests {
     }
 
     macro_rules! extract_ages_from_accounts {
-        ($account_type: ident, $main_structure: expr, $account_specific_field_opt: ident) => {{
+        ($main_structure: expr, $account_specific_field_opt: ident) => {{
             let accounts_collection = &$main_structure
                 .query_results_opt
                 .as_ref()
@@ -5412,10 +5421,9 @@ mod tests {
 
         let after = SystemTime::now();
         let (computed_response, context_id) = UiFinancialsResponse::fmb(result).unwrap();
-        let extracted_payable_ages =
-            extract_ages_from_accounts!(UiPayableAccount, computed_response, payable_opt);
+        let extracted_payable_ages = extract_ages_from_accounts!(computed_response, payable_opt);
         let extracted_receivable_ages =
-            extract_ages_from_accounts!(UiReceivableAccount, computed_response, receivable_opt);
+            extract_ages_from_accounts!(computed_response, receivable_opt);
         assert_eq!(context_id, context_id_expected);
         assert_eq!(
             computed_response,
@@ -5585,10 +5593,9 @@ mod tests {
 
         let after = SystemTime::now();
         let (computed_response, context_id) = UiFinancialsResponse::fmb(result).unwrap();
-        let extracted_payable_ages =
-            extract_ages_from_accounts!(UiPayableAccount, computed_response, payable_opt);
+        let extracted_payable_ages = extract_ages_from_accounts!(computed_response, payable_opt);
         let extracted_receivable_ages =
-            extract_ages_from_accounts!(UiReceivableAccount, computed_response, receivable_opt);
+            extract_ages_from_accounts!(computed_response, receivable_opt);
         assert_eq!(context_id, context_id_expected);
         assert_eq!(
             computed_response,

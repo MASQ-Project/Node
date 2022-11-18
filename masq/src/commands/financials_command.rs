@@ -29,17 +29,16 @@ use thousands::Separable;
 
 const FINANCIALS_SUBCOMMAND_ABOUT: &str =
     "Displays financial statistics of this Node. Only valid if Node is already running.";
-const TOP_ARG_HELP: &str = "Returns a subset of the top N records (or fewer, if their total count is smaller) from both payable and receivable. By default, the ordering is done by balance but can be changed with the additional \
- '--ordered' argument.";
-const PAYABLE_ARG_HELP: &str = "Forms a detailed query about payable records by specifying two ranges, one for their age in seconds and another for their balance in MASQs (decimal numbers are supported, allowing Gwei precision). \
- The required format consists of two ranges separated by | like here: <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out MAX-BALANCE, including the dash before, defaults to maximum (2^64 - 1).";
-const RECEIVABLE_ARG_HELP: &str = "Forms a detailed query about receivable records by specifying two ranges, one for their age in seconds and another for their balance in MASQs (decimal numbers are supported, allowing Gwei precision). \
- The required format consists of two ranges separated by | like here: <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out MAX-BALANCE, including the dash before, defaults to maximum (2^64 - 1).";
+const TOP_ARG_HELP: &str = "Returns a subset of the top N records (or fewer) from both payable and receivable. The downward ordering follows balances by default but can be changed with the additional  '--ordered' argument.";
+const PAYABLE_ARG_HELP: &str = "Enables querying payable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired Gwei precision). \
+ The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1).";
+const RECEIVABLE_ARG_HELP: &str = "Enables querying receivable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired Gwei precision). \
+ The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1).";
 const NO_STATS_ARG_HELP: &str = "Disables statistics that display by default, containing totals of paid and unpaid money from the perspective of debtors and creditors. This argument is not accepted alone and must be placed \
  before other arguments.";
 const GWEI_HELP: &str =
-    "Orders rendering amounts of money in Gwei of MASQ instead of whole MASQs as the default.";
-const ORDERED_HELP: &str = "Determines the order of the returned records. This option works only with the '--top' argument.";
+    "Orders money values rendering in Gwei of MASQ instead of whole MASQs as the default.";
+const ORDERED_HELP: &str = "Determines in what ordering the top records will be returned. This option works only with the '--top' argument.";
 const WALLET_ADDRESS_LENGTH: usize = 42;
 
 #[derive(Debug, PartialEq)]
@@ -922,19 +921,19 @@ mod tests {
         );
         assert_eq!(
             TOP_ARG_HELP,
-            "Returns a subset of the top N records (or fewer, if their total count is smaller) from both payable and receivable. By default, the ordering is done by balance but can be changed with the additional '--ordered' argument."
+            "Returns a subset of the top N records (or fewer) from both payable and receivable. The downward ordering follows balances by default but can be changed with the additional  '--ordered' argument."
         );
-        assert_eq!(PAYABLE_ARG_HELP,"Forms a detailed query about payable records by specifying two ranges, one for their age in seconds and another for their balance in MASQs (decimal numbers are supported, allowing Gwei precision). \
-                    The required format consists of two ranges separated by | like here: <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out MAX-BALANCE, including the dash before, defaults to maximum (2^64 - 1).");
-        assert_eq!(RECEIVABLE_ARG_HELP,"Forms a detailed query about receivable records by specifying two ranges, one for their age in seconds and another for their balance in MASQs (decimal numbers are supported, allowing Gwei precision). \
-                    The required format consists of two ranges separated by | like here: <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out MAX-BALANCE, including the dash before, defaults to maximum (2^64 - 1).");
+        assert_eq!(PAYABLE_ARG_HELP, "Enables querying payable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired Gwei precision). \
+            The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1).");
+        assert_eq!(RECEIVABLE_ARG_HELP,"Enables querying receivable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired Gwei precision). \
+            The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1).");
         assert_eq!(NO_STATS_ARG_HELP,"Disables statistics that display by default, containing totals of paid and unpaid money from the perspective of debtors and creditors. This argument is not accepted alone and must be placed \
                     before other arguments.");
         assert_eq!(
             GWEI_HELP,
-            "Orders rendering amounts of money in Gwei of MASQ instead of whole MASQs as the default."
+            "Orders money values rendering in Gwei of MASQ instead of whole MASQs as the default."
         );
-        assert_eq!(ORDERED_HELP, "Determines the order of the returned records. This option works only with the '--top' argument.");
+        assert_eq!(ORDERED_HELP, "Determines in what ordering the top records will be returned. This option works only with the '--top' argument.");
         assert_eq!(WALLET_ADDRESS_LENGTH, 42);
     }
 

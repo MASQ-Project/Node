@@ -90,7 +90,7 @@ type RusqliteParamsWithOwnedToSql = Vec<(&'static str, Box<dyn ToSql>)>;
 pub struct TopStmConfig {
     pub limit_clause: &'static str,
     pub gwei_min_resolution_clause: &'static str,
-    pub age_param_name: &'static str,
+    pub age_ordering_clause: &'static str,
 }
 
 pub struct RangeStmConfig {
@@ -127,7 +127,7 @@ impl<N: Copy + Display> CustomQuery<N> {
         let (finalized_stm, params): (String, RusqliteParamsWithOwnedToSql) = match self {
             Self::TopRecords { count, ordered_by } => {
                 let (order_by_first_param, order_by_second_param) =
-                    Self::ordering(ordered_by, variant_top.age_param_name);
+                    Self::ordering(ordered_by, variant_top.age_ordering_clause);
                 (
                     stm_assembler(AssemblerFeeder {
                         main_where_clause: variant_top.gwei_min_resolution_clause,
@@ -310,13 +310,16 @@ pub fn sum_i128_values_from_table(
     conn: &dyn ConnectionWrapper,
     table: &str,
     param_name: &str,
-    value_creation: fn(&mut usize, &Row) -> rusqlite::Result<i128>,
+    value_completer: fn(usize, &Row) -> rusqlite::Result<i128>,
 ) -> i128 {
-    let mut row_counter = 0;
+    let mut row_number = 0;
     let select_stm = format!("select {param_name}_high_b, {param_name}_low_b from {table}");
     conn.prepare(&select_stm)
         .expect("select stm error")
-        .query_map([], |row| value_creation(&mut row_counter, row))
+        .query_map([], |row| {
+            row_number += 1;
+            value_completer(row_number, row)
+        })
         .expect("select query failed")
         .vigilant_flatten()
         .sum()
@@ -383,7 +386,7 @@ mod tests {
             TopStmConfig {
                 limit_clause: "",
                 gwei_min_resolution_clause: "",
-                age_param_name: "",
+                age_ordering_clause: "",
             },
             RangeStmConfig {
                 where_clause: "",

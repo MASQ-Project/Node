@@ -207,7 +207,7 @@ impl PayableDao for PayableDaoReal {
         let variant_top = TopStmConfig{
             limit_clause: "limit :limit_count",
             gwei_min_resolution_clause: "where (balance_high_b > 0) or ((balance_high_b = 0) and (balance_low_b >= 1000000000))",
-            age_param_name: "last_paid_timestamp asc",
+            age_ordering_clause: "last_paid_timestamp asc",
         };
         let variant_range = RangeStmConfig {
             where_clause: "where ((last_paid_timestamp <= :max_timestamp) and (last_paid_timestamp >= :min_timestamp)) \
@@ -227,15 +227,14 @@ impl PayableDao for PayableDaoReal {
     }
 
     fn total(&self) -> u128 {
-        let value_creation = |row_counter: &mut usize, row: &Row| {
-            *row_counter += 1;
+        let value_completer = |row_number: usize, row: &Row| {
             let high_bytes = row.get::<usize, i64>(0).expectv("high bytes");
             let low_bytes = row.get::<usize, i64>(1).expectv("low_bytes");
             let big_int = BigIntDivider::reconstitute(high_bytes, low_bytes);
             if high_bytes < 0 {
                 panic!(
                     "database corrupted: found negative value {} in payable table for row id {}",
-                    big_int, row_counter
+                    big_int, row_number
                 )
             };
             Ok(big_int)
@@ -244,7 +243,7 @@ impl PayableDao for PayableDaoReal {
             self.conn.as_ref(),
             &Self::table_name(),
             "balance",
-            value_creation,
+            value_completer,
         ))
         .unwrap_or_else(|num| {
             panic!(
@@ -488,7 +487,7 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         {
-            insert_record(&*boxed_conn, &wallet.to_string(), 5000, 150_000_000, None);
+            insert_record_fn(&*boxed_conn, &wallet.to_string(), 5000, 150_000_000, None);
         }
         let subject = PayableDaoReal::new(boxed_conn);
         let before_account_status = subject.account_status(&wallet).unwrap();
@@ -570,7 +569,7 @@ mod tests {
         let payment = 6666;
         let wallet = make_wallet("bobble");
         {
-            insert_record(
+            insert_record_fn(
                 &*boxed_conn,
                 &wallet.to_string(),
                 starting_amount,
@@ -672,21 +671,18 @@ mod tests {
     fn trick_rusqlite_with_read_only_conn(path: &Path) -> Connection {
         let db_path = path.join("experiment.db");
         let conn = RusqliteConnection::open_with_flags(&db_path, OpenFlags::default()).unwrap();
-        {
-            let mut stm = conn
-                .prepare(
-                    "\
-                create table payable (\
-                    wallet_address text primary key,
-                    balance_high_b integer not null,
-                    balance_low_b integer not null,
-                    last_paid_timestamp integer not null,
-                    pending_payable_rowid integer null)\
-                    ",
-                )
-                .unwrap();
-            stm.execute([]).unwrap();
-        }
+        conn.prepare(
+            "
+            create table payable (
+                wallet_address text primary key,
+                balance_high_b integer not null,
+                balance_low_b integer not null,
+                last_paid_timestamp integer not null,
+                pending_payable_rowid integer null)",
+        )
+        .unwrap()
+        .execute([])
+        .unwrap();
         conn.close().unwrap();
         let conn = RusqliteConnection::open_with_flags(&db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
             .unwrap();
@@ -726,7 +722,7 @@ mod tests {
         let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
         let conn = ConnectionWrapperReal::new(conn);
         let insert = |wallet: &str, pending_payable_rowid: Option<i64>| {
-            insert_record(
+            insert_record_fn(
                 &conn,
                 wallet,
                 1234567890123456,
@@ -797,15 +793,7 @@ mod tests {
     type InsertPayableHelperFn<'b> =
         &'b dyn for<'a> Fn(&'a dyn ConnectionWrapper, &'a str, i128, i64, Option<i64>);
 
-    macro_rules! simplified_insert {
-        ($conn: expr, $closure: expr) => {
-            |wallet: &str, wei_amount: i128, time: i64, rowid: Option<i64>| {
-                $closure($conn, wallet, wei_amount, time, rowid)
-            }
-        };
-    }
-
-    fn insert_record(
+    fn insert_record_fn(
         conn: &dyn ConnectionWrapper,
         wallet: &str,
         balance: i128,
@@ -831,32 +819,36 @@ mod tests {
         now: i64,
     ) -> Box<dyn Fn(&dyn ConnectionWrapper, InsertPayableHelperFn)> {
         Box::new(move |conn, insert: InsertPayableHelperFn| {
-            let insert = simplified_insert!(conn, insert);
             insert(
+                conn,
                 "0x1111111111111111111111111111111111111111",
                 1_000_000_002,
                 now - 86_401,
                 None,
             );
             insert(
+                conn,
                 "0x2222222222222222222222222222222222222222",
                 7_562_000_300_000,
                 now - 86_001,
                 None,
             );
             insert(
+                conn,
                 "0x3333333333333333333333333333333333333333",
                 999_999_999, //balance smaller than 1 Gwei
                 now - 86_000,
                 None,
             );
             insert(
+                conn,
                 "0x4444444444444444444444444444444444444444",
                 10_000_000_100,
                 now - 86_300,
                 None,
             );
             insert(
+                conn,
                 "0x5555555555555555555555555555555555555555",
                 10_000_000_100,
                 now - 86_401,
@@ -990,44 +982,50 @@ mod tests {
         //by balance and then by age.
         let now = now_time_t();
         let main_setup = |conn: &dyn ConnectionWrapper, insert: InsertPayableHelperFn| {
-            let insert = simplified_insert!(conn, insert);
             insert(
+                conn,
                 "0x1111111111111111111111111111111111111111",
                 gwei_to_wei::<_, u64>(499_999_999), //too small
                 now - 70_000,
                 None,
             );
             insert(
+                conn,
                 "0x2222222222222222222222222222222222222222",
                 gwei_to_wei::<_, u64>(1_800_456_000),
                 now - 55_120,
                 Some(1),
             );
             insert(
+                conn,
                 "0x3333333333333333333333333333333333333333",
                 gwei_to_wei::<_, u64>(600_123_456),
                 now - 200_001, //too old
                 None,
             );
             insert(
+                conn,
                 "0x4444444444444444444444444444444444444444",
                 gwei_to_wei::<_, u64>(1_033_456_000_u64),
                 now - 19_999, //too young
                 None,
             );
             insert(
+                conn,
                 "0x5555555555555555555555555555555555555555",
                 gwei_to_wei::<_, u64>(35_000_000_001), //too big
                 now - 30_786,
                 None,
             );
             insert(
+                conn,
                 "0x6666666666666666666666666666666666666666",
                 gwei_to_wei::<_, u64>(1_800_456_000u64),
                 now - 100_401,
                 None,
             );
             insert(
+                conn,
                 "0x7777777777777777777777777777777777777777",
                 gwei_to_wei::<_, u64>(2_500_647_000u64),
                 now - 80_333,
@@ -1079,8 +1077,9 @@ mod tests {
 
     #[test]
     fn range_query_does_not_display_values_from_below_1_gwei() {
-        let timestamp_1 = now_time_t() - 11_001;
-        let timestamp_2 = now_time_t() - 5000;
+        let now = now_time_t();
+        let timestamp_1 = now - 11_001;
+        let timestamp_2 = now - 5000;
         let main_setup = |conn: &dyn ConnectionWrapper, insert: InsertPayableHelperFn| {
             insert(
                 conn,
@@ -1130,28 +1129,28 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let timestamp = dao_utils::now_time_t();
-        insert_record(
+        insert_record_fn(
             &*conn,
             "0x1111111111111111111111111111111111111111",
             999_999_999,
             timestamp - 1000,
             None,
         );
-        insert_record(
+        insert_record_fn(
             &*conn,
             "0x2222222222222222222222222222222222222222",
             1_000_123_123,
             timestamp - 2000,
             None,
         );
-        insert_record(
+        insert_record_fn(
             &*conn,
             "0x3333333333333333333333333333333333333333",
             1_000_000_000,
             timestamp - 3000,
             None,
         );
-        insert_record(
+        insert_record_fn(
             &*conn,
             "0x4444444444444444444444444444444444444444",
             1_000_000_001,
@@ -1175,14 +1174,14 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        insert_record(
+        insert_record_fn(
             &*conn,
             "0x1111111111111111111111111111111111111111",
             123_456,
             111_111_111,
             None,
         );
-        insert_record(
+        insert_record_fn(
             &*conn,
             "0x2222222222222222222222222222222222222222",
             -999_999,
@@ -1231,8 +1230,9 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        main_setup_fn(conn.as_ref(), &insert_record);
-        let params: &[&dyn ToSql] = &[
+        main_setup_fn(conn.as_ref(), &insert_record_fn);
+
+        let pending_payable_account: &[&dyn ToSql] = &[
             &String::from("0xabc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"),
             &40,
             &478945,
@@ -1242,7 +1242,7 @@ mod tests {
         conn
             .prepare("insert into pending_payable (transaction_hash, amount_high_b, amount_low_b, payable_timestamp, attempt) values (?,?,?,?,?)")
             .unwrap()
-            .execute(params)
+            .execute(pending_payable_account)
             .unwrap();
         PayableDaoReal::new(conn)
     }

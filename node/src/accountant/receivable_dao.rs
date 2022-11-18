@@ -206,7 +206,7 @@ impl ReceivableDao for ReceivableDaoReal {
         let variant_top = TopStmConfig{
             limit_clause: "limit :limit_count",
             gwei_min_resolution_clause: "where (balance_high_b > 0) or ((balance_high_b = 0) and (balance_low_b >= 1000000000))",
-            age_param_name: "last_received_timestamp asc",
+            age_ordering_clause: "last_received_timestamp asc",
         };
         let variant_range = RangeStmConfig {
             where_clause: "where ((last_received_timestamp <= :max_timestamp) and (last_received_timestamp >= :min_timestamp)) \
@@ -227,7 +227,7 @@ impl ReceivableDao for ReceivableDaoReal {
     }
 
     fn total(&self) -> i128 {
-        let value_creation = |_: &mut usize, row: &Row| {
+        let value_creation = |_: usize, row: &Row| {
             Ok(BigIntDivider::reconstitute(
                 row.get::<usize, i64>(0).expectv("high bytes"),
                 row.get::<usize, i64>(1).expectv("low_bytes"),
@@ -1023,12 +1023,6 @@ mod tests {
     type InsertReceivableHelperFn<'b> =
         &'b dyn for<'a> Fn(&'a dyn ConnectionWrapper, &'a str, i128, i64);
 
-    macro_rules! simplified_insert {
-        ($conn: expr, $closure: expr) => {
-            |wallet: &str, wei_amount: i128, time: i64| $closure($conn, wallet, wei_amount, time)
-        };
-    }
-
     fn common_setup_of_accounts_for_tests_of_top_records(
         now: i64,
     ) -> Box<dyn Fn(&dyn ConnectionWrapper, InsertReceivableHelperFn)> {
@@ -1036,28 +1030,32 @@ mod tests {
         //Two accounts differ only in balance but not the debt's age, two other in debt's age but are same at balance.
         //That setup allows a check of doubled ordering
         Box::new(move |conn, insert: InsertReceivableHelperFn| {
-            let insert = simplified_insert!(conn, insert);
             insert(
+                conn,
                 "0x1111111111111111111111111111111111111111",
                 1_000_000_001,
                 now - 86_480,
             );
             insert(
+                conn,
                 "0x2222222222222222222222222222222222222222",
                 1_000_000_001,
                 now - 222_000,
             );
             insert(
+                conn,
                 "0x3333333333333333333333333333333333333333",
                 990_000_000, //below 1 Gwei
                 now - 86_000,
             );
             insert(
+                conn,
                 "0x4444444444444444444444444444444444444444",
                 1_000_000_000,
                 now - 86_111,
             );
             insert(
+                conn,
                 "0x5555555555555555555555555555555555555555",
                 32_000_000_200,
                 now - 86_480,
@@ -1166,43 +1164,50 @@ mod tests {
         //by balance and then by age.
         let now = now_time_t();
         let main_test_setup = |conn: &dyn ConnectionWrapper, insert: InsertReceivableHelperFn| {
-            let insert = simplified_insert!(conn, insert);
             insert(
+                conn,
                 "0x1111111111111111111111111111111111111111",
                 gwei_to_wei(999_454_656),
                 now - 99_001, //too old
             );
             insert(
+                conn,
                 "0x2222222222222222222222222222222222222222",
                 gwei_to_wei(-560_001), //too small
                 now - 86_401,
             );
             insert(
+                conn,
                 "0x3333333333333333333333333333333333333333",
                 gwei_to_wei(1_000_000_230),
                 now - 70_000,
             );
             insert(
+                conn,
                 "0x4444444444444444444444444444444444444444",
                 gwei_to_wei(1_100_000_001), //too big
                 now - 69_000,
             );
             insert(
+                conn,
                 "0x5555555555555555555555555555555555555555",
                 gwei_to_wei(1_000_000_230),
                 now - 86_000,
             );
             insert(
+                conn,
                 "0x6666666666666666666666666666666666666666",
                 gwei_to_wei(1_050_444_230),
                 now - 66_244,
             );
             insert(
+                conn,
                 "0x7777777777777777777777777777777777777777",
                 gwei_to_wei(900_000_000),
                 now - 59_999, //too young
             );
             insert(
+                conn,
                 "0x8888888888888888888888888888888888888888",
                 gwei_to_wei(-90),
                 now - 66000,
@@ -1253,23 +1258,26 @@ mod tests {
         let timestamp1 = now_time_t() - 5000;
         let timestamp2 = now_time_t() - 3232;
         let main_setup = |conn: &dyn ConnectionWrapper, insert: InsertReceivableHelperFn| {
-            let insert = simplified_insert!(conn, insert);
             insert(
+                conn,
                 "0x1111111111111111111111111111111111111111",
                 999_999_999, //smaller than 1 Gwei
                 now_time_t() - 11_001,
             );
             insert(
+                conn,
                 "0x2222222222222222222222222222222222222222",
                 -999_999_999, //smaller than -1 Gwei
                 now_time_t() - 5_606,
             );
             insert(
+                conn,
                 "0x3333333333333333333333333333333333333333",
                 30_000_300_000,
                 timestamp1,
             );
             insert(
+                conn,
                 "0x4444444444444444444444444444444444444444",
                 -2_000_300_000,
                 timestamp2,
@@ -1314,19 +1322,22 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
 
-        let insert = simplified_insert!(conn.as_ref(), insert_account_by_separate_values);
+        let insert = insert_account_by_separate_values;
         let timestamp = dao_utils::now_time_t();
         insert(
+            &*conn,
             "0x1111111111111111111111111111111111111111",
             999_999_800,
             timestamp - 1000,
         );
         insert(
+            &*conn,
             "0x2222222222222222222222222222222222222222",
             1_000_000_070,
             timestamp - 3333,
         );
         insert(
+            &*conn,
             "0x3333333333333333333333333333333333333333",
             1_000_000_130,
             timestamp - 4567,
@@ -1408,11 +1419,9 @@ mod tests {
     where
         F: Fn(&dyn ConnectionWrapper, InsertReceivableHelperFn),
     {
+        let home_dir = ensure_node_home_directory_exists("receivable_dao", test_name);
         let conn = DbInitializerReal::default()
-            .initialize(
-                &ensure_node_home_directory_exists("receivable_dao", test_name),
-                DbInitializationConfig::test_default(),
-            )
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         main_test_setup(conn.as_ref(), &insert_account_by_separate_values);
         ReceivableDaoReal::new(conn)
