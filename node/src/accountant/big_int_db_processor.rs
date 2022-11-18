@@ -1348,27 +1348,14 @@ mod tests {
         );
     }
 
-    const SINGLE_UNIT_FROM_OVERFLOW: i64 = 1;
-
-    #[derive(PartialEq, Debug)]
-    struct UpdateWithOverflowSummary {
-        balance_change_decomposed: (i64, i64),
-        final_read_high_bytes: i64,
-        final_read_low_bytes: i64,
-        math_operation_expected_result: i128,
-    }
-
     fn update_with_overflow_shared_test_body(
         test_name: &str,
-        initial_values: (i64, i64),
-        balance_change_signed: i128,
-        balance_change_envelope: fn(&'static str, u128) -> WeiChange,
-    ) -> UpdateWithOverflowSummary {
+        init_big_initial: i128,
+        balance_change: WeiChange,
+    ) -> (i64, i64) {
         let conn = initiate_simple_connection_and_test_table("big_int_db_processor", test_name);
-        let (init_high_bytes, init_low_bytes) = initial_values;
+        let (init_high_bytes, init_low_bytes) = BigIntDivider::deconstruct(init_big_initial);
         insert_single_record(&*conn, [&"Joe", &init_high_bytes, &init_low_bytes]);
-        let balance_change =
-            balance_change_envelope("balance", balance_change_signed.abs() as u128);
         let update_config = BigIntSqlConfig::new(
             "",
             STANDARD_EXAMPLE_OF_OVERFLOW_UPDATE_CLAUSE,
@@ -1392,93 +1379,77 @@ mod tests {
                 Ok((high_bytes, low_bytes))
             })
             .unwrap();
-        UpdateWithOverflowSummary {
-            balance_change_decomposed: BigIntDivider::deconstruct(balance_change_signed),
-            final_read_high_bytes: final_high_bytes,
-            final_read_low_bytes: final_low_bytes,
-            math_operation_expected_result: BigIntDivider::reconstitute(
-                final_high_bytes,
-                final_low_bytes,
-            ),
-        }
+        (final_high_bytes, final_low_bytes)
     }
 
     #[test]
     fn update_with_overflow_for_addition() {
-        let initial_high_bytes = 4555;
-        let initial_low_bytes = i64::MAX - 55;
-        let balance_change_signed = i64::MAX as i128 * 4; //36893488147419103228;
+        let big_initial = i64::MAX as i128 * 3;
+        let big_addend = i64::MAX as i128 + 454;
+        let big_sum = big_initial + big_addend;
 
-        let result = update_with_overflow_shared_test_body(
+        let (final_high_bytes, final_low_bytes) = update_with_overflow_shared_test_body(
             "update_with_overflow_for_addition",
-            (initial_high_bytes, initial_low_bytes),
-            balance_change_signed,
-            Addition,
+            big_initial,
+            Addition("balance", big_addend as u128),
         );
 
         assert_eq!(
-            result,
-            UpdateWithOverflowSummary {
-                balance_change_decomposed: (0x3, 0x7FFFFFFFFFFFFFFC),
-                final_read_high_bytes: 4555 + 3 + SINGLE_UNIT_FROM_OVERFLOW,
-                final_read_low_bytes: 9223372036854775804 - 55 - SINGLE_UNIT_FROM_OVERFLOW,
-                math_operation_expected_result: BigIntDivider::reconstitute(4555, i64::MAX - 55)
-                    + i64::MAX as i128 * 4
-            }
+            BigIntDivider::deconstruct(big_initial),
+            (2, 9223372036854775805)
         );
+        assert_eq!(BigIntDivider::deconstruct(big_addend), (1, 453));
+        let result = BigIntDivider::reconstitute(final_high_bytes, final_low_bytes);
+        assert_eq!(result, big_sum)
     }
 
     #[test]
     fn update_with_overflow_for_subtraction_from_positive_num() {
-        let initial_high_bytes = 4555;
-        let initial_low_bytes = 55;
-        //sign on the value is eliminated later, but the test setup uses it
-        let balance_change_signed = -41;
+        let big_initial = i64::MAX as i128 * 2;
+        let big_subtract = i64::MAX as i128 + 120;
+        let big_sum = big_initial - big_subtract;
 
-        let result = update_with_overflow_shared_test_body(
+        let (final_high_bytes, final_low_bytes) = update_with_overflow_shared_test_body(
             "update_with_overflow_for_subtraction_from_positive_num",
-            (initial_high_bytes, initial_low_bytes),
-            balance_change_signed,
-            Subtraction,
+            big_initial,
+            Subtraction("balance", big_subtract as u128),
         );
 
         assert_eq!(
-            result,
-            UpdateWithOverflowSummary {
-                balance_change_decomposed: (-1, i64::MAX - 40),
-                final_read_high_bytes: 4555 - 1 + SINGLE_UNIT_FROM_OVERFLOW,
-                final_read_low_bytes: (i64::MAX - 40) - (i64::MAX - 55) - SINGLE_UNIT_FROM_OVERFLOW,
-                math_operation_expected_result: BigIntDivider::reconstitute(4555, 55) - 41
-            }
+            BigIntDivider::deconstruct(big_initial),
+            (1, 9223372036854775806)
         );
+        assert_eq!(
+            BigIntDivider::deconstruct(-big_subtract),
+            (-2, 9223372036854775689)
+        );
+        let result = BigIntDivider::reconstitute(final_high_bytes, final_low_bytes);
+        assert_eq!(result, big_sum)
     }
 
     #[test]
     fn update_with_overflow_for_subtraction_from_negative_num() {
-        let initial_high_bytes = -3000;
-        let initial_low_bytes = 666333;
-        //sign on the value is eliminated later, but the test setup uses it
-        let balance_change_signed = -1217485108864830961090;
+        let big_initial = i64::MAX as i128 * 3 + 200;
+        let big_subtract = i64::MAX as i128 + 120;
+        let big_sum = -big_initial - big_subtract;
 
-        let result = update_with_overflow_shared_test_body(
+        let (final_high_bytes, final_low_bytes) = update_with_overflow_shared_test_body(
             "update_with_overflow_for_subtraction_from_negative_num",
-            (initial_high_bytes, initial_low_bytes),
-            balance_change_signed,
-            Subtraction,
+            -big_initial,
+            Subtraction("balance", big_subtract as u128),
         );
 
         assert_eq!(
-            result,
-            UpdateWithOverflowSummary {
-                balance_change_decomposed: (-133, i64::MAX - 554433),
-                final_read_high_bytes: -3000 - 133 + SINGLE_UNIT_FROM_OVERFLOW,
-                final_read_low_bytes: (i64::MAX - 554433)
-                    - (i64::MAX - 666333)
-                    - SINGLE_UNIT_FROM_OVERFLOW,
-                math_operation_expected_result: BigIntDivider::reconstitute(-3000, 666333)
-                    - 1217485108864830961090
-            }
+            BigIntDivider::deconstruct(-big_initial),
+            (-4, 9223372036854775611)
         );
+        assert_eq!(
+            BigIntDivider::deconstruct(-big_subtract),
+            (-2, 9223372036854775689)
+        );
+        eprintln!("high {}, low {}", final_high_bytes, final_low_bytes);
+        let result = BigIntDivider::reconstitute(final_high_bytes, final_low_bytes);
+        assert_eq!(result, big_sum)
     }
 
     #[test]
