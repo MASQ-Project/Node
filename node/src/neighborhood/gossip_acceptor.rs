@@ -930,9 +930,7 @@ impl GossipHandler for StandardGossipHandler {
 
         let hashmap = agrs
             .iter()
-            .map(|agr| {
-                return (agr.inner.public_key.clone(), agr);
-            })
+            .map(|agr| (agr.inner.public_key.clone(), agr))
             .collect::<HashMap<PublicKey, &AccessibleGossipRecord>>();
 
         // let hashmap: HashMap<PublicKey, &AccessibleGossipRecord> = agrs.into();
@@ -2233,20 +2231,41 @@ mod tests {
 
     #[test]
     fn proper_standard_gossip_is_matched_and_handled() {
+        /*
+          Destination Node ==>
+            S---D
+
+          Source Node ==>
+           A---S---D
+               |
+               B
+
+          The source node(S) will gossip about Node A and B
+          to the destination node(D).
+        */
         let src_root = make_node_record(1234, true);
         let dest_root = make_node_record(2345, true);
         let mut src_db = db_from_node(&src_root);
-        let node_a_key = &src_db.add_node(make_node_record(3456, true)).unwrap();
-        let node_b_key = &src_db.add_node(make_node_record(4567, true)).unwrap();
+        let node_a = make_node_record(3456, true);
+        let node_b = make_node_record(4567, true);
         let mut dest_db = db_from_node(&dest_root);
         dest_db.add_node(src_root.clone()).unwrap();
         dest_db.add_arbitrary_full_neighbor(dest_root.public_key(), src_root.public_key());
         src_db.add_node(dest_db.root().clone()).unwrap();
+        src_db.add_node(node_a.clone()).unwrap();
+        src_db.add_node(node_b.clone()).unwrap();
         src_db.add_arbitrary_full_neighbor(src_root.public_key(), dest_root.public_key());
+        src_db.add_arbitrary_half_neighbor(src_root.public_key(), &node_a.public_key());
+        src_db.add_arbitrary_full_neighbor(src_root.public_key(), &node_b.public_key());
+        src_db
+            .node_by_key_mut(src_root.public_key())
+            .unwrap()
+            .increment_version();
+        src_db.resign_node(src_root.public_key());
         let gossip = GossipBuilder::new(&src_db)
             .node(src_root.public_key(), true)
-            .node(node_a_key, false)
-            .node(node_b_key, false)
+            .node(node_a.public_key(), false)
+            .node(node_b.public_key(), false)
             .build();
         let subject = StandardGossipHandler::new(Logger::new("test"));
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
@@ -2272,12 +2291,12 @@ mod tests {
         );
         assert!(dest_db.has_full_neighbor(dest_db.root().public_key(), src_db.root().public_key()));
         assert_eq!(
-            &src_db.node_by_key(node_a_key).unwrap().inner,
-            &dest_db.node_by_key(node_a_key).unwrap().inner
+            &src_db.node_by_key(node_a.public_key()).unwrap().inner,
+            &dest_db.node_by_key(node_a.public_key()).unwrap().inner
         );
         assert_eq!(
-            &src_db.node_by_key(node_b_key).unwrap().inner,
-            &dest_db.node_by_key(node_b_key).unwrap().inner
+            &src_db.node_by_key(node_b.public_key()).unwrap().inner,
+            &dest_db.node_by_key(node_b.public_key()).unwrap().inner
         );
         System::current().stop();
         assert_eq!(system.run(), 0);
