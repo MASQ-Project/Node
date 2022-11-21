@@ -605,9 +605,12 @@ impl Accountant {
             return None;
         }
 
-        let threshold = gwei_to_wei(
-            self.payable_threshold_gauge
-                .calculate_payout_threshold_in_gwei(&self.config.payment_thresholds, debt_age),
+        let threshold = self
+            .payable_threshold_gauge
+            .calculate_payout_threshold_in_gwei(&self.config.payment_thresholds, debt_age);
+        eprintln!(
+            "threshold: {}, payable balance {}",
+            threshold, payable.balance_wei
         );
         if payable.balance_wei > threshold {
             Some(threshold)
@@ -1363,7 +1366,7 @@ trait PayableThresholdsGauge {
         &self,
         payment_thresholds: &PaymentThresholds,
         x: u64,
-    ) -> u64;
+    ) -> u128;
     as_any_dcl!();
 }
 
@@ -1383,8 +1386,8 @@ impl PayableThresholdsGauge for PayableThresholdsGaugeReal {
         &self,
         payment_thresholds: &PaymentThresholds,
         debt_age: u64,
-    ) -> u64 {
-        ThresholdUtils::calculate_finite_debt_limit_by_age(payment_thresholds, debt_age) as u64
+    ) -> u128 {
+        ThresholdUtils::calculate_finite_debt_limit_by_age(payment_thresholds, debt_age)
     }
     as_any_impl!();
 }
@@ -1392,50 +1395,51 @@ impl PayableThresholdsGauge for PayableThresholdsGaugeReal {
 pub struct ThresholdUtils {}
 
 impl ThresholdUtils {
-    pub fn slope(payment_thresholds: &PaymentThresholds, for_wei_computation: bool) -> f64 {
-        let slope = (payment_thresholds.permanent_debt_allowed_gwei as f64
-            - payment_thresholds.debt_threshold_gwei as f64)
-            / Self::convert(payment_thresholds.threshold_interval_sec) as f64;
-        if for_wei_computation {
-            slope * WEIS_OF_GWEI as f64
-        } else {
-            slope
-        }
+    pub fn slope(payment_thresholds: &PaymentThresholds) -> i128 {
+        let slope = (gwei_to_wei::<i128, _>(payment_thresholds.permanent_debt_allowed_gwei)
+            - gwei_to_wei::<i128, _>(payment_thresholds.debt_threshold_gwei))
+            / payment_thresholds.threshold_interval_sec as i128;
+        slope
     }
 
     fn calculate_finite_debt_limit_by_age(
         payment_thresholds: &PaymentThresholds,
         debt_age_in_sec: u64,
-    ) -> f64 {
+    ) -> u128 {
         if Self::qualifies_for_permanent_debt_limit(debt_age_in_sec, payment_thresholds) {
-            return payment_thresholds.permanent_debt_allowed_gwei as f64;
+            return gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei);
         };
-        let m = ThresholdUtils::slope(payment_thresholds, false);
+        let m = ThresholdUtils::slope(payment_thresholds);
+        eprintln!("slope: {}", m);
         let b = ThresholdUtils::compute_theoretical_interception_with_y_axis(
             m,
-            ThresholdUtils::convert(payment_thresholds.maturity_threshold_sec),
-            ThresholdUtils::convert(payment_thresholds.debt_threshold_gwei),
+            payment_thresholds.maturity_threshold_sec as i128,
+            gwei_to_wei(payment_thresholds.debt_threshold_gwei),
         );
-        let y = m * debt_age_in_sec as f64 + b;
+        eprintln!("age of the debt: {}", debt_age_in_sec);
+        eprintln!("b: {}", b);
+        let y = m * debt_age_in_sec as i128 + b;
         Self::test_valid_scope(y, payment_thresholds, debt_age_in_sec);
-        y
+        y as u128
     }
 
     fn compute_theoretical_interception_with_y_axis(
-        m: f64, //is negative
-        maturity_threshold_sec: i64,
-        debt_threshold: i64,
-    ) -> f64 {
-        debt_threshold as f64 - (maturity_threshold_sec as f64 * m)
+        m: i128, //is negative
+        maturity_threshold_sec: i128,
+        debt_threshold_wei: i128,
+    ) -> i128 {
+        (debt_threshold_wei - (maturity_threshold_sec * m))
     }
 
-    fn test_valid_scope(y: f64, payment_thresholds: &PaymentThresholds, time: u64) {
-        let f_debt_threshold_gwei = payment_thresholds.debt_threshold_gwei as f64;
+    fn test_valid_scope(y: i128, payment_thresholds: &PaymentThresholds, debt_age_in_sec: u64) {
+        //TODO decide what to do with this function
+        let f_debt_threshold_gwei = gwei_to_wei(payment_thresholds.debt_threshold_gwei);
+        eprintln!("it's y: {} and f_debt: {}", y, f_debt_threshold_gwei);
         if y >= f_debt_threshold_gwei {
             panic!(
                 "Broken code: elapse of time ({}) shorter or equal to {} is supposed \
              to divert before passing to the slope calculation",
-                time, payment_thresholds.maturity_threshold_sec
+                debt_age_in_sec, payment_thresholds.maturity_threshold_sec
             );
         };
     }
@@ -1448,7 +1452,7 @@ impl ThresholdUtils {
             + payment_thresholds.threshold_interval_sec)
     }
 
-    fn convert(num: u64) -> i64 {
+    fn convert_to_i64(num: u64) -> i64 {
         checked_conversion::<u64, i64>(num)
     }
 }
@@ -1587,8 +1591,8 @@ mod tests {
         is_innocent_age_results: RefCell<Vec<bool>>,
         is_innocent_balance_params: Arc<Mutex<Vec<(u128, u128)>>>,
         is_innocent_balance_results: RefCell<Vec<bool>>,
-        calculate_payout_threshold_params: Arc<Mutex<Vec<(PaymentThresholds, u64)>>>,
-        calculate_payout_threshold_results: RefCell<Vec<u64>>,
+        calculate_payout_threshold_in_gwei_params: Arc<Mutex<Vec<(PaymentThresholds, u64)>>>,
+        calculate_payout_threshold_in_gwei_results: RefCell<Vec<u128>>,
     }
 
     impl PayableThresholdsGauge for PayableThresholdsGaugeMock {
@@ -1612,12 +1616,12 @@ mod tests {
             &self,
             payment_thresholds: &PaymentThresholds,
             x: u64,
-        ) -> u64 {
-            self.calculate_payout_threshold_params
+        ) -> u128 {
+            self.calculate_payout_threshold_in_gwei_params
                 .lock()
                 .unwrap()
                 .push((*payment_thresholds, x));
-            self.calculate_payout_threshold_results
+            self.calculate_payout_threshold_in_gwei_results
                 .borrow_mut()
                 .remove(0)
         }
@@ -1644,16 +1648,16 @@ mod tests {
             self
         }
 
-        fn calculate_payout_threshold_params(
+        fn calculate_payout_threshold_in_gwei_params(
             mut self,
             params: &Arc<Mutex<Vec<(PaymentThresholds, u64)>>>,
         ) -> Self {
-            self.calculate_payout_threshold_params = params.clone();
+            self.calculate_payout_threshold_in_gwei_params = params.clone();
             self
         }
 
-        fn calculate_payout_threshold_result(self, result: u64) -> Self {
-            self.calculate_payout_threshold_results
+        fn calculate_payout_threshold_in_gwei_result(self, result: u128) -> Self {
+            self.calculate_payout_threshold_in_gwei_results
                 .borrow_mut()
                 .push(result);
             self
@@ -4147,8 +4151,8 @@ mod tests {
         subject.payables_debug_summary(qualified_payables);
 
         TestLogHandler::new().exists_log_containing("Paying qualified debts:\n\
-                   10,002,000,000,000,000 Wei owed for 2678400 sec exceeds threshold: 10,000,000,000,000,000 Wei; creditor: 0x0000000000000000000000000077616c6c657430\n\
-                   999,999,999,000,000,000 Wei owed for 86455 sec exceeds threshold: 999,978,993,000,000,000 Wei; creditor: 0x0000000000000000000000000077616c6c657431");
+                   10,002,000,000,000,000 Wei owed for 2678400 sec exceeds threshold: 10,000,000,001,152,000 Wei; creditor: 0x0000000000000000000000000077616c6c657430\n\
+                   999,999,999,000,000,000 Wei owed for 86455 sec exceeds threshold: 999,978,993,055,555,580 Wei; creditor: 0x0000000000000000000000000077616c6c657431");
     }
 
     #[test]
@@ -4181,23 +4185,22 @@ mod tests {
         let tested_fn = |payment_thresholds: &PaymentThresholds, time| {
             PayableThresholdsGaugeReal {}
                 .calculate_payout_threshold_in_gwei(payment_thresholds, time) as i128
-                * WEIS_OF_GWEI
         };
 
         let higher_corner_point = tested_fn(&payment_thresholds, higher_corner_timestamp);
         let middle_point = tested_fn(&payment_thresholds, middle_point_timestamp);
         let lower_corner_point = tested_fn(&payment_thresholds, lower_corner_timestamp);
 
-        let allowed_imprecision = 1 * WEIS_OF_GWEI;
-        let ideal_template_higher = payment_thresholds.debt_threshold_gwei as i128 * WEIS_OF_GWEI;
-        let ideal_template_middle = ((payment_thresholds.debt_threshold_gwei
-            - payment_thresholds.permanent_debt_allowed_gwei)
-            / 2
-            + payment_thresholds.permanent_debt_allowed_gwei)
-            as i128
-            * WEIS_OF_GWEI;
-        let ideal_template_lower =
-            payment_thresholds.permanent_debt_allowed_gwei as i128 * WEIS_OF_GWEI;
+        let allowed_imprecision = WEIS_OF_GWEI;
+        let ideal_template_higher: i128 = gwei_to_wei(payment_thresholds.debt_threshold_gwei);
+        let ideal_template_middle: i128 = gwei_to_wei(
+            (payment_thresholds.debt_threshold_gwei
+                - payment_thresholds.permanent_debt_allowed_gwei)
+                / 2
+                + payment_thresholds.permanent_debt_allowed_gwei,
+        );
+        let ideal_template_lower: i128 =
+            gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei);
         assert!(
             higher_corner_point <= ideal_template_higher + allowed_imprecision
                 && ideal_template_higher - allowed_imprecision <= higher_corner_point,
@@ -4291,12 +4294,12 @@ mod tests {
             maturity_threshold_sec: 1000,
             payment_grace_period_sec: 0,
             permanent_debt_allowed_gwei: 100,
-            debt_threshold_gwei: 5_773,
+            debt_threshold_gwei: 3_420,
             threshold_interval_sec: 10_000,
             unban_below_gwei: 100,
         };
 
-        test_height_granularity_with_advancing_time("150° slope", &payment_thresholds, 2);
+        test_height_granularity_with_advancing_time("160° slope", &payment_thresholds, 1);
     }
 
     #[test]
@@ -4319,10 +4322,18 @@ mod tests {
             unban_below_gwei: 0,
         };
 
-        //we run it in the wei mode so the taken money numbers go multiplicated by 10^9
-        let slope = ThresholdUtils::slope(&payment_thresholds, true);
+        let slope = ThresholdUtils::slope(&payment_thresholds);
 
-        assert_eq!(slope, -3.75e25)
+        assert_eq!(slope, -37499999999999999000000000);
+        let check = {
+            let y_interception = ThresholdUtils::compute_theoretical_interception_with_y_axis(
+                slope,
+                payment_thresholds.maturity_threshold_sec as i128,
+                gwei_to_wei(payment_thresholds.debt_threshold_gwei),
+            );
+            slope * (payment_thresholds.maturity_threshold_sec + 1) as i128 + y_interception
+        };
+        assert_eq!(check, WEIS_OF_GWEI)
     }
 
     #[test]
@@ -4390,21 +4401,21 @@ mod tests {
             payment_thresholds.maturity_threshold_sec
                 + payment_thresholds.threshold_interval_sec
                 + 1,
-        ) as u64;
+        );
         let a_certain_distance_further = ThresholdUtils::calculate_finite_debt_limit_by_age(
             &payment_thresholds,
             payment_thresholds.maturity_threshold_sec
                 + payment_thresholds.threshold_interval_sec
                 + 123,
-        ) as u64;
+        );
 
         assert_eq!(
             right_at_the_end,
-            payment_thresholds.permanent_debt_allowed_gwei
+            gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei)
         );
         assert_eq!(
             a_certain_distance_further,
-            payment_thresholds.permanent_debt_allowed_gwei
+            gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei)
         )
     }
 
@@ -4447,8 +4458,8 @@ mod tests {
             .is_innocent_balance_result(
                 balance <= gwei_to_wei(custom_payment_thresholds.permanent_debt_allowed_gwei),
             )
-            .calculate_payout_threshold_params(&calculate_payable_threshold_params_arc)
-            .calculate_payout_threshold_result(4567); //made up value
+            .calculate_payout_threshold_in_gwei_params(&calculate_payable_threshold_params_arc)
+            .calculate_payout_threshold_in_gwei_result(4567898); //made up value
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bootstrapper_config)
             .build();
@@ -4456,7 +4467,7 @@ mod tests {
 
         let result = subject.payable_exceeded_threshold(&payable_account);
 
-        assert_eq!(result, Some(gwei_to_wei(4567_u64)));
+        assert_eq!(result, Some(4567898));
         let mut safe_age_params = safe_age_params_arc.lock().unwrap();
         let safe_age_single_params = safe_age_params.remove(0);
         assert_eq!(*safe_age_params, vec![]);

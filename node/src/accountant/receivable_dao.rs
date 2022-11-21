@@ -3,13 +3,13 @@ use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::big_int_db_processor::{
     BigIntDbProcessor, BigIntDivider, BigIntSqlConfig, SQLParamsBuilder, TableNameDAO,
 };
-use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
     sum_i128_values_from_table, to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal,
     RangeStmConfig, TopStmConfig, VigilantRusqliteFlatten,
 };
 use crate::accountant::receivable_dao::ReceivableDaoError::RusqliteError;
 use crate::accountant::{checked_conversion, ThresholdUtils};
+use crate::accountant::{dao_utils, gwei_to_wei};
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
@@ -139,12 +139,9 @@ impl ReceivableDao for ReceivableDaoReal {
         now: SystemTime,
         payment_thresholds: &PaymentThresholds,
     ) -> Vec<ReceivableAccount> {
-        let slope = ThresholdUtils::slope(payment_thresholds, true);
+        let slope = (ThresholdUtils::slope(payment_thresholds) / 1_000_000_000) as i64;
         let (permanent_debt_allowed_high_b, permanent_debt_allowed_low_b) =
-            BigIntDivider::deconstruct(
-                checked_conversion::<u64, i128>(payment_thresholds.permanent_debt_allowed_gwei)
-                    * WEIS_OF_GWEI,
-            );
+            BigIntDivider::deconstruct(gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei));
         let sql = indoc!(
             r"
                 select r.wallet_address, r.balance_high_b, r.balance_low_b, r.last_received_timestamp
@@ -404,7 +401,7 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::NeighborhoodModeLight;
-    use rusqlite::ToSql;
+    use rusqlite::{Connection, ToSql};
     use std::path::Path;
 
     #[test]
@@ -904,7 +901,7 @@ mod tests {
 
     #[test]
     fn new_delinquencies_handles_too_young_debts_causing_slope_parameter_to_be_negative() {
-        //would happen if sugg_and_grace involve more time than the age of the debt
+        //situation where sugg_and_grace makes more time than the age of the debt
         let home_dir = ensure_node_home_directory_exists(
             "receivable_dao",
             "new_delinquencies_handles_too_young_debts_causing_slope_parameter_to_be_negative",
@@ -913,7 +910,7 @@ mod tests {
             maturity_threshold_sec: 25,
             payment_grace_period_sec: 50,
             permanent_debt_allowed_gwei: 100,
-            debt_threshold_gwei: 200,
+            debt_threshold_gwei: 123,
             threshold_interval_sec: 100,
             unban_below_gwei: 0,
         };
