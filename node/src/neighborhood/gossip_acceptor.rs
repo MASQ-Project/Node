@@ -984,8 +984,10 @@ impl StandardGossipHandler {
                 }
             })
             .for_each(|agr| {
+                let node_record = NodeRecord::from(agr);
+                trace!(self.logger, "Discovered new Node {:?}: {:?}", node_record.public_key(), node_record.full_neighbor_keys(database));
                 database
-                    .add_node(NodeRecord::from(agr))
+                    .add_node(node_record)
                     .expect("List of new Nodes contained existing Nodes");
             });
         database.keys().len() != all_keys.len()
@@ -999,6 +1001,8 @@ impl StandardGossipHandler {
         agrs.into_iter().fold(false, |b, agr| {
             match database.node_by_key(&agr.inner.public_key) {
                 Some(existing_node) if agr.inner.version > existing_node.version() => {
+                    trace! (self.logger, "Updating Node {:?} from v{} to v{}",
+                        existing_node.public_key(), existing_node.version(), agr.inner.version);
                     self.update_database_record(database, agr) || b
                 }
                 _ => b,

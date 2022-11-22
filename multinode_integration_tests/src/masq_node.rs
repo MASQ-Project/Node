@@ -25,6 +25,7 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use node_lib::neighborhood::node_record::NodeRecord;
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct NodeReference {
@@ -179,6 +180,9 @@ pub enum PortSelector {
 }
 
 pub trait MASQNode: Any {
+    // Copy attributes from the NodeRecord into the MASQNode.
+    fn absorb_configuration(&mut self, node_record: &NodeRecord);
+    // This is the name of the Docker container on which this MASQNode will run.
     fn name(&self) -> &str;
     // This is the NodeReference stated by the Node in the console. Its IP address won't be accurate if it's a zero-hop Node.
     fn node_reference(&self) -> NodeReference;

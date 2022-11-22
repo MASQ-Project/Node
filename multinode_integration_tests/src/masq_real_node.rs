@@ -34,6 +34,7 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::thread;
 use std::time::Duration;
+use node_lib::neighborhood::node_record::NodeRecord;
 
 pub const DATA_DIRECTORY: &str = "/node_root/home";
 
@@ -663,6 +664,12 @@ pub struct MASQRealNode {
 }
 
 impl MASQNode for MASQRealNode {
+    fn absorb_configuration(&mut self, node_record: &NodeRecord) {
+        let guts_ref = Rc::get_mut(&mut self.guts).unwrap();
+        guts_ref.earning_wallet = node_record.earning_wallet();
+        guts_ref.rate_pack = *node_record.rate_pack();
+    }
+
     fn name(&self) -> &str {
         &self.guts.name
     }

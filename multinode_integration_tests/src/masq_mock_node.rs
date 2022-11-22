@@ -39,10 +39,11 @@ use std::ops::Add;
 use std::rc::Rc;
 use std::thread;
 use std::time::{Duration, Instant};
+use node_lib::neighborhood::node_record::NodeRecord;
 
 pub struct MASQMockNode {
     control_stream: RefCell<TcpStream>,
-    guts: Rc<MASQMockNodeGuts>,
+    guts: MASQMockNodeGuts,
 }
 
 enum CryptDEEnum {
@@ -54,12 +55,18 @@ impl Clone for MASQMockNode {
     fn clone(&self) -> Self {
         MASQMockNode {
             control_stream: RefCell::new(self.control_stream.borrow().try_clone().unwrap()),
-            guts: Rc::clone(&self.guts),
+            guts: self.guts.clone(),
         }
     }
 }
 
 impl MASQNode for MASQMockNode {
+
+    fn absorb_configuration(&mut self, node_record: &NodeRecord) {
+        self.guts.earning_wallet = node_record.earning_wallet();
+        self.guts.rate_pack = *node_record.rate_pack();
+    }
+
     fn name(&self) -> &str {
         self.guts.name.as_str()
     }
@@ -184,7 +191,7 @@ impl MASQMockNode {
         let wait_addr = SocketAddr::new(node_addr.ip_addr(), CONTROL_STREAM_PORT);
         let control_stream = RefCell::new(Self::wait_for_startup(wait_addr, &name));
         let framer = RefCell::new(DataHunkFramer::new());
-        let guts = Rc::new(MASQMockNodeGuts {
+        let guts = MASQMockNodeGuts {
             name,
             node_addr,
             earning_wallet,
@@ -193,7 +200,7 @@ impl MASQMockNode {
             cryptde_enum,
             framer,
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
-        });
+        };
         MASQMockNode {
             control_stream,
             guts,
@@ -207,7 +214,7 @@ impl MASQMockNode {
         }
     }
 
-    pub fn transmit_data(&self, data_hunk: DataHunk) -> Result<(), io::Error> {
+    pub fn transmit_data(&self, data_hunk: DataHunk) -> Result<(), Error> {
         let to_transmit: Vec<u8> = data_hunk.into();
         match self.control_stream.borrow_mut().write(&to_transmit[..]) {
             Ok(_) => Ok(()),
@@ -222,7 +229,7 @@ impl MASQMockNode {
         masquerader: &dyn Masquerader,
         target_key: &PublicKey,
         target_addr: SocketAddr,
-    ) -> Result<(), io::Error> {
+    ) -> Result<(), Error> {
         let (lcp, _) =
             LiveCoresPackage::from_incipient(package, self.signing_cryptde().unwrap()).unwrap();
         let encrypted_data = encodex(self.signing_cryptde().unwrap(), target_key, &lcp).unwrap();
@@ -241,7 +248,7 @@ impl MASQMockNode {
         gossip: Gossip_0v1,
         target_key: &PublicKey,
         target_addr: SocketAddr,
-    ) -> Result<(), io::Error> {
+    ) -> Result<(), Error> {
         let masquerader = JsonMasquerader::new();
         let route = Route::single_hop(target_key, self.signing_cryptde().unwrap()).unwrap();
         let package = IncipientCoresPackage::new(
@@ -260,31 +267,34 @@ impl MASQMockNode {
         )
     }
 
-    pub fn transmit_debut(&self, receiver: &dyn MASQNode) -> Result<(), io::Error> {
-        self.transmit_multinode_gossip(receiver, &SingleNode::new(self))
+    pub fn transmit_debut(&self, receiver: &dyn MASQNode) -> Result<(), Error> {
+        let gossip = SingleNode::new(self);
+        self.transmit_multinode_gossip(receiver, &gossip)
     }
 
     pub fn transmit_pass(
         &self,
         receiver: &dyn MASQNode,
         target: &dyn MASQNode,
-    ) -> Result<(), io::Error> {
-        self.transmit_multinode_gossip(receiver, &SingleNode::new(target))
+    ) -> Result<(), Error> {
+        let gossip = SingleNode::new (target);
+        self.transmit_multinode_gossip(receiver, &gossip)
     }
 
     pub fn transmit_introduction(
         &self,
         receiver: &dyn MASQNode,
         introducee: &dyn MASQNode,
-    ) -> Result<(), io::Error> {
-        self.transmit_multinode_gossip(receiver, &Introduction::new(self, introducee))
+    ) -> Result<(), Error> {
+        let gossip = Introduction::new (self, introducee);
+        self.transmit_multinode_gossip(receiver, &gossip)
     }
 
     pub fn transmit_multinode_gossip(
         &self,
         receiver: &dyn MASQNode,
         multinode_gossip: &dyn MultinodeGossip,
-    ) -> Result<(), io::Error> {
+    ) -> Result<(), Error> {
         let gossip = multinode_gossip.render();
         self.transmit_gossip(
             receiver.port_list()[0],
@@ -294,7 +304,7 @@ impl MASQMockNode {
         )
     }
 
-    pub fn wait_for_data(&self, timeout: Duration) -> Result<DataHunk, io::Error> {
+    pub fn wait_for_data(&self, timeout: Duration) -> Result<DataHunk, Error> {
         let mut buf = [0u8; 16384];
         let mut framer = self.guts.framer.borrow_mut();
         let mut control_stream = self.control_stream.borrow_mut();
@@ -324,7 +334,7 @@ impl MASQMockNode {
         &self,
         masquerader: &dyn Masquerader,
         timeout: Duration,
-    ) -> Result<(SocketAddr, SocketAddr, LiveCoresPackage), io::Error> {
+    ) -> Result<(SocketAddr, SocketAddr, LiveCoresPackage), Error> {
         let stop_at = Instant::now().add(timeout);
         let mut accumulated_data: Vec<u8> = vec![];
         // dunno why these are a problem; they _are_ used on the last line of the function.
@@ -496,5 +506,23 @@ struct MASQMockNodeGuts {
 impl Drop for MASQMockNodeGuts {
     fn drop(&mut self) {
         MASQNodeUtils::stop(self.name.as_str());
+    }
+}
+
+impl Clone for MASQMockNodeGuts {
+    fn clone(&self) -> Self {
+        Self {
+            name: self.name.clone(),
+            node_addr: self.node_addr.clone(),
+            earning_wallet: self.earning_wallet.clone(),
+            consuming_wallet: self.consuming_wallet.clone(),
+            rate_pack: self.rate_pack,
+            cryptde_enum: match &self.cryptde_enum {
+                CryptDEEnum::Fake ((m, a)) => CryptDEEnum::Fake ((m.clone(), a.clone())),
+                CryptDEEnum::Real (_) => panic! ("A mock Node with a real CryptDE? Seriously?"),
+            },
+            framer: self.framer.clone(),
+            chain: self.chain
+        }
     }
 }
