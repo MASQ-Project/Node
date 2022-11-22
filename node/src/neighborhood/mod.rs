@@ -399,7 +399,7 @@ impl AccessibleGossipRecord {
         self.signature = signature;
     }
 
-    pub fn get_all_neighbors(&self) -> HashSet<&PublicKey> {
+    pub fn get_all_inner_neighbors(&self) -> HashSet<&PublicKey> {
         self.inner.neighbors.iter().collect::<HashSet<&PublicKey>>()
     }
 }

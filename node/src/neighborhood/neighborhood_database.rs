@@ -109,10 +109,10 @@ impl NeighborhoodDatabase {
         self.has_half_neighbor(from, to) && self.has_half_neighbor(to, from)
     }
 
-    pub fn get_all_neighbors(&self) -> HashSet<&PublicKey> {
+    pub fn get_all_half_neighbors(&self) -> HashSet<&PublicKey> {
         self.by_public_key
             .keys()
-            .filter(|public_key| self.has_full_neighbor(&self.this_node, public_key))
+            .filter(|public_key| self.has_half_neighbor(&self.this_node, public_key))
             .collect::<HashSet<&PublicKey>>()
     }
 
@@ -711,7 +711,7 @@ mod tests {
         subject.add_arbitrary_half_neighbor(root_node.public_key(), half_neighbor_1.public_key());
         subject.add_arbitrary_half_neighbor(root_node.public_key(), half_neighbor_2.public_key());
 
-        let result = subject.get_all_neighbors();
+        let result = subject.get_all_half_neighbors();
 
         assert_eq!(
             result,

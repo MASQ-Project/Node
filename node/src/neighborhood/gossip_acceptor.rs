@@ -995,10 +995,10 @@ impl StandardGossipHandler {
         if hops_remaining > 0 {
             let neighbors = if patch.len() == 1 {
                 // Root Node
-                database.get_all_neighbors()
+                database.get_all_half_neighbors()
             } else {
                 match agrs.get(node) {
-                    Some(agr) => agr.get_all_neighbors(),
+                    Some(agr) => agr.get_all_inner_neighbors(),
                     None => {
                         patch.remove(&node);
                         trace!(
