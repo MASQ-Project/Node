@@ -5088,7 +5088,7 @@ mod tests {
                 .unreachable_hosts
                 .contains(&unreachable_host));
             TestLogHandler::new().exists_log_matching(&format!(
-                "Host facebook.com is marked unreachable for the node with public key ZXhpdF9ub2Rl"
+                "DEBUG: Neighborhood: Marking host {unreachable_host} unreachable for the Node with public key {public_key}"
             ));
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();
