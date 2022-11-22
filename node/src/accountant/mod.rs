@@ -1396,30 +1396,29 @@ pub struct ThresholdUtils {}
 
 impl ThresholdUtils {
     pub fn slope(payment_thresholds: &PaymentThresholds) -> i128 {
+        //TODO at the worst case scenario, this function starts to return zero for a debt of age 1*10^9 s
         let slope = (gwei_to_wei::<i128, _>(payment_thresholds.permanent_debt_allowed_gwei)
             - gwei_to_wei::<i128, _>(payment_thresholds.debt_threshold_gwei))
             / payment_thresholds.threshold_interval_sec as i128;
+        eprintln!("slope: {}", slope.separate_with_commas());
         slope
     }
 
     fn calculate_finite_debt_limit_by_age(
         payment_thresholds: &PaymentThresholds,
-        debt_age_in_sec: u64,
+        debt_age_s: u64,
     ) -> u128 {
-        if Self::qualifies_for_permanent_debt_limit(debt_age_in_sec, payment_thresholds) {
+        if Self::qualifies_for_permanent_debt_limit(debt_age_s, payment_thresholds) {
             return gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei);
         };
         let m = ThresholdUtils::slope(payment_thresholds);
-        eprintln!("slope: {}", m);
         let b = ThresholdUtils::compute_theoretical_interception_with_y_axis(
             m,
             payment_thresholds.maturity_threshold_sec as i128,
             gwei_to_wei(payment_thresholds.debt_threshold_gwei),
         );
-        eprintln!("age of the debt: {}", debt_age_in_sec);
-        eprintln!("b: {}", b);
-        let y = m * debt_age_in_sec as i128 + b;
-        Self::test_valid_scope(y, payment_thresholds, debt_age_in_sec);
+        let y = m * debt_age_s as i128 + b;
+        Self::check_formal_validity(y, payment_thresholds, debt_age_s);
         y as u128
     }
 
@@ -1431,25 +1430,32 @@ impl ThresholdUtils {
         (debt_threshold_wei - (maturity_threshold_sec * m))
     }
 
-    fn test_valid_scope(y: i128, payment_thresholds: &PaymentThresholds, debt_age_in_sec: u64) {
-        //TODO decide what to do with this function
-        let f_debt_threshold_gwei = gwei_to_wei(payment_thresholds.debt_threshold_gwei);
-        eprintln!("it's y: {} and f_debt: {}", y, f_debt_threshold_gwei);
-        if y >= f_debt_threshold_gwei {
+    fn check_formal_validity(
+        y: i128,
+        payment_thresholds: &PaymentThresholds,
+        debt_age_in_sec: u64,
+    ) {
+        let debt_threshold_wei = gwei_to_wei(payment_thresholds.debt_threshold_gwei);
+        let permanent_debt_allowed_wei =
+            gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei);
+        if y >= debt_threshold_wei {
             panic!(
                 "Broken code: elapse of time ({}) shorter or equal to {} is supposed \
              to divert before passing to the slope calculation",
                 debt_age_in_sec, payment_thresholds.maturity_threshold_sec
             );
+        } else if y < permanent_debt_allowed_wei {
+            todo!()
         };
     }
 
     fn qualifies_for_permanent_debt_limit(
-        time: u64,
+        debt_age_s: u64,
         payment_thresholds: &PaymentThresholds,
     ) -> bool {
-        time > (payment_thresholds.maturity_threshold_sec
-            + payment_thresholds.threshold_interval_sec)
+        debt_age_s
+            > (payment_thresholds.maturity_threshold_sec
+                + payment_thresholds.threshold_interval_sec)
     }
 
     fn convert_to_i64(num: u64) -> i64 {
@@ -4417,6 +4423,24 @@ mod tests {
             a_certain_distance_further,
             gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei)
         )
+    }
+
+    #[test]
+    fn teeeeest() {
+        let payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 1000,
+            payment_grace_period_sec: 444,
+            permanent_debt_allowed_gwei: 1200,
+            debt_threshold_gwei: 1201,
+            threshold_interval_sec: 1_000_000_000,
+            unban_below_gwei: 0,
+        };
+        let debt_age_s = 999_000_000;
+
+        let result =
+            ThresholdUtils::calculate_finite_debt_limit_by_age(&payment_thresholds, debt_age_s);
+
+        eprintln!("result: {}", result)
     }
 
     #[test]

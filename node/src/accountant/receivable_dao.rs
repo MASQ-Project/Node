@@ -139,7 +139,7 @@ impl ReceivableDao for ReceivableDaoReal {
         now: SystemTime,
         payment_thresholds: &PaymentThresholds,
     ) -> Vec<ReceivableAccount> {
-        let slope = (ThresholdUtils::slope(payment_thresholds) / 1_000_000_000) as i64;
+        let slope = ThresholdUtils::slope(payment_thresholds) as i64;
         let (permanent_debt_allowed_high_b, permanent_debt_allowed_low_b) =
             BigIntDivider::deconstruct(gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei));
         let sql = indoc!(
@@ -149,9 +149,9 @@ impl ReceivableDao for ReceivableDaoReal {
                 left outer join banned b on r.wallet_address = b.wallet_address
                 where
                     r.last_received_timestamp < :sugg_and_grace
-                    and ((r.balance_high_b > slope_drop_high_bytes(:debt_threshold, :slope * (:sugg_and_grace - r.last_received_timestamp)))
-                        or ((r.balance_high_b = slope_drop_high_bytes(:debt_threshold, :slope * (:sugg_and_grace - r.last_received_timestamp)))
-                        and (r.balance_low_b > slope_drop_low_bytes(:debt_threshold, :slope * (:sugg_and_grace - r.last_received_timestamp)))))
+                    and ((r.balance_high_b > slope_drop_high_bytes(:debt_threshold, :slope, :sugg_and_grace - r.last_received_timestamp))
+                        or ((r.balance_high_b = slope_drop_high_bytes(:debt_threshold, :slope, :sugg_and_grace - r.last_received_timestamp))
+                        and (r.balance_low_b > slope_drop_low_bytes(:debt_threshold, :slope, :sugg_and_grace - r.last_received_timestamp))))
                     and ((r.balance_high_b > :permanent_debt_allowed_high_b) or ((r.balance_high_b = 0) and (r.balance_low_b > :permanent_debt_allowed_low_b)))
                     and b.wallet_address is null
             "
@@ -442,11 +442,11 @@ mod tests {
             .unwrap();
         definite_dao
             .conn
-            .prepare("select slope_drop_high_bytes(4578745,89.7888)")
+            .prepare("select slope_drop_high_bytes(4578745, -2220000000, 123456)")
             .unwrap();
         definite_dao
             .conn
-            .prepare("select slope_drop_low_bytes(787845,7878.0056)")
+            .prepare("select slope_drop_low_bytes(787845, -2220000000, 123456)")
             .unwrap();
         //we didn't blow up, all is good
     }

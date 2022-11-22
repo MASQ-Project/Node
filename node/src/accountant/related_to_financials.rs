@@ -6,10 +6,10 @@ use masq_lib::constants::VALUE_EXCEEDS_ALLOWED_LIMIT;
 use masq_lib::ui_gateway::MessageBody;
 use std::fmt::{Debug, Display};
 
-//in the macros below are two less clear places:
-//a) notice the powerful past! macro allowing assemble valid idents from both present and supplied literals
-//b) use of repetition of almost identical blocks of code, here with a trick, storing the results in
-//a tuple so that I can approach them later by destructuring the tuple.
+//there are two fundamental components making the macros powerful:
+//a) see the procedural paste! macro (an external library) allowing to assemble valid idents (e. g. field or function names) from
+// both in-place-defined and with-args-supplied literals
+//b) repetition $(expression),+ in between round brackets producing a tuple that is later deconstructed in order to get the computed values out of it.
 
 #[macro_export]
 macro_rules! process_individual_range_queries {

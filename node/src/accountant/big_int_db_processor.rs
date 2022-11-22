@@ -3,9 +3,9 @@
 use crate::accountant::big_int_db_processor::ByteMagnitude::{High, Low};
 use crate::accountant::big_int_db_processor::UserDefinedFunctionError::InvalidInputValue;
 use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
-use crate::accountant::checked_conversion;
 use crate::accountant::payable_dao::PayableDaoError;
 use crate::accountant::receivable_dao::ReceivableDaoError;
+use crate::accountant::{checked_conversion, gwei_to_wei};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::accountant::WEIS_OF_GWEI;
 use crate::sub_lib::wallet::Wallet;
@@ -315,7 +315,8 @@ impl<'a> SQLParamsBuilder<'a> {
             .unwrap_or_else(|| panic!("SQLparams cannot miss the component of Wei change"));
         let ((high_bytes_param_name, low_bytes_param_name), (high_bytes_value, low_bytes_value)) =
             Self::expand_wei_params(wei_change_spec);
-        let params = once((key_spec.substitution_name_in_sql, key_spec.value_itself))
+        let key_as_the_first_param = (key_spec.substitution_name_in_sql, key_spec.value_itself);
+        let params = once(key_as_the_first_param)
             .chain(self.other_params.into_iter())
             .collect();
         SQLParams {
@@ -440,13 +441,17 @@ macro_rules! insert_update_error_from {
 insert_update_error_from!(PayableDaoError, ReceivableDaoError);
 
 macro_rules! create_big_int_sqlite_fns {
-    ($conn: expr, $flags: expr, $($sqlite_fn_name: expr),+; $($intern_fn_name: ident),+) => {
-        $($conn.create_scalar_function::<_, i64>($sqlite_fn_name, 2, $flags, move |ctx| {
-            Ok(BigIntDivider::$intern_fn_name(common_arg_distillation(
-                ctx,
-                $sqlite_fn_name,
-            )?))
-        })?;)+
+    ($conn: expr, $($sqlite_fn_name: expr),+; $($intern_fn_name: ident),+) => {
+        $(
+            $conn.create_scalar_function::<_, i64>($sqlite_fn_name, 3, FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
+                move |ctx| {
+                    Ok(BigIntDivider::$intern_fn_name(common_arg_distillation(
+                        ctx,
+                        $sqlite_fn_name,
+                    )?))
+                }
+            )?;
+        )+
     }
 }
 
@@ -502,47 +507,41 @@ impl BigIntDivider {
         fn_name_1: &'static str,
         fn_name_2: &'static str,
     ) -> rusqlite::Result<()> {
-        fn common_arg_distillation(ctx: &Context, fn_name: &str) -> rusqlite::Result<i128> {
-            let start_point_to_decrease_from_gwei = {
-                let raw_value = ctx.get_raw(0);
+        fn common_arg_distillation(
+            rusqlite_fn_ctx: &Context,
+            fn_name: &str,
+        ) -> rusqlite::Result<i128> {
+            const ERR_MSG_BEGINNINGS: [&str; 3] = ["First", "Second", "Third"];
+            let error_msg = |msg: String| -> rusqlite::Error {
+                UserFunctionError(Box::new(InvalidInputValue(fn_name.to_string(), msg)))
+            };
+            let get_i64_from_args = |arg_idx: usize| -> rusqlite::Result<i64> {
+                let raw_value = rusqlite_fn_ctx.get_raw(arg_idx);
                 raw_value.as_i64().map_err(|_| {
-                    UserFunctionError(Box::new(InvalidInputValue(
-                        fn_name.to_string(),
-                        format!("First argument takes only i64, not: {:?}", raw_value),
-                    )))
-                })?
+                    error_msg(format!(
+                        "{} argument takes only i64, not: {:?}",
+                        ERR_MSG_BEGINNINGS[arg_idx], raw_value
+                    ))
+                })
             };
-            let actual_decrease_wei = {
-                let raw_value = ctx.get_raw(1);
-                raw_value.as_f64().map_err(|_| {
-                    UserFunctionError(Box::new(InvalidInputValue(
-                        fn_name.to_string(),
-                        format!(
-                            "Second argument takes only a real number, not: {:?}",
-                            raw_value
-                        ),
-                    )))
-                })?
-            };
-            if actual_decrease_wei.is_sign_negative() {
-                Ok(start_point_to_decrease_from_gwei as i128 * WEIS_OF_GWEI
-                    + actual_decrease_wei as i128)
-            } else {
-                Err(UserFunctionError(Box::new(InvalidInputValue(
-                    fn_name.to_string(),
-                    format!(
-                        "Nonnegative slope {}; delinquency slope must be negative, \
-                         since debts must become more delinquent over time.",
-                        actual_decrease_wei
-                    ),
-                ))))
+            let start_point_to_decrease_from_gwei = get_i64_from_args(0)?;
+            let slope = get_i64_from_args(1)?;
+            let time_parameter = get_i64_from_args(2)?;
+            match (slope.is_negative(), time_parameter.is_positive()) {
+                (true, true) => Ok(gwei_to_wei::<i128, _>(start_point_to_decrease_from_gwei) + slope as i128 * time_parameter as i128),
+                (false, _) => Err(error_msg(format!(
+                    "Nonnegative slope {}; delinquency slope must be negative, since debts must become more delinquent over time.",
+                    slope
+                ))),
+                _ => Err(error_msg(format!(
+                    "Negative time parameter {}; debt age cannot go negative.",
+                    time_parameter
+                ))),
             }
         }
 
         create_big_int_sqlite_fns!(
-            conn,
-            FunctionFlags::SQLITE_UTF8 | FunctionFlags::SQLITE_DETERMINISTIC,
-            fn_name_1, fn_name_2;
+            conn, fn_name_1, fn_name_2;
             deconstruct_high_bytes, deconstruct_low_bytes
         );
         Ok(())
@@ -1727,6 +1726,7 @@ mod tests {
         let database_value_1: i64 = 12222;
         let database_value_2: i64 = 23333444;
         let database_value_3: i64 = 5555;
+        let slope: i64 = -3;
         conn.execute(
             "insert into test_table (database_parameter) values (?),(?),(?)",
             &[&database_value_1, &database_value_2, &database_value_3],
@@ -1734,9 +1734,9 @@ mod tests {
         .unwrap();
         let arbitrary_constant = 111222333444_i64;
         conn.execute(
-            "update test_table set computed_high_bytes = slope_drop_high_bytes(:my_constant, -3.143 * database_parameter),\
-        computed_low_bytes = slope_drop_low_bytes(:my_constant, -3.143 * database_parameter)",
-            &[(":my_constant", &arbitrary_constant)],
+            "update test_table set computed_high_bytes = slope_drop_high_bytes(:my_constant, :slope, database_parameter),\
+        computed_low_bytes = slope_drop_low_bytes(:my_constant, :slope, database_parameter)",
+            &[(":my_constant", &arbitrary_constant), (":slope", &slope)],
         )
         .unwrap();
         let mut stm = conn
@@ -1755,16 +1755,13 @@ mod tests {
             computed_values,
             vec![
                 BigIntDivider::deconstruct(
-                    arbitrary_constant as i128 * 1_000_000_000
-                        + (-3.143 * database_value_1 as f64) as i128
+                    arbitrary_constant as i128 * WEIS_OF_GWEI + (slope * database_value_1) as i128
                 ),
                 BigIntDivider::deconstruct(
-                    arbitrary_constant as i128 * 1_000_000_000
-                        + (-3.143 * database_value_2 as f64) as i128
+                    arbitrary_constant as i128 * WEIS_OF_GWEI + (slope * database_value_2) as i128
                 ),
                 BigIntDivider::deconstruct(
-                    arbitrary_constant as i128 * 1_000_000_000
-                        + (-3.143 * database_value_3 as f64) as i128
+                    arbitrary_constant as i128 * WEIS_OF_GWEI + (slope * database_value_3) as i128
                 )
             ]
         );
@@ -1786,7 +1783,7 @@ mod tests {
 
         let result = conn
             .execute(
-                "insert into test_table (computed_high_bytes) values (slope_drop_high_bytes('hello',-45.666))",
+                "insert into test_table (computed_high_bytes) values (slope_drop_high_bytes('hello', -4005000000, 712))",
                 [],
             )
             .unwrap_err();
@@ -1814,7 +1811,7 @@ mod tests {
 
         let result = conn
             .execute(
-                "insert into test_table (computed_high_bytes) values (slope_drop_low_bytes('bye',-45.666))",
+                "insert into test_table (computed_high_bytes) values (slope_drop_low_bytes('bye', -10000000000, 44233))",
                 [],
             )
             .unwrap_err();
@@ -1841,7 +1838,7 @@ mod tests {
         );
         let error_invoker = |bytes_type: &str| {
             let sql = format!(
-                "insert into test_table (computed_{0}_bytes) values (slope_drop_{0}_bytes(45656,5656.23))",
+                "insert into test_table (computed_{0}_bytes) values (slope_drop_{0}_bytes(45656, 5656, 11111))",
                 bytes_type
             );
             conn.execute(&sql, []).unwrap_err()
@@ -1858,7 +1855,7 @@ mod tests {
                     extended_code: 1
                 },
                 Some(
-                    "Error from slope_drop_high_bytes: Nonnegative slope 5656.23; delinquency \
+                    "Error from slope_drop_high_bytes: Nonnegative slope 5656; delinquency \
                         slope must be negative, since debts must become more delinquent over time."
                         .to_string()
                 )
@@ -1872,7 +1869,7 @@ mod tests {
                     extended_code: 1
                 },
                 Some(
-                    "Error from slope_drop_low_bytes: Nonnegative slope 5656.23; delinquency \
+                    "Error from slope_drop_low_bytes: Nonnegative slope 5656; delinquency \
                        slope must be negative, since debts must become more delinquent over time."
                         .to_string()
                 )
@@ -1881,14 +1878,59 @@ mod tests {
     }
 
     #[test]
-    fn other_than_real_num_argument_error() {
+    fn our_sqlite_functions_are_specialized_thus_should_not_take_negative_number_for_the_third_parameter(
+    ) {
         let conn = create_test_table_and_run_register_deconstruction_for_sqlite_connection(
-            "other_than_real_num_argument_error",
+            "our_sqlite_functions_are_specialized_thus_should_not_take_negative_number_for_the_third_parameter"
+        );
+        let error_invoker = |bytes_type: &str| {
+            let sql = format!(
+                "insert into test_table (computed_{0}_bytes) values (slope_drop_{0}_bytes(45656, -500000, -11111))",
+                bytes_type
+            );
+            conn.execute(&sql, []).unwrap_err()
+        };
+
+        let high_bytes_error = error_invoker("high");
+        let low_bytes_error = error_invoker("low");
+
+        assert_eq!(
+            high_bytes_error,
+            SqliteFailure(
+                rusqlite::ffi::Error {
+                    code: ErrorCode::Unknown,
+                    extended_code: 1
+                },
+                Some(
+                    "Error from slope_drop_high_bytes: Negative time parameter -11111; debt age cannot go negative."
+                        .to_string()
+                )
+            )
+        );
+        assert_eq!(
+            low_bytes_error,
+            SqliteFailure(
+                rusqlite::ffi::Error {
+                    code: ErrorCode::Unknown,
+                    extended_code: 1
+                },
+                Some(
+                    "Error from slope_drop_low_bytes: Negative time parameter -11111; debt age cannot go negative."
+                        .to_string()
+                )
+            )
+        );
+    }
+
+    #[test]
+    fn third_argument_error() {
+        let conn = create_test_table_and_run_register_deconstruction_for_sqlite_connection(
+            "third_argument_error",
         );
 
         let result = conn
             .execute(
-                "insert into test_table (computed_high_bytes) values (slope_drop_low_bytes(15464646,7866))",
+                "insert into test_table (computed_high_bytes) values (slope_drop_low_bytes(15464646, 7866, 'time'))",
                 [],
             )
             .unwrap_err();
@@ -1897,7 +1939,7 @@ mod tests {
             result,
             SqliteFailure(
                 rusqlite::ffi::Error{ code: ErrorCode::Unknown, extended_code: 1 },
-                Some("Error from slope_drop_low_bytes: Second argument takes only a real number, not: Integer(7866)".to_string()
+                Some("Error from slope_drop_low_bytes: Third argument takes only i64, not: Text([116, 105, 109, 101])".to_string()
             ))
         )
     }
