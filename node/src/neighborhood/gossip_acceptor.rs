@@ -2649,7 +2649,7 @@ mod tests {
         assert_eq!(system.run(), 0);
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
-        assert_eq!(result, GossipAcceptanceResult::Accepted);
+        assert_eq!(result, GossipAcceptanceResult::Ignored);
     }
 
     #[test]
@@ -3646,6 +3646,26 @@ mod tests {
     #[test]
     fn initial_standard_gossip_does_not_produce_neighborship_if_destination_degree_is_already_full()
     {
+        /*
+        Destination Database ==>
+            N2  N3
+             \  /
+        N1---Dest---Third
+             /  \
+            N4  N5
+
+        Source Database ==>
+        Src---Third---Dest
+
+        Disc
+
+        Expected Destination Database ==>
+            N2  N3
+             \  /   Third
+        N1---Dest---|
+             /  \   Src
+            N4  N5
+         */
         let dest_node = make_node_record(1234, true);
         let dest_node_cryptde = CryptDENull::from(&dest_node.public_key(), TEST_DEFAULT_CHAIN);
         let mut dest_db = db_from_node(&dest_node);
@@ -3661,10 +3681,10 @@ mod tests {
             dest_db.add_arbitrary_half_neighbor(dest_node.public_key(), failed_node_key);
         }
         dest_db.add_node(third_node.clone()).unwrap();
+        dest_db.add_arbitrary_full_neighbor(dest_node.public_key(), third_node.public_key());
         src_db.add_node(dest_node.clone()).unwrap();
         src_db.add_node(third_node.clone()).unwrap();
         src_db.add_node(disconnected_node.clone()).unwrap();
-        dest_db.add_arbitrary_full_neighbor(dest_node.public_key(), third_node.public_key());
         src_db.add_arbitrary_full_neighbor(dest_node.public_key(), third_node.public_key());
         src_db.add_arbitrary_full_neighbor(src_node.public_key(), third_node.public_key());
         src_db
@@ -3693,11 +3713,7 @@ mod tests {
         let after = time_t_timestamp();
         let mut expected_dest_db = src_db.clone();
         expected_dest_db.add_arbitrary_half_neighbor(dest_node.public_key(), src_node.public_key());
-        expected_dest_db
-            .node_by_key_mut(disconnected_node.public_key())
-            .unwrap()
-            .metadata
-            .node_addr_opt = None;
+        expected_dest_db.remove_neighbor(disconnected_node.public_key());
         for idx in 0..MAX_DEGREE {
             let failed_node_key = &expected_dest_db
                 .add_node(make_node_record(4000 + idx as u16, true))
@@ -3732,16 +3748,10 @@ mod tests {
             before,
             after,
         );
-        assert_node_records_eq(
-            dest_db
-                .node_by_key_mut(disconnected_node.public_key())
-                .unwrap(),
-            expected_dest_db
-                .node_by_key(disconnected_node.public_key())
-                .unwrap(),
-            before,
-            after,
-        );
+        // If you're here because you're working on GH-650, and this assert is failing,
+        // everything's fine: GH-650 is supposed to make it fail. Modify the assert so
+        // that it ensures that the disconnected Node is preserved.
+        assert_eq!(dest_db.node_by_key(disconnected_node.public_key()), None);
     }
 
     #[test]
