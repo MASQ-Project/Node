@@ -322,7 +322,7 @@ impl ProxyServer {
             None => {
                 error!(self.logger,
                     "Discarding DnsResolveFailure message for {} from an unrecognized stream key {:?}",
-                    server_name_opt.unwrap_or("<unspecified_server>".to_string()),
+                    server_name_opt.unwrap_or_else(|| "<unspecified_server>".to_string()),
                     &response.stream_key
                 )
             }
