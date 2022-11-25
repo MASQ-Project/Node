@@ -934,20 +934,17 @@ impl GossipHandler for StandardGossipHandler {
 
         // let hashmap: HashMap<PublicKey, &AccessibleGossipRecord> = agrs.into();
 
-        eprintln!("HashMap: {:?}", hashmap.keys());
-
         let root_node = database.root();
         let mut patch: HashSet<PublicKey> = HashSet::new();
         self.compute_patch(&mut patch, root_node.public_key(), &hashmap, 3, &database);
 
-        eprintln!("Patch: {:?}", patch);
+        let agrs = agrs
+            .into_iter()
+            .filter(|agr| patch.contains(&agr.inner.public_key))
+            .collect::<Vec<AccessibleGossipRecord>>();
 
-        let mut db_changed = self.identify_and_add_non_introductory_new_nodes(
-            database,
-            &agrs,
-            &patch,
-            gossip_source,
-        );
+        let mut db_changed =
+            self.identify_and_add_non_introductory_new_nodes(database, &agrs, gossip_source);
         db_changed = self.identify_and_update_obsolete_nodes(database, agrs) || db_changed;
         db_changed = self.handle_root_node(cryptde, database, gossip_source) || db_changed;
         let final_neighborship_status =
@@ -1022,7 +1019,6 @@ impl StandardGossipHandler {
         &self,
         database: &mut NeighborhoodDatabase,
         agrs: &[AccessibleGossipRecord],
-        patch: &HashSet<PublicKey>,
         gossip_source: SocketAddr,
     ) -> bool {
         let all_keys = database
@@ -1031,7 +1027,6 @@ impl StandardGossipHandler {
             .cloned()
             .collect::<HashSet<PublicKey>>();
         agrs.iter()
-            .filter(|agr| patch.contains(&agr.inner.public_key))
             .filter(|agr| !all_keys.contains(&agr.inner.public_key))
             // TODO: A node that tells us the IP Address of the node that isn't in our database should be malefactor banned
             .filter(|agr| match &agr.node_addr_opt {
