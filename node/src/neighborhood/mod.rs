@@ -418,16 +418,6 @@ impl TryFrom<GossipNodeRecord> for AccessibleGossipRecord {
     }
 }
 
-// impl<'agr> Into<HashMap<PublicKey, &'agr AccessibleGossipRecord>> for AccessibleGossipRecord {
-//     fn into(self) -> HashMap<PublicKey, &'agr AccessibleGossipRecord> {
-//         self.iter()
-//             .map(|agr| {
-//                 return (agr.inner.public_key.clone(), agr);
-//             })
-//             .collect::<HashMap<PublicKey, &AccessibleGossipRecord>>()
-//     }
-// }
-
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
 enum RouteDirection {
     Over,

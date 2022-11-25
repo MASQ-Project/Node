@@ -929,14 +929,17 @@ impl GossipHandler for StandardGossipHandler {
 
         let hashmap = agrs
             .iter()
-            .map(|agr| (agr.inner.public_key.clone(), agr))
-            .collect::<HashMap<PublicKey, &AccessibleGossipRecord>>();
+            .map(|agr| (&agr.inner.public_key, agr))
+            .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
 
-        // let hashmap: HashMap<PublicKey, &AccessibleGossipRecord> = agrs.into();
-
-        let root_node = database.root();
         let mut patch: HashSet<PublicKey> = HashSet::new();
-        self.compute_patch(&mut patch, root_node.public_key(), &hashmap, 3, &database);
+        self.compute_patch(
+            &mut patch,
+            database.root().public_key(),
+            &hashmap,
+            3,
+            &database,
+        );
 
         let agrs = agrs
             .into_iter()
@@ -983,7 +986,7 @@ impl StandardGossipHandler {
         &self,
         patch: &mut HashSet<PublicKey>,
         node: &PublicKey,
-        agrs: &HashMap<PublicKey, &AccessibleGossipRecord>,
+        agrs: &HashMap<&PublicKey, &AccessibleGossipRecord>,
         hops_remaining: usize,
         database: &NeighborhoodDatabase,
     ) {
@@ -2351,10 +2354,8 @@ mod tests {
 
         let hashmap = agrs
             .iter()
-            .map(|agr| {
-                return (agr.inner.public_key.clone(), agr);
-            })
-            .collect::<HashMap<PublicKey, &AccessibleGossipRecord>>();
+            .map(|agr| (&agr.inner.public_key, agr))
+            .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
 
         subject.compute_patch(&mut patch, node_a.public_key(), &hashmap, 3, &node_a_db);
 
@@ -2430,10 +2431,8 @@ mod tests {
 
         let hashmap = agrs
             .iter()
-            .map(|agr| {
-                return (agr.inner.public_key.clone(), agr);
-            })
-            .collect::<HashMap<PublicKey, &AccessibleGossipRecord>>();
+            .map(|agr| (&agr.inner.public_key, agr))
+            .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
 
         subject.compute_patch(&mut patch, node_a.public_key(), &hashmap, 3, &node_a_db);
 
@@ -2505,10 +2504,8 @@ mod tests {
 
         let hashmap = agrs
             .iter()
-            .map(|agr| {
-                return (agr.inner.public_key.clone(), agr);
-            })
-            .collect::<HashMap<PublicKey, &AccessibleGossipRecord>>();
+            .map(|agr| (&agr.inner.public_key, agr))
+            .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
 
         subject.compute_patch(&mut patch, node_a.public_key(), &hashmap, 3, &node_a_db);
 
