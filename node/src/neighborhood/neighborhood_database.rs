@@ -19,7 +19,6 @@ use std::fmt::Debug;
 use std::fmt::Error;
 use std::fmt::Formatter;
 use std::net::IpAddr;
-use std::ops::Deref;
 
 pub const ISOLATED_NODE_GRACE_PERIOD_SECS: u32 = 30;
 
@@ -699,12 +698,12 @@ mod tests {
         let half_neighbor_2 = make_node_record(6666, false);
         let some_node = make_node_record(7777, false);
         let mut subject = db_from_node(&root_node);
-        subject.add_node(full_neighbor_1.clone());
-        subject.add_node(full_neighbor_2.clone());
-        subject.add_node(full_neighbor_3.clone());
-        subject.add_node(half_neighbor_1.clone());
-        subject.add_node(half_neighbor_2.clone());
-        subject.add_node(some_node.clone());
+        subject.add_node(full_neighbor_1.clone()).unwrap();
+        subject.add_node(full_neighbor_2.clone()).unwrap();
+        subject.add_node(full_neighbor_3.clone()).unwrap();
+        subject.add_node(half_neighbor_1.clone()).unwrap();
+        subject.add_node(half_neighbor_2.clone()).unwrap();
+        subject.add_node(some_node.clone()).unwrap();
         subject.add_arbitrary_full_neighbor(root_node.public_key(), full_neighbor_1.public_key());
         subject.add_arbitrary_full_neighbor(root_node.public_key(), full_neighbor_2.public_key());
         subject.add_arbitrary_full_neighbor(root_node.public_key(), full_neighbor_3.public_key());
@@ -718,7 +717,9 @@ mod tests {
             vec![
                 full_neighbor_1.public_key().clone(),
                 full_neighbor_2.public_key().clone(),
-                full_neighbor_3.public_key().clone()
+                full_neighbor_3.public_key().clone(),
+                half_neighbor_1.public_key().clone(),
+                half_neighbor_2.public_key().clone()
             ]
             .iter()
             .collect::<HashSet<&PublicKey>>()

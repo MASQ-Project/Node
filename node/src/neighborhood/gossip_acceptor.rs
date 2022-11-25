@@ -14,7 +14,6 @@ use masq_lib::logger::Logger;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
-use std::ops::Deref;
 use std::time::{Duration, SystemTime};
 
 /// Note: if you decide to change this, make sure you test thoroughly. Values less than 5 may lead
@@ -2552,7 +2551,6 @@ mod tests {
         let cryptde = main_cryptde();
         let (cpm_recipient, _) = make_cpm_recipient();
         let subject = StandardGossipHandler::new(Logger::new("test"));
-        let mut patch: HashSet<PublicKey> = HashSet::new();
         let node_a = make_node_record(1111, true);
         let node_b = make_node_record(2222, true);
         let node_c = make_node_record(3333, false);
@@ -2607,13 +2605,6 @@ mod tests {
             )
         }
         //----------------------------------------------------------------
-
-        let hashmap = agrs
-            .iter()
-            .map(|agr| {
-                return (agr.inner.public_key.clone(), agr);
-            })
-            .collect::<HashMap<PublicKey, &AccessibleGossipRecord>>();
 
         let result = subject.handle(cryptde, &mut node_a_db, agrs, gossip_source, &cpm_recipient);
 
@@ -3713,7 +3704,9 @@ mod tests {
         let after = time_t_timestamp();
         let mut expected_dest_db = src_db.clone();
         expected_dest_db.add_arbitrary_half_neighbor(dest_node.public_key(), src_node.public_key());
-        expected_dest_db.remove_neighbor(disconnected_node.public_key());
+        expected_dest_db
+            .remove_neighbor(disconnected_node.public_key())
+            .unwrap();
         for idx in 0..MAX_DEGREE {
             let failed_node_key = &expected_dest_db
                 .add_node(make_node_record(4000 + idx as u16, true))

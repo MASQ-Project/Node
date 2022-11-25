@@ -13,7 +13,7 @@ use crate::sub_lib::versioned_data::StepError;
 use pretty_hex::PrettyHex;
 use serde_cbor::Value;
 use serde_derive::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::convert::{TryFrom, TryInto};
 use std::fmt::Debug;
 use std::fmt::Error;
