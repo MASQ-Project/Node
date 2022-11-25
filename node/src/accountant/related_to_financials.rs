@@ -61,18 +61,18 @@ macro_rules! process_top_records_query {
     };
 }
 
-pub fn check_fit_from_zero_to_i64max_for_u64<T>(num: &T) -> bool
+fn fits_in_0_to_i64max_for_u64<T>(num: &T) -> bool
 where
     T: Ord + Copy + TryFrom<u64>,
     u64: TryFrom<T>,
     <T as TryFrom<u64>>::Error: Debug,
 {
     match u64::try_from(*num) {
-        Ok(num) => num > i64::MAX as u64,
+        Ok(u64_num) => u64_num <= i64::MAX as u64,
         Err(_) => {
             let zero_as_t: T = 0_u64.try_into().expect("should be fine");
             if num < &zero_as_t {
-                false
+                true
             } else {
                 unreachable!("only u64 and i64 values are expected")
             }
@@ -113,15 +113,15 @@ where
     } = query
     {
         match (
-            min_age_s > &(i64::MAX as u64),
-            max_age_s > &(i64::MAX as u64),
-            check_fit_from_zero_to_i64max_for_u64(min_amount_gwei),
-            check_fit_from_zero_to_i64max_for_u64(max_amount_gwei),
+            min_age_s <= &(i64::MAX as u64),
+            max_age_s <= &(i64::MAX as u64),
+            fits_in_0_to_i64max_for_u64(min_amount_gwei),
+            fits_in_0_to_i64max_for_u64(max_amount_gwei),
         ) {
-            (true, ..) => err("Min age", min_age_s),
-            (_, true, ..) => err("Max age", max_age_s),
-            (_, _, true, _) => err("Min amount", min_amount_gwei),
-            (_, _, _, true) => err("Max amount", max_amount_gwei),
+            (false, ..) => err("Min age", min_age_s),
+            (_, false, ..) => err("Max age", max_age_s),
+            (_, _, false, _) => err("Min amount", min_amount_gwei),
+            (_, _, _, false) => err("Max amount", max_amount_gwei),
             _ => Ok(()),
         }
     } else {
@@ -133,7 +133,7 @@ where
 mod tests {
     use crate::accountant::dao_utils::CustomQuery;
     use crate::accountant::related_to_financials::{
-        check_fit_from_zero_to_i64max_for_u64, check_query_is_within_tech_limits,
+        check_query_is_within_tech_limits, fits_in_0_to_i64max_for_u64,
     };
     use crate::accountant::Accountant;
     use masq_lib::constants::VALUE_EXCEEDS_ALLOWED_LIMIT;
@@ -141,8 +141,10 @@ mod tests {
     use std::fmt::{Debug, Display};
     use std::time::SystemTime;
 
-    fn assert_check_query_is_within_tech_limits<T>(query: CustomQuery<T>, err_msg: &str)
-    where
+    fn assert_excessive_values_in_check_query_is_within_tech_limits<T>(
+        query: CustomQuery<T>,
+        err_msg: &str,
+    ) where
         T: Ord + Copy + Display + TryFrom<u64>,
         u64: TryFrom<T>,
         <u64 as TryFrom<T>>::Error: Debug,
@@ -170,7 +172,7 @@ mod tests {
             timestamp: SystemTime::now(),
         };
 
-        assert_check_query_is_within_tech_limits(
+        assert_excessive_values_in_check_query_is_within_tech_limits(
             query,
             "Range query for payable: Min age requested \
          too big. Should be less than or equal to 9223372036854775807, not: 9223372036854775808",
@@ -181,16 +183,16 @@ mod tests {
     fn check_query_is_within_tech_limits_catches_error_at_age_max() {
         let query = CustomQuery::RangeQuery {
             min_age_s: 32656,
-            max_age_s: i64::MAX as u64 + 3,
+            max_age_s: i64::MAX as u64 + 1,
             min_amount_gwei: 55,
             max_amount_gwei: 6666,
             timestamp: SystemTime::now(),
         };
 
-        assert_check_query_is_within_tech_limits(
+        assert_excessive_values_in_check_query_is_within_tech_limits(
             query,
             "Range query for payable: Max age requested \
-         too big. Should be less than or equal to 9223372036854775807, not: 9223372036854775810",
+         too big. Should be less than or equal to 9223372036854775807, not: 9223372036854775808",
         )
     }
 
@@ -199,15 +201,15 @@ mod tests {
         let query = CustomQuery::RangeQuery {
             min_age_s: 32656,
             max_age_s: 4545555,
-            min_amount_gwei: i64::MAX as u64 + 9,
+            min_amount_gwei: i64::MAX as u64 + 1,
             max_amount_gwei: 6666,
             timestamp: SystemTime::now(),
         };
 
-        assert_check_query_is_within_tech_limits(
+        assert_excessive_values_in_check_query_is_within_tech_limits(
             query,
             "Range query for payable: Min amount requested \
-         too big. Should be less than or equal to 9223372036854775807, not: 9223372036854775816",
+         too big. Should be less than or equal to 9223372036854775807, not: 9223372036854775808",
         )
     }
 
@@ -217,15 +219,32 @@ mod tests {
             min_age_s: 32656,
             max_age_s: 4545555,
             min_amount_gwei: 144,
-            max_amount_gwei: i64::MAX as u64 + 11,
+            max_amount_gwei: i64::MAX as u64 + 1,
             timestamp: SystemTime::now(),
         };
 
-        assert_check_query_is_within_tech_limits(
+        assert_excessive_values_in_check_query_is_within_tech_limits(
             query,
             "Range query for payable: Max amount requested \
-         too big. Should be less than or equal to 9223372036854775807, not: 9223372036854775818",
+         too big. Should be less than or equal to 9223372036854775807, not: 9223372036854775808",
         )
+    }
+
+    #[test]
+    fn check_query_is_within_tech_limits_works_for_smaller_or_equal_values_than_max_limit() {
+        [i64::MAX as u64, (i64::MAX - 1) as u64, 1]
+            .into_iter()
+            .for_each(|val| {
+                let query = CustomQuery::RangeQuery {
+                    min_age_s: val,
+                    max_age_s: val,
+                    min_amount_gwei: val,
+                    max_amount_gwei: val,
+                    timestamp: SystemTime::now(),
+                };
+                let result = check_query_is_within_tech_limits(&query, "payable", 1234);
+                assert_eq!(result, Ok(()))
+            })
     }
 
     #[test]
@@ -238,7 +257,7 @@ mod tests {
             timestamp: SystemTime::now(),
         };
 
-        let result = check_query_is_within_tech_limits(&query, "payable", 789);
+        let result = check_query_is_within_tech_limits(&query, "receivable", 789);
 
         assert_eq!(result, Ok(()))
     }
@@ -246,12 +265,12 @@ mod tests {
     #[test]
     #[should_panic(expected = "entered unreachable code: only u64 and i64 values are expected")]
     fn compare_amount_param_unreachable_condition() {
-        let _ = check_fit_from_zero_to_i64max_for_u64(&u128::MAX);
+        let _ = fits_in_0_to_i64max_for_u64(&u128::MAX);
     }
 
     #[test]
     #[should_panic(expected = "Broken code: only range query belongs in here")]
-    fn check_query_within_tech_limits_blows_up_if_unexpected_query_type() {
+    fn check_query_is_within_tech_limits_blows_up_on_unexpected_query_type() {
         let query = CustomQuery::<i64>::TopRecords {
             count: 123,
             ordered_by: Age,

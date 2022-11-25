@@ -600,8 +600,9 @@ impl LogRecipientSetter for LogRecipientSetterReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::check_sqlite_fns::CheckSqliteFunctionsDefinedByUs;
+    use crate::accountant::check_sqlite_fns::TestOurUserDefinedSqliteFunctions;
     use crate::accountant::test_utils::bc_from_ac_plus_earning_wallet;
+    use crate::actor_system_factory::tests::ShouldWeRunTheTest::{GoAhead, Skip};
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::node_test_utils::{
@@ -648,10 +649,14 @@ mod tests {
     #[cfg(feature = "log_recipient_test")]
     use masq_lib::logger::INITIALIZATION_COUNTER;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
+    use masq_lib::test_utils::utils::{
+        ensure_node_home_directory_exists, is_running_under_github_actions,
+        is_source_code_attached, TEST_DEFAULT_CHAIN,
+    };
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::utils::running_test;
     use masq_lib::utils::AutomapProtocol::Igdp;
+    use regex::Regex;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::convert::TryFrom;
@@ -1830,8 +1835,14 @@ mod tests {
         }
     }
 
-    fn checking_ongoing_usage_of_big_int_sqlite_functions_in_new_delinquencies_in_receivable_dao() {
-        fn skip_up_to_new_delinquencies_included(
+    enum ShouldWeRunTheTest {
+        GoAhead,
+        Skip,
+    }
+
+    fn checking_existing_usage_of_big_int_sqlite_functions_in_the_sql_query_for_new_delinquencies_in_receivable_dao(
+    ) -> ShouldWeRunTheTest {
+        fn skip_down_to_first_line_saying_new_delinquencies(
             previous: impl Iterator<Item = String>,
         ) -> impl Iterator<Item = String> {
             previous
@@ -1844,7 +1855,7 @@ mod tests {
                 })
                 .skip(1)
         }
-        fn fold_guts(previous: (bool, bool), line: String) -> (bool, bool) {
+        fn user_defined_functions_detection(previous: (bool, bool), line: String) -> (bool, bool) {
             let high = |previous: (bool, bool)| {
                 if line.contains(" slope_drop_high_bytes(") {
                     (true, previous.1)
@@ -1866,29 +1877,74 @@ mod tests {
                 _ => low(high(previous)),
             }
         }
+        fn assert_is_not_trait_definition(
+            body_lines: impl Iterator<Item = String>,
+        ) -> impl Iterator<Item = String> {
+            fn yield_if_contains_semicolon(line: &str) -> Option<String> {
+                line.contains(';').then(|| line.to_string())
+            }
+            let mut semicolon_line_opt = None;
+            let vec_lines = body_lines
+                .map(|line| {
+                    if semicolon_line_opt.is_none() {
+                        if let Some(result) = yield_if_contains_semicolon(&line) {
+                            semicolon_line_opt = Some(result)
+                        }
+                    }
+                    line
+                })
+                .collect::<Vec<_>>();
+            if let Some(line) = semicolon_line_opt {
+                let regex = Regex::new(r"Vec<\w+>;").unwrap();
+                if regex.is_match(&line) {
+                    //means the function body is empty -> trait definition
+                    panic!("the second parsed chunk of code is a trait definition and the implementation lies first")
+                }
+            } else {
+                () //means is a clean function body without semicolon
+            }
+            vec_lines.into_iter()
+        }
 
-        let file_path = current_dir()
-            .unwrap()
+        let current_dir = current_dir().unwrap();
+        let file_path = current_dir
             .join("src")
             .join("accountant")
             .join("receivable_dao.rs");
-        let file = File::open(file_path).unwrap();
+        let file = match File::open(file_path) {
+            Ok(file) => file,
+            Err(_) => {
+                if !is_running_under_github_actions() && !is_source_code_attached(&current_dir) {
+                    return Skip;
+                } else {
+                    panic!(
+                        "if panics, the file receivable_dao.rs probably doesn't exist or \
+                has been moved to an unexpected location"
+                    )
+                }
+            }
+        };
         let reader = BufReader::new(file);
         let lines_without_fn_trait_definition =
-            skip_up_to_new_delinquencies_included(reader.lines().flatten());
-        let presence_check =
-            skip_up_to_new_delinquencies_included(lines_without_fn_trait_definition)
-                .take_while(|line| {
-                    let adjusted_line: String = line
-                        .chars()
-                        .skip_while(|char| char.is_whitespace())
-                        .collect();
-                    !adjusted_line.starts_with("fn")
-                })
-                .fold((false, false), |previous, line| fold_guts(previous, line));
+            skip_down_to_first_line_saying_new_delinquencies(reader.lines().flatten());
+        let presence_check = {
+            let assumed_implemented_function_body =
+                skip_down_to_first_line_saying_new_delinquencies(lines_without_fn_trait_definition)
+                    .take_while(|line| {
+                        let adjusted_line: String = line
+                            .chars()
+                            .skip_while(|char| char.is_whitespace())
+                            .collect();
+                        !adjusted_line.starts_with("fn")
+                    });
+            assert_is_not_trait_definition(assumed_implemented_function_body)
+                .fold((false, false), user_defined_functions_detection)
+        };
         if presence_check != (true, true) {
-            panic!("about to run test checking usage of functions (slope_drop_high_bytes and bigintlow) which aren't out there, though, \
-           and so they cannot signalize troubles, leaving a falsely positive result")
+            panic!("was about to test user-defined SQLite functions (slope_drop_high_bytes and slope_drop_low_bytes)
+             in new_delinquencies() but found out those are absent at the expected place and would leave falsely positive results")
+        } else {
+            GoAhead
         }
     }
 
@@ -1896,7 +1952,11 @@ mod tests {
     fn our_big_int_sqlite_functions_are_linked_to_receivable_dao_within_accountant() {
         //this test works only under the condition that ReceivableDao.new_delinquencies() still
         //encompasses the special functions, so a formal check of that opens this test
-        checking_ongoing_usage_of_big_int_sqlite_functions_in_new_delinquencies_in_receivable_dao();
+        if let Skip = checking_existing_usage_of_big_int_sqlite_functions_in_the_sql_query_for_new_delinquencies_in_receivable_dao(){
+            eprintln!("skipping test our_big_int_sqlite_functions_are_linked_to_receivable_dao_within_accountant \
+             for being unable to find receivable_dao.rs");
+            return
+        };
         let data_dir = ensure_node_home_directory_exists(
             "actor_system_factory",
             "our_big_int_sqlite_functions_are_linked_to_receivable_dao_within_accountant",
@@ -1925,7 +1985,7 @@ mod tests {
         let accountant_addr = addr_rv.try_recv().unwrap();
         //this message also stops the system after the check
         accountant_addr
-            .try_send(CheckSqliteFunctionsDefinedByUs {})
+            .try_send(TestOurUserDefinedSqliteFunctions {})
             .unwrap();
         assert_eq!(system.run(), 0);
         //we didn't blow up, it recognized the functions

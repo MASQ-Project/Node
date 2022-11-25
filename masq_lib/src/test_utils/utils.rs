@@ -2,7 +2,7 @@
 
 use crate::blockchains::chains::Chain;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthRopsten;
@@ -33,6 +33,10 @@ pub fn is_running_under_github_actions() -> bool {
     } else {
         false
     }
+}
+
+pub fn is_source_code_attached(current_dir: &Path) -> bool {
+    current_dir.join("src").exists() && current_dir.join("Cargo.toml").exists()
 }
 
 pub fn to_millis(dur: &Duration) -> u64 {

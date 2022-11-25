@@ -1,5 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::accountant::big_int_db_processor::KnownKeyVariants::{
+    PendingPayableRowid, WalletAddress,
+};
 use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::big_int_db_processor::{
     BigIntDbProcessor, BigIntDivider, BigIntSqlConfig, SQLParamsBuilder, TableNameDAO,
@@ -120,7 +123,7 @@ impl PayableDao for PayableDaoReal {
                 update set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where wallet_address = :wallet",
                 "update {} set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b where wallet_address = :wallet",
                 SQLParamsBuilder::default()
-                          .key("wallet_address", ":wallet",wallet)
+                          .key(WalletAddress(wallet))
                           .wei_change( Addition("balance",amount))
                           .other(vec![(":last_paid_timestamp",&to_time_t(timestamp))])
                           .build()
@@ -164,7 +167,7 @@ impl PayableDao for PayableDaoReal {
                 "update payable set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid",
                 "update payable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid",
                    SQLParamsBuilder::default()
-                    .key( "pending_payable_rowid", ":rowid",&key)
+                    .key( PendingPayableRowid(&key))
                     .wei_change(Subtraction("balance",fingerprint.amount))
                     .other(vec![(":last_paid", &to_time_t(fingerprint.timestamp))])
                     .build()))?)

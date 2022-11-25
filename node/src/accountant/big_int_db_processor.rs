@@ -275,19 +275,9 @@ pub struct SQLParamsBuilder<'a> {
     other_params: Vec<(&'a str, &'a dyn ExtendedParamsMarker)>,
 }
 
-struct UniqueKeySpec<'a> {
-    definition_name: &'a str,
-    substitution_name_in_sql: &'a str,
-    value_itself: &'a dyn ExtendedParamsMarker,
-}
-
 impl<'a> SQLParamsBuilder<'a> {
-    pub fn key(
-        mut self,
-        definition_name: &'a str,
-        substitution_name_in_sql: &'a str,
-        value_itself: &'a dyn ExtendedParamsMarker,
-    ) -> Self {
+    pub fn key(mut self, key_variant: KnownKeyVariants<'a>) -> Self {
+        let (definition_name, substitution_name_in_sql, value_itself) = key_variant.into();
         self.key_spec_opt = Some(UniqueKeySpec {
             definition_name,
             substitution_name_in_sql,
@@ -345,6 +335,38 @@ impl<'a> SQLParamsBuilder<'a> {
 
     fn proper_wei_change_param_name(base_word: &str, byte_magnitude: ByteMagnitude) -> String {
         format!(":{}_{}_b", base_word, byte_magnitude)
+    }
+}
+
+struct UniqueKeySpec<'a> {
+    definition_name: &'a str,
+    substitution_name_in_sql: &'a str,
+    value_itself: &'a dyn ExtendedParamsMarker,
+}
+
+pub enum KnownKeyVariants<'a> {
+    WalletAddress(&'a dyn ExtendedParamsMarker),
+    PendingPayableRowid(&'a dyn ExtendedParamsMarker),
+    #[cfg(test)]
+    TestKey {
+        var_name: &'static str,
+        sub_name: &'static str,
+        val: &'a dyn ExtendedParamsMarker,
+    },
+}
+
+impl<'a> From<KnownKeyVariants<'a>> for (&'static str, &'static str, &'a dyn ExtendedParamsMarker) {
+    fn from(variant: KnownKeyVariants<'a>) -> Self {
+        match variant {
+            KnownKeyVariants::WalletAddress(val) => ("wallet_address", ":wallet", val),
+            KnownKeyVariants::PendingPayableRowid(val) => ("pending_payable_rowid", ":rowid", val),
+            #[cfg(test)]
+            KnownKeyVariants::TestKey {
+                var_name,
+                sub_name,
+                val,
+            } => (var_name, sub_name, val),
+        }
     }
 }
 
@@ -568,7 +590,9 @@ impl Display for UserDefinedFunctionError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::big_int_db_processor::KnownKeyVariants::TestKey;
     use crate::accountant::big_int_db_processor::WeiChange::Addition;
+    use crate::accountant::test_utils::test_database_key;
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::test_utils::make_wallet;
     use itertools::Either;
@@ -619,12 +643,32 @@ mod tests {
     }
 
     #[test]
+    fn known_key_variants_to_tuple_of_names_and_val_works() {
+        let (wallet_name, wallet_sub_name, wallet_val): (&str, &str, &dyn ExtendedParamsMarker) =
+            KnownKeyVariants::WalletAddress(&"blah").into();
+        let (rowid_name, rowid_sub_name, rowid_val): (&str, &str, &dyn ExtendedParamsMarker) =
+            KnownKeyVariants::PendingPayableRowid(&123).into();
+
+        assert_eq!(wallet_name, "wallet_address");
+        assert_eq!(wallet_sub_name, ":wallet");
+        assert_eq!(wallet_val.to_string(), "blah".to_string());
+        assert_eq!(rowid_name, "pending_payable_rowid");
+        assert_eq!(rowid_sub_name, ":rowid");
+        assert_eq!(rowid_val.to_string(), 123.to_string())
+        //cannot be compared by values directly
+    }
+
+    #[test]
     fn sql_params_builder_is_nicely_populated_inside_before_calling_build() {
         let subject = SQLParamsBuilder::default();
 
         let result = subject
             .wei_change(Addition("balance", 4546))
-            .key("some_key", ":some_key", &"blah")
+            .key(TestKey {
+                var_name: "some_key",
+                sub_name: ":some_key",
+                val: &"blah",
+            })
             .other(vec![("other_thing", &46565)]);
 
         assert_eq!(result.wei_change_spec_opt, Some(Addition("balance", 4546)));
@@ -642,7 +686,11 @@ mod tests {
 
         let result = subject
             .wei_change(Addition("balance", 115898))
-            .key("some_key", ":some_key", &"blah")
+            .key(TestKey {
+                var_name: "some_key",
+                sub_name: ":some_key",
+                val: &"blah",
+            })
             .other(vec![(":other_thing", &11111)])
             .build();
 
@@ -673,7 +721,11 @@ mod tests {
 
         let result = subject
             .wei_change(Subtraction("balance", 454684))
-            .key("some_key", ":some_key", &"wooow")
+            .key(TestKey {
+                var_name: "some_key",
+                sub_name: ":some_key",
+                val: &"wooow",
+            })
             .other(vec![(":other_thing", &46565)])
             .build();
 
@@ -715,7 +767,11 @@ mod tests {
         let subject = SQLParamsBuilder::default();
 
         let _ = subject
-            .key("wallet", ":wallet", &make_wallet("wallet"))
+            .key(TestKey {
+                var_name: "wallet",
+                sub_name: ":wallet",
+                val: &make_wallet("wallet"),
+            })
             .other(vec![("other_thing", &46565)])
             .build();
     }
@@ -726,7 +782,11 @@ mod tests {
 
         let _ = subject
             .wei_change(Addition("balance", 4546))
-            .key("id", ":id", &45)
+            .key(TestKey {
+                var_name: "id",
+                sub_name: ":id",
+                val: &45,
+            })
             .build();
     }
 
@@ -915,7 +975,7 @@ mod tests {
                     main_sql,
                     "",
                     SQLParamsBuilder::default()
-                        .key("name", ":name", &"Joe")
+                        .key(test_database_key(&"Joe"))
                         .wei_change(requested_wei_change.clone())
                         .build(),
                 ),
@@ -1289,7 +1349,7 @@ mod tests {
                     STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
                     "",
                     SQLParamsBuilder::default()
-                        .key("name", ":name", &"Joe")
+                        .key(test_database_key(&"Joe"))
                         .wei_change(Addition("balance", wei_change as u128))
                         .build(),
                 ),
@@ -1330,7 +1390,7 @@ mod tests {
              update set balance_high_b = balance_high_b + 5, balance_low_b = balance_low_b + 10 where name = :name",
             "",
             SQLParamsBuilder::default()
-                .key("name", ":name", &"Joe")
+                .key(test_database_key(&"Joe"))
                 .wei_change(balance_change)
                 .build(),
         );
@@ -1360,7 +1420,7 @@ mod tests {
             STANDARD_EXAMPLE_OF_OVERFLOW_UPDATE_CLAUSE,
             SQLParamsBuilder::default()
                 .wei_change(balance_change)
-                .key("name", ":name", &"Joe")
+                .key(test_database_key(&"Joe"))
                 .build(),
         );
 
@@ -1463,7 +1523,7 @@ mod tests {
             STANDARD_EXAMPLE_OF_OVERFLOW_UPDATE_CLAUSE,
             SQLParamsBuilder::default()
                 .wei_change(balance_change)
-                .key("name", ":name", &"Joe")
+                .key(test_database_key(&"Joe"))
                 .build(),
         );
 
@@ -1500,7 +1560,7 @@ mod tests {
             balance_low_b = balance_low_b + :balance_low_b where name in (:name, 'Jodie')",
             SQLParamsBuilder::default()
                 .wei_change(balance_change)
-                .key("name", ":name", &"Joe")
+                .key(test_database_key(&"Joe"))
                 .build(),
         );
 
@@ -1530,7 +1590,7 @@ mod tests {
             "",
             SQLParamsBuilder::default()
                 .wei_change(balance_change)
-                .key("name", ":name", &"Joe")
+                .key(test_database_key(&"Joe"))
                 .build(),
         );
 

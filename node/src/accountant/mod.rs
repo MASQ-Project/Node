@@ -1427,7 +1427,7 @@ impl ThresholdUtils {
         maturity_threshold_sec: i128,
         debt_threshold_wei: i128,
     ) -> i128 {
-        (debt_threshold_wei - (maturity_threshold_sec * m))
+        debt_threshold_wei - (maturity_threshold_sec * m)
     }
 
     fn check_formal_validity(
@@ -1456,10 +1456,6 @@ impl ThresholdUtils {
         debt_age_s
             > (payment_thresholds.maturity_threshold_sec
                 + payment_thresholds.threshold_interval_sec)
-    }
-
-    fn convert_to_i64(num: u64) -> i64 {
-        checked_conversion::<u64, i64>(num)
     }
 }
 
@@ -1505,17 +1501,17 @@ pub mod check_sqlite_fns {
     use actix::System;
 
     #[derive(Message)]
-    pub struct CheckSqliteFunctionsDefinedByUs {}
+    pub struct TestOurUserDefinedSqliteFunctions {}
 
-    impl Handler<CheckSqliteFunctionsDefinedByUs> for Accountant {
+    impl Handler<TestOurUserDefinedSqliteFunctions> for Accountant {
         type Result = ();
 
         fn handle(
             &mut self,
-            _msg: CheckSqliteFunctionsDefinedByUs,
+            _msg: TestOurUserDefinedSqliteFunctions,
             _ctx: &mut Self::Context,
         ) -> Self::Result {
-            //this call blows up in the middle of the operation if our own sqlite functions haven't been hooked up
+            //this call kills the test if our own sqlite functions haven't been hooked up
             self.receivable_dao
                 .new_delinquencies(SystemTime::now(), &DEFAULT_PAYMENT_THRESHOLDS);
             System::current().stop();

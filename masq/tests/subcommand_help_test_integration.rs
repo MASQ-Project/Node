@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::utils::MasqProcess;
+use masq_lib::test_utils::utils::{is_running_under_github_actions, is_source_code_attached};
 use std::env::current_dir;
 use std::fs;
 
@@ -8,11 +9,19 @@ mod utils;
 
 #[test]
 fn assure_that_all_subcommands_hang_on_the_help_root_integration() {
+    let current_dir = current_dir().unwrap();
+    if !is_running_under_github_actions() && !is_source_code_attached(&current_dir) {
+        eprintln!(
+            "skipping test assure_that_all_subcommands_hang_on_the_help_root_integration \
+             because of missing source code"
+        );
+        return;
+    }
     let help_handle = MasqProcess::new().start_noninteractive(vec!["--help"]);
     let (stdout, _, _) = help_handle.stop();
     let index = stdout.find("SUBCOMMANDS:").unwrap();
     let trimmed_help = (&stdout[index..]).to_owned();
-    let commands_files = current_dir().unwrap().join("src").join("commands");
+    let commands_files = current_dir.unwrap().join("src").join("commands");
     let list: Vec<_> = fs::read_dir(&commands_files)
         .unwrap()
         .flat_map(|file| {

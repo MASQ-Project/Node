@@ -1,4 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::accountant::big_int_db_processor::KnownKeyVariants::WalletAddress;
 use crate::accountant::big_int_db_processor::WeiChange::{Addition, Subtraction};
 use crate::accountant::big_int_db_processor::{
     BigIntDbProcessor, BigIntDivider, BigIntSqlConfig, SQLParamsBuilder, TableNameDAO,
@@ -122,7 +123,7 @@ impl ReceivableDao for ReceivableDaoReal {
                update set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b",
             "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b",
             SQLParamsBuilder::default()
-                        .key(  "wallet_address",":wallet",wallet)
+                        .key(  WalletAddress(wallet))
                         .wei_change(Addition("balance",amount))
                         .other(vec![(":last_received",&to_time_t(timestamp))])
                         .build()
@@ -275,11 +276,11 @@ impl ReceivableDaoReal {
         {
             for transaction in payments {
                 self.big_int_db_processor.execute(Either::Right(&xactn), BigIntSqlConfig::new(
-                    //the plus signs work because the 'Subtraction' enum variant will flip the sign of the first integer
+                    //the plus signs are correct, 'Subtraction' in the wei_change converts x of u128 to -x of i128 which leads into the high bytes integer being negative
                     "update receivable set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, last_received_timestamp = :last_received where wallet_address = :wallet",
                     "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, last_received_timestamp = :last_received where wallet_address = :wallet",
                     SQLParamsBuilder::default()
-                                .key( "wallet_address", ":wallet",&transaction.from)
+                                .key( WalletAddress(&transaction.from))
                                 .wei_change(Subtraction("balance",transaction.wei_amount))
                                 .other(vec![(":last_received", &to_time_t(timestamp))])
                                 .build()
@@ -401,7 +402,7 @@ mod tests {
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::NeighborhoodModeLight;
-    use rusqlite::{Connection, ToSql};
+    use rusqlite::ToSql;
     use std::path::Path;
 
     #[test]
