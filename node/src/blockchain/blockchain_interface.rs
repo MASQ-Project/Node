@@ -7,7 +7,8 @@ use crate::blockchain::tool_wrappers::{
 };
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, Recipient};
-use futures::{future, Future};
+use ethereum_types::U64;
+use futures::Future;
 use masq_lib::blockchains::chains::{Chain, ChainFamily};
 use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::logger::Logger;
@@ -17,12 +18,12 @@ use std::fmt::{Debug, Display, Formatter};
 use std::time::SystemTime;
 use thousands::Separable;
 use web3::contract::{Contract, Options};
-use web3::transports::EventLoopHandle;
+use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{
     Address, BlockNumber, Bytes, FilterBuilder, Log, SignedTransaction, TransactionParameters,
     TransactionReceipt, H160, H256, U256,
 };
-use web3::{Transport, Web3};
+use web3::{BatchTransport, Web3};
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
 
@@ -79,6 +80,7 @@ pub type BlockchainResult<T> = Result<T, BlockchainError>;
 pub type Balance = BlockchainResult<web3::types::U256>;
 pub type Nonce = BlockchainResult<web3::types::U256>;
 pub type Receipt = BlockchainResult<Option<TransactionReceipt>>;
+pub type LatestBlockNumber = BlockchainResult<U64>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RetrievedBlockchainTransactions {
@@ -86,12 +88,16 @@ pub struct RetrievedBlockchainTransactions {
     pub transactions: Vec<BlockchainTransaction>,
 }
 
-pub trait BlockchainInterface {
+pub trait BlockchainInterface<T = Http>
+where
+    T: BatchTransport + Debug + 'static,
+{
     fn contract_address(&self) -> Address;
 
     fn retrieve_transactions(
         &self,
         start_block: u64,
+        end_block: BlockNumber,
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError>;
 
@@ -110,6 +116,8 @@ pub trait BlockchainInterface {
             self.get_token_balance(address),
         )
     }
+
+    fn get_block_number(&self) -> LatestBlockNumber;
 
     fn get_transaction_count(&self, address: &Wallet) -> Nonce;
 
@@ -150,6 +158,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     fn retrieve_transactions(
         &self,
         _start_block: u64,
+        _latest_block: BlockNumber,
         _recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
         let msg = "Can't retrieve transactions clandestinely yet".to_string();
@@ -174,6 +183,12 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     fn get_token_balance(&self, _address: &Wallet) -> Balance {
         error!(self.logger, "Can't get token balance clandestinely yet",);
         Ok(0.into())
+    }
+
+    fn get_block_number(&self) -> LatestBlockNumber {
+        let msg = "Can't get latest block number clandestinely yet";
+        error!(self.logger, "{}", msg);
+        Err(BlockchainError::QueryFailed(msg.to_string()))
     }
 
     fn get_transaction_count(&self, _address: &Wallet) -> Nonce {
@@ -202,14 +217,20 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     }
 }
 
-pub struct BlockchainInterfaceNonClandestine<T: Transport + Debug> {
+pub struct BlockchainInterfaceNonClandestine<T>
+where
+    T: BatchTransport + Debug + 'static,
+{
     logger: Logger,
     chain: Chain,
     // This must not be dropped for Web3 requests to be completed
     _event_loop_handle: EventLoopHandle,
     web3: Web3<T>,
+    web3_batch: Web3<Batch<T>>,
     contract: Contract<T>,
 }
+
+impl<T: BatchTransport + Debug + 'static> BlockchainInterfaceNonClandestine<T> {}
 
 const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]);
 
@@ -220,7 +241,7 @@ pub fn to_wei(gwub: u64) -> U256 {
 
 impl<T> BlockchainInterface for BlockchainInterfaceNonClandestine<T>
 where
-    T: Transport + Debug + 'static,
+    T: BatchTransport + Debug + 'static,
 {
     fn contract_address(&self) -> Address {
         self.chain.rec().contract
@@ -229,6 +250,7 @@ where
     fn retrieve_transactions(
         &self,
         start_block: u64,
+        end_block: BlockNumber,
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
         debug!(
@@ -242,7 +264,7 @@ where
         let filter = FilterBuilder::default()
             .address(vec![self.contract_address()])
             .from_block(BlockNumber::Number(ethereum_types::U64::from(start_block)))
-            .to_block(BlockNumber::Latest)
+            .to_block(end_block)
             .topics(
                 Some(vec![TRANSACTION_LITERAL]),
                 None,
@@ -251,12 +273,22 @@ where
             )
             .build();
 
-        let log_request = self.web3.eth().logs(filter);
+        let end_block_number = match Option::from(end_block) {
+            Some(BlockNumber::Number(eb)) => eb.as_u64(),
+            _ => start_block + 1,
+        };
+        let block_request = self.web3_batch.eth().block_number();
+        let log_request = self.web3_batch.eth().logs(filter);
+
         let logger = self.logger.clone();
-        log_request
-            .then(|logs| {
-                debug!(logger, "Transaction retrieval completed: {:?}", logs);
-                future::result::<RetrievedBlockchainTransactions, BlockchainError>(match logs {
+        match self.web3_batch.transport().submit_batch().wait() {
+            Ok(_) => {
+                let block_number = match block_request.wait() {
+                    Ok(block_nbr) => block_nbr.as_u64(),
+                    Err(_) => end_block_number,
+                };
+
+                match log_request.wait() {
                     Ok(logs) => {
                         if logs
                             .iter()
@@ -289,25 +321,36 @@ where
                                 .collect();
                             debug!(logger, "Retrieved transactions: {:?}", transactions);
                             // Get the largest transaction block number, unless there are no
-                            // transactions, in which case use start_block.
-                            let last_transaction_block =
+                            // transactions, in which case use end_block, unless get_latest_block()
+                            // was not successful.
+                            let block_number = if transactions.is_empty() {
+                                match end_block {
+                                    BlockNumber::Number(U64([eb])) => eb,
+                                    _ => block_number,
+                                }
+                            } else {
                                 transactions.iter().fold(start_block, |so_far, elem| {
                                     if elem.block_number > so_far {
                                         elem.block_number
                                     } else {
                                         so_far
                                     }
-                                });
+                                })
+                            };
                             Ok(RetrievedBlockchainTransactions {
-                                new_start_block: last_transaction_block + 1,
+                                new_start_block: block_number,
                                 transactions,
                             })
                         }
                     }
-                    Err(e) => Err(BlockchainError::QueryFailed(e.to_string())),
-                })
-            })
-            .wait()
+                    Err(_) => Ok(RetrievedBlockchainTransactions {
+                        new_start_block: end_block_number,
+                        transactions: vec![],
+                    }),
+                }
+            }
+            Err(e) => Err(BlockchainError::QueryFailed(e.to_string())),
+        }
     }
 
     fn send_transaction<'a>(
@@ -354,6 +397,14 @@ where
             .wait()
     }
 
+    fn get_block_number(&self) -> LatestBlockNumber {
+        self.web3
+            .eth()
+            .block_number()
+            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
+            .wait()
+    }
+
     fn get_transaction_count(&self, wallet: &Wallet) -> Nonce {
         self.web3
             .eth()
@@ -383,10 +434,11 @@ where
 
 impl<T> BlockchainInterfaceNonClandestine<T>
 where
-    T: Transport + Debug + 'static,
+    T: BatchTransport + Debug + 'static,
 {
     pub fn new(transport: T, event_loop_handle: EventLoopHandle, chain: Chain) -> Self {
-        let web3 = Web3::new(transport);
+        let web3 = Web3::new(transport.clone());
+        let web3_batch = Web3::new(Batch::new(transport));
         let contract =
             Contract::from_json(web3.eth(), chain.rec().contract, CONTRACT_ABI.as_bytes())
                 .expect("Unable to initialize contract.");
@@ -395,6 +447,7 @@ where
             chain,
             _event_loop_handle: event_loop_handle,
             web3,
+            web3_batch,
             contract,
         }
     }
@@ -458,9 +511,9 @@ where
     fn transmission_log(&self, recipient: &Wallet, amount: u128) -> String {
         format!(
             "About to send transaction:\n\
-        recipient: {},\n\
-        amount: {} wei,\n\
-        (chain: {}, contract: {:#x})",
+            recipient: {},\n\
+            amount: {} wei,\n\
+            (chain: {}, contract: {:#x})",
             recipient,
             amount.separate_with_commas(),
             self.chain.rec().literal_identifier,
@@ -592,8 +645,7 @@ mod tests {
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::find_free_port;
     use serde_derive::Deserialize;
-    use serde_json::json;
-    use serde_json::Value;
+    use serde_json::{json, Value};
     use simple_server::{Request, Server};
     use std::io::Write;
     use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
@@ -639,13 +691,13 @@ mod tests {
             std::env::set_var("SIMPLESERVER_THREADS", "1");
             let (tx, rx) = unbounded();
             let _ = thread::spawn(move || {
-                let bodies_arc = Arc::new(Mutex::new(bodies));
+                let bodies_arc: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(bodies));
                 Server::new(move |req, mut rsp| {
                     if req.headers().get("X-Quit").is_some() {
                         panic!("Server stop requested");
                     }
                     tx.send(req).unwrap();
-                    let body = bodies_arc.lock().unwrap().remove(0);
+                    let body: Vec<u8> = bodies_arc.lock().unwrap().remove(0);
                     Ok(rsp.body(body)?)
                 })
                 .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
@@ -692,7 +744,7 @@ mod tests {
         let port = find_free_port();
         let test_server = TestServer::start(
             port,
-            vec![br#"{"jsonrpc":"2.0","id":3,"result":[]}"#.to_vec()],
+            vec![br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{"jsonrpc":"2.0","id":3,"result":[]}]"#.to_vec()],
         );
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
@@ -706,9 +758,12 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
+        let end_block_nbr = 1024u64;
+
         let result = subject
             .retrieve_transactions(
                 42,
+                BlockNumber::Number(U64::from(end_block_nbr)),
                 &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
             )
             .unwrap();
@@ -718,14 +773,18 @@ mod tests {
             .into_iter()
             .map(|request| serde_json::from_slice(&request.body()).unwrap())
             .collect();
+        let bodies: Vec<String> = bodies
+            .into_iter()
+            .map(|b| serde_json::to_string(&b).unwrap())
+            .collect();
         assert_eq!(
-            format!("\"0x000000000000000000000000{}\"", &to[2..]),
-            bodies[0]["params"][0]["topics"][2].to_string(),
+            vec![format!("[{{\"id\":0,\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[]}},{{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{{\"address\":\"0x384dec25e03f94931767ce4c3556168468ba24c3\",\"fromBlock\":\"0x2a\",\"toBlock\":\"0x400\",\"topics\":[\"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef\",null,\"0x000000000000000000000000{}\"]}}]}}]", &to[2..])],
+            bodies //bodies[0]["params"][0]["topics"][1].to_string(),
         );
         assert_eq!(
             result,
             RetrievedBlockchainTransactions {
-                new_start_block: 42 + 1,
+                new_start_block: end_block_nbr,
                 transactions: vec![]
             }
         )
@@ -737,7 +796,7 @@ mod tests {
         let port = find_free_port();
         #[rustfmt::skip]
         let test_server = TestServer::start (port, vec![
-            br#"{
+            br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{
                 "jsonrpc":"2.0",
                 "id":3,
                 "result":[
@@ -772,7 +831,7 @@ mod tests {
                         "transactionIndex":"0x0"
                     }
                 ]
-            }"#.to_vec(),
+            }]"#.to_vec(),
         ]);
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
@@ -785,10 +844,11 @@ mod tests {
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
         );
-
+        let end_block_nbr = 1024u64;
         let result = subject
             .retrieve_transactions(
                 42,
+                BlockNumber::Number(U64::from(end_block_nbr)),
                 &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
             )
             .unwrap();
@@ -798,14 +858,18 @@ mod tests {
             .into_iter()
             .map(|request| serde_json::from_slice(&request.body()).unwrap())
             .collect();
+        let bodies: Vec<String> = bodies
+            .into_iter()
+            .map(|b| serde_json::to_string(&b).unwrap())
+            .collect();
         assert_eq!(
-            format!("\"0x000000000000000000000000{}\"", &to[2..]),
-            bodies[0]["params"][0]["topics"][2].to_string(),
+            vec![format!("[{{\"id\":0,\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[]}},{{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{{\"address\":\"0x384dec25e03f94931767ce4c3556168468ba24c3\",\"fromBlock\":\"0x2a\",\"toBlock\":\"0x400\",\"topics\":[\"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef\",null,\"0x000000000000000000000000{}\"]}}]}}]", &to[2..])],
+            bodies,
         );
         assert_eq!(
             result,
             RetrievedBlockchainTransactions {
-                new_start_block: 0x4be663 + 1,
+                new_start_block: 0x4be663,
                 transactions: vec![
                     BlockchainTransaction {
                         block_number: 0x4be663,
@@ -840,8 +904,15 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
-        let result = subject
-            .retrieve_transactions(42, &Wallet::new("0x3f69f9efd4f2592fd70beecd9dce71c472fc"));
+        let end_block = match subject.get_block_number() {
+            Ok(block_nbr) => BlockNumber::Number(block_nbr),
+            Err(_) => BlockNumber::Latest,
+        };
+        let result = subject.retrieve_transactions(
+            42,
+            end_block,
+            &Wallet::new("0x3f69f9efd4f2592fd70beecd9dce71c472fc"),
+        );
 
         assert_eq!(
             result.expect_err("Expected an Err, got Ok"),
@@ -854,7 +925,7 @@ mod tests {
     ) {
         let port = find_free_port();
         let _test_server = TestServer::start (port, vec![
-            br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d63100000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec()
+            br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d63100000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
         ]);
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
@@ -867,8 +938,10 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
+        let end_block = BlockNumber::Number(U64::from(1024u64));
         let result = subject.retrieve_transactions(
             42,
+            end_block,
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
@@ -883,7 +956,7 @@ mod tests {
     ) {
         let port = find_free_port();
         let _test_server = TestServer::start(port, vec![
-            br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d6310000001","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec()
+            br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d6310000001","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
         ]);
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
@@ -898,8 +971,10 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
+        let end_block = BlockNumber::Number(U64::from(1024u64));
         let result = subject.retrieve_transactions(
             42,
+            end_block,
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
@@ -911,7 +986,7 @@ mod tests {
     ) {
         let port = find_free_port();
         let _test_server = TestServer::start (port, vec![
-            br#"{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}"#.to_vec()
+            br#"[{"jsonrpc":"2.0","id":1,"result":"0x400"},{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
         ]);
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
@@ -926,15 +1001,17 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
+        let end_block_nbr = 1024u64;
         let result = subject.retrieve_transactions(
             42,
+            BlockNumber::Number(U64::from(end_block_nbr)),
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: 43,
+                new_start_block: end_block_nbr,
                 transactions: vec![]
             })
         );
@@ -1142,10 +1219,12 @@ mod tests {
     #[test]
     fn blockchain_interface_non_clandestine_can_transfer_tokens() {
         init_test_logging();
-        let mut transport = TestTransport::default();
-        transport.add_response(json!(
-            "0xe26f2f487f5dd06c38860d410cdcede0d6e860dab2c971c7d518928c17034c8f"
-        ));
+        let send_params_arc = Arc::new(Mutex::new(vec![]));
+        let transport = TestTransport::default()
+            .prepare_params(&send_params_arc)
+            .send_result(json!(
+                "0xe26f2f487f5dd06c38860d410cdcede0d6e860dab2c971c7d518928c17034c8f"
+            ));
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let actor_addr = accountant.start();
         let recipient_of_pending_payable_fingerprint =
@@ -1179,8 +1258,19 @@ mod tests {
         let system = System::new("can transfer tokens test");
         System::current().stop();
         assert_eq!(system.run(), 0);
-        transport.assert_request("eth_sendRawTransaction", &[String::from(r#""0xf8a901851bf08eb00082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0d4ecb2865f6a0370689be2e956cc272f7718cb360160f5a51756264ba1cc23fca005a3920e27680135e032bb23f4026a2e91c680866047cf9bbadee23ab8ab5ca2""#)]);
-        transport.assert_no_more_requests();
+        let mut send_params = send_params_arc.lock().unwrap();
+        let (method_name, actual_arguments) = send_params.remove(0);
+        let actual_arguments: Vec<String> = actual_arguments
+            .into_iter()
+            .map(|arg| serde_json::to_string(&arg).unwrap())
+            .collect();
+        assert_eq!(method_name, "eth_sendRawTransaction".to_string());
+        assert_eq!(
+            actual_arguments,
+            vec![String::from(
+                r#""0xf8a901851bf08eb00082dbe894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb00000000000000000000000000000000000000000000000000626c61683132330000000000000000000000000000000000000000000000000000082f79cd900029a0d4ecb2865f6a0370689be2e956cc272f7718cb360160f5a51756264ba1cc23fca005a3920e27680135e032bb23f4026a2e91c680866047cf9bbadee23ab8ab5ca2""#
+            )]
+        );
         let (hash, timestamp) = result;
         assert_eq!(
             hash,
@@ -1358,7 +1448,7 @@ mod tests {
         assert_gas_limit_is_between(subject, 55000, 65000)
     }
 
-    fn assert_gas_limit_is_between<T: Transport + Debug + 'static>(
+    fn assert_gas_limit_is_between<T: BatchTransport + Debug + 'static>(
         subject: BlockchainInterfaceNonClandestine<T>,
         not_under_this_value: u64,
         not_above_this_value: u64,
@@ -1799,10 +1889,12 @@ mod tests {
 
     #[test]
     fn blockchain_interface_non_clandestine_can_fetch_nonce() {
-        let mut transport = TestTransport::default();
-        transport.add_response(json!(
-            "0x0000000000000000000000000000000000000000000000000000000000000001"
-        ));
+        let prepare_params_arc = Arc::new(Mutex::new(vec![]));
+        let transport = TestTransport::default()
+            .prepare_params(&prepare_params_arc)
+            .send_result(json!(
+                "0x0000000000000000000000000000000000000000000000000000000000000001"
+            ));
         let subject = BlockchainInterfaceNonClandestine::new(
             transport.clone(),
             make_fake_event_loop_handle(),
@@ -1811,15 +1903,22 @@ mod tests {
 
         let result = subject.get_transaction_count(&make_paying_wallet(b"gdasgsa"));
 
-        transport.assert_request(
-            "eth_getTransactionCount",
-            &[
+        assert_eq!(result, Ok(U256::from(1)));
+        let mut prepare_params = prepare_params_arc.lock().unwrap();
+        let (method_name, actual_arguments) = prepare_params.remove(0);
+        assert!(prepare_params.is_empty());
+        let actual_arguments: Vec<String> = actual_arguments
+            .into_iter()
+            .map(|arg| serde_json::to_string(&arg).unwrap())
+            .collect();
+        assert_eq!(method_name, "eth_getTransactionCount".to_string());
+        assert_eq!(
+            actual_arguments,
+            vec![
                 String::from(r#""0x5c361ba8d82fcf0e5538b2a823e9d457a2296725""#),
                 String::from(r#""pending""#),
-            ],
-        );
-        transport.assert_no_more_requests();
-        assert_eq!(result, Ok(U256::from(1)));
+            ]
+        )
     }
 
     #[test]
@@ -2036,5 +2135,169 @@ mod tests {
             .collect();
 
         assert_eq!(check, vec![11, 22, 33, 44, 55, 66, 77])
+    }
+
+    #[test]
+    fn non_clandestine_can_fetch_latest_block_number_successfully() {
+        let prepare_params_arc: Arc<Mutex<Vec<(String, Vec<Value>)>>> =
+            Arc::new(Mutex::new(vec![]));
+        let transport = TestTransport::default()
+            .prepare_params(&prepare_params_arc)
+            .send_result(json!("0x1e37066"));
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport.clone(),
+            make_fake_event_loop_handle(),
+            TEST_DEFAULT_CHAIN,
+        );
+
+        match subject.get_block_number() {
+            Ok(latest_block_number) => assert_eq!(latest_block_number, U64::from(31_682_662u64)),
+            Err(e) => assert_eq!(
+                e,
+                BlockchainError::QueryFailed("unexpected failure".to_string())
+            ),
+        }
+
+        let mut prepare_params = prepare_params_arc.lock().unwrap();
+        let (method_name, actual_arguments) = prepare_params.remove(0);
+        let actual_arguments: Vec<String> = actual_arguments
+            .into_iter()
+            .map(|arg| serde_json::to_string(&arg).unwrap())
+            .collect();
+        assert_eq!(method_name, "eth_blockNumber".to_string());
+        let expected_arguments: Vec<String> = vec![];
+        assert_eq!(actual_arguments, expected_arguments);
+    }
+
+    #[test]
+    fn non_clandestine_can_handle_latest_null_block_number_error() {
+        let prepare_params_arc = Arc::new(Mutex::new(vec![]));
+        let transport = TestTransport::default()
+            .prepare_params(&prepare_params_arc)
+            .send_result(Value::Null);
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport.clone(),
+            make_fake_event_loop_handle(),
+            TEST_DEFAULT_CHAIN,
+        );
+
+        match subject.get_block_number() {
+            Ok(_) => unimplemented!("Expected an error"),
+            Err(e) => assert_eq!(
+                e,
+                BlockchainError::QueryFailed("Decoder error: Error(\"invalid type: null, expected a 0x-prefixed hex string with length between (0; 16]\", line: 0, column: 0)".to_string())
+            ),
+        }
+
+        let mut prepare_params = prepare_params_arc.lock().unwrap();
+        let (method_name, actual_arguments) = prepare_params.remove(0);
+        assert_eq!(method_name, "eth_blockNumber".to_string());
+        let actual_arguments: Vec<String> = actual_arguments
+            .into_iter()
+            .map(|arg| serde_json::to_string(&arg).unwrap())
+            .collect();
+        let expected_arguments: Vec<String> = vec![];
+        assert_eq!(actual_arguments, expected_arguments);
+    }
+
+    #[test]
+    fn non_clandestine_can_handle_latest_string_block_number_error() {
+        let prepare_params_arc: Arc<Mutex<Vec<(String, Vec<Value>)>>> =
+            Arc::new(Mutex::new(vec![]));
+        let transport = TestTransport::default()
+            .prepare_params(&prepare_params_arc)
+            .send_result(Value::String("this is an invalid block number".to_string()));
+
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport.clone(),
+            make_fake_event_loop_handle(),
+            TEST_DEFAULT_CHAIN,
+        );
+
+        match subject.get_block_number() {
+            Ok(_) => unimplemented!("Expected an error"),
+            Err(e) => assert_eq!(
+                e,
+                BlockchainError::QueryFailed(
+                    "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)"
+                        .to_string()
+                )
+            ),
+        }
+
+        let mut prepare_params = prepare_params_arc.lock().unwrap();
+        let (method_name, actual_arguments) = prepare_params.remove(0);
+        let actual_arguments: Vec<String> = actual_arguments
+            .into_iter()
+            .map(|arg| serde_json::to_string(&arg).unwrap())
+            .collect();
+
+        assert_eq!(method_name, "eth_blockNumber".to_string());
+        let expected_arguments: Vec<String> = vec![];
+        assert_eq!(actual_arguments, expected_arguments);
+    }
+
+    #[test]
+    fn non_clandestine_can_handle_latest_false_block_number_error() {
+        let prepare_param_arc: Arc<Mutex<Vec<(String, Vec<Value>)>>> = Arc::new(Mutex::new(vec![]));
+        let transport = TestTransport::default()
+            .prepare_params(&prepare_param_arc)
+            .send_result(Value::Bool(false));
+
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport.clone(),
+            make_fake_event_loop_handle(),
+            TEST_DEFAULT_CHAIN,
+        );
+
+        match subject.get_block_number() {
+            Ok(_) => unimplemented!("Expected an error"),
+            Err(e) => assert_eq!(
+                e,
+                BlockchainError::QueryFailed("Decoder error: Error(\"invalid type: boolean `false`, expected a 0x-prefixed hex string with length between (0; 16]\", line: 0, column: 0)".to_string())
+            ),
+        }
+        let mut prepare_param = prepare_param_arc.lock().unwrap();
+        let (method_name, actual_arguments) = prepare_param.remove(0);
+        let actual_arguments: Vec<String> = actual_arguments
+            .into_iter()
+            .map(|arg| serde_json::to_string(&arg).unwrap())
+            .collect();
+
+        assert_eq!(method_name, "eth_blockNumber");
+        let expected_arguments: Vec<String> = vec![];
+        assert_eq!(actual_arguments, expected_arguments);
+    }
+
+    #[test]
+    fn non_clandestine_can_handle_latest_true_block_number_error() {
+        let prepare_params_arc: Arc<Mutex<Vec<(String, Vec<Value>)>>> =
+            Arc::new(Mutex::new(vec![]));
+        let transport = TestTransport::default()
+            .prepare_params(&prepare_params_arc)
+            .send_result(Value::Bool(true));
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport.clone(),
+            make_fake_event_loop_handle(),
+            TEST_DEFAULT_CHAIN,
+        );
+
+        match subject.get_block_number() {
+            Ok(_) => unimplemented!("Expected an error"),
+            Err(e) => assert_eq!(
+                e,
+                BlockchainError::QueryFailed("Decoder error: Error(\"invalid type: boolean `true`, expected a 0x-prefixed hex string with length between (0; 16]\", line: 0, column: 0)".to_string())
+            ),
+        }
+
+        let mut prepare_params = prepare_params_arc.lock().unwrap();
+        let (method_name, actual_arguments) = prepare_params.remove(0);
+        let actual_arguments: Vec<String> = actual_arguments
+            .into_iter()
+            .map(|arg| serde_json::to_string(&arg).unwrap())
+            .collect();
+        assert_eq!(method_name, "eth_blockNumber".to_string());
+        let expected_arguments: Vec<String> = vec![];
+        assert_eq!(actual_arguments, expected_arguments);
     }
 }

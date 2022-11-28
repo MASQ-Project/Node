@@ -35,7 +35,7 @@ use masq_lib::utils::plus;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use web3::transports::Http;
-use web3::types::{TransactionReceipt, H256};
+use web3::types::{BlockNumber, TransactionReceipt, H256};
 
 pub const CRASH_KEY: &str = "BLOCKCHAINBRIDGE";
 
@@ -270,13 +270,18 @@ impl BlockchainBridge {
     }
 
     fn handle_retrieve_transactions(&mut self, msg: &RetrieveTransactions) -> Result<(), String> {
+        let end_block = match self.blockchain_interface.get_block_number() {
+            Ok(eb) => BlockNumber::Number(eb),
+            Err(_) => BlockNumber::Latest,
+        };
+
         let start_block = match self.persistent_config.start_block() {
             Ok (sb) => sb,
             Err (e) => panic! ("Cannot retrieve start block from database; payments to you may not be processed: {:?}", e)
         };
-        let retrieved_transactions = self
-            .blockchain_interface
-            .retrieve_transactions(start_block, &msg.recipient);
+        let retrieved_transactions =
+            self.blockchain_interface
+                .retrieve_transactions(start_block, end_block, &msg.recipient);
         match retrieved_transactions {
             Ok(transactions) => {
                 if let Err(e) = self
@@ -425,7 +430,7 @@ mod tests {
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_bridge::Payable;
     use crate::blockchain::blockchain_interface::{
-        BlockchainError, BlockchainTransaction, BlockchainTransactionError,
+        BlockchainError, BlockchainTransaction, BlockchainTransactionError, LatestBlockNumber,
         RetrievedBlockchainTransactions,
     };
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
@@ -844,9 +849,11 @@ mod tests {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let scan_error_recipient: Recipient<ScanError> = accountant.start().recipient();
-        let blockchain_interface = BlockchainInterfaceMock::default().retrieve_transactions_result(
-            Err(BlockchainError::QueryFailed("we have no luck".to_string())),
-        );
+        let blockchain_interface = BlockchainInterfaceMock::default()
+            .retrieve_transactions_result(Err(BlockchainError::QueryFailed(
+                "we have no luck".to_string(),
+            )))
+            .get_block_number_result(LatestBlockNumber::Ok(U64::from(1234u64)));
         let persistent_config = PersistentConfigurationMock::new().start_block_result(Ok(5)); // no set_start_block_result: set_start_block() must not be called
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
@@ -876,7 +883,7 @@ mod tests {
             &ScanError {
                 scan_type: ScanType::Receivables,
                 response_skeleton_opt: None,
-                msg: "Tried to retrieve received payments but failed: QueryFailed(\"we have no luck\")".to_string() 
+                msg: "Tried to retrieve received payments but failed: QueryFailed(\"we have no luck\")".to_string()
             }
         );
         assert_eq!(recording.len(), 1);
@@ -1137,9 +1144,11 @@ mod tests {
                 },
             ],
         };
+        let latest_block_number = LatestBlockNumber::Ok(U64::from(1024u64));
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .retrieve_transactions_params(&retrieve_transactions_params_arc)
-            .retrieve_transactions_result(Ok(expected_transactions.clone()));
+            .retrieve_transactions_result(Ok(expected_transactions.clone()))
+            .get_block_number_result(latest_block_number);
         let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .start_block_result(Ok(6))
@@ -1170,9 +1179,12 @@ mod tests {
         system.run();
         let after = SystemTime::now();
         let set_start_block_params = set_start_block_params_arc.lock().unwrap();
-        assert_eq!(*set_start_block_params, vec![1234]);
+        assert_eq!(*set_start_block_params, vec![1234u64]);
         let retrieve_transactions_params = retrieve_transactions_params_arc.lock().unwrap();
-        assert_eq!(*retrieve_transactions_params, vec![(6, earning_wallet)]);
+        assert_eq!(
+            *retrieve_transactions_params,
+            vec![(6u64, BlockNumber::from(1024u64), earning_wallet)]
+        );
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_received_payment.len(), 1);
         let received_payments = accountant_received_payment.get_record::<ReceivedPayments>(0);
@@ -1197,7 +1209,8 @@ mod tests {
             .retrieve_transactions_result(Ok(RetrievedBlockchainTransactions {
                 new_start_block: 7,
                 transactions: vec![],
-            }));
+            }))
+            .get_block_number_result(Ok(U64::from(0u64)));
         let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
         let persistent_config = PersistentConfigurationMock::new()
             .start_block_result(Ok(6))
@@ -1256,10 +1269,12 @@ mod tests {
         expected = "Cannot retrieve start block from database; payments to you may not be processed: TransactionError"
     )]
     fn handle_retrieve_transactions_panics_if_start_block_cannot_be_read() {
+        let blockchain_interface =
+            BlockchainInterfaceMock::default().get_block_number_result(Ok(U64::from(0u64)));
         let persistent_config = PersistentConfigurationMock::new()
             .start_block_result(Err(PersistentConfigError::TransactionError));
         let mut subject = BlockchainBridge::new(
-            Box::new(BlockchainInterfaceMock::default()),
+            Box::new(blockchain_interface),
             Box::new(persistent_config),
             false,
             None, //not needed in this test
@@ -1280,16 +1295,16 @@ mod tests {
         let persistent_config = PersistentConfigurationMock::new()
             .start_block_result(Ok(1234))
             .set_start_block_result(Err(PersistentConfigError::TransactionError));
-        let blockchain_interface = BlockchainInterfaceMock::default().retrieve_transactions_result(
-            Ok(RetrievedBlockchainTransactions {
+        let blockchain_interface = BlockchainInterfaceMock::default()
+            .retrieve_transactions_result(Ok(RetrievedBlockchainTransactions {
                 new_start_block: 1234,
                 transactions: vec![BlockchainTransaction {
                     block_number: 1000,
                     from: make_wallet("somewallet"),
                     wei_amount: 2345,
                 }],
-            }),
-        );
+            }))
+            .get_block_number_result(Ok(U64::from(0u64)));
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Box::new(persistent_config),

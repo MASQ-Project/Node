@@ -5,7 +5,7 @@
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::{
     Balance, BlockchainError, BlockchainInterface, BlockchainResult, BlockchainTransactionError,
-    BlockchainTxnInputs, Nonce, Receipt, REQUESTS_IN_PARALLEL,
+    BlockchainTxnInputs, LatestBlockNumber, Nonce, Receipt, REQUESTS_IN_PARALLEL,
 };
 use crate::blockchain::tool_wrappers::SendTransactionToolsWrapper;
 use crate::sub_lib::wallet::Wallet;
@@ -16,13 +16,12 @@ use jsonrpc_core as rpc;
 use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::collections::VecDeque;
-use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use web3::transports::{EventLoopHandle, Http};
-use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
-use web3::Error as Web3Error;
+use web3::types::{Address, BlockNumber, Bytes, SignedTransaction, TransactionParameters, U256};
+use web3::{BatchTransport, Error as Web3Error};
 use web3::{RequestId, Transport};
 
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
@@ -53,7 +52,7 @@ pub fn make_meaningless_seed() -> Seed {
 
 #[derive(Default)]
 pub struct BlockchainInterfaceMock {
-    retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
+    retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, BlockNumber, Wallet)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
     send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u128, U256, u64)>>>,
@@ -64,10 +63,80 @@ pub struct BlockchainInterfaceMock {
     contract_address_results: RefCell<Vec<Address>>,
     get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
     get_transaction_count_results: RefCell<Vec<BlockchainResult<U256>>>,
+    get_block_number_results: RefCell<Vec<LatestBlockNumber>>,
+}
+
+impl BlockchainInterface for BlockchainInterfaceMock {
+    fn contract_address(&self) -> Address {
+        self.contract_address_results.borrow_mut().remove(0)
+    }
+
+    fn retrieve_transactions(
+        &self,
+        start_block: u64,
+        end_block: BlockNumber,
+        recipient: &Wallet,
+    ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
+        self.retrieve_transactions_parameters.lock().unwrap().push((
+            start_block,
+            end_block,
+            recipient.clone(),
+        ));
+        self.retrieve_transactions_results.borrow_mut().remove(0)
+    }
+
+    fn send_transaction<'b>(
+        &self,
+        inputs: SendTransactionInputs,
+    ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
+        self.send_transaction_parameters
+            .lock()
+            .unwrap()
+            .push(inputs.abstract_for_assertions());
+        self.send_transaction_results.borrow_mut().remove(0)
+    }
+
+    fn get_eth_balance(&self, _address: &Wallet) -> Balance {
+        unimplemented!()
+    }
+
+    fn get_token_balance(&self, _address: &Wallet) -> Balance {
+        unimplemented!()
+    }
+
+    fn get_block_number(&self) -> LatestBlockNumber {
+        self.get_block_number_results.borrow_mut().remove(0)
+    }
+
+    fn get_transaction_count(&self, wallet: &Wallet) -> Nonce {
+        self.get_transaction_count_parameters
+            .lock()
+            .unwrap()
+            .push(wallet.clone());
+        self.get_transaction_count_results.borrow_mut().remove(0)
+    }
+
+    fn get_transaction_receipt(&self, hash: H256) -> Receipt {
+        self.get_transaction_receipt_params
+            .lock()
+            .unwrap()
+            .push(hash);
+        self.get_transaction_receipt_results.borrow_mut().remove(0)
+    }
+
+    fn send_transaction_tools<'a>(
+        &'a self,
+        _fingerprint_request_recipient: &'a Recipient<PendingPayableFingerprint>,
+    ) -> Box<dyn SendTransactionToolsWrapper + 'a> {
+        self.send_transaction_tools_results.borrow_mut().remove(0)
+    }
 }
 
 impl BlockchainInterfaceMock {
-    pub fn retrieve_transactions_params(mut self, params: &Arc<Mutex<Vec<(u64, Wallet)>>>) -> Self {
+    pub fn retrieve_transactions_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(u64, BlockNumber, Wallet)>>>,
+    ) -> Self {
         self.retrieve_transactions_parameters = params.clone();
         self
     }
@@ -162,43 +231,22 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.send_transaction_results.borrow_mut().remove(0)
     }
 
-    fn get_eth_balance(&self, _address: &Wallet) -> Balance {
-        unimplemented!()
-    }
-
-    fn get_token_balance(&self, _address: &Wallet) -> Balance {
-        unimplemented!()
-    }
-
-    fn get_transaction_count(&self, wallet: &Wallet) -> Nonce {
-        self.get_transaction_count_parameters
-            .lock()
-            .unwrap()
-            .push(wallet.clone());
-        self.get_transaction_count_results.borrow_mut().remove(0)
-    }
-
-    fn get_transaction_receipt(&self, hash: H256) -> Receipt {
-        self.get_transaction_receipt_params
-            .lock()
-            .unwrap()
-            .push(hash);
-        self.get_transaction_receipt_results.borrow_mut().remove(0)
-    }
-
-    fn send_transaction_tools<'a>(
-        &'a self,
-        _fingerprint_request_recipient: &'a Recipient<PendingPayableFingerprint>,
-    ) -> Box<dyn SendTransactionToolsWrapper + 'a> {
-        self.send_transaction_tools_results.borrow_mut().remove(0)
+    pub fn get_block_number_result(self, result: LatestBlockNumber) -> Self {
+        self.get_block_number_results.borrow_mut().push(result);
+        self
     }
 }
 
 #[derive(Debug, Default, Clone)]
 pub struct TestTransport {
     asserted: usize,
-    requests: Rc<RefCell<Vec<(String, Vec<rpc::Value>)>>>,
-    responses: Rc<RefCell<VecDeque<rpc::Value>>>,
+    prepare_params: Arc<Mutex<Vec<(String, Vec<rpc::Value>)>>>,
+    send_params: Arc<Mutex<Vec<(RequestId, rpc::Call)>>>,
+    send_results: RefCell<VecDeque<rpc::Value>>,
+    send_batch_params: Arc<Mutex<Vec<Vec<(RequestId, rpc::Call)>>>>,
+    send_batch_results: RefCell<Vec<Vec<Result<rpc::Value, web3::Error>>>>,
+    //to check if we hold a true descendant of a certain initial instance
+    reference_counter_opt: Option<Arc<()>>,
 }
 
 impl Transport for TestTransport {
@@ -206,12 +254,13 @@ impl Transport for TestTransport {
 
     fn prepare(&self, method: &str, params: Vec<rpc::Value>) -> (RequestId, rpc::Call) {
         let request = web3::helpers::build_request(1, method, params.clone());
-        self.requests.borrow_mut().push((method.into(), params));
-        (self.requests.borrow().len(), request)
+        let mut prepare_params = self.prepare_params.lock().unwrap();
+        prepare_params.push((method.to_string(), params));
+        (prepare_params.len(), request)
     }
 
     fn send(&self, id: RequestId, request: rpc::Call) -> Self::Out {
-        match self.responses.borrow_mut().pop_front() {
+        match self.send_results.borrow_mut().pop_front() {
             Some(response) => Box::new(futures::finished(response)),
             None => {
                 println!("Unexpected request (id: {:?}): {:?}", id, request);
@@ -221,23 +270,72 @@ impl Transport for TestTransport {
     }
 }
 
+impl BatchTransport for TestTransport {
+    type Batch = web3::Result<Vec<Result<rpc::Value, web3::Error>>>;
+
+    fn send_batch<T>(&self, requests: T) -> Self::Batch
+    where
+        T: IntoIterator<Item = (RequestId, rpc::Call)>,
+    {
+        self.send_batch_params
+            .lock()
+            .unwrap()
+            .push(requests.into_iter().collect());
+        let response = self.send_batch_results.borrow_mut().remove(0);
+        Box::new(futures::finished(response))
+    }
+}
+
 impl TestTransport {
+    pub fn prepare_params(mut self, params: &Arc<Mutex<Vec<(String, Vec<rpc::Value>)>>>) -> Self {
+        self.prepare_params = params.clone();
+        self
+    }
+
+    pub fn send_result(self, rpc_call_response: rpc::Value) -> Self {
+        self.send_results.borrow_mut().push_back(rpc_call_response);
+        self
+    }
+
+    pub fn send_batch_params(
+        mut self,
+        params: &Arc<Mutex<Vec<Vec<(RequestId, rpc::Call)>>>>,
+    ) -> Self {
+        self.send_batch_params = params.clone();
+        self
+    }
+
+    pub fn send_batch_result(
+        self,
+        batched_responses: Vec<Result<rpc::Value, web3::Error>>,
+    ) -> Self {
+        self.send_batch_results.borrow_mut().push(batched_responses);
+        self
+    }
+
+    pub fn initiate_reference_counter(mut self, reference_arc: &Arc<()>) -> Self {
+        self.reference_counter_opt = Some(reference_arc.clone());
+        self
+    }
+
     pub fn add_response(&mut self, value: rpc::Value) {
-        self.responses.borrow_mut().push_back(value);
+        self.send_results.borrow_mut().push_back(value);
     }
 
     pub fn assert_request(&mut self, method: &str, params: &[String]) {
         let idx = self.asserted;
         self.asserted += 1;
 
-        let (m, p) = self
-            .requests
-            .borrow()
+        let (m, c) = self
+            .prepare_params
+            .lock()
+            .unwrap()
             .get(idx)
             .expect("Expected result.")
             .clone();
-        assert_eq!(&m, method);
-        let p: Vec<String> = p
+        assert_eq!(m, method);
+
+        let p: Vec<String> = c
             .into_iter()
             .map(|p| serde_json::to_string(&p).unwrap())
             .collect();
@@ -245,7 +343,7 @@ impl TestTransport {
     }
 
     pub fn assert_no_more_requests(&mut self) {
-        let requests = self.requests.borrow();
+        let requests = self.send_params.lock().unwrap();
         assert_eq!(
             self.asserted,
             requests.len(),
