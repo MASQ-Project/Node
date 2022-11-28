@@ -372,12 +372,10 @@ impl Handler<NodeFromUiMessage> for Accountant {
 
 impl Accountant {
     pub fn new(config: &mut BootstrapperConfig, dao_factories: DaoFactories) -> Accountant {
-        let payment_thresholds = Rc::new(
-            config
-                .payment_thresholds_opt
-                .take()
-                .expectv("Payment thresholds"),
-        );
+        let payment_thresholds = config
+            .payment_thresholds_opt
+            .take()
+            .expectv("Payment thresholds");
         let scan_intervals = config.scan_intervals_opt.take().expectv("Scan Intervals");
         let when_pending_too_long_sec = config
             .when_pending_too_long_opt
@@ -394,14 +392,14 @@ impl Accountant {
             payable_dao: dao_factories.payable_dao_factory.make(),
             receivable_dao: dao_factories.receivable_dao_factory.make(),
             pending_payable_dao: dao_factories.pending_payable_dao_factory.make(),
-            crashable: config.crash_point == CrashPoint::Message,
             scanners: Scanners::new(
                 dao_factories,
-                payment_thresholds,
+                Rc::new(payment_thresholds),
                 Rc::clone(&earning_wallet),
                 when_pending_too_long_sec,
                 Rc::clone(&financial_statistics),
             ),
+            crashable: config.crash_point == CrashPoint::Message,
             notify_later: NotifyLaterForScanners::default(),
             financial_statistics: Rc::clone(&financial_statistics),
             report_accounts_payable_sub_opt: None,
