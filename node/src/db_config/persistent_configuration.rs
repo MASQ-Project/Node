@@ -136,6 +136,8 @@ pub trait PersistentConfiguration {
     ) -> Result<(), PersistentConfigError>;
     fn start_block(&self) -> Result<u64, PersistentConfigError>;
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError>;
+    fn max_block_count(&self) -> Result<u64, PersistentConfigError>;
+    fn set_max_block_count(&mut self, value: u64) -> Result<(), PersistentConfigError>;
     fn set_wallet_info(
         &mut self,
         consuming_wallet_private_key: &str,
@@ -411,6 +413,14 @@ impl PersistentConfiguration for PersistentConfigurationReal {
 
     fn set_start_block(&mut self, value: u64) -> Result<(), PersistentConfigError> {
         self.simple_set_method("start_block", value)
+    }
+
+    fn max_block_count(&self) -> Result<u64, PersistentConfigError> {
+        self.simple_get_method(decode_u64, "max_block_count")
+    }
+
+    fn set_max_block_count(&mut self, value: u64) -> Result<(), PersistentConfigError> {
+        self.simple_set_method("max_block_count", value)
     }
 
     fn set_wallet_info(
