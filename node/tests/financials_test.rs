@@ -92,14 +92,14 @@ fn financials_command_retrieves_payable_and_receivable_records() {
     assert_eq!(receivable[1].balance_gwei, amount_receivable_2 as i64);
     let act_phase_time_period = after.duration_since(before).unwrap().as_secs() + 1;
     let age_payable = payable[0].age_s;
-    assert!(678 >= age_payable && age_payable <= (age_payable + act_phase_time_period));
+    assert!(678 <= age_payable && age_payable <= (age_payable + act_phase_time_period));
     let age_receivable_1 = receivable[0].age_s;
     assert!(
-        0 >= age_receivable_1 && age_receivable_1 <= (age_receivable_1 + act_phase_time_period)
+        0 <= age_receivable_1 && age_receivable_1 <= (age_receivable_1 + act_phase_time_period)
     );
     let age_receivable_2 = receivable[1].age_s;
     assert!(
-        1111 >= age_receivable_2 && age_receivable_2 <= (age_receivable_2 + act_phase_time_period)
+        1111 <= age_receivable_2 && age_receivable_2 <= (age_receivable_2 + act_phase_time_period)
     );
     client.send(UiShutdownRequest {});
     node.wait_for_exit();

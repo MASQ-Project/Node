@@ -608,6 +608,7 @@ impl Accountant {
         let threshold = self
             .payable_threshold_gauge
             .calculate_payout_threshold_in_gwei(&self.config.payment_thresholds, debt_age);
+        //TODO remove this eprintln
         eprintln!(
             "threshold: {}, payable balance {}",
             threshold, payable.balance_wei
@@ -1396,12 +1397,12 @@ pub struct ThresholdUtils {}
 
 impl ThresholdUtils {
     pub fn slope(payment_thresholds: &PaymentThresholds) -> i128 {
-        //TODO at the worst case scenario, this function starts to return zero for a debt of age 1*10^9 s
-        let slope = (gwei_to_wei::<i128, _>(payment_thresholds.permanent_debt_allowed_gwei)
+        //remember that any user supplied params must satisfy:
+        //PermanentDebtAllowedGwei < DebtThresholdGwei and
+        //ThresholdIntervalSec <= 10^9
+        (gwei_to_wei::<i128, _>(payment_thresholds.permanent_debt_allowed_gwei)
             - gwei_to_wei::<i128, _>(payment_thresholds.debt_threshold_gwei))
-            / payment_thresholds.threshold_interval_sec as i128;
-        eprintln!("slope: {}", slope.separate_with_commas());
-        slope
+            / payment_thresholds.threshold_interval_sec as i128
     }
 
     fn calculate_finite_debt_limit_by_age(
@@ -1418,7 +1419,6 @@ impl ThresholdUtils {
             gwei_to_wei(payment_thresholds.debt_threshold_gwei),
         );
         let y = m * debt_age_s as i128 + b;
-        Self::check_formal_validity(y, payment_thresholds, debt_age_s);
         y as u128
     }
 
@@ -1428,25 +1428,6 @@ impl ThresholdUtils {
         debt_threshold_wei: i128,
     ) -> i128 {
         debt_threshold_wei - (maturity_threshold_sec * m)
-    }
-
-    fn check_formal_validity(
-        y: i128,
-        payment_thresholds: &PaymentThresholds,
-        debt_age_in_sec: u64,
-    ) {
-        let debt_threshold_wei = gwei_to_wei(payment_thresholds.debt_threshold_gwei);
-        let permanent_debt_allowed_wei =
-            gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei);
-        if y >= debt_threshold_wei {
-            panic!(
-                "Broken code: elapse of time ({}) shorter or equal to {} is supposed \
-             to divert before passing to the slope calculation",
-                debt_age_in_sec, payment_thresholds.maturity_threshold_sec
-            );
-        } else if y < permanent_debt_allowed_wei {
-            todo!()
-        };
     }
 
     fn qualifies_for_permanent_debt_limit(
@@ -4178,8 +4159,7 @@ mod tests {
             threshold_interval_sec: 1111111,
             unban_below_gwei: 0,
         };
-        //the very end on the left is forbid so we have to estimate
-        let higher_corner_timestamp = payment_thresholds.maturity_threshold_sec + 1;
+        let higher_corner_timestamp = payment_thresholds.maturity_threshold_sec;
         let middle_point_timestamp = payment_thresholds.maturity_threshold_sec
             + payment_thresholds.threshold_interval_sec / 2;
         let lower_corner_timestamp =
@@ -4339,55 +4319,6 @@ mod tests {
     }
 
     #[test]
-    fn not_enough_time_passed_brings_slope_value_out_of_range_with_panic() {
-        fn test_panic(payment_thresholds: &PaymentThresholds) {
-            let panic = catch_unwind(|| {
-                ThresholdUtils::calculate_finite_debt_limit_by_age(
-                    payment_thresholds,
-                    payment_thresholds.maturity_threshold_sec,
-                )
-            })
-            .unwrap_err();
-            let panic_msg = panic.downcast_ref::<String>().unwrap();
-            assert_eq!(
-                panic_msg,
-                &String::from(
-                    "Broken code: elapse of time (500) shorter or \
-             equal to 500 is supposed to divert before passing to the slope calculation"
-                )
-            )
-        }
-
-        let payment_thresholds_5_degree = PaymentThresholds {
-            maturity_threshold_sec: 500,
-            payment_grace_period_sec: 100,
-            permanent_debt_allowed_gwei: 1000,
-            debt_threshold_gwei: 87_488_000,
-            threshold_interval_sec: 1_000_000_000,
-            unban_below_gwei: 1000,
-        };
-        test_panic(&payment_thresholds_5_degree);
-        let payment_thresholds_45_degree = PaymentThresholds {
-            maturity_threshold_sec: 500,
-            payment_grace_period_sec: 100,
-            permanent_debt_allowed_gwei: 1000,
-            debt_threshold_gwei: 1_000_000_000,
-            threshold_interval_sec: 1_000_000_000,
-            unban_below_gwei: 1000,
-        };
-        test_panic(&payment_thresholds_45_degree);
-        let payment_thresholds_85_degree = PaymentThresholds {
-            maturity_threshold_sec: 500,
-            payment_grace_period_sec: 100,
-            permanent_debt_allowed_gwei: 1000,
-            debt_threshold_gwei: 11_430_052_000,
-            threshold_interval_sec: 1_000_000_000,
-            unban_below_gwei: 1000,
-        };
-        test_panic(&payment_thresholds_85_degree);
-    }
-
-    #[test]
     fn slope_after_its_end_turns_into_permanent_debt_allowed() {
         let payment_thresholds = PaymentThresholds {
             maturity_threshold_sec: 1000,
@@ -4408,7 +4339,7 @@ mod tests {
             &payment_thresholds,
             payment_thresholds.maturity_threshold_sec
                 + payment_thresholds.threshold_interval_sec
-                + 123,
+                + 1234,
         );
 
         assert_eq!(
@@ -4419,24 +4350,6 @@ mod tests {
             a_certain_distance_further,
             gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei)
         )
-    }
-
-    #[test]
-    fn teeeeest() {
-        let payment_thresholds = PaymentThresholds {
-            maturity_threshold_sec: 1000,
-            payment_grace_period_sec: 444,
-            permanent_debt_allowed_gwei: 1200,
-            debt_threshold_gwei: 1201,
-            threshold_interval_sec: 1_000_000_000,
-            unban_below_gwei: 0,
-        };
-        let debt_age_s = 999_000_000;
-
-        let result =
-            ThresholdUtils::calculate_finite_debt_limit_by_age(&payment_thresholds, debt_age_s);
-
-        eprintln!("result: {}", result)
     }
 
     #[test]

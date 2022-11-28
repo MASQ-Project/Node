@@ -78,51 +78,27 @@ impl DbInitializer for DbInitializerReal {
         }
         Self::create_data_directory_if_necessary(path);
         let flags = OpenFlags::SQLITE_OPEN_READ_WRITE;
-        let database_file_path = &path.join(DATABASE_FILE);
-        match Connection::open_with_flags(database_file_path, flags) {
+        let db_file_path = &path.join(DATABASE_FILE);
+        match Connection::open_with_flags(db_file_path, flags) {
             Ok(conn) => {
-                eprintln!("Opened existing database at {:?}", database_file_path);
-                Self::special_conn_configuration(&conn, &init_config)?;
-                let config = self.extract_configurations(&conn);
-                let found_schema_version = config.get("schema_version");
-                match (
-                    Self::is_migration_required(found_schema_version)?,
-                    init_config.init_mode,
-                ) {
-                    (None, _) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
-                    (Some(_), InitializationMode::CreationBannedMigrationPanics) => {
-                        panic!("Broken code: Migrating database at inappropriate place")
-                    }
-                    (
-                        Some(mismatched_version),
-                        InitializationMode::CreationAndMigration { external_data },
-                    ) => {
-                        let migrator = Box::new(DbMigratorReal::new(external_data));
-                        self.migrate_and_return_connection(
-                            conn,
-                            mismatched_version,
-                            target_version,
-                            database_file_path,
-                            flags,
-                            migrator,
-                        )
-                    }
-                    (Some(_), InitializationMode::CreationBannedMigrationSuppressed) => {
-                        Ok(Box::new(ConnectionWrapperReal::new(conn)))
-                    }
-                    (Some(_), InitializationMode::CreationBannedMigrationThrowsErr) => {
-                        Err(InitializationError::SuppressedMigration)
-                    }
-                }
+                eprintln!("Opened existing database at {:?}", db_file_path);
+                Self::extra_configuration(&conn, &init_config)?;
+                self.check_migrations_and_give_conn(
+                    conn,
+                    init_config,
+                    db_file_path,
+                    target_version,
+                    flags,
+                )
             }
             Err(_) => {
                 let mut flags = OpenFlags::empty();
                 flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
                 flags.insert(OpenFlags::SQLITE_OPEN_CREATE);
-                match Connection::open_with_flags(database_file_path, flags) {
+                match Connection::open_with_flags(db_file_path, flags) {
                     Ok(conn) => {
-                        eprintln!("Created new database at {:?}", database_file_path);
-                        Self::special_conn_configuration(&conn, &init_config)?;
+                        eprintln!("Created new database at {:?}", db_file_path);
+                        Self::extra_configuration(&conn, &init_config)?;
                         self.create_database_tables(&conn, ExternalData::from(init_config));
                         Ok(Box::new(ConnectionWrapperReal::new(conn)))
                     }
@@ -339,7 +315,7 @@ impl DbInitializerReal {
         .expect("Can't create banned table");
     }
 
-    fn special_conn_configuration(
+    fn extra_configuration(
         conn: &Connection,
         init_config: &DbInitializationConfig,
     ) -> Result<(), InitializationError> {
@@ -357,51 +333,61 @@ impl DbInitializerReal {
         }
     }
 
-    fn extract_configurations(&self, conn: &Connection) -> HashMap<String, (Option<String>, bool)> {
-        let mut stmt = conn
-            .prepare("select name, value, encrypted from config")
-            .unwrap();
-        let query_result = stmt.query_map([], |row| {
-            Ok((
-                row.get(0),
-                row.get(1),
-                row.get(2).map(|encrypted: i64| encrypted > 0),
-            ))
-        });
-        match query_result {
-            Ok(rows) => rows,
-            Err(e) => panic!("Error retrieving configuration: {}", e),
-        }
-        .map(|row| match row {
-            Ok((Ok(name), Ok(value), Ok(encrypted))) => (name, (Some(value), encrypted)),
-            Ok((Ok(name), Err(InvalidColumnType(1, _, _)), Ok(encrypted))) => {
-                (name, (None, encrypted))
+    fn check_migrations_and_give_conn(
+        &self,
+        conn: Connection,
+        init_config: DbInitializationConfig,
+        db_file_path: &Path,
+        target_version: usize,
+        flags: OpenFlags,
+    ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
+        let str_sv = Self::read_current_schema_version(&conn)?;
+        match (Self::is_migration_required(&str_sv)?, init_config.init_mode) {
+            (None, _) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
+            (Some(_), InitializationMode::CreationBannedMigrationPanics) => {
+                panic!("Broken code: Migrating database at inappropriate place")
             }
-            e => panic!("Error retrieving configuration: {:?}", e),
-        })
-        .collect::<HashMap<String, (Option<String>, bool)>>()
+            (
+                Some(mismatched_version),
+                InitializationMode::CreationAndMigration { external_data },
+            ) => {
+                let migrator = Box::new(DbMigratorReal::new(external_data));
+                self.migrate_and_return_connection(
+                    conn,
+                    mismatched_version,
+                    target_version,
+                    db_file_path,
+                    flags,
+                    migrator,
+                )
+            }
+            (Some(_), InitializationMode::CreationBannedMigrationSuppressed) => {
+                Ok(Box::new(ConnectionWrapperReal::new(conn)))
+            }
+            (Some(_), InitializationMode::CreationBannedMigrationThrowsErr) => {
+                Err(InitializationError::SuppressedMigration)
+            }
+        }
     }
 
-    fn is_migration_required(
-        version_found: Option<&(Option<String>, bool)>,
-    ) -> Result<Option<usize>, InitializationError> {
-        match version_found {
-            None => Err(InitializationError::UndetectableVersion(format!(
-                "Need {}, found nothing",
-                CURRENT_SCHEMA_VERSION
-            ))),
-            Some((None, _)) => Err(InitializationError::UndetectableVersion(format!(
-                "Need {}, found nothing",
-                CURRENT_SCHEMA_VERSION
-            ))),
-            Some((Some(v_from_db), _)) => {
-                let v_from_db = Self::validate_schema_version(v_from_db);
-                if v_from_db == CURRENT_SCHEMA_VERSION {
-                    Ok(None)
-                } else {
-                    Ok(Some(v_from_db))
-                }
-            }
+    fn read_current_schema_version(conn: &Connection) -> Result<String, InitializationError> {
+        conn.prepare("select value from config where name = 'schema_version'")
+            .expect("select failed")
+            .query_row([], |row| row.get::<usize, String>(0))
+            .map_err(|e| {
+                InitializationError::UndetectableVersion(format!(
+                    "Need {}, found nothing (err: {})",
+                    CURRENT_SCHEMA_VERSION, e
+                ))
+            })
+    }
+
+    fn is_migration_required(version_read_str: &str) -> Result<Option<usize>, InitializationError> {
+        let v_from_db = Self::validate_schema_version(version_read_str);
+        if v_from_db == CURRENT_SCHEMA_VERSION {
+            Ok(None)
+        } else {
+            Ok(Some(v_from_db))
         }
     }
 
@@ -411,7 +397,7 @@ impl DbInitializerReal {
         mismatched_version: usize,
         target_version: usize,
         db_file_path: &Path,
-        opening_flags: OpenFlags,
+        flags: OpenFlags,
         migrator: Box<dyn DbMigrator>,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
         warning!(
@@ -426,7 +412,7 @@ impl DbInitializerReal {
         ) {
             Ok(_) => {
                 let wrapped_conn =
-                    self.double_check_migration_result(db_file_path, opening_flags, target_version);
+                    self.double_check_migration_result(db_file_path, flags, target_version);
                 Ok(wrapped_conn)
             }
             Err(e) => Err(InitializationError::MigrationError(e)),
@@ -441,19 +427,13 @@ impl DbInitializerReal {
     ) -> Box<dyn ConnectionWrapper> {
         let conn = Connection::open_with_flags(db_file_path, opening_flags)
             .unwrap_or_else(|e| panic!("The database undoubtedly exists, but: {}", e));
-        let config_table_content = self.extract_configurations(&conn);
-        let (schema_version, _) = config_table_content
-            .get("schema_version")
-            .expect("Db migration failed; cannot find a row with the schema version");
-        let found_schema = Self::validate_schema_version(
-            schema_version
-                .as_ref()
-                .expect("Db migration failed; the value for the schema version is missing"),
-        );
-        if found_schema.eq(&target_version) {
+        let str_schema = Self::read_current_schema_version(&conn)
+            .expect("Db migration failed; cannot find the row with the schema version");
+        let numeric_schema = Self::validate_schema_version(&str_schema);
+        if numeric_schema == target_version {
             Box::new(ConnectionWrapperReal::new(conn))
         } else {
-            panic!("DB migration failed, the resulting records are still incorrect; found schema {} but expecting {}", found_schema,target_version)
+            panic!("DB migration failed, the resulting records are still incorrect; found schema {} but expecting {}", numeric_schema, target_version)
         }
     }
 
@@ -972,6 +952,31 @@ mod tests {
         );
     }
 
+    fn extract_configurations(conn: &Connection) -> HashMap<String, (Option<String>, bool)> {
+        let mut stmt = conn
+            .prepare("select name, value, encrypted from config")
+            .unwrap();
+        let query_result = stmt.query_map([], |row| {
+            Ok((
+                row.get(0),
+                row.get(1),
+                row.get(2).map(|encrypted: i64| encrypted > 0),
+            ))
+        });
+        match query_result {
+            Ok(rows) => rows,
+            Err(e) => panic!("Error retrieving configuration: {}", e),
+        }
+        .map(|row| match row {
+            Ok((Ok(name), Ok(value), Ok(encrypted))) => (name, (Some(value), encrypted)),
+            Ok((Ok(name), Err(InvalidColumnType(1, _, _)), Ok(encrypted))) => {
+                (name, (None, encrypted))
+            }
+            e => panic!("Error retrieving configuration: {:?}", e),
+        })
+        .collect::<HashMap<String, (Option<String>, bool)>>()
+    }
+
     #[test]
     fn existing_database_with_correct_version_is_accepted_without_changes() {
         let home_dir = ensure_node_home_directory_exists(
@@ -1002,7 +1007,7 @@ mod tests {
         let mut flags = OpenFlags::empty();
         flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
         let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
-        let config_map = subject.extract_configurations(&conn);
+        let config_map = extract_configurations(&conn);
         let mut config_vec: Vec<(String, (Option<String>, bool))> =
             config_map.into_iter().collect();
         config_vec.sort_by_key(|(name, _)| name.clone());
@@ -1110,7 +1115,7 @@ mod tests {
         assert_eq!(
             result.err().unwrap(),
             InitializationError::UndetectableVersion(format!(
-                "Need {}, found nothing",
+                "Need {}, found nothing (err: Query returned no rows)",
                 CURRENT_SCHEMA_VERSION
             )),
         );
@@ -1143,7 +1148,7 @@ mod tests {
 
     const PRAGMA_CASE_SENSITIVE: &str = "case_sensitive_like";
 
-    fn assert_case_sensitiveness_has_been_switched_turned_on(
+    fn assert_case_sensitiveness_has_been_turned_on(
         conn: Either<&Connection, &dyn ConnectionWrapper>,
     ) {
         let sql = "select 'a' like 'A'";
@@ -1170,11 +1175,11 @@ mod tests {
         let result = subject.add_special_conn_setup(setup_fn);
 
         result.special_conn_configuration[0](&conn).unwrap();
-        assert_case_sensitiveness_has_been_switched_turned_on(Left(&conn))
+        assert_case_sensitiveness_has_been_turned_on(Left(&conn))
     }
 
     #[test]
-    fn special_conn_configuration_retrieves_first_error_encountered() {
+    fn extra_configuration_retrieves_first_error_encountered() {
         let fn_one = |_: &_| Ok(());
         let fn_two = |_: &_| Err(Error::ExecuteReturnedResults);
         let fn_three = |_: &_| Err(Error::GetAuxWrongType);
@@ -1182,16 +1187,16 @@ mod tests {
         let init_config =
             make_default_config_with_different_pointers(vec![fn_one, fn_two, fn_three]);
 
-        let result = DbInitializerReal::special_conn_configuration(&conn, &init_config);
+        let result = DbInitializerReal::extra_configuration(&conn, &init_config);
 
         assert_eq!(result, Err(SqliteError(Error::ExecuteReturnedResults)))
     }
 
     #[test]
-    fn conn_special_setup_works_at_database_creation() {
+    fn add_conn_special_setup_works_at_database_creation() {
         let home_dir = ensure_node_home_directory_exists(
             "db_initializer",
-            "conn_special_setup_works_at_database_creation",
+            "add_conn_special_setup_works_at_database_creation",
         );
         let example_function = |conn: &Connection| {
             conn.pragma_update(None, PRAGMA_CASE_SENSITIVE, true)
@@ -1205,7 +1210,7 @@ mod tests {
             .initialize(&home_dir, init_config)
             .unwrap();
 
-        assert_case_sensitiveness_has_been_switched_turned_on(Right(assert_conn.as_ref()))
+        assert_case_sensitiveness_has_been_turned_on(Right(assert_conn.as_ref()))
     }
 
     #[test]
@@ -1228,7 +1233,7 @@ mod tests {
             .initialize(&home_dir, init_config)
             .unwrap();
 
-        assert_case_sensitiveness_has_been_switched_turned_on(Right(assert_conn.as_ref()))
+        assert_case_sensitiveness_has_been_turned_on(Right(assert_conn.as_ref()))
     }
 
     fn processing_special_setup_test_body(test_name: &str, pre_initialization: fn(&Path)) {
@@ -1316,8 +1321,8 @@ mod tests {
             OpenFlags::SQLITE_OPEN_READ_ONLY,
         )
         .unwrap();
-        let extract_from_updated = subject.extract_configurations(&conn_updated);
-        let extract_from_from_scratch = subject.extract_configurations(&conn_from_scratch);
+        let extract_from_updated = extract_configurations(&conn_updated);
+        let extract_from_from_scratch = extract_configurations(&conn_from_scratch);
         //please, write all rows with unpredictable values here
         let sieve = |updated_parameter: &String| updated_parameter != "clandestine_port";
         let zipped_iterators = extract_from_updated
@@ -1415,7 +1420,7 @@ mod tests {
         let _ = subject.initialize(&data_dir, DbInitializationConfig::panic_on_migration());
     }
 
-    fn test_if_new_database_was_created(home_dir: &Path) {
+    fn assert_new_database_was_not_created(home_dir: &Path) {
         let mut flags = OpenFlags::empty();
         flags.insert(OpenFlags::SQLITE_OPEN_READ_ONLY);
         let result = Connection::open_with_flags(home_dir.join(DATABASE_FILE), flags);
@@ -1425,7 +1430,7 @@ mod tests {
         }
     }
 
-    fn common_body_for_testing_db_creation_under_unfavorable_conditions(data_dir: &Path) {
+    fn assert_that_database_is_not_created_by_certain_initialization_configs(data_dir: &Path) {
         let subject = DbInitializerReal::default();
 
         [
@@ -1438,7 +1443,7 @@ mod tests {
             let result = subject.initialize(data_dir, init_config);
 
             assert_eq!(result.err().unwrap(), InitializationError::Nonexistent);
-            test_if_new_database_was_created(data_dir)
+            assert_new_database_was_not_created(data_dir)
         })
     }
 
@@ -1450,7 +1455,7 @@ mod tests {
             "db_initialize_does_not_create_if_directed_not_to_via_initialization_config_and_directory_does_not_exist",
         );
 
-        common_body_for_testing_db_creation_under_unfavorable_conditions(&data_dir)
+        assert_that_database_is_not_created_by_certain_initialization_configs(&data_dir)
     }
 
     #[test]
@@ -1461,7 +1466,7 @@ mod tests {
             "db_initialize_does_not_create_if_directed_not_to_via_initialization_config_and_database_file_does_not_exist",
         );
 
-        common_body_for_testing_db_creation_under_unfavorable_conditions(&data_dir)
+        assert_that_database_is_not_created_by_certain_initialization_configs(&data_dir)
     }
 
     #[test]
@@ -1546,10 +1551,7 @@ mod tests {
 
     fn make_config_with_specific_migration_arguments() -> DbInitializationConfig {
         DbInitializationConfig {
-            special_conn_configuration: vec![|_: &_| {
-                5;
-                Ok(())
-            }],
+            special_conn_configuration: vec![|_: &_| Ok(())],
             init_mode: InitializationMode::CreationAndMigration {
                 external_data: ExternalData {
                     chain: Default::default(),
@@ -1563,7 +1565,7 @@ mod tests {
     #[test]
     fn partial_eq_is_implemented_for_db_initialization_config() {
         let fn_one = |_: &_| {
-            5;
+            5555;
             Ok(())
         };
         let fn_two = |_: &_| {
@@ -1593,7 +1595,7 @@ mod tests {
     #[test]
     fn debug_is_implemented_for_db_initialization_config() {
         let fn_one = |_: &_| {
-            5;
+            5555;
             Ok(())
         };
         let fn_two = |_: &_| {

@@ -514,15 +514,20 @@ fn configure_accountant_config(
 fn check_payment_thresholds(
     payment_thresholds: &PaymentThresholds,
 ) -> Result<(), ConfiguratorError> {
-    if payment_thresholds.debt_threshold_gwei > payment_thresholds.permanent_debt_allowed_gwei {
-        Ok(())
-    } else {
+    if payment_thresholds.debt_threshold_gwei <= payment_thresholds.permanent_debt_allowed_gwei {
         let msg = format!(
-            "Value of DebtThresholdGwei ({}) must be bigger than of PermanentDebtAllowedGwei ({})",
+            "Value of DebtThresholdGwei ({}) must be bigger than PermanentDebtAllowedGwei ({})",
             payment_thresholds.debt_threshold_gwei, payment_thresholds.permanent_debt_allowed_gwei
         );
-        Err(ConfiguratorError::required("payment-thresholds", &msg))
+        return Err(ConfiguratorError::required("payment-thresholds", &msg));
     }
+    if payment_thresholds.threshold_interval_sec > 10_u64.pow(9) {
+        return Err(ConfiguratorError::required(
+            "payment-thresholds",
+            "Value of ThresholdIntervalSec must not exceed 1,000,000,000 s",
+        ));
+    }
+    Ok(())
 }
 
 fn configure_rate_pack(
@@ -613,6 +618,7 @@ fn is_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::ThresholdUtils;
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::database::db_initializer::DbInitializationConfig;
@@ -1989,7 +1995,7 @@ mod tests {
     }
 
     #[test]
-    fn configure_accountant_config_discovers_invalid_combination_in_payment_thresholds_params_from_user_input(
+    fn configure_accountant_config_discovers_invalid_payment_thresholds_params_combination_given_from_users_input(
     ) {
         let multi_config = make_simplified_multi_config([
             "--payment-thresholds",
@@ -2006,7 +2012,7 @@ mod tests {
             &mut persistent_config,
         );
 
-        let expected_msg = "Value of DebtThresholdGwei (19999) must be bigger than of PermanentDebtAllowedGwei (20000)";
+        let expected_msg = "Value of DebtThresholdGwei (19999) must be bigger than PermanentDebtAllowedGwei (20000)";
         assert_eq!(
             result,
             Err(ConfiguratorError::required(
@@ -2017,14 +2023,14 @@ mod tests {
     }
 
     #[test]
-    fn check_payment_thresholds_works_for_equal() {
+    fn check_payment_thresholds_works_for_equal_debt_parameters() {
         let mut payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
         payment_thresholds.permanent_debt_allowed_gwei = 10000;
         payment_thresholds.debt_threshold_gwei = 10000;
 
         let result = check_payment_thresholds(&payment_thresholds);
 
-        let expected_msg = "Value of DebtThresholdGwei (10000) must be bigger than of PermanentDebtAllowedGwei (10000)";
+        let expected_msg = "Value of DebtThresholdGwei (10000) must be bigger than PermanentDebtAllowedGwei (10000)";
         assert_eq!(
             result,
             Err(ConfiguratorError::required(
@@ -2032,6 +2038,48 @@ mod tests {
                 expected_msg
             ))
         )
+    }
+
+    #[test]
+    fn check_payment_thresholds_works_for_too_small_debt_threshold() {
+        let mut payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
+        payment_thresholds.permanent_debt_allowed_gwei = 10000;
+        payment_thresholds.debt_threshold_gwei = 9999;
+
+        let result = check_payment_thresholds(&payment_thresholds);
+
+        let expected_msg = "Value of DebtThresholdGwei (9999) must be bigger than PermanentDebtAllowedGwei (10000)";
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::required(
+                "payment-thresholds",
+                expected_msg
+            ))
+        )
+    }
+
+    #[test]
+    fn check_payment_thresholds_does_not_permit_threshold_interval_longer_than_1_000_000_000_s() {
+        //this goes to the furthest extreme where the delta of debt limits is just 1 Gwei, which,
+        //if divided by the slope interval equal or longer 10^9 and rounded, gives 0
+        let mut payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
+        payment_thresholds.permanent_debt_allowed_gwei = 100;
+        payment_thresholds.debt_threshold_gwei = 101;
+        payment_thresholds.threshold_interval_sec = 1_000_000_001;
+
+        let result = check_payment_thresholds(&payment_thresholds);
+
+        let expected_msg = "Value of ThresholdIntervalSec must not exceed 1,000,000,000 s";
+        assert_eq!(
+            result,
+            Err(ConfiguratorError::required(
+                "payment-thresholds",
+                expected_msg
+            ))
+        );
+        payment_thresholds.threshold_interval_sec -= 1;
+        let last_value_possible = ThresholdUtils::slope(&payment_thresholds);
+        assert_eq!(last_value_possible, -1)
     }
 
     #[test]

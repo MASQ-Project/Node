@@ -182,14 +182,16 @@ fn assert_sql_lines_contain_parts_exhaustive(
 ) {
     zippered(&actual, expected)
         .iter()
-        .for_each(|(left, right)| contains_particular_list_of_key_words((left, right)))
+        .for_each(|(left, right)| contains_particular_list_of_key_words(left, right))
 }
 
-fn contains_particular_list_of_key_words(input: (&SQLLinesChoppedIntoWords, &[String])) {
-    let (expected, single_actual_vec_of_words) = input;
+fn contains_particular_list_of_key_words(
+    expected_words: &SQLLinesChoppedIntoWords,
+    single_actual_line_of_words: &[String],
+) {
     let mut found = 0_u16;
-    expected.iter().for_each(|vec_of_words_expected| {
-        if single_actual_vec_of_words == vec_of_words_expected {
+    expected_words.iter().for_each(|vec_of_words_expected| {
+        if single_actual_line_of_words == vec_of_words_expected {
             found += 1
         }
     });

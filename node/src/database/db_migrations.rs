@@ -16,7 +16,6 @@ use masq_lib::logger::Logger;
 use masq_lib::utils::{ExpectValue, WrapResult};
 use rusqlite::{params_from_iter, Error, Row, ToSql, Transaction};
 use std::fmt::{Debug, Display, Formatter};
-use std::iter::once;
 use tiny_hderive::bip32::ExtendedPrivKey;
 
 pub trait DbMigrator {
@@ -653,9 +652,8 @@ impl<'a> Migrate_6_to_7_carrier<'a> {
         let sql_stm = format!(
             "insert into compensatory_{} (old_rowid, high_bytes, low_bytes) values {}",
             table,
-            (0..all_big_int_values_found.len() - 1)
+            (0..all_big_int_values_found.len())
                 .map(|_| "(?, ?, ?)")
-                .chain(once("(?, ?, ?)"))
                 .collect::<String>()
         );
         let params = all_big_int_values_found
