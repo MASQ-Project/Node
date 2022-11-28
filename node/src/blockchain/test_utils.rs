@@ -4,9 +4,9 @@
 
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainInterface, BlockchainResult, PayableTransactionError,
-    ProcessedPayableFallible, ResultForBalance, ResultForNonce, ResultForReceipt,
-    REQUESTS_IN_PARALLEL,
+    BlockchainError, BlockchainInterface, BlockchainResult, LatestBlockNumber,
+    PayableTransactionError, ProcessedPayableFallible, ResultForBalance, ResultForNonce,
+    ResultForReceipt, REQUESTS_IN_PARALLEL,
 };
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -23,7 +23,7 @@ use std::time::SystemTime;
 use crate::accountant::db_access_objects::payable_dao::PayableAccount;
 use crate::blockchain::batch_payable_tools::BatchPayableTools;
 use web3::transports::{Batch, EventLoopHandle, Http};
-use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
+use web3::types::{Address, BlockNumber, Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
 use web3::{RequestId, Transport};
 
@@ -55,7 +55,7 @@ pub fn make_meaningless_seed() -> Seed {
 
 #[derive(Default)]
 pub struct BlockchainInterfaceMock {
-    retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
+    retrieve_transactions_parameters: Arc<Mutex<Vec<(BlockNumber, BlockNumber, Wallet)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
     send_payables_within_batch_params: Arc<
@@ -80,6 +80,7 @@ pub struct BlockchainInterfaceMock {
     contract_address_results: RefCell<Vec<Address>>,
     get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
     get_transaction_count_results: RefCell<Vec<BlockchainResult<U256>>>,
+    get_block_number_results: RefCell<Vec<LatestBlockNumber>>,
 }
 
 impl BlockchainInterface for BlockchainInterfaceMock {
@@ -89,13 +90,15 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 
     fn retrieve_transactions(
         &self,
-        start_block: u64,
+        start_block: BlockNumber,
+        end_block: BlockNumber,
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
-        self.retrieve_transactions_parameters
-            .lock()
-            .unwrap()
-            .push((start_block, recipient.clone()));
+        self.retrieve_transactions_parameters.lock().unwrap().push((
+            start_block,
+            end_block,
+            recipient.clone(),
+        ));
         self.retrieve_transactions_results.borrow_mut().remove(0)
     }
 
@@ -120,6 +123,10 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.send_payables_within_batch_results
             .borrow_mut()
             .remove(0)
+    }
+
+    fn get_block_number(&self) -> LatestBlockNumber {
+        self.get_block_number_results.borrow_mut().remove(0)
     }
 
     fn get_transaction_fee_balance(&self, address: &Wallet) -> ResultForBalance {
@@ -158,7 +165,10 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 }
 
 impl BlockchainInterfaceMock {
-    pub fn retrieve_transactions_params(mut self, params: &Arc<Mutex<Vec<(u64, Wallet)>>>) -> Self {
+    pub fn retrieve_transactions_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(BlockNumber, BlockNumber, Wallet)>>>,
+    ) -> Self {
         self.retrieve_transactions_parameters = params.clone();
         self
     }
@@ -196,6 +206,11 @@ impl BlockchainInterfaceMock {
         self.send_payables_within_batch_results
             .borrow_mut()
             .push(result);
+        self
+    }
+
+    pub fn get_block_number_result(self, result: LatestBlockNumber) -> Self {
+        self.get_block_number_results.borrow_mut().push(result);
         self
     }
 
