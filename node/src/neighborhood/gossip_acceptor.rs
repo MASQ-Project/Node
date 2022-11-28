@@ -9,6 +9,7 @@ use crate::sub_lib::neighborhood::{
     ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1,
 };
 use crate::sub_lib::node_addr::NodeAddr;
+use crate::sub_lib::proxy_server::DEFAULT_MINIMUM_HOP_COUNT;
 use actix::Recipient;
 use masq_lib::logger::Logger;
 use std::cell::RefCell;
@@ -927,7 +928,7 @@ impl GossipHandler for StandardGossipHandler {
         let initial_neighborship_status =
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
 
-        let hashmap = agrs
+        let agrs_by_key = agrs
             .iter()
             .map(|agr| (&agr.inner.public_key, agr))
             .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
@@ -936,8 +937,8 @@ impl GossipHandler for StandardGossipHandler {
         self.compute_patch(
             &mut patch,
             database.root().public_key(),
-            &hashmap,
-            3,
+            &agrs_by_key,
+            DEFAULT_MINIMUM_HOP_COUNT,
             &database,
         );
 
