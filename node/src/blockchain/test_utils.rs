@@ -52,7 +52,8 @@ pub fn make_meaningless_seed() -> Seed {
 
 #[derive(Default)]
 pub struct BlockchainInterfaceMock {
-    retrieve_transactions_parameters: Arc<Mutex<Vec<(BlockNumber, BlockNumber, Wallet)>>>,
+    retrieve_transactions_parameters:
+        Arc<Mutex<Vec<(BlockNumber, BlockNumber, BlockNumber, Wallet)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
     send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u128, U256, u64)>>>,
@@ -73,7 +74,7 @@ pub struct BlockchainInterfaceMock {
 impl BlockchainInterfaceMock {
     pub fn retrieve_transactions_params(
         mut self,
-        params: &Arc<Mutex<Vec<(BlockNumber, BlockNumber, Wallet)>>>,
+        params: &Arc<Mutex<Vec<(BlockNumber, BlockNumber, BlockNumber, Wallet)>>>,
     ) -> Self {
         self.retrieve_transactions_parameters = params.clone();
         self
@@ -175,6 +176,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         &self,
         start_block: BlockNumber,
         end_block: BlockNumber,
+        end_block: BlockNumber,
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
         self.retrieve_transactions_parameters.lock().unwrap().push((
@@ -194,6 +196,11 @@ impl BlockchainInterface for BlockchainInterfaceMock {
             .unwrap()
             .push(inputs.abstract_for_assertions());
         self.send_transaction_results.borrow_mut().remove(0)
+    }
+
+    fn get_block_number_result(self, result: LatestBlockNumber) -> Self {
+        self.get_block_number_results.borrow_mut().push(result);
+        self
     }
 
     fn get_gas_balance(&self, address: &Wallet) -> ResultForBalance {
@@ -237,6 +244,10 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         _fingerprint_request_recipient: &'a Recipient<PendingPayableFingerprint>,
     ) -> Box<dyn SendTransactionToolsWrapper + 'a> {
         self.send_transaction_tools_results.borrow_mut().remove(0)
+    }
+
+    fn get_block_number(&self) -> LatestBlockNumber {
+        self.get_block_number_results.borrow_mut().remove(0)
     }
 }
 

@@ -100,6 +100,7 @@ where
         &self,
         start_block: BlockNumber,
         end_block: BlockNumber,
+        end_block: BlockNumber,
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError>;
 
@@ -111,6 +112,8 @@ where
     fn get_gas_balance(&self, address: &Wallet) -> ResultForBalance;
 
     fn get_token_balance(&self, address: &Wallet) -> ResultForBalance;
+
+    fn get_block_number(&self) -> LatestBlockNumber;
 
     fn get_transaction_count(&self, address: &Wallet) -> ResultForNonce;
 
@@ -156,6 +159,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         &self,
         _start_block: BlockNumber,
         _end_block: BlockNumber,
+        _latest_block: BlockNumber,
         _recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
         let msg = "Can't retrieve transactions clandestinely yet".to_string();
@@ -247,6 +251,7 @@ where
     fn retrieve_transactions(
         &self,
         start_block: BlockNumber,
+        end_block: BlockNumber,
         end_block: BlockNumber,
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
@@ -384,6 +389,14 @@ where
                 Options::default(),
                 None,
             )
+            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
+            .wait()
+    }
+
+    fn get_block_number(&self) -> LatestBlockNumber {
+        self.web3
+            .eth()
+            .block_number()
             .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
     }
@@ -722,13 +735,13 @@ mod tests {
             std::env::set_var("SIMPLESERVER_THREADS", "1");
             let (tx, rx) = unbounded();
             let _ = thread::spawn(move || {
-                let bodies_arc = Arc::new(Mutex::new(bodies));
+                let bodies_arc: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(bodies));
                 Server::new(move |req, mut rsp| {
                     if req.headers().get("X-Quit").is_some() {
                         panic!("Server stop requested");
                     }
                     tx.send(req).unwrap();
-                    let body = bodies_arc.lock().unwrap().remove(0);
+                    let body: Vec<u8> = bodies_arc.lock().unwrap().remove(0);
                     Ok(rsp.body(body)?)
                 })
                 .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
@@ -787,11 +800,13 @@ mod tests {
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
         );
+
         let end_block_nbr = 1024u64;
         let result = subject
             .retrieve_transactions(
                 BlockNumber::Number(42u64.into()),
                 BlockNumber::Number(end_block_nbr.into()),
+                BlockNumber::Number(U64::from(end_block_nbr)),
                 &Wallet::from_str(&to).unwrap(),
             )
             .unwrap();
@@ -880,6 +895,7 @@ mod tests {
             .retrieve_transactions(
                 BlockNumber::Number(42u64.into()),
                 BlockNumber::Number(end_block_nbr.into()),
+                BlockNumber::Number(U64::from(end_block_nbr)),
                 &Wallet::from_str(&to).unwrap(),
             )
             .unwrap();
@@ -976,6 +992,7 @@ mod tests {
         let result = subject.retrieve_transactions(
             BlockNumber::Number(42u64.into()),
             end_block,
+            end_block,
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
@@ -1002,9 +1019,11 @@ mod tests {
         );
         let end_block_nbr = 1024u64;
 
+        let end_block = BlockNumber::Number(U64::from(1024u64));
         let result = subject.retrieve_transactions(
             BlockNumber::Number(42u64.into()),
             BlockNumber::Number(end_block_nbr.into()),
+            end_block,
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
@@ -1045,6 +1064,7 @@ mod tests {
         let result = subject.retrieve_transactions(
             start_block,
             BlockNumber::Latest,
+            BlockNumber::Number(U64::from(end_block_nbr)),
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
