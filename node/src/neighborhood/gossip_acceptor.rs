@@ -2335,24 +2335,6 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        //----------------------- Debugging -----------------------------
-        let nodes = vec![
-            node_a.public_key().clone(),
-            node_b.public_key().clone(),
-            node_c.public_key().clone(),
-            node_d.public_key().clone(),
-            node_e.public_key().clone(),
-        ];
-        eprintln!("Nodes: {:?}", nodes);
-
-        for agr in &agrs {
-            eprintln!(
-                "AGR found with public key: {:?}, which has neighbors: {:?}",
-                agr.inner.public_key, agr.inner.neighbors
-            )
-        }
-        //----------------------------------------------------------------
-
         let hashmap = agrs
             .iter()
             .map(|agr| (&agr.inner.public_key, agr))
@@ -2412,24 +2394,6 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        //----------------------- Debugging -----------------------------
-        let nodes = vec![
-            node_a.public_key().clone(),
-            node_b.public_key().clone(),
-            node_c.public_key().clone(),
-            node_d.public_key().clone(),
-            node_y.public_key().clone(),
-        ];
-        eprintln!("Nodes: {:?}", nodes);
-
-        for agr in &agrs {
-            eprintln!(
-                "AGR found with public key: {:?}, which has neighbors: {:?}",
-                agr.inner.public_key, agr.inner.neighbors
-            )
-        }
-        //----------------------------------------------------------------
-
         let hashmap = agrs
             .iter()
             .map(|agr| (&agr.inner.public_key, agr))
@@ -2484,24 +2448,6 @@ mod tests {
             .node(node_d.public_key(), false)
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
-
-        //----------------------- Debugging -----------------------------
-        let nodes = vec![
-            node_a.public_key().clone(),
-            node_b.public_key().clone(),
-            node_c.public_key().clone(),
-            node_d.public_key().clone(),
-            node_x.public_key().clone(),
-        ];
-        eprintln!("Nodes: {:?}", nodes);
-
-        for agr in &agrs {
-            eprintln!(
-                "AGR found with public key: {:?}, which has neighbors: {:?}",
-                agr.inner.public_key, agr.inner.neighbors
-            )
-        }
-        //----------------------------------------------------------------
 
         let hashmap = agrs
             .iter()
@@ -2579,25 +2525,6 @@ mod tests {
             .node(node_f.public_key(), false)
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
-
-        //----------------------- Debugging -----------------------------
-        let nodes = vec![
-            node_a.public_key().clone(),
-            node_b.public_key().clone(),
-            node_c.public_key().clone(),
-            node_d.public_key().clone(),
-            node_e.public_key().clone(),
-            node_f.public_key().clone(),
-        ];
-        eprintln!("Nodes: {:?}", nodes);
-
-        for agr in &agrs {
-            eprintln!(
-                "AGR found with public key: {:?}, which has neighbors: {:?}",
-                agr.inner.public_key, agr.inner.neighbors
-            )
-        }
-        //----------------------------------------------------------------
 
         let result = subject.handle(cryptde, &mut node_a_db, agrs, gossip_source, &cpm_recipient);
 
