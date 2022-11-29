@@ -637,13 +637,16 @@ impl Accountant {
             response_skeleton_opt,
             &self.logger,
         ) {
-            Ok(message) => {
+            Ok(scan_message) => {
                 self.report_accounts_payable_sub_opt
                     .as_ref()
                     .expect("BlockchainBridge is unbound")
-                    .try_send(message.clone())
+                    .try_send(scan_message.clone())
                     .expect("BlockchainBridge is dead");
-                eprintln!("Message was sent to the blockchain bridge, {:?}", message);
+                eprintln!(
+                    "Message was sent to the blockchain bridge, {:?}",
+                    scan_message
+                );
             }
             Err(BeginScanError::CalledFromNullScanner) => {
                 if cfg!(test) {
@@ -676,11 +679,11 @@ impl Accountant {
             response_skeleton_opt,
             &self.logger,
         ) {
-            Ok(message) => self
+            Ok(scan_message) => self
                 .request_transaction_receipts_subs_opt
                 .as_ref()
                 .expect("BlockchainBridge is unbound")
-                .try_send(message)
+                .try_send(scan_message)
                 .expect("BlockchainBridge is dead"),
             Err(BeginScanError::CalledFromNullScanner) => {
                 if cfg!(test) {
@@ -713,11 +716,11 @@ impl Accountant {
             response_skeleton_opt,
             &self.logger,
         ) {
-            Ok(message) => self
+            Ok(scan_message) => self
                 .retrieve_transactions_sub
                 .as_ref()
                 .expect("BlockchainBridge is unbound")
-                .try_send(message)
+                .try_send(scan_message)
                 .expect("BlockchainBridge is dead"),
             Err(BeginScanError::CalledFromNullScanner) => {
                 if cfg!(test) {
