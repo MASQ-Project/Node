@@ -643,21 +643,17 @@ impl Accountant {
                     .expect("BlockchainBridge is unbound")
                     .try_send(scan_message.clone())
                     .expect("BlockchainBridge is dead");
-                eprintln!(
-                    "Message was sent to the blockchain bridge, {:?}",
-                    scan_message
-                );
             }
             Err(BeginScanError::CalledFromNullScanner) => {
-                if cfg!(test) {
-                    eprintln!("Payable scan is disabled.");
-                } else {
+                if !cfg!(test) {
                     panic!("Null Scanner shouldn't be running inside production code.")
                 }
             }
             Err(BeginScanError::NothingToProcess) => {
-                eprintln!("No payable found to process. The Scan was ended.");
-                // TODO: Do something better than just using eprintln
+                debug!(
+                    &self.logger,
+                    "There was nothing to process during payable scan."
+                );
             }
             Err(BeginScanError::ScanAlreadyRunning(timestamp)) => {
                 info!(
@@ -686,15 +682,15 @@ impl Accountant {
                 .try_send(scan_message)
                 .expect("BlockchainBridge is dead"),
             Err(BeginScanError::CalledFromNullScanner) => {
-                if cfg!(test) {
-                    eprintln!("Pending payable scan is disabled.");
-                } else {
+                if !cfg!(test) {
                     panic!("Null Scanner shouldn't be running inside production code.")
                 }
             }
             Err(BeginScanError::NothingToProcess) => {
-                eprintln!("No pending payable found to process. The Scan was ended.");
-                // TODO: Do something better than just using eprintln
+                debug!(
+                    &self.logger,
+                    "There was nothing to process during pending payable scan."
+                );
             }
             Err(BeginScanError::ScanAlreadyRunning(timestamp)) => {
                 info!(
@@ -723,15 +719,15 @@ impl Accountant {
                 .try_send(scan_message)
                 .expect("BlockchainBridge is dead"),
             Err(BeginScanError::CalledFromNullScanner) => {
-                if cfg!(test) {
-                    eprintln!("Receivable scan is disabled.");
-                } else {
+                if !cfg!(test) {
                     panic!("Null Scanner shouldn't be running inside production code.")
                 }
             }
             Err(BeginScanError::NothingToProcess) => {
-                eprintln!("The Scan was ended.");
-                // TODO: Do something better than just using eprintln
+                debug!(
+                    &self.logger,
+                    "There was nothing to process during receivable scan."
+                );
             }
             Err(BeginScanError::ScanAlreadyRunning(timestamp)) => {
                 info!(
