@@ -344,10 +344,10 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
                 let node_record = self
                     .neighborhood_database
                     .node_by_key_mut(&public_key)
-                    .unwrap_or_else(|| panic!("No Node Record found for public_key: {public_key}"));
+                    .unwrap_or_else(|| panic!("No Node Record found for public_key: {:?}", public_key));
                 debug!(
                     self.logger,
-                     "Marking host {host_name} unreachable for the Node with public key {public_key}"
+                     "Marking host {host_name} unreachable for the Node with public key {:?}", public_key
                 );
                 node_record.metadata.unreachable_hosts.insert(host_name);
             }
@@ -5181,7 +5181,7 @@ mod tests {
                 .unreachable_hosts
                 .contains(&unreachable_host));
             TestLogHandler::new().exists_log_matching(&format!(
-                "DEBUG: Neighborhood: Marking host facebook.com unreachable for the Node with public key ZXhpdF9ub2Rl"
+                "DEBUG: Neighborhood: Marking host facebook.com unreachable for the Node with public key 0x657869745F6E6F6465"
             ));
         });
         addr.try_send(AssertionsMessage { assertions }).unwrap();

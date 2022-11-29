@@ -296,7 +296,7 @@ impl StreamHandlerPool {
                 };
                 debug!(
                     self.logger,
-                    "Sending node query about {} to Neighborhood", key
+                    "Sending node query about {:?} to Neighborhood", key
                 );
                 self.ask_neighborhood_opt
                     .as_ref()
@@ -407,7 +407,7 @@ impl StreamHandlerPool {
             Some(Some(tx_box)) => {
                 debug!(
                     self.logger,
-                    "Found already-open stream to {} keyed by {}: using",
+                    "Found already-open stream to {} keyed by {}: using it",
                     tx_box.peer_addr(),
                     sw_key
                 );
