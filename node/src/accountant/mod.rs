@@ -200,7 +200,7 @@ impl Handler<ScanForPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
-        self.handle_scan_for_payable_request(msg.response_skeleton_opt);
+        self.handle_request_for_scan_for_payable(msg.response_skeleton_opt);
         let _ = self.notify_later.scan_for_payable.notify_later(
             ScanForPayables {
                 response_skeleton_opt: None,
@@ -215,7 +215,7 @@ impl Handler<ScanForPendingPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
-        self.handle_scan_for_pending_payable_request(msg.response_skeleton_opt);
+        self.handle_request_for_scan_for_pending_payable(msg.response_skeleton_opt);
         let _ = self.notify_later.scan_for_pending_payable.notify_later(
             ScanForPendingPayables {
                 response_skeleton_opt: None, // because scheduled scans don't respond
@@ -230,7 +230,7 @@ impl Handler<ScanForReceivables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
-        self.handle_scan_for_receivables_request(msg.response_skeleton_opt);
+        self.handle_request_for_scan_for_receivable(msg.response_skeleton_opt);
         let _ = self.notify_later.scan_for_receivable.notify_later(
             ScanForReceivables {
                 response_skeleton_opt: None, // because scheduled scans don't respond
@@ -628,7 +628,10 @@ impl Accountant {
             .expect("UiGateway is dead");
     }
 
-    fn handle_scan_for_payable_request(&mut self, response_skeleton_opt: Option<ResponseSkeleton>) {
+    fn handle_request_for_scan_for_payable(
+        &mut self,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+    ) {
         match self.scanners.payable.begin_scan(
             SystemTime::now(),
             response_skeleton_opt,
@@ -664,7 +667,7 @@ impl Accountant {
         }
     }
 
-    fn handle_scan_for_pending_payable_request(
+    fn handle_request_for_scan_for_pending_payable(
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
@@ -701,7 +704,7 @@ impl Accountant {
         }
     }
 
-    fn handle_scan_for_receivables_request(
+    fn handle_request_for_scan_for_receivable(
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
@@ -745,12 +748,12 @@ impl Accountant {
         response_skeleton: ResponseSkeleton,
     ) {
         match scan_type {
-            ScanType::Payables => self.handle_scan_for_payable_request(Some(response_skeleton)),
+            ScanType::Payables => self.handle_request_for_scan_for_payable(Some(response_skeleton)),
             ScanType::PendingPayables => {
-                self.handle_scan_for_pending_payable_request(Some(response_skeleton));
+                self.handle_request_for_scan_for_pending_payable(Some(response_skeleton));
             }
             ScanType::Receivables => {
-                self.handle_scan_for_receivables_request(Some(response_skeleton))
+                self.handle_request_for_scan_for_receivable(Some(response_skeleton))
             }
         }
     }
