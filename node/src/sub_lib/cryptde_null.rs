@@ -13,6 +13,7 @@ use rustc_hex::ToHex;
 use std::any::Any;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
+use masq_lib::logger::Logger;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone)]
@@ -23,6 +24,11 @@ pub struct CryptDENull {
     next_symmetric_key_seed: Arc<Mutex<u64>>,
 }
 
+/*
+    Are you here because you're having trouble with a strange byte sequence consisting only of
+    repeated ASCII '4's or decimal 52s or hex 0x34s?  If so, take a look at the implementation of
+    random() below.
+ */
 impl CryptDE for CryptDENull {
     fn encode(&self, public_key: &PublicKey, data: &PlainData) -> Result<CryptData, CryptdecError> {
         Self::encode_with_key_data(&Self::other_key_data(public_key.as_slice()), data)
@@ -55,10 +61,14 @@ impl CryptDE for CryptDENull {
         SymmetricKey::new(&key_data)
     }
 
-    #[allow(clippy::needless_range_loop)]
+    // Random data in byte arrays can be difficult to tell from purposeful data in byte arrays.
+    // Hence, for CryptDENull, whenever we are told to generate random data, we produce a string
+    // of '4' or 52 or 0x34 instead: that way you can look at the data and tell that it came from
+    // here. Never fear: CryptDEReal will give you real random data.
+    // Inspiration: https://xkcd.com/221/
     fn random(&self, dest: &mut [u8]) {
-        for i in 0..dest.len() {
-            dest[i] = b'4'
+        for byte in dest {
+            *byte = b'4'
         }
     }
 
@@ -228,7 +238,6 @@ impl CryptDENull {
             let (k, d) = Self::key_and_data(key_data.len(), data);
             if k != key_data {
                 panic!("{}", Self::wrong_key_message(key_data, data));
-                // Err(CryptdecError::OpeningFailed)
             } else {
                 Ok(PlainData::new(d))
             }

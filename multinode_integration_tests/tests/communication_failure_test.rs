@@ -22,6 +22,7 @@ use node_lib::sub_lib::route::{Route, RouteSegment};
 use node_lib::sub_lib::versioned_data::VersionedData;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use std::str::FromStr;
+use multinode_integration_tests_lib::masq_node_client::MASQNodeClient;
 use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::wallet::Wallet;
 
@@ -150,7 +151,7 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         let relay1_mock = node_map.remove(&relay1_key).unwrap();
         (originating_node, relay1_mock, cheap_exit_key, normal_exit_key)
     };
-    let mut client = originating_node.make_client (8080);
+    let mut client: MASQNodeClient = originating_node.make_client (8080);
     let masquerader = JsonMasquerader::new();
     let originating_node_alias_cryptde = CryptDENull::from (&originating_node.alias_public_key(), TEST_DEFAULT_MULTINODE_CHAIN);
     let relay1_cryptde = CryptDENull::from (&relay1_mock.main_public_key(), TEST_DEFAULT_MULTINODE_CHAIN);
@@ -161,7 +162,11 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
     let (_, _, live_cores_package) = relay1_mock.wait_for_package(&masquerader, Duration::from_secs(2)).unwrap();
     let (_, intended_exit_public_key) = CryptDENull::extract_key_pair(cheap_exit_key.len(), &live_cores_package.payload);
     assert_eq! (intended_exit_public_key, cheap_exit_key);
-    let expired_cores_package: ExpiredCoresPackage<MessageType> = live_cores_package.to_expired(SocketAddr::from_str ("1.2.3.4:5678").unwrap(), &relay1_cryptde, &cheap_exit_cryptde).unwrap();
+    let expired_cores_package: ExpiredCoresPackage<MessageType> = live_cores_package.to_expired(
+        SocketAddr::from_str ("1.2.3.4:5678").unwrap(),
+        &relay1_cryptde,
+        &cheap_exit_cryptde
+    ).unwrap();
 
     // Respond with a DNS failure to put nonexistent.com on the unreachable-host list
     let dns_fail_pkg = make_dns_fail_package(
@@ -178,6 +183,8 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         originating_node.main_public_key(),
         originating_node.socket_addr(PortSelector::First),
     ).unwrap();
+    let dns_error_response: Vec<u8> = client.wait_for_chunk();
+    // TODO: make sure it's the expected error response
 
     // This request should be routed through normal_exit because it's unreachable through cheap_exit
     client.send_chunk("GET / HTTP/1.1\r\nHost: nonexistent.com\r\n\r\n".as_bytes());
@@ -206,6 +213,13 @@ fn make_dns_fail_package (
     source_signing_cryptde: &dyn CryptDE,
     consuming_wallet: &Wallet,
 ) -> IncipientCoresPackage {
+    let route = Route {
+        hops: vec![
+            expired_cores_package.remaining_route.hops[4].clone(),
+            expired_cores_package.remaining_route.hops[5].clone(),
+            expired_cores_package.remaining_route.hops[6].clone(),
+        ]
+    };
     let client_request_vdata = match expired_cores_package.payload {
         MessageType::ClientRequest(vdata) => vdata,
         x => panic! ("Expected ClientRequest, got {:?}", x),
@@ -220,12 +234,6 @@ fn make_dns_fail_package (
             stream_key,
         }
     );
-    let route = Route::one_way(
-        RouteSegment::new(vec![destination_main_public_key], Component::ProxyServer),
-        source_signing_cryptde,
-        Some (consuming_wallet.clone()),
-        Some (TEST_DEFAULT_MULTINODE_CHAIN.rec().contract)
-    ).unwrap();
     IncipientCoresPackage::new (
         destination_alias_cryptde,
         route,
