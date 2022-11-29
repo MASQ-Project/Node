@@ -29,6 +29,9 @@ use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDa
 use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDaoError, ReceivableDaoFactory,
 };
+use crate::accountant::related_to_financials::visibility_restricted_module::{
+    check_query_is_within_tech_limits, financials_entry_check,
+};
 use crate::accountant::tools::accountant_tools::{Scanner, Scanners, TransactionConfirmationTools};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
@@ -73,7 +76,6 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 use thousands::Separable;
 use web3::types::{TransactionReceipt, H256};
-use crate::accountant::related_to_financials::visibility_restricted_module::{check_query_is_within_tech_limits, financials_entry_check};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 

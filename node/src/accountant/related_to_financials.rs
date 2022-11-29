@@ -3,10 +3,10 @@
 use std::fmt::Debug;
 
 fn fits_in_0_to_i64max_for_u64<T>(num: &T) -> bool
-    where
-        T: Ord + Copy + TryFrom<u64>,
-        u64: TryFrom<T>,
-        <T as TryFrom<u64>>::Error: Debug,
+where
+    T: Ord + Copy + TryFrom<u64>,
+    u64: TryFrom<T>,
+    <T as TryFrom<u64>>::Error: Debug,
 {
     match u64::try_from(*num) {
         Ok(u64_num) => u64_num <= i64::MAX as u64,
@@ -21,26 +21,26 @@ fn fits_in_0_to_i64max_for_u64<T>(num: &T) -> bool
     }
 }
 
-pub (in crate::accountant) mod visibility_restricted_module {
+pub(in crate::accountant) mod visibility_restricted_module {
     use crate::accountant::dao_utils::CustomQuery;
+    use crate::accountant::related_to_financials::fits_in_0_to_i64max_for_u64;
     use masq_lib::constants::{
         REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, REQUEST_WITH_NO_VALUES, VALUE_EXCEEDS_ALLOWED_LIMIT,
     };
     use masq_lib::messages::UiFinancialsRequest;
     use masq_lib::ui_gateway::{MessageBody, MessagePath};
     use std::fmt::{Debug, Display};
-    use crate::accountant::related_to_financials::fits_in_0_to_i64max_for_u64;
 
     pub fn check_query_is_within_tech_limits<T>(
         query: &CustomQuery<T>,
         table: &str,
         context_id: u64,
     ) -> Result<(), MessageBody>
-        where
-            T: Ord + Copy + Display + TryFrom<u64>,
-            u64: TryFrom<T>,
-            <u64 as TryFrom<T>>::Error: Debug,
-            <T as TryFrom<u64>>::Error: Debug,
+    where
+        T: Ord + Copy + Display + TryFrom<u64>,
+        u64: TryFrom<T>,
+        <u64 as TryFrom<T>>::Error: Debug,
+        <T as TryFrom<u64>>::Error: Debug,
     {
         let err = |param_name, num: &dyn Display| {
             Err(MessageBody {
@@ -80,12 +80,19 @@ pub (in crate::accountant) mod visibility_restricted_module {
         }
     }
 
-    pub(in crate::accountant) fn financials_entry_check(msg: &UiFinancialsRequest, context_id: u64) -> Result<(), MessageBody> {
-        if !msg.stats_required && msg.top_records_opt.is_none() && msg.custom_queries_opt.is_none() {
+    pub(in crate::accountant) fn financials_entry_check(
+        msg: &UiFinancialsRequest,
+        context_id: u64,
+    ) -> Result<(), MessageBody> {
+        if !msg.stats_required && msg.top_records_opt.is_none() && msg.custom_queries_opt.is_none()
+        {
             Err(MessageBody {
                 opcode: "financials".to_string(),
                 path: MessagePath::Conversation(context_id),
-                payload: Err((REQUEST_WITH_NO_VALUES, "Empty requests with missing queries not to be processed".to_string())),
+                payload: Err((
+                    REQUEST_WITH_NO_VALUES,
+                    "Empty requests with missing queries not to be processed".to_string(),
+                )),
             })
         } else if msg.top_records_opt.is_some() && msg.custom_queries_opt.is_some() {
             Err(MessageBody {
@@ -101,14 +108,14 @@ pub (in crate::accountant) mod visibility_restricted_module {
 
 #[cfg(test)]
 mod tests {
+    use super::visibility_restricted_module::check_query_is_within_tech_limits;
     use crate::accountant::dao_utils::CustomQuery;
     use crate::accountant::related_to_financials::fits_in_0_to_i64max_for_u64;
     use masq_lib::constants::VALUE_EXCEEDS_ALLOWED_LIMIT;
     use masq_lib::messages::TopRecordsOrdering::Age;
+    use masq_lib::ui_gateway::{MessageBody, MessagePath};
     use std::fmt::{Debug, Display};
     use std::time::SystemTime;
-    use masq_lib::ui_gateway::{MessageBody, MessagePath};
-    use super::visibility_restricted_module::check_query_is_within_tech_limits;
 
     fn assert_excessive_values_in_check_query_is_within_tech_limits<T>(
         query: CustomQuery<T>,
