@@ -689,7 +689,7 @@ mod tests {
     }
 
     #[test]
-    fn can_retrieve_all_full_neighbors() {
+    fn can_retrieve_all_full_and_half_neighbors() {
         let root_node = make_node_record(1111, true);
         let full_neighbor_1 = make_node_record(2222, true);
         let full_neighbor_2 = make_node_record(3333, true);
