@@ -1149,19 +1149,24 @@ impl MASQRealNode {
         loop {
             println!("Checking for {} startup", name);
             thread::sleep(Duration::from_millis(100));
-            let output = Self::exec_command_on_container_and_wait(
+            let output = match Self::exec_command_on_container_and_wait(
                 name,
                 vec![
                     "cat",
                     &format!("{}/{}", DATA_DIRECTORY, CURRENT_LOGFILE_NAME),
                 ],
-            )
-            .unwrap_or_else(|e| {
-                panic!(
-                    "Failed to read {}/{}: {}",
-                    DATA_DIRECTORY, CURRENT_LOGFILE_NAME, e
-                )
-            });
+            ) {
+                Ok(output) => output,
+                Err(e) => {
+                    println!(
+                        "Failed to cat {}/{}: {}",
+                        DATA_DIRECTORY, CURRENT_LOGFILE_NAME, e
+                    );
+                    retries_left -= 1;
+                    continue;
+                }
+            };
+
             match regex.captures(output.as_str()) {
                 Some(captures) => {
                     let node_reference =
