@@ -178,15 +178,9 @@ macro_rules! dump_statistics_lines {
 }
 
 //this macro uses both repetition and the past! procedural macro that creates idents in place by combining literals;
-//there are two large blocks of conditions in the middle, made by the repetition and they result in a tuple of closures
-//called later separated by a function call in order to create blank lines in between (only in case of evaluating both sets)
+//there are two large blocks of conditions expanded by repetition, resulting in a tuple of table-specific closures
 macro_rules! process_records_after_their_flight_home {
-    ($self:expr, $query_returned_results: expr, $($account_type: literal),+; $gwei_flag: expr, $stdout: expr) => {
-
-        let both_sets = $self.are_both_sets_to_be_displayed();
-        let (payable_headings, receivable_headings) = Self::prepare_headings_of_records($gwei_flag);
-        let (payable_processing_closure, receivable_processing_closure) =
-
+    ($self:expr, $query_returned_results: expr, $($account_type: literal),+) => {
         ($(
             |stdout: &mut dyn Write|{
                 paste!{
@@ -211,13 +205,7 @@ macro_rules! process_records_after_their_flight_home {
                     };
                 }
             }
-        ),+);
-
-        payable_processing_closure($stdout);
-        if both_sets {
-            Self::triple_or_single_blank_line($stdout, false)
-        }
-        receivable_processing_closure($stdout)
+        ),+)
     };
 }
 
@@ -322,13 +310,18 @@ impl FinancialsCommand {
     ) {
         Self::triple_or_single_blank_line(stdout, is_first_printed_thing);
         self.main_title_for_tops_opt(stdout);
-        process_records_after_their_flight_home!(
+        let is_both_sets = self.are_both_sets_to_be_displayed();
+        let (payable_headings, receivable_headings) = Self::prepare_headings_of_records(gwei_flag);
+        let (payable_processing_closure, receivable_processing_closure) = process_records_after_their_flight_home!(
             self,
             returned_records,
             "payable", "receivable";
-            gwei_flag,
-            stdout
         );
+        payable_processing_closure(stdout);
+        if is_both_sets {
+            Self::triple_or_single_blank_line(stdout, false)
+        }
+        receivable_processing_closure(stdout)
     }
 
     fn are_both_sets_to_be_displayed(&self) -> bool {

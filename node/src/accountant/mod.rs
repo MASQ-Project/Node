@@ -29,7 +29,6 @@ use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDa
 use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDaoError, ReceivableDaoFactory,
 };
-use crate::accountant::related_to_financials::check_query_is_within_tech_limits;
 use crate::accountant::tools::accountant_tools::{Scanner, Scanners, TransactionConfirmationTools};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
@@ -47,7 +46,6 @@ use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
-use crate::{process_individual_range_queries, process_top_records_query};
 use actix::Actor;
 use actix::Addr;
 use actix::AsyncContext;
@@ -63,7 +61,6 @@ use masq_lib::messages::{FromMessageBody, ToMessageBody, UiFinancialsRequest};
 use masq_lib::ui_gateway::MessageTarget::ClientId;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{plus, ExpectValue};
-use paste::paste;
 use payable_dao::PayableDao;
 use receivable_dao::ReceivableDao;
 use std::any::type_name;
@@ -76,6 +73,7 @@ use std::path::Path;
 use std::time::{Duration, SystemTime};
 use thousands::Separable;
 use web3::types::{TransactionReceipt, H256};
+use crate::accountant::related_to_financials::visibility_restricted_module::{check_query_is_within_tech_limits, financials_entry_check};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
 
@@ -948,7 +946,7 @@ impl Accountant {
     }
 
     fn compute_financials(&self, msg: &UiFinancialsRequest, context_id: u64) -> MessageBody {
-        if let Err(message_body) = Self::financials_entry_check(msg, context_id) {
+        if let Err(message_body) = financials_entry_check(msg, context_id) {
             return message_body;
         };
         let stats_opt = self.process_stats(msg);
@@ -999,7 +997,19 @@ impl Accountant {
     }
 
     fn process_top_records_query(&self, msg: &UiFinancialsRequest) -> Option<QueryResults> {
-        process_top_records_query!(self, msg, "payable", "receivable")
+        msg.top_records_opt.map(|config| {
+            let payable = self
+                .request_payable_accounts_by_specific_mode(config.into())
+                .unwrap_or_default();
+            let receivable = self
+                .request_receivable_accounts_by_specific_mode(config.into())
+                .unwrap_or_default();
+
+            QueryResults {
+                payable_opt: Some(payable),
+                receivable_opt: Some(receivable),
+            }
+        })
     }
 
     fn process_custom_queries(
@@ -1007,7 +1017,30 @@ impl Accountant {
         msg: &UiFinancialsRequest,
         context_id: u64,
     ) -> Result<Option<QueryResults>, MessageBody> {
-        process_individual_range_queries!(self, msg, context_id, "payable", "receivable")
+        Ok(match msg.custom_queries_opt.as_ref() {
+            Some(specs) => {
+                let payable_opt = if let Some(query_specs) = specs.payable_opt.as_ref() {
+                    let query = CustomQuery::from(query_specs);
+                    check_query_is_within_tech_limits(&query, "payable", context_id)?;
+                    self.request_payable_accounts_by_specific_mode(query)
+                } else {
+                    None
+                };
+                let receivable_opt = if let Some(query_specs) = specs.receivable_opt.as_ref() {
+                    let query = CustomQuery::from(query_specs);
+                    check_query_is_within_tech_limits(&query, "receivable", context_id)?;
+                    self.request_receivable_accounts_by_specific_mode(query)
+                } else {
+                    None
+                };
+
+                Some(QueryResults {
+                    payable_opt,
+                    receivable_opt,
+                })
+            }
+            None => None,
+        })
     }
 
     fn process_queries_of_records(
@@ -1026,37 +1059,6 @@ impl Accountant {
         {
             Some(results) => Ok(results),
             None => Ok(None),
-        }
-    }
-
-    fn financials_bad_news(err_code: u64, err_msg: &str, context_id: u64) -> MessageBody {
-        MessageBody {
-            opcode: "financials".to_string(),
-            path: MessagePath::Conversation(context_id),
-            payload: Err((err_code, err_msg.to_string())),
-        }
-    }
-
-    fn financials_entry_check(
-        msg: &UiFinancialsRequest,
-        context_id: u64,
-    ) -> Result<(), MessageBody> {
-        if !msg.stats_required && msg.top_records_opt.is_none() && msg.custom_queries_opt.is_none()
-        {
-            Err(Self::financials_bad_news(
-                REQUEST_WITH_NO_VALUES,
-                "Empty requests with missing queries not to be processed",
-                context_id,
-            ))
-        } else if msg.top_records_opt.is_some() && msg.custom_queries_opt.is_some() {
-            Err(Self::financials_bad_news(
-                REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS,
-                    "Requesting top records and the more customized subset of records is not allowed both at the same time",
-                    context_id
-                )
-            )
-        } else {
-            Ok(())
         }
     }
 

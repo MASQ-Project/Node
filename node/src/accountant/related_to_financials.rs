@@ -1,71 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::dao_utils::CustomQuery;
-use crate::accountant::Accountant;
-use masq_lib::constants::VALUE_EXCEEDS_ALLOWED_LIMIT;
-use masq_lib::ui_gateway::MessageBody;
-use std::fmt::{Debug, Display};
-
-//there are two fundamental components making the macros powerful:
-//a) see the procedural paste! macro (an external library) allowing to assemble valid idents (e. g. field or function names) from
-// both in-place-defined and with-args-supplied literals
-//b) repetition $(expression),+ in between round brackets producing a tuple that is later deconstructed in order to get the computed values out of it.
-
-#[macro_export]
-macro_rules! process_individual_range_queries {
-    ($self: expr, $financials_request: expr, $context_id: expr, $($table_name: literal),+) => {
-        Ok(match $financials_request.custom_queries_opt.as_ref(){
-            Some(specs) => {
-                let (payable_opt, receivable_opt) =
-
-                ($(paste! {
-                    if let Some(query_specs) = specs.[<$table_name _opt>].as_ref() {
-                        let query = CustomQuery::from(query_specs);
-                        check_query_is_within_tech_limits(&query, $table_name, $context_id)?;
-                        $self.[<request_ $table_name _accounts_by_specific_mode>](
-                            query
-                        )
-                    } else {
-                        None
-                    }
-                }),+);
-
-                Some(
-                    QueryResults {
-                        payable_opt,
-                        receivable_opt,
-                    }
-                )
-            }
-            None => None}
-        )
-    };
-}
-
-#[macro_export]
-macro_rules! process_top_records_query {
-    ($self: expr, $financials_request: expr, $($table_name: literal),+) => {
-        $financials_request.top_records_opt.map(|config|{
-            let (payable, receivable) =
-
-            ($(paste! {
-                $self.[<request_ $table_name _accounts_by_specific_mode>](config.into())
-               .unwrap_or_default()
-            }),+);
-
-            QueryResults{
-                payable_opt: Some(payable),
-                receivable_opt: Some(receivable)
-            }
-        })
-    };
-}
+use std::fmt::Debug;
 
 fn fits_in_0_to_i64max_for_u64<T>(num: &T) -> bool
-where
-    T: Ord + Copy + TryFrom<u64>,
-    u64: TryFrom<T>,
-    <T as TryFrom<u64>>::Error: Debug,
+    where
+        T: Ord + Copy + TryFrom<u64>,
+        u64: TryFrom<T>,
+        <T as TryFrom<u64>>::Error: Debug,
 {
     match u64::try_from(*num) {
         Ok(u64_num) => u64_num <= i64::MAX as u64,
@@ -80,66 +21,94 @@ where
     }
 }
 
-pub fn check_query_is_within_tech_limits<T>(
-    query: &CustomQuery<T>,
-    table: &str,
-    context_id: u64,
-) -> Result<(), MessageBody>
-where
-    T: Ord + Copy + Display + TryFrom<u64>,
-    u64: TryFrom<T>,
-    <u64 as TryFrom<T>>::Error: Debug,
-    <T as TryFrom<u64>>::Error: Debug,
-{
-    let err = |param_name, num: &dyn Display| {
-        Err(Accountant::financials_bad_news(
-            VALUE_EXCEEDS_ALLOWED_LIMIT,
-            &format!(
-                "Range query for {}: {} requested too big. Should be less than or equal to {}, not: {}",
-                table,
-                param_name,
-                i64::MAX,
-                num
-            ),
-            context_id,
-        ))
+pub (in crate::accountant) mod visibility_restricted_module {
+    use crate::accountant::dao_utils::CustomQuery;
+    use masq_lib::constants::{
+        REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, REQUEST_WITH_NO_VALUES, VALUE_EXCEEDS_ALLOWED_LIMIT,
     };
-    if let CustomQuery::RangeQuery {
-        min_age_s,
-        max_age_s,
-        min_amount_gwei,
-        max_amount_gwei,
-        ..
-    } = query
+    use masq_lib::messages::UiFinancialsRequest;
+    use masq_lib::ui_gateway::{MessageBody, MessagePath};
+    use std::fmt::{Debug, Display};
+    use crate::accountant::related_to_financials::fits_in_0_to_i64max_for_u64;
+
+    pub fn check_query_is_within_tech_limits<T>(
+        query: &CustomQuery<T>,
+        table: &str,
+        context_id: u64,
+    ) -> Result<(), MessageBody>
+        where
+            T: Ord + Copy + Display + TryFrom<u64>,
+            u64: TryFrom<T>,
+            <u64 as TryFrom<T>>::Error: Debug,
+            <T as TryFrom<u64>>::Error: Debug,
     {
-        match (
-            min_age_s <= &(i64::MAX as u64),
-            max_age_s <= &(i64::MAX as u64),
-            fits_in_0_to_i64max_for_u64(min_amount_gwei),
-            fits_in_0_to_i64max_for_u64(max_amount_gwei),
-        ) {
-            (false, ..) => err("Min age", min_age_s),
-            (_, false, ..) => err("Max age", max_age_s),
-            (_, _, false, _) => err("Min amount", min_amount_gwei),
-            (_, _, _, false) => err("Max amount", max_amount_gwei),
-            _ => Ok(()),
+        let err = |param_name, num: &dyn Display| {
+            Err(MessageBody {
+                opcode: "financials".to_string(),
+                path: MessagePath::Conversation(context_id),
+                payload: Err((VALUE_EXCEEDS_ALLOWED_LIMIT, format!(
+                    "Range query for {}: {} requested too big. Should be less than or equal to {}, not: {}",
+                    table,
+                    param_name,
+                    i64::MAX,
+                    num
+                )))
+            })
+        };
+        if let CustomQuery::RangeQuery {
+            min_age_s,
+            max_age_s,
+            min_amount_gwei,
+            max_amount_gwei,
+            ..
+        } = query
+        {
+            match (
+                min_age_s <= &(i64::MAX as u64),
+                max_age_s <= &(i64::MAX as u64),
+                fits_in_0_to_i64max_for_u64(min_amount_gwei),
+                fits_in_0_to_i64max_for_u64(max_amount_gwei),
+            ) {
+                (false, ..) => err("Min age", min_age_s),
+                (_, false, ..) => err("Max age", max_age_s),
+                (_, _, false, _) => err("Min amount", min_amount_gwei),
+                (_, _, _, false) => err("Max amount", max_amount_gwei),
+                _ => Ok(()),
+            }
+        } else {
+            panic!("Broken code: only range query belongs in here")
         }
-    } else {
-        panic!("Broken code: only range query belongs in here")
+    }
+
+    pub(in crate::accountant) fn financials_entry_check(msg: &UiFinancialsRequest, context_id: u64) -> Result<(), MessageBody> {
+        if !msg.stats_required && msg.top_records_opt.is_none() && msg.custom_queries_opt.is_none() {
+            Err(MessageBody {
+                opcode: "financials".to_string(),
+                path: MessagePath::Conversation(context_id),
+                payload: Err((REQUEST_WITH_NO_VALUES, "Empty requests with missing queries not to be processed".to_string())),
+            })
+        } else if msg.top_records_opt.is_some() && msg.custom_queries_opt.is_some() {
+            Err(MessageBody {
+                opcode: "financials".to_string(),
+                path: MessagePath::Conversation(context_id),
+                payload: Err((REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, "Requesting top records and the more customized subset of records is not allowed both at the same time".to_string())),
+            })
+        } else {
+            Ok(())
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use crate::accountant::dao_utils::CustomQuery;
-    use crate::accountant::related_to_financials::{
-        check_query_is_within_tech_limits, fits_in_0_to_i64max_for_u64,
-    };
-    use crate::accountant::Accountant;
+    use crate::accountant::related_to_financials::fits_in_0_to_i64max_for_u64;
     use masq_lib::constants::VALUE_EXCEEDS_ALLOWED_LIMIT;
     use masq_lib::messages::TopRecordsOrdering::Age;
     use std::fmt::{Debug, Display};
     use std::time::SystemTime;
+    use masq_lib::ui_gateway::{MessageBody, MessagePath};
+    use super::visibility_restricted_module::check_query_is_within_tech_limits;
 
     fn assert_excessive_values_in_check_query_is_within_tech_limits<T>(
         query: CustomQuery<T>,
@@ -154,11 +123,11 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(Accountant::financials_bad_news(
-                VALUE_EXCEEDS_ALLOWED_LIMIT,
-                err_msg,
-                1234
-            ))
+            Err(MessageBody {
+                opcode: "financials".to_string(),
+                path: MessagePath::Conversation(1234),
+                payload: Err((VALUE_EXCEEDS_ALLOWED_LIMIT, err_msg.to_string())),
+            })
         )
     }
 
