@@ -43,6 +43,7 @@ where
 {
     match string_opt {
         None => Ok(None),
+        //TODO use Box::leak here, with Box::from_raw used afterwards
         Some(string_params) => values_parser(string_params.as_str())
             .map(|val| Some(val))
             .map_err(TypedConfigLayerError::BadCombinedParamsFormat),

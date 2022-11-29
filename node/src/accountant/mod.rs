@@ -608,11 +608,6 @@ impl Accountant {
         let threshold = self
             .payable_threshold_gauge
             .calculate_payout_threshold_in_gwei(&self.config.payment_thresholds, debt_age);
-        //TODO remove this eprintln
-        eprintln!(
-            "threshold: {}, payable balance {}",
-            threshold, payable.balance_wei
-        );
         if payable.balance_wei > threshold {
             Some(threshold)
         } else {
@@ -1492,7 +1487,7 @@ pub mod check_sqlite_fns {
             _msg: TestOurUserDefinedSqliteFunctions,
             _ctx: &mut Self::Context,
         ) -> Self::Result {
-            //this call kills the test if our own sqlite functions haven't been hooked up
+            //this fn call will kill a test if our user-defined sqlite functions haven't been properly registered
             self.receivable_dao
                 .new_delinquencies(SystemTime::now(), &DEFAULT_PAYMENT_THRESHOLDS);
             System::current().stop();
@@ -1506,7 +1501,6 @@ mod tests {
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::ops::{Add, Sub};
-    use std::panic::catch_unwind;
     use std::rc::Rc;
     use std::sync::Mutex;
     use std::sync::{Arc, MutexGuard};
@@ -1534,10 +1528,11 @@ mod tests {
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::test_utils::{
-        bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_pending_payable_fingerprint,
-        make_receivable_account, BannedDaoFactoryMock, MessageIdGeneratorMock,
-        PayableDaoFactoryMock, PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
-        ReceivableDaoFactoryMock, ReceivableDaoMock,
+        bc_from_ac_plus_earning_wallet, bc_from_ac_plus_wallets, make_payable_account,
+        make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock,
+        MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock,
+        PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock,
+        ReceivableDaoMock,
     };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::tools::accountant_tools::{NullScanner, ReceivablesScanner};
@@ -4353,9 +4348,144 @@ mod tests {
     }
 
     #[test]
+    fn is_innocent_age_works_for_age_smaller_than_innocent_age() {
+        let payable_age = 999;
+
+        let result = PayableThresholdsGaugeReal::default().is_innocent_age(payable_age, 1000);
+
+        assert_eq!(result, true)
+    }
+
+    #[test]
+    fn is_innocent_age_works_for_age_equal_to_innocent_age() {
+        let payable_age = 1000;
+
+        let result = PayableThresholdsGaugeReal::default().is_innocent_age(payable_age, 1000);
+
+        assert_eq!(result, true)
+    }
+
+    #[test]
+    fn is_innocent_age_works_for_excessive_age() {
+        let payable_age = 1001;
+
+        let result = PayableThresholdsGaugeReal::default().is_innocent_age(payable_age, 1000);
+
+        assert_eq!(result, false)
+    }
+
+    #[test]
+    fn is_innocent_balance_works_for_balance_smaller_than_innocent_balance() {
+        let payable_balance = 999;
+
+        let result =
+            PayableThresholdsGaugeReal::default().is_innocent_balance(payable_balance, 1000);
+
+        assert_eq!(result, true)
+    }
+
+    #[test]
+    fn is_innocent_balance_works_for_balance_equal_to_innocent_balance() {
+        let payable_balance = 1000;
+
+        let result =
+            PayableThresholdsGaugeReal::default().is_innocent_balance(payable_balance, 1000);
+
+        assert_eq!(result, true)
+    }
+
+    #[test]
+    fn is_innocent_balance_works_for_excessive_balance() {
+        let payable_balance = 1001;
+
+        let result =
+            PayableThresholdsGaugeReal::default().is_innocent_balance(payable_balance, 1000);
+
+        assert_eq!(result, false)
+    }
+
+    #[test]
+    fn payable_is_found_innocent_by_age_and_returns() {
+        let is_innocent_age_params_arc = Arc::new(Mutex::new(vec![]));
+        let payable_thresholds_gauge = PayableThresholdsGaugeMock::default()
+            .is_innocent_age_params(&is_innocent_age_params_arc)
+            .is_innocent_age_result(true);
+        let mut subject = AccountantBuilder::default().build();
+        subject.payable_threshold_gauge = Box::new(payable_thresholds_gauge);
+        let last_paid_timestamp = SystemTime::now()
+            .checked_sub(Duration::from_secs(123456))
+            .unwrap();
+        let mut payable = make_payable_account(111);
+        payable.last_paid_timestamp = last_paid_timestamp;
+        let before = SystemTime::now();
+
+        let result = subject.payable_exceeded_threshold(&payable);
+
+        let after = SystemTime::now();
+        assert_eq!(result, None);
+        let mut is_innocent_age_params = is_innocent_age_params_arc.lock().unwrap();
+        let (debt_age, threshold_value) = is_innocent_age_params.remove(0);
+        assert!(is_innocent_age_params.is_empty());
+        let time_elapsed_before = before
+            .duration_since(last_paid_timestamp)
+            .unwrap()
+            .as_secs();
+        let time_elapsed_after = after.duration_since(last_paid_timestamp).unwrap().as_secs();
+        assert!(time_elapsed_before <= debt_age && debt_age <= time_elapsed_after);
+        assert_eq!(
+            threshold_value,
+            DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec
+        )
+        //no other method was called (absence of panic) and that means we returned early
+    }
+
+    #[test]
+    fn payable_is_found_innocent_by_balance_and_returns() {
+        let is_innocent_age_params_arc = Arc::new(Mutex::new(vec![]));
+        let is_innocent_balance_params_arc = Arc::new(Mutex::new(vec![]));
+        let payable_thresholds_gauge = PayableThresholdsGaugeMock::default()
+            .is_innocent_age_params(&is_innocent_age_params_arc)
+            .is_innocent_age_result(false)
+            .is_innocent_balance_params(&is_innocent_balance_params_arc)
+            .is_innocent_balance_result(true);
+        let mut subject = AccountantBuilder::default().build();
+        subject.payable_threshold_gauge = Box::new(payable_thresholds_gauge);
+        let last_paid_timestamp = SystemTime::now()
+            .checked_sub(Duration::from_secs(111111))
+            .unwrap();
+        let mut payable = make_payable_account(222);
+        payable.last_paid_timestamp = last_paid_timestamp;
+        payable.balance_wei = 123456;
+        let before = SystemTime::now();
+
+        let result = subject.payable_exceeded_threshold(&payable);
+
+        let after = SystemTime::now();
+        assert_eq!(result, None);
+        let mut is_innocent_age_params = is_innocent_age_params_arc.lock().unwrap();
+        let (debt_age, _) = is_innocent_age_params.remove(0);
+        assert!(is_innocent_age_params.is_empty());
+        let time_elapsed_before = before
+            .duration_since(last_paid_timestamp)
+            .unwrap()
+            .as_secs();
+        let time_elapsed_after = after.duration_since(last_paid_timestamp).unwrap().as_secs();
+        assert!(time_elapsed_before <= debt_age && debt_age <= time_elapsed_after);
+        let is_innocent_balance_params = is_innocent_balance_params_arc.lock().unwrap();
+        assert_eq!(
+            *is_innocent_balance_params,
+            vec![(
+                123456_u128,
+                gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.permanent_debt_allowed_gwei)
+            )]
+        )
+        //no other method was called (absence of panic) and that means we returned early
+    }
+
+    #[test]
     fn threshold_calculation_depends_on_user_defined_payment_thresholds() {
-        let safe_age_params_arc = Arc::new(Mutex::new(vec![]));
-        let safe_balance_params_arc = Arc::new(Mutex::new(vec![]));
+        let is_innocent_age_params_arc = Arc::new(Mutex::new(vec![]));
+        let is_innocent_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let calculate_payable_threshold_params_arc = Arc::new(Mutex::new(vec![]));
         let balance = gwei_to_wei(5555_u64);
         let how_far_in_past = Duration::from_secs(1111 + 1);
@@ -4382,12 +4512,12 @@ mod tests {
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         });
         let payable_thresholds_gauge = PayableThresholdsGaugeMock::default()
-            .is_innocent_age_params(&safe_age_params_arc)
+            .is_innocent_age_params(&is_innocent_age_params_arc)
             .is_innocent_age_result(
                 how_far_in_past.as_secs()
                     <= custom_payment_thresholds.maturity_threshold_sec as u64,
             )
-            .is_innocent_balance_params(&safe_balance_params_arc)
+            .is_innocent_balance_params(&is_innocent_balance_params_arc)
             .is_innocent_balance_result(
                 balance <= gwei_to_wei(custom_payment_thresholds.permanent_debt_allowed_gwei),
             )
@@ -4397,25 +4527,28 @@ mod tests {
             .bootstrapper_config(bootstrapper_config)
             .build();
         subject.payable_threshold_gauge = Box::new(payable_thresholds_gauge);
+        let before = SystemTime::now();
 
         let result = subject.payable_exceeded_threshold(&payable_account);
 
+        let after = SystemTime::now();
         assert_eq!(result, Some(4567898));
-        let mut safe_age_params = safe_age_params_arc.lock().unwrap();
-        let safe_age_single_params = safe_age_params.remove(0);
-        assert_eq!(*safe_age_params, vec![]);
-        let (time_elapsed, curve_derived_time) = safe_age_single_params;
-        assert!(
-            (how_far_in_past.as_secs() - 3) < time_elapsed
-                && time_elapsed < (how_far_in_past.as_secs() + 3)
-        );
+        let mut is_innocent_age_params = is_innocent_age_params_arc.lock().unwrap();
+        let (time_elapsed, curve_derived_time) = is_innocent_age_params.remove(0);
+        assert_eq!(*is_innocent_age_params, vec![]);
+        let time_elapsed_before = before
+            .duration_since(last_paid_timestamp)
+            .unwrap()
+            .as_secs();
+        let time_elapsed_after = after.duration_since(last_paid_timestamp).unwrap().as_secs();
+        assert!(time_elapsed_before <= time_elapsed && time_elapsed <= time_elapsed_after);
         assert_eq!(
             curve_derived_time,
             custom_payment_thresholds.maturity_threshold_sec as u64
         );
-        let safe_balance_params = safe_balance_params_arc.lock().unwrap();
+        let is_innocent_balance_params = is_innocent_balance_params_arc.lock().unwrap();
         assert_eq!(
-            *safe_balance_params,
+            *is_innocent_balance_params,
             vec![(
                 payable_account.balance_wei,
                 gwei_to_wei(custom_payment_thresholds.permanent_debt_allowed_gwei)
@@ -4423,13 +4556,9 @@ mod tests {
         );
         let mut calculate_payable_curves_params =
             calculate_payable_threshold_params_arc.lock().unwrap();
-        let calculate_payable_curves_single_params = calculate_payable_curves_params.remove(0);
+        let (payment_thresholds, time_elapsed) = calculate_payable_curves_params.remove(0);
         assert_eq!(*calculate_payable_curves_params, vec![]);
-        let (payment_thresholds, time_elapsed) = calculate_payable_curves_single_params;
-        assert!(
-            (how_far_in_past.as_secs() - 3) < time_elapsed
-                && time_elapsed < (how_far_in_past.as_secs() + 3)
-        );
+        assert!(time_elapsed_before <= time_elapsed && time_elapsed <= time_elapsed_after);
         assert_eq!(payment_thresholds, custom_payment_thresholds)
     }
 
