@@ -939,7 +939,7 @@ impl GossipHandler for StandardGossipHandler {
             database.root().public_key(),
             &agrs_by_key,
             DEFAULT_MINIMUM_HOP_COUNT,
-            &database,
+            database,
         );
 
         let agrs = agrs
@@ -1000,7 +1000,7 @@ impl StandardGossipHandler {
                 match agrs.get(node) {
                     Some(agr) => agr.get_all_inner_neighbors(),
                     None => {
-                        patch.remove(&node);
+                        patch.remove(node);
                         trace!(
                             self.logger,
                             "While computing patch no AGR record found for public key {:?}",
