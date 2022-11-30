@@ -656,12 +656,21 @@ impl Accountant {
                 );
             }
             Err(BeginScanError::ScanAlreadyRunning(timestamp)) => {
-                info!(
-                    &self.logger,
-                    "Payable scan was already initiated at {}. \
-                    Hence, this scan request will be ignored.",
-                    timestamp_as_string(&timestamp)
-                )
+                if response_skeleton_opt.is_some() {
+                    info!(
+                        &self.logger,
+                        "Payable scan was already initiated at {}. \
+                        Hence, this scan request will be ignored.",
+                        timestamp_as_string(&timestamp)
+                    );
+                } else {
+                    debug!(
+                        &self.logger,
+                        "Payable scan was already initiated at {}. \
+                        Hence, this scan request will be ignored.",
+                        timestamp_as_string(&timestamp)
+                    );
+                }
             }
         }
     }
@@ -693,12 +702,21 @@ impl Accountant {
                 );
             }
             Err(BeginScanError::ScanAlreadyRunning(timestamp)) => {
-                info!(
-                    &self.logger,
-                    "Pending Payable scan was already initiated at {}. \
-                    Hence, this scan request will be ignored.",
-                    timestamp_as_string(&timestamp)
-                )
+                if response_skeleton_opt.is_some() {
+                    info!(
+                        &self.logger,
+                        "Pending Payable scan was already initiated at {}. \
+                        Hence, this scan request will be ignored.",
+                        timestamp_as_string(&timestamp)
+                    )
+                } else {
+                    debug!(
+                        &self.logger,
+                        "Pending Payable scan was already initiated at {}. \
+                        Hence, this scan request will be ignored.",
+                        timestamp_as_string(&timestamp)
+                    )
+                }
             }
         }
     }
@@ -730,12 +748,21 @@ impl Accountant {
                 );
             }
             Err(BeginScanError::ScanAlreadyRunning(timestamp)) => {
-                info!(
-                    &self.logger,
-                    "Receivable scan was already initiated at {}. \
-                    Hence, this scan request will be ignored.",
-                    timestamp_as_string(&timestamp)
-                )
+                if response_skeleton_opt.is_some() {
+                    info!(
+                        &self.logger,
+                        "Receivable scan was already initiated at {}. \
+                        Hence, this scan request will be ignored.",
+                        timestamp_as_string(&timestamp)
+                    )
+                } else {
+                    debug!(
+                        &self.logger,
+                        "Receivable scan was already initiated at {}. \
+                        Hence, this scan request will be ignored.",
+                        timestamp_as_string(&timestamp)
+                    )
+                }
             }
         };
     }
@@ -2100,7 +2127,7 @@ mod tests {
         let messages_received = recording.len();
         assert_eq!(messages_received, 0);
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {}: Payable scan was already initiated",
+            "DEBUG: {}: Payable scan was already initiated",
             test_name
         ));
     }
