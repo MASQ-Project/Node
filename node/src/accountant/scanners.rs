@@ -23,7 +23,7 @@ use crate::sub_lib::utils::NotifyLaterHandle;
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, System};
 use masq_lib::logger::Logger;
-use masq_lib::messages::{ToMessageBody, UiScanResponse};
+use masq_lib::messages::{ScanType, ToMessageBody, UiScanResponse};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
 #[cfg(test)]
@@ -32,6 +32,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
+use time::format_description::parse;
+use time::OffsetDateTime;
 use web3::types::TransactionReceipt;
 
 pub struct Scanners {
@@ -95,6 +97,52 @@ pub enum BeginScanError {
     NothingToProcess,
     ScanAlreadyRunning(SystemTime),
     CalledFromNullScanner, // Exclusive for tests
+}
+
+impl BeginScanError {
+    pub fn handle_error(
+        &self,
+        logger: &Logger,
+        scan_type: ScanType,
+        is_externally_triggered: bool,
+    ) {
+        match self {
+            BeginScanError::NothingToProcess => {
+                debug!(
+                    logger,
+                    "There was nothing to process during {:?} scan.", scan_type
+                );
+            }
+            BeginScanError::ScanAlreadyRunning(timestamp) => {
+                let log_message = format!(
+                    "{:?} scan was already initiated at {}. \
+                     Hence, this scan request will be ignored.",
+                    scan_type,
+                    BeginScanError::timestamp_as_string(&timestamp)
+                );
+
+                match is_externally_triggered {
+                    true => info!(logger, "{}", log_message),
+                    false => debug!(logger, "{}", log_message),
+                }
+            }
+            BeginScanError::CalledFromNullScanner => {
+                if !cfg!(test) {
+                    panic!("Null Scanner shouldn't be running inside production code.")
+                }
+            }
+        }
+    }
+
+    pub fn timestamp_as_string(timestamp: &SystemTime) -> String {
+        const TIME_FORMATTING_STRING: &str =
+            "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]";
+
+        let offset_date_time = OffsetDateTime::from(*timestamp);
+        offset_date_time
+            .format(&parse(TIME_FORMATTING_STRING).unwrap())
+            .unwrap()
+    }
 }
 
 pub struct ScannerCommon {

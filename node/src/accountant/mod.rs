@@ -18,7 +18,6 @@ use crate::accountant::payable_dao::{Payable, PayableDaoError};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDaoError;
 use crate::accountant::scanners::{BeginScanError, NotifyLaterForScanners, Scanners};
-use crate::accountant::scanners_tools::common_tools::timestamp_as_string;
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
 use crate::bootstrapper::BootstrapperConfig;
@@ -644,34 +643,11 @@ impl Accountant {
                     .try_send(scan_message.clone())
                     .expect("BlockchainBridge is dead");
             }
-            Err(BeginScanError::CalledFromNullScanner) => {
-                if !cfg!(test) {
-                    panic!("Null Scanner shouldn't be running inside production code.")
-                }
-            }
-            Err(BeginScanError::NothingToProcess) => {
-                debug!(
-                    &self.logger,
-                    "There was nothing to process during payable scan."
-                );
-            }
-            Err(BeginScanError::ScanAlreadyRunning(timestamp)) => {
-                if response_skeleton_opt.is_some() {
-                    info!(
-                        &self.logger,
-                        "Payable scan was already initiated at {}. \
-                        Hence, this scan request will be ignored.",
-                        timestamp_as_string(&timestamp)
-                    );
-                } else {
-                    debug!(
-                        &self.logger,
-                        "Payable scan was already initiated at {}. \
-                        Hence, this scan request will be ignored.",
-                        timestamp_as_string(&timestamp)
-                    );
-                }
-            }
+            Err(e) => e.handle_error(
+                &self.logger,
+                ScanType::Payables,
+                response_skeleton_opt.is_some(),
+            ),
         }
     }
 
@@ -690,34 +666,11 @@ impl Accountant {
                 .expect("BlockchainBridge is unbound")
                 .try_send(scan_message)
                 .expect("BlockchainBridge is dead"),
-            Err(BeginScanError::CalledFromNullScanner) => {
-                if !cfg!(test) {
-                    panic!("Null Scanner shouldn't be running inside production code.")
-                }
-            }
-            Err(BeginScanError::NothingToProcess) => {
-                debug!(
-                    &self.logger,
-                    "There was nothing to process during pending payable scan."
-                );
-            }
-            Err(BeginScanError::ScanAlreadyRunning(timestamp)) => {
-                if response_skeleton_opt.is_some() {
-                    info!(
-                        &self.logger,
-                        "Pending Payable scan was already initiated at {}. \
-                        Hence, this scan request will be ignored.",
-                        timestamp_as_string(&timestamp)
-                    )
-                } else {
-                    debug!(
-                        &self.logger,
-                        "Pending Payable scan was already initiated at {}. \
-                        Hence, this scan request will be ignored.",
-                        timestamp_as_string(&timestamp)
-                    )
-                }
-            }
+            Err(e) => e.handle_error(
+                &self.logger,
+                ScanType::PendingPayables,
+                response_skeleton_opt.is_some(),
+            ),
         }
     }
 
@@ -736,34 +689,11 @@ impl Accountant {
                 .expect("BlockchainBridge is unbound")
                 .try_send(scan_message)
                 .expect("BlockchainBridge is dead"),
-            Err(BeginScanError::CalledFromNullScanner) => {
-                if !cfg!(test) {
-                    panic!("Null Scanner shouldn't be running inside production code.")
-                }
-            }
-            Err(BeginScanError::NothingToProcess) => {
-                debug!(
-                    &self.logger,
-                    "There was nothing to process during receivable scan."
-                );
-            }
-            Err(BeginScanError::ScanAlreadyRunning(timestamp)) => {
-                if response_skeleton_opt.is_some() {
-                    info!(
-                        &self.logger,
-                        "Receivable scan was already initiated at {}. \
-                        Hence, this scan request will be ignored.",
-                        timestamp_as_string(&timestamp)
-                    )
-                } else {
-                    debug!(
-                        &self.logger,
-                        "Receivable scan was already initiated at {}. \
-                        Hence, this scan request will be ignored.",
-                        timestamp_as_string(&timestamp)
-                    )
-                }
-            }
+            Err(e) => e.handle_error(
+                &self.logger,
+                ScanType::Receivables,
+                response_skeleton_opt.is_some(),
+            ),
         };
     }
 
@@ -1295,7 +1225,7 @@ mod tests {
         system.run();
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {}: Pending Payable scan was already initiated",
+            "INFO: {}: PendingPayables scan was already initiated",
             test_name
         ));
         assert_eq!(blockchain_bridge_recording.len(), 1);
@@ -1738,6 +1668,7 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .build();
+        subject.logger = Logger::new(test_name);
         subject.scanners.payable = Box::new(NullScanner::new()); // Skipping
         subject.scanners.pending_payable = Box::new(NullScanner::new()); // Skipping
         subject.scanners.receivable = Box::new(receivable_scanner);
@@ -1756,6 +1687,9 @@ mod tests {
         system.run();
         let begin_scan_params = begin_scan_params_arc.lock().unwrap();
         let notify_later_receivable_params = notify_later_receivable_params_arc.lock().unwrap();
+        TestLogHandler::new().exists_log_matching(&format!(
+            "DEBUG: {test_name}: There was nothing to process during Receivables scan."
+        ));
         assert_eq!(begin_scan_params.len(), 2);
         assert_eq!(
             *notify_later_receivable_params,
@@ -1801,6 +1735,7 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .build();
+        subject.logger = Logger::new(test_name);
         subject.scanners.payable = Box::new(NullScanner::new()); //skipping
         subject.scanners.pending_payable = Box::new(pending_payable_scanner);
         subject.scanners.receivable = Box::new(NullScanner::new()); //skipping
@@ -1818,9 +1753,12 @@ mod tests {
 
         system.run();
         let begin_scan_params = begin_scan_params_arc.lock().unwrap();
-        assert_eq!(begin_scan_params.len(), 2);
         let notify_later_pending_payable_params =
             notify_later_pending_payable_params_arc.lock().unwrap();
+        TestLogHandler::new().exists_log_matching(&format!(
+            "DEBUG: {test_name}: There was nothing to process during PendingPayables scan."
+        ));
+        assert_eq!(begin_scan_params.len(), 2);
         assert_eq!(
             *notify_later_pending_payable_params,
             vec![
@@ -1885,6 +1823,9 @@ mod tests {
         //the second attempt is the one where the queue is empty and System::current.stop() ends the cycle
         let begin_scan_params = begin_scan_params_arc.lock().unwrap();
         let notify_later_payables_params = notify_later_payables_params_arc.lock().unwrap();
+        TestLogHandler::new().exists_log_matching(&format!(
+            "DEBUG: {test_name}: There was nothing to process during Payables scan."
+        ));
         assert_eq!(*begin_scan_params, vec![(), ()]);
         assert_eq!(
             *notify_later_payables_params,
@@ -2127,7 +2068,7 @@ mod tests {
         let messages_received = recording.len();
         assert_eq!(messages_received, 0);
         TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {}: Payable scan was already initiated",
+            "DEBUG: {}: Payables scan was already initiated",
             test_name
         ));
     }

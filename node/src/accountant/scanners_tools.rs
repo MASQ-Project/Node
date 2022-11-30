@@ -276,22 +276,6 @@ pub(crate) mod receivable_scanner_tools {
     }
 }
 
-pub mod common_tools {
-    use std::time::SystemTime;
-    use time::format_description::parse;
-    use time::OffsetDateTime;
-
-    const TIME_FORMATTING_STRING: &str =
-        "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]";
-
-    pub fn timestamp_as_string(timestamp: &SystemTime) -> String {
-        let offset_date_time = OffsetDateTime::from(*timestamp);
-        offset_date_time
-            .format(&parse(TIME_FORMATTING_STRING).unwrap())
-            .unwrap()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::accountant::payable_dao::{Payable, PayableAccount};
