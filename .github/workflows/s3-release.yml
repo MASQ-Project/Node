@@ -1,70 +1,33 @@
 name: s3-release
 
 on:
-  push:
-    branches:
-      - master
-      - 'releases/**'
-    tags:
-      - v*
+  workflow_run:
+    workflows: [ci-matrix]
+    types:
+      - completed
 
 jobs:
-  build:
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - { name: linux, os: ubuntu-latest }
-          - { name: macos, os: macOS-latest }
-          - { name: windows, os: windows-latest }
-
-    name: Build node on ${{ matrix.target.os }}
-    runs-on: ${{ matrix.target.os }}
-    steps:
-      - uses: actions/checkout@v3
-      - name: Cache sccache results
-        uses: actions/cache@v3
-        env:
-          cache-name: cache-node-modules
-        with:
-          path: ~/.cargo/cache
-          key: ${{ runner.os }}-0001
-      - name: Build ${{ matrix.target.os }}
-        run: |
-          rustup check
-          case "$OSTYPE" in
-            msys)
-              echo "Windows doesn't like it when rustup updates itself"
-              rustup update --no-self-update stable
-              ;;
-            *)
-              echo "Linux and macOS don't need manual suppression of rustup self update"
-              rustup update stable
-              ;;
-          esac
-          rustup check
-          rustup component add rustfmt
-          rustup component add clippy
-          ./ci/all.sh
-          ./ci/multinode_integration_test.sh
-          ./ci/collect_results.sh
-        shell: bash
-      - name: Publish ${{ matrix.target.os }}
-        uses: actions/upload-artifact@v3
-        with:
-          name: Node-${{ matrix.target.name }}
-          path: results/generated/bin
   deploy_to_s3:
-       needs: ["build"]
-       runs-on: ubuntu-latest
-       steps:
-        - uses: actions/download-artifact@v3
-          id: download
+    strategy:
+      matrix:
+          name: [linux, macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+        - uses: actions/checkout@v3
+
+        - name: Download artifacts from PR
+          run: |
+            mkdir download
+            cd download
+            gh run download ${{ github.event.workflow_run.id }}
+          env:
+            GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
         - name: Display structure of downloaded files
-          run: ls -R
-        - name: 'Echo download path'
-          run: echo ${{steps.download.outputs.download-path}}
-        - name: S3 Sync
+          run: ls -R download
+
+        - if: ${{ startsWith(github.head_ref, 'v*') != true && github.event.workflow_run.conclusion == 'success' }}
+          name: Versioned S3 Sync
           uses: jakejarvis/s3-sync-action@v0.5.1
           with:
            args: --acl private --follow-symlinks --delete
@@ -73,5 +36,27 @@ jobs:
             AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
             AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
             AWS_REGION: 'us-west-2'
-            DEST_DIR: 'Node/latest'
-            SOURCE_DIR: ${{ steps.download.outputs.download-path }}        
+            DEST_DIR: 'Node/${{ github.event.workflow_run.head_branch }}/Node-${{ matrix.name }}'
+            SOURCE_DIR: 'download/Node-${{ matrix.name }}/generated/bin/'
+
+        - if: ${{ startsWith(github.head_ref, 'v*') == true && github.event.workflow_run.conclusion == 'success' }}
+          name: Latest S3 Sync
+          uses: jakejarvis/s3-sync-action@v0.5.1
+          with:
+           args: --acl private --follow-symlinks --delete
+          env:
+            AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            AWS_REGION: 'us-west-2'
+            DEST_DIR: 'Node/latest/Node-${{ matrix.name }}'
+            SOURCE_DIR: 'download/Node-${{ matrix.name }}/generated/bin/'
+
+        - name: Invalidate Binaries CloudFront
+          uses: chetan/invalidate-cloudfront-action@v2.3
+          env:
+            DISTRIBUTION: ${{ secrets.DISTRIBUTION }}
+            PATHS: "/Node*"
+            AWS_REGION: "us-west-2"
+            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

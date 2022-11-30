@@ -2,7 +2,7 @@ name: ci-matrix
 
 on:
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, reopened, synchronize]
     branches:
       - master
 
@@ -20,29 +20,26 @@ jobs:
     runs-on: ${{ matrix.target.os }}
     steps:
       - uses: actions/checkout@v3
-      - name: Cache sccache results
-        uses: actions/cache@v3
-        env:
-          cache-name: cache-node-modules
+      - name: Stable with rustfmt and clippy
+        uses: actions-rs/toolchain@v1
         with:
-          path: ~/.cargo/cache
-          key: ${{ runner.os }}-0001
+          profile: minimal
+          toolchain: 1.63.0
+          components: rustfmt, clippy
+          override: true
+      - uses: actions/cache@v3
+        with:
+          path: |
+            ~/.cargo/bin/
+            ~/.cargo/cache/
+            ~/.cargo/registry/index/
+            ~/.cargo/registry/cache/
+            ~/.cargo/git/db/
+            target/
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.OS }}-cargo-
       - name: Build ${{ matrix.target.os }}
         run: |
-          rustup check
-          case "$OSTYPE" in
-            msys)
-              echo "Windows doesn't like it when rustup updates itself"
-              rustup update --no-self-update stable
-              ;;
-            *)
-              echo "Linux and macOS don't need manual suppression of rustup self update"
-              rustup update stable
-              ;;
-          esac
-          rustup check
-          rustup component add rustfmt
-          rustup component add clippy
           ./ci/all.sh
           ./ci/multinode_integration_test.sh
           ./ci/collect_results.sh

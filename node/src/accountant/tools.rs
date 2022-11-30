@@ -42,7 +42,7 @@ pub(in crate::accountant) mod accountant_tools {
         }
         fn notify_later_assertable(&self, accountant: &Accountant, ctx: &mut Context<Accountant>) {
             let _ = accountant
-                .tools
+                .confirmation_tools
                 .notify_later_scan_for_pending_payable
                 .notify_later(
                     ScanForPendingPayables {
@@ -67,13 +67,16 @@ pub(in crate::accountant) mod accountant_tools {
         }
 
         fn notify_later_assertable(&self, accountant: &Accountant, ctx: &mut Context<Accountant>) {
-            let _ = accountant.tools.notify_later_scan_for_payable.notify_later(
-                ScanForPayables {
-                    response_skeleton_opt: None,
-                },
-                accountant.config.scan_intervals.payable_scan_interval,
-                ctx,
-            );
+            let _ = accountant
+                .confirmation_tools
+                .notify_later_scan_for_payable
+                .notify_later(
+                    ScanForPayables {
+                        response_skeleton_opt: None,
+                    },
+                    accountant.config.scan_intervals.payable_scan_interval,
+                    ctx,
+                );
         }
 
         as_any_impl!();
@@ -91,7 +94,7 @@ pub(in crate::accountant) mod accountant_tools {
 
         fn notify_later_assertable(&self, accountant: &Accountant, ctx: &mut Context<Accountant>) {
             let _ = accountant
-                .tools
+                .confirmation_tools
                 .notify_later_scan_for_receivable
                 .notify_later(
                     ScanForReceivables {
