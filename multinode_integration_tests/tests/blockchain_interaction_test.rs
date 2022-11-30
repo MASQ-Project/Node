@@ -136,7 +136,7 @@ fn debtors_are_credited_once_but_not_twice() {
 }
 
 #[test]
-fn blockchain_bridge_logs_when_started() {
+fn blockchain_bridge_starts_properly_on_bootstrap() {
     let mut cluster = MASQNodeCluster::start().unwrap();
     let private_key = "0011223300112233001122330011223300112233001122330011223300112233";
     let subject = cluster.start_real_node(
