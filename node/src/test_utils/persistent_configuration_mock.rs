@@ -1,7 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-#![cfg(test)]
-
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
@@ -264,10 +262,6 @@ impl PersistentConfiguration for PersistentConfigurationMock {
             .unwrap()
             .push(intervals);
         self.set_scan_intervals_results.borrow_mut().remove(0)
-    }
-
-    fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-        *self.arbitrary_id_stamp_opt.as_ref().unwrap()
     }
 }
 
@@ -617,6 +611,10 @@ impl PersistentConfigurationMock {
         self.arbitrary_id_stamp_opt = Some(stamp);
         self
     }
+
+    // fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
+    //     *self.arbitrary_id_stamp_opt.as_ref().unwrap()
+    // }
 
     fn result_from<T: Clone>(results: &RefCell<Vec<T>>) -> T {
         let mut borrowed = results.borrow_mut();

@@ -513,7 +513,6 @@ pub struct TestRawTransaction {
     pub data: Vec<u8>,
 }
 
-#[cfg(test)]
 pub mod unshared_test_utils {
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::apps::app_node;
@@ -577,12 +576,11 @@ pub mod unshared_test_utils {
         } else {
             config
         };
-        let config = if (bit_flag & RATE_PACK) == RATE_PACK {
+        if (bit_flag & RATE_PACK) == RATE_PACK {
             config.rate_pack_result(Ok(DEFAULT_RATE_PACK))
         } else {
             config
-        };
-        config
+        }
     }
 
     pub fn default_persistent_config_just_base(
@@ -669,6 +667,7 @@ pub mod unshared_test_utils {
         }
     }
 
+    #[allow(clippy::type_complexity)]
     pub struct ChannelFactoryMock {
         make_results: RefCell<
             Vec<(
@@ -686,6 +685,12 @@ pub mod unshared_test_utils {
             Receiver<HashMap<String, String>>,
         ) {
             self.make_results.borrow_mut().remove(0)
+        }
+    }
+
+    impl Default for ChannelFactoryMock {
+        fn default() -> Self {
+            Self::new()
         }
     }
 
@@ -707,7 +712,7 @@ pub mod unshared_test_utils {
     }
 
     pub fn prove_that_crash_request_handler_is_hooked_up<
-        T: Actor<Context = actix::Context<T>> + actix::Handler<NodeFromUiMessage>,
+        T: Actor<Context = Context<T>> + Handler<NodeFromUiMessage>,
     >(
         actor: T,
         crash_key: &str,
@@ -728,9 +733,9 @@ pub mod unshared_test_utils {
 
     pub fn make_pre_populated_mocked_directory_wrapper() -> DirsWrapperMock {
         DirsWrapperMock::new()
-            .home_dir_result(Some(PathBuf::from("/unexisting_home/unexisting_alice")))
+            .home_dir_result(Some(PathBuf::from("/nonexistent_home/nonexistent_alice")))
             .data_dir_result(Some(PathBuf::from(
-                "/unexisting_home/unexisting_alice/mock_directory",
+                "/nonexistent_home/nonexistent_alice/mock_directory",
             )))
     }
 
@@ -756,7 +761,7 @@ pub mod unshared_test_utils {
         type Context = Context<Self>;
 
         fn started(&mut self, ctx: &mut Self::Context) {
-            ctx.notify_later(CleanUpMessage { sleep_ms: 0 }, self.after.clone());
+            ctx.notify_later(CleanUpMessage { sleep_ms: 0 }, self.after);
         }
     }
 
@@ -887,7 +892,7 @@ pub mod unshared_test_utils {
     //B, C, D. Let's say C takes our trait object as downgraded (with a plain reference) because D later takes
     //"O" wholly as within the box. That means we couldn't easily call it in C.
     //We need to assert from outside of fn A that "O" was pasted in C properly. However for capturing a param
-    //we need an owned or a clonable object, neither of those is usually acceptable. A possible raw pointer of "O"
+    //we need an owned or a cloneable object, neither of those is usually acceptable. A possible raw pointer of "O"
     //that we create outside of fn A will be always different than what we have in C, because a move occurred
     //in between, by moving the Box around.
     //Downcasting is also a pain and not proving anything alone.
@@ -906,6 +911,12 @@ pub mod unshared_test_utils {
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct ArbitraryIdStamp(usize);
+
+    impl Default for ArbitraryIdStamp {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
 
     impl ArbitraryIdStamp {
         pub fn new() -> Self {
@@ -932,7 +943,6 @@ pub mod unshared_test_utils {
 #[cfg(test)]
 mod tests {
     use std::borrow::BorrowMut;
-    use std::iter;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
@@ -982,7 +992,7 @@ mod tests {
 
         let subject = route_to_proxy_client(&key, cryptde);
 
-        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
+        let mut garbage_can: Vec<u8> = repeat(0u8).take(96).collect();
         cryptde.random(&mut garbage_can[..]);
         assert_eq!(
             subject.hops,
@@ -1006,7 +1016,7 @@ mod tests {
 
         let subject = route_from_proxy_client(&key, cryptde);
 
-        let mut garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
+        let mut garbage_can: Vec<u8> = repeat(0u8).take(96).collect();
         cryptde.random(&mut garbage_can[..]);
         assert_eq!(
             subject.hops,
@@ -1030,8 +1040,8 @@ mod tests {
 
         let subject = route_to_proxy_server(&key, cryptde);
 
-        let mut first_garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
-        let mut second_garbage_can: Vec<u8> = iter::repeat(0u8).take(96).collect();
+        let mut first_garbage_can: Vec<u8> = repeat(0u8).take(96).collect();
+        let mut second_garbage_can: Vec<u8> = repeat(0u8).take(96).collect();
         cryptde.random(&mut first_garbage_can[..]);
         cryptde.random(&mut second_garbage_can[..]);
         assert_eq!(

@@ -1,5 +1,4 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-#![cfg(test)]
 
 use crate::discriminator::Discriminator;
 use crate::discriminator::DiscriminatorFactory;
@@ -10,16 +9,11 @@ use crate::node_configurator::DirsWrapper;
 use crate::null_masquerader::NullMasquerader;
 use crate::privilege_drop::IdWrapper;
 use crate::stream_handler_pool::StreamHandlerPoolSubs;
-use crate::stream_messages::*;
 use crate::sub_lib::framer::FramedChunk;
 use crate::sub_lib::framer::Framer;
-use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
-use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::test_utils::recorder::Recorder;
-use actix::Actor;
-use actix::Addr;
+use actix::{Actor, Addr};
 use masq_lib::test_utils::logging::TestLog;
-use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::cell::RefCell;
 use std::path::PathBuf;
 use std::str::FromStr;
@@ -30,14 +24,6 @@ use std::time::SystemTime;
 
 pub trait TestLogOwner {
     fn get_test_log(&self) -> Arc<Mutex<TestLog>>;
-}
-
-pub fn extract_log<T>(owner: T) -> (T, Arc<Mutex<TestLog>>)
-where
-    T: TestLogOwner,
-{
-    let test_log = owner.get_test_log();
-    (owner, test_log)
 }
 
 #[derive(Clone, Debug, Default)]
@@ -123,6 +109,12 @@ impl DirsWrapper for DirsWrapperMock {
             data_dir_result: self.data_dir_result.clone(),
             home_dir_result: self.home_dir_result.clone(),
         })
+    }
+}
+
+impl Default for DirsWrapperMock {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

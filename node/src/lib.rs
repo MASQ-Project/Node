@@ -7,9 +7,6 @@ pub mod sub_lib;
 #[macro_use]
 extern crate masq_lib;
 
-#[cfg(test)]
-mod node_test_utils;
-
 pub mod accountant;
 mod actor_system_factory;
 pub mod apps;
@@ -32,6 +29,7 @@ mod listener_handler;
 pub mod masquerader;
 pub mod neighborhood;
 pub mod node_configurator;
+mod node_test_utils;
 mod null_masquerader;
 pub mod privilege_drop;
 pub mod proxy_client;
