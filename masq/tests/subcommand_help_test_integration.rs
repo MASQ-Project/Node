@@ -21,7 +21,7 @@ fn assure_that_all_subcommands_hang_on_the_help_root_integration() {
     let (stdout, _, _) = help_handle.stop();
     let index = stdout.find("SUBCOMMANDS:").unwrap();
     let trimmed_help = (&stdout[index..]).to_owned();
-    let commands_files = current_dir.unwrap().join("src").join("commands");
+    let commands_files = current_dir.join("src").join("commands");
     let list: Vec<_> = fs::read_dir(&commands_files)
         .unwrap()
         .flat_map(|file| {

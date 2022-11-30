@@ -7,7 +7,6 @@ use crate::accountant::payable_dao::PayableDaoError;
 use crate::accountant::receivable_dao::ReceivableDaoError;
 use crate::accountant::{checked_conversion, gwei_to_wei};
 use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::sub_lib::accountant::WEIS_OF_GWEI;
 use crate::sub_lib::wallet::Wallet;
 use itertools::Either;
 use rusqlite::functions::{Context, FunctionFlags};
@@ -1815,13 +1814,13 @@ mod tests {
             computed_values,
             vec![
                 BigIntDivider::deconstruct(
-                    arbitrary_constant as i128 * WEIS_OF_GWEI + (slope * database_value_1) as i128
+                    gwei_to_wei::<i128, _>(arbitrary_constant) + (slope * database_value_1) as i128
                 ),
                 BigIntDivider::deconstruct(
-                    arbitrary_constant as i128 * WEIS_OF_GWEI + (slope * database_value_2) as i128
+                    gwei_to_wei::<i128, _>(arbitrary_constant) + (slope * database_value_2) as i128
                 ),
                 BigIntDivider::deconstruct(
-                    arbitrary_constant as i128 * WEIS_OF_GWEI + (slope * database_value_3) as i128
+                    gwei_to_wei::<i128, _>(arbitrary_constant) + (slope * database_value_3) as i128
                 )
             ]
         );

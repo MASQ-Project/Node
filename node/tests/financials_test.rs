@@ -27,7 +27,7 @@ fn financials_command_retrieves_payable_and_receivable_records() {
         "financials_command_retrieves_payable_and_receivable_records",
     );
     let timestamp_payable = from_time_t(to_time_t(SystemTime::now()) - 678);
-    let timestamp_receivable_1 = SystemTime::now();
+    let timestamp_receivable_1 = from_time_t(to_time_t(SystemTime::now()) - 10000);
     let timestamp_receivable_2 = from_time_t(to_time_t(SystemTime::now()) - 1111);
     let wallet_payable = make_wallet("efef");
     let wallet_receivable_1 = make_wallet("abcde");
@@ -90,17 +90,13 @@ fn financials_command_retrieves_payable_and_receivable_records() {
     assert_eq!(receivable[0].balance_gwei, amount_receivable_1 as i64);
     assert_eq!(receivable[1].wallet, wallet_receivable_2.to_string());
     assert_eq!(receivable[1].balance_gwei, amount_receivable_2 as i64);
-    let act_phase_time_period = after.duration_since(before).unwrap().as_secs() + 1;
+    let act_period = after.duration_since(before).unwrap().as_secs() + 1;
     let age_payable = payable[0].age_s;
-    assert!(678 <= age_payable && age_payable <= (age_payable + act_phase_time_period));
+    assert!(678 <= age_payable && age_payable <= (age_payable + act_period));
     let age_receivable_1 = receivable[0].age_s;
-    assert!(
-        0 <= age_receivable_1 && age_receivable_1 <= (age_receivable_1 + act_phase_time_period)
-    );
+    assert!(10000 <= age_receivable_1 && age_receivable_1 <= (age_receivable_1 + act_period));
     let age_receivable_2 = receivable[1].age_s;
-    assert!(
-        1111 <= age_receivable_2 && age_receivable_2 <= (age_receivable_2 + act_phase_time_period)
-    );
+    assert!(1111 <= age_receivable_2 && age_receivable_2 <= (age_receivable_2 + act_period));
     client.send(UiShutdownRequest {});
     node.wait_for_exit();
 }

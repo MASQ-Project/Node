@@ -10,8 +10,6 @@ pub enum TypedConfigLayerError {
     BadCombinedParamsFormat(String),
 }
 
-pub const NULL_DECODER: fn(Option<String>) -> Result<Option<String>, TypedConfigLayerError> = Ok;
-
 pub fn decode_u64(string_opt: Option<String>) -> Result<Option<u64>, TypedConfigLayerError> {
     match string_opt {
         None => Ok(None),
@@ -43,7 +41,6 @@ where
 {
     match string_opt {
         None => Ok(None),
-        //TODO use Box::leak here, with Box::from_raw used afterwards
         Some(string_params) => values_parser(string_params.as_str())
             .map(|val| Some(val))
             .map_err(TypedConfigLayerError::BadCombinedParamsFormat),

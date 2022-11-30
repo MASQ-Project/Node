@@ -11,9 +11,7 @@ pub mod tools;
 pub mod test_utils;
 
 use core::fmt::Debug;
-use masq_lib::constants::{
-    REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, REQUEST_WITH_NO_VALUES, SCAN_ERROR,
-};
+use masq_lib::constants::SCAN_ERROR;
 
 use masq_lib::messages::{
     QueryResults, ScanType, UiFinancialStatistics, UiPayableAccount, UiReceivableAccount,
@@ -1515,7 +1513,10 @@ mod tests {
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
     use log::Level;
-    use masq_lib::constants::{SCAN_ERROR, VALUE_EXCEEDS_ALLOWED_LIMIT};
+    use masq_lib::constants::{
+        REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, REQUEST_WITH_NO_VALUES, SCAN_ERROR,
+        VALUE_EXCEEDS_ALLOWED_LIMIT,
+    };
     use web3::types::U256;
 
     use masq_lib::messages::{

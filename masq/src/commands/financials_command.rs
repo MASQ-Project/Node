@@ -16,7 +16,6 @@ use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
 use num::traits::CheckedNeg;
 use num::{Bounded, CheckedMul};
-use paste::paste;
 use regex::{Captures, Regex};
 use std::collections::VecDeque;
 use std::default::Default;
@@ -177,38 +176,6 @@ macro_rules! dump_statistics_lines {
     }
 }
 
-//this macro uses both repetition and the past! procedural macro that creates idents in place by combining literals;
-//there are two large blocks of conditions expanded by repetition, resulting in a tuple of table-specific closures
-macro_rules! process_records_after_their_flight_home {
-    ($self:expr, $query_returned_results: expr, $($account_type: literal),+) => {
-        ($(
-            |stdout: &mut dyn Write|{
-                paste!{
-                    if $self.top_records_opt.is_some() {
-                        $self.subtitle_for_tops(stdout, $account_type);
-
-                        let records = $query_returned_results.[<$account_type _opt>].expectv($account_type);
-                        if !records.is_empty() {
-                            $self.render_accounts_generic(stdout, records, &[<$account_type _headings>]);
-                        } else {
-                            Self::no_records_found(stdout, [<$account_type _headings>].words.as_slice())
-                        }
-                    } else if let Some(custom_queries) = $self.custom_queries_opt.as_ref() {
-                        if let Some(user_range_format) = custom_queries.[<users_ $account_type _format_opt>].as_ref() {
-                            Self::title_for_custom_query(stdout, $account_type, user_range_format);
-                            if let Some(accounts) = $query_returned_results.[<$account_type _opt>] {
-                                $self.render_accounts_generic(stdout, accounts, &[<$account_type _headings>])
-                            } else {
-                                Self::no_records_found(stdout, [<$account_type _headings>].words.as_slice())
-                            }
-                        }
-                    };
-                }
-            }
-        ),+)
-    };
-}
-
 struct RangeQueryInputs<T> {
     num_values: RangeQuery<T>,
     captured_literal_input: UserOriginalTypingOfRanges,
@@ -308,20 +275,55 @@ impl FinancialsCommand {
         is_first_printed_thing: bool,
         gwei_flag: bool,
     ) {
+        let is_both_sets = self.are_both_sets_to_be_displayed();
+        let (payable_metadata, receivable_metadata) = Self::prepare_metadata(gwei_flag);
+
         Self::triple_or_single_blank_line(stdout, is_first_printed_thing);
         self.main_title_for_tops_opt(stdout);
-        let is_both_sets = self.are_both_sets_to_be_displayed();
-        let (payable_headings, receivable_headings) = Self::prepare_headings_of_records(gwei_flag);
-        let (payable_processing_closure, receivable_processing_closure) = process_records_after_their_flight_home!(
-            self,
-            returned_records,
-            "payable", "receivable";
+        self.process_returned_records_by_the_query_mode(
+            returned_records.payable_opt,
+            stdout,
+            payable_metadata,
+            |custom_query_input| &custom_query_input.users_payable_format_opt,
         );
-        payable_processing_closure(stdout);
         if is_both_sets {
             Self::triple_or_single_blank_line(stdout, false)
         }
-        receivable_processing_closure(stdout)
+        self.process_returned_records_by_the_query_mode(
+            returned_records.receivable_opt,
+            stdout,
+            receivable_metadata,
+            |custom_query_input| &custom_query_input.users_receivable_format_opt,
+        );
+    }
+
+    fn process_returned_records_by_the_query_mode<A>(
+        &self,
+        returned_records_opt: Option<Vec<A>>,
+        stdout: &mut dyn Write,
+        metadata: ProcessAccountsMetadata,
+        user_range_format_fetcher: fn(&CustomQueryInput) -> &Option<UserOriginalTypingOfRanges>,
+    ) where
+        A: StringValuesFormattableAccount,
+    {
+        if self.top_records_opt.is_some() {
+            self.subtitle_for_tops(stdout, metadata.table_type);
+            let accounts = returned_records_opt.expectv(metadata.table_type);
+            if !accounts.is_empty() {
+                self.render_accounts_generic(stdout, accounts, &metadata.headings);
+            } else {
+                Self::no_records_found(stdout, metadata.headings.words.as_slice())
+            }
+        } else if let Some(custom_queries) = self.custom_queries_opt.as_ref() {
+            if let Some(user_range_format) = user_range_format_fetcher(custom_queries) {
+                Self::title_for_custom_query(stdout, metadata.table_type, user_range_format);
+                if let Some(accounts) = returned_records_opt {
+                    self.render_accounts_generic(stdout, accounts, &metadata.headings)
+                } else {
+                    Self::no_records_found(stdout, metadata.headings.words.as_slice())
+                }
+            }
+        }
     }
 
     fn are_both_sets_to_be_displayed(&self) -> bool {
@@ -401,6 +403,20 @@ impl FinancialsCommand {
         } else {
             "[MASQ]"
         }
+    }
+
+    fn prepare_metadata(is_gwei: bool) -> (ProcessAccountsMetadata, ProcessAccountsMetadata) {
+        let (payable_headings, receivable_headings) = Self::prepare_headings_of_records(is_gwei);
+        (
+            ProcessAccountsMetadata {
+                table_type: "payable",
+                headings: payable_headings,
+            },
+            ProcessAccountsMetadata {
+                table_type: "receivable",
+                headings: receivable_headings,
+            },
+        )
     }
 
     fn prepare_headings_of_records(is_gwei: bool) -> (HeadingsHolder, HeadingsHolder) {
@@ -815,7 +831,10 @@ impl FinancialsCommand {
     }
 }
 
-trait BoundX: FromStr<Err = ParseIntError> + TryFrom<i64> + CheckedMul + Display {}
+struct ProcessAccountsMetadata {
+    table_type: &'static str,
+    headings: HeadingsHolder,
+}
 
 struct HeadingsHolder {
     words: Vec<String>,
