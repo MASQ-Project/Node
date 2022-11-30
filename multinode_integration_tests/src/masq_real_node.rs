@@ -1166,11 +1166,13 @@ impl MASQRealNode {
                             NodeReference::from_str(captures.get(1).unwrap().as_str()).unwrap();
                         println!("{} startup detected at {}", name, node_reference);
                         return Ok(node_reference);
+                    } else {
+                        println!(
+                            "No local descriptor for {} in logfile yet\n{}",
+                            name, output
+                        )
                     }
-                    else {
-                        println! ("No local descriptor for {} in logfile yet\n{}", name, output)
-                    }
-                },
+                }
                 Err(e) => {
                     println!(
                         "Failed to cat logfile for {} at {}/{}: {}",
