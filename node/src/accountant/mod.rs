@@ -733,7 +733,7 @@ impl Accountant {
     }
 
     fn financial_statistics(&self) -> FinancialStatistics {
-        self.financial_statistics.as_ref().borrow().clone()
+        self.financial_statistics.borrow().clone()
     }
 }
 

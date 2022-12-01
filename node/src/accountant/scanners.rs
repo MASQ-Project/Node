@@ -568,7 +568,7 @@ impl PendingPayableScanner {
                 hash, e
             );
         } else {
-            let mut financial_statistics = self.financial_statistics.as_ref().borrow().clone();
+            let mut financial_statistics = self.financial_statistics();
             financial_statistics.total_paid_payable += amount;
             self.financial_statistics.replace(financial_statistics);
             debug!(
@@ -592,7 +592,7 @@ impl PendingPayableScanner {
     }
 
     pub fn financial_statistics(&self) -> FinancialStatistics {
-        self.financial_statistics.as_ref().borrow().clone()
+        self.financial_statistics.borrow().clone()
     }
 }
 
@@ -746,7 +746,7 @@ impl ReceivableScanner {
     }
 
     pub fn financial_statistics(&self) -> FinancialStatistics {
-        self.financial_statistics.as_ref().borrow().clone()
+        self.financial_statistics.borrow().clone()
     }
 }
 
