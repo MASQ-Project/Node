@@ -1543,15 +1543,11 @@ mod tests {
             gwei_amount: 10000,
         };
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
-        let payable_dao = PayableDaoMock::new().non_pending_payables_result(vec![]);
         let receivable_dao = ReceivableDaoMock::new()
             .more_money_received_parameters(&more_money_received_params_arc)
             .more_money_received_result(Ok(()));
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(earning_wallet.clone()))
-            .payable_dao(payable_dao)
-            .payable_dao(PayableDaoMock::new())
-            .payable_dao(PayableDaoMock::new())
             .receivable_dao(ReceivableDaoMock::new())
             .receivable_dao(receivable_dao)
             .build();
