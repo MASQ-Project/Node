@@ -1848,24 +1848,28 @@ mod tests {
     fn start_message_triggers_no_scans_in_suppress_mode() {
         init_test_logging();
         let system = System::new("start_message_triggers_no_scans_in_suppress_mode");
+        let payable_begin_scan_params_arc = Arc::new(Mutex::new(vec![]));
+        let pending_payable_begin_scan_params_arc = Arc::new(Mutex::new(vec![]));
+        let receivable_begin_scan_params_arc = Arc::new(Mutex::new(vec![]));
+        let payable_scanner = ScannerMock::new().begin_scan_params(&payable_begin_scan_params_arc);
+        let pending_payable_scanner =
+            ScannerMock::new().begin_scan_params(&pending_payable_begin_scan_params_arc);
+        let receivable_scanner =
+            ScannerMock::new().begin_scan_params(&receivable_begin_scan_params_arc);
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_millis(100),
             receivable_scan_interval: Duration::from_millis(100),
-            pending_payable_scan_interval: Duration::from_secs(100),
+            pending_payable_scan_interval: Duration::from_millis(100),
         });
         config.suppress_initial_scans_opt = Some(true);
-        let payable_dao = PayableDaoMock::new(); // No payables: demanding one would cause a panic
-        let receivable_dao = ReceivableDaoMock::new(); // No delinquencies: demanding one would cause a panic
         let peer_actors = peer_actors_builder().build();
-        let subject = AccountantBuilder::default()
+        let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_dao(payable_dao) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Payable Scanner
-            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
-            .receivable_dao(receivable_dao) // For Accountant
-            .receivable_dao(ReceivableDaoMock::new()) // For Scanner
             .build();
+        subject.scanners.payable = Box::new(payable_scanner);
+        subject.scanners.pending_payable = Box::new(pending_payable_scanner);
+        subject.scanners.receivable = Box::new(receivable_scanner);
         let subject_addr = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
         send_bind_message!(subject_subs, peer_actors);
@@ -1873,7 +1877,14 @@ mod tests {
         send_start_message!(subject_subs);
 
         System::current().stop();
-        assert_eq!(system.run(), 0);
+        system.run();
+        let payable_begin_scan_params = payable_begin_scan_params_arc.lock().unwrap();
+        let pending_payable_begin_scan_params =
+            pending_payable_begin_scan_params_arc.lock().unwrap();
+        let receivable_begin_scan_params = receivable_begin_scan_params_arc.lock().unwrap();
+        assert_eq!(payable_begin_scan_params.is_empty(), true);
+        assert_eq!(pending_payable_begin_scan_params.is_empty(), true);
+        assert_eq!(receivable_begin_scan_params.is_empty(), true);
         // no panics because of recalcitrant DAOs; therefore DAOs were not called; therefore test passes
         TestLogHandler::new().exists_log_containing(
             "Started with --scans off; declining to begin database and blockchain scans",
