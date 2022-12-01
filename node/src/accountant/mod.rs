@@ -1904,7 +1904,6 @@ mod tests {
         };
         let config = bc_from_earning_wallet(make_wallet("mine"));
         let now = to_time_t(SystemTime::now());
-
         let accounts = vec![
             // below minimum balance, to the right of time intersection (inside buffer zone)
             PayableAccount {
@@ -1969,7 +1968,7 @@ mod tests {
         let mut config = bc_from_earning_wallet(make_wallet("mine"));
         config.scan_intervals_opt = Some(ScanIntervals {
             pending_payable_scan_interval: Duration::from_secs(50_000),
-            payable_scan_interval: Duration::from_millis(100),
+            payable_scan_interval: Duration::from_secs(50_000),
             receivable_scan_interval: Duration::from_secs(50_000),
         });
         let now = to_time_t(SystemTime::now());
@@ -2031,19 +2030,19 @@ mod tests {
     }
 
     #[test]
-    fn accountant_doesn_t_starts_another_scan_in_case_it_receives_the_message_and_the_scanner_is_running(
+    fn accountant_does_not_initiate_another_scan_in_case_it_receives_the_message_and_the_scanner_is_running(
     ) {
         init_test_logging();
-        let test_name = "accountant_doesn_t_starts_another_scan_in_case_it_receives_the_message_and_the_scanner_is_running";
+        let test_name = "accountant_does_not_initiate_another_scan_in_case_it_receives_the_message_and_the_scanner_is_running";
         let payable_dao = PayableDaoMock::default();
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
         let report_accounts_payable_sub = blockchain_bridge.start().recipient();
-        let now =
+        let last_paid_timestamp =
             to_time_t(SystemTime::now()) - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec - 1;
         let payable_account = PayableAccount {
             wallet: make_wallet("scan_for_payables"),
             balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1,
-            last_paid_timestamp: from_time_t(now),
+            last_paid_timestamp: from_time_t(last_paid_timestamp),
             pending_payable_opt: None,
         };
         let mut payable_dao =
