@@ -1203,23 +1203,25 @@ mod tests {
             .blockchain_bridge(blockchain_bridge)
             .build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        let ui_message = NodeFromUiMessage {
-            client_id: 1234,
-            body: UiScanRequest {
-                scan_type: ScanType::PendingPayables,
-            }
-            .tmb(4321),
-        };
-        subject_addr.try_send(ui_message).unwrap();
-        let ui_message = NodeFromUiMessage {
-            client_id: 1234,
-            body: UiScanRequest {
-                scan_type: ScanType::PendingPayables,
-            }
-            .tmb(4321),
-        };
+        subject_addr
+            .try_send(NodeFromUiMessage {
+                client_id: 1234,
+                body: UiScanRequest {
+                    scan_type: ScanType::PendingPayables,
+                }
+                .tmb(4321),
+            })
+            .unwrap();
 
-        subject_addr.try_send(ui_message).unwrap();
+        subject_addr
+            .try_send(NodeFromUiMessage {
+                client_id: 1234,
+                body: UiScanRequest {
+                    scan_type: ScanType::PendingPayables,
+                }
+                .tmb(4321),
+            })
+            .unwrap();
 
         System::current().stop();
         system.run();
