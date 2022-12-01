@@ -1615,14 +1615,6 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_containing("INFO: Accountant: Scanning for payables");
-        tlh.exists_log_containing("INFO: Accountant: Scanning for pending payable");
-        tlh.exists_log_containing(&format!(
-            "INFO: Accountant: Scanning for receivables to {}",
-            earning_wallet
-        ));
-        tlh.exists_log_containing("INFO: Accountant: Scanning for delinquencies");
         let payable_params = payable_params_arc.lock().unwrap();
         let pending_payable_params = pending_payable_params_arc.lock().unwrap();
         //proof of calling pieces of scan_for_delinquencies()
@@ -1639,6 +1631,14 @@ mod tests {
         assert_eq!(captured_curves, PaymentThresholds::default());
         assert_eq!(paid_delinquencies_params.len(), 1);
         assert_eq!(paid_delinquencies_params[0], PaymentThresholds::default());
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing("INFO: Accountant: Scanning for payables");
+        tlh.exists_log_containing("INFO: Accountant: Scanning for pending payable");
+        tlh.exists_log_containing(&format!(
+            "INFO: Accountant: Scanning for receivables to {}",
+            earning_wallet
+        ));
+        tlh.exists_log_containing("INFO: Accountant: Scanning for delinquencies");
     }
 
     #[test]
