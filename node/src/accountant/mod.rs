@@ -1728,7 +1728,7 @@ mod tests {
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_secs(100),
             receivable_scan_interval: Duration::from_secs(100),
-            pending_payable_scan_interval: Duration::from_millis(98),
+            pending_payable_scan_interval: Duration::from_millis(100),
         });
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
@@ -1764,13 +1764,13 @@ mod tests {
                     ScanForPendingPayables {
                         response_skeleton_opt: None
                     },
-                    Duration::from_millis(98)
+                    Duration::from_millis(100)
                 ),
                 (
                     ScanForPendingPayables {
                         response_skeleton_opt: None
                     },
-                    Duration::from_millis(98)
+                    Duration::from_millis(100)
                 ),
             ]
         )
@@ -1794,7 +1794,7 @@ mod tests {
             .stop_the_system();
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
-            payable_scan_interval: Duration::from_millis(97),
+            payable_scan_interval: Duration::from_millis(100),
             receivable_scan_interval: Duration::from_secs(100), // We'll never run this scanner
             pending_payable_scan_interval: Duration::from_secs(100), // We'll never run this scanner
         });
@@ -1824,7 +1824,7 @@ mod tests {
         TestLogHandler::new().exists_log_matching(&format!(
             "DEBUG: {test_name}: There was nothing to process during Payables scan."
         ));
-        assert_eq!(*begin_scan_params, vec![(), ()]);
+        assert_eq!(begin_scan_params.len(), 2);
         assert_eq!(
             *notify_later_payables_params,
             vec![
@@ -1832,13 +1832,13 @@ mod tests {
                     ScanForPayables {
                         response_skeleton_opt: None
                     },
-                    Duration::from_millis(97)
+                    Duration::from_millis(100)
                 ),
                 (
                     ScanForPayables {
                         response_skeleton_opt: None
                     },
-                    Duration::from_millis(97)
+                    Duration::from_millis(100)
                 ),
             ]
         )
@@ -1850,8 +1850,8 @@ mod tests {
         let system = System::new("start_message_triggers_no_scans_in_suppress_mode");
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
-            payable_scan_interval: Duration::from_millis(1),
-            receivable_scan_interval: Duration::from_millis(1),
+            payable_scan_interval: Duration::from_millis(100),
+            receivable_scan_interval: Duration::from_millis(100),
             pending_payable_scan_interval: Duration::from_secs(100),
         });
         config.suppress_initial_scans_opt = Some(true);
