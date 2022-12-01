@@ -1362,7 +1362,7 @@ mod tests {
             hash
         ));
         log_handler.exists_log_containing(
-            r#"WARN: Accountant: Failed transaction with a hash '0x0000…3039' but without the record - thrown out"#,
+            r#"WARN: Accountant: Failed transaction with a hash '0x0000000000000000000000000000000000000000000000000000000000003039' but without the record - thrown out"#,
         );
     }
 
@@ -1440,7 +1440,7 @@ mod tests {
         log_handler.exists_log_containing("WARN: Accountant: Encountered transaction error at this end: \
          'TransactionFailed { msg: \"Attempt failed\", hash_opt: Some(0x0000000000000000000000000000000000000000000000000000000000003039)");
         log_handler.exists_log_containing(
-            "DEBUG: Accountant: Deleting an existing backup for a failed transaction 0x0000…3039",
+            "DEBUG: Accountant: Deleting an existing fingerprint for a failed transaction 0x0000000000000000000000000000000000000000000000000000000000003039",
         );
     }
 

@@ -304,7 +304,7 @@ impl PayableScanner {
                 if let Some(rowid) = self.pending_payable_dao.fingerprint_rowid(hash) {
                     debug!(
                         logger,
-                        "Deleting an existing backup for a failed transaction {}", hash
+                        "Deleting an existing fingerprint for a failed transaction {:?}", hash
                     );
                     if let Err(e) = self.pending_payable_dao.delete_fingerprint(rowid) {
                         panic!(
@@ -317,7 +317,7 @@ impl PayableScanner {
 
                 warning!(
                     logger,
-                    "Failed transaction with a hash '{}' but without the record - thrown out",
+                    "Failed transaction with a hash '{:?}' but without the record - thrown out",
                     hash
                 )
             } else {
