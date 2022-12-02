@@ -632,7 +632,7 @@ mod tests {
     };
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::{
-        make_scan_intervals_with_defaults, ArbitraryIdStamp, SystemKillerActor,
+        default_scan_intervals, ArbitraryIdStamp, SystemKillerActor,
     };
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
@@ -1031,7 +1031,7 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            scan_intervals_opt: Some(make_scan_intervals_with_defaults()),
+            scan_intervals_opt: Some(default_scan_intervals()),
             suppress_initial_scans_opt: Some(false),
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },

@@ -734,7 +734,7 @@ mod tests {
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use crate::test_utils::unshared_test_utils::{
-        make_scan_intervals_with_defaults, make_simplified_multi_config,
+        default_scan_intervals, make_simplified_multi_config,
     };
     use crate::test_utils::{assert_contains, rate_pack};
     use crate::test_utils::{main_cryptde, make_wallet};
@@ -1232,7 +1232,7 @@ mod tests {
         unprivileged_config.earning_wallet = earning_wallet.clone();
         unprivileged_config.consuming_wallet_opt = consuming_wallet_opt.clone();
         unprivileged_config.db_password_opt = db_password_opt.clone();
-        unprivileged_config.scan_intervals_opt = Some(make_scan_intervals_with_defaults());
+        unprivileged_config.scan_intervals_opt = Some(default_scan_intervals());
         unprivileged_config.suppress_initial_scans_opt = Some(false);
         unprivileged_config.when_pending_too_long_opt = Some(DEFAULT_PENDING_TOO_LONG_SEC);
 
@@ -1256,7 +1256,7 @@ mod tests {
         assert_eq!(privileged_config.db_password_opt, db_password_opt);
         assert_eq!(
             privileged_config.scan_intervals_opt,
-            Some(make_scan_intervals_with_defaults())
+            Some(default_scan_intervals())
         );
         assert_eq!(privileged_config.suppress_initial_scans_opt, Some(false));
         assert_eq!(

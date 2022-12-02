@@ -598,7 +598,7 @@ pub mod unshared_test_utils {
     ) -> PersistentConfigurationMock {
         persistent_config_mock
             .payment_thresholds_result(Ok(PaymentThresholds::default()))
-            .scan_intervals_result(Ok(make_scan_intervals_with_defaults()))
+            .scan_intervals_result(Ok(default_scan_intervals()))
     }
 
     pub fn make_persistent_config_real_with_config_dao_null() -> PersistentConfigurationReal {
@@ -607,14 +607,14 @@ pub mod unshared_test_utils {
 
     pub fn make_bc_with_defaults() -> BootstrapperConfig {
         let mut config = BootstrapperConfig::new();
-        config.scan_intervals_opt = Some(make_scan_intervals_with_defaults());
+        config.scan_intervals_opt = Some(default_scan_intervals());
         config.suppress_initial_scans_opt = Some(false);
         config.when_pending_too_long_opt = Some(DEFAULT_PENDING_TOO_LONG_SEC);
         config.payment_thresholds_opt = Some(PaymentThresholds::default());
         config
     }
 
-    pub fn make_scan_intervals_with_defaults() -> ScanIntervals {
+    pub fn default_scan_intervals() -> ScanIntervals {
         DEFAULT_SCAN_INTERVALS.clone()
     }
 
