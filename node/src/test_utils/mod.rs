@@ -518,7 +518,7 @@ pub mod unshared_test_utils {
     use crate::db_config::config_dao_null::ConfigDaoNull;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals, DEFAULT_SCAN_INTERVALS};
+    use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
     use crate::sub_lib::neighborhood::{ConnectionProgressMessage, DEFAULT_RATE_PACK};
     use crate::sub_lib::utils::{
         NLSpawnHandleHolder, NLSpawnHandleHolderReal, NotifyHandle, NotifyLaterHandle,
@@ -598,7 +598,7 @@ pub mod unshared_test_utils {
     ) -> PersistentConfigurationMock {
         persistent_config_mock
             .payment_thresholds_result(Ok(PaymentThresholds::default()))
-            .scan_intervals_result(Ok(default_scan_intervals()))
+            .scan_intervals_result(Ok(ScanIntervals::default()))
     }
 
     pub fn make_persistent_config_real_with_config_dao_null() -> PersistentConfigurationReal {
@@ -607,15 +607,11 @@ pub mod unshared_test_utils {
 
     pub fn make_bc_with_defaults() -> BootstrapperConfig {
         let mut config = BootstrapperConfig::new();
-        config.scan_intervals_opt = Some(default_scan_intervals());
+        config.scan_intervals_opt = Some(ScanIntervals::default());
         config.suppress_initial_scans_opt = Some(false);
         config.when_pending_too_long_opt = Some(DEFAULT_PENDING_TOO_LONG_SEC);
         config.payment_thresholds_opt = Some(PaymentThresholds::default());
         config
-    }
-
-    pub fn default_scan_intervals() -> ScanIntervals {
-        DEFAULT_SCAN_INTERVALS.clone()
     }
 
     pub fn make_recipient_and_recording_arc<M: 'static>(

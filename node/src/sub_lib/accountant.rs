@@ -74,11 +74,17 @@ pub struct DaoFactories {
     pub banned_dao_factory: Box<dyn BannedDaoFactory>,
 }
 
-#[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub struct ScanIntervals {
     pub pending_payable_scan_interval: Duration,
     pub payable_scan_interval: Duration,
     pub receivable_scan_interval: Duration,
+}
+
+impl Default for ScanIntervals {
+    fn default() -> Self {
+        *DEFAULT_SCAN_INTERVALS
+    }
 }
 
 #[derive(Clone)]

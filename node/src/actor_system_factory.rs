@@ -609,7 +609,7 @@ mod tests {
         make_stream_handler_pool_subs_from, make_stream_handler_pool_subs_from_recorder,
         start_recorder_refcell_opt,
     };
-    use crate::sub_lib::accountant::PaymentThresholds;
+    use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
     use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -631,9 +631,7 @@ mod tests {
         make_ui_gateway_subs_from_recorder, Recording,
     };
     use crate::test_utils::recorder::{make_recorder, Recorder};
-    use crate::test_utils::unshared_test_utils::{
-        default_scan_intervals, ArbitraryIdStamp, SystemKillerActor,
-    };
+    use crate::test_utils::unshared_test_utils::{ArbitraryIdStamp, SystemKillerActor};
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
@@ -1031,7 +1029,7 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            scan_intervals_opt: Some(default_scan_intervals()),
+            scan_intervals_opt: Some(ScanIntervals::default()),
             suppress_initial_scans_opt: Some(false),
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
