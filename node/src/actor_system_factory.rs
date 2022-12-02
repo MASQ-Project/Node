@@ -152,7 +152,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         let neighborhood_subs = actor_factory.make_and_start_neighborhood(cryptdes.main, &config);
         let data_directory = config.data_directory.clone();
         let accountant_subs = actor_factory.make_and_start_accountant(
-            &mut config.clone(),
+            config.clone(),
             &data_directory,
             &db_initializer,
             &BannedCacheLoaderReal {},
@@ -359,7 +359,7 @@ pub trait ActorFactory {
     ) -> NeighborhoodSubs;
     fn make_and_start_accountant(
         &self,
-        config: &mut BootstrapperConfig,
+        config: BootstrapperConfig,
         data_directory: &Path,
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
@@ -438,12 +438,11 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_accountant(
         &self,
-        config: &mut BootstrapperConfig,
+        config: BootstrapperConfig,
         data_directory: &Path,
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
     ) -> AccountantSubs {
-        let mut cloned_config = config.clone();
         let payable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         let pending_payable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         let receivable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
@@ -457,7 +456,7 @@ impl ActorFactory for ActorFactoryReal {
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Accountant> = arbiter.start(move |_| {
             Accountant::new(
-                &mut cloned_config,
+                config,
                 DaoFactories {
                     payable_dao_factory,
                     pending_payable_dao_factory,
@@ -856,7 +855,7 @@ mod tests {
 
         fn make_and_start_accountant(
             &self,
-            config: &mut BootstrapperConfig,
+            config: BootstrapperConfig,
             data_directory: &Path,
             _db_initializer: &dyn DbInitializer,
             _banned_cache_loader: &dyn BannedCacheLoader,

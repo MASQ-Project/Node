@@ -157,7 +157,7 @@ impl AccountantBuilder {
     }
 
     pub fn build(self) -> Accountant {
-        let mut config = self.config.unwrap_or(make_bc_with_defaults());
+        let config = self.config.unwrap_or(make_bc_with_defaults());
         let payable_dao_factory = self.payable_dao_factory.unwrap_or(
             PayableDaoFactoryMock::new()
                 .make_result(PayableDaoMock::new())
@@ -179,7 +179,7 @@ impl AccountantBuilder {
             .banned_dao_factory
             .unwrap_or(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));
         let accountant = Accountant::new(
-            &mut config,
+            config,
             DaoFactories {
                 payable_dao_factory: Box::new(payable_dao_factory),
                 pending_payable_dao_factory: Box::new(pending_payable_dao_factory),

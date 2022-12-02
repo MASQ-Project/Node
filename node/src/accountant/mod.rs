@@ -370,7 +370,7 @@ impl Handler<NodeFromUiMessage> for Accountant {
 }
 
 impl Accountant {
-    pub fn new(config: &mut BootstrapperConfig, dao_factories: DaoFactories) -> Accountant {
+    pub fn new(mut config: BootstrapperConfig, dao_factories: DaoFactories) -> Accountant {
         let payment_thresholds = config
             .payment_thresholds_opt
             .take()
@@ -831,7 +831,7 @@ mod tests {
 
     #[test]
     fn new_calls_factories_properly() {
-        let mut config = make_bc_with_defaults();
+        let config = make_bc_with_defaults();
         let payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
@@ -855,7 +855,7 @@ mod tests {
             .make_result(BannedDaoMock::new()); // For Receivable Scanner
 
         let _ = Accountant::new(
-            &mut config,
+            config,
             DaoFactories {
                 payable_dao_factory: Box::new(payable_dao_factory),
                 pending_payable_dao_factory: Box::new(pending_payable_dao_factory),
@@ -881,7 +881,7 @@ mod tests {
 
     #[test]
     fn accountant_have_proper_defaulted_values() {
-        let mut bootstrapper_config = make_bc_with_defaults();
+        let bootstrapper_config = make_bc_with_defaults();
         let payable_dao_factory = Box::new(
             PayableDaoFactoryMock::new()
                 .make_result(PayableDaoMock::new()) // For Accountant
@@ -903,7 +903,7 @@ mod tests {
             Box::new(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));
 
         let result = Accountant::new(
-            &mut bootstrapper_config,
+            bootstrapper_config,
             DaoFactories {
                 payable_dao_factory,
                 pending_payable_dao_factory,
