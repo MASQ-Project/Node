@@ -1021,7 +1021,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_request_transaction_receipts_short_circuits_on_failure_of_the_first_payment_and_it_does_not_send_any_message_just_aborts_and_logs(
+    fn handle_request_transaction_receipts_short_circuits_on_failure_of_the_first_payment_and_it_sends_a_message_with_empty_vector_and_logs(
     ) {
         init_test_logging();
         let (accountant, _, accountant_recording) = make_recorder();
