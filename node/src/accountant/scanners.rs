@@ -541,7 +541,7 @@ impl PendingPayableScanner {
         } else {
             warning!(
                         logger,
-                        "Broken transaction {} left with an error mark; you should take over the care \
+                        "Broken transaction {:?} left with an error mark; you should take over the care \
                         of this transaction to make sure your debts will be paid because there is no \
                         automated process that can fix this without you", transaction_id.hash
                     );
@@ -1484,7 +1484,8 @@ mod tests {
         let mark_failure_params = mark_failure_params_arc.lock().unwrap();
         assert_eq!(*mark_failure_params, vec![rowid]);
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Broken transaction 0x051a…8c19 left with an error \
+            "WARN: {test_name}: Broken transaction \
+            0x051aae12b9595ccaa43c2eabfd5b86347c37fa0988167165b0b17b23fcaa8c19 left with an error \
             mark; you should take over the care of this transaction to make sure your debts will \
             be paid because there is no automated process that can fix this without you",
         ));

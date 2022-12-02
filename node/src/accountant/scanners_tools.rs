@@ -235,7 +235,7 @@ pub(crate) mod pending_payable_scanner_tools {
     ) -> PendingTransactionStatus {
         info!(
             logger,
-            "Transaction '{}' has been added to the blockchain; detected locally at attempt \
+            "Transaction '{:?}' has been added to the blockchain; detected locally at attempt \
             {} at {}ms after its sending",
             fingerprint.hash,
             fingerprint.attempt_opt.expectv("initialized attempt"),

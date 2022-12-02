@@ -3110,9 +3110,9 @@ mod tests {
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(
-            "WARN: Accountant: Broken transaction 0x0000…007b left with an error mark; you should take over the care of this transaction to make sure your debts will be paid because there \
+            "WARN: Accountant: Broken transaction 0x000000000000000000000000000000000000000000000000000000000000007b left with an error mark; you should take over the care of this transaction to make sure your debts will be paid because there \
              is no automated process that can fix this without you");
-        log_handler.exists_log_matching("INFO: Accountant: Transaction '0x0000…0237' has been added to the blockchain; detected locally at attempt 4 at \\d{2,}ms after its sending");
+        log_handler.exists_log_matching("INFO: Accountant: Transaction '0x0000000000000000000000000000000000000000000000000000000000000237' has been added to the blockchain; detected locally at attempt 4 at \\d{2,}ms after its sending");
         log_handler.exists_log_containing("INFO: Accountant: Transaction 0x0000000000000000000000000000000000000000000000000000000000000237 has gone through the whole confirmation process succeeding");
     }
 
@@ -3250,8 +3250,8 @@ mod tests {
             .receivable_dao(ReceivableDaoMock::new()) // For Scanner
             .build();
         let mut financial_statistics = subject.financial_statistics();
-        financial_statistics.total_paid_payable = 123456;
-        financial_statistics.total_paid_receivable = 334455;
+        financial_statistics.total_paid_payable += 123456;
+        financial_statistics.total_paid_receivable += 334455;
         subject.financial_statistics.replace(financial_statistics);
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject_addr = subject.start();
