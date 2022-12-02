@@ -7,7 +7,7 @@ use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{
     connection_or_panic, DbInitializationConfig, DbInitializerReal,
 };
-use crate::sub_lib::accountant::WEIS_OF_GWEI;
+use masq_lib::constants::WEIS_OF_GWEI;
 use masq_lib::messages::{
     RangeQuery, TopRecordsConfig, TopRecordsOrdering, UiPayableAccount, UiReceivableAccount,
 };

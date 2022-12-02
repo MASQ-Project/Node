@@ -17,8 +17,6 @@ use std::str::FromStr;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::time::{Duration, SystemTime};
 
-pub const WEIS_OF_GWEI: i128 = 1_000_000_000;
-
 lazy_static! {
     pub static ref DEFAULT_EARNING_WALLET: Wallet = Wallet::from_str("0x27d9A2AC83b493f88ce9B4532EDcf74e95B9788d").expect("Internal error");
     // TODO: The consuming wallet should never be defaulted; it should always come in from a

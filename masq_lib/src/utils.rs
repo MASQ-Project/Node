@@ -348,6 +348,8 @@ where
     where
         F: FnOnce(&T, &mut Self) -> Self::Result,
     {
+        //TODO we should seriously think about rewriting this in well tested unsafe code,
+        // Rust is unnecessarily strict as for this conflicting situation
         let helper = self.helper_access().take().expectv("helper");
         let result = closure(&helper, self);
         self.helper_access().replace(helper);

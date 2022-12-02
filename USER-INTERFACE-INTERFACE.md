@@ -621,14 +621,16 @@ field will be null or absent.
 This command requests financial statistics from the Node. Without any parameters specified, it produces a brief summary
 of financial information; but the output can be customized to show more details.
 
-One way of getting more is a query of top N records from the financial tables, ordered by one's choice, either by
-balance or age. This command setup always returns two sets of results covering both payable and receivable debts.
+A certain way of getting more information can be a query of the top N records from the financial tables, ordered by
+one's preferences, either by balance or age. This command setup always returns two sets of results representing together
+both payable and receivable debts.
 
-The user also has a choice to make up a more customized query, applied even separately, for only one table a time 
-(but querying about both works too). The required input consists of two ranges, for age and balance. Those together
-lie down restrictions that will form the subset of the returned records. As for possible values and their extremes,
-the range goes between 9223372036854775807 and -9223372036854775808 respectively. It will catch any extensive values
-and answer with an error.
+In the other query mode, the user can provide a customized query for either payables or receivables or both. In this
+case, the user will specify an age range and a balance range to constrain the result set.
+
+The limits for the age range can vary from 0 (as recent as possible) to 9,223,372,036,854,775,807 seconds ago (well
+beyond any reasonable scientific estimate of the age of the universe). The limits for the balance range are similarly
+generous, except that receivable balances can be negative as well as positive.
 
 You should also know that each mode excludes the other one.
 
@@ -641,41 +643,39 @@ If topRecordsOpt and customQueriesOpt are both null, statsRequired must not be f
 response otherwise.
 
 `topRecordsOpt` initiates the request for a given number of top accounts from the tables. An optional feature.
-It is good to know that only accounts with positive balances can be displayed by this mode. Some values might stay out
-of scope since there might be cases where receivable balances are negative.
+It is important to note that only accounts with positive balances can be displayed by this mode. Some values might stay
+out of scope since there might be cases where receivable balances are negative.
 
-`count` is the number of records to be returned if so many exist. It should be a number between 1 and 65535, inclusive.
+`count` is the maximum number of records to be returned. It should be a number between 1 and 65535, inclusive.
 
-`orderedBy` allows you to choose whether the results are ordered in descending order either by `Balance` or
-`Age`. One of these values must be chosen.
+`orderedBy` allows you to choose whether the results are sorted in descending order either by `Balance` or `Age`.
+One of these values must be chosen.
 
 `customQueriesOpt` provides another way to get a subset of accounts, this time by more specific metrics. It works for
 both account types, payables and receivables. Possibly only one of them is queried. This query responds well also for 
 balances with negative values, and therefore this is a good fit for a complete check of receivable accounts going 
 possibly negative. 
 
-`payableOpt` is an optional field and if supplied it sets the limits which will be applied at the search of accounts
-matching these requirements.
+`payableOpt` is an optional field defining limits by parameters inside it which would be applied during a search for
+payable accounts.
 
-`receivableOpt` is an optional field and if supplied it sets the limits which will be applied at the search of accounts
-matching these requirements.
+`receivableOpt` is an optional field defining limits by parameters inside it which would be applied during the search
+for receivable accounts.
 
-The following subfields, making out parameters of the previously described type-specific fields, will seem almost
-the same for both.  
-The only difference lies in the value limits of the balance parameters where for payables you can supply values from 0
-to the maximum of 9223372036854775807 and for receivables from -9223372036854775808 up to 9223372036854775807.   
+The following subfields, making out detailed parameters within the previously described type-specific fields, will be
+almost identical for both. The only difference lies in the limits of the values of the balance parameters where for
+payables it's possible to supply values between 0 and 9223372036854775807 and for receivables between
+-9223372036854775808 and 9223372036854775807.   
 
-`minAgeS` is measured in seconds from the present time and gives a time constraint for the accounts we will be 
+`minAgeS` is measured in seconds before the present time and sets a time constraint for the accounts we will be 
 searching over; this is the lower limit for the debt's age, or how long it has been since the last payment.
 
-`maxAgeS` is measured in seconds from the present time and gives a constraint for the accounts we will be
+`maxAgeS` is measured in seconds before the present time and sets a constraint for the accounts we will be
 searching over; this is the upper limit for the debt's age, or how long it has been since the last payment.
 
-`minBalanceGwei` is put as an amount of Gwei and describes the minimal value to what the retrieved accounts should
-fit in with their balances.
+`minBalanceGwei` is represented as an amount of Gwei. No records with balances below this value will be returned.
 
-`maxBalanceGwei` is put as amount of Gwei and describes the maximal value to what the retrieved accounts should fit in
-with their balances.
+`maxBalanceGwei` is represented as an amount of Gwei. No records with balances above this value will be returned.
 
 #### `financials`
 ##### Direction: Response
@@ -729,20 +729,21 @@ payments that have been made but not yet confirmed.
 `totalPaidReceivableGwei` is the number of Gwei we have successfully received in confirmed payments from our debtors.
 
 `queryResultsOpt` with no respect to which mode of record retrieval was requested, this is the field which will carry
-the found records. If a service is requested but no records can be found and so either handed back, the response will
-contain an empty array. 
+the resulting records. If a service is requested but no records can be found and so either handed back, the response
+will contain an empty array. 
 
-If the "topRecords" parameter is used, the records will be sorted downwards and limited in their
-number by the demanded maximal amount; their ordering will depend on the parameter `orderedBy` with values `Balance`
-or `Age`. If the table contains fewer records than requested, a smaller amount comes back.
+If the `topRecords` parameter is used, the results will be sorted in descending order by either balance or age,
+depending on the value of the orderedBy parameter. The number of results returned will be no greater than the value
+of the `topRecords` parameter.
 
-With `customQueryOpt`, the limiting age and balance ranges depend on the user and constrain the subset of records being
-returned. The results are always ordered by balance under this mode, and it stands here too, that an empty array arrives
-if no records can be retrieved. 
+With `customQueryOpt`, the limiting age and balance ranges depend on the user's choices and constrain the subset of
+records being returned. The results are always ordered by balance in this mode, and it is the case here too, that
+an empty array is handed back if no records can be retrieved. 
 
-Because of the optional nature of the queries of this kind, and also since it is possible to request a single-table
-view, instead of getting both every time, null can be returned in various places, either at the position of individual
-tables or alone, suggesting that no query like these was actually requested. 
+Because of a cascade of optional values going along with this letter kind of a query, and also because it's a valid
+option to request just a single table view, null should be anticipated in various places, either at the position of
+individual tables (`payableOpt`, `receivableOpt`) or instead of the whole thing (`customQueryOpt`), which points to
+that no query of that kind was actually made in the first place. 
 
 `payableOpt` is the part referring to payable records if any exist, null or an empty array are also possible.
 
@@ -754,12 +755,12 @@ payment was later also confirmed on the blockchain.
 `balanceGwei` is a number of Gwei we owe to this particular Node.
 
 `pendingPayableHashOpt` is present only sporadically, but says that we've recently sent a payment to the blockchain,
-but the payment wasn't confirmed yet by our confirmation detector. If the value is present, it consists of a transaction
-hash of the pending transaction. 
+but our confirmation detector has not yet determined that the payment has been confirmed. The value is either null or
+stores a transaction hash of the pending transaction. 
 
-`receivable` is the filed devoted to receivable records if any exist.
+`receivable` is the field devoted to receivable records if any exist.
 
-`wallet` is the wallet of the Node that owes money to us for our provided services from the past.
+`wallet` is the wallet of the Node that owes money to us for the services we provided to it in the past.
 
 `age` is a number of seconds that elapsed since this particular debtor made the last payment to our account in order to 
 redeem his liabilities.

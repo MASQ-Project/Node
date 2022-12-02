@@ -1,17 +1,17 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 pub mod big_int_db_processor;
 pub mod dao_utils;
+pub mod financials;
 pub mod payable_dao;
 pub mod pending_payable_dao;
 pub mod receivable_dao;
-pub mod related_to_financials;
 pub mod tools;
 
 #[cfg(test)]
 pub mod test_utils;
 
 use core::fmt::Debug;
-use masq_lib::constants::SCAN_ERROR;
+use masq_lib::constants::{SCAN_ERROR, WEIS_OF_GWEI};
 
 use masq_lib::messages::{
     QueryResults, ScanType, UiFinancialStatistics, UiPayableAccount, UiReceivableAccount,
@@ -22,13 +22,13 @@ use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use crate::accountant::dao_utils::{
     remap_payable_accounts, remap_receivable_accounts, CustomQuery, DaoFactoryReal,
 };
+use crate::accountant::financials::visibility_restricted_module::{
+    check_query_is_within_tech_limits, financials_entry_check,
+};
 use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError, PayableDaoFactory};
 use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
 use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDaoError, ReceivableDaoFactory,
-};
-use crate::accountant::related_to_financials::visibility_restricted_module::{
-    check_query_is_within_tech_limits, financials_entry_check,
 };
 use crate::accountant::tools::accountant_tools::{Scanner, Scanners, TransactionConfirmationTools};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
@@ -36,7 +36,6 @@ use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTr
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
-use crate::sub_lib::accountant::WEIS_OF_GWEI;
 use crate::sub_lib::accountant::{AccountantConfig, FinancialStatistics, PaymentThresholds};
 use crate::sub_lib::accountant::{AccountantSubs, ReportServicesConsumedMessage};
 use crate::sub_lib::accountant::{MessageIdGenerator, MessageIdGeneratorReal};
@@ -1550,7 +1549,6 @@ mod tests {
     use crate::bootstrapper::BootstrapperConfig;
     use crate::sub_lib::accountant::{
         ExitServiceConsumed, RoutingServiceConsumed, ScanIntervals, DEFAULT_PAYMENT_THRESHOLDS,
-        WEIS_OF_GWEI,
     };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::sub_lib::utils::{NotifyHandleReal, NotifyLaterHandleReal};

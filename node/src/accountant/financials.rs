@@ -2,16 +2,18 @@
 
 use std::fmt::Debug;
 
-fn fits_in_0_to_i64max_for_u64<T>(num: &T) -> bool
+const OPCODE_FINANCIALS: &str = "financials";
+
+fn fits_in_0_to_i64max_for_u64<N>(num: &N) -> bool
 where
-    T: Ord + Copy + TryFrom<u64>,
-    u64: TryFrom<T>,
-    <T as TryFrom<u64>>::Error: Debug,
+    N: Ord + Copy + TryFrom<u64>,
+    u64: TryFrom<N>,
+    <N as TryFrom<u64>>::Error: Debug,
 {
     match u64::try_from(*num) {
         Ok(u64_num) => u64_num <= i64::MAX as u64,
         Err(_) => {
-            let zero_as_t: T = 0_u64.try_into().expect("should be fine");
+            let zero_as_t: N = 0_u64.try_into().expect("should be fine");
             if num < &zero_as_t {
                 true
             } else {
@@ -23,7 +25,7 @@ where
 
 pub(in crate::accountant) mod visibility_restricted_module {
     use crate::accountant::dao_utils::CustomQuery;
-    use crate::accountant::related_to_financials::fits_in_0_to_i64max_for_u64;
+    use crate::accountant::financials::{fits_in_0_to_i64max_for_u64, OPCODE_FINANCIALS};
     use masq_lib::constants::{
         REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, REQUEST_WITH_NO_VALUES, VALUE_EXCEEDS_ALLOWED_LIMIT,
     };
@@ -31,20 +33,20 @@ pub(in crate::accountant) mod visibility_restricted_module {
     use masq_lib::ui_gateway::{MessageBody, MessagePath};
     use std::fmt::{Debug, Display};
 
-    pub fn check_query_is_within_tech_limits<T>(
-        query: &CustomQuery<T>,
+    pub fn check_query_is_within_tech_limits<N>(
+        query: &CustomQuery<N>,
         table: &str,
         context_id: u64,
     ) -> Result<(), MessageBody>
     where
-        T: Ord + Copy + Display + TryFrom<u64>,
-        u64: TryFrom<T>,
-        <u64 as TryFrom<T>>::Error: Debug,
-        <T as TryFrom<u64>>::Error: Debug,
+        N: Ord + Copy + Display + TryFrom<u64>,
+        u64: TryFrom<N>,
+        <u64 as TryFrom<N>>::Error: Debug,
+        <N as TryFrom<u64>>::Error: Debug,
     {
         let err = |param_name, num: &dyn Display| {
             Err(MessageBody {
-                opcode: "financials".to_string(),
+                opcode: OPCODE_FINANCIALS.to_string(),
                 path: MessagePath::Conversation(context_id),
                 payload: Err((VALUE_EXCEEDS_ALLOWED_LIMIT, format!(
                     "Range query for {}: {} requested too big. Should be less than or equal to {}, not: {}",
@@ -80,14 +82,14 @@ pub(in crate::accountant) mod visibility_restricted_module {
         }
     }
 
-    pub(in crate::accountant) fn financials_entry_check(
+    pub fn financials_entry_check(
         msg: &UiFinancialsRequest,
         context_id: u64,
     ) -> Result<(), MessageBody> {
         if !msg.stats_required && msg.top_records_opt.is_none() && msg.custom_queries_opt.is_none()
         {
             Err(MessageBody {
-                opcode: "financials".to_string(),
+                opcode: OPCODE_FINANCIALS.to_string(),
                 path: MessagePath::Conversation(context_id),
                 payload: Err((
                     REQUEST_WITH_NO_VALUES,
@@ -96,7 +98,7 @@ pub(in crate::accountant) mod visibility_restricted_module {
             })
         } else if msg.top_records_opt.is_some() && msg.custom_queries_opt.is_some() {
             Err(MessageBody {
-                opcode: "financials".to_string(),
+                opcode: OPCODE_FINANCIALS.to_string(),
                 path: MessagePath::Conversation(context_id),
                 payload: Err((REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, "Requesting top records and the more customized subset of records is not allowed both at the same time".to_string())),
             })
@@ -110,7 +112,7 @@ pub(in crate::accountant) mod visibility_restricted_module {
 mod tests {
     use super::visibility_restricted_module::check_query_is_within_tech_limits;
     use crate::accountant::dao_utils::CustomQuery;
-    use crate::accountant::related_to_financials::fits_in_0_to_i64max_for_u64;
+    use crate::accountant::financials::fits_in_0_to_i64max_for_u64;
     use masq_lib::constants::VALUE_EXCEEDS_ALLOWED_LIMIT;
     use masq_lib::messages::TopRecordsOrdering::Age;
     use masq_lib::ui_gateway::{MessageBody, MessagePath};

@@ -5,8 +5,7 @@ use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
-use itertools::Either;
-use itertools::Either::{Left, Right};
+use masq_lib::constants::MASQ_TOTAL_SUPPLY;
 use masq_lib::messages::{
     CustomQueries, QueryResults, RangeQuery, TopRecordsConfig, UiFinancialStatistics,
     UiFinancialsRequest, UiFinancialsResponse, UiPayableAccount, UiReceivableAccount,
@@ -14,25 +13,27 @@ use masq_lib::messages::{
 use masq_lib::shared_schema::common_validators::validate_non_zero_u16;
 use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
-use num::traits::CheckedNeg;
-use num::{Bounded, CheckedMul};
+use num::CheckedMul;
 use regex::{Captures, Regex};
+use std::any::type_name;
 use std::collections::VecDeque;
 use std::default::Default;
 use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::num::{IntErrorKind, ParseIntError};
-use std::ops::{Div, Mul};
+use std::ops::Mul;
 use std::str::FromStr;
 use thousands::Separable;
 
 const FINANCIALS_SUBCOMMAND_ABOUT: &str =
     "Displays financial statistics of this Node. Only valid if Node is already running.";
-const TOP_ARG_HELP: &str = "Returns a subset of the top N records (or fewer) from both payable and receivable. The downward ordering follows balances by default but can be changed with the additional  '--ordered' argument.";
+const TOP_ARG_HELP: &str = "Fetches the top N records (or fewer) from both payable and receivable. The default order is decreasing by balance, but can be changed with the additional '--ordered' argument.";
 const PAYABLE_ARG_HELP: &str = "Enables querying payable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired Gwei precision). \
- The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1).";
+ The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1). If this \
+  parameter is being set in the interactive mode, the value needs to be enclosed in quotes (single or double).";
 const RECEIVABLE_ARG_HELP: &str = "Enables querying receivable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired Gwei precision). \
- The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1).";
+ The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1). If this \
+  parameter is being set in the interactive mode, the value needs to be enclosed in quotes (single or double).";
 const NO_STATS_ARG_HELP: &str = "Disables statistics that display by default, containing totals of paid and unpaid money from the perspective of debtors and creditors. This argument is not accepted alone and must be placed \
  before other arguments.";
 const GWEI_HELP: &str =
@@ -188,42 +189,15 @@ impl FinancialsCommand {
             Err(e) => return Err(e.to_string()),
         };
         let stats_required = !matches.is_present("no-stats");
-        let top_records_opt = Self::parse_top_records_arg(&matches);
+        let top_records_opt = Self::parse_top_records_args(&matches);
         let gwei_precision = matches.is_present("gwei");
-        let custom_queries_opt = match (
-            Self::parse_range_query_arg::<u64>(&matches, "payable"),
-            Self::parse_range_query_arg::<i64>(&matches, "receivable"),
-        ) {
-            (None, None) => None,
-            (payable_range_inputs_opt, receivable_range_inputs_opt) => {
-                let (payable_opt, users_payable_format_opt) =
-                    Self::from_inputs_separated(payable_range_inputs_opt);
-                let (receivable_opt, users_receivable_format_opt) =
-                    Self::from_inputs_separated(receivable_range_inputs_opt);
-                Some(CustomQueryInput {
-                    query: CustomQueries {
-                        payable_opt,
-                        receivable_opt,
-                    },
-                    users_payable_format_opt,
-                    users_receivable_format_opt,
-                })
-            }
-        };
+        let custom_queries_opt = Self::parse_custom_query_args(&matches);
         Ok(Self {
             stats_required,
             top_records_opt,
             custom_queries_opt,
             gwei_precision,
         })
-    }
-
-    fn from_inputs_separated<T>(
-        composed_parameters_opt: Option<RangeQueryInputs<T>>,
-    ) -> (Option<RangeQuery<T>>, Option<UserOriginalTypingOfRanges>) {
-        composed_parameters_opt
-            .map(|inputs| (Some(inputs.num_values), Some(inputs.captured_literal_input)))
-            .unwrap_or_default()
     }
 
     fn process_command_response(
@@ -280,7 +254,7 @@ impl FinancialsCommand {
 
         Self::triple_or_single_blank_line(stdout, is_first_printed_thing);
         self.main_title_for_tops_opt(stdout);
-        self.process_returned_records_by_the_query_mode(
+        self.process_returned_records_in_requested_mode(
             returned_records.payable_opt,
             stdout,
             payable_metadata,
@@ -289,7 +263,7 @@ impl FinancialsCommand {
         if is_both_sets {
             Self::triple_or_single_blank_line(stdout, false)
         }
-        self.process_returned_records_by_the_query_mode(
+        self.process_returned_records_in_requested_mode(
             returned_records.receivable_opt,
             stdout,
             receivable_metadata,
@@ -297,7 +271,7 @@ impl FinancialsCommand {
         );
     }
 
-    fn process_returned_records_by_the_query_mode<A>(
+    fn process_returned_records_in_requested_mode<A>(
         &self,
         returned_records_opt: Option<Vec<A>>,
         stdout: &mut dyn Write,
@@ -336,7 +310,7 @@ impl FinancialsCommand {
             })
     }
 
-    fn parse_top_records_arg(matches: &ArgMatches) -> Option<TopRecordsConfig> {
+    fn parse_top_records_args(matches: &ArgMatches) -> Option<TopRecordsConfig> {
         matches.value_of("top").map(|str| TopRecordsConfig {
             count: str
                 .parse::<u16>()
@@ -349,17 +323,63 @@ impl FinancialsCommand {
         })
     }
 
-    fn parse_range_query_arg<'a, T>(
+    fn parse_custom_query_args(matches: &ArgMatches) -> Option<CustomQueryInput> {
+        fn decompose_inputs<T>(
+            composed_parameters_opt: Option<RangeQueryInputs<T>>,
+        ) -> (Option<RangeQuery<T>>, Option<UserOriginalTypingOfRanges>) {
+            composed_parameters_opt
+                .map(|inputs| (Some(inputs.num_values), Some(inputs.captured_literal_input)))
+                .unwrap_or_default()
+        }
+        fn handle_inputs_for_custom_query(
+            payable_range_inputs_opt: Option<RangeQueryInputs<u64>>,
+            receivable_range_inputs_opt: Option<RangeQueryInputs<i64>>,
+        ) -> Option<CustomQueryInput> {
+            {
+                let (payable_opt, users_payable_format_opt) =
+                    decompose_inputs(payable_range_inputs_opt);
+
+                let (receivable_opt, users_receivable_format_opt) =
+                    decompose_inputs(receivable_range_inputs_opt);
+
+                Some(CustomQueryInput {
+                    query: CustomQueries {
+                        payable_opt,
+                        receivable_opt,
+                    },
+                    users_payable_format_opt,
+                    users_receivable_format_opt,
+                })
+            }
+        }
+
+        match (
+            Self::parse_range_query_arg::<u64>(&matches, "payable"),
+            Self::parse_range_query_arg::<i64>(&matches, "receivable"),
+        ) {
+            (None, None) => None,
+            (payable_range_inputs_opt, receivable_range_inputs_opt) => {
+                handle_inputs_for_custom_query(
+                    payable_range_inputs_opt,
+                    receivable_range_inputs_opt,
+                )
+            }
+        }
+    }
+
+    fn parse_range_query_arg<'a, N>(
         matches: &'a ArgMatches,
         parameter_name: &'a str,
-    ) -> Option<RangeQueryInputs<T>>
+    ) -> Option<RangeQueryInputs<N>>
     where
-        T: FromStr<Err = ParseIntError> + CheckedMul + Display + TryFrom<i64>,
-        <T as TryFrom<i64>>::Error: Debug,
+        N: FromStr<Err = ParseIntError> + CheckedMul + Display + TryFrom<i64> + TryFrom<u64> + Copy,
+        i64: TryFrom<N>,
+        u64: TryFrom<N>,
+        <N as TryFrom<i64>>::Error: Debug,
+        <i64 as TryFrom<N>>::Error: Debug,
     {
-        //not an inner fn because they don't inherit the generic parameters unlike to closures
         let parse_params =
-            |time_range: &[&str], money_range: &str| -> ((u64, u64), (T, T, String, String)) {
+            |time_range: &[&str], money_range: &str| -> ((u64, u64), (N, N, String, String)) {
                 (
                     Self::parse_time_params(time_range).expect("blown up after validation"),
                     Self::parse_masq_range_to_gwei(money_range).expect("blown up after validation"),
@@ -367,7 +387,7 @@ impl FinancialsCommand {
             };
 
         matches.value_of(parameter_name).map(|pair_of_ranges| {
-            //this is already after tight validation
+            //already after thoroughfare Clap validation
             let mut separated_ranges = pair_of_ranges.split('|');
             let time_range = separated_ranges
                 .next()
@@ -378,6 +398,7 @@ impl FinancialsCommand {
                 (min_age, max_age),
                 (min_amount_num, max_amount_num, min_amount_str, max_amount_str),
             ) = parse_params(&time_range, separated_ranges.next().expectv("second range"));
+
             RangeQueryInputs {
                 num_values: RangeQuery {
                     min_age_s: min_age,
@@ -438,77 +459,46 @@ impl FinancialsCommand {
 
     fn process_gwei_into_requested_format<T>(gwei: T, should_stay_gwei: bool) -> String
     where
-        T: Display
-            + PartialEq
-            + PartialOrd
-            + Div<Output = T>
-            + From<u32>
-            + Separable
-            + Bounded
-            + CheckedNeg,
-        <T as Div>::Output: PartialOrd<T> + Display,
+        T: Display + From<u32> + Separable,
+        i64: TryFrom<T>,
+        <i64 as TryFrom<T>>::Error: Debug,
     {
         if should_stay_gwei {
             gwei.separate_with_commas()
         } else {
-            Self::convert_masq_from_gwei_and_dress_well(gwei)
+            //9,223,372,036
+            let gwei_as_i64 =
+                i64::try_from(gwei).expect("value bigger than i64::MAX is unrealistic");
+            Self::convert_masq_from_gwei_and_dress_well(gwei_as_i64)
         }
     }
 
-    fn abs_generic<T>(num: T, is_positive: bool) -> T
-    where
-        T: Display + PartialEq + PartialOrd<T> + From<u32> + Div<Output = T> + Bounded + CheckedNeg,
-        <T as Div<T>>::Output: PartialEq<T> + PartialOrd<T> + Display,
-    {
-        match (num == T::min_value(), is_positive) {
-            (true, false) => panic!("overflow at abs() of minimum signed value in an integer (however, MASQ amount {} is a nonsense in any case)", num),
-            (false, false) => num.checked_neg().expectv("negative number"),
-            (_, true) => num,
-        }
-    }
-
-    fn convert_masq_from_gwei_and_dress_well<T>(gwei: T) -> String
-    where
-        T: Display + PartialEq + PartialOrd<T> + From<u32> + Div<Output = T> + Bounded + CheckedNeg,
-        <T as Div<T>>::Output: PartialEq<T> + PartialOrd<T> + Display,
-    {
-        let (one_hundredth_masq_or_more, is_positive) = match Self::preformatting_math(gwei) {
-            Left(result) => return result,
-            Right(tuple) => tuple,
-        };
-
-        let sign_opt_with_all_digits = format!(
-            "{}{:0>3}",
-            if is_positive { "" } else { "-" },
-            Self::abs_generic(one_hundredth_masq_or_more, is_positive)
-        );
-        let full_len = sign_opt_with_all_digits.len();
-        let int_stem = &sign_opt_with_all_digits[..full_len - 2];
-        let fractional_part = &sign_opt_with_all_digits[full_len - 2..];
-        format!("{}.{}", int_stem.separate_with_commas(), fractional_part)
-    }
-
-    fn preformatting_math<T>(gwei: T) -> Either<String, (T, bool)>
-    where
-        T: Display + PartialEq + From<u32> + Div<Output = T> + PartialOrd<T>,
-        <T as Div<T>>::Output: PartialEq<T> + PartialOrd<T> + Display,
-    {
-        if gwei == T::from(0) {
-            return Left("0".to_string());
-        }
-        let is_positive = gwei >= T::from(0);
-        let one_hundredth_masq_or_more = gwei / T::from(10_000_000);
-        if one_hundredth_masq_or_more == T::from(0) {
-            return Left(
-                if is_positive {
+    fn convert_masq_from_gwei_and_dress_well(balance_gwei: i64) -> String {
+        //TODO neaten this ???maybe a const???
+        let balance_masq_int = (balance_gwei / 1_000_000_000).abs();
+        let balance_masq_frac = (balance_gwei % 1_000_000_000).abs();
+        let balance_masq_frac_trunc = balance_masq_frac / 10_000_000;
+        match (
+            (balance_masq_int == 0) && (balance_masq_frac_trunc == 0),
+            balance_gwei >= 0,
+        ) {
+            (true, bigger_then_zero) => {
+                let str_response = if bigger_then_zero {
                     "< 0.01"
                 } else {
                     "-0.01 < x < 0"
-                }
-                .to_string(),
-            );
+                };
+                str_response.to_string()
+            }
+            _ => {
+                format!(
+                    "{}{}.{:0>2}",
+                    if balance_gwei < 0 { "-" } else { "" },
+                    balance_masq_int.separate_with_commas(),
+                    balance_masq_frac_trunc
+                )
+            }
         }
-        Right((one_hundredth_masq_or_more, is_positive))
     }
 
     fn financial_status_totals_title(stdout: &mut dyn Write, is_gwei: bool) {
@@ -707,20 +697,50 @@ impl FinancialsCommand {
         })
     }
 
-    fn parse_integer<N: FromStr<Err = ParseIntError>>(str_num: &str) -> Result<N, String> {
-        str::parse::<N>(str_num).map_err(|e| match e.kind() {
-            IntErrorKind::NegOverflow | IntErrorKind::PosOverflow => panic!(
-                "Broken code: Clap validation should have caught this overflow of {} earlier",
-                str_num
-            ),
-            _ => format!("Non numeric value '{}', all must be valid numbers", str_num),
-        })
+    fn parse_integer_within_limits<N>(str_num: &str) -> Result<N, String>
+    where
+        N: FromStr<Err = ParseIntError> + Copy + TryFrom<u64>,
+        u64: TryFrom<N>,
+    {
+        fn total_supply() -> String {
+            MASQ_TOTAL_SUPPLY.separate_with_commas()
+        }
+        let separable_input = || str_num.separate_with_commas();
+
+        match str::parse::<N>(str_num) {
+            Ok(int) => match u64::try_from(int) {
+                Ok(int_as_u64) => {
+                    if int_as_u64 <= i64::MAX as u64 {
+                        Ok(int)
+                    } else {
+                        Err(format!("Supplied value of {} Gwei overflows the tech limits. You probably want one between 0 and {} MASQ", separable_input(), total_supply()))
+                    }
+                }
+                Err(_) => {
+                    //Error here signalizes maximally a negative number given we expect only u64 or i64 behind N
+                    Ok(int)
+                }
+            },
+            Err(e) => match e.kind() {
+                IntErrorKind::NegOverflow | IntErrorKind::PosOverflow => {
+                    if type_name::<N>() == type_name::<u64>() {
+                        Err(format!("Supplied value of {} Gwei overflows the tech limits. You probably want one between 0 and {} MASQ", separable_input(), total_supply()))
+                    } else {
+                        Err(format!("Supplied value of {0} Gwei overflows the tech limits. You probably want one between -{1} and {1} MASQ", separable_input(), total_supply()))
+                    }
+                }
+                _ => Err(format!(
+                    "Non numeric value '{}', all must be valid numbers",
+                    str_num
+                )),
+            },
+        }
     }
 
     fn parse_time_params(time_range: &[&str]) -> Result<(u64, u64), String> {
         Ok((
-            Self::parse_integer(time_range[0])?,
-            Self::parse_integer(time_range[1])?,
+            Self::parse_integer_within_limits(time_range[0])?,
+            Self::parse_integer_within_limits(time_range[1])?,
         ))
     }
 
@@ -765,8 +785,17 @@ impl FinancialsCommand {
 
     pub fn parse_masq_range_to_gwei<N>(range: &str) -> Result<(N, N, String, String), String>
     where
-        N: FromStr<Err = ParseIntError> + TryFrom<i64> + Mul<Output = N> + CheckedMul + Display,
+        N: FromStr<Err = ParseIntError>
+            + TryFrom<i64>
+            + TryFrom<u64>
+            + Mul<Output = N>
+            + CheckedMul
+            + Display
+            + Copy,
+        i64: TryFrom<N>,
+        u64: TryFrom<N>,
         <N as TryFrom<i64>>::Error: Debug,
+        <i64 as TryFrom<N>>::Error: Debug,
     {
         let regex = Regex::new(r#"^((-?\d+\.?\d*)\s*-\s*(-?\d+\.?\d*))|(-?\d+\.?\d*)$"#)
             .expect("wrong regex");
@@ -787,37 +816,59 @@ impl FinancialsCommand {
 
     fn process_optionally_fractional_number<N>(num: &str) -> Result<N, String>
     where
-        N: FromStr<Err = ParseIntError> + TryFrom<i64> + CheckedMul + Display,
+        N: FromStr<Err = ParseIntError> + TryFrom<i64> + TryFrom<u64> + CheckedMul + Display + Copy,
+        i64: TryFrom<N>,
+        u64: TryFrom<N>,
         <N as TryFrom<i64>>::Error: Debug,
+        <i64 as TryFrom<N>>::Error: Debug,
     {
-        fn decimal_digits_count(num: &str, dot_idx: usize) -> usize {
-            num.chars().count() - dot_idx - 1
+        const DIGITS_IN_BILLION: u32 = 9;
+        fn all_digits_with_dot_removed(num: &str) -> String {
+            num.chars().filter(|char| *char != '.').collect()
         }
-
-        let final_unit_conversion = |parse_result: N, pow_factor: u32| {
+        fn check_if_all_decimal_digits_fits_in_gwei_range(
+            digits_count_unchecked: u32,
+            num: &str,
+        ) -> Result<u32, String> {
+            if digits_count_unchecked <= DIGITS_IN_BILLION {
+                Ok(digits_count_unchecked)
+            } else {
+                Err(format!("Value '{}' exceeds the limit of maximally nine decimal digits (only Gwei supported)", num))
+            }
+        }
+        fn number_of_decimal_digits(num: &str, dot_idx: usize) -> u32 {
+            u32::try_from(num.chars().count() - dot_idx - 1)
+                .expect("previous check of maximally 9 decimal digits failed")
+        }
+        fn decimal_digits_count(num: &str, dot_idx: usize) -> Result<u32, String> {
+            let decimal_digits_count_unchecked = number_of_decimal_digits(num, dot_idx);
+            check_if_all_decimal_digits_fits_in_gwei_range(decimal_digits_count_unchecked, num)
+        }
+        let gwei_to_wei_conversion = |parse_result: N, pow_factor: u32| {
             parse_result
                 .checked_mul(&N::try_from(10_i64.pow(pow_factor)).expect("no fear"))
-                .ok_or_else(|| format!("Amount bigger than the MASQ total supply: {}", num))
+                .ok_or_else(|| {
+                    format!(
+                        "Amount bigger than the MASQ total supply: {}, total supply: {}",
+                        num, MASQ_TOTAL_SUPPLY
+                    )
+                })
         };
+
         let dot_opt = num.chars().position(|char| char == '.');
         if let Some(dot_idx) = dot_opt {
-            Self::pre_parsing_check(num, dot_idx)?;
-            let naked_digits = &num.chars().filter(|char| *char != '.').collect::<String>();
-            let root_parsed: N = Self::parse_integer(naked_digits)?;
-            let decimal_digits_count_unchecked = decimal_digits_count(num, dot_idx);
-            let decimal_digits_count = if decimal_digits_count_unchecked <= 9 {
-                decimal_digits_count_unchecked
-            } else {
-                return Err(format!("Value '{}' exceeds the limit of maximally nine decimal digits (only Gwei supported)", num));
-            };
-            final_unit_conversion(root_parsed, 9 - decimal_digits_count as u32)
+            Self::dot_usage_check(num, dot_idx)?;
+            let full_range_of_digits = all_digits_with_dot_removed(num);
+            let root_parsed: N = Self::parse_integer_within_limits(&full_range_of_digits)?;
+            let decimal_digits_count = decimal_digits_count(num, dot_idx)?;
+            gwei_to_wei_conversion(root_parsed, DIGITS_IN_BILLION - decimal_digits_count)
         } else {
-            let root_parsed = Self::parse_integer::<N>(num)?;
-            final_unit_conversion(root_parsed, 9)
+            let root_parsed = Self::parse_integer_within_limits::<N>(num)?;
+            gwei_to_wei_conversion(root_parsed, DIGITS_IN_BILLION)
         }
     }
 
-    fn pre_parsing_check(num: &str, dot_idx: usize) -> Result<(), String> {
+    fn dot_usage_check(num: &str, dot_idx: usize) -> Result<(), String> {
         if dot_idx == (num.len() - 1) {
             Err(format!(
                 "Ending dot at decimal number, like here '{}', is unsupported",
@@ -874,8 +925,17 @@ impl StringValuesFormattableAccount for UiReceivableAccount {
 
 fn validate_two_ranges<N>(two_ranges: String) -> Result<(), String>
 where
-    N: FromStr<Err = ParseIntError> + TryFrom<i64> + Display + CheckedMul + PartialOrd,
+    N: FromStr<Err = ParseIntError>
+        + TryFrom<i64>
+        + TryFrom<u64>
+        + Display
+        + Copy
+        + CheckedMul
+        + PartialOrd,
+    i64: TryFrom<N>,
+    u64: TryFrom<N>,
     <N as TryFrom<i64>>::Error: Debug,
+    <i64 as TryFrom<N>>::Error: Debug,
 {
     fn checked_split<'a>(
         str: &'a str,
@@ -917,6 +977,7 @@ mod tests {
     use crate::commands::commands_common::CommandError::ConnectionProblem;
     use crate::test_utils::mocks::CommandContextMock;
     use atty::Stream;
+    use masq_lib::constants::WEIS_OF_GWEI;
     use masq_lib::messages::{
         ToMessageBody, TopRecordsOrdering, UiFinancialStatistics, UiFinancialsResponse,
         UiPayableAccount, UiReceivableAccount,
@@ -933,12 +994,14 @@ mod tests {
         );
         assert_eq!(
             TOP_ARG_HELP,
-            "Returns a subset of the top N records (or fewer) from both payable and receivable. The downward ordering follows balances by default but can be changed with the additional  '--ordered' argument."
+            "Fetches the top N records (or fewer) from both payable and receivable. The default order is decreasing by balance, but can be changed with the additional '--ordered' argument."
         );
         assert_eq!(PAYABLE_ARG_HELP, "Enables querying payable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired Gwei precision). \
-            The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1).");
+            The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1). \
+            If this parameter is being set in the interactive mode, the value needs to be enclosed in quotes (single or double).");
         assert_eq!(RECEIVABLE_ARG_HELP,"Enables querying receivable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired Gwei precision). \
-            The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1).");
+            The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1). \
+            If this parameter is being set in the interactive mode, the value needs to be enclosed in quotes (single or double).");
         assert_eq!(NO_STATS_ARG_HELP,"Disables statistics that display by default, containing totals of paid and unpaid money from the perspective of debtors and creditors. This argument is not accepted alone and must be placed \
                     before other arguments.");
         assert_eq!(
@@ -1417,7 +1480,7 @@ mod tests {
         let args = array_of_borrows_to_vec(&["financials", "--top", "11"]);
         let matches = financials_subcommand().get_matches_from_safe(args).unwrap();
 
-        let result = FinancialsCommand::parse_top_records_arg(&matches);
+        let result = FinancialsCommand::parse_top_records_args(&matches);
 
         assert_eq!(
             result,
@@ -1696,11 +1759,31 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Broken code: Clap validation should have caught this overflow of 40000000000000000000 earlier"
-    )]
-    fn parse_integer_overflow_indicates_broken_code() {
-        let _: Result<u64, String> = FinancialsCommand::parse_integer("40000000000000000000");
+    fn parse_integer_overflow_indicates_always_too_big_number_supplied() {
+        let err_msg_u64: Result<u64, String> =
+            FinancialsCommand::parse_integer_within_limits("40000000000000000000");
+
+        assert_eq!(err_msg_u64.unwrap_err(), "Supplied value of 40,000,000,000,000,000,000 Gwei overflows the tech limits. You probably want one between 0 and 37,500,000 MASQ");
+
+        let err_msg_i64: Result<i64, String> =
+            FinancialsCommand::parse_integer_within_limits("-40000000000000000000");
+
+        assert_eq!(err_msg_i64.unwrap_err(), "Supplied value of -40,000,000,000,000,000,000 Gwei overflows the tech limits. You probably want one between -37,500,000 and 37,500,000 MASQ")
+    }
+
+    #[test]
+    fn parse_integer_within_limits_allows_only_integers_smaller_than_i64max_even_if_for_u64() {
+        let err_msg_u64: Result<u64, String> =
+            FinancialsCommand::parse_integer_within_limits(&(i64::MAX as u64 + 1).to_string());
+
+        assert_eq!(err_msg_u64.unwrap_err(), "Supplied value of 9,223,372,036,854,775,808 Gwei overflows the tech limits. You probably want one between 0 and 37,500,000 MASQ");
+    }
+
+    #[test]
+    fn i64_interpretation_capabilities_are_good_enough_for_masq_total_supply_in_gwei() {
+        let _: i64 = (MASQ_TOTAL_SUPPLY * WEIS_OF_GWEI as u64)
+            .try_into()
+            .unwrap();
     }
 
     #[test]
@@ -1772,7 +1855,7 @@ mod tests {
     #[test]
     fn convert_masq_from_gwei_and_dress_well_handles_values_smaller_than_one_hundredth_of_masq_and_bigger_than_zero(
     ) {
-        let gwei: u64 = 9999999;
+        let gwei: i64 = 9999999;
 
         let result = FinancialsCommand::convert_masq_from_gwei_and_dress_well(gwei);
 
@@ -1787,15 +1870,6 @@ mod tests {
         let result = FinancialsCommand::convert_masq_from_gwei_and_dress_well(gwei);
 
         assert_eq!(result, "-0.01 < x < 0")
-    }
-
-    #[test]
-    fn convert_masq_from_gwei_and_dress_well_handles_zero() {
-        let gwei: i64 = 0;
-
-        let result = FinancialsCommand::convert_masq_from_gwei_and_dress_well(gwei);
-
-        assert_eq!(result, "0")
     }
 
     #[test]
@@ -1814,27 +1888,6 @@ mod tests {
         let result = FinancialsCommand::convert_masq_from_gwei_and_dress_well(gwei);
 
         assert_eq!(result, "-1,234.56")
-    }
-
-    #[test]
-    fn abs_generic_handles_lowest_u64() {
-        let gwei = u64::MIN;
-        let is_positive = true;
-
-        let result = FinancialsCommand::abs_generic(gwei, is_positive);
-
-        assert_eq!(result, 0)
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "overflow at abs() of minimum signed value in an integer (however, MASQ amount -9223372036854775808 is a nonsense in any case)"
-    )]
-    fn abs_generic_handles_lowest_i64() {
-        let gwei = i64::MIN;
-        let is_positive = gwei >= 0;
-
-        let _ = FinancialsCommand::abs_generic(gwei, is_positive);
     }
 
     fn response_with_stats_and_either_top_records_or_top_queries(
@@ -1934,7 +1987,7 @@ mod tests {
                 \n\
                 Unpaid and pending payable:       0.11\n\
                 Paid payable:                     235.55\n\
-                Unpaid receivable:                0\n\
+                Unpaid receivable:                < 0.01\n\
                 Paid receivable:                  < 0.01\n\
                 \n\
                 \n\
@@ -2011,7 +2064,7 @@ mod tests {
                 \n\
                 Unpaid and pending payable:       0.11\n\
                 Paid payable:                     235.55\n\
-                Unpaid receivable:                0\n\
+                Unpaid receivable:                < 0.01\n\
                 Paid receivable:                  < 0.01\n\
                 \n\
                 \n\
@@ -2719,7 +2772,7 @@ mod tests {
     }
 
     #[test]
-    fn validate_two_ranges_with_decimal_part_longer_than_whole_range_given_to_gwei() {
+    fn validate_two_ranges_with_decimal_part_longer_than_the_whole_gwei_range() {
         let result = validate_two_ranges::<i64>("454-2000|100-1000.000111222333".to_string());
 
         assert_eq!(result, Err("Value '1000.000111222333' exceeds the limit of maximally nine decimal digits (only Gwei supported)".to_string()))
