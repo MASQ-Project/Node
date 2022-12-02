@@ -2057,7 +2057,6 @@ mod tests {
             .bootstrapper_config(config)
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
-        subject.scan_intervals.payable_scan_interval = Duration::from_millis(10);
         subject.logger = Logger::new(test_name);
         let addr = subject.start();
         addr.try_send(ScanForPayables {
