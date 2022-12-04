@@ -107,7 +107,7 @@ pub struct AssemblerFeeder {
     pub limit_clause: &'static str,
 }
 
-//be aware that balances smaller than one Gwei won't be shown,
+//be aware that balances smaller than one gwei won't be shown,
 //if there aren't any bigger ones the function returns None
 impl<N: Copy + Display> CustomQuery<N> {
     pub fn query<R, S, F1, F2>(
@@ -261,7 +261,7 @@ pub fn remap_payable_accounts(accounts: Vec<PayableAccount>) -> Vec<UiPayableAcc
             age_s: to_age(account.last_paid_timestamp),
             balance_gwei: {
                 let gwei = (account.balance_wei / (WEIS_OF_GWEI as u128)) as u64;
-                if gwei > 0 { gwei } else { panic!("Broken code: PayableAccount with less than 1 Gwei passed through db query constrains; wallet: {}, balance: {}", account.wallet, account.balance_wei) }
+                if gwei > 0 { gwei } else { panic!("Broken code: PayableAccount with less than 1 gwei passed through db query constrains; wallet: {}, balance: {}", account.wallet, account.balance_wei) }
             },
             pending_payable_hash_opt: account
                 .pending_payable_opt
@@ -278,7 +278,7 @@ pub fn remap_receivable_accounts(accounts: Vec<ReceivableAccount>) -> Vec<UiRece
             age_s: to_age(account.last_received_timestamp),
             balance_gwei:{
                 let gwei =  (account.balance_wei / (WEIS_OF_GWEI as i128)) as i64;
-                if gwei != 0 {gwei} else {panic!("Broken code: ReceivableAccount with balance between {} and 0 Gwei passed through db query constrains; wallet: {}, balance: {}",
+                if gwei != 0 {gwei} else {panic!("Broken code: ReceivableAccount with balance between {} and 0 gwei passed through db query constrains; wallet: {}, balance: {}",
                         if account.balance_wei.is_positive() {"1"}else{"-1"},
                         account.wallet,
                         account.balance_wei
@@ -399,7 +399,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Broken code: PayableAccount with less than 1 Gwei passed through db query constrains; \
+        expected = "Broken code: PayableAccount with less than 1 gwei passed through db query constrains; \
          wallet: 0x0000000000000000000000000061633336363563, balance: 565122333"
     )]
     fn remap_payable_accounts_getting_record_below_one_gwei_means_broken_database_query() {
@@ -422,7 +422,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Broken code: ReceivableAccount with balance between 1 and 0 Gwei passed through db query \
+        expected = "Broken code: ReceivableAccount with balance between 1 and 0 gwei passed through db query \
          constrains; wallet: 0x0000000000000000000000000061633336363563, balance: 300122333"
     )]
     fn remap_receivable_accounts_getting_record_between_one_and_zero_gwei_means_broken_database_query(
@@ -444,7 +444,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Broken code: ReceivableAccount with balance between -1 and 0 Gwei passed through db query \
+        expected = "Broken code: ReceivableAccount with balance between -1 and 0 gwei passed through db query \
          constrains; wallet: 0x0000000000000000000000000061633336363563, balance: -290122333"
     )]
     fn remap_receivable_accounts_getting_record_between_minus_one_and_zero_gwei_means_broken_database_query(

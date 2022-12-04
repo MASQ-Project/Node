@@ -130,26 +130,26 @@ impl ConfigurationCommand {
         let payment_thresholds = Self::preprocess_combined_parameters({
             let p_c = &configuration.payment_thresholds;
             &[
-                ("Debt threshold:", &p_c.debt_threshold_gwei, "Gwei"),
+                ("Debt threshold:", &p_c.debt_threshold_gwei, "gwei"),
                 ("Maturity threshold:", &p_c.maturity_threshold_sec, "s"),
                 ("Payment grace period:", &p_c.payment_grace_period_sec, "s"),
                 (
                     "Permanent debt allowed:",
                     &p_c.permanent_debt_allowed_gwei,
-                    "Gwei",
+                    "gwei",
                 ),
                 ("Threshold interval:", &p_c.threshold_interval_sec, "s"),
-                ("Unban below:", &p_c.unban_below_gwei, "Gwei"),
+                ("Unban below:", &p_c.unban_below_gwei, "gwei"),
             ]
         });
         Self::dump_value_list(stream, "Payment thresholds:", &payment_thresholds);
         let rate_pack = Self::preprocess_combined_parameters({
             let r_p = &configuration.rate_pack;
             &[
-                ("Routing byte rate:", &r_p.routing_byte_rate, "Wei"),
-                ("Routing service rate:", &r_p.routing_service_rate, "Wei"),
-                ("Exit byte rate:", &r_p.exit_byte_rate, "Wei"),
-                ("Exit service rate:", &r_p.exit_service_rate, "Wei"),
+                ("Routing byte rate:", &r_p.routing_byte_rate, "wei"),
+                ("Routing service rate:", &r_p.routing_service_rate, "wei"),
+                ("Exit byte rate:", &r_p.exit_byte_rate, "wei"),
+                ("Exit service rate:", &r_p.exit_service_rate, "wei"),
             ]
         });
         Self::dump_value_list(stream, "Rate pack:", &rate_pack);
@@ -373,17 +373,17 @@ mod tests {
 |Past neighbors:                   neighbor 1\n\
 |                                  neighbor 2\n\
 |Payment thresholds:               \n\
-|                                  Debt threshold:                   1,201,412,000 Gwei\n\
+|                                  Debt threshold:                   1,201,412,000 gwei\n\
 |                                  Maturity threshold:               3,333 s\n\
 |                                  Payment grace period:             4,578 s\n\
-|                                  Permanent debt allowed:           112,000 Gwei\n\
+|                                  Permanent debt allowed:           112,000 gwei\n\
 |                                  Threshold interval:               11,111 s\n\
-|                                  Unban below:                      120,000 Gwei\n\
+|                                  Unban below:                      120,000 gwei\n\
 |Rate pack:                        \n\
-|                                  Routing byte rate:                99,025,000 Wei\n\
-|                                  Routing service rate:             138,000,000 Wei\n\
-|                                  Exit byte rate:                   129,000,000 Wei\n\
-|                                  Exit service rate:                160,000,000 Wei\n\
+|                                  Routing byte rate:                99,025,000 wei\n\
+|                                  Routing service rate:             138,000,000 wei\n\
+|                                  Exit byte rate:                   129,000,000 wei\n\
+|                                  Exit service rate:                160,000,000 wei\n\
 |Scan intervals:                   \n\
 |                                  Pending payable:                  150,500 s\n\
 |                                  Payable:                          155,000 s\n\
@@ -468,17 +468,17 @@ mod tests {
 |Start block:                      3456\n\
 |Past neighbors:                   [?]\n\
 |Payment thresholds:               \n\
-|                                  Debt threshold:                   2,500 Gwei\n\
+|                                  Debt threshold:                   2,500 gwei\n\
 |                                  Maturity threshold:               500 s\n\
 |                                  Payment grace period:             666 s\n\
-|                                  Permanent debt allowed:           1,200 Gwei\n\
+|                                  Permanent debt allowed:           1,200 gwei\n\
 |                                  Threshold interval:               1,000 s\n\
-|                                  Unban below:                      1,400 Gwei\n\
+|                                  Unban below:                      1,400 gwei\n\
 |Rate pack:                        \n\
-|                                  Routing byte rate:                15 Wei\n\
-|                                  Routing service rate:             17 Wei\n\
-|                                  Exit byte rate:                   20 Wei\n\
-|                                  Exit service rate:                30 Wei\n\
+|                                  Routing byte rate:                15 wei\n\
+|                                  Routing service rate:             17 wei\n\
+|                                  Exit byte rate:                   20 wei\n\
+|                                  Exit service rate:                30 wei\n\
 |Scan intervals:                   \n\
 |                                  Pending payable:                  1,000 s\n\
 |                                  Payable:                          1,000 s\n\

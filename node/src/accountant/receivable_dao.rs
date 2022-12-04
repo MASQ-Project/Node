@@ -682,7 +682,7 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: ReceivableDaoReal: Payment reception failed, rolling back: RusqliteError(\
             \"Error from invalid update command for receivable table and change of -123456789123456789 \
-             Wei to 'wallet_address = 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' with error 'no such table: receivable'\")\
+             wei to 'wallet_address = 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' with error 'no such table: receivable'\")\
             \n\
             Block #    Wallet                                     Amount            \n\
             1234567890 0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa 123456789123456789\n\
@@ -1044,7 +1044,7 @@ mod tests {
             insert(
                 conn,
                 "0x3333333333333333333333333333333333333333",
-                990_000_000, //below 1 Gwei
+                990_000_000, //below 1 gwei
                 now - 86_000,
             );
             insert(
@@ -1260,13 +1260,13 @@ mod tests {
             insert(
                 conn,
                 "0x1111111111111111111111111111111111111111",
-                999_999_999, //smaller than 1 Gwei
+                999_999_999, //smaller than 1 gwei
                 now_time_t() - 11_001,
             );
             insert(
                 conn,
                 "0x2222222222222222222222222222222222222222",
-                -999_999_999, //smaller than -1 Gwei
+                -999_999_999, //smaller than -1 gwei
                 now_time_t() - 5_606,
             );
             insert(

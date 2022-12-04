@@ -446,7 +446,7 @@ where
     }
 
     fn preparation_log(&self, inputs: &BlockchainTxnInputs) -> String {
-        format!("Preparing transaction for {} Wei to {} from {} (chain: {}, contract: {:#x}, gas price: {})",
+        format!("Preparing transaction for {} wei to {} from {} (chain: {}, contract: {:#x}, gas price: {})",
         inputs.amount.separate_with_commas(),
         inputs.recipient,
         inputs.consuming_wallet,
@@ -459,7 +459,7 @@ where
         format!(
             "About to send transaction:\n\
         recipient: {},\n\
-        amount: {} Wei,\n\
+        amount: {} wei,\n\
         (chain: {}, contract: {:#x})",
             recipient,
             amount.separate_with_commas(),
@@ -1200,11 +1200,11 @@ mod tests {
         };
         assert_eq!(sent_backup, &expected_pending_payable_fingerprint);
         let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing("DEBUG: BlockchainInterface: Preparing transaction for 9,000,000,000,000 Wei to 0x00000000000000000000000000626c6168313233 from 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725 (chain: eth-ropsten, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3, gas price: 120)" );
+        log_handler.exists_log_containing("DEBUG: BlockchainInterface: Preparing transaction for 9,000,000,000,000 wei to 0x00000000000000000000000000626c6168313233 from 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725 (chain: eth-ropsten, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3, gas price: 120)" );
         log_handler.exists_log_containing(
             "INFO: BlockchainInterface: About to send transaction:\n\
         recipient: 0x00000000000000000000000000626c6168313233,\n\
-        amount: 9,000,000,000,000 Wei,\n\
+        amount: 9,000,000,000,000 wei,\n\
         (chain: eth-ropsten, contract: 0x384dec25e03f94931767ce4c3556168468ba24c3)",
         );
     }

@@ -2060,7 +2060,7 @@ mod tests {
 
     #[test]
     fn check_payment_thresholds_does_not_permit_threshold_interval_longer_than_1_000_000_000_s() {
-        //this goes to the furthest extreme where the delta of debt limits is just 1 Gwei, which,
+        //this goes to the furthest extreme where the delta of debt limits is just 1 gwei, which,
         //if divided by the slope interval equal or longer 10^9 and rounded, gives 0
         let mut payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
         payment_thresholds.permanent_debt_allowed_gwei = 100;

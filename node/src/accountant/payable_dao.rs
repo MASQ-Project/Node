@@ -638,7 +638,7 @@ mod tests {
         assert_eq!(
             result,
             Err(PayableDaoError::RusqliteError(
-                "Error from invalid update command for payable table and change of -12345 Wei to \
+                "Error from invalid update command for payable table and change of -12345 wei to \
                  'pending_payable_rowid = 789' with error 'attempt to write a readonly database'"
                     .to_string()
             ))
@@ -839,7 +839,7 @@ mod tests {
             insert(
                 conn,
                 "0x3333333333333333333333333333333333333333",
-                999_999_999, //balance smaller than 1 Gwei
+                999_999_999, //balance smaller than 1 gwei
                 now - 86_000,
                 None,
             );

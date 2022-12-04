@@ -41,7 +41,7 @@ impl<'a, T: TableNameDAO> BigIntDbProcessor<T> {
                 self.overflow_handler.update_with_overflow(conn, config)
             }
             Err(e) => Err(BigIntDbError(format!(
-                "Error from invalid {} command for {} table and change of {} Wei to '{} = {}' with error '{}'",
+                "Error from invalid {} command for {} table and change of {} wei to '{} = {}' with error '{}'",
                 config.determine_command(),
                 T::table_name(),
                 config.balance_change(),
@@ -137,7 +137,7 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
         match select_stm.query_row([], update_divided_integer) {
             Ok(()) => Ok(()),
             Err(e) => Err(BigIntDbError(format!(
-                "Updating balance for {} table and change of {} Wei to '{} = {}' with error '{}'",
+                "Updating balance for {} table and change of {} wei to '{} = {}' with error '{}'",
                 T::table_name(),
                 config.balance_change(),
                 config.params.table_unique_key_name,
@@ -169,7 +169,7 @@ impl<T: TableNameDAO + Debug> UpdateOverflowHandlerReal<T> {
     fn correct_bytes(
         former_high_bytes: i64,
         former_low_bytes: i64,
-        requested_wei_change: &WeisMakingTheChange,
+        requested_wei_change: &WeiChangeAsHighAndLowBytes,
     ) -> (i64, i64) {
         let high_bytes_correction = former_high_bytes + requested_wei_change.high.value + 1;
         let low_bytes_correction = ((former_low_bytes as i128
@@ -301,7 +301,7 @@ impl<'a> SQLParamsBuilder<'a> {
             .unwrap_or_else(|| panic!("SQLparams cannot miss the component of a key"));
         let wei_change_spec = self
             .wei_change_spec_opt
-            .unwrap_or_else(|| panic!("SQLparams cannot miss the component of Wei change"));
+            .unwrap_or_else(|| panic!("SQLparams cannot miss the component of wei change"));
         let ((high_bytes_param_name, low_bytes_param_name), (high_bytes_value, low_bytes_value)) =
             Self::expand_wei_params(wei_change_spec);
         let key_as_the_first_param = (key_spec.substitution_name_in_sql, key_spec.value_itself);
@@ -310,7 +310,7 @@ impl<'a> SQLParamsBuilder<'a> {
             .collect();
         SQLParams {
             table_unique_key_name: key_spec.definition_name,
-            wei_change_params: WeisMakingTheChange {
+            wei_change_params: WeiChangeAsHighAndLowBytes {
                 high: StdNumParamFormNamed::new(high_bytes_param_name, high_bytes_value),
                 low: StdNumParamFormNamed::new(low_bytes_param_name, low_bytes_value),
             },
@@ -385,12 +385,12 @@ impl Display for ByteMagnitude {
 
 pub struct SQLParams<'a> {
     table_unique_key_name: &'a str,
-    wei_change_params: WeisMakingTheChange,
+    wei_change_params: WeiChangeAsHighAndLowBytes,
     params_except_wei_change: Vec<(&'a str, &'a dyn ExtendedParamsMarker)>,
 }
 
 #[derive(Debug, PartialEq)]
-struct WeisMakingTheChange {
+struct WeiChangeAsHighAndLowBytes {
     high: StdNumParamFormNamed,
     low: StdNumParamFormNamed,
 }
@@ -407,8 +407,8 @@ impl StdNumParamFormNamed {
     }
 }
 
-impl<'a> From<&'a WeisMakingTheChange> for [(&'a str, &'a dyn ToSql); 2] {
-    fn from(wei_change: &'a WeisMakingTheChange) -> Self {
+impl<'a> From<&'a WeiChangeAsHighAndLowBytes> for [(&'a str, &'a dyn ToSql); 2] {
+    fn from(wei_change: &'a WeiChangeAsHighAndLowBytes) -> Self {
         [
             (wei_change.high.name.as_str(), &wei_change.high.value),
             (wei_change.low.name.as_str(), &wei_change.low.value),
@@ -696,7 +696,7 @@ mod tests {
         assert_eq!(result.table_unique_key_name, "some_key");
         assert_eq!(
             result.wei_change_params,
-            WeisMakingTheChange {
+            WeiChangeAsHighAndLowBytes {
                 high: StdNumParamFormNamed::new(":balance_high_b".to_string(), 0),
                 low: StdNumParamFormNamed::new(":balance_low_b".to_string(), 115898)
             }
@@ -731,7 +731,7 @@ mod tests {
         assert_eq!(result.table_unique_key_name, "some_key");
         assert_eq!(
             result.wei_change_params,
-            WeisMakingTheChange {
+            WeiChangeAsHighAndLowBytes {
                 high: StdNumParamFormNamed::new(":balance_high_b".to_string(), -1),
                 low: StdNumParamFormNamed::new(":balance_low_b".to_string(), 9223372036854321124)
             }
@@ -761,7 +761,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "SQLparams cannot miss the component of Wei change")]
+    #[should_panic(expected = "SQLparams cannot miss the component of wei change")]
     fn sql_params_builder_cannot_be_built_without_wei_change_spec() {
         let subject = SQLParamsBuilder::default();
 
@@ -822,7 +822,7 @@ mod tests {
     fn make_empty_sql_params<'a>() -> SQLParams<'a> {
         SQLParams {
             table_unique_key_name: "",
-            wei_change_params: WeisMakingTheChange {
+            wei_change_params: WeiChangeAsHighAndLowBytes {
                 high: StdNumParamFormNamed::new("".to_string(), 0),
                 low: StdNumParamFormNamed::new("".to_string(), 0),
             },
@@ -1400,7 +1400,7 @@ mod tests {
             result,
             Err(BigIntDbError(
                 "Error from invalid upsert command for test_table table and change of 4879898145125 \
-                Wei to 'name = Joe' with error 'Invalid parameter name: :balance_high_b'"
+                wei to 'name = Joe' with error 'Invalid parameter name: :balance_high_b'"
                     .to_string()
             ))
         );
@@ -1534,7 +1534,7 @@ mod tests {
         assert_eq!(
             result,
             Err(BigIntDbError(
-                "Updating balance for test_table table and change of 100 Wei to 'name = Joe' with \
+                "Updating balance for test_table table and change of 100 wei to 'name = Joe' with \
          error 'Query returned no rows'"
                     .to_string()
             ))
@@ -1600,7 +1600,7 @@ mod tests {
         assert_eq!(
             result,
             Err(BigIntDbError(
-                "Updating balance for test_table table and change of 100 Wei to 'name = Joe' with error \
+                "Updating balance for test_table table and change of 100 wei to 'name = Joe' with error \
         'Invalid column type Text at index: 1, name: balance_low_b'"
                     .to_string()
             ))

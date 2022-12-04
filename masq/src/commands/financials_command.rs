@@ -28,16 +28,16 @@ use thousands::Separable;
 const FINANCIALS_SUBCOMMAND_ABOUT: &str =
     "Displays financial statistics of this Node. Only valid if Node is already running.";
 const TOP_ARG_HELP: &str = "Fetches the top N records (or fewer) from both payable and receivable. The default order is decreasing by balance, but can be changed with the additional '--ordered' argument.";
-const PAYABLE_ARG_HELP: &str = "Enables querying payable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired Gwei precision). \
+const PAYABLE_ARG_HELP: &str = "Enables querying payable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired gwei precision). \
  The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1). If this \
   parameter is being set in the interactive mode, the value needs to be enclosed in quotes (single or double).";
-const RECEIVABLE_ARG_HELP: &str = "Enables querying receivable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired Gwei precision). \
+const RECEIVABLE_ARG_HELP: &str = "Enables querying receivable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired gwei precision). \
  The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1). If this \
   parameter is being set in the interactive mode, the value needs to be enclosed in quotes (single or double).";
 const NO_STATS_ARG_HELP: &str = "Disables statistics that display by default, containing totals of paid and unpaid money from the perspective of debtors and creditors. This argument is not accepted alone and must be placed \
  before other arguments.";
 const GWEI_HELP: &str =
-    "Orders money values rendering in Gwei of MASQ instead of whole MASQs as the default.";
+    "Orders money values rendering in gwei of MASQ instead of whole MASQs as the default.";
 const ORDERED_HELP: &str = "Determines in what ordering the top records will be returned. This option works only with the '--top' argument.";
 const WALLET_ADDRESS_LENGTH: usize = 42;
 
@@ -420,7 +420,7 @@ impl FinancialsCommand {
 
     fn gwei_or_masq_units(is_gwei: bool) -> &'static str {
         if is_gwei {
-            "[Gwei]"
+            "[gwei]"
         } else {
             "[MASQ]"
         }
@@ -713,7 +713,7 @@ impl FinancialsCommand {
                     if int_as_u64 <= i64::MAX as u64 {
                         Ok(int)
                     } else {
-                        Err(format!("Supplied value of {} Gwei overflows the tech limits. You probably want one between 0 and {} MASQ", separable_input(), total_supply()))
+                        Err(format!("Supplied value of {} gwei overflows the tech limits. You probably want one between 0 and {} MASQ", separable_input(), total_supply()))
                     }
                 }
                 Err(_) => {
@@ -724,9 +724,9 @@ impl FinancialsCommand {
             Err(e) => match e.kind() {
                 IntErrorKind::NegOverflow | IntErrorKind::PosOverflow => {
                     if type_name::<N>() == type_name::<u64>() {
-                        Err(format!("Supplied value of {} Gwei overflows the tech limits. You probably want one between 0 and {} MASQ", separable_input(), total_supply()))
+                        Err(format!("Supplied value of {} gwei overflows the tech limits. You probably want one between 0 and {} MASQ", separable_input(), total_supply()))
                     } else {
-                        Err(format!("Supplied value of {0} Gwei overflows the tech limits. You probably want one between -{1} and {1} MASQ", separable_input(), total_supply()))
+                        Err(format!("Supplied value of {0} gwei overflows the tech limits. You probably want one between -{1} and {1} MASQ", separable_input(), total_supply()))
                     }
                 }
                 _ => Err(format!(
@@ -833,7 +833,7 @@ impl FinancialsCommand {
             if digits_count_unchecked <= DIGITS_IN_BILLION {
                 Ok(digits_count_unchecked)
             } else {
-                Err(format!("Value '{}' exceeds the limit of maximally nine decimal digits (only Gwei supported)", num))
+                Err(format!("Value '{}' exceeds the limit of maximally nine decimal digits (only gwei supported)", num))
             }
         }
         fn number_of_decimal_digits(num: &str, dot_idx: usize) -> u32 {
@@ -960,8 +960,8 @@ where
     //Reasons why only a range input is allowed:
     //There is no use in trying to check an exact age because of
     //its all time moving nature.
-    //The backend engine does the search always with a Wei precision while at this end you cannot
-    //pick values more precisely than as 1 Gwei, so it's quite impossible to guess an exact value anyway.
+    //The backend engine does the search always with a wei precision while at this end you cannot
+    //pick values more precisely than as 1 gwei, so it's quite impossible to guess an exact value anyway.
     if min_age >= max_age || min_amount >= max_amount {
         Err(format!("Both ranges '{}' must be low to high", two_ranges))
     } else {
@@ -996,17 +996,17 @@ mod tests {
             TOP_ARG_HELP,
             "Fetches the top N records (or fewer) from both payable and receivable. The default order is decreasing by balance, but can be changed with the additional '--ordered' argument."
         );
-        assert_eq!(PAYABLE_ARG_HELP, "Enables querying payable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired Gwei precision). \
+        assert_eq!(PAYABLE_ARG_HELP, "Enables querying payable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired gwei precision). \
             The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1). \
             If this parameter is being set in the interactive mode, the value needs to be enclosed in quotes (single or double).");
-        assert_eq!(RECEIVABLE_ARG_HELP,"Enables querying receivable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired Gwei precision). \
+        assert_eq!(RECEIVABLE_ARG_HELP,"Enables querying receivable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired gwei precision). \
             The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1). \
             If this parameter is being set in the interactive mode, the value needs to be enclosed in quotes (single or double).");
         assert_eq!(NO_STATS_ARG_HELP,"Disables statistics that display by default, containing totals of paid and unpaid money from the perspective of debtors and creditors. This argument is not accepted alone and must be placed \
                     before other arguments.");
         assert_eq!(
             GWEI_HELP,
-            "Orders money values rendering in Gwei of MASQ instead of whole MASQs as the default."
+            "Orders money values rendering in gwei of MASQ instead of whole MASQs as the default."
         );
         assert_eq!(ORDERED_HELP, "Determines in what ordering the top records will be returned. This option works only with the '--top' argument.");
         assert_eq!(WALLET_ADDRESS_LENGTH, 42);
@@ -1763,12 +1763,12 @@ mod tests {
         let err_msg_u64: Result<u64, String> =
             FinancialsCommand::parse_integer_within_limits("40000000000000000000");
 
-        assert_eq!(err_msg_u64.unwrap_err(), "Supplied value of 40,000,000,000,000,000,000 Gwei overflows the tech limits. You probably want one between 0 and 37,500,000 MASQ");
+        assert_eq!(err_msg_u64.unwrap_err(), "Supplied value of 40,000,000,000,000,000,000 gwei overflows the tech limits. You probably want one between 0 and 37,500,000 MASQ");
 
         let err_msg_i64: Result<i64, String> =
             FinancialsCommand::parse_integer_within_limits("-40000000000000000000");
 
-        assert_eq!(err_msg_i64.unwrap_err(), "Supplied value of -40,000,000,000,000,000,000 Gwei overflows the tech limits. You probably want one between -37,500,000 and 37,500,000 MASQ")
+        assert_eq!(err_msg_i64.unwrap_err(), "Supplied value of -40,000,000,000,000,000,000 gwei overflows the tech limits. You probably want one between -37,500,000 and 37,500,000 MASQ")
     }
 
     #[test]
@@ -1776,7 +1776,7 @@ mod tests {
         let err_msg_u64: Result<u64, String> =
             FinancialsCommand::parse_integer_within_limits(&(i64::MAX as u64 + 1).to_string());
 
-        assert_eq!(err_msg_u64.unwrap_err(), "Supplied value of 9,223,372,036,854,775,808 Gwei overflows the tech limits. You probably want one between 0 and 37,500,000 MASQ");
+        assert_eq!(err_msg_u64.unwrap_err(), "Supplied value of 9,223,372,036,854,775,808 gwei overflows the tech limits. You probably want one between 0 and 37,500,000 MASQ");
     }
 
     #[test]
@@ -2119,7 +2119,7 @@ mod tests {
         assert_eq!(stdout_arc.lock().unwrap().get_string(),
             "\
                 \n\
-                Financial status totals in Gwei\n\
+                Financial status totals in gwei\n\
                 \n\
                 Unpaid and pending payable:       116,688,555\n\
                 Paid payable:                     235,555,554,578\n\
@@ -2132,7 +2132,7 @@ mod tests {
                 \n\
                 Payable\n\
                 \n\
-                #   Wallet                                       Age [s]         Balance [Gwei]   Pending tx                                                        \n\
+                #   Wallet                                       Age [s]         Balance [gwei]   Pending tx                                                        \n\
                 1   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   5,645,405,400   68,843,325,667   None                                                              \n\
                 2   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   150,000         8                0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e\n\
                 \n\
@@ -2140,7 +2140,7 @@ mod tests {
                 \n\
                 Receivable\n\
                 \n\
-                #   Wallet                                       Age [s]   Balance [Gwei]   \n\
+                #   Wallet                                       Age [s]   Balance [gwei]   \n\
                 1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   22,000    2,444,533,124,512\n\
                 2   0x8bA50675e590b545D2128905b89039256Eaa24F6   19,000    -328,123,256,546 \n"
             );
@@ -2197,7 +2197,7 @@ mod tests {
         );
         assert_eq!(stdout_arc.lock().unwrap().get_string(), "\
                 \n\
-                Financial status totals in Gwei\n\
+                Financial status totals in gwei\n\
                 \n\
                 Unpaid and pending payable:       116,688,555\n\
                 Paid payable:                     235,555,554,578\n\
@@ -2208,14 +2208,14 @@ mod tests {
                 \n\
                 Specific payable query: 0-350000 sec 0.005-9 MASQ\n\
                 \n\
-                #   Wallet                                       Age [s]   Balance [Gwei]   Pending tx                                                        \n\
+                #   Wallet                                       Age [s]   Balance [gwei]   Pending tx                                                        \n\
                 1   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   150,000   8                0x0290db1d56121112f4d45c1c3f36348644f6afd20b759b762f1dba9c4949066e\n\
                 \n\
                 \n\
                 \n\
                 Specific receivable query: 5000-10000 sec 0.000004-0.455 MASQ\n\
                 \n\
-                #   Wallet                                       Age [s]   Balance [Gwei]\n\
+                #   Wallet                                       Age [s]   Balance [gwei]\n\
                 \n\
                 No records found\n");
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
@@ -2708,7 +2708,7 @@ mod tests {
             "\n\
                 Specific receivable query: 3000-40000 sec 66-980 MASQ\n\
                 \n\
-                #   Wallet                                       Age [s]     Balance [Gwei]\n\
+                #   Wallet                                       Age [s]     Balance [gwei]\n\
                 1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   4,445       9,898,999,888 \n\
                 2   0xA884A2F1A5Ec6C2e499644666a5E6af97B966888   70,000      708,090       \n\
                 3   0x6DbcCaC5596b7ac986ff8F7ca06F212aEB444440   6,089,909   66,658        \n"
@@ -2775,7 +2775,7 @@ mod tests {
     fn validate_two_ranges_with_decimal_part_longer_than_the_whole_gwei_range() {
         let result = validate_two_ranges::<i64>("454-2000|100-1000.000111222333".to_string());
 
-        assert_eq!(result, Err("Value '1000.000111222333' exceeds the limit of maximally nine decimal digits (only Gwei supported)".to_string()))
+        assert_eq!(result, Err("Value '1000.000111222333' exceeds the limit of maximally nine decimal digits (only gwei supported)".to_string()))
     }
 
     #[test]

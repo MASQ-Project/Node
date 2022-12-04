@@ -761,7 +761,7 @@ impl Accountant {
                         .payable_exceeded_threshold(payable)
                         .expect("Threshold suddenly changed!");
                     format!(
-                        "{} Wei owed for {} sec exceeds threshold: {} Wei; creditor: {}",
+                        "{} wei owed for {} sec exceeds threshold: {} wei; creditor: {}",
                         payable.balance_wei.separate_with_commas(),
                         p_age.as_secs(),
                         threshold.separate_with_commas(),
@@ -4132,8 +4132,8 @@ mod tests {
         subject.payables_debug_summary(qualified_payables);
 
         TestLogHandler::new().exists_log_containing("Paying qualified debts:\n\
-                   10,002,000,000,000,000 Wei owed for 2678400 sec exceeds threshold: 10,000,000,001,152,000 Wei; creditor: 0x0000000000000000000000000077616c6c657430\n\
-                   999,999,999,000,000,000 Wei owed for 86455 sec exceeds threshold: 999,978,993,055,555,580 Wei; creditor: 0x0000000000000000000000000077616c6c657431");
+                   10,002,000,000,000,000 wei owed for 2678400 sec exceeds threshold: 10,000,000,001,152,000 wei; creditor: 0x0000000000000000000000000077616c6c657430\n\
+                   999,999,999,000,000,000 wei owed for 86455 sec exceeds threshold: 999,978,993,055,555,580 wei; creditor: 0x0000000000000000000000000077616c6c657431");
     }
 
     #[test]
@@ -5875,7 +5875,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Broken code: PayableAccount with less than 1 Gwei passed through db query \
+        expected = "Broken code: PayableAccount with less than 1 gwei passed through db query \
      constrains; wallet: 0x0000000000000000000000000061626364313233, balance: 8686005"
     )]
     fn compute_financials_blows_up_on_screwed_sql_query_for_payables_returning_balance_smaller_than_one_gwei(
@@ -5915,7 +5915,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Broken code: ReceivableAccount with balance between 1 and 0 Gwei passed through \
+        expected = "Broken code: ReceivableAccount with balance between 1 and 0 gwei passed through \
      db query constrains; wallet: 0x0000000000000000000000000061626364313233, balance: 7686005"
     )]
     fn compute_financials_blows_up_on_screwed_sql_query_for_receivables_returning_balance_smaller_than_one_gwei(

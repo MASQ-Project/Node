@@ -122,13 +122,13 @@ pub const RATE_PACK_HELP: &str = "\
      These four parameters specify your rates that your Node will use for charging other Nodes for your provided \
      services. These are ever present values, defaulted if left unspecified. The parameters must be always supplied \
      all together, delimited by vertical bars and in the right order.\n\n\
-     1. Routing Byte Rate: This parameter indicates an amount of MASQ in Wei demanded to process 1 byte of routed payload \
+     1. Routing Byte Rate: This parameter indicates an amount of MASQ in wei demanded to process 1 byte of routed payload \
      while the Node is a common relay Node.\n\n\
-     2. Routing Service Rate: This parameter indicates an amount of MASQ in Wei demanded to provide services, unpacking \
+     2. Routing Service Rate: This parameter indicates an amount of MASQ in wei demanded to provide services, unpacking \
      and repacking 1 CORES package, while the Node is a common relay Node.\n\n\
-     3. Exit Byte Rate: This parameter indicates an amount of MASQ in Wei demanded to process 1 byte of routed payload \
+     3. Exit Byte Rate: This parameter indicates an amount of MASQ in wei demanded to process 1 byte of routed payload \
      while the Node acts as the exit Node.\n\n\
-     4. Exit Service Rate: This parameter indicates an amount of MASQ in Wei demanded to provide services, unpacking and \
+     4. Exit Service Rate: This parameter indicates an amount of MASQ in wei demanded to provide services, unpacking and \
      repacking 1 CORES package, while the Node acts as the exit Node.";
 pub const PAYMENT_THRESHOLDS_HELP: &str = "\
      These are parameters that define thresholds to determine when and how much to pay other Nodes for routing and \
@@ -137,7 +137,7 @@ pub const PAYMENT_THRESHOLDS_HELP: &str = "\
      since they have not paid mature debts. These are ever present values, no matter if the user's set any value, as \
      they have defaults. The parameters must be always supplied all together, delimited by vertical bars and in the right \
      order.\n\n\
-     1. Debt Threshold Gwei: Payables higher than this -- in Gwei of MASQ -- will be suggested for payment immediately \
+     1. Debt Threshold gwei: Payables higher than this -- in gwei of MASQ -- will be suggested for payment immediately \
      upon passing the Maturity Threshold Sec age. Payables less than this can stay unpaid longer. Receivables higher than \
      this will be expected to be settled by other Nodes, but will never cause bans until they pass the Maturity Threshold Sec \
      + Payment Grace Period Sec age. Receivables less than this will survive longer without banning.\n\n\
@@ -145,15 +145,15 @@ pub const PAYMENT_THRESHOLDS_HELP: &str = "\
      that it be paid.\n\n\
      3. Payment Grace Period Sec: A large receivable can get as old as Maturity Threshold Sec + Payment Grace Period Sec \
      -- in seconds -- before the Node that owes it will be banned.\n\n\
-     4. Permanent Debt Allowed Gwei: Receivables this small and smaller -- in Gwei of MASQ -- will not cause bans no \
+     4. Permanent Debt Allowed gwei: Receivables this small and smaller -- in gwei of MASQ -- will not cause bans no \
      matter how old they get.\n\n\
      5. Threshold Interval Sec: This interval -- in seconds -- begins after Maturity Threshold Sec for payables and after \
      Maturity Threshold Sec + Payment Grace Period Sec for receivables. During the interval, the amount of a payable that is \
-     allowed to remain unpaid, or a pending receivable that won’t cause a ban, decreases linearly from the Debt Threshold Gwei \
-     to Permanent Debt Allowed Gwei or Unban Below Gwei.\n\n\
-     6. Unban Below Gwei: When a delinquent Node has been banned due to non-payment, the receivables balance must be paid \
-     below this level -- in Gwei of MASQ -- to cause them to be unbanned. In most cases, you'll want this to be set the same \
-     as Permanent Debt Allowed Gwei.";
+     allowed to remain unpaid, or a pending receivable that won’t cause a ban, decreases linearly from the Debt Threshold gwei \
+     to Permanent Debt Allowed gwei or Unban Below gwei.\n\n\
+     6. Unban Below gwei: When a delinquent Node has been banned due to non-payment, the receivables balance must be paid \
+     below this level -- in gwei of MASQ -- to cause them to be unbanned. In most cases, you'll want this to be set the same \
+     as Permanent Debt Allowed gwei.";
 pub const SCAN_INTERVALS_HELP:&str = "\
      These three intervals describe the length of three different scan cycles running automatically in the background \
      since the Node has connected to a qualified neighborhood that consists of neighbors enabling a complete 3-hop \
@@ -191,7 +191,7 @@ lazy_static! {
         LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
     );
     pub static ref GAS_PRICE_HELP: String = format!(
-       "The Gas Price is the amount of Gwei you will pay per unit of gas used in a transaction. \
+       "The Gas Price is the amount of gwei you will pay per unit of gas used in a transaction. \
        If left unspecified, MASQ Node will use the previously stored value (Default {}).",
        DEFAULT_GAS_PRICE);
 }
@@ -799,7 +799,7 @@ mod tests {
         assert_eq!(
             GAS_PRICE_HELP.to_string(),
             format!(
-                "The Gas Price is the amount of Gwei you will pay per unit of gas used in a transaction. \
+                "The Gas Price is the amount of gwei you will pay per unit of gas used in a transaction. \
                  If left unspecified, MASQ Node will use the previously stored value (Default {}).",
                 DEFAULT_GAS_PRICE
             )
@@ -809,13 +809,13 @@ mod tests {
             "These four parameters specify your rates that your Node will use for charging other Nodes for your provided \
              services. These are ever present values, defaulted if left unspecified. The parameters must be always supplied \
              all together, delimited by vertical bars and in the right order.\n\n\
-             1. Routing Byte Rate: This parameter indicates an amount of MASQ in Wei demanded to process 1 byte of routed payload \
+             1. Routing Byte Rate: This parameter indicates an amount of MASQ in wei demanded to process 1 byte of routed payload \
              while the Node is a common relay Node.\n\n\
-             2. Routing Service Rate: This parameter indicates an amount of MASQ in Wei demanded to provide services, unpacking \
+             2. Routing Service Rate: This parameter indicates an amount of MASQ in wei demanded to provide services, unpacking \
              and repacking 1 CORES package, while the Node is a common relay Node.\n\n\
-             3. Exit Byte Rate: This parameter indicates an amount of MASQ in Wei demanded to process 1 byte of routed payload \
+             3. Exit Byte Rate: This parameter indicates an amount of MASQ in wei demanded to process 1 byte of routed payload \
              while the Node acts as the exit Node.\n\n\
-             4. Exit Service Rate: This parameter indicates an amount of MASQ in Wei demanded to provide services, unpacking and \
+             4. Exit Service Rate: This parameter indicates an amount of MASQ in wei demanded to provide services, unpacking and \
              repacking 1 CORES package, while the Node acts as the exit Node."
         );
         assert_eq!(
@@ -825,7 +825,7 @@ mod tests {
              exit services. The thresholds are also used to determine whether to offer services to other Nodes or enact a ban \
              since they have not paid mature debts. These are ever present values, no matter if the user's set any value, as \
              they have defaults. The parameters must be always supplied all together, delimited by vertical bars and in the right order.\n\n\
-             1. Debt Threshold Gwei: Payables higher than this -- in Gwei of MASQ -- will be suggested for payment immediately \
+             1. Debt Threshold gwei: Payables higher than this -- in gwei of MASQ -- will be suggested for payment immediately \
              upon passing the Maturity Threshold Sec age. Payables less than this can stay unpaid longer. Receivables higher than \
              this will be expected to be settled by other Nodes, but will never cause bans until they pass the Maturity Threshold Sec \
              + Payment Grace Period Sec age. Receivables less than this will survive longer without banning.\n\n\
@@ -833,15 +833,15 @@ mod tests {
              that it be paid.\n\n\
              3. Payment Grace Period Sec: A large receivable can get as old as Maturity Threshold Sec + Payment Grace Period Sec \
              -- in seconds -- before the Node that owes it will be banned.\n\n\
-             4. Permanent Debt Allowed Gwei: Receivables this small and smaller -- in Gwei of MASQ -- will not cause bans no \
+             4. Permanent Debt Allowed gwei: Receivables this small and smaller -- in gwei of MASQ -- will not cause bans no \
              matter how old they get.\n\n\
              5. Threshold Interval Sec: This interval -- in seconds -- begins after Maturity Threshold Sec for payables and after \
              Maturity Threshold Sec + Payment Grace Period Sec for receivables. During the interval, the amount of a payable that is \
-             allowed to remain unpaid, or a pending receivable that won’t cause a ban, decreases linearly from the Debt Threshold Gwei \
-             to Permanent Debt Allowed Gwei or Unban Below Gwei.\n\n\
-             6. Unban Below Gwei: When a delinquent Node has been banned due to non-payment, the receivables balance must be paid \
-             below this level -- in Gwei of MASQ -- to cause them to be unbanned. In most cases, you'll want this to be set the same \
-             as Permanent Debt Allowed Gwei."
+             allowed to remain unpaid, or a pending receivable that won’t cause a ban, decreases linearly from the Debt Threshold gwei \
+             to Permanent Debt Allowed gwei or Unban Below gwei.\n\n\
+             6. Unban Below gwei: When a delinquent Node has been banned due to non-payment, the receivables balance must be paid \
+             below this level -- in gwei of MASQ -- to cause them to be unbanned. In most cases, you'll want this to be set the same \
+             as Permanent Debt Allowed gwei."
         );
         assert_eq!(
             SCAN_INTERVALS_HELP,
