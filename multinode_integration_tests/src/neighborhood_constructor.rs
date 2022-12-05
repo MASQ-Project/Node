@@ -189,7 +189,7 @@ fn form_mock_node_skeleton(
         .into_iter()
         .map(|model_node_key| {
             let mut node = cluster.start_mock_node_with_public_key(vec![10000], model_node_key);
-            node.absorb_configuration (model_db.node_by_key (model_node_key).unwrap());
+            node.absorb_configuration(model_db.node_by_key(model_node_key).unwrap());
             node.transmit_debut(real_node).unwrap();
             node.wait_for_gossip(Duration::from_secs(2)).unwrap();
             let standard_gossip = StandardBuilder::new()

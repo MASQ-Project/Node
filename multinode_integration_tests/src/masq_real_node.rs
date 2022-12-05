@@ -15,6 +15,7 @@ use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::localhost;
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use node_lib::blockchain::bip32::Bip32ECKeyProvider;
+use node_lib::neighborhood::node_record::NodeRecord;
 use node_lib::sub_lib::accountant::{
     PaymentThresholds, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
 };
@@ -34,7 +35,6 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::thread;
 use std::time::Duration;
-use node_lib::neighborhood::node_record::NodeRecord;
 
 pub const DATA_DIRECTORY: &str = "/node_root/home";
 
@@ -1170,12 +1170,15 @@ impl MASQRealNode {
                 Ok(output) => output,
                 Err(e) => {
                     if retries_left <= 0 {
-                        return Err(format!("Failed to read {}/{}: {}", DATA_DIRECTORY, CURRENT_LOGFILE_NAME, e));
+                        return Err(format!(
+                            "Failed to read {}/{}: {}",
+                            DATA_DIRECTORY, CURRENT_LOGFILE_NAME, e
+                        ));
                     } else {
                         retries_left -= 1;
                         continue;
                     }
-                },
+                }
             };
             match regex.captures(output.as_str()) {
                 Some(captures) => {

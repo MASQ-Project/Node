@@ -357,9 +357,10 @@ where
     fn helper_access(&mut self) -> &mut Option<T>;
 }
 
-pub fn to_hex (data: &[u8]) -> String {
+pub fn to_hex(data: &[u8]) -> String {
     let mut hex = "0x".to_string();
-    data.iter().for_each (|byte| hex = format! ("{}{:02X}", hex, byte));
+    data.iter()
+        .for_each(|byte| hex = format!("{}{:02X}", hex, byte));
     hex
 }
 
@@ -730,8 +731,8 @@ mod tests {
     fn to_hex_works() {
         let data = &[0x12u8, 0x34, 0x56, 0x78, 0x90, 0xAB, 0xCD, 0xEF];
 
-        let result = to_hex (data);
+        let result = to_hex(data);
 
-        assert_eq! (result, "0x1234567890ABCDEF");
+        assert_eq!(result, "0x1234567890ABCDEF");
     }
 }

@@ -59,11 +59,11 @@ pub struct RatePack {
 }
 
 impl RatePack {
-    pub fn routing_charge (&self, payload_len: usize) -> u64 {
+    pub fn routing_charge(&self, payload_len: usize) -> u64 {
         self.routing_service_rate + (self.routing_byte_rate * payload_len as u64)
     }
 
-    pub fn exit_charge (&self, payload_len: usize) -> u64 {
+    pub fn exit_charge(&self, payload_len: usize) -> u64 {
         self.exit_service_rate + (self.exit_byte_rate * payload_len as u64)
     }
 }
@@ -903,7 +903,7 @@ mod tests {
     }
 
     #[test]
-    fn rate_pack_routing_charge_works () {
+    fn rate_pack_routing_charge_works() {
         let subject = RatePack {
             routing_byte_rate: 100,
             routing_service_rate: 900_000,
@@ -911,13 +911,13 @@ mod tests {
             exit_service_rate: 0,
         };
 
-        let result = subject.routing_charge (1000);
+        let result = subject.routing_charge(1000);
 
-        assert_eq! (result, 1_000_000);
+        assert_eq!(result, 1_000_000);
     }
 
     #[test]
-    fn rate_pack_exit_charge_works () {
+    fn rate_pack_exit_charge_works() {
         let subject = RatePack {
             routing_byte_rate: 0,
             routing_service_rate: 0,
@@ -925,9 +925,9 @@ mod tests {
             exit_service_rate: 900_000,
         };
 
-        let result = subject.exit_charge (1000);
+        let result = subject.exit_charge(1000);
 
-        assert_eq! (result, 1_000_000);
+        assert_eq!(result, 1_000_000);
     }
 
     #[test]

@@ -12,6 +12,7 @@ use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::{MasqueradeError, Masquerader};
 use node_lib::neighborhood::gossip::Gossip_0v1;
+use node_lib::neighborhood::node_record::NodeRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
 use node_lib::sub_lib::cryptde::{encodex, CryptDE};
 use node_lib::sub_lib::cryptde::{CodexError, CryptData, CryptdecError};
@@ -39,7 +40,6 @@ use std::ops::Add;
 use std::rc::Rc;
 use std::thread;
 use std::time::{Duration, Instant};
-use node_lib::neighborhood::node_record::NodeRecord;
 
 pub struct MASQMockNode {
     control_stream: RefCell<TcpStream>,
@@ -61,7 +61,6 @@ impl Clone for MASQMockNode {
 }
 
 impl MASQNode for MASQMockNode {
-
     fn absorb_configuration(&mut self, node_record: &NodeRecord) {
         self.guts.earning_wallet = node_record.earning_wallet();
         self.guts.rate_pack = *node_record.rate_pack();
@@ -277,7 +276,7 @@ impl MASQMockNode {
         receiver: &dyn MASQNode,
         target: &dyn MASQNode,
     ) -> Result<(), Error> {
-        let gossip = SingleNode::new (target);
+        let gossip = SingleNode::new(target);
         self.transmit_multinode_gossip(receiver, &gossip)
     }
 
@@ -286,7 +285,7 @@ impl MASQMockNode {
         receiver: &dyn MASQNode,
         introducee: &dyn MASQNode,
     ) -> Result<(), Error> {
-        let gossip = Introduction::new (self, introducee);
+        let gossip = Introduction::new(self, introducee);
         self.transmit_multinode_gossip(receiver, &gossip)
     }
 
@@ -518,11 +517,11 @@ impl Clone for MASQMockNodeGuts {
             consuming_wallet: self.consuming_wallet.clone(),
             rate_pack: self.rate_pack,
             cryptde_enum: match &self.cryptde_enum {
-                CryptDEEnum::Fake ((m, a)) => CryptDEEnum::Fake ((m.clone(), a.clone())),
-                CryptDEEnum::Real (_) => panic! ("A mock Node with a real CryptDE? Seriously?"),
+                CryptDEEnum::Fake((m, a)) => CryptDEEnum::Fake((m.clone(), a.clone())),
+                CryptDEEnum::Real(_) => panic!("A mock Node with a real CryptDE? Seriously?"),
             },
             framer: self.framer.clone(),
-            chain: self.chain
+            chain: self.chain,
         }
     }
 }

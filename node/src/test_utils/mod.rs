@@ -39,6 +39,7 @@ use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+use rand::RngCore;
 use regex::Regex;
 use rustc_hex::ToHex;
 use serde_derive::{Deserialize, Serialize};
@@ -57,7 +58,6 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use rand::RngCore;
 use web3::types::{Address, U256};
 
 lazy_static! {

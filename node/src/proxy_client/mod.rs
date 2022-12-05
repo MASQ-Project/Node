@@ -496,11 +496,11 @@ mod tests {
             crashable: false,
         };
 
-        let zero_hop = ProxyClient::new(config_factory (false));
-        let standard = ProxyClient::new (config_factory (true));
+        let zero_hop = ProxyClient::new(config_factory(false));
+        let standard = ProxyClient::new(config_factory(true));
 
-        assert_eq! (zero_hop.is_decentralized, false);
-        assert_eq! (standard.is_decentralized, true);
+        assert_eq!(zero_hop.is_decentralized, false);
+        assert_eq!(standard.is_decentralized, true);
     }
 
     #[test]
@@ -757,7 +757,7 @@ mod tests {
         };
         let key1 = make_meaningless_public_key();
         let key2 = make_meaningless_public_key();
-        let route = make_route (vec![&key1, &key2]);
+        let route = make_route(vec![&key1, &key2]);
         let package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             Some(make_wallet("consuming")),

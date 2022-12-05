@@ -13,7 +13,6 @@ use rustc_hex::ToHex;
 use std::any::Any;
 use std::ops::{Deref, DerefMut};
 use std::sync::{Arc, Mutex};
-use masq_lib::logger::Logger;
 
 #[allow(clippy::upper_case_acronyms)]
 #[derive(Debug, Clone)]
@@ -25,10 +24,10 @@ pub struct CryptDENull {
 }
 
 /*
-    Are you here because you're having trouble with a strange byte sequence consisting only of
-    repeated ASCII '4's or decimal 52s or hex 0x34s?  If so, take a look at the implementation of
-    random() below.
- */
+   Are you here because you're having trouble with a strange byte sequence consisting only of
+   repeated ASCII '4's or decimal 52s or hex 0x34s?  If so, take a look at the implementation of
+   random() below.
+*/
 impl CryptDE for CryptDENull {
     fn encode(&self, public_key: &PublicKey, data: &PlainData) -> Result<CryptData, CryptdecError> {
         Self::encode_with_key_data(&Self::other_key_data(public_key.as_slice()), data)
@@ -107,7 +106,7 @@ impl CryptDE for CryptDENull {
         let key_data = public_key.as_slice();
         let (k, _) = Self::key_and_data(key_data.len(), signature);
         if k != key_data {
-            return false
+            return false;
         }
         let claimed_hash = match Self::decode_with_key_data(key_data, signature) {
             Err(_) => return false,
@@ -206,7 +205,7 @@ impl CryptDENull {
     }
 
     pub fn extract_key_pair(key_length: usize, data: &CryptData) -> (PrivateKey, PublicKey) {
-        let private = PrivateKey::new (&data.as_slice()[0..key_length]);
+        let private = PrivateKey::new(&data.as_slice()[0..key_length]);
         let public = CryptDENull::public_from_private(&private);
         (private, public)
     }
@@ -221,7 +220,7 @@ impl CryptDENull {
         }
     }
 
-    fn key_and_data<'a> (key_len: usize, data: &'a CryptData) -> (&'a [u8], &'a [u8]) {
+    fn key_and_data<'a>(key_len: usize, data: &'a CryptData) -> (&'a [u8], &'a [u8]) {
         data.as_slice().split_at(key_len)
     }
 
@@ -328,7 +327,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "Could not decrypt with 6261646b6579 data beginning with 6b6579646174")]
+    #[should_panic(
+        expected = "Could not decrypt with 6261646b6579 data beginning with 6b6579646174"
+    )]
     fn decode_with_incorrect_private_key() {
         let mut subject = CryptDENull::new(TEST_DEFAULT_CHAIN);
         subject.private_key = PrivateKey::new(b"badkey");
@@ -445,7 +446,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "Could not decrypt with 6261644b6579 data beginning with 6b6579646174")]
+    #[should_panic(
+        expected = "Could not decrypt with 6261644b6579 data beginning with 6b6579646174"
+    )]
     fn decode_sym_with_wrong_key() {
         let subject = main_cryptde().clone();
         let key = SymmetricKey::new(b"badKey");
@@ -517,7 +520,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic (expected = "Could not decrypt with f5cdab8967452301 data beginning with f4cdab8967452301")]
+    #[should_panic(
+        expected = "Could not decrypt with f5cdab8967452301 data beginning with f4cdab8967452301"
+    )]
     fn symmetric_encryption_fails_with_different_keys() {
         let subject = main_cryptde();
 
@@ -733,11 +738,11 @@ mod tests {
 
     #[test]
     fn extract_key_pair_works() {
-        let data = CryptData::new (&[0x81, 0x82, 0x83, 0x84, 42, 42, 42, 42, 42]);
+        let data = CryptData::new(&[0x81, 0x82, 0x83, 0x84, 42, 42, 42, 42, 42]);
 
         let (private, public) = CryptDENull::extract_key_pair(4, &data);
 
-        assert_eq! (private.as_slice(), &[0x81, 0x82, 0x83, 0x84]);
-        assert_eq! (public.as_slice(), &[1, 2, 3, 4]);
+        assert_eq!(private.as_slice(), &[0x81, 0x82, 0x83, 0x84]);
+        assert_eq!(public.as_slice(), &[1, 2, 3, 4]);
     }
 }

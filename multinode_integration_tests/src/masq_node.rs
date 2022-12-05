@@ -6,6 +6,7 @@ use masq_lib::constants::{
     CENTRAL_DELIMITER, CHAIN_IDENTIFIER_DELIMITER, CURRENT_LOGFILE_NAME, HIGHEST_USABLE_PORT,
     MASQ_URL_PREFIX,
 };
+use node_lib::neighborhood::node_record::NodeRecord;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
 use node_lib::sub_lib::neighborhood::{NodeDescriptor, RatePack};
@@ -25,7 +26,6 @@ use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use node_lib::neighborhood::node_record::NodeRecord;
 
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct NodeReference {
