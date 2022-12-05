@@ -637,7 +637,7 @@ mod tests {
             Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN));
         static ref REAL_ALIAS_CRYPTDE: Box<dyn CryptDE> =
             Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN));
-    };
+    }
 
     #[test]
     fn logs_and_ignores_message_that_cannot_be_decrypted() {

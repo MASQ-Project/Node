@@ -220,7 +220,7 @@ impl CryptDENull {
         }
     }
 
-    fn key_and_data<'a>(key_len: usize, data: &'a CryptData) -> (&'a [u8], &'a [u8]) {
+    fn key_and_data(key_len: usize, data: &CryptData) -> (&[u8], &[u8]) {
         data.as_slice().split_at(key_len)
     }
 
