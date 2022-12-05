@@ -189,7 +189,7 @@ mod tests {
                     target_hostname: Some("blah".to_string()),
                     target_port: 0,
                     protocol: ProxyProtocol::HTTP,
-                    originator_alias_public_key: subject.cryptde.public_key().clone(),
+                    originator_public_key: subject.cryptde.public_key().clone(),
                 },
                 read_stream,
                 SocketAddr::from_str("1.2.3.4:5678").unwrap(),

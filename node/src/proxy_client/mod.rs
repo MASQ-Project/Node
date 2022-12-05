@@ -113,7 +113,7 @@ impl Handler<ExpiredCoresPackage<ClientRequestPayload_0v1>> for ProxyClient {
             let return_route = msg.remaining_route;
             let latest_stream_context = StreamContext {
                 return_route,
-                payload_destination_key: payload.originator_alias_public_key.clone(),
+                payload_destination_key: payload.originator_public_key.clone(),
                 paying_wallet: paying_wallet.clone(),
             };
             debug!(
@@ -610,7 +610,7 @@ mod tests {
             target_hostname: Some(String::from("target.hostname.com")),
             target_port: 1234,
             protocol: ProxyProtocol::HTTP,
-            originator_alias_public_key: PublicKey::new(&b"originator_public_key"[..]),
+            originator_public_key: PublicKey::new(&b"originator_public_key"[..]),
         };
         let cryptde = main_cryptde();
         let package = ExpiredCoresPackage::new(
@@ -753,7 +753,7 @@ mod tests {
             target_hostname: None,
             target_port: 0,
             protocol: ProxyProtocol::HTTP,
-            originator_alias_public_key: PublicKey::new(&b"originator"[..]),
+            originator_public_key: PublicKey::new(&b"originator"[..]),
         };
         let key1 = make_meaningless_public_key();
         let key2 = make_meaningless_public_key();
@@ -813,7 +813,7 @@ mod tests {
             target_hostname: None,
             target_port: 0,
             protocol: ProxyProtocol::HTTP,
-            originator_alias_public_key: PublicKey::new(&b"originator"[..]),
+            originator_public_key: PublicKey::new(&b"originator"[..]),
         };
         let package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
@@ -870,7 +870,7 @@ mod tests {
             target_hostname: None,
             target_port: 0,
             protocol: ProxyProtocol::HTTP,
-            originator_alias_public_key: alias_cryptde.public_key().clone(),
+            originator_public_key: alias_cryptde.public_key().clone(),
         };
         let zero_hop_remaining_route = Route::one_way(
             RouteSegment::new(
@@ -1223,7 +1223,7 @@ mod tests {
             target_hostname: None,
             target_port: 0,
             protocol: ProxyProtocol::HTTP,
-            originator_alias_public_key: originator_public_key.clone(),
+            originator_public_key: originator_public_key.clone(),
         };
         let before = SystemTime::now();
 

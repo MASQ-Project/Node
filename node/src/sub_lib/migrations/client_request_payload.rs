@@ -107,7 +107,7 @@ impl TryFrom<&Value> for ClientRequestPayload_0v1 {
                     target_hostname: target_hostname_opt.expect("target_hostname disappeared"),
                     target_port: target_port_opt.expect("target_port disappeared"),
                     protocol: protocol_opt.expect("protocol disappeared"),
-                    originator_alias_public_key: originator_public_key_opt
+                    originator_public_key: originator_public_key_opt
                         .expect("originator_public_key disappeared"),
                 })
             }
@@ -150,7 +150,7 @@ mod tests {
             target_hostname: Some("target.hostname.com".to_string()),
             target_port: 1234,
             protocol: ProxyProtocol::HTTP,
-            originator_alias_public_key: PublicKey::new(&[2, 3, 4, 5]),
+            originator_public_key: PublicKey::new(&[2, 3, 4, 5]),
         };
         let future_crp = ExampleFutureCRP {
             stream_key: expected_crp.stream_key.clone(),
@@ -158,7 +158,7 @@ mod tests {
             target_hostname: expected_crp.target_hostname.clone(),
             target_port: expected_crp.target_port.clone(),
             protocol: expected_crp.protocol.clone(),
-            originator_public_key: expected_crp.originator_alias_public_key.clone(),
+            originator_public_key: expected_crp.originator_public_key.clone(),
             another_field: "These are the times that try men's souls".to_string(),
             yet_another_field: 1234567890,
         };
