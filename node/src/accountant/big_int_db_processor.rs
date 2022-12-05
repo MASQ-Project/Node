@@ -1464,13 +1464,13 @@ mod tests {
     #[test]
     fn update_with_overflow_for_subtraction_from_positive_num() {
         let big_initial = i64::MAX as i128 * 2;
-        let big_subtract = i64::MAX as i128 + 120;
-        let big_sum = big_initial - big_subtract;
+        let big_subtrahend = i64::MAX as i128 + 120;
+        let big_sum = big_initial - big_subtrahend;
 
         let (final_high_bytes, final_low_bytes) = update_with_overflow_shared_test_body(
             "update_with_overflow_for_subtraction_from_positive_num",
             big_initial,
-            Subtraction("balance", big_subtract as u128),
+            Subtraction("balance", big_subtrahend as u128),
         );
 
         assert_eq!(
@@ -1478,7 +1478,7 @@ mod tests {
             (1, 9223372036854775806)
         );
         assert_eq!(
-            BigIntDivider::deconstruct(-big_subtract),
+            BigIntDivider::deconstruct(-big_subtrahend),
             (-2, 9223372036854775689)
         );
         let result = BigIntDivider::reconstitute(final_high_bytes, final_low_bytes);
@@ -1488,13 +1488,13 @@ mod tests {
     #[test]
     fn update_with_overflow_for_subtraction_from_negative_num() {
         let big_initial = i64::MAX as i128 * 3 + 200;
-        let big_subtract = i64::MAX as i128 + 120;
-        let big_sum = -big_initial - big_subtract;
+        let big_subtrahend = i64::MAX as i128 + 120;
+        let big_sum = -big_initial - big_subtrahend;
 
         let (final_high_bytes, final_low_bytes) = update_with_overflow_shared_test_body(
             "update_with_overflow_for_subtraction_from_negative_num",
             -big_initial,
-            Subtraction("balance", big_subtract as u128),
+            Subtraction("balance", big_subtrahend as u128),
         );
 
         assert_eq!(
@@ -1502,10 +1502,9 @@ mod tests {
             (-4, 9223372036854775611)
         );
         assert_eq!(
-            BigIntDivider::deconstruct(-big_subtract),
+            BigIntDivider::deconstruct(-big_subtrahend),
             (-2, 9223372036854775689)
         );
-        eprintln!("high {}, low {}", final_high_bytes, final_low_bytes);
         let result = BigIntDivider::reconstitute(final_high_bytes, final_low_bytes);
         assert_eq!(result, big_sum)
     }
@@ -1785,7 +1784,7 @@ mod tests {
         let database_value_1: i64 = 12222;
         let database_value_2: i64 = 23333444;
         let database_value_3: i64 = 5555;
-        let slope: i64 = -3;
+        let slope: i64 = -35_000_000;
         conn.execute(
             "insert into test_table (database_parameter) values (?),(?),(?)",
             &[&database_value_1, &database_value_2, &database_value_3],

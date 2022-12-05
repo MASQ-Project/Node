@@ -1393,9 +1393,25 @@ pub struct ThresholdUtils {}
 
 impl ThresholdUtils {
     pub fn slope(payment_thresholds: &PaymentThresholds) -> i128 {
-        //remember that any user supplied params must satisfy:
-        //PermanentDebtAllowedGwei < DebtThresholdGwei and
-        //ThresholdIntervalSec <= 10^9
+        /*
+        Slope is an integer, rather than a float, to improve performance. Since there are
+        computations that divide by the slope, it cannot be allowed to be zero; but since it's
+        an integer, it can't get any closer to zero than -1.
+
+        If the numerator of this computation is less than the denominator, the slope will be
+        calculated as 0; therefore, .permanent_debt_allowed_gwei must be less than
+        .debt_threshold_gwei, so that the numerator will be no greater than -10^9 (-gwei_to_wei(1)),
+        and the denominator must be less than or equal to 10^9.
+
+        These restrictions do not seem over-strict, since having .permanent_debt_allowed greater
+        than or equal to .debt_threshold_gwei would result in chaos, and setting
+        .threshold_interval_sec over 10^9 would mean continuing to declare debts delinquent after
+        more than 31 years.
+
+        If payment_thresholds are ever configurable by the user, these validations should be done
+        on the values before they are accepted.
+        */
+
         (gwei_to_wei::<i128, _>(payment_thresholds.permanent_debt_allowed_gwei)
             - gwei_to_wei::<i128, _>(payment_thresholds.debt_threshold_gwei))
             / payment_thresholds.threshold_interval_sec as i128
@@ -1478,17 +1494,17 @@ pub mod check_sqlite_fns {
     use actix::System;
 
     #[derive(Message)]
-    pub struct TestOurUserDefinedSqliteFunctions {}
+    pub struct TestUserDefinedSqliteFnsForNewDelinquencies {}
 
-    impl Handler<TestOurUserDefinedSqliteFunctions> for Accountant {
+    impl Handler<TestUserDefinedSqliteFnsForNewDelinquencies> for Accountant {
         type Result = ();
 
         fn handle(
             &mut self,
-            _msg: TestOurUserDefinedSqliteFunctions,
+            _msg: TestUserDefinedSqliteFnsForNewDelinquencies,
             _ctx: &mut Self::Context,
         ) -> Self::Result {
-            //this fn call will kill a test if our user-defined sqlite functions haven't been properly registered
+            //will crash a test if our user-defined SQLite fns have been unregistered
             self.receivable_dao
                 .new_delinquencies(SystemTime::now(), &DEFAULT_PAYMENT_THRESHOLDS);
             System::current().stop();
@@ -1513,8 +1529,8 @@ mod tests {
     use ethsign_crypto::Keccak256;
     use log::Level;
     use masq_lib::constants::{
-        REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, REQUEST_WITH_NO_VALUES, SCAN_ERROR,
-        VALUE_EXCEEDS_ALLOWED_LIMIT,
+        MASQ_TOTAL_SUPPLY, REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, REQUEST_WITH_NO_VALUES,
+        SCAN_ERROR, VALUE_EXCEEDS_ALLOWED_LIMIT,
     };
     use web3::types::U256;
 
@@ -4204,57 +4220,71 @@ mod tests {
         )
     }
 
-    fn gap_tester(payment_thresholds: &PaymentThresholds) -> Option<u64> {
-        let cached = (0_u64..20).map(|to_add| {
-            ThresholdUtils::calculate_finite_debt_limit_by_age(&payment_thresholds, 1500 + to_add)
-                as u64
-        });
+    fn gap_tester(payment_thresholds: &PaymentThresholds) -> (u64, u64) {
         let mut counts_of_unique_elements: HashMap<u64, usize> = HashMap::new();
-        cached.for_each(|point_height| {
-            counts_of_unique_elements
-                .entry(point_height)
-                .and_modify(|q| *q += 1)
-                .or_insert(1);
-        });
-        let mut counts_of_groups_of_the_same_size: HashMap<usize, usize> = HashMap::new();
-        counts_of_unique_elements.values().for_each(|unique_count| {
-            counts_of_groups_of_the_same_size
-                .entry(*unique_count)
-                .and_modify(|q| *q += 1)
-                .or_insert(1);
-        });
+        (1_u64..20)
+            .map(|to_add| {
+                ThresholdUtils::calculate_finite_debt_limit_by_age(
+                    &payment_thresholds,
+                    1500 + to_add,
+                ) as u64
+            })
+            .for_each(|point_height| {
+                counts_of_unique_elements
+                    .entry(point_height)
+                    .and_modify(|q| *q += 1)
+                    .or_insert(1);
+            });
+
+        let mut heights_and_counts = counts_of_unique_elements.drain().collect::<Vec<_>>();
+        heights_and_counts.sort_by_key(|(height, _)| (u64::MAX - height));
+        let mut counts_of_groups_of_the_same_size: HashMap<usize, (u64, usize)> = HashMap::new();
+        let mut previous_height =
+            ThresholdUtils::calculate_finite_debt_limit_by_age(&payment_thresholds, 1500) as u64;
+        heights_and_counts
+            .into_iter()
+            .for_each(|(point_height, unique_count)| {
+                let height_change = if point_height <= previous_height {
+                    previous_height - point_height
+                } else {
+                    panic!("unexpected trend; previously: {previous_height}, now: {point_height}")
+                };
+                counts_of_groups_of_the_same_size
+                    .entry(unique_count)
+                    .and_modify(|(_height_change, occurrence_so_far)| *occurrence_so_far += 1)
+                    .or_insert((height_change, 1));
+                previous_height = point_height;
+            });
+
         let mut sortable = counts_of_groups_of_the_same_size
             .drain()
             .collect::<Vec<_>>();
-        sortable.sort_by_key(|(_key, count)| *count);
-        let (biggest_groups_size, occurrence) = sortable.last().expect("no values to analyze");
+        sortable.sort_by_key(|(_key, (_height_change, occurrence))| *occurrence);
+
+        let (number_of_seconds_detected, (height_change, occurrence)) =
+            sortable.last().expect("no values to analyze");
         //checking if the sample of undistorted results (consist size groups) has enough weight compared to 20 tries from the beginning
-        if biggest_groups_size * occurrence >= 15 {
-            Some(*biggest_groups_size as u64)
+        if number_of_seconds_detected * occurrence >= 15 {
+            (*number_of_seconds_detected as u64, *height_change)
         } else {
             panic!("couldn't provide a relevant amount of data for the analysis")
         }
     }
 
-    fn test_height_granularity_with_advancing_time(
-        test_scope: &str,
+    fn assert_on_height_granularity_with_advancing_time(
+        description_of_given_pt: &str,
         payment_thresholds: &PaymentThresholds,
-        seconds_between_height_change: u64,
+        expected_height_change_wei: u64,
     ) {
-        let finding_under_135_degree = gap_tester(&payment_thresholds);
-
-        if let Some(seconds_needed_for_smallest_detected_change_in_height) =
-            finding_under_135_degree
-        {
-            assert_eq!(seconds_needed_for_smallest_detected_change_in_height, seconds_between_height_change,
-                       "while testing {} we expected that these thresholds: {:?} will require only {} s until we see the height change but computed {} s instead",
-                       test_scope, payment_thresholds, seconds_between_height_change, seconds_needed_for_smallest_detected_change_in_height)
-        } else {
-            panic!(
-                "while testing {}, we waited for some finding but got none",
-                test_scope
-            )
-        }
+        const WE_EXPECT_ALWAYS_JUST_ONE_SECOND_TO_CHANGE_THE_HEIGHT: u64 = 1;
+        let (seconds_needed_for_smallest_change_in_height, absolute_height_change_wei) =
+            gap_tester(&payment_thresholds);
+        assert_eq!(seconds_needed_for_smallest_change_in_height, WE_EXPECT_ALWAYS_JUST_ONE_SECOND_TO_CHANGE_THE_HEIGHT,
+                   "while testing {} we expected that these thresholds: {:?} will require only {} s until we see the height change but computed {} s instead",
+                   description_of_given_pt, payment_thresholds, WE_EXPECT_ALWAYS_JUST_ONE_SECOND_TO_CHANGE_THE_HEIGHT, seconds_needed_for_smallest_change_in_height);
+        assert_eq!(absolute_height_change_wei, expected_height_change_wei,
+                   "while testing {} we expected that these thresholds: {:?} will cause a height change of {} wei as a result of advancement in time by {} s but the true result is {}",
+                   description_of_given_pt, payment_thresholds, expected_height_change_wei, seconds_needed_for_smallest_change_in_height, absolute_height_change_wei)
     }
 
     #[test]
@@ -4268,7 +4298,11 @@ mod tests {
             unban_below_gwei: 100,
         };
 
-        test_height_granularity_with_advancing_time("135° slope", &payment_thresholds, 1);
+        assert_on_height_granularity_with_advancing_time(
+            "135° slope",
+            &payment_thresholds,
+            990_000_000,
+        );
 
         let payment_thresholds = PaymentThresholds {
             maturity_threshold_sec: 1000,
@@ -4279,14 +4313,37 @@ mod tests {
             unban_below_gwei: 100,
         };
 
-        test_height_granularity_with_advancing_time("160° slope", &payment_thresholds, 1);
+        assert_on_height_granularity_with_advancing_time(
+            "160° slope",
+            &payment_thresholds,
+            332_000_000,
+        );
+
+        let payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 1000,
+            payment_grace_period_sec: 0,
+            permanent_debt_allowed_gwei: 100,
+            debt_threshold_gwei: 875,
+            threshold_interval_sec: 10_000,
+            unban_below_gwei: 100,
+        };
+
+        assert_on_height_granularity_with_advancing_time(
+            "175° slope",
+            &payment_thresholds,
+            77_500_000,
+        );
     }
 
     #[test]
     fn checking_chosen_values_for_the_payment_thresholds_defaults_on_height_values_granularity() {
         let payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
 
-        test_height_granularity_with_advancing_time("default thresholds", &payment_thresholds, 1);
+        assert_on_height_granularity_with_advancing_time(
+            "default thresholds",
+            &payment_thresholds,
+            23_148_148_148_148,
+        );
     }
 
     #[test]
@@ -4297,7 +4354,7 @@ mod tests {
             maturity_threshold_sec: 20,
             payment_grace_period_sec: 33,
             permanent_debt_allowed_gwei: 1,
-            debt_threshold_gwei: 37500000000000000,
+            debt_threshold_gwei: MASQ_TOTAL_SUPPLY * WEIS_OF_GWEI as u64,
             threshold_interval_sec: 1,
             unban_below_gwei: 0,
         };

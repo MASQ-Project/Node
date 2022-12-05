@@ -567,7 +567,7 @@ impl FinancialsCommand {
             )
         }
 
-        //the 3rd capture group is disabled by ?: so the 4th one becomes 3
+        //the 4rd capture group is inactivated by ?:
         let simplifying_extractor =
             Regex::new(r#"^(-?)0*(\d+)(?:(\.\d*[1-9])0*$|\.0|$)"#).expect("wrong regex");
         let apply_care = |cached_user_input: &str| -> [Option<String>; 3] {
@@ -717,7 +717,7 @@ impl FinancialsCommand {
                     }
                 }
                 Err(_) => {
-                    //Error here signalizes maximally a negative number given we expect only u64 or i64 behind N
+                    //Error here can only signalize a negative number given we ever expect N to be u64 or i64
                     Ok(int)
                 }
             },
@@ -958,8 +958,7 @@ where
     let (min_amount, max_amount, _, _): (N, N, _, _) =
         FinancialsCommand::parse_masq_range_to_gwei(separate_ranges[1])?;
     //Reasons why only a range input is allowed:
-    //There is no use in trying to check an exact age because of
-    //its all time moving nature.
+    //There is no use trying to check an exact age because of its all time moving nature.
     //The backend engine does the search always with a wei precision while at this end you cannot
     //pick values more precisely than as 1 gwei, so it's quite impossible to guess an exact value anyway.
     if min_age >= max_age || min_amount >= max_amount {

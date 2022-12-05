@@ -600,7 +600,7 @@ impl LogRecipientSetter for LogRecipientSetterReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::check_sqlite_fns::TestOurUserDefinedSqliteFunctions;
+    use crate::accountant::check_sqlite_fns::TestUserDefinedSqliteFnsForNewDelinquencies;
     use crate::accountant::test_utils::bc_from_ac_plus_earning_wallet;
     use crate::actor_system_factory::tests::ShouldWeRunTheTest::{GoAhead, Skip};
     use crate::bootstrapper::{Bootstrapper, RealUser};
@@ -1985,7 +1985,7 @@ mod tests {
         let accountant_addr = addr_rv.try_recv().unwrap();
         //this message also stops the system after the check
         accountant_addr
-            .try_send(TestOurUserDefinedSqliteFunctions {})
+            .try_send(TestUserDefinedSqliteFnsForNewDelinquencies {})
             .unwrap();
         assert_eq!(system.run(), 0);
         //we didn't blow up, it recognized the functions
