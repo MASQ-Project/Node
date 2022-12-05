@@ -105,41 +105,85 @@ impl PayableDao for PayableDaoReal {
         &self,
         wallets_and_rowids: &[(&Wallet, u64)],
     ) -> Result<(), PayableDaoError> {
+        const COMMA_SEPARATOR: &str = ", ";
         fn collect_feedback(row: &Row) -> Result<Option<()>, rusqlite::Error> {
             row.get::<usize, Option<u64>>(0)
                 .map(|id_opt| id_opt.map(|_| ()))
         }
-        fn rows_changed_counter(takes: Vec<Option<()>>) -> usize {
-            takes.iter().flatten().count()
+        fn error_extension_about_not_null_ids(
+            conn: &dyn ConnectionWrapper,
+            wallets_and_rowids: &[(&Wallet, u64)],
+        ) -> String {
+            let sql = format!(
+                "select wallet_address from payable where pending_payable_rowid not in ({}) and wallet_address in ({})",
+                wallets_and_rowids.iter().map(|(_, rowid)|rowid.to_string()).join(COMMA_SEPARATOR),
+                 comma_separated_wallets(wallets_and_rowids,"'")
+            );
+            let failing_wallets = conn
+                .prepare(&sql)
+                .expect("select failed")
+                .query_map([], |row| row.get::<usize, String>(0))
+                .expect("no args but yet binding failed")
+                .flatten() //TODO use vigilant flatten
+                .join(COMMA_SEPARATOR);
+            if failing_wallets.is_empty() {
+                failing_wallets
+            } else {
+                format!(" Accounts for wallets ({}) had contained rowids when we tried to update them with new ones. \
+                 All such columns should be emptied beforehand at the confirmation of the earlier transactions. \
+                 A malformed, repeated payment is suspected", failing_wallets)
+            }
+        }
+        fn comma_separated_wallets(
+            wallets_and_rowids: &[(&Wallet, u64)],
+            quoting_mark: &str,
+        ) -> String {
+            wallets_and_rowids
+                .iter()
+                .map(|(wallet, _)| format!("{quoting_mark}{wallet}{quoting_mark}"))
+                .join(COMMA_SEPARATOR)
+        }
+        fn resolve_success_or_failure(
+            conn: &dyn ConnectionWrapper,
+            wallets_and_rowids: &[(&Wallet, u64)],
+            returning_clause_feedback: Result<
+                impl Iterator<Item = Result<Option<()>, rusqlite::Error>>,
+                rusqlite::Error,
+            >,
+        ) -> Result<(), PayableDaoError> {
+            fn rows_changed_counter(takes: Vec<Option<()>>) -> usize {
+                takes.iter().flatten().count()
+            }
+            match multi_update_rows_changed(returning_clause_feedback, rows_changed_counter) {
+                Ok(rows_affected) => match rows_affected {
+                    num if num == wallets_and_rowids.len() => Ok(()),
+                    num => panic!(
+                        "Marking pending payable rowid for wallets {} affected {} rows but expected {}.{}",
+                        comma_separated_wallets(wallets_and_rowids,""),
+                        num,
+                        wallets_and_rowids.len(),
+                        error_extension_about_not_null_ids(conn, wallets_and_rowids)
+                    ),
+                },
+                Err(e) => Err(PayableDaoError::RusqliteError(e.to_string())),
+            }
         }
 
         let sql = {
-            let when_clauses_of_case_stm = wallets_and_rowids
+            let when_clauses_for_case_stm = wallets_and_rowids
                 .iter()
                 .map(|(wallet, rowid)| format!("when wallet_address = '{}' then {}", wallet, rowid))
                 .join("\n");
             format!(
-            "update payable set pending_payable_rowid = case {} end returning pending_payable_rowid", when_clauses_of_case_stm
+                "update payable set pending_payable_rowid = case {} end \
+             where pending_payable_rowid is null
+             returning pending_payable_rowid",
+                when_clauses_for_case_stm
             )
         };
         let mut stm = self.conn.prepare(&sql).expect("Internal Error");
-
         let returning_clause_feedback = stm.query_map([], collect_feedback);
-        match multi_update_rows_changed(returning_clause_feedback, rows_changed_counter) {
-            Ok(num) => match num {
-                num if num == wallets_and_rowids.len() => Ok(()),
-                num => panic!(
-                    "Marking pending payable rowid for wallets {} affected {} rows but expected {}",
-                    wallets_and_rowids
-                        .iter()
-                        .map(|(wallet, _)| wallet.to_string())
-                        .join(", "),
-                    num,
-                    wallets_and_rowids.len()
-                ),
-            },
-            Err(e) => Err(PayableDaoError::RusqliteError(e.to_string())),
-        }
+        resolve_success_or_failure(&*self.conn, wallets_and_rowids, returning_clause_feedback)
     }
 
     fn transactions_confirmed(
@@ -510,17 +554,17 @@ mod tests {
         //the case statement used in the multi record SQL forces going through all records; it might be better to test the performance;
         //this test compares time needed for updates done via a) separate db calls b) a single db call using a case statement
         const RANGE_OF_ATTEMPTS: RangeInclusive<usize> = 1..=20;
-        fn make_wallet_from_idx(idx: usize) -> String {
+        fn make_str_wallet_from_idx(idx: usize) -> String {
             format!("0x{:0>40}", idx)
         }
-        fn initiate_starting_records(conn: &dyn ConnectionWrapper) {
+        fn create_initial_state_records(conn: &dyn ConnectionWrapper) {
             let set_of_values = RANGE_OF_ATTEMPTS
-                .map(|idx| format!("('{}', 1000, 12345, null)", make_wallet_from_idx(idx)))
+                .map(|idx| format!("('{}', 1000, 12345, null)", make_str_wallet_from_idx(idx)))
                 .join(", ");
             let sql = format!("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values {}", set_of_values);
             let _ = conn.prepare(&sql).unwrap().execute([]).unwrap();
         }
-        fn task_completion_assertion(conn: &dyn ConnectionWrapper) {
+        fn assert_task_has_been_done_completely(conn: &dyn ConnectionWrapper) {
             let sql = "select wallet_address, pending_payable_rowid from payable where pending_payable_rowid not null";
             conn.prepare(sql)
                 .unwrap()
@@ -536,7 +580,7 @@ mod tests {
                 .map(|(idx, (wallet, rowid_opt))| {
                     let rowid_as_usize = rowid_opt.unwrap() as usize;
                     assert_eq!(rowid_as_usize, (idx + 1) * 2);
-                    assert_eq!(wallet, make_wallet_from_idx(rowid_as_usize));
+                    assert_eq!(wallet, make_str_wallet_from_idx(rowid_as_usize));
                     ()
                 })
                 .count();
@@ -553,12 +597,12 @@ mod tests {
                 MigratorConfig::test_default(),
             )
             .unwrap();
-        initiate_starting_records(db_for_separate_calls.as_ref());
+        create_initial_state_records(db_for_separate_calls.as_ref());
         let update_call = |idx: usize| {
             let _ = db_for_separate_calls
                 .prepare("update payable set pending_payable_rowid = ? where wallet_address = ?")
                 .unwrap()
-                .execute(&[&idx as &dyn ToSql, &make_wallet_from_idx(idx)])
+                .execute(&[&idx as &dyn ToSql, &make_str_wallet_from_idx(idx)])
                 .unwrap();
         };
         let separate_calls_start = SystemTime::now();
@@ -570,13 +614,11 @@ mod tests {
         });
 
         let separate_calls_end = SystemTime::now();
-        task_completion_assertion(db_for_separate_calls.as_ref());
+        assert_task_has_been_done_completely(db_for_separate_calls.as_ref());
         let separate_calls_attempt_duration = separate_calls_end
             .duration_since(separate_calls_start)
             .unwrap();
-
-        ////
-
+        ////////////////////////////////////////////////////////////////////////////
         let single_call_path = test_home_folder.join("single_call");
         let db_for_single_call = DbInitializerReal::default()
             .initialize(
@@ -585,13 +627,13 @@ mod tests {
                 MigratorConfig::test_default(),
             )
             .unwrap();
-        initiate_starting_records(db_for_single_call.as_ref());
+        create_initial_state_records(db_for_single_call.as_ref());
         let dao = PayableDaoReal::new(db_for_single_call);
         let generated_owned_args = RANGE_OF_ATTEMPTS
             .flat_map(|idx| {
                 if idx % 2 == 0 {
                     Some((
-                        Wallet::from_str(&make_wallet_from_idx(idx)).unwrap(),
+                        Wallet::from_str(&make_str_wallet_from_idx(idx)).unwrap(),
                         idx as u64,
                     ))
                 } else {
@@ -610,12 +652,10 @@ mod tests {
         let single_call_end = SystemTime::now();
         let conn = Connection::open(single_call_path.join(DATABASE_FILE)).unwrap();
         let wrapped_conn = ConnectionWrapperReal::new(conn);
-        task_completion_assertion(&wrapped_conn);
+        assert_task_has_been_done_completely(&wrapped_conn);
         let single_call_attempt_duration =
             single_call_end.duration_since(single_call_start).unwrap();
-
-        ////
-
+        ////////////////////////////////////////////////////////////////////////////
         assert!(single_call_attempt_duration < separate_calls_attempt_duration * 9)
     }
 
@@ -623,10 +663,11 @@ mod tests {
     #[should_panic(
         expected = "Marking pending payable rowid for wallets 0x000000000000000000000000000000626f6f6761 affected 0 rows but expected 1"
     )]
-    fn mark_pending_payables_rowids_returned_different_row_count_than_expected() {
+    fn mark_pending_payables_rowids_returned_different_row_count_than_expected_when_no_fingerprint_id_assigned_at_the_moment(
+    ) {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "mark_pending_payables_rowids_returned_different_row_count_than_expected",
+            "mark_pending_payables_rowids_returned_different_row_count_than_expected_when_no_fingerprint_id_assigned_at_the_moment",
         );
         let wallet = make_wallet("booga");
         let rowid = 656;
@@ -636,6 +677,62 @@ mod tests {
         let subject = PayableDaoReal::new(conn);
 
         let _ = subject.mark_pending_payables_rowids(&[(&wallet, rowid)]);
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Marking pending payable rowid for wallets 0x000000000000000000000000000000686f6f6761, \
+         0x000000000000000000000000000000626f6f6761, 0x00000000000000000000626f6f6761686f6f6761 affected 1 rows but expected 3. \
+         Accounts for wallets (0x000000000000000000000000000000626f6f6761, 0x00000000000000000000626f6f6761686f6f6761) had contained \
+          rowids when we tried to update them with new ones. All such columns should be emptied beforehand at the confirmation of the \
+           earlier transactions. A malformed, repeated payment is suspected"
+    )]
+    fn mark_pending_payables_rowids_refuses_to_overwrite_existing_marked_rowids() {
+        let home_dir = ensure_node_home_directory_exists(
+            "payable_dao",
+            "mark_pending_payables_rowids_refuses_to_overwrite_existing_marked_rowids",
+        );
+        let wallet_1 = make_wallet("hooga");
+        let rowid_1 = 550;
+        let wallet_2 = make_wallet("booga");
+        let rowid_2 = 555;
+        let wallet_3 = make_wallet("boogahooga");
+        let rowid_3 = 558;
+        let conn = DbInitializerReal::default()
+            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .unwrap();
+        create_payable_account_with_pending_payment(
+            &*conn,
+            &wallet_1,
+            12345,
+            from_time_t(1_000_000_000),
+            0,
+        );
+        conn.prepare("update payable set pending_payable_rowid = null where wallet_address = ?")
+            .unwrap()
+            .execute(&[&wallet_1])
+            .unwrap();
+        create_payable_account_with_pending_payment(
+            &*conn,
+            &wallet_2,
+            23456,
+            from_time_t(1_000_000_111),
+            540,
+        );
+        create_payable_account_with_pending_payment(
+            &*conn,
+            &wallet_3,
+            34567,
+            from_time_t(1_000_000_222),
+            541,
+        );
+        let subject = PayableDaoReal::new(conn);
+
+        let _ = subject.mark_pending_payables_rowids(&[
+            (&wallet_1, rowid_1),
+            (&wallet_2, rowid_2),
+            (&wallet_3, rowid_3),
+        ]);
     }
 
     #[test]
@@ -660,7 +757,7 @@ mod tests {
         )
     }
 
-    fn create_account_with_pending_payment(
+    fn create_payable_account_with_pending_payment(
         conn: &dyn ConnectionWrapper,
         recipient_wallet: &Wallet,
         amount: i64,
@@ -710,14 +807,14 @@ mod tests {
         let payment_2 = 20000000;
         let wallet_2 = make_wallet("booble bobble");
         {
-            create_account_with_pending_payment(
+            create_payable_account_with_pending_payment(
                 conn,
                 &wallet_1,
                 starting_amount_1,
                 previous_timestamp_1,
                 rowid_1,
             );
-            create_account_with_pending_payment(
+            create_payable_account_with_pending_payment(
                 conn,
                 &wallet_2,
                 starting_amount_2,
