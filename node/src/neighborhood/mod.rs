@@ -344,10 +344,13 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
                 let node_record = self
                     .neighborhood_database
                     .node_by_key_mut(&public_key)
-                    .unwrap_or_else(|| panic!("No Node Record found for public_key: {:?}", public_key));
+                    .unwrap_or_else(|| {
+                        panic!("No Node Record found for public_key: {:?}", public_key)
+                    });
                 debug!(
                     self.logger,
-                     "Marking host {host_name} unreachable for the Node with public key {:?}", public_key
+                    "Marking host {host_name} unreachable for the Node with public key {:?}",
+                    public_key
                 );
                 node_record.metadata.unreachable_hosts.insert(host_name);
             }
@@ -710,8 +713,6 @@ impl Neighborhood {
     }
 
     fn handle_gossip_agrs(&mut self, agrs: Vec<AccessibleGossipRecord>, gossip_source: SocketAddr) {
-trace! (self.logger, "Rate packs:{}",
-agrs.iter().map(|agr| format! ("{:?} - {:?}", agr.inner.public_key, agr.inner.rate_pack)).join ("\n  "));
         let neighbor_keys_before = self.neighbor_keys();
         self.handle_agrs(agrs, gossip_source);
         let neighbor_keys_after = self.neighbor_keys();
@@ -1138,21 +1139,33 @@ agrs.iter().map(|agr| format! ("{:?} - {:?}", agr.inner.public_key, agr.inner.ra
         logger: &Logger,
     ) -> i64 {
         let mut rate_undesirability = match undesirability_type {
-            UndesirabilityType::Relay =>
-                (node_record.inner.rate_pack.routing_byte_rate * payload_size as u64) +
-                    node_record.inner.rate_pack.routing_service_rate,
-            UndesirabilityType::ExitRequest(_) =>
-                (node_record.inner.rate_pack.exit_byte_rate * payload_size as u64) +
-                    node_record.inner.rate_pack.exit_service_rate,
-            UndesirabilityType::ExitAndRouteResponse =>
-                (node_record.inner.rate_pack.exit_byte_rate * payload_size as u64) +
-                    node_record.inner.rate_pack.exit_service_rate +
-                    (node_record.inner.rate_pack.routing_byte_rate * payload_size as u64) +
-                    node_record.inner.rate_pack.routing_service_rate,
+            UndesirabilityType::Relay => {
+                (node_record.inner.rate_pack.routing_byte_rate * payload_size as u64)
+                    + node_record.inner.rate_pack.routing_service_rate
+            }
+            UndesirabilityType::ExitRequest(_) => {
+                (node_record.inner.rate_pack.exit_byte_rate * payload_size as u64)
+                    + node_record.inner.rate_pack.exit_service_rate
+            }
+            UndesirabilityType::ExitAndRouteResponse => {
+                (node_record.inner.rate_pack.exit_byte_rate * payload_size as u64)
+                    + node_record.inner.rate_pack.exit_service_rate
+                    + (node_record.inner.rate_pack.routing_byte_rate * payload_size as u64)
+                    + node_record.inner.rate_pack.routing_service_rate
+            }
         } as i64;
         if let UndesirabilityType::ExitRequest(Some(hostname)) = undesirability_type {
             if node_record.metadata.unreachable_hosts.contains(hostname) {
-                trace! (logger, "To {:?} ({:?}): unreachable host {}; undesirability {} + {} = {}", node_record.public_key(), undesirability_type, hostname, rate_undesirability, UNREACHABLE_HOST_PENALTY, rate_undesirability + UNREACHABLE_HOST_PENALTY);
+                trace!(
+                    logger,
+                    "To {:?} ({:?}): unreachable host {}; undesirability {} + {} = {}",
+                    node_record.public_key(),
+                    undesirability_type,
+                    hostname,
+                    rate_undesirability,
+                    UNREACHABLE_HOST_PENALTY,
+                    rate_undesirability + UNREACHABLE_HOST_PENALTY
+                );
                 rate_undesirability += UNREACHABLE_HOST_PENALTY;
             }
         }
@@ -1196,25 +1209,22 @@ agrs.iter().map(|agr| format! ("{:?} - {:?}", agr.inner.public_key, agr.inner.ra
         hostname_opt: Option<&str>,
     ) -> Option<Vec<&'a PublicKey>> {
         let mut minimum_undesirability = i64::MAX;
-        let result = self.routing_engine(
-            vec![source],
-            self.compute_initial_undesirability(source, payload_size, direction),
-            target_opt,
-            minimum_hops,
-            payload_size,
-            direction,
-            &mut minimum_undesirability,
-            hostname_opt,
-        )
-        .into_iter()
-        .filter(|cr| cr.undesirability <= minimum_undesirability)
-        .map(|cr| cr.nodes)
-        .next();
-        trace!(
-            self.logger,
-            "find_best_route_segment (source: {:?}, target_opt: {:?}, minimum_hops: {}, payload_size: {}, direction: {:?}, hostname_opt: {:?}) -> {:?}",
-            source, target_opt, minimum_hops, payload_size, direction, hostname_opt, result
-        );
+        let result = self
+            .routing_engine(
+                vec![source],
+                self.compute_initial_undesirability(source, payload_size, direction),
+                target_opt,
+                minimum_hops,
+                payload_size,
+                direction,
+                &mut minimum_undesirability,
+                hostname_opt,
+            )
+            .into_iter()
+            .filter(|cr| cr.undesirability <= minimum_undesirability)
+            .map(|cr| cr.nodes)
+            .next();
+
         result
     }
 
@@ -1231,8 +1241,6 @@ agrs.iter().map(|agr| format! ("{:?} - {:?}", agr.inner.public_key, agr.inner.ra
         hostname_opt: Option<&str>,
     ) -> Vec<ComputedRouteSegment<'a>> {
         if undesirability > *minimum_undesirability {
-            trace! (self.logger, "Undesirability {} is already greater than minimum_undesirability {}: abandoning possibility {:?}",
-                undesirability, minimum_undesirability, prefix);
             return vec![];
         }
         let first_node_key = prefix.first().expect("Empty prefix");
@@ -1249,14 +1257,12 @@ agrs.iter().map(|agr| format! ("{:?} - {:?}", agr.inner.public_key, agr.inner.ra
                 previous_node.public_key(),
             )
         {
-            trace! (self.logger, "Found working possibility with undesirability {}: {:?}", undesirability, prefix);
             if undesirability < *minimum_undesirability {
                 *minimum_undesirability = undesirability;
             }
             vec![ComputedRouteSegment::new(prefix, undesirability)]
         } else if (hops_remaining == 0) && target_opt.is_none() {
             // don't continue a targetless search past the minimum hop count
-            trace! (self.logger, "Broke hop-count minimum - abandoning: {:?}", prefix);
             vec![]
         } else {
             // Go through all the neighbors and compute shorter routes through all the ones we're not already using.
@@ -1329,10 +1335,18 @@ agrs.iter().map(|agr| format! ("{:?} - {:?}", agr.inner.public_key, agr.inner.ra
         direction: RouteDirection,
     ) -> i64 {
         if direction == RouteDirection::Over {
-            return 0
+            return 0;
         }
-        let node_record = self.neighborhood_database.node_by_key(public_key).expect("Exit node disappeared");
-        Self::compute_undesirability(node_record, payload_size, UndesirabilityType::ExitAndRouteResponse, &self.logger)
+        let node_record = self
+            .neighborhood_database
+            .node_by_key(public_key)
+            .expect("Exit node disappeared");
+        Self::compute_undesirability(
+            node_record,
+            payload_size,
+            UndesirabilityType::ExitAndRouteResponse,
+            &self.logger,
+        )
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1347,14 +1361,21 @@ agrs.iter().map(|agr| format! ("{:?} - {:?}", agr.inner.public_key, agr.inner.ra
         hostname_opt: Option<&str>,
     ) -> i64 {
         let undesirability_type = match (direction, target_opt) {
-            (RouteDirection::Over, None) if hops_remaining == 0 => UndesirabilityType::ExitRequest(hostname_opt),
+            (RouteDirection::Over, None) if hops_remaining == 0 => {
+                UndesirabilityType::ExitRequest(hostname_opt)
+            }
             (RouteDirection::Over, _) => UndesirabilityType::Relay,
-            (RouteDirection::Back, _) if undesirability == 0 => UndesirabilityType::ExitAndRouteResponse,
+            (RouteDirection::Back, _) if undesirability == 0 => {
+                UndesirabilityType::ExitAndRouteResponse
+            }
             (RouteDirection::Back, _) => UndesirabilityType::Relay,
         };
-trace! (self.logger, "Link type for {:?} with direction {:?}, target_opt {:?}, hops_remaining {:?}: {:?}",
-node_record.public_key(), direction, target_opt, hops_remaining, undesirability_type);
-        let node_undesirability = Self::compute_undesirability(node_record, payload_size, undesirability_type, &self.logger);
+        let node_undesirability = Self::compute_undesirability(
+            node_record,
+            payload_size,
+            undesirability_type,
+            &self.logger,
+        );
         undesirability + node_undesirability
     }
 
@@ -3291,22 +3312,22 @@ mod tests {
 
     #[test]
     fn computing_undesirability_works_for_relay_on_over_leg() {
-        let node_record = make_node_record (1234, false);
+        let node_record = make_node_record(1234, false);
         let subject = make_standard_subject();
 
-        let new_undesirability = subject.compute_new_undesirability (
+        let new_undesirability = subject.compute_new_undesirability(
             &node_record,
             1_000_000, // Nonzero undesirability: on our way
             None,
             5, // Lots of hops to go yet
             1_000,
             RouteDirection::Over,
-            Some ("hostname.com"),
+            Some("hostname.com"),
         );
 
         let rate_pack = node_record.rate_pack();
         // node_record will charge us for the link beyond
-        assert_eq! (
+        assert_eq!(
             new_undesirability,
             1_000_000 // existing undesirability
                 + rate_pack.routing_charge (1_000) as i64 // charge to route packet
@@ -3315,21 +3336,21 @@ mod tests {
 
     #[test]
     fn computing_undesirability_works_for_exit_on_over_leg_for_non_blacklisted_host() {
-        let node_record = make_node_record (2345, false);
+        let node_record = make_node_record(2345, false);
         let subject = make_standard_subject();
 
-        let new_undesirability = subject.compute_new_undesirability (
+        let new_undesirability = subject.compute_new_undesirability(
             &node_record,
             1_000_000,
             None,
             0, // Last hop
             1_000,
             RouteDirection::Over,
-            Some ("hostname.com"),
+            Some("hostname.com"),
         );
 
         let rate_pack = node_record.rate_pack();
-        assert_eq! (
+        assert_eq!(
             new_undesirability,
             1_000_000 // existing undesirability
                     + rate_pack.exit_charge (1_000) as i64 // charge to exit request
@@ -3338,22 +3359,25 @@ mod tests {
 
     #[test]
     fn computing_undesirability_works_for_exit_on_over_leg_for_blacklisted_host() {
-        let mut node_record = make_node_record (2345, false);
-        node_record.metadata.unreachable_hosts.insert ("hostname.com".to_string());
+        let mut node_record = make_node_record(2345, false);
+        node_record
+            .metadata
+            .unreachable_hosts
+            .insert("hostname.com".to_string());
         let subject = make_standard_subject();
 
-        let new_undesirability = subject.compute_new_undesirability (
+        let new_undesirability = subject.compute_new_undesirability(
             &node_record,
             1_000_000,
             None,
             0, // Last hop
             1_000,
             RouteDirection::Over,
-            Some ("hostname.com"),
+            Some("hostname.com"),
         );
 
         let rate_pack = node_record.rate_pack();
-        assert_eq! (
+        assert_eq!(
             new_undesirability,
             1_000_000 // existing undesirability
                     + rate_pack.exit_charge (1_000) as i64 // charge to exit request
@@ -3363,17 +3387,20 @@ mod tests {
 
     #[test]
     fn computing_initial_undesirability_works_for_origin_on_over_leg() {
-        let node_record = make_node_record (4567, false);
+        let node_record = make_node_record(4567, false);
         let mut subject = make_standard_subject();
-        subject.neighborhood_database.add_node (node_record.clone()).unwrap();
+        subject
+            .neighborhood_database
+            .add_node(node_record.clone())
+            .unwrap();
 
-        let initial_undesirability = subject.compute_initial_undesirability (
+        let initial_undesirability = subject.compute_initial_undesirability(
             node_record.public_key(),
             1_000,
             RouteDirection::Over,
         );
 
-        assert_eq! (
+        assert_eq!(
             initial_undesirability,
             0 // Origin does not charge itself for routing
         );
@@ -3381,18 +3408,21 @@ mod tests {
 
     #[test]
     fn computing_initial_undesirability_works_for_exit_on_back_leg() {
-        let node_record = make_node_record (4567, false);
+        let node_record = make_node_record(4567, false);
         let mut subject = make_standard_subject();
-        subject.neighborhood_database.add_node (node_record.clone()).unwrap();
+        subject
+            .neighborhood_database
+            .add_node(node_record.clone())
+            .unwrap();
 
-        let initial_undesirability = subject.compute_initial_undesirability (
+        let initial_undesirability = subject.compute_initial_undesirability(
             node_record.public_key(),
             1_000,
             RouteDirection::Back,
         );
 
         let rate_pack = node_record.rate_pack();
-        assert_eq! (
+        assert_eq!(
             initial_undesirability,
             rate_pack.exit_charge (1_000) as i64 // charge to exit response
                 + rate_pack.routing_charge (1_000) as i64 // charge to route response
@@ -3401,13 +3431,13 @@ mod tests {
 
     #[test]
     fn computing_undesirability_works_for_relay_on_back_leg() {
-        let node_record = make_node_record (4567, false);
+        let node_record = make_node_record(4567, false);
         let subject = make_standard_subject();
 
-        let new_undesirability = subject.compute_new_undesirability (
+        let new_undesirability = subject.compute_new_undesirability(
             &node_record,
             1_000_000, // Nonzero undesirability: we're on our way
-            Some (&PublicKey::new (b"Booga")),
+            Some(&PublicKey::new(b"Booga")),
             5, // Plenty of hops remaining: not there yet
             1_000,
             RouteDirection::Back,
@@ -3415,7 +3445,7 @@ mod tests {
         );
 
         let rate_pack = node_record.rate_pack();
-        assert_eq! (
+        assert_eq!(
             new_undesirability,
             1_000_000 // existing undesirability
                 + rate_pack.routing_charge (1_000) as i64 // charge to route response

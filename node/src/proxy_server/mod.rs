@@ -322,7 +322,7 @@ impl ProxyServer {
             None => {
                 error!(self.logger,
                     "Discarding DnsResolveFailure message for {} from an unrecognized stream key {:?}",
-                    server_name_opt.unwrap_or("<unspecified_server>".to_string()),
+                    server_name_opt.unwrap_or_else(|| "<unspecified_server>".to_string()),
                     &response.stream_key
                 )
             }
@@ -3919,7 +3919,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_dns_resolve_failure_does_not_sends_message_to_neighborhood_when_server_is_not_specified(
+    fn handle_dns_resolve_failure_does_not_send_message_to_neighborhood_when_server_is_not_specified(
     ) {
         let system = System::new("test");
         let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
@@ -3935,7 +3935,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         subject
             .keys_and_addrs
-            .insert(stream_key.clone(), socket_addr.clone());
+            .insert(stream_key.clone(), socket_addr);
         let exit_public_key = PublicKey::from(&b"exit_key"[..]);
         let exit_wallet = make_wallet("exit wallet");
         subject.route_ids_to_return_routes.insert(
@@ -4113,11 +4113,10 @@ mod tests {
         system.run();
 
         TestLogHandler::new().exists_log_containing(
-            format!(
+            &format!(
                 "Discarding DnsResolveFailure message for <unspecified_server> from an unrecognized stream key {:?}",
                 stream_key
             )
-            .as_str(),
         );
     }
 
