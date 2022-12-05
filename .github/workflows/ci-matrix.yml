@@ -9,17 +9,19 @@ on:
 jobs:
   build:
     strategy:
-      fail-fast: false
+      fail-fast: true
       matrix:
         target:
-          - { name: linux, os: ubuntu-latest }
-          - { name: macos, os: macOS-latest }
+          - { name: linux, os: ubuntu-22.04 }
+          - { name: macos, os: macos-12 }
           - { name: windows, os: windows-latest }
 
     name: Build node on ${{ matrix.target.os }}
     runs-on: ${{ matrix.target.os }}
     steps:
       - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
       - name: Stable with rustfmt and clippy
         uses: actions-rs/toolchain@v1
         with:

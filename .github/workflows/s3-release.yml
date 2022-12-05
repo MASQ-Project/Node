@@ -3,30 +3,31 @@ name: s3-release
 on:
   workflow_run:
     workflows: [ci-matrix]
-    types:
-      - completed
+    types: [completed]
 
 jobs:
   deploy_to_s3:
     strategy:
       matrix:
-          name: [linux, macos, windows]
-    runs-on: ubuntu-latest
+          os: [linux, macos, windows]
+    runs-on: ubuntu-22.04
     steps:
         - uses: actions/checkout@v3
 
-        - name: Download artifacts from PR
+        - if: ${{ github.event.workflow_run.conclusion == 'success' }}
+          name: Download artifacts from PR
           run: |
             mkdir download
             cd download
             gh run download ${{ github.event.workflow_run.id }}
+            cd ..
           env:
             GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
         - name: Display structure of downloaded files
           run: ls -R download
 
-        - if: ${{ startsWith(github.head_ref, 'v*') != true && github.event.workflow_run.conclusion == 'success' }}
+        - if: ${{ startsWith(github.head_ref, 'v*') == false && github.event.workflow_run.conclusion == 'success' }}
           name: Versioned S3 Sync
           uses: jakejarvis/s3-sync-action@v0.5.1
           with:
@@ -36,8 +37,8 @@ jobs:
             AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
             AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
             AWS_REGION: 'us-west-2'
-            DEST_DIR: 'Node/${{ github.event.workflow_run.head_branch }}/Node-${{ matrix.name }}'
-            SOURCE_DIR: 'download/Node-${{ matrix.name }}/generated/bin/'
+            DEST_DIR: 'Node/${{ github.event.workflow_run.head_branch }}/Node-${{ matrix.os }}'
+            SOURCE_DIR: 'download/Node-${{ matrix.os }}/generated/bin/'
 
         - if: ${{ startsWith(github.head_ref, 'v*') == true && github.event.workflow_run.conclusion == 'success' }}
           name: Latest S3 Sync
@@ -49,11 +50,11 @@ jobs:
             AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
             AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
             AWS_REGION: 'us-west-2'
-            DEST_DIR: 'Node/latest/Node-${{ matrix.name }}'
-            SOURCE_DIR: 'download/Node-${{ matrix.name }}/generated/bin/'
+            DEST_DIR: 'Node/latest/Node-${{ matrix.os }}'
+            SOURCE_DIR: 'download/Node-${{ matrix.os }}/generated/bin/'
 
         - name: Invalidate Binaries CloudFront
-          uses: chetan/invalidate-cloudfront-action@v2.3
+          uses: chetan/invalidate-cloudfront-action@v2.4
           env:
             DISTRIBUTION: ${{ secrets.DISTRIBUTION }}
             PATHS: "/Node*"
