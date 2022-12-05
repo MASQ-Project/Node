@@ -379,13 +379,17 @@ impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingP
         message: ReportTransactionReceipts,
         logger: &Logger,
     ) -> Option<NodeToUiMessage> {
-        debug!(
-            logger,
-            "Processing receipts for {} transactions",
-            message.fingerprints_with_receipts.len()
-        );
-        let statuses = self.handle_pending_transaction_with_its_receipt(&message, logger);
-        self.process_transaction_by_status(statuses, logger);
+        if message.fingerprints_with_receipts.len() != 0 {
+            debug!(
+                logger,
+                "Processing receipts for {} transactions",
+                message.fingerprints_with_receipts.len()
+            );
+            let statuses = self.handle_pending_transaction_with_its_receipt(&message, logger);
+            self.process_transaction_by_status(statuses, logger);
+        } else {
+            debug!(logger, "No transaction receipts found.");
+        }
 
         self.mark_as_ended(logger);
         message
@@ -441,7 +445,7 @@ impl PendingPayableScanner {
         }
     }
 
-    pub(crate) fn handle_pending_transaction_with_its_receipt(
+    fn handle_pending_transaction_with_its_receipt(
         &self,
         msg: &ReportTransactionReceipts,
         logger: &Logger,
@@ -468,7 +472,7 @@ impl PendingPayableScanner {
             .collect()
     }
 
-    pub fn interpret_transaction_receipt(
+    fn interpret_transaction_receipt(
         &self,
         receipt: &TransactionReceipt,
         fingerprint: &PendingPayableFingerprint,
@@ -505,11 +509,7 @@ impl PendingPayableScanner {
         }
     }
 
-    pub(crate) fn update_payable_fingerprint(
-        &self,
-        pending_payable_id: PendingPayableId,
-        logger: &Logger,
-    ) {
+    fn update_payable_fingerprint(&self, pending_payable_id: PendingPayableId, logger: &Logger) {
         if let Err(e) = self
             .pending_payable_dao
             .update_fingerprint(pending_payable_id.rowid)
@@ -527,11 +527,7 @@ impl PendingPayableScanner {
         }
     }
 
-    pub fn order_cancel_failed_transaction(
-        &self,
-        transaction_id: PendingPayableId,
-        logger: &Logger,
-    ) {
+    fn order_cancel_failed_transaction(&self, transaction_id: PendingPayableId, logger: &Logger) {
         if let Err(e) = self.pending_payable_dao.mark_failure(transaction_id.rowid) {
             panic!(
                 "Unsuccessful attempt for transaction {} to mark fatal error at payable \
@@ -548,7 +544,7 @@ impl PendingPayableScanner {
         }
     }
 
-    pub fn order_confirm_transaction(
+    fn order_confirm_transaction(
         &mut self,
         pending_payable_fingerprint: PendingPayableFingerprint,
         logger: &Logger,
@@ -568,9 +564,7 @@ impl PendingPayableScanner {
                 hash, e
             );
         } else {
-            let mut financial_statistics = self.financial_statistics();
-            financial_statistics.total_paid_payable += amount;
-            self.financial_statistics.replace(financial_statistics);
+            self.financial_statistics.borrow_mut().total_paid_payable += amount;
             debug!(
                 logger,
                 "Confirmation of transaction {}; record for payable was modified", hash
@@ -589,10 +583,6 @@ impl PendingPayableScanner {
                 );
             }
         }
-    }
-
-    pub fn financial_statistics(&self) -> FinancialStatistics {
-        self.financial_statistics.borrow().clone()
     }
 }
 
@@ -646,9 +636,8 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
             self.receivable_dao
                 .as_mut()
                 .more_money_received(message.timestamp, message.payments);
-            let mut financial_statistics = self.financial_statistics();
-            financial_statistics.total_paid_receivable += total_newly_paid_receivable;
-            self.financial_statistics.replace(financial_statistics);
+            self.financial_statistics.borrow_mut().total_paid_receivable +=
+                total_newly_paid_receivable;
         }
 
         self.mark_as_ended(logger);
@@ -743,10 +732,6 @@ impl ReceivableScanner {
                     age.as_secs()
                 )
             });
-    }
-
-    pub fn financial_statistics(&self) -> FinancialStatistics {
-        self.financial_statistics.borrow().clone()
     }
 }
 
@@ -1612,13 +1597,13 @@ mod tests {
         let mut subject = PendingPayableScanner::default()
             .payable_dao(payable_dao)
             .pending_payable_dao(pending_payable_dao);
-        let mut financial_statistics = subject.financial_statistics();
+        let mut financial_statistics = subject.financial_statistics.borrow().clone();
         financial_statistics.total_paid_payable += 1111;
         subject.financial_statistics.replace(financial_statistics);
 
         subject.order_confirm_transaction(fingerprint.clone(), &Logger::new(test_name));
 
-        let total_paid_payable = subject.financial_statistics().total_paid_payable;
+        let total_paid_payable = subject.financial_statistics.borrow().total_paid_payable;
         let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
         assert_eq!(total_paid_payable, 1111 + 5478);
         assert_eq!(*transaction_confirmed_params, vec![fingerprint])
@@ -1732,7 +1717,11 @@ mod tests {
         let is_scan_running = subject.scan_started_at().is_some();
         assert_eq!(message_opt, None);
         assert_eq!(is_scan_running, false);
-        TestLogHandler::new().exists_log_matching(&format!(
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_matching(&format!(
+            "DEBUG: {test_name}: No transaction receipts found."
+        ));
+        tlh.exists_log_matching(&format!(
             "INFO: {test_name}: The Pending Payable scan ended in \\d+ms."
         ));
     }
@@ -1883,7 +1872,7 @@ mod tests {
             .more_money_received_parameters(&more_money_received_params_arc)
             .more_money_receivable_result(Ok(()));
         let mut subject = ReceivableScanner::default().receivable_dao(receivable_dao);
-        let mut financial_statistics = subject.financial_statistics();
+        let mut financial_statistics = subject.financial_statistics.borrow().clone();
         financial_statistics.total_paid_receivable += 2222;
         subject.financial_statistics.replace(financial_statistics);
         let receivables = vec![
@@ -1907,7 +1896,7 @@ mod tests {
 
         let message_opt = subject.finish_scan(msg, &Logger::new(test_name));
 
-        let total_paid_receivable = subject.financial_statistics().total_paid_receivable;
+        let total_paid_receivable = subject.financial_statistics.borrow().total_paid_receivable;
         let more_money_received_params = more_money_received_params_arc.lock().unwrap();
         assert_eq!(message_opt, None);
         assert_eq!(subject.scan_started_at(), None);
