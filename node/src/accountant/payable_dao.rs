@@ -4,7 +4,7 @@ use crate::accountant::{unsigned_to_signed, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::dao_utils;
-use crate::database::dao_utils::{multi_update_rows_changed, to_time_t, DaoFactoryReal};
+use crate::database::dao_utils::{multi_row_update_rows_changed, to_time_t, DaoFactoryReal};
 use crate::sub_lib::wallet::Wallet;
 use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
@@ -154,7 +154,7 @@ impl PayableDao for PayableDaoReal {
             fn rows_changed_counter(takes: Vec<Option<()>>) -> usize {
                 takes.iter().flatten().count()
             }
-            match multi_update_rows_changed(returning_clause_feedback, rows_changed_counter) {
+            match multi_row_update_rows_changed(returning_clause_feedback, rows_changed_counter) {
                 Ok(rows_affected) => match rows_affected {
                     num if num == wallets_and_rowids.len() => Ok(()),
                     num => panic!(
@@ -697,8 +697,8 @@ mod tests {
                 ((single_call_attempt_duration * 220) / 100).as_micros()
         )
         //I've also often seen 350 % or even 400 % better performance but 220 % is safe for CI and CPU timing.
-        //The disregarded benefit is though that the first scenario requires just a single call and so threads synchronization
-        //by the database manager
+        //The disregarded benefit is though that the first scenario requires just a single call and so with the threads synchronization
+        //done by the database manager
     }
 
     #[test]
@@ -709,12 +709,13 @@ mod tests {
                 "performance_test_for_mark_pending_payable_rowids_on_just_one_update",
                 tested_range_of_cumulative_updates,
             );
-        assert!(single_call_attempt_duration * 10 < separate_calls_attempt_duration * 11,
-            "With multi-update machinery: {} μs, with a very simple call: {} μs; where the letter is {} μs with 10% correction",
+        assert!(single_call_attempt_duration * 100 < separate_calls_attempt_duration * 115,
+            "With multi-update machinery: {} μs, with a very simple call: {} μs; where the letter is {} μs with 15% correction",
             single_call_attempt_duration.as_micros(),
             separate_calls_attempt_duration.as_micros(),
-                ((separate_calls_attempt_duration * 11) / 10).as_micros()
+                ((separate_calls_attempt_duration * 115) / 100).as_micros()
         )
+        //I've seen only 10% or even less correction to work just okay and frequently.
     }
 
     #[test]

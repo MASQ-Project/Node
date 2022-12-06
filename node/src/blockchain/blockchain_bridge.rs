@@ -241,19 +241,19 @@ impl BlockchainBridge {
         &mut self,
         msg: &ReportAccountsPayable,
     ) -> Result<(), String> {
+        let result = self.start_processing_payments(msg)?;
+
+        let local_processing_result = match &result {
+            Err(e) => Err(format!("ReportAccountsPayable: {}", e)),
+            Ok(_) => Ok(()),
+        };
+
         let skeleton = msg.response_skeleton_opt;
-        let overall_processing_result = self.start_processing_payments(msg)?;
-
-        let local_processing_result = overall_processing_result
-            .as_ref()
-            .map_err(|e| format!("ReportAccountsPayable: {}", e))
-            .map(|_| ());
-
         self.sent_payable_subs_opt
             .as_ref()
             .expect("Accountant is unbound")
             .try_send(SentPayable {
-                payment_outcome: overall_processing_result,
+                payment_outcome: result,
                 response_skeleton_opt: skeleton,
             })
             .expect("Accountant is dead");
@@ -282,6 +282,7 @@ impl BlockchainBridge {
         let retrieved_transactions = self
             .blockchain_interface
             .retrieve_transactions(start_block, &msg.recipient);
+
         match retrieved_transactions {
             Ok(transactions) => {
                 if let Err(e) = self
@@ -315,25 +316,26 @@ impl BlockchainBridge {
         &mut self,
         msg: &RequestTransactionReceipts,
     ) -> Result<(), String> {
-        let short_circuit_result: (
+        let init: (
             Vec<Option<TransactionReceipt>>,
             Option<(BlockchainError, H256)>,
-        ) = msg
-            .pending_payable
-            .iter()
-            .fold((vec![], None), |so_far, current_fingerprint| match so_far {
-                (_, None) => match self
-                    .blockchain_interface
-                    .get_transaction_receipt(current_fingerprint.hash)
-                {
-                    Ok(receipt_opt) => (plus(so_far.0, receipt_opt), None),
-                    Err(e) => (so_far.0, Some((e, current_fingerprint.hash))),
-                },
-                _ => so_far,
-            });
-        let (vector_of_results, error_opt) = short_circuit_result;
-        if !vector_of_results.is_empty() {
-            let pairs = vector_of_results
+        ) = (vec![], None);
+        let short_circuit_result =
+            msg.pending_payable
+                .iter()
+                .fold(init, |so_far, current_fingerprint| match so_far {
+                    (_, None) => match self
+                        .blockchain_interface
+                        .get_transaction_receipt(current_fingerprint.hash)
+                    {
+                        Ok(receipt_opt) => (plus(so_far.0, receipt_opt), None),
+                        Err(e) => (so_far.0, Some((e, current_fingerprint.hash))),
+                    },
+                    _ => so_far,
+                });
+        let (vec_of_receipts_opt, error_opt) = short_circuit_result;
+        if !vec_of_receipts_opt.is_empty() {
+            let pairs = vec_of_receipts_opt
                 .into_iter()
                 .zip(msg.pending_payable.iter().cloned())
                 .collect_vec();
@@ -400,11 +402,11 @@ impl BlockchainBridge {
             Err(_e) => todo!("Will be completed by driving in either GH-554 or GH-555, then transform this match into a simple question mark"),
         };
 
-        let last_nonce = self
+        let pending_nonce = self
             .blockchain_interface
             .get_transaction_count(consuming_wallet)?;
 
-        let fingerprint_recipient = self
+        let new_fingerprints_recipient = self
             .pay_payable_confirmation
             .new_pp_fingerprints_sub_opt
             .as_ref()
@@ -413,8 +415,8 @@ impl BlockchainBridge {
         self.blockchain_interface.send_payables_within_batch(
             consuming_wallet,
             gas_price,
-            last_nonce,
-            fingerprint_recipient,
+            pending_nonce,
+            new_fingerprints_recipient,
             executable_payments,
         )
     }

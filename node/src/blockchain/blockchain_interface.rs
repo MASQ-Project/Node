@@ -132,8 +132,8 @@ pub trait BlockchainInterface<T: Transport = Http> {
         &self,
         consuming_wallet: &Wallet,
         gas_price: u64,
-        last_nonce: U256,
-        fingerprint_recipient: &Recipient<NewPendingPayableFingerprints>,
+        pending_nonce: U256,
+        new_fingerprints_recipient: &Recipient<NewPendingPayableFingerprints>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, BlockchainError>;
 
@@ -194,7 +194,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         _consuming_wallet: &Wallet,
         _gas_price: u64,
         _last_nonce: U256,
-        _fingerprint_recipient: &Recipient<NewPendingPayableFingerprints>,
+        _new_fingerprints_recipient: &Recipient<NewPendingPayableFingerprints>,
         _accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, BlockchainError> {
         error!(self.logger, "Can't send transactions out clandestinely yet",);
@@ -345,7 +345,7 @@ where
         consuming_wallet: &Wallet,
         gas_price: u64,
         pending_nonce: U256,
-        fingerprints_recipient: &Recipient<NewPendingPayableFingerprints>,
+        new_fingerprints_recipient: &Recipient<NewPendingPayableFingerprints>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, BlockchainError> {
         debug!(
@@ -367,12 +367,15 @@ where
         self.batch_payable_tools
             .send_new_payable_fingerprints_credentials(
                 timestamp,
-                fingerprints_recipient,
+                new_fingerprints_recipient,
                 &hashes_and_paid_amounts,
             );
 
-        self.logger
-            .info(|| self.transmission_log(accounts, gas_price));
+        info!(
+            self.logger,
+            "{}",
+            self.transmission_log(accounts, gas_price)
+        );
 
         match self.batch_payable_tools.submit_batch(&self.batch_web3) {
             Ok(responses) => Ok(Self::merged_output_data(
@@ -501,7 +504,7 @@ where
     ) -> HashAndAmountResult {
         debug!(
             self.logger,
-            "Preparing payment of {} Gwei to {} with nonce {}", //TODO fix this later to Wei
+            "Preparing payment of {} Gwei to {} with nonce {}", // TODO fix this later to Wei
             account.balance,
             account.wallet,
             nonce

@@ -55,7 +55,7 @@ impl DaoFactoryReal {
     }
 }
 
-pub fn multi_update_rows_changed<T: Debug>(
+pub fn multi_row_update_rows_changed<T: Debug>(
     results: Result<impl Iterator<Item = Result<T, rusqlite::Error>>, rusqlite::Error>,
     rows_changed_counter: fn(Vec<T>) -> usize,
 ) -> Result<usize, rusqlite::Error> {
@@ -107,7 +107,7 @@ mod tests {
     fn multi_update_rows_changed_returns_the_number() {
         let random_collection_of_changed_data = vec![Ok(5_i64), Ok(111), Ok(4321)];
         let iterator = random_collection_of_changed_data.into_iter();
-        let result = multi_update_rows_changed(Ok(iterator), |ok_vec| ok_vec.len());
+        let result = multi_row_update_rows_changed(Ok(iterator), |ok_vec| ok_vec.len());
 
         assert_eq!(result, Ok(3))
     }
@@ -117,7 +117,7 @@ mod tests {
         let random_collection_of_changed_data: Vec<Result<i64, _>> = vec![];
         let iterator = random_collection_of_changed_data.into_iter();
 
-        let result = multi_update_rows_changed(Ok(iterator), |ok_vec| ok_vec.len());
+        let result = multi_row_update_rows_changed(Ok(iterator), |ok_vec| ok_vec.len());
 
         assert_eq!(result, Ok(0))
     }
@@ -129,7 +129,7 @@ mod tests {
             vec![Err(rusqlite::Error::QueryReturnedNoRows)];
         let iterator = random_collection_of_changed_data.into_iter();
 
-        let result = multi_update_rows_changed(Ok(iterator), |ok_vec| ok_vec.len());
+        let result = multi_row_update_rows_changed(Ok(iterator), |ok_vec| ok_vec.len());
 
         assert_eq!(result, Err(rusqlite::Error::QueryReturnedNoRows))
     }
@@ -146,13 +146,13 @@ mod tests {
         ];
         let iterator = random_collection_of_changed_data.into_iter();
 
-        let _ = multi_update_rows_changed(Ok(iterator), |ok_vec| ok_vec.len());
+        let _ = multi_row_update_rows_changed(Ok(iterator), |ok_vec| ok_vec.len());
     }
 
     #[test]
     #[should_panic(expected = "query failed on binding: InvalidParameterName(\"blah\")")]
     fn the_first_contact_rusqlite_error_just_panics_as_it_belongs_with_the_querys_args_binding() {
-        let _ = multi_update_rows_changed(
+        let _ = multi_row_update_rows_changed(
             Err::<IntoIter<Result<i64, rusqlite::Error>>, _>(
                 rusqlite::Error::InvalidParameterName("blah".to_string()),
             ),

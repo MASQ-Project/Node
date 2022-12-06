@@ -781,8 +781,11 @@ impl Accountant {
     fn handle_sent_payable(&self, sent_payable: SentPayable) {
         let (ok, err_opt) = Self::separate_errors(&sent_payable, &self.logger);
 
-        self.logger
-            .debug(|| Self::debugging_summary_after_error_separation(&ok, &err_opt));
+        debug!(
+            self.logger,
+            "{}",
+            Self::debugging_summary_after_error_separation(&ok, &err_opt)
+        );
 
         if !ok.is_empty() {
             self.mark_pending_payable(ok);
@@ -858,11 +861,11 @@ impl Accountant {
         errs_opt: &Option<PayableTransactingErrorEnum>,
     ) -> String {
         format!(
-            "Received {} properly sent payables of {} attempts",
+            "Got {} properly sent payables of {} attempts",
             oks.len(),
             Self::count_total_errors(errs_opt)
                 .map(|err_count| (err_count + oks.len()).to_string())
-                .unwrap_or_else(|| "undetermined number of".to_string())
+                .unwrap_or_else(|| "not determinable number of".to_string())
         )
     }
 
@@ -3783,7 +3786,7 @@ mod tests {
     #[test]
     #[should_panic(
         expected = "Database corrupt: payable fingerprint deletion for transactions 0x000000000000000000000000000000000000000000000000000000000000007b, \
-        0x0000000000000000000000000000000000000000000000000000000000000315 has stayed undone due to RecordDeletion(\"we slept over without an alarm set\")"
+        0x0000000000000000000000000000000000000000000000000000000000000315 has stayed undone due to RecordDeletion(\"Gosh, I overslept without an alarm set\")"
     )]
     fn handle_sent_payable_dealing_with_failed_payment_fails_to_delete_the_existing_pending_payable_fingerprint_and_panics(
     ) {
@@ -3801,7 +3804,7 @@ mod tests {
         let pending_payable_dao = PendingPayableDaoMock::default()
             .fingerprints_rowids_result(vec![(Some(rowid_1), hash_1), (Some(rowid_2), hash_2)])
             .delete_fingerprints_result(Err(PendingPayableDaoError::RecordDeletion(
-                "we slept over without an alarm set".to_string(),
+                "Gosh, I overslept without an alarm set".to_string(),
             )));
         let subject = AccountantBuilder::default()
             .pending_payable_dao(pending_payable_dao)
@@ -5026,7 +5029,7 @@ mod tests {
 
         assert_eq!(
             result,
-            "Received 0 properly sent payables of undetermined number of attempts"
+            "Got 0 properly sent payables of not determinable number of attempts"
         )
     }
 

@@ -883,7 +883,7 @@ pub fn account_status(conn: &Connection, wallet: &Wallet) -> Option<PayableAccou
                 pending_payable_opt: match rowid {
                     Some(rowid) => Some(PendingPayableId {
                         rowid: u64::try_from(rowid).unwrap(),
-                        hash: make_tx_hash(0), //garbage
+                        hash: make_tx_hash(0), //no way to get this without a join table
                     }),
                     None => None,
                 },

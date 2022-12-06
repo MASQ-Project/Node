@@ -12,7 +12,6 @@ use actix::Recipient;
 use bip39::{Language, Mnemonic, Seed};
 use ethereum_types::{BigEndianHash, H256};
 use jsonrpc_core as rpc;
-use jsonrpc_core::Call;
 use lazy_static::lazy_static;
 use std::cell::RefCell;
 use std::collections::VecDeque;
@@ -90,7 +89,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         consuming_wallet: &Wallet,
         gas_price: u64,
         last_nonce: U256,
-        _fingerprint_recipient: &Recipient<NewPendingPayableFingerprints>,
+        _new_fingerprints_recipient: &Recipient<NewPendingPayableFingerprints>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, BlockchainError> {
         self.send_payables_within_batch_params
@@ -195,9 +194,9 @@ impl BlockchainInterfaceMock {
 #[derive(Debug, Default, Clone)]
 pub struct TestTransport {
     prepare_params: Arc<Mutex<Vec<(String, Vec<rpc::Value>)>>>,
-    _send_params: Arc<Mutex<Vec<(RequestId, Call)>>>,
+    _send_params: Arc<Mutex<Vec<(RequestId, rpc::Call)>>>,
     send_results: RefCell<VecDeque<rpc::Value>>,
-    send_batch_params: Arc<Mutex<Vec<Vec<(RequestId, Call)>>>>,
+    send_batch_params: Arc<Mutex<Vec<Vec<(RequestId, rpc::Call)>>>>,
     send_batch_results: RefCell<Vec<Vec<Result<rpc::Value, web3::Error>>>>,
     //to check inheritance from a certain descendant, be proving a relation with reference counting
     reference_counter_opt: Option<Arc<()>>,
@@ -229,7 +228,7 @@ impl BatchTransport for TestTransport {
 
     fn send_batch<T>(&self, requests: T) -> Self::Batch
     where
-        T: IntoIterator<Item = (RequestId, Call)>,
+        T: IntoIterator<Item = (RequestId, rpc::Call)>,
     {
         self.send_batch_params
             .lock()
@@ -251,7 +250,10 @@ impl TestTransport {
         self
     }
 
-    pub fn send_batch_params(mut self, params: &Arc<Mutex<Vec<Vec<(RequestId, Call)>>>>) -> Self {
+    pub fn send_batch_params(
+        mut self,
+        params: &Arc<Mutex<Vec<Vec<(RequestId, rpc::Call)>>>>,
+    ) -> Self {
         self.send_batch_params = params.clone();
         self
     }
