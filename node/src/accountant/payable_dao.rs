@@ -388,6 +388,7 @@ mod tests {
     use rusqlite::{Connection, OpenFlags};
     use std::ops::RangeInclusive;
     use std::path::Path;
+    use std::time::Duration;
 
     #[test]
     #[should_panic(
@@ -549,47 +550,62 @@ mod tests {
         )
     }
 
-    #[test]
-    fn performance_test_for_mark_pending_payable_rowids() {
-        //the case statement used in the multi record SQL forces going through all records; it might be better to test the performance;
-        //this test compares time needed for updates done via a) separate db calls b) a single db call using a case statement
-        const RANGE_OF_ATTEMPTS: RangeInclusive<usize> = 1..=20;
+    fn run_performance_test_for_mark_pending_payable_rowids(
+        test_name: &str,
+        range_of_attempts: RangeInclusive<usize>,
+    ) -> (Duration, Duration) {
+        /*
+           The case statement used in the multi record SQL forces us into going through all records; it seems like a good idea to test the performance;
+           We're going to compare an amount of time needed for updates done via
+           a) separate db calls
+           b) a single db call using a case statement
+        */
         fn make_str_wallet_from_idx(idx: usize) -> String {
             format!("0x{:0>40}", idx)
         }
-        fn create_initial_state_records(conn: &dyn ConnectionWrapper) {
-            let set_of_values = RANGE_OF_ATTEMPTS
+        fn create_initial_state_records(
+            conn: &dyn ConnectionWrapper,
+            range_of_attempts: RangeInclusive<usize>,
+        ) {
+            let set_of_values = range_of_attempts
                 .map(|idx| format!("('{}', 1000, 12345, null)", make_str_wallet_from_idx(idx)))
                 .join(", ");
             let sql = format!("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values {}", set_of_values);
             let _ = conn.prepare(&sql).unwrap().execute([]).unwrap();
         }
-        fn assert_task_has_been_done_completely(conn: &dyn ConnectionWrapper) {
+        fn assert_task_has_been_done_completely(
+            conn: &dyn ConnectionWrapper,
+            range_of_attempts: RangeInclusive<usize>,
+        ) {
             let sql = "select wallet_address, pending_payable_rowid from payable where pending_payable_rowid not null";
-            conn.prepare(sql)
+            let updated_wallets_and_rowids = conn
+                .prepare(sql)
                 .unwrap()
                 .query_map([], |row| {
                     Ok((
                         row.get::<usize, String>(0).unwrap(),
-                        row.get::<usize, Option<i64>>(1).unwrap(),
+                        row.get::<usize, Option<i64>>(1).unwrap().unwrap(),
                     ))
                 })
                 .unwrap()
                 .flatten()
-                .enumerate()
-                .map(|(idx, (wallet, rowid_opt))| {
-                    let rowid_as_usize = rowid_opt.unwrap() as usize;
-                    assert_eq!(rowid_as_usize, (idx + 1) * 2);
-                    assert_eq!(wallet, make_str_wallet_from_idx(rowid_as_usize));
-                    ()
+                .collect::<Vec<(String, i64)>>();
+            let odd_idx_iterator = range_of_attempts.into_iter().step_by(2);
+            assert_eq!(
+                updated_wallets_and_rowids.len(),
+                odd_idx_iterator.clone().count()
+            );
+            assert!(!updated_wallets_and_rowids.is_empty());
+            updated_wallets_and_rowids
+                .into_iter()
+                .zip(odd_idx_iterator)
+                .for_each(|((wallet, rowid), idx)| {
+                    assert_eq!(rowid as usize, idx);
+                    assert_eq!(wallet, make_str_wallet_from_idx(idx));
                 })
-                .count();
         }
 
-        let test_home_folder = ensure_node_home_directory_exists(
-            "payable_dao",
-            "performance_test_for_mark_pending_payable_rowids",
-        );
+        let test_home_folder = ensure_node_home_directory_exists("payable_dao", test_name);
         let db_for_separate_calls = DbInitializerReal::default()
             .initialize(
                 test_home_folder.join("separate_calls").as_path(),
@@ -597,7 +613,7 @@ mod tests {
                 MigratorConfig::test_default(),
             )
             .unwrap();
-        create_initial_state_records(db_for_separate_calls.as_ref());
+        create_initial_state_records(db_for_separate_calls.as_ref(), range_of_attempts.clone());
         let update_call = |idx: usize| {
             let _ = db_for_separate_calls
                 .prepare("update payable set pending_payable_rowid = ? where wallet_address = ?")
@@ -607,14 +623,17 @@ mod tests {
         };
         let separate_calls_start = SystemTime::now();
 
-        RANGE_OF_ATTEMPTS.for_each(|attempt| {
-            if attempt % 2 == 0 {
+        range_of_attempts.clone().for_each(|attempt| {
+            if attempt % 2 != 0 {
                 update_call(attempt)
             }
         });
 
         let separate_calls_end = SystemTime::now();
-        assert_task_has_been_done_completely(db_for_separate_calls.as_ref());
+        assert_task_has_been_done_completely(
+            db_for_separate_calls.as_ref(),
+            range_of_attempts.clone(),
+        );
         let separate_calls_attempt_duration = separate_calls_end
             .duration_since(separate_calls_start)
             .unwrap();
@@ -627,11 +646,12 @@ mod tests {
                 MigratorConfig::test_default(),
             )
             .unwrap();
-        create_initial_state_records(db_for_single_call.as_ref());
+        create_initial_state_records(db_for_single_call.as_ref(), range_of_attempts.clone());
         let dao = PayableDaoReal::new(db_for_single_call);
-        let generated_owned_args = RANGE_OF_ATTEMPTS
+        let generated_owned_args = range_of_attempts
+            .clone()
             .flat_map(|idx| {
-                if idx % 2 == 0 {
+                if idx % 2 != 0 {
                     Some((
                         Wallet::from_str(&make_str_wallet_from_idx(idx)).unwrap(),
                         idx as u64,
@@ -652,11 +672,49 @@ mod tests {
         let single_call_end = SystemTime::now();
         let conn = Connection::open(single_call_path.join(DATABASE_FILE)).unwrap();
         let wrapped_conn = ConnectionWrapperReal::new(conn);
-        assert_task_has_been_done_completely(&wrapped_conn);
+        assert_task_has_been_done_completely(&wrapped_conn, range_of_attempts.clone());
         let single_call_attempt_duration =
             single_call_end.duration_since(single_call_start).unwrap();
-        ////////////////////////////////////////////////////////////////////////////
-        assert!(single_call_attempt_duration < separate_calls_attempt_duration * 9)
+        (
+            single_call_attempt_duration,
+            separate_calls_attempt_duration,
+        )
+    }
+
+    #[test]
+    fn performance_test_for_mark_pending_payable_rowids_with_five_updates() {
+        //processing every odd item in the range
+        let tested_range_of_cumulative_updates = 1..=9;
+        let (single_call_attempt_duration, separate_calls_attempt_duration) =
+            run_performance_test_for_mark_pending_payable_rowids(
+                "performance_test_for_mark_pending_payable_rowids_with_multiple_updates",
+                tested_range_of_cumulative_updates,
+            );
+        assert!(single_call_attempt_duration * 220 < separate_calls_attempt_duration * 100,
+                "With multi-update machinery: {} μs, with a very simple call: {} μs; where the former is {} μs with 220 % correction",
+                single_call_attempt_duration.as_micros(),
+                separate_calls_attempt_duration.as_micros(),
+                ((single_call_attempt_duration * 220) / 100).as_micros()
+        )
+        //I've also often seen 350 % or even 400 % better performance but 220 % is safe for CI and CPU timing.
+        //The disregarded benefit is though that the first scenario requires just a single call and so threads synchronization
+        //by the database manager
+    }
+
+    #[test]
+    fn performance_test_for_mark_pending_payable_rowids_on_just_one_update() {
+        let tested_range_of_cumulative_updates = 1..=1;
+        let (single_call_attempt_duration, separate_calls_attempt_duration) =
+            run_performance_test_for_mark_pending_payable_rowids(
+                "performance_test_for_mark_pending_payable_rowids_on_just_one_update",
+                tested_range_of_cumulative_updates,
+            );
+        assert!(single_call_attempt_duration * 10 < separate_calls_attempt_duration * 11,
+            "With multi-update machinery: {} μs, with a very simple call: {} μs; where the letter is {} μs with 10% correction",
+            single_call_attempt_duration.as_micros(),
+            separate_calls_attempt_duration.as_micros(),
+                ((separate_calls_attempt_duration * 11) / 10).as_micros()
+        )
     }
 
     #[test]
@@ -789,7 +847,7 @@ mod tests {
         starting_amount_2: i64,
     }
 
-    fn make_fingerprint_paiar_and_insert_initial_payable_records(
+    fn make_fingerprint_pair_and_insert_initial_payable_records(
         conn: &dyn ConnectionWrapper,
     ) -> TestSetupValuesHolder {
         let hash_1 = make_tx_hash(12345);
@@ -856,7 +914,7 @@ mod tests {
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
         let setup_holder =
-            make_fingerprint_paiar_and_insert_initial_payable_records(boxed_conn.as_ref());
+            make_fingerprint_pair_and_insert_initial_payable_records(boxed_conn.as_ref());
         let subject = PayableDaoReal::new(boxed_conn);
         let expected_account_1 = PayableAccount {
             wallet: setup_holder.wallet_1.clone(),
@@ -941,7 +999,7 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, true, MigratorConfig::test_default())
             .unwrap();
-        let setup_holder = make_fingerprint_paiar_and_insert_initial_payable_records(conn.as_ref());
+        let setup_holder = make_fingerprint_pair_and_insert_initial_payable_records(conn.as_ref());
         let subject = PayableDaoReal::new(conn);
         let expected_account_1 = PayableAccount {
             wallet: setup_holder.wallet_1.clone(),
