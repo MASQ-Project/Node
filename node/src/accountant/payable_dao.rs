@@ -383,7 +383,9 @@ mod tests {
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
     use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::make_wallet;
-    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use masq_lib::test_utils::utils::{
+        ensure_node_home_directory_exists, is_running_under_github_actions,
+    };
     use rusqlite::Connection as RusqliteConnection;
     use rusqlite::{Connection, OpenFlags};
     use std::ops::RangeInclusive;
@@ -615,11 +617,12 @@ mod tests {
             .unwrap();
         create_initial_state_records(db_for_separate_calls.as_ref(), range_of_attempts.clone());
         let update_call = |idx: usize| {
-            let _ = db_for_separate_calls
+            let rows_changed = db_for_separate_calls
                 .prepare("update payable set pending_payable_rowid = ? where wallet_address = ?")
                 .unwrap()
                 .execute(&[&idx as &dyn ToSql, &make_str_wallet_from_idx(idx)])
                 .unwrap();
+            assert_eq!(rows_changed, 1)
         };
         let separate_calls_start = SystemTime::now();
 
@@ -690,32 +693,58 @@ mod tests {
                 "performance_test_for_mark_pending_payable_rowids_with_multiple_updates",
                 tested_range_of_cumulative_updates,
             );
-        assert!(single_call_attempt_duration * 220 < separate_calls_attempt_duration * 100,
+        assert!(single_call_attempt_duration * 22 / 10 < separate_calls_attempt_duration,
                 "With multi-update machinery: {} μs, with a very simple call: {} μs; where the former is {} μs with 220 % correction",
                 single_call_attempt_duration.as_micros(),
                 separate_calls_attempt_duration.as_micros(),
-                ((single_call_attempt_duration * 220) / 100).as_micros()
+                ((single_call_attempt_duration * 22) / 100).as_micros()
         )
         //I've also often seen 350 % or even 400 % better performance but 220 % is safe for CI and CPU timing.
-        //The disregarded benefit is though that the first scenario requires just a single call and so with the threads synchronization
-        //done by the database manager
+        //The here disregarded benefit is though that the first model requires only a single database call and so with the number of thread synchronizations
+        //performed by the manager
     }
 
     #[test]
     fn performance_test_for_mark_pending_payable_rowids_on_just_one_update() {
-        let tested_range_of_cumulative_updates = 1..=1;
-        let (single_call_attempt_duration, separate_calls_attempt_duration) =
-            run_performance_test_for_mark_pending_payable_rowids(
-                "performance_test_for_mark_pending_payable_rowids_on_just_one_update",
-                tested_range_of_cumulative_updates,
-            );
-        assert!(single_call_attempt_duration * 100 < separate_calls_attempt_duration * 115,
-            "With multi-update machinery: {} μs, with a very simple call: {} μs; where the letter is {} μs with 15% correction",
-            single_call_attempt_duration.as_micros(),
-            separate_calls_attempt_duration.as_micros(),
-                ((separate_calls_attempt_duration * 115) / 100).as_micros()
+        fn single_round() -> (u128, u128) {
+            let tested_range_of_cumulative_updates = 1..=1;
+            let (single_call_attempt_duration, separate_calls_attempt_duration) =
+                run_performance_test_for_mark_pending_payable_rowids(
+                    "performance_test_for_mark_pending_payable_rowids_on_just_one_update",
+                    tested_range_of_cumulative_updates,
+                );
+            (
+                single_call_attempt_duration.as_micros(),
+                separate_calls_attempt_duration.as_micros(),
+            )
+        }
+
+        let ((single, separate), plus_correction) = if is_running_under_github_actions() {
+            eprintln!("Running in Actions: performance_test_for_mark_pending_payable_rowids_on_just_one_update");
+
+            (
+                (0..3).fold((0, 0), |acc, _| {
+                    let (a, b) = single_round();
+                    (acc.0 + a, acc.1 + b)
+                }),
+                120,
+            )
+        } else {
+            eprintln!("Running in dev environment");
+
+            (single_round(), 135)
+        };
+
+        let single_call_attempt_duration = single / 3;
+        let separate_calls_attempt_duration = separate / 3;
+        assert!(single_call_attempt_duration < separate_calls_attempt_duration * plus_correction / 100,
+                "With multi-update machinery: {} μs, with a very simple call: {} μs; where the letter is {} μs with {}% correction",
+                single_call_attempt_duration,
+                separate_calls_attempt_duration,
+                plus_correction - 100,
+                ((separate_calls_attempt_duration * plus_correction) / 100)
         )
-        //I've seen only 10% or even less correction to work just okay and frequently.
+        //I've seen only 10% correction to work just okay and frequently.
     }
 
     #[test]
