@@ -992,13 +992,15 @@ impl StandardGossipHandler {
         database: &NeighborhoodDatabase,
     ) {
         patch.insert(node.clone());
-        if hops_remaining > 0 {
-            let neighbors = if patch.len() == 1 {
+        if hops_remaining == 0 {
+            return;
+        } else {
+            let neighbors = if node == database.root().public_key() {
                 // Root Node
-                database.get_all_half_neighbors()
+                database.root().inner.neighbors.clone()
             } else {
                 match agrs.get(node) {
-                    Some(agr) => agr.get_all_inner_neighbors(),
+                    Some(agr) => agr.inner.neighbors.clone(),
                     None => {
                         patch.remove(node);
                         trace!(
@@ -1011,7 +1013,7 @@ impl StandardGossipHandler {
                 }
             };
 
-            for neighbor in neighbors {
+            for neighbor in &neighbors {
                 if !patch.contains(neighbor) {
                     self.compute_patch(patch, neighbor, agrs, hops_remaining - 1, database)
                 }
