@@ -13,11 +13,10 @@ use node_lib::neighborhood::node_record::NodeRecord;
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
-use node_lib::sub_lib::dispatcher::Component;
 use node_lib::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage, MessageType};
 use node_lib::sub_lib::neighborhood::RatePack;
 use node_lib::sub_lib::proxy_client::DnsResolveFailure_0v1;
-use node_lib::sub_lib::route::{Route, RouteSegment};
+use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::versioned_data::VersionedData;
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
@@ -182,13 +181,8 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         .unwrap();
 
     // Respond with a DNS failure to put nonexistent.com on the unreachable-host list
-    let dns_fail_pkg = make_dns_fail_package(
-        expired_cores_package,
-        &originating_node_alias_cryptde,
-        originating_node.main_public_key(),
-        relay1_mock.signing_cryptde().unwrap(),
-        originating_node.consuming_wallet().as_ref().unwrap(),
-    );
+    let dns_fail_pkg =
+        make_dns_fail_package(expired_cores_package, &originating_node_alias_cryptde);
     relay1_mock
         .transmit_package(
             relay1_mock.port_list()[0],
@@ -198,7 +192,7 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
             originating_node.socket_addr(PortSelector::First),
         )
         .unwrap();
-    let dns_error_response: Vec<u8> = client.wait_for_chunk();
+    let _dns_error_response: Vec<u8> = client.wait_for_chunk();
     // TODO: make sure it's the expected error response
 
     // This request should be routed through normal_exit because it's unreachable through cheap_exit
@@ -227,9 +221,6 @@ fn cheaper_rate_pack(base_rate_pack: &RatePack, decrement: u64) -> RatePack {
 fn make_dns_fail_package(
     expired_cores_package: ExpiredCoresPackage<MessageType>,
     destination_alias_cryptde: &dyn CryptDE,
-    destination_main_public_key: &PublicKey,
-    source_signing_cryptde: &dyn CryptDE,
-    consuming_wallet: &Wallet,
 ) -> IncipientCoresPackage {
     let route = Route {
         hops: vec![
