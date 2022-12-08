@@ -928,19 +928,7 @@ impl GossipHandler for StandardGossipHandler {
         let initial_neighborship_status =
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
 
-        let agrs_by_key = agrs
-            .iter()
-            .map(|agr| (&agr.inner.public_key, agr))
-            .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
-
-        let mut patch: HashSet<PublicKey> = HashSet::new();
-        self.compute_patch(
-            &mut patch,
-            database.root().public_key(),
-            &agrs_by_key,
-            DEFAULT_MINIMUM_HOP_COUNT,
-            database.root(),
-        );
+        let patch = self.compute_patch(&agrs, database.root());
 
         let agrs = agrs
             .into_iter()
@@ -985,12 +973,33 @@ impl StandardGossipHandler {
 
     fn compute_patch(
         &self,
+        agrs: &Vec<AccessibleGossipRecord>,
+        root_node: &NodeRecord,
+    ) -> HashSet<PublicKey> {
+        let agrs_by_key = agrs
+            .iter()
+            .map(|agr| (&agr.inner.public_key, agr))
+            .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
+
+        let mut patch: HashSet<PublicKey> = HashSet::new();
+        self.compute_patch_recursive(
+            &mut patch,
+            root_node.public_key(),
+            &agrs_by_key,
+            DEFAULT_MINIMUM_HOP_COUNT,
+            root_node,
+        );
+
+        patch
+    }
+
+    fn compute_patch_recursive(
+        &self,
         patch: &mut HashSet<PublicKey>,
         node: &PublicKey,
         agrs: &HashMap<&PublicKey, &AccessibleGossipRecord>,
         hops_remaining: usize,
         root_node: &NodeRecord,
-        // database: &NeighborhoodDatabase,
     ) {
         patch.insert(node.clone());
         if hops_remaining == 0 {
@@ -1015,7 +1024,13 @@ impl StandardGossipHandler {
 
             for neighbor in &neighbors {
                 if !patch.contains(neighbor) {
-                    self.compute_patch(patch, neighbor, agrs, hops_remaining - 1, root_node)
+                    self.compute_patch_recursive(
+                        patch,
+                        neighbor,
+                        agrs,
+                        hops_remaining - 1,
+                        root_node,
+                    )
                 }
             }
         }
@@ -2342,7 +2357,7 @@ mod tests {
             .map(|agr| (&agr.inner.public_key, agr))
             .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
 
-        subject.compute_patch(
+        subject.compute_patch_recursive(
             &mut patch,
             node_a.public_key(),
             &hashmap,
@@ -2407,7 +2422,7 @@ mod tests {
             .map(|agr| (&agr.inner.public_key, agr))
             .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
 
-        subject.compute_patch(
+        subject.compute_patch_recursive(
             &mut patch,
             node_a.public_key(),
             &hashmap,
@@ -2468,7 +2483,7 @@ mod tests {
             .map(|agr| (&agr.inner.public_key, agr))
             .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
 
-        subject.compute_patch(
+        subject.compute_patch_recursive(
             &mut patch,
             node_a.public_key(),
             &hashmap,
