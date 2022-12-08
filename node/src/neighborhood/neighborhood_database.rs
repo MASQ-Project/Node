@@ -696,14 +696,14 @@ mod tests {
         let full_neighbor_3 = make_node_record(4444, true);
         let half_neighbor_1 = make_node_record(5555, false);
         let half_neighbor_2 = make_node_record(6666, false);
-        let some_node = make_node_record(7777, false);
+        let not_a_neighbor = make_node_record(7777, false);
         let mut subject = db_from_node(&root_node);
         subject.add_node(full_neighbor_1.clone()).unwrap();
         subject.add_node(full_neighbor_2.clone()).unwrap();
         subject.add_node(full_neighbor_3.clone()).unwrap();
         subject.add_node(half_neighbor_1.clone()).unwrap();
         subject.add_node(half_neighbor_2.clone()).unwrap();
-        subject.add_node(some_node.clone()).unwrap();
+        subject.add_node(not_a_neighbor.clone()).unwrap();
         subject.add_arbitrary_full_neighbor(root_node.public_key(), full_neighbor_1.public_key());
         subject.add_arbitrary_full_neighbor(root_node.public_key(), full_neighbor_2.public_key());
         subject.add_arbitrary_full_neighbor(root_node.public_key(), full_neighbor_3.public_key());
