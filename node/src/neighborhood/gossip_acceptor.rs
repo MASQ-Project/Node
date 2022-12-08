@@ -939,7 +939,7 @@ impl GossipHandler for StandardGossipHandler {
             database.root().public_key(),
             &agrs_by_key,
             DEFAULT_MINIMUM_HOP_COUNT,
-            database,
+            database.root(),
         );
 
         let agrs = agrs
@@ -989,15 +989,15 @@ impl StandardGossipHandler {
         node: &PublicKey,
         agrs: &HashMap<&PublicKey, &AccessibleGossipRecord>,
         hops_remaining: usize,
-        database: &NeighborhoodDatabase,
+        root_node: &NodeRecord,
+        // database: &NeighborhoodDatabase,
     ) {
         patch.insert(node.clone());
         if hops_remaining == 0 {
             return;
         } else {
-            let neighbors = if node == database.root().public_key() {
-                // Root Node
-                database.root().inner.neighbors.clone()
+            let neighbors = if node == root_node.public_key() {
+                root_node.inner.neighbors.clone()
             } else {
                 match agrs.get(node) {
                     Some(agr) => agr.inner.neighbors.clone(),
@@ -1015,7 +1015,7 @@ impl StandardGossipHandler {
 
             for neighbor in &neighbors {
                 if !patch.contains(neighbor) {
-                    self.compute_patch(patch, neighbor, agrs, hops_remaining - 1, database)
+                    self.compute_patch(patch, neighbor, agrs, hops_remaining - 1, root_node)
                 }
             }
         }
@@ -2342,7 +2342,13 @@ mod tests {
             .map(|agr| (&agr.inner.public_key, agr))
             .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
 
-        subject.compute_patch(&mut patch, node_a.public_key(), &hashmap, 3, &node_a_db);
+        subject.compute_patch(
+            &mut patch,
+            node_a.public_key(),
+            &hashmap,
+            3,
+            node_a_db.root(),
+        );
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
@@ -2401,7 +2407,13 @@ mod tests {
             .map(|agr| (&agr.inner.public_key, agr))
             .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
 
-        subject.compute_patch(&mut patch, node_a.public_key(), &hashmap, 3, &node_a_db);
+        subject.compute_patch(
+            &mut patch,
+            node_a.public_key(),
+            &hashmap,
+            3,
+            node_a_db.root(),
+        );
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
@@ -2456,7 +2468,13 @@ mod tests {
             .map(|agr| (&agr.inner.public_key, agr))
             .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
 
-        subject.compute_patch(&mut patch, node_a.public_key(), &hashmap, 3, &node_a_db);
+        subject.compute_patch(
+            &mut patch,
+            node_a.public_key(),
+            &hashmap,
+            3,
+            node_a_db.root(),
+        );
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
