@@ -929,11 +929,7 @@ impl GossipHandler for StandardGossipHandler {
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
 
         let patch = self.compute_patch(&agrs, database.root());
-
-        let agrs = agrs
-            .into_iter()
-            .filter(|agr| patch.contains(&agr.inner.public_key))
-            .collect::<Vec<AccessibleGossipRecord>>();
+        let agrs = self.filter_agrs(agrs, patch);
 
         let mut db_changed =
             self.identify_and_add_non_introductory_new_nodes(database, &agrs, gossip_source);
@@ -1034,6 +1030,16 @@ impl StandardGossipHandler {
                 }
             }
         }
+    }
+
+    fn filter_agrs(
+        &self,
+        agrs: Vec<AccessibleGossipRecord>,
+        patch: HashSet<PublicKey>,
+    ) -> Vec<AccessibleGossipRecord> {
+        agrs.into_iter()
+            .filter(|agr| patch.contains(&agr.inner.public_key))
+            .collect::<Vec<AccessibleGossipRecord>>()
     }
 
     fn identify_and_add_non_introductory_new_nodes(
