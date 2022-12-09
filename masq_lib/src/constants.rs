@@ -97,6 +97,8 @@ mod tests {
         assert_eq!(DEFAULT_UI_PORT, 5333);
         assert_eq!(CURRENT_LOGFILE_NAME, "MASQNode_rCURRENT.log");
         assert_eq!(MASQ_PROMPT, "masq> ");
+        assert_eq!(MASQ_TOTAL_SUPPLY, 37_500_000);
+        assert_eq!(WEIS_OF_GWEI, 1_000_000_000);
         assert_eq!(ETH_MAINNET_CONTRACT_CREATION_BLOCK, 11_170_708);
         assert_eq!(ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK, 8_688_171);
         assert_eq!(MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, 0);
@@ -127,6 +129,14 @@ mod tests {
         assert_eq!(UNMARSHAL_ERROR, UI_NODE_COMMUNICATION_PREFIX | 4);
         assert_eq!(SETUP_ERROR, UI_NODE_COMMUNICATION_PREFIX | 5);
         assert_eq!(TIMEOUT_ERROR, UI_NODE_COMMUNICATION_PREFIX | 6);
+        assert_eq!(SCAN_ERROR, UI_NODE_COMMUNICATION_PREFIX | 7);
+        assert_eq!(ACCOUNTANT_PREFIX, 0x0040_0000_0000_0000);
+        assert_eq!(REQUEST_WITH_NO_VALUES, ACCOUNTANT_PREFIX | 1);
+        assert_eq!(
+            REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS,
+            ACCOUNTANT_PREFIX | 2
+        );
+        assert_eq!(VALUE_EXCEEDS_ALLOWED_LIMIT, ACCOUNTANT_PREFIX | 3);
         assert_eq!(CENTRAL_DELIMITER, '@');
         assert_eq!(CHAIN_IDENTIFIER_DELIMITER, ':');
         assert_eq!(MAINNET, "mainnet");

@@ -11,9 +11,9 @@ use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use masq_lib::utils::find_free_port;
 use node_lib::accountant::dao_utils::{from_time_t, to_time_t};
+use node_lib::accountant::gwei_to_wei;
 use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
-use node_lib::sub_lib::accountant::WEIS_OF_GWEI;
 use node_lib::test_utils::make_wallet;
 use std::time::SystemTime;
 use utils::MASQNode;
@@ -26,15 +26,16 @@ fn financials_command_retrieves_payable_and_receivable_records() {
         "financials_test",
         "financials_command_retrieves_payable_and_receivable_records",
     );
-    let timestamp_payable = from_time_t(to_time_t(SystemTime::now()) - 678);
-    let timestamp_receivable_1 = from_time_t(to_time_t(SystemTime::now()) - 10000);
-    let timestamp_receivable_2 = from_time_t(to_time_t(SystemTime::now()) - 1111);
+    let now = SystemTime::now();
+    let timestamp_payable = from_time_t(to_time_t(now) - 678);
+    let timestamp_receivable_1 = from_time_t(to_time_t(now) - 10000);
+    let timestamp_receivable_2 = from_time_t(to_time_t(now) - 1111);
     let wallet_payable = make_wallet("efef");
     let wallet_receivable_1 = make_wallet("abcde");
     let wallet_receivable_2 = make_wallet("ccccc");
-    let amount_payable = 45678357 * WEIS_OF_GWEI as u128;
-    let amount_receivable_1 = 9000 * WEIS_OF_GWEI as u128;
-    let amount_receivable_2 = 345678 * WEIS_OF_GWEI as u128;
+    let amount_payable = gwei_to_wei(45678357_u64);
+    let amount_receivable_1 = gwei_to_wei(9000_u64);
+    let amount_receivable_2 = gwei_to_wei(345678_u64);
     PayableDaoReal::new(make_conn(&home_dir))
         .more_money_payable(timestamp_payable, &wallet_payable, amount_payable)
         .unwrap();
@@ -81,22 +82,19 @@ fn financials_command_retrieves_payable_and_receivable_records() {
     let payable = query_results.payable_opt.unwrap();
     let receivable = query_results.receivable_opt.unwrap();
     assert_eq!(payable[0].wallet, wallet_payable.to_string());
-    assert_eq!(
-        payable[0].balance_gwei,
-        (amount_payable / WEIS_OF_GWEI as u128) as u64
-    );
+    assert_eq!(payable[0].balance_gwei, 45678357_u64);
     assert_eq!(payable[0].pending_payable_hash_opt, None);
     assert_eq!(receivable[0].wallet, wallet_receivable_1.to_string());
-    assert_eq!(receivable[0].balance_gwei, amount_receivable_1 as i64);
+    assert_eq!(receivable[0].balance_gwei, 9000_i64);
     assert_eq!(receivable[1].wallet, wallet_receivable_2.to_string());
-    assert_eq!(receivable[1].balance_gwei, amount_receivable_2 as i64);
-    let act_period = after.duration_since(before).unwrap().as_secs() + 1;
+    assert_eq!(receivable[1].balance_gwei, 345678_i64);
+    let act_period = after.duration_since(before).unwrap().as_secs();
     let age_payable = payable[0].age_s;
-    assert!(678 <= age_payable && age_payable <= (age_payable + act_period));
+    assert!(age_payable >= 678 && age_payable <= (age_payable + act_period));
     let age_receivable_1 = receivable[0].age_s;
-    assert!(10000 <= age_receivable_1 && age_receivable_1 <= (age_receivable_1 + act_period));
+    assert!(age_receivable_1 >= 10000 && age_receivable_1 <= (age_receivable_1 + act_period));
     let age_receivable_2 = receivable[1].age_s;
-    assert!(1111 <= age_receivable_2 && age_receivable_2 <= (age_receivable_2 + act_period));
+    assert!(age_receivable_2 >= 1111 && age_receivable_2 <= (age_receivable_2 + act_period));
     client.send(UiShutdownRequest {});
     node.wait_for_exit();
 }

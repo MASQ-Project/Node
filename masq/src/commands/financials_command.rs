@@ -354,8 +354,8 @@ impl FinancialsCommand {
         }
 
         match (
-            Self::parse_range_query_arg::<u64>(&matches, "payable"),
-            Self::parse_range_query_arg::<i64>(&matches, "receivable"),
+            Self::parse_range_query_arg::<u64>(matches, "payable"),
+            Self::parse_range_query_arg::<i64>(matches, "receivable"),
         ) {
             (None, None) => None,
             (payable_range_inputs_opt, receivable_range_inputs_opt) => {

@@ -14,11 +14,12 @@ use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::NeighborhoodModeLight;
 use rand::prelude::*;
 use rusqlite::{Connection, OpenFlags};
+//use rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE;//, SQLITE_OPEN_CREATE};
 use std::fmt::{Debug, Formatter};
-use std::fs;
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::Path;
+use std::{fs, vec};
 use tokio::net::TcpListener;
 
 pub const DATABASE_FILE: &str = "node-data.db";
@@ -68,41 +69,38 @@ impl DbInitializer for DbInitializerReal {
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
         let is_creation_necessary = Self::is_creation_necessary(path);
         if !matches!(
-            init_config.init_mode,
+            init_config.mode,
             InitializationMode::CreationAndMigration { .. }
         ) && is_creation_necessary
         {
             return Err(InitializationError::Nonexistent);
         }
         Self::create_data_directory_if_necessary(path);
-        let flags = OpenFlags::SQLITE_OPEN_READ_WRITE;
         let db_file_path = &path.join(DATABASE_FILE);
-        match Connection::open_with_flags(db_file_path, flags) {
+        match Connection::open_with_flags(db_file_path, OpenFlags::SQLITE_OPEN_READ_WRITE) {
             Ok(conn) => {
                 eprintln!("Opened existing database at {:?}", db_file_path);
                 Self::extra_configuration(&conn, &init_config)?;
-                self.check_migrations_and_give_conn(
+                self.check_migrations_and_return_connection(
                     conn,
                     init_config,
                     db_file_path,
                     target_version,
-                    flags,
+                    OpenFlags::SQLITE_OPEN_READ_WRITE,
                 )
             }
-            Err(_) => {
-                let mut flags = OpenFlags::empty();
-                flags.insert(OpenFlags::SQLITE_OPEN_READ_WRITE);
-                flags.insert(OpenFlags::SQLITE_OPEN_CREATE);
-                match Connection::open_with_flags(db_file_path, flags) {
-                    Ok(conn) => {
-                        eprintln!("Created new database at {:?}", db_file_path);
-                        Self::extra_configuration(&conn, &init_config)?;
-                        self.create_database_tables(&conn, ExternalData::from(init_config));
-                        Ok(Box::new(ConnectionWrapperReal::new(conn)))
-                    }
-                    Err(e) => Err(InitializationError::SqliteError(e)),
+            Err(_) => match Connection::open_with_flags(
+                db_file_path,
+                OpenFlags::SQLITE_OPEN_CREATE | OpenFlags::SQLITE_OPEN_READ_WRITE,
+            ) {
+                Ok(conn) => {
+                    eprintln!("Created new database at {:?}", db_file_path);
+                    Self::extra_configuration(&conn, &init_config)?;
+                    self.create_database_tables(&conn, ExternalData::from(init_config));
+                    Ok(Box::new(ConnectionWrapperReal::new(conn)))
                 }
-            }
+                Err(e) => Err(InitializationError::SqliteError(e)),
+            },
         }
     }
 }
@@ -331,7 +329,7 @@ impl DbInitializerReal {
         }
     }
 
-    fn check_migrations_and_give_conn(
+    fn check_migrations_and_return_connection(
         &self,
         conn: Connection,
         init_config: DbInitializationConfig,
@@ -340,7 +338,7 @@ impl DbInitializerReal {
         flags: OpenFlags,
     ) -> Result<Box<dyn ConnectionWrapper>, InitializationError> {
         let str_sv = Self::read_current_schema_version(&conn)?;
-        match (Self::is_migration_required(&str_sv)?, init_config.init_mode) {
+        match (Self::is_migration_required(&str_sv)?, init_config.mode) {
             (None, _) => Ok(Box::new(ConnectionWrapperReal::new(conn))),
             (Some(_), InitializationMode::CreationBannedMigrationPanics) => {
                 panic!("Broken code: Migrating database at inappropriate place")
@@ -362,7 +360,7 @@ impl DbInitializerReal {
             (Some(_), InitializationMode::CreationBannedMigrationSuppressed) => {
                 Ok(Box::new(ConnectionWrapperReal::new(conn)))
             }
-            (Some(_), InitializationMode::CreationBannedMigrationThrowsErr) => {
+            (Some(_), InitializationMode::CreationBannedMigrationRaisesErr) => {
                 Err(InitializationError::SuppressedMigration)
             }
         }
@@ -500,9 +498,8 @@ pub fn connection_or_panic(
 
 #[derive(Clone)]
 pub struct DbInitializationConfig {
+    pub mode: InitializationMode,
     pub special_conn_configuration: Vec<fn(&Connection) -> rusqlite::Result<()>>,
-    //only things related to db migrations are underneath
-    pub init_mode: InitializationMode,
 }
 
 #[derive(PartialEq, Eq, Debug, Clone)]
@@ -510,7 +507,7 @@ pub enum InitializationMode {
     CreationAndMigration { external_data: ExternalData },
     CreationBannedMigrationPanics,
     CreationBannedMigrationSuppressed,
-    CreationBannedMigrationThrowsErr,
+    CreationBannedMigrationRaisesErr,
 }
 
 impl DbInitializationConfig {
@@ -524,24 +521,24 @@ impl DbInitializationConfig {
 
     pub fn panic_on_migration() -> Self {
         Self {
+            mode: InitializationMode::CreationBannedMigrationPanics,
             special_conn_configuration: vec![],
-            init_mode: InitializationMode::CreationBannedMigrationPanics,
         }
     }
 
     //standard way of Node to create a new db, possibly only one real occurrence ever
     pub fn create_or_migrate(external_data: ExternalData) -> Self {
         Self {
+            mode: InitializationMode::CreationAndMigration { external_data },
             special_conn_configuration: vec![],
-            init_mode: InitializationMode::CreationAndMigration { external_data },
         }
     }
 
     //used in the config dumper
     pub fn migration_suppressed() -> Self {
         Self {
+            mode: InitializationMode::CreationBannedMigrationSuppressed,
             special_conn_configuration: vec![],
-            init_mode: InitializationMode::CreationBannedMigrationSuppressed,
         }
     }
 
@@ -549,22 +546,22 @@ impl DbInitializationConfig {
     //starts up and manage the migration on its own
     pub fn migration_suppressed_with_error() -> Self {
         Self {
+            mode: InitializationMode::CreationBannedMigrationRaisesErr,
             special_conn_configuration: vec![],
-            init_mode: InitializationMode::CreationBannedMigrationThrowsErr,
         }
     }
 
     #[cfg(test)]
     pub fn test_default() -> Self {
         Self {
-            special_conn_configuration: vec![],
-            init_mode: InitializationMode::CreationAndMigration {
+            mode: InitializationMode::CreationAndMigration {
                 external_data: ExternalData {
                     chain: TEST_DEFAULT_CHAIN,
                     neighborhood_mode: NeighborhoodModeLight::Standard,
                     db_password_opt: None,
                 },
             },
+            special_conn_configuration: vec![],
         }
     }
 }
@@ -592,7 +589,7 @@ impl ExternalData {
 
 impl From<DbInitializationConfig> for ExternalData {
     fn from(init_config: DbInitializationConfig) -> Self {
-        match init_config.init_mode {
+        match init_config.mode {
             InitializationMode::CreationAndMigration { external_data } => external_data,
             _ => panic!("Attempt to create new database without proper configuration"),
         }
@@ -601,7 +598,7 @@ impl From<DbInitializationConfig> for ExternalData {
 
 impl PartialEq for DbInitializationConfig {
     fn eq(&self, other: &Self) -> bool {
-        (self.init_mode == other.init_mode)
+        (self.mode == other.mode)
             //I'm making most of this, fn pointers cannot be compared in Rust by August 2022
             && (self.special_conn_configuration.len() == other.special_conn_configuration.len())
     }
@@ -611,14 +608,14 @@ impl Debug for DbInitializationConfig {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
-            "DbInitializationConfig{{special_conn_setup: Addresses{:?}, init_config: {:?}}}",
+            "DbInitializationConfig{{init_config: {:?}, special_conn_setup: Addresses{:?}}}",
+            self.mode,
             self.special_conn_configuration
                 .iter()
                 //reportedly, there is no guarantee the number varies by different functions,
                 //so it rather shows how many items are in than anything else
                 .map(|pointer| *pointer as usize)
                 .collect::<Vec<_>>(),
-            self.init_mode,
         )
     }
 }
@@ -748,7 +745,6 @@ mod tests {
         assert_table_created_as_strict, bring_db_0_back_to_life_and_return_connection,
         make_external_data, retrieve_config_row, DbMigratorMock,
     };
-    use crate::test_utils::make_wallet;
     use itertools::Either::{Left, Right};
     use itertools::{Either, Itertools};
     use masq_lib::blockchains::chains::Chain;
@@ -1148,7 +1144,7 @@ mod tests {
 
     const PRAGMA_CASE_SENSITIVE: &str = "case_sensitive_like";
 
-    fn assert_case_sensitiveness_has_been_turned_on(
+    fn assert_case_sensitivity_has_been_turned_on(
         conn: Either<&Connection, &dyn ConnectionWrapper>,
     ) {
         let sql = "select 'a' like 'A'";
@@ -1175,7 +1171,7 @@ mod tests {
         let result = subject.add_special_conn_setup(setup_fn);
 
         result.special_conn_configuration[0](&conn).unwrap();
-        assert_case_sensitiveness_has_been_turned_on(Left(&conn))
+        assert_case_sensitivity_has_been_turned_on(Left(&conn))
     }
 
     #[test]
@@ -1210,7 +1206,7 @@ mod tests {
             .initialize(&home_dir, init_config)
             .unwrap();
 
-        assert_case_sensitiveness_has_been_turned_on(Right(assert_conn.as_ref()))
+        assert_case_sensitivity_has_been_turned_on(Right(assert_conn.as_ref()))
     }
 
     #[test]
@@ -1233,7 +1229,7 @@ mod tests {
             .initialize(&home_dir, init_config)
             .unwrap();
 
-        assert_case_sensitiveness_has_been_turned_on(Right(assert_conn.as_ref()))
+        assert_case_sensitivity_has_been_turned_on(Right(assert_conn.as_ref()))
     }
 
     fn processing_special_setup_test_body(test_name: &str, pre_initialization: fn(&Path)) {
@@ -1499,8 +1495,8 @@ mod tests {
         assert_eq!(
             DbInitializationConfig::panic_on_migration(),
             DbInitializationConfig {
+                mode: InitializationMode::CreationBannedMigrationPanics,
                 special_conn_configuration: vec![],
-                init_mode: InitializationMode::CreationBannedMigrationPanics,
             }
         )
     }
@@ -1510,10 +1506,10 @@ mod tests {
         assert_eq!(
             DbInitializationConfig::create_or_migrate(make_external_data()),
             DbInitializationConfig {
-                special_conn_configuration: vec![],
-                init_mode: InitializationMode::CreationAndMigration {
+                mode: InitializationMode::CreationAndMigration {
                     external_data: make_external_data()
                 },
+                special_conn_configuration: vec![],
             }
         )
     }
@@ -1523,8 +1519,8 @@ mod tests {
         assert_eq!(
             DbInitializationConfig::migration_suppressed(),
             DbInitializationConfig {
+                mode: InitializationMode::CreationBannedMigrationSuppressed,
                 special_conn_configuration: vec![],
-                init_mode: InitializationMode::CreationBannedMigrationSuppressed,
             }
         )
     }
@@ -1534,8 +1530,8 @@ mod tests {
         assert_eq!(
             DbInitializationConfig::migration_suppressed_with_error(),
             DbInitializationConfig {
+                mode: InitializationMode::CreationBannedMigrationRaisesErr,
                 special_conn_configuration: vec![],
-                init_mode: InitializationMode::CreationBannedMigrationThrowsErr,
             }
         )
     }
@@ -1544,44 +1540,38 @@ mod tests {
         pointers: Vec<fn(&Connection) -> rusqlite::Result<()>>,
     ) -> DbInitializationConfig {
         DbInitializationConfig {
+            mode: InitializationMode::CreationBannedMigrationPanics,
             special_conn_configuration: pointers,
-            init_mode: InitializationMode::CreationBannedMigrationPanics,
         }
     }
 
-    fn make_config_with_specific_migration_arguments() -> DbInitializationConfig {
+    fn make_config_filled_with_external_data() -> DbInitializationConfig {
         DbInitializationConfig {
-            special_conn_configuration: vec![|_: &_| Ok(())],
-            init_mode: InitializationMode::CreationAndMigration {
+            mode: InitializationMode::CreationAndMigration {
                 external_data: ExternalData {
                     chain: Default::default(),
                     neighborhood_mode: NeighborhoodModeLight::Standard,
                     db_password_opt: None,
                 },
             },
+            special_conn_configuration: vec![|_: &_| Ok(())],
         }
     }
 
     #[test]
     fn partial_eq_is_implemented_for_db_initialization_config() {
-        let fn_one = |_: &_| {
-            5555;
-            Ok(())
-        };
-        let fn_two = |_: &_| {
-            make_wallet("blah");
-            Ok(())
-        };
+        let fn_one = |_: &_| Ok(());
+        let fn_two = |_: &_| Err(rusqlite::Error::GetAuxWrongType);
         let config_one = make_default_config_with_different_pointers(vec![fn_one]);
         //Rust doesn't allow differentiate between fn pointers
         let config_two = make_default_config_with_different_pointers(vec![fn_two]);
         let config_three = make_default_config_with_different_pointers(vec![]);
         let config_four = make_default_config_with_different_pointers(vec![fn_one, fn_one]);
         let config_five = DbInitializationConfig {
+            mode: InitializationMode::CreationBannedMigrationSuppressed,
             special_conn_configuration: vec![fn_one],
-            init_mode: InitializationMode::CreationBannedMigrationSuppressed,
         };
-        let config_six = make_config_with_specific_migration_arguments();
+        let config_six = make_config_filled_with_external_data();
 
         assert_eq!(config_one, config_one);
         assert_eq!(config_one, config_two);
@@ -1594,15 +1584,9 @@ mod tests {
 
     #[test]
     fn debug_is_implemented_for_db_initialization_config() {
-        let fn_one = |_: &_| {
-            5555;
-            Ok(())
-        };
-        let fn_two = |_: &_| {
-            make_wallet("blah");
-            Ok(())
-        };
-        let config_one = make_config_with_specific_migration_arguments();
+        let fn_one = |_: &_| Ok(());
+        let fn_two = |_: &_| Err(rusqlite::Error::GetAuxWrongType);
+        let config_one = make_config_filled_with_external_data();
         let config_two = make_default_config_with_different_pointers(vec![fn_one, fn_two]);
 
         let config_one_debug = format!("{:?}", config_one);
@@ -1611,17 +1595,19 @@ mod tests {
         let regex_one = Regex::new("special_conn_setup: Addresses\\[\\d+\\]").unwrap();
         let regex_two = Regex::new("special_conn_setup: Addresses\\[\\d+(, \\d+)*\\]").unwrap();
         assert!(
-            config_one_debug.contains("DbInitializationConfig{special_conn_setup: Addresses[")
-                && config_one_debug.contains(
-                    "], init_config: CreationAndMigration { external_data: ExternalData \
-            { chain: PolyMainnet, neighborhood_mode: Standard, db_password_opt: None } }}"
+            config_one_debug.contains(
+                    "DbInitializationConfig{init_config: CreationAndMigration { external_data: \
+                     ExternalData { chain: PolyMainnet, neighborhood_mode: Standard, db_password_opt: \
+                      None } }, special_conn_setup: Addresses["
                 ),
             "instead, the first printed message contained: {}",
             config_one_debug
         );
         assert!(
-            config_two_debug.contains("DbInitializationConfig{special_conn_setup: Addresses[")
-                && config_two_debug.contains("], init_config: CreationBannedMigrationPanics}"),
+            config_two_debug.contains(
+                "DbInitializationConfig{init_config: \
+             CreationBannedMigrationPanics, special_conn_setup: Addresses["
+            ),
             "instead, the second printed message contained: {}",
             config_two_debug
         );

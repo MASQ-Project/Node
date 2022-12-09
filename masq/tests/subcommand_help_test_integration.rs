@@ -1,7 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::utils::MasqProcess;
-use masq_lib::test_utils::utils::{is_running_under_github_actions, is_source_code_attached};
+use masq_lib::test_utils::utils::check_if_source_code_is_attached;
+use masq_lib::test_utils::utils::ShouldWeRunTheTest::Skip;
 use std::env::current_dir;
 use std::fs;
 
@@ -10,11 +11,7 @@ mod utils;
 #[test]
 fn assure_that_all_subcommands_hang_on_the_help_root_integration() {
     let current_dir = current_dir().unwrap();
-    if !is_running_under_github_actions() && !is_source_code_attached(&current_dir) {
-        eprintln!(
-            "skipping test assure_that_all_subcommands_hang_on_the_help_root_integration \
-             because of missing source code"
-        );
+    if Skip == check_if_source_code_is_attached(&current_dir) {
         return;
     }
     let help_handle = MasqProcess::new().start_noninteractive(vec!["--help"]);
