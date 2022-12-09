@@ -2403,7 +2403,7 @@ mod tests {
         node_b_db.add_arbitrary_full_neighbor(node_c.public_key(), node_d.public_key());
 
         let gossip = GossipBuilder::new(&node_b_db)
-            .node(node_b.public_key(), false)
+            .node(node_b.public_key(), true)
             .node(node_c.public_key(), false)
             .node(node_d.public_key(), false)
             .node(node_y.public_key(), false)
@@ -2539,6 +2539,11 @@ mod tests {
     #[test]
     fn no_cpm_is_sent_in_case_full_neighborship_doesn_t_exist_and_cannot_be_created() {
         // Received gossip from a node we couldn't make a neighbor {Degree too high or malefactor banned node} (false, false)
+        // This is Standard Gossip, even though it looks like a Debut,
+        // because it's specifically handled by a StandardGossipHandler
+        // instead of the GossipAcceptor (which would identify it as a Debut),
+        // so the test is unrealistic. Also that the Gossip is ignored because
+        // Node B isn't in Node A's patch, which matters to a StandardGossipHandler.
         let cryptde = main_cryptde();
         let root_node = make_node_record(1111, true);
         let mut root_db = db_from_node(&root_node);
