@@ -2,6 +2,7 @@
 use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::WEIS_OF_GWEI;
 use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils};
@@ -20,7 +21,7 @@ use node_lib::blockchain::blockchain_interface::{
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,
 };
-use node_lib::sub_lib::accountant::{PaymentThresholds};
+use node_lib::sub_lib::accountant::PaymentThresholds;
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
 use rustc_hex::{FromHex, ToHex};
@@ -32,7 +33,6 @@ use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes, TransactionParameters};
 use web3::Web3;
-use masq_lib::constants::WEIS_OF_GWEI;
 
 #[test]
 fn verify_bill_payment() {
