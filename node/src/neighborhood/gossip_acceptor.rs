@@ -2335,7 +2335,6 @@ mod tests {
         */
 
         let subject = StandardGossipHandler::new(Logger::new("test"));
-        let mut patch: HashSet<PublicKey> = HashSet::new();
         let node_a = make_node_record(1111, true);
         let node_b = make_node_record(2222, true);
         let node_c = make_node_record(3333, false);
@@ -2358,18 +2357,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let hashmap = agrs
-            .iter()
-            .map(|agr| (&agr.inner.public_key, agr))
-            .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
-
-        subject.compute_patch_recursive(
-            &mut patch,
-            node_a.public_key(),
-            &hashmap,
-            3,
-            node_a_db.root(),
-        );
+        let result = subject.compute_patch(&agrs, node_a_db.root());
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
@@ -2379,7 +2367,7 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashSet<PublicKey>>();
-        assert_eq!(patch, expected_hashset);
+        assert_eq!(result, expected_hashset);
     }
 
     #[test]
@@ -2396,7 +2384,6 @@ mod tests {
         */
 
         let subject = StandardGossipHandler::new(Logger::new("test"));
-        let mut patch: HashSet<PublicKey> = HashSet::new();
         let node_a = make_node_record(1111, true);
         let node_b = make_node_record(2222, true);
         let node_c = make_node_record(3333, false);
@@ -2423,18 +2410,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let hashmap = agrs
-            .iter()
-            .map(|agr| (&agr.inner.public_key, agr))
-            .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
-
-        subject.compute_patch_recursive(
-            &mut patch,
-            node_a.public_key(),
-            &hashmap,
-            3,
-            node_a_db.root(),
-        );
+        let patch = subject.compute_patch(&agrs, node_a_db.root());
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
@@ -2462,7 +2438,6 @@ mod tests {
         init_test_logging();
         let test_name = "standard_gossip_handler_can_handle_node_for_which_agr_is_not_found_while_computing_patch";
         let subject = StandardGossipHandler::new(Logger::new(test_name));
-        let mut patch: HashSet<PublicKey> = HashSet::new();
         let node_a = make_node_record(1111, true);
         let node_b = make_node_record(2222, true);
         let node_c = make_node_record(3333, false);
@@ -2484,18 +2459,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let hashmap = agrs
-            .iter()
-            .map(|agr| (&agr.inner.public_key, agr))
-            .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
-
-        subject.compute_patch_recursive(
-            &mut patch,
-            node_a.public_key(),
-            &hashmap,
-            3,
-            node_a_db.root(),
-        );
+        let patch = subject.compute_patch(&agrs, node_a_db.root());
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
