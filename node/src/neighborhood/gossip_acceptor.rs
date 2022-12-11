@@ -3678,58 +3678,6 @@ mod tests {
     }
 
     #[test]
-    fn gossip_acceptor_filters_out_the_node_addr_of_incoming_gossip() {
-        /*
-        Destination DB ==>
-        Dest---Src
-        |
-        Disconnected
-
-        Source DB ==>
-        Src---Dest
-
-        Disconnected
-         */
-        let dest_node = make_node_record(1234, true);
-        let dest_node_cryptde = CryptDENull::from(&dest_node.public_key(), TEST_DEFAULT_CHAIN);
-        let src_node = make_node_record(3456, true);
-        let disconnected_node = make_node_record(3456, true);
-        let mut dest_db = db_from_node(&dest_node);
-        dest_db.add_node(src_node.clone());
-        dest_db.add_node(disconnected_node.clone());
-        dest_db.add_arbitrary_full_neighbor(dest_node.public_key(), src_node.public_key());
-        dest_db.add_arbitrary_full_neighbor(dest_node.public_key(), disconnected_node.public_key());
-        let mut src_db = db_from_node(&src_node);
-        src_db.add_node(dest_node.clone());
-        src_db.add_node(disconnected_node.clone());
-        src_db.add_arbitrary_full_neighbor(src_node.public_key(), dest_node.public_key());
-        src_db
-            .node_by_key_mut(src_node.public_key())
-            .unwrap()
-            .increment_version();
-        resign_nodes(&mut src_db, vec![&src_node, &dest_node]);
-        let gossip = GossipBuilder::new(&src_db)
-            .node(disconnected_node.public_key(), true)
-            .build();
-        let subject = make_subject(&dest_node_cryptde);
-
-        let result = subject.handle(
-            &mut dest_db,
-            gossip.try_into().unwrap(),
-            src_node.node_addr_opt().unwrap().into(),
-        );
-
-        assert_eq!(
-            dest_db
-                .node_by_key(disconnected_node.public_key())
-                .unwrap()
-                .metadata
-                .node_addr_opt,
-            None
-        );
-    }
-
-    #[test]
     fn standard_gossip_with_current_and_obsolete_versions_doesnt_change_anything() {
         let dest_root = make_node_record(1234, true);
         let mut dest_db = db_from_node(&dest_root);
