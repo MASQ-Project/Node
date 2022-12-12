@@ -1085,6 +1085,42 @@ mod tests {
     }
 
     #[test]
+    fn blockchain_interface_non_clandestine_retrieve_transactions_uses_block_number_latest_as_fallback_start_block_plus_one(
+    ) {
+        let port = find_free_port();
+        let _test_server = TestServer::start (port, vec![
+            br#"[{"jsonrpc":"2.0","id":1,"result":"error"},{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
+        ]);
+
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
+        .unwrap();
+
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport,
+            event_loop_handle,
+            TEST_DEFAULT_CHAIN,
+        );
+
+        let start_block = 42;
+        let result = subject.retrieve_transactions(
+            start_block,
+            BlockNumber::Latest,
+            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+        );
+
+        assert_eq!(
+            result,
+            Ok(RetrievedBlockchainTransactions {
+                new_start_block: start_block + 1,
+                transactions: vec![]
+            })
+        );
+    }
+
+    #[test]
     fn blockchain_interface_non_clandestine_can_retrieve_eth_balance_of_a_wallet() {
         let port = find_free_port();
         let _test_server = TestServer::start(
