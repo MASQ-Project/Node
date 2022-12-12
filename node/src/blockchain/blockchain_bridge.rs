@@ -272,7 +272,14 @@ impl BlockchainBridge {
     fn handle_retrieve_transactions(&mut self, msg: &RetrieveTransactions) -> Result<(), String> {
         let end_block = match self.blockchain_interface.get_block_number() {
             Ok(eb) => BlockNumber::Number(eb),
-            Err(_) => BlockNumber::Latest,
+            Err(e) => {
+                warning!(
+                    self.logger,
+                    "Using 'latest' block number instead of a literal number. {:?}",
+                    e
+                );
+                BlockNumber::Latest
+            }
         };
 
         let start_block = match self.persistent_config.start_block() {
@@ -1118,6 +1125,95 @@ mod tests {
         assert_eq!(recording.len(), 2);
         TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: Aborting scanning; request of a transaction \
          receipt for '0x000000000000000000000000000000000000000000000000000000000001b2e6' failed due to 'QueryFailed(\"booga\")'");
+    }
+
+    #[test]
+    fn handle_retrieve_transactions_uses_latest_block_number_upon_get_block_number_error() {
+        init_test_logging();
+        let retrieve_transactions_params_arc = Arc::new(Mutex::new(vec![]));
+        let system = System::new(
+            "handle_retrieve_transactions_uses_latest_block_number_upon_get_block_number_error",
+        );
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let earning_wallet = make_wallet("somewallet");
+        let amount = 42;
+        let amount2 = 55;
+        let expected_transactions = RetrievedBlockchainTransactions {
+            new_start_block: 8675309u64,
+            transactions: vec![
+                BlockchainTransaction {
+                    block_number: 7,
+                    from: earning_wallet.clone(),
+                    gwei_amount: amount,
+                },
+                BlockchainTransaction {
+                    block_number: 9,
+                    from: earning_wallet.clone(),
+                    gwei_amount: amount2,
+                },
+            ],
+        };
+        let blockchain_interface_mock = BlockchainInterfaceMock::default()
+            .retrieve_transactions_params(&retrieve_transactions_params_arc)
+            .retrieve_transactions_result(Ok(expected_transactions.clone()))
+            .get_block_number_result(LatestBlockNumber::Err(BlockchainError::QueryFailed(
+                "Failed to read the latest block number".to_string(),
+            )));
+        let set_start_block_params_arc = Arc::new(Mutex::new(vec![]));
+        let persistent_config = PersistentConfigurationMock::new()
+            .start_block_result(Ok(6))
+            .set_start_block_params(&set_start_block_params_arc)
+            .set_start_block_result(Ok(()));
+
+        let subject = BlockchainBridge::new(
+            Box::new(blockchain_interface_mock),
+            Box::new(persistent_config),
+            false,
+            Some(make_wallet("consuming")),
+        );
+
+        let addr = subject.start();
+        let subject_subs = BlockchainBridge::make_subs_from(&addr);
+        let peer_actors = peer_actors_builder().accountant(accountant).build();
+        send_bind_message!(subject_subs, peer_actors);
+        let retrieve_transactions = RetrieveTransactions {
+            recipient: earning_wallet.clone(),
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 4321,
+            }),
+        };
+        let before = SystemTime::now();
+
+        let _ = addr.try_send(retrieve_transactions).unwrap();
+
+        System::current().stop();
+        system.run();
+        let after = SystemTime::now();
+        let set_start_block_params = set_start_block_params_arc.lock().unwrap();
+        assert_eq!(*set_start_block_params, vec![8675309u64]);
+        let retrieve_transactions_params = retrieve_transactions_params_arc.lock().unwrap();
+        assert_eq!(
+            *retrieve_transactions_params,
+            vec![(6u64, BlockNumber::Latest, earning_wallet)]
+        );
+        let accountant_received_payment = accountant_recording_arc.lock().unwrap();
+        assert_eq!(accountant_received_payment.len(), 1);
+        let received_payments = accountant_received_payment.get_record::<ReceivedPayments>(0);
+        check_timestamp(before, received_payments.timestamp, after);
+        assert_eq!(
+            received_payments,
+            &ReceivedPayments {
+                timestamp: received_payments.timestamp,
+                payments: expected_transactions.transactions,
+                response_skeleton_opt: Some(ResponseSkeleton {
+                    client_id: 1234,
+                    context_id: 4321
+                }),
+            }
+        );
+
+        TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: Using 'latest' block number instead of a literal number. QueryFailed(\"Failed to read the latest block number\")");
     }
 
     #[test]

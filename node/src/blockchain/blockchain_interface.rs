@@ -273,8 +273,8 @@ where
             )
             .build();
 
-        let end_block_number = match Option::from(end_block) {
-            Some(BlockNumber::Number(eb)) => eb.as_u64(),
+        let fallback_end_block_number = match end_block {
+            BlockNumber::Number(eb) => eb.as_u64(),
             _ => start_block + 1,
         };
         let block_request = self.web3_batch.eth().block_number();
@@ -283,9 +283,9 @@ where
         let logger = self.logger.clone();
         match self.web3_batch.transport().submit_batch().wait() {
             Ok(_) => {
-                let block_number = match block_request.wait() {
+                let response_block_number = match block_request.wait() {
                     Ok(block_nbr) => block_nbr.as_u64(),
-                    Err(_) => end_block_number,
+                    Err(_) => fallback_end_block_number,
                 };
 
                 match log_request.wait() {
@@ -323,28 +323,30 @@ where
                             // Get the largest transaction block number, unless there are no
                             // transactions, in which case use end_block, unless get_latest_block()
                             // was not successful.
-                            let block_number = if transactions.is_empty() {
+                            let transaction_max_block_number = if transactions.is_empty() {
                                 match end_block {
                                     BlockNumber::Number(U64([eb])) => eb,
-                                    _ => block_number,
+                                    _ => response_block_number,
                                 }
                             } else {
-                                transactions.iter().fold(start_block, |so_far, elem| {
-                                    if elem.block_number > so_far {
-                                        elem.block_number
-                                    } else {
-                                        so_far
-                                    }
-                                })
+                                transactions
+                                    .iter()
+                                    .fold(response_block_number, |so_far, elem| {
+                                        if elem.block_number > so_far {
+                                            elem.block_number
+                                        } else {
+                                            so_far
+                                        }
+                                    })
                             };
                             Ok(RetrievedBlockchainTransactions {
-                                new_start_block: block_number,
+                                new_start_block: transaction_max_block_number,
                                 transactions,
                             })
                         }
                     }
                     Err(_) => Ok(RetrievedBlockchainTransactions {
-                        new_start_block: end_block_number,
+                        new_start_block: fallback_end_block_number,
                         transactions: vec![],
                     }),
                 }
@@ -849,7 +851,7 @@ mod tests {
             .retrieve_transactions(
                 42,
                 BlockNumber::Number(U64::from(end_block_nbr)),
-                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+                &Wallet::from_str(&to).unwrap(),
             )
             .unwrap();
 
@@ -886,38 +888,6 @@ mod tests {
                 ]
             }
         )
-    }
-
-    #[test]
-    #[should_panic(expected = "No address for an uninitialized wallet!")]
-    fn blockchain_interface_non_clandestine_retrieve_transactions_returns_an_error_if_the_to_address_is_invalid(
-    ) {
-        let port = 8545;
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            event_loop_handle,
-            TEST_DEFAULT_CHAIN,
-        );
-
-        let end_block = match subject.get_block_number() {
-            Ok(block_nbr) => BlockNumber::Number(block_nbr),
-            Err(_) => BlockNumber::Latest,
-        };
-        let result = subject.retrieve_transactions(
-            42,
-            end_block,
-            &Wallet::new("0x3f69f9efd4f2592fd70beecd9dce71c472fc"),
-        );
-
-        assert_eq!(
-            result.expect_err("Expected an Err, got Ok"),
-            BlockchainError::InvalidAddress
-        );
     }
 
     #[test]
@@ -1012,6 +982,42 @@ mod tests {
             result,
             Ok(RetrievedBlockchainTransactions {
                 new_start_block: end_block_nbr,
+                transactions: vec![]
+            })
+        );
+    }
+
+    #[test]
+    fn blockchain_interface_non_clandestine_retrieve_transactions_uses_block_number_latest_as_fallback_start_block_plus_one(
+    ) {
+        let port = find_free_port();
+        let _test_server = TestServer::start (port, vec![
+            br#"[{"jsonrpc":"2.0","id":1,"result":"error"},{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
+        ]);
+
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            REQUESTS_IN_PARALLEL,
+        )
+        .unwrap();
+
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport,
+            event_loop_handle,
+            TEST_DEFAULT_CHAIN,
+        );
+
+        let start_block = 42;
+        let result = subject.retrieve_transactions(
+            start_block,
+            BlockNumber::Latest,
+            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+        );
+
+        assert_eq!(
+            result,
+            Ok(RetrievedBlockchainTransactions {
+                new_start_block: start_block + 1,
                 transactions: vec![]
             })
         );
@@ -2145,27 +2151,20 @@ mod tests {
             .prepare_params(&prepare_params_arc)
             .send_result(json!("0x1e37066"));
         let subject = BlockchainInterfaceNonClandestine::new(
-            transport.clone(),
+            transport,
             make_fake_event_loop_handle(),
             TEST_DEFAULT_CHAIN,
         );
 
         match subject.get_block_number() {
             Ok(latest_block_number) => assert_eq!(latest_block_number, U64::from(31_682_662u64)),
-            Err(e) => assert_eq!(
-                e,
-                BlockchainError::QueryFailed("unexpected failure".to_string())
-            ),
+            Err(e) => panic!("Unexpected failure {}", e.to_string()),
         }
 
         let mut prepare_params = prepare_params_arc.lock().unwrap();
         let (method_name, actual_arguments) = prepare_params.remove(0);
-        let actual_arguments: Vec<String> = actual_arguments
-            .into_iter()
-            .map(|arg| serde_json::to_string(&arg).unwrap())
-            .collect();
         assert_eq!(method_name, "eth_blockNumber".to_string());
-        let expected_arguments: Vec<String> = vec![];
+        let expected_arguments: Vec<Value> = vec![];
         assert_eq!(actual_arguments, expected_arguments);
     }
 
@@ -2176,13 +2175,13 @@ mod tests {
             .prepare_params(&prepare_params_arc)
             .send_result(Value::Null);
         let subject = BlockchainInterfaceNonClandestine::new(
-            transport.clone(),
+            transport,
             make_fake_event_loop_handle(),
             TEST_DEFAULT_CHAIN,
         );
 
         match subject.get_block_number() {
-            Ok(_) => unimplemented!("Expected an error"),
+            Ok(_) => panic!("Expected an error"),
             Err(e) => assert_eq!(
                 e,
                 BlockchainError::QueryFailed("Decoder error: Error(\"invalid type: null, expected a 0x-prefixed hex string with length between (0; 16]\", line: 0, column: 0)".to_string())
@@ -2192,11 +2191,7 @@ mod tests {
         let mut prepare_params = prepare_params_arc.lock().unwrap();
         let (method_name, actual_arguments) = prepare_params.remove(0);
         assert_eq!(method_name, "eth_blockNumber".to_string());
-        let actual_arguments: Vec<String> = actual_arguments
-            .into_iter()
-            .map(|arg| serde_json::to_string(&arg).unwrap())
-            .collect();
-        let expected_arguments: Vec<String> = vec![];
+        let expected_arguments: Vec<Value> = vec![];
         assert_eq!(actual_arguments, expected_arguments);
     }
 
@@ -2215,7 +2210,7 @@ mod tests {
         );
 
         match subject.get_block_number() {
-            Ok(_) => unimplemented!("Expected an error"),
+            Ok(_) => panic!("Expected an error"),
             Err(e) => assert_eq!(
                 e,
                 BlockchainError::QueryFailed(
@@ -2227,77 +2222,8 @@ mod tests {
 
         let mut prepare_params = prepare_params_arc.lock().unwrap();
         let (method_name, actual_arguments) = prepare_params.remove(0);
-        let actual_arguments: Vec<String> = actual_arguments
-            .into_iter()
-            .map(|arg| serde_json::to_string(&arg).unwrap())
-            .collect();
-
         assert_eq!(method_name, "eth_blockNumber".to_string());
-        let expected_arguments: Vec<String> = vec![];
-        assert_eq!(actual_arguments, expected_arguments);
-    }
-
-    #[test]
-    fn non_clandestine_can_handle_latest_false_block_number_error() {
-        let prepare_param_arc: Arc<Mutex<Vec<(String, Vec<Value>)>>> = Arc::new(Mutex::new(vec![]));
-        let transport = TestTransport::default()
-            .prepare_params(&prepare_param_arc)
-            .send_result(Value::Bool(false));
-
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport.clone(),
-            make_fake_event_loop_handle(),
-            TEST_DEFAULT_CHAIN,
-        );
-
-        match subject.get_block_number() {
-            Ok(_) => unimplemented!("Expected an error"),
-            Err(e) => assert_eq!(
-                e,
-                BlockchainError::QueryFailed("Decoder error: Error(\"invalid type: boolean `false`, expected a 0x-prefixed hex string with length between (0; 16]\", line: 0, column: 0)".to_string())
-            ),
-        }
-        let mut prepare_param = prepare_param_arc.lock().unwrap();
-        let (method_name, actual_arguments) = prepare_param.remove(0);
-        let actual_arguments: Vec<String> = actual_arguments
-            .into_iter()
-            .map(|arg| serde_json::to_string(&arg).unwrap())
-            .collect();
-
-        assert_eq!(method_name, "eth_blockNumber");
-        let expected_arguments: Vec<String> = vec![];
-        assert_eq!(actual_arguments, expected_arguments);
-    }
-
-    #[test]
-    fn non_clandestine_can_handle_latest_true_block_number_error() {
-        let prepare_params_arc: Arc<Mutex<Vec<(String, Vec<Value>)>>> =
-            Arc::new(Mutex::new(vec![]));
-        let transport = TestTransport::default()
-            .prepare_params(&prepare_params_arc)
-            .send_result(Value::Bool(true));
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport.clone(),
-            make_fake_event_loop_handle(),
-            TEST_DEFAULT_CHAIN,
-        );
-
-        match subject.get_block_number() {
-            Ok(_) => unimplemented!("Expected an error"),
-            Err(e) => assert_eq!(
-                e,
-                BlockchainError::QueryFailed("Decoder error: Error(\"invalid type: boolean `true`, expected a 0x-prefixed hex string with length between (0; 16]\", line: 0, column: 0)".to_string())
-            ),
-        }
-
-        let mut prepare_params = prepare_params_arc.lock().unwrap();
-        let (method_name, actual_arguments) = prepare_params.remove(0);
-        let actual_arguments: Vec<String> = actual_arguments
-            .into_iter()
-            .map(|arg| serde_json::to_string(&arg).unwrap())
-            .collect();
-        assert_eq!(method_name, "eth_blockNumber".to_string());
-        let expected_arguments: Vec<String> = vec![];
+        let expected_arguments: Vec<Value> = vec![];
         assert_eq!(actual_arguments, expected_arguments);
     }
 }
