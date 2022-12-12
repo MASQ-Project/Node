@@ -929,7 +929,7 @@ impl GossipHandler for StandardGossipHandler {
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
 
         let patch = self.compute_patch(&agrs, database.root());
-        let agrs = self.filter_agrs(agrs, patch);
+        let agrs = self.filter_agrs_from_patch(agrs, patch);
 
         let mut db_changed =
             self.identify_and_add_non_introductory_new_nodes(database, &agrs, gossip_source);
@@ -1002,10 +1002,10 @@ impl StandardGossipHandler {
             return;
         } else {
             let neighbors = if node == root_node.public_key() {
-                root_node.inner.neighbors.clone()
+                &root_node.inner.neighbors
             } else {
                 match agrs.get(node) {
-                    Some(agr) => agr.inner.neighbors.clone(),
+                    Some(agr) => &agr.inner.neighbors,
                     None => {
                         patch.remove(node);
                         trace!(
@@ -1018,7 +1018,7 @@ impl StandardGossipHandler {
                 }
             };
 
-            for neighbor in &neighbors {
+            for neighbor in neighbors {
                 if !patch.contains(neighbor) {
                     self.compute_patch_recursive(
                         patch,
@@ -1032,7 +1032,7 @@ impl StandardGossipHandler {
         }
     }
 
-    fn filter_agrs(
+    fn filter_agrs_from_patch(
         &self,
         agrs: Vec<AccessibleGossipRecord>,
         patch: HashSet<PublicKey>,
