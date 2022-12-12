@@ -928,24 +928,8 @@ impl GossipHandler for StandardGossipHandler {
         let initial_neighborship_status =
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
 
-        let agrs_by_key = agrs
-            .iter()
-            .map(|agr| (&agr.inner.public_key, agr))
-            .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
-
-        let mut patch: HashSet<PublicKey> = HashSet::new();
-        self.compute_patch(
-            &mut patch,
-            database.root().public_key(),
-            &agrs_by_key,
-            DEFAULT_MINIMUM_HOP_COUNT,
-            database,
-        );
-
-        let agrs = agrs
-            .into_iter()
-            .filter(|agr| patch.contains(&agr.inner.public_key))
-            .collect::<Vec<AccessibleGossipRecord>>();
+        let patch = self.compute_patch(&agrs, database.root());
+        let agrs = self.filter_agrs_from_patch(agrs, patch);
 
         let mut db_changed =
             self.identify_and_add_non_introductory_new_nodes(database, &agrs, gossip_source);
@@ -985,20 +969,43 @@ impl StandardGossipHandler {
 
     fn compute_patch(
         &self,
+        agrs: &Vec<AccessibleGossipRecord>,
+        root_node: &NodeRecord,
+    ) -> HashSet<PublicKey> {
+        let agrs_by_key = agrs
+            .iter()
+            .map(|agr| (&agr.inner.public_key, agr))
+            .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
+
+        let mut patch: HashSet<PublicKey> = HashSet::new();
+        self.compute_patch_recursive(
+            &mut patch,
+            root_node.public_key(),
+            &agrs_by_key,
+            DEFAULT_MINIMUM_HOP_COUNT,
+            root_node,
+        );
+
+        patch
+    }
+
+    fn compute_patch_recursive(
+        &self,
         patch: &mut HashSet<PublicKey>,
         node: &PublicKey,
         agrs: &HashMap<&PublicKey, &AccessibleGossipRecord>,
         hops_remaining: usize,
-        database: &NeighborhoodDatabase,
+        root_node: &NodeRecord,
     ) {
         patch.insert(node.clone());
-        if hops_remaining > 0 {
-            let neighbors = if patch.len() == 1 {
-                // Root Node
-                database.get_all_half_neighbors()
+        if hops_remaining == 0 {
+            return;
+        } else {
+            let neighbors = if node == root_node.public_key() {
+                &root_node.inner.neighbors
             } else {
                 match agrs.get(node) {
-                    Some(agr) => agr.get_all_inner_neighbors(),
+                    Some(agr) => &agr.inner.neighbors,
                     None => {
                         patch.remove(node);
                         trace!(
@@ -1013,10 +1020,26 @@ impl StandardGossipHandler {
 
             for neighbor in neighbors {
                 if !patch.contains(neighbor) {
-                    self.compute_patch(patch, neighbor, agrs, hops_remaining - 1, database)
+                    self.compute_patch_recursive(
+                        patch,
+                        neighbor,
+                        agrs,
+                        hops_remaining - 1,
+                        root_node,
+                    )
                 }
             }
         }
+    }
+
+    fn filter_agrs_from_patch(
+        &self,
+        agrs: Vec<AccessibleGossipRecord>,
+        patch: HashSet<PublicKey>,
+    ) -> Vec<AccessibleGossipRecord> {
+        agrs.into_iter()
+            .filter(|agr| patch.contains(&agr.inner.public_key))
+            .collect::<Vec<AccessibleGossipRecord>>()
     }
 
     fn identify_and_add_non_introductory_new_nodes(
@@ -2312,7 +2335,6 @@ mod tests {
         */
 
         let subject = StandardGossipHandler::new(Logger::new("test"));
-        let mut patch: HashSet<PublicKey> = HashSet::new();
         let node_a = make_node_record(1111, true);
         let node_b = make_node_record(2222, true);
         let node_c = make_node_record(3333, false);
@@ -2335,12 +2357,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let hashmap = agrs
-            .iter()
-            .map(|agr| (&agr.inner.public_key, agr))
-            .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
-
-        subject.compute_patch(&mut patch, node_a.public_key(), &hashmap, 3, &node_a_db);
+        let result = subject.compute_patch(&agrs, node_a_db.root());
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
@@ -2350,7 +2367,7 @@ mod tests {
         ]
         .into_iter()
         .collect::<HashSet<PublicKey>>();
-        assert_eq!(patch, expected_hashset);
+        assert_eq!(result, expected_hashset);
     }
 
     #[test]
@@ -2367,7 +2384,6 @@ mod tests {
         */
 
         let subject = StandardGossipHandler::new(Logger::new("test"));
-        let mut patch: HashSet<PublicKey> = HashSet::new();
         let node_a = make_node_record(1111, true);
         let node_b = make_node_record(2222, true);
         let node_c = make_node_record(3333, false);
@@ -2387,19 +2403,14 @@ mod tests {
         node_b_db.add_arbitrary_full_neighbor(node_c.public_key(), node_d.public_key());
 
         let gossip = GossipBuilder::new(&node_b_db)
-            .node(node_b.public_key(), false)
+            .node(node_b.public_key(), true)
             .node(node_c.public_key(), false)
             .node(node_d.public_key(), false)
             .node(node_y.public_key(), false)
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let hashmap = agrs
-            .iter()
-            .map(|agr| (&agr.inner.public_key, agr))
-            .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
-
-        subject.compute_patch(&mut patch, node_a.public_key(), &hashmap, 3, &node_a_db);
+        let patch = subject.compute_patch(&agrs, node_a_db.root());
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
@@ -2427,7 +2438,6 @@ mod tests {
         init_test_logging();
         let test_name = "standard_gossip_handler_can_handle_node_for_which_agr_is_not_found_while_computing_patch";
         let subject = StandardGossipHandler::new(Logger::new(test_name));
-        let mut patch: HashSet<PublicKey> = HashSet::new();
         let node_a = make_node_record(1111, true);
         let node_b = make_node_record(2222, true);
         let node_c = make_node_record(3333, false);
@@ -2449,12 +2459,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let hashmap = agrs
-            .iter()
-            .map(|agr| (&agr.inner.public_key, agr))
-            .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
-
-        subject.compute_patch(&mut patch, node_a.public_key(), &hashmap, 3, &node_a_db);
+        let patch = subject.compute_patch(&agrs, node_a_db.root());
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
@@ -2534,6 +2539,11 @@ mod tests {
     #[test]
     fn no_cpm_is_sent_in_case_full_neighborship_doesn_t_exist_and_cannot_be_created() {
         // Received gossip from a node we couldn't make a neighbor {Degree too high or malefactor banned node} (false, false)
+        // This is Standard Gossip, even though it looks like a Debut,
+        // because it's specifically handled by a StandardGossipHandler
+        // instead of the GossipAcceptor (which would identify it as a Debut),
+        // so the test is unrealistic. Also that the Gossip is ignored because
+        // Node B isn't in Node A's patch, which matters to a StandardGossipHandler.
         let cryptde = main_cryptde();
         let root_node = make_node_record(1111, true);
         let mut root_db = db_from_node(&root_node);
