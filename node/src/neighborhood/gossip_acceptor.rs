@@ -969,7 +969,7 @@ impl StandardGossipHandler {
 
     fn compute_patch(
         &self,
-        agrs: &Vec<AccessibleGossipRecord>,
+        agrs: &[AccessibleGossipRecord],
         root_node: &NodeRecord,
     ) -> HashSet<PublicKey> {
         let agrs_by_key = agrs
@@ -989,6 +989,7 @@ impl StandardGossipHandler {
         patch
     }
 
+    #[allow(clippy::needless_return)]
     fn compute_patch_recursive(
         &self,
         patch: &mut HashSet<PublicKey>,
