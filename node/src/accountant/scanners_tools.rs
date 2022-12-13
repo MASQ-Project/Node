@@ -276,6 +276,34 @@ pub(crate) mod receivable_scanner_tools {
     }
 }
 
+pub mod common_tools {
+    use masq_lib::logger::Logger;
+    use masq_lib::messages::ScanType;
+    use std::time::SystemTime;
+
+    fn try_mark_as_ended(
+        logger: &Logger,
+        scan_type: ScanType,
+        time_initiated_opt: Option<SystemTime>,
+    ) -> Result<String, String> {
+        match time_initiated_opt {
+            Some(timestamp) => {
+                let elapsed_time = SystemTime::now()
+                    .duration_since(timestamp)
+                    .expect("Unable to calculate elapsed time for the scan.")
+                    .as_millis();
+                String::from("The {scan_type} scan ended in {elapsed_time}ms.")
+                // info!(logger, "The {scan_type} scan ended in {elapsed_time}ms.");
+            }
+            None => {
+                error!(
+                logger,
+                "Called scan_finished() for {scan_type} scanner but timestamp was not found"
+            ), }
+        };
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::accountant::payable_dao::{Payable, PayableAccount};
