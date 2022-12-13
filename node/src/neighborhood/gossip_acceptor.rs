@@ -9,6 +9,7 @@ use crate::sub_lib::neighborhood::{
     ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1,
 };
 use crate::sub_lib::node_addr::NodeAddr;
+use crate::sub_lib::proxy_server::DEFAULT_MINIMUM_HOP_COUNT;
 use actix::Recipient;
 use masq_lib::logger::Logger;
 use std::cell::RefCell;
@@ -926,6 +927,10 @@ impl GossipHandler for StandardGossipHandler {
     ) -> GossipAcceptanceResult {
         let initial_neighborship_status =
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
+
+        let patch = self.compute_patch(&agrs, database.root());
+        let agrs = self.filter_agrs_from_patch(agrs, patch);
+
         let mut db_changed =
             self.identify_and_add_non_introductory_new_nodes(database, &agrs, gossip_source);
         db_changed = self.identify_and_update_obsolete_nodes(database, agrs) || db_changed;
@@ -960,6 +965,74 @@ impl GossipHandler for StandardGossipHandler {
 impl StandardGossipHandler {
     fn new(logger: Logger) -> StandardGossipHandler {
         StandardGossipHandler { logger }
+    }
+
+    fn compute_patch(
+        &self,
+        agrs: &[AccessibleGossipRecord],
+        root_node: &NodeRecord,
+    ) -> HashSet<PublicKey> {
+        let agrs_by_key = agrs
+            .iter()
+            .map(|agr| (&agr.inner.public_key, agr))
+            .collect::<HashMap<&PublicKey, &AccessibleGossipRecord>>();
+
+        let mut patch: HashSet<PublicKey> = HashSet::new();
+        self.compute_patch_recursive(
+            &mut patch,
+            root_node.public_key(),
+            &agrs_by_key,
+            DEFAULT_MINIMUM_HOP_COUNT,
+            root_node,
+        );
+
+        patch
+    }
+
+    fn compute_patch_recursive(
+        &self,
+        patch: &mut HashSet<PublicKey>,
+        node: &PublicKey,
+        agrs: &HashMap<&PublicKey, &AccessibleGossipRecord>,
+        hops_remaining: usize,
+        root_node: &NodeRecord,
+    ) {
+        patch.insert(node.clone());
+        if hops_remaining == 0 {
+            return;
+        }
+        let neighbors = if node == root_node.public_key() {
+            &root_node.inner.neighbors
+        } else {
+            match agrs.get(node) {
+                Some(agr) => &agr.inner.neighbors,
+                None => {
+                    patch.remove(node);
+                    trace!(
+                        self.logger,
+                        "While computing patch no AGR record found for public key {:?}",
+                        node
+                    );
+                    return;
+                }
+            }
+        };
+
+        for neighbor in neighbors {
+            if !patch.contains(neighbor) {
+                self.compute_patch_recursive(patch, neighbor, agrs, hops_remaining - 1, root_node)
+            }
+        }
+    }
+
+    fn filter_agrs_from_patch(
+        &self,
+        agrs: Vec<AccessibleGossipRecord>,
+        patch: HashSet<PublicKey>,
+    ) -> Vec<AccessibleGossipRecord> {
+        agrs.into_iter()
+            .filter(|agr| patch.contains(&agr.inner.public_key))
+            .collect::<Vec<AccessibleGossipRecord>>()
     }
 
     fn identify_and_add_non_introductory_new_nodes(
@@ -1240,6 +1313,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
     use actix::{Actor, System};
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::convert::TryInto;
     use std::ops::{Add, Sub};
@@ -2171,20 +2245,41 @@ mod tests {
 
     #[test]
     fn proper_standard_gossip_is_matched_and_handled() {
+        /*
+          Destination Node ==>
+            S---D
+
+          Source Node ==>
+           A---S---D
+               |
+               B
+
+          The source node(S) will gossip about Node A and B
+          to the destination node(D).
+        */
         let src_root = make_node_record(1234, true);
         let dest_root = make_node_record(2345, true);
         let mut src_db = db_from_node(&src_root);
-        let node_a_key = &src_db.add_node(make_node_record(3456, true)).unwrap();
-        let node_b_key = &src_db.add_node(make_node_record(4567, true)).unwrap();
+        let node_a = make_node_record(3456, true);
+        let node_b = make_node_record(4567, true);
         let mut dest_db = db_from_node(&dest_root);
         dest_db.add_node(src_root.clone()).unwrap();
         dest_db.add_arbitrary_full_neighbor(dest_root.public_key(), src_root.public_key());
         src_db.add_node(dest_db.root().clone()).unwrap();
+        src_db.add_node(node_a.clone()).unwrap();
+        src_db.add_node(node_b.clone()).unwrap();
         src_db.add_arbitrary_full_neighbor(src_root.public_key(), dest_root.public_key());
+        src_db.add_arbitrary_half_neighbor(src_root.public_key(), &node_a.public_key());
+        src_db.add_arbitrary_full_neighbor(src_root.public_key(), &node_b.public_key());
+        src_db
+            .node_by_key_mut(src_root.public_key())
+            .unwrap()
+            .increment_version();
+        src_db.resign_node(src_root.public_key());
         let gossip = GossipBuilder::new(&src_db)
             .node(src_root.public_key(), true)
-            .node(node_a_key, false)
-            .node(node_b_key, false)
+            .node(node_a.public_key(), false)
+            .node(node_b.public_key(), false)
             .build();
         let subject = StandardGossipHandler::new(Logger::new("test"));
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
@@ -2210,12 +2305,12 @@ mod tests {
         );
         assert!(dest_db.has_full_neighbor(dest_db.root().public_key(), src_db.root().public_key()));
         assert_eq!(
-            &src_db.node_by_key(node_a_key).unwrap().inner,
-            &dest_db.node_by_key(node_a_key).unwrap().inner
+            &src_db.node_by_key(node_a.public_key()).unwrap().inner,
+            &dest_db.node_by_key(node_a.public_key()).unwrap().inner
         );
         assert_eq!(
-            &src_db.node_by_key(node_b_key).unwrap().inner,
-            &dest_db.node_by_key(node_b_key).unwrap().inner
+            &src_db.node_by_key(node_b.public_key()).unwrap().inner,
+            &dest_db.node_by_key(node_b.public_key()).unwrap().inner
         );
         System::current().stop();
         assert_eq!(system.run(), 0);
@@ -2224,8 +2319,224 @@ mod tests {
     }
 
     #[test]
+    fn standard_gossip_handler_can_compute_patch() {
+        /*
+            Over here, root node is A and patch contains [A, B, C, D].
+                                  A---B---C---D---E
+            What does this test proves:
+            The distance of A and E is more than 3 hops, hence E is being excluded.
+        */
+
+        let subject = StandardGossipHandler::new(Logger::new("test"));
+        let node_a = make_node_record(1111, true);
+        let node_b = make_node_record(2222, true);
+        let node_c = make_node_record(3333, false);
+        let node_d = make_node_record(4444, false);
+        let node_e = make_node_record(5555, false);
+        let mut node_a_db = db_from_node(&node_a);
+        node_a_db.add_node(node_b.clone()).unwrap();
+        node_a_db.add_node(node_c.clone()).unwrap();
+        node_a_db.add_node(node_d.clone()).unwrap();
+        node_a_db.add_node(node_e.clone()).unwrap();
+        node_a_db.add_arbitrary_full_neighbor(node_a.public_key(), node_b.public_key());
+        node_a_db.add_arbitrary_full_neighbor(node_b.public_key(), node_c.public_key());
+        node_a_db.add_arbitrary_full_neighbor(node_c.public_key(), node_d.public_key());
+        node_a_db.add_arbitrary_full_neighbor(node_d.public_key(), node_e.public_key());
+        let gossip = GossipBuilder::new(&node_a_db)
+            .node(node_b.public_key(), false)
+            .node(node_c.public_key(), false)
+            .node(node_d.public_key(), false)
+            .node(node_e.public_key(), false)
+            .build();
+        let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+
+        let result = subject.compute_patch(&agrs, node_a_db.root());
+
+        let expected_hashset = vec![
+            node_a.public_key().clone(),
+            node_b.public_key().clone(),
+            node_c.public_key().clone(),
+            node_d.public_key().clone(),
+        ]
+        .into_iter()
+        .collect::<HashSet<PublicKey>>();
+        assert_eq!(result, expected_hashset);
+    }
+
+    #[test]
+    fn standard_gossip_handler_computes_neighbors_from_database_and_neighbors_of_neighbors_from_agrs(
+    ) {
+        /*
+            Over here, root node is A and patch contains [A, B, Y, C, D].
+                                  A---B---C---D
+                                      |
+                                      Y
+            What does this test proves:
+            1) To find neighbors, we'll look into the root node's database. (For Example, A---B).
+            2) To find neighbors of neighbors, we'll look into the AGRs. (For Example, B---Y, B---C, and C---D).
+        */
+
+        let subject = StandardGossipHandler::new(Logger::new("test"));
+        let node_a = make_node_record(1111, true);
+        let node_b = make_node_record(2222, true);
+        let node_c = make_node_record(3333, false);
+        let node_d = make_node_record(4444, false);
+        let node_y = make_node_record(5555, false);
+        let mut node_a_db = db_from_node(&node_a);
+        node_a_db.add_node(node_b.clone()).unwrap();
+        node_a_db.add_arbitrary_full_neighbor(node_a.public_key(), node_b.public_key());
+        let mut node_b_db = db_from_node(&node_b);
+        node_b_db.add_node(node_a.clone()).unwrap();
+        node_b_db.add_node(node_y.clone()).unwrap();
+        node_b_db.add_node(node_c.clone()).unwrap();
+        node_b_db.add_node(node_d.clone()).unwrap();
+        node_b_db.add_arbitrary_full_neighbor(node_b.public_key(), node_a.public_key());
+        node_b_db.add_arbitrary_full_neighbor(node_b.public_key(), node_y.public_key());
+        node_b_db.add_arbitrary_full_neighbor(node_b.public_key(), node_c.public_key());
+        node_b_db.add_arbitrary_full_neighbor(node_c.public_key(), node_d.public_key());
+
+        let gossip = GossipBuilder::new(&node_b_db)
+            .node(node_b.public_key(), true)
+            .node(node_c.public_key(), false)
+            .node(node_d.public_key(), false)
+            .node(node_y.public_key(), false)
+            .build();
+        let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+
+        let patch = subject.compute_patch(&agrs, node_a_db.root());
+
+        let expected_hashset = vec![
+            node_a.public_key().clone(),
+            node_b.public_key().clone(),
+            node_c.public_key().clone(),
+            node_d.public_key().clone(),
+            node_y.public_key().clone(),
+        ]
+        .into_iter()
+        .collect::<HashSet<PublicKey>>();
+        assert_eq!(patch, expected_hashset);
+    }
+
+    #[test]
+    fn standard_gossip_handler_can_handle_node_for_which_agr_is_not_found_while_computing_patch() {
+        /*
+            Over here, root node is A and patch contains [A, B, C, D].
+                                  A---B---C---D
+                                  |
+                                  X
+            In this test, we won't provide AGR for Node X and thereby compute_patch() will not add
+            Node X inside the patch. Also, logger will log it as it happens.
+        */
+
+        init_test_logging();
+        let test_name = "standard_gossip_handler_can_handle_node_for_which_agr_is_not_found_while_computing_patch";
+        let subject = StandardGossipHandler::new(Logger::new(test_name));
+        let node_a = make_node_record(1111, true);
+        let node_b = make_node_record(2222, true);
+        let node_c = make_node_record(3333, false);
+        let node_d = make_node_record(4444, false);
+        let node_x = make_node_record(6666, false);
+        let mut node_a_db = db_from_node(&node_a);
+        node_a_db.add_node(node_b.clone()).unwrap();
+        node_a_db.add_node(node_c.clone()).unwrap();
+        node_a_db.add_node(node_d.clone()).unwrap();
+        node_a_db.add_node(node_x.clone()).unwrap();
+        node_a_db.add_arbitrary_full_neighbor(node_a.public_key(), node_b.public_key());
+        node_a_db.add_arbitrary_full_neighbor(node_a.public_key(), node_x.public_key());
+        node_a_db.add_arbitrary_full_neighbor(node_b.public_key(), node_c.public_key());
+        node_a_db.add_arbitrary_full_neighbor(node_c.public_key(), node_d.public_key());
+        let gossip = GossipBuilder::new(&node_a_db)
+            .node(node_b.public_key(), false)
+            .node(node_c.public_key(), false)
+            .node(node_d.public_key(), false)
+            .build();
+        let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+
+        let patch = subject.compute_patch(&agrs, node_a_db.root());
+
+        let expected_hashset = vec![
+            node_a.public_key().clone(),
+            node_b.public_key().clone(),
+            node_c.public_key().clone(),
+            node_d.public_key().clone(),
+        ]
+        .into_iter()
+        .collect::<HashSet<PublicKey>>();
+        assert_eq!(patch, expected_hashset);
+        TestLogHandler::new().exists_log_matching(&format!(
+            "TRACE: {}: While computing patch no AGR record found for public key {:?}",
+            test_name,
+            node_x.public_key()
+        ));
+    }
+
+    #[test]
+    fn standard_gossip_handler_will_ignore_gossips_from_outside_the_patch() {
+        /*
+            Over here, root node is A and patch contains [A, B, C, D].
+                                  A---B---C---D---E---F
+                                  |___________||______|
+
+            The node B sends a gossip to A.
+                                  A <---- B
+            Node B tells Node A about the full neighborship of E and F.
+            Since, the relation between E and F is outside the patch, standard gossip handler
+            will not perform any database changes and will mark the gossip as ignored.
+
+        */
+
+        let cryptde = main_cryptde();
+        let (cpm_recipient, _) = make_cpm_recipient();
+        let subject = StandardGossipHandler::new(Logger::new("test"));
+        let node_a = make_node_record(1111, true);
+        let node_b = make_node_record(2222, true);
+        let node_c = make_node_record(3333, false);
+        let node_d = make_node_record(4444, false);
+        let node_e = make_node_record(5555, false);
+        let node_f = make_node_record(6666, false);
+        let mut node_a_db = db_from_node(&node_a);
+        node_a_db.add_node(node_b.clone()).unwrap();
+        node_a_db.add_node(node_c.clone()).unwrap();
+        node_a_db.add_node(node_d.clone()).unwrap();
+        node_a_db.add_node(node_e.clone()).unwrap();
+        node_a_db.add_arbitrary_full_neighbor(node_a.public_key(), node_b.public_key());
+        node_a_db.add_arbitrary_full_neighbor(node_b.public_key(), node_c.public_key());
+        node_a_db.add_arbitrary_full_neighbor(node_c.public_key(), node_d.public_key());
+        node_a_db.add_arbitrary_full_neighbor(node_d.public_key(), node_e.public_key());
+        let gossip_source: SocketAddr = node_b.node_addr_opt().unwrap().into();
+        let mut node_b_db = db_from_node(&node_b);
+        node_b_db.add_node(node_a.clone()).unwrap();
+        node_b_db.add_node(node_c.clone()).unwrap();
+        node_b_db.add_node(node_d.clone()).unwrap();
+        node_b_db.add_node(node_e.clone()).unwrap();
+        node_b_db.add_node(node_f.clone()).unwrap();
+        node_b_db.add_arbitrary_full_neighbor(node_a.public_key(), node_b.public_key());
+        node_b_db.add_arbitrary_full_neighbor(node_b.public_key(), node_c.public_key());
+        node_b_db.add_arbitrary_full_neighbor(node_c.public_key(), node_d.public_key());
+        node_b_db.add_arbitrary_full_neighbor(node_d.public_key(), node_e.public_key());
+        node_b_db.add_arbitrary_full_neighbor(node_e.public_key(), node_f.public_key());
+        let gossip = GossipBuilder::new(&node_b_db)
+            .node(node_b.public_key(), true)
+            .node(node_c.public_key(), false)
+            .node(node_d.public_key(), false)
+            .node(node_e.public_key(), false)
+            .node(node_f.public_key(), false)
+            .build();
+        let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+
+        let result = subject.handle(cryptde, &mut node_a_db, agrs, gossip_source, &cpm_recipient);
+
+        assert_eq!(result, GossipAcceptanceResult::Ignored);
+    }
+
+    #[test]
     fn no_cpm_is_sent_in_case_full_neighborship_doesn_t_exist_and_cannot_be_created() {
         // Received gossip from a node we couldn't make a neighbor {Degree too high or malefactor banned node} (false, false)
+        // This is Standard Gossip, even though it looks like a Debut,
+        // because it's specifically handled by a StandardGossipHandler
+        // instead of the GossipAcceptor (which would identify it as a Debut),
+        // so the test is unrealistic. Also that the Gossip is ignored because
+        // Node B isn't in Node A's patch, which matters to a StandardGossipHandler.
         let cryptde = main_cryptde();
         let root_node = make_node_record(1111, true);
         let mut root_db = db_from_node(&root_node);
@@ -2252,7 +2563,7 @@ mod tests {
         assert_eq!(system.run(), 0);
         let recording = recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
-        assert_eq!(result, GossipAcceptanceResult::Accepted);
+        assert_eq!(result, GossipAcceptanceResult::Ignored);
     }
 
     #[test]
@@ -3249,6 +3560,26 @@ mod tests {
     #[test]
     fn initial_standard_gossip_does_not_produce_neighborship_if_destination_degree_is_already_full()
     {
+        /*
+        Destination Database ==>
+            N2  N3
+             \  /
+        N1---Dest---Third
+             /  \
+            N4  N5
+
+        Source Database ==>
+        Src---Third---Dest
+
+        Disc
+
+        Expected Destination Database ==>
+            N2  N3
+             \  /   Third
+        N1---Dest---|
+             /  \   Src
+            N4  N5
+         */
         let dest_node = make_node_record(1234, true);
         let dest_node_cryptde = CryptDENull::from(&dest_node.public_key(), TEST_DEFAULT_CHAIN);
         let mut dest_db = db_from_node(&dest_node);
@@ -3264,10 +3595,10 @@ mod tests {
             dest_db.add_arbitrary_half_neighbor(dest_node.public_key(), failed_node_key);
         }
         dest_db.add_node(third_node.clone()).unwrap();
+        dest_db.add_arbitrary_full_neighbor(dest_node.public_key(), third_node.public_key());
         src_db.add_node(dest_node.clone()).unwrap();
         src_db.add_node(third_node.clone()).unwrap();
         src_db.add_node(disconnected_node.clone()).unwrap();
-        dest_db.add_arbitrary_full_neighbor(dest_node.public_key(), third_node.public_key());
         src_db.add_arbitrary_full_neighbor(dest_node.public_key(), third_node.public_key());
         src_db.add_arbitrary_full_neighbor(src_node.public_key(), third_node.public_key());
         src_db
@@ -3297,10 +3628,8 @@ mod tests {
         let mut expected_dest_db = src_db.clone();
         expected_dest_db.add_arbitrary_half_neighbor(dest_node.public_key(), src_node.public_key());
         expected_dest_db
-            .node_by_key_mut(disconnected_node.public_key())
-            .unwrap()
-            .metadata
-            .node_addr_opt = None;
+            .remove_neighbor(disconnected_node.public_key())
+            .unwrap();
         for idx in 0..MAX_DEGREE {
             let failed_node_key = &expected_dest_db
                 .add_node(make_node_record(4000 + idx as u16, true))
@@ -3335,16 +3664,10 @@ mod tests {
             before,
             after,
         );
-        assert_node_records_eq(
-            dest_db
-                .node_by_key_mut(disconnected_node.public_key())
-                .unwrap(),
-            expected_dest_db
-                .node_by_key(disconnected_node.public_key())
-                .unwrap(),
-            before,
-            after,
-        );
+        // If you're here because you're working on GH-650, and this assert is failing,
+        // everything's fine: GH-650 is supposed to make it fail. Modify the assert so
+        // that it ensures that the disconnected Node is preserved.
+        assert_eq!(dest_db.node_by_key(disconnected_node.public_key()), None);
     }
 
     #[test]
