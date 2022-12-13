@@ -5,7 +5,7 @@ use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
-use masq_lib::constants::MASQ_TOTAL_SUPPLY;
+use masq_lib::constants::{MASQ_TOTAL_SUPPLY, WEIS_OF_GWEI};
 use masq_lib::messages::{
     CustomQueries, QueryResults, RangeQuery, TopRecordsConfig, UiFinancialStatistics,
     UiFinancialsRequest, UiFinancialsResponse, UiPayableAccount, UiReceivableAccount,
@@ -21,7 +21,6 @@ use std::default::Default;
 use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::num::{IntErrorKind, ParseIntError};
-use std::ops::Mul;
 use std::str::FromStr;
 use thousands::Separable;
 
@@ -30,10 +29,10 @@ const FINANCIALS_SUBCOMMAND_ABOUT: &str =
 const TOP_ARG_HELP: &str = "Fetches the top N records (or fewer) from both payable and receivable. The default order is decreasing by balance, but can be changed with the additional '--ordered' argument.";
 const PAYABLE_ARG_HELP: &str = "Enables querying payable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired gwei precision). \
  The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1). If this \
-  parameter is being set in the interactive mode, the value needs to be enclosed in quotes (single or double).";
+  parameter is being set in the non-interactive mode, the value needs to be enclosed in quotes (single or double).";
 const RECEIVABLE_ARG_HELP: &str = "Enables querying receivable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired gwei precision). \
  The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1). If this \
-  parameter is being set in the interactive mode, the value needs to be enclosed in quotes (single or double).";
+  parameter is being set in the non-interactive mode, the value needs to be enclosed in quotes (single or double).";
 const NO_STATS_ARG_HELP: &str = "Disables statistics that display by default, containing totals of paid and unpaid money from the perspective of debtors and creditors. This argument is not accepted alone and must be placed \
  before other arguments.";
 const GWEI_HELP: &str =
@@ -324,9 +323,9 @@ impl FinancialsCommand {
     }
 
     fn parse_custom_query_args(matches: &ArgMatches) -> Option<CustomQueryInput> {
-        fn decompose_inputs<T>(
-            composed_parameters_opt: Option<RangeQueryInputs<T>>,
-        ) -> (Option<RangeQuery<T>>, Option<UserOriginalTypingOfRanges>) {
+        fn decompose_optional_inputs<N>(
+            composed_parameters_opt: Option<RangeQueryInputs<N>>,
+        ) -> (Option<RangeQuery<N>>, Option<UserOriginalTypingOfRanges>) {
             composed_parameters_opt
                 .map(|inputs| (Some(inputs.num_values), Some(inputs.captured_literal_input)))
                 .unwrap_or_default()
@@ -337,10 +336,10 @@ impl FinancialsCommand {
         ) -> Option<CustomQueryInput> {
             {
                 let (payable_opt, users_payable_format_opt) =
-                    decompose_inputs(payable_range_inputs_opt);
+                    decompose_optional_inputs(payable_range_inputs_opt);
 
                 let (receivable_opt, users_receivable_format_opt) =
-                    decompose_inputs(receivable_range_inputs_opt);
+                    decompose_optional_inputs(receivable_range_inputs_opt);
 
                 Some(CustomQueryInput {
                     query: CustomQueries {
@@ -372,7 +371,7 @@ impl FinancialsCommand {
         parameter_name: &'a str,
     ) -> Option<RangeQueryInputs<N>>
     where
-        N: FromStr<Err = ParseIntError> + CheckedMul + Display + TryFrom<i64> + TryFrom<u64> + Copy,
+        N: FromStr<Err = ParseIntError> + TryFrom<i64> + TryFrom<u64> + CheckedMul + Display + Copy,
         i64: TryFrom<N>,
         u64: TryFrom<N>,
         <N as TryFrom<i64>>::Error: Debug,
@@ -381,8 +380,8 @@ impl FinancialsCommand {
         let parse_params =
             |time_range: &[&str], money_range: &str| -> ((u64, u64), (N, N, String, String)) {
                 (
-                    Self::parse_time_params(time_range).expect("blown up after validation"),
-                    Self::parse_masq_range_to_gwei(money_range).expect("blown up after validation"),
+                    Self::parse_time_params(time_range).expect("blew up after validation"),
+                    Self::parse_masq_range_to_gwei(money_range).expect("blew up after validation"),
                 )
             };
 
@@ -457,39 +456,32 @@ impl FinancialsCommand {
         )
     }
 
-    fn process_gwei_into_requested_format<T>(gwei: T, should_stay_gwei: bool) -> String
+    fn process_gwei_into_requested_format<N>(gwei: N, should_stay_gwei: bool) -> String
     where
-        T: Display + From<u32> + Separable,
-        i64: TryFrom<T>,
-        <i64 as TryFrom<T>>::Error: Debug,
+        N: From<u32> + Separable + Display,
+        i64: TryFrom<N>,
+        <i64 as TryFrom<N>>::Error: Debug,
     {
         if should_stay_gwei {
             gwei.separate_with_commas()
         } else {
-            //9,223,372,036
-            let gwei_as_i64 =
-                i64::try_from(gwei).expect("value bigger than i64::MAX is unrealistic");
+            let gwei_as_i64 = i64::try_from(gwei)
+                .expect("Clap validation failed: value bigger than i64::MAX should be forbidden");
             Self::convert_masq_from_gwei_and_dress_well(gwei_as_i64)
         }
     }
 
     fn convert_masq_from_gwei_and_dress_well(balance_gwei: i64) -> String {
-        //TODO neaten this ???maybe a const???
-        let balance_masq_int = (balance_gwei / 1_000_000_000).abs();
-        let balance_masq_frac = (balance_gwei % 1_000_000_000).abs();
-        let balance_masq_frac_trunc = balance_masq_frac / 10_000_000;
+        const MASK_FOR_NON_SIGNIFICANT_DIGITS: i64 = 10_000_000;
+        let balance_masq_int = (balance_gwei / WEIS_OF_GWEI as i64).abs();
+        let balance_masq_frac = (balance_gwei % WEIS_OF_GWEI as i64).abs();
+        let balance_masq_frac_trunc = balance_masq_frac / MASK_FOR_NON_SIGNIFICANT_DIGITS;
         match (
             (balance_masq_int == 0) && (balance_masq_frac_trunc == 0),
             balance_gwei >= 0,
         ) {
-            (true, bigger_then_zero) => {
-                let str_response = if bigger_then_zero {
-                    "< 0.01"
-                } else {
-                    "-0.01 < x < 0"
-                };
-                str_response.to_string()
-            }
+            (true, true) => "< 0.01".to_string(),
+            (true, false) => "-0.01 < x < 0".to_string(),
             _ => {
                 format!(
                     "{}{}.{:0>2}",
@@ -545,35 +537,40 @@ impl FinancialsCommand {
     fn neaten_users_writing_if_possible(
         user_ranges: &UserOriginalTypingOfRanges,
     ) -> (String, String) {
-        fn handle_captured_parts_of_a_number(captures: Captures) -> [Option<String>; 3] {
+        fn collect_captured_parts_of_a_number(captures: Captures) -> [Option<String>; 3] {
             let fetch_group = |idx: usize| -> Option<String> {
                 FinancialsCommand::single_capture(&captures, idx)
             };
             [fetch_group(1), fetch_group(2), fetch_group(3)]
         }
-        fn assemble_segments_into_single_number(strings: [Option<String>; 3]) -> String {
+        fn assemble_string_segments_into_single_number(strings: [Option<String>; 3]) -> String {
             strings.into_iter().flatten().collect()
         }
-        fn compose_ranges(mut numbers: VecDeque<String>) -> (String, String) {
+        fn assemble_age_and_balance_string_ranges(
+            mut numbers: VecDeque<String>,
+        ) -> (String, String) {
             if numbers.get(3).expectv("fourth element").is_empty() {
-                //the 4th limit deliberately omitted by the user if empty
+                //meaning the 4th limit deliberately omitted by the user
                 numbers[3] = "UNLIMITED".to_string()
             };
-            let mut pop = |param: &str| numbers.pop_front().expectv(param);
-            let mut str_range = |min: &str, max: &str| format!("{}-{}", pop(min), pop(max));
+            let mut pop = || numbers.pop_front();
             (
-                str_range("age min", "age max"),
-                str_range("balance min", "balance max"),
+                format!("{}-{}", pop().expectv("age min"), pop().expectv("age max")),
+                format!(
+                    "{}-{}",
+                    pop().expectv("balance min"),
+                    pop().expectv("balance max")
+                ),
             )
         }
 
-        //the 4rd capture group is inactivated by ?:
+        //the 4th capture group is inactivated by ?:
         let simplifying_extractor =
             Regex::new(r#"^(-?)0*(\d+)(?:(\.\d*[1-9])0*$|\.0|$)"#).expect("wrong regex");
         let apply_care = |cached_user_input: &str| -> [Option<String>; 3] {
             simplifying_extractor
                 .captures(cached_user_input)
-                .map(handle_captured_parts_of_a_number)
+                .map(collect_captured_parts_of_a_number)
                 .unwrap_or_else(
                     || panic!("Broken code: value must have been present during a check but yet wrong: {}", cached_user_input)
                 )
@@ -590,9 +587,9 @@ impl FinancialsCommand {
             },
         ]
         .into_iter()
-        .map(assemble_segments_into_single_number)
+        .map(assemble_string_segments_into_single_number)
         .collect::<VecDeque<String>>();
-        compose_ranges(vec_of_possibly_corrected_values)
+        assemble_age_and_balance_string_ranges(vec_of_possibly_corrected_values)
     }
 
     fn triple_or_single_blank_line(stdout: &mut dyn Write, leading_dump: bool) {
@@ -697,43 +694,68 @@ impl FinancialsCommand {
         })
     }
 
-    fn parse_integer_within_limits<N>(str_num: &str) -> Result<N, String>
+    fn parse_integer_within_limits<N>(str_gwei: &str) -> Result<N, String>
     where
         N: FromStr<Err = ParseIntError> + Copy + TryFrom<u64>,
         u64: TryFrom<N>,
     {
-        fn total_supply() -> String {
-            MASQ_TOTAL_SUPPLY.separate_with_commas()
+        fn error_msg<N: Separable>(
+            gwei: &str,
+            lower_expected_limit: N,
+            higher_expected_limit: N,
+        ) -> String {
+            let numbers = [
+                &gwei as &dyn Separable,
+                &lower_expected_limit,
+                &higher_expected_limit,
+            ]
+            .into_iter()
+            .map(|value| value.separate_with_commas())
+            .collect::<Vec<String>>();
+            format!(
+                "Supplied value of {} gwei overflows the tech limits. You probably want one between {} and {} MASQ", numbers[0], numbers[1], numbers[2]
+            )
         }
-        let separable_input = || str_num.separate_with_commas();
+        let handle_parsing_error = |str_gwei: &str, e: ParseIntError| -> String {
+            let minus_sign_regex = Regex::new(r#"\s*-\s*\d+"#).expect("bad regex");
+            match (e.kind(), minus_sign_regex.is_match(str_gwei)) {
+                (IntErrorKind::NegOverflow | IntErrorKind::PosOverflow, _) => {
+                    if type_name::<N>() == type_name::<u64>() {
+                        error_msg(str_gwei, 0, MASQ_TOTAL_SUPPLY)
+                    } else {
+                        error_msg(
+                            str_gwei,
+                            -(MASQ_TOTAL_SUPPLY as i64),
+                            MASQ_TOTAL_SUPPLY as i64,
+                        )
+                    }
+                }
+                (IntErrorKind::InvalidDigit, true) if type_name::<N>() == type_name::<u64>() => {
+                    error_msg(str_gwei, 0, MASQ_TOTAL_SUPPLY)
+                }
+                _ => format!(
+                    "Non numeric value '{}', it must be a valid number",
+                    str_gwei
+                ),
+            }
+        };
 
-        match str::parse::<N>(str_num) {
+        match str::parse::<N>(str_gwei) {
             Ok(int) => match u64::try_from(int) {
                 Ok(int_as_u64) => {
                     if int_as_u64 <= i64::MAX as u64 {
                         Ok(int)
                     } else {
-                        Err(format!("Supplied value of {} gwei overflows the tech limits. You probably want one between 0 and {} MASQ", separable_input(), total_supply()))
+                        Err(error_msg(str_gwei, 0, MASQ_TOTAL_SUPPLY))
                     }
                 }
                 Err(_) => {
-                    //Error here can only signalize a negative number given we ever expect N to be u64 or i64
+                    //This error can only signalize a negative number
+                    //because we always expect N to be u64 or i64
                     Ok(int)
                 }
             },
-            Err(e) => match e.kind() {
-                IntErrorKind::NegOverflow | IntErrorKind::PosOverflow => {
-                    if type_name::<N>() == type_name::<u64>() {
-                        Err(format!("Supplied value of {} gwei overflows the tech limits. You probably want one between 0 and {} MASQ", separable_input(), total_supply()))
-                    } else {
-                        Err(format!("Supplied value of {0} gwei overflows the tech limits. You probably want one between -{1} and {1} MASQ", separable_input(), total_supply()))
-                    }
-                }
-                _ => Err(format!(
-                    "Non numeric value '{}', all must be valid numbers",
-                    str_num
-                )),
-            },
+            Err(e) => Err(handle_parsing_error(str_gwei, e)),
         }
     }
 
@@ -783,15 +805,9 @@ impl FinancialsCommand {
         }
     }
 
-    pub fn parse_masq_range_to_gwei<N>(range: &str) -> Result<(N, N, String, String), String>
+    fn parse_masq_range_to_gwei<N>(range: &str) -> Result<(N, N, String, String), String>
     where
-        N: FromStr<Err = ParseIntError>
-            + TryFrom<i64>
-            + TryFrom<u64>
-            + Mul<Output = N>
-            + CheckedMul
-            + Display
-            + Copy,
+        N: FromStr<Err = ParseIntError> + TryFrom<i64> + TryFrom<u64> + CheckedMul + Display + Copy,
         i64: TryFrom<N>,
         u64: TryFrom<N>,
         <N as TryFrom<i64>>::Error: Debug,
@@ -826,27 +842,22 @@ impl FinancialsCommand {
         fn all_digits_with_dot_removed(num: &str) -> String {
             num.chars().filter(|char| *char != '.').collect()
         }
-        fn check_if_all_decimal_digits_fits_in_gwei_range(
-            digits_count_unchecked: u32,
-            num: &str,
-        ) -> Result<u32, String> {
-            if digits_count_unchecked <= DIGITS_IN_BILLION {
-                Ok(digits_count_unchecked)
+        fn number_of_decimal_digits_unchecked(num: &str, dot_idx: usize) -> u32 {
+            let int_part_plus_dot_length = dot_idx + 1;
+            u32::try_from(num.chars().count() - int_part_plus_dot_length)
+                .expect("previous check of maximally 9 decimal digits failed")
+        }
+        fn decimal_digits_count(num: &str, dot_idx: usize) -> Result<u32, String> {
+            let decimal_digits_count = number_of_decimal_digits_unchecked(num, dot_idx);
+            if decimal_digits_count <= DIGITS_IN_BILLION {
+                Ok(decimal_digits_count)
             } else {
                 Err(format!("Value '{}' exceeds the limit of maximally nine decimal digits (only gwei supported)", num))
             }
         }
-        fn number_of_decimal_digits(num: &str, dot_idx: usize) -> u32 {
-            u32::try_from(num.chars().count() - dot_idx - 1)
-                .expect("previous check of maximally 9 decimal digits failed")
-        }
-        fn decimal_digits_count(num: &str, dot_idx: usize) -> Result<u32, String> {
-            let decimal_digits_count_unchecked = number_of_decimal_digits(num, dot_idx);
-            check_if_all_decimal_digits_fits_in_gwei_range(decimal_digits_count_unchecked, num)
-        }
-        let gwei_to_wei_conversion = |parse_result: N, pow_factor: u32| {
+        let gwei_to_wei_conversion = |parse_result: N, exponent: u32| {
             parse_result
-                .checked_mul(&N::try_from(10_i64.pow(pow_factor)).expect("no fear"))
+                .checked_mul(&N::try_from(10_i64.pow(exponent)).expect("no fear"))
                 .ok_or_else(|| {
                     format!(
                         "Amount bigger than the MASQ total supply: {}, total supply: {}",
@@ -857,18 +868,22 @@ impl FinancialsCommand {
 
         let dot_opt = num.chars().position(|char| char == '.');
         if let Some(dot_idx) = dot_opt {
-            Self::dot_usage_check(num, dot_idx)?;
+            Self::check_right_dot_usage(num, dot_idx)?;
             let full_range_of_digits = all_digits_with_dot_removed(num);
-            let root_parsed: N = Self::parse_integer_within_limits(&full_range_of_digits)?;
+            let pseudo_integer_parsed: N =
+                Self::parse_integer_within_limits(&full_range_of_digits)?;
             let decimal_digits_count = decimal_digits_count(num, dot_idx)?;
-            gwei_to_wei_conversion(root_parsed, DIGITS_IN_BILLION - decimal_digits_count)
+            gwei_to_wei_conversion(
+                pseudo_integer_parsed,
+                DIGITS_IN_BILLION - decimal_digits_count,
+            )
         } else {
-            let root_parsed = Self::parse_integer_within_limits::<N>(num)?;
-            gwei_to_wei_conversion(root_parsed, DIGITS_IN_BILLION)
+            let integer_parsed = Self::parse_integer_within_limits::<N>(num)?;
+            gwei_to_wei_conversion(integer_parsed, DIGITS_IN_BILLION)
         }
     }
 
-    fn dot_usage_check(num: &str, dot_idx: usize) -> Result<(), String> {
+    fn check_right_dot_usage(num: &str, dot_idx: usize) -> Result<(), String> {
         if dot_idx == (num.len() - 1) {
             Err(format!(
                 "Ending dot at decimal number, like here '{}', is unsupported",
@@ -928,9 +943,9 @@ where
     N: FromStr<Err = ParseIntError>
         + TryFrom<i64>
         + TryFrom<u64>
+        + CheckedMul
         + Display
         + Copy
-        + CheckedMul
         + PartialOrd,
     i64: TryFrom<N>,
     u64: TryFrom<N>,
@@ -997,10 +1012,10 @@ mod tests {
         );
         assert_eq!(PAYABLE_ARG_HELP, "Enables querying payable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired gwei precision). \
             The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1). \
-            If this parameter is being set in the interactive mode, the value needs to be enclosed in quotes (single or double).");
+            If this parameter is being set in the non-interactive mode, the value needs to be enclosed in quotes (single or double).");
         assert_eq!(RECEIVABLE_ARG_HELP,"Enables querying receivable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired gwei precision). \
             The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1). \
-            If this parameter is being set in the interactive mode, the value needs to be enclosed in quotes (single or double).");
+            If this parameter is being set in the non-interactive mode, the value needs to be enclosed in quotes (single or double).");
         assert_eq!(NO_STATS_ARG_HELP,"Disables statistics that display by default, containing totals of paid and unpaid money from the perspective of debtors and creditors. This argument is not accepted alone and must be placed \
                     before other arguments.");
         assert_eq!(
@@ -1758,24 +1773,47 @@ mod tests {
     }
 
     #[test]
-    fn parse_integer_overflow_indicates_always_too_big_number_supplied() {
-        let err_msg_u64: Result<u64, String> =
-            FinancialsCommand::parse_integer_within_limits("40000000000000000000");
+    fn parse_integer_overflow_indicates_too_big_number_supplied_for_i64() {
+        let err_msg_u64: Result<i64, String> =
+            FinancialsCommand::parse_integer_within_limits(&(i64::MAX as u64 + 1).to_string());
 
-        assert_eq!(err_msg_u64.unwrap_err(), "Supplied value of 40,000,000,000,000,000,000 gwei overflows the tech limits. You probably want one between 0 and 37,500,000 MASQ");
+        assert_eq!(err_msg_u64.unwrap_err(), "Supplied value of 9,223,372,036,854,775,808 gwei overflows the tech limits. You probably want one between -37,500,000 and 37,500,000 MASQ");
 
         let err_msg_i64: Result<i64, String> =
-            FinancialsCommand::parse_integer_within_limits("-40000000000000000000");
+            FinancialsCommand::parse_integer_within_limits(&(i64::MIN as i128 - 1).to_string());
 
-        assert_eq!(err_msg_i64.unwrap_err(), "Supplied value of -40,000,000,000,000,000,000 gwei overflows the tech limits. You probably want one between -37,500,000 and 37,500,000 MASQ")
+        assert_eq!(err_msg_i64.unwrap_err(), "Supplied value of -9,223,372,036,854,775,809 gwei overflows the tech limits. You probably want one between -37,500,000 and 37,500,000 MASQ")
     }
 
     #[test]
-    fn parse_integer_within_limits_allows_only_integers_smaller_than_i64max_even_if_for_u64() {
+    fn parse_integer_overflow_indicates_too_big_number_supplied_for_u64() {
         let err_msg_u64: Result<u64, String> =
             FinancialsCommand::parse_integer_within_limits(&(i64::MAX as u64 + 1).to_string());
 
         assert_eq!(err_msg_u64.unwrap_err(), "Supplied value of 9,223,372,036,854,775,808 gwei overflows the tech limits. You probably want one between 0 and 37,500,000 MASQ");
+
+        let err_msg_i64: Result<u64, String> = FinancialsCommand::parse_integer_within_limits("-1");
+
+        assert_eq!(err_msg_i64.unwrap_err(), "Supplied value of -1 gwei overflows the tech limits. You probably want one between 0 and 37,500,000 MASQ")
+    }
+
+    #[test]
+    fn unparsable_u64_but_not_because_of_minus_sign() {
+        let err_msg: Result<u64, String> = FinancialsCommand::parse_integer_within_limits(".1");
+
+        assert_eq!(
+            err_msg.unwrap_err(),
+            "Non numeric value '.1', it must be a valid number"
+        )
+    }
+
+    #[test]
+    fn u64_detect_minus_sign_error_with_different_white_spaces_around() {
+        ["- 5", "   -8", " - 1"].into_iter().for_each(|example|{
+            let err_msg: Result<u64, String> =
+                FinancialsCommand::parse_integer_within_limits(example);
+            assert_eq!(err_msg.unwrap_err(), format!("Supplied value of {} gwei overflows the tech limits. You probably want one between 0 and 37,500,000 MASQ", example))
+        })
     }
 
     #[test]
@@ -2861,7 +2899,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("Non numeric value 'blah', all must be valid numbers".to_string())
+            Err("Non numeric value 'blah', it must be a valid number".to_string())
         )
     }
 
