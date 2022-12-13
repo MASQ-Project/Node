@@ -23,7 +23,7 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
         .map(|_| start_real_node(&mut cluster, originating_node.node_reference()))
         .collect::<Vec<MASQRealNode>>();
 
-    thread::sleep(Duration::from_millis(10_000));
+    thread::sleep(Duration::from_secs(10));
 
     let mut client = originating_node.make_client(8080);
     let request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes();
@@ -38,6 +38,9 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
 
     // get all payables from originating node
     let payables = non_pending_payables(&originating_node);
+
+    // Waiting until the serving nodes have finished accruing their receivables
+    thread::sleep(Duration::from_secs(2));
 
     // get all receivables from all other nodes
     let receivable_balances = non_originating_nodes
