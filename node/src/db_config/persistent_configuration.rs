@@ -147,7 +147,6 @@ pub trait PersistentConfiguration {
     fn scan_intervals(&self) -> Result<ScanIntervals, PersistentConfigError>;
     fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError>;
 
-    #[cfg(test)]
     arbitrary_id_stamp!();
 }
 

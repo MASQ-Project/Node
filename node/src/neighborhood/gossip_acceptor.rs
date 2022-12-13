@@ -3255,8 +3255,9 @@ mod tests {
         let src_node = make_node_record(2345, true);
         let mut src_db = db_from_node(&src_node);
         let third_node = make_node_record(3456, true);
-        let disconnected_node = make_node_record(4567, true); // Why does this have an Ip Address?
-                                                              // These are only half neighbors. Will they be ignored in degree calculation?
+        // Give this Node an IP address to demonstrate that the GossipAcceptor is gentlemanly enough
+        // not to look at things that were inappropriately revealed.
+        let disconnected_node = make_node_record(4567, true);
         for idx in 0..MAX_DEGREE {
             let failed_node_key = &dest_db
                 .add_node(make_node_record(4000 + idx as u16, true))

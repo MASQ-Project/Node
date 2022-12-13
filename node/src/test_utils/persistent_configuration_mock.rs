@@ -263,6 +263,10 @@ impl PersistentConfiguration for PersistentConfigurationMock {
             .push(intervals);
         self.set_scan_intervals_results.borrow_mut().remove(0)
     }
+
+    fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
+        self.arbitrary_id_stamp_opt.unwrap()
+    }
 }
 
 impl PersistentConfigurationMock {
