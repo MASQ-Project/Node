@@ -15,6 +15,7 @@ use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use masq_lib::utils::localhost;
 use masq_lib::utils::{DEFAULT_CONSUMING_DERIVATION_PATH, DEFAULT_EARNING_DERIVATION_PATH};
 use node_lib::blockchain::bip32::Bip32ECKeyProvider;
+use node_lib::neighborhood::node_record::NodeRecord;
 use node_lib::sub_lib::accountant::{
     PaymentThresholds, DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS,
 };
@@ -663,6 +664,11 @@ pub struct MASQRealNode {
 }
 
 impl MASQNode for MASQRealNode {
+    fn absorb_configuration(&mut self, node_record: &NodeRecord) {
+        self.guts.earning_wallet = node_record.earning_wallet();
+        self.guts.rate_pack = *node_record.rate_pack();
+    }
+
     fn name(&self) -> &str {
         &self.guts.name
     }
@@ -694,6 +700,10 @@ impl MASQNode for MASQRealNode {
 
     fn main_public_key(&self) -> &PublicKey {
         &self.guts.node_reference.public_key
+    }
+
+    fn alias_public_key(&self) -> &PublicKey {
+        self.alias_cryptde_null().unwrap().public_key()
     }
 
     fn ip_address(&self) -> IpAddr {
