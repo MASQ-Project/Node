@@ -466,7 +466,7 @@ impl FinancialsCommand {
             gwei.separate_with_commas()
         } else {
             let gwei_as_i64 = i64::try_from(gwei)
-                .expect("Clap validation failed: value bigger than i64::MAX should be forbidden");
+                .expect("Clap validation failed: value bigger than i64::MAX is forbidden");
             Self::convert_masq_from_gwei_and_dress_well(gwei_as_i64)
         }
     }
