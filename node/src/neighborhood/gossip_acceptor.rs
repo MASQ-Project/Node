@@ -989,7 +989,6 @@ impl StandardGossipHandler {
         patch
     }
 
-    #[allow(clippy::needless_return)]
     fn compute_patch_recursive(
         &self,
         patch: &mut HashSet<PublicKey>,
@@ -1001,34 +1000,27 @@ impl StandardGossipHandler {
         patch.insert(node.clone());
         if hops_remaining == 0 {
             return;
+        }
+        let neighbors = if node == root_node.public_key() {
+            &root_node.inner.neighbors
         } else {
-            let neighbors = if node == root_node.public_key() {
-                &root_node.inner.neighbors
-            } else {
-                match agrs.get(node) {
-                    Some(agr) => &agr.inner.neighbors,
-                    None => {
-                        patch.remove(node);
-                        trace!(
-                            self.logger,
-                            "While computing patch no AGR record found for public key {:?}",
-                            node
-                        );
-                        return;
-                    }
+            match agrs.get(node) {
+                Some(agr) => &agr.inner.neighbors,
+                None => {
+                    patch.remove(node);
+                    trace!(
+                        self.logger,
+                        "While computing patch no AGR record found for public key {:?}",
+                        node
+                    );
+                    return;
                 }
-            };
+            }
+        };
 
-            for neighbor in neighbors {
-                if !patch.contains(neighbor) {
-                    self.compute_patch_recursive(
-                        patch,
-                        neighbor,
-                        agrs,
-                        hops_remaining - 1,
-                        root_node,
-                    )
-                }
+        for neighbor in neighbors {
+            if !patch.contains(neighbor) {
+                self.compute_patch_recursive(patch, neighbor, agrs, hops_remaining - 1, root_node)
             }
         }
     }
