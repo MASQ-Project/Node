@@ -248,7 +248,7 @@ impl Scanner<ReportAccountsPayable, SentPayable> for PayableScanner {
             }
             None => error!(
                 logger,
-                "The scan_finished() was called for Payable scanner but timestamp was not found"
+                "Called scan_finished() for Payable scanner but timestamp was not found"
             ),
         };
     }
@@ -410,19 +410,22 @@ impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingP
 
     fn mark_as_ended(&mut self, logger: &Logger) {
         match self.scan_started_at() {
-                Some(timestamp) => {
-                    let elapsed_time = SystemTime::now()
-                        .duration_since(timestamp)
-                        .expect("Unable to calculate elapsed time for the scan.")
-                        .as_millis();
-                    info!(
-                        logger,
-                        "The Pending Payable scan ended in {elapsed_time}ms."
-                    );
-                    self.common.initiated_at_opt = None;
-                }
-                None => error!(logger, "The scan_finished() was called for Pending Payable scanner but timestamp was not found"),
-            };
+            Some(timestamp) => {
+                let elapsed_time = SystemTime::now()
+                    .duration_since(timestamp)
+                    .expect("Unable to calculate elapsed time for the scan.")
+                    .as_millis();
+                info!(
+                    logger,
+                    "The Pending Payable scan ended in {elapsed_time}ms."
+                );
+                self.common.initiated_at_opt = None;
+            }
+            None => error!(
+                logger,
+                "Called scan_finished() for Pending Payable scanner but timestamp was not found"
+            ),
+        };
     }
 
     as_any_impl!();
@@ -668,7 +671,7 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
             }
             None => error!(
                 logger,
-                "The scan_finished() was called for Receivable scanner but timestamp was not found"
+                "Called scan_finished() for Receivable scanner but timestamp was not found"
             ),
         };
     }
