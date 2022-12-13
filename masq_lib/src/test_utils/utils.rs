@@ -56,9 +56,10 @@ pub fn check_if_source_code_is_attached(current_dir: &Path) -> ShouldWeRunTheTes
         ShouldWeRunTheTest::Skip
     } else {
         panic!(
-            "Test depending on interaction with the source code, not reaching it out \
-             though. If that does not surprise you, set the environment variable \
-              MASQ_SOURCE_CODE_UNAVAILABLE to some non-blank value and run the tests again."
+            "Test depending on interaction with the source code, but it was not found at \
+             {:?}. If that does not surprise you, set the environment variable \
+              MASQ_SOURCE_CODE_UNAVAILABLE to some non-blank value and run the tests again.",
+            current_dir
         )
     }
 }

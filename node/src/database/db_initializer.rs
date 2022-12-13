@@ -14,7 +14,6 @@ use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::NeighborhoodModeLight;
 use rand::prelude::*;
 use rusqlite::{Connection, OpenFlags};
-//use rusqlite::OpenFlags::SQLITE_OPEN_READ_WRITE;//, SQLITE_OPEN_CREATE};
 use std::fmt::{Debug, Formatter};
 use std::io::ErrorKind;
 use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};

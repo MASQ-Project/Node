@@ -5933,7 +5933,7 @@ mod tests {
     #[test]
     #[should_panic(
         expected = "Broken code: PayableAccount with less than 1 gwei passed through db query \
-     constrains; wallet: 0x0000000000000000000000000061626364313233, balance: 8686005"
+     constraints; wallet: 0x0000000000000000000000000061626364313233, balance: 8686005"
     )]
     fn compute_financials_blows_up_on_screwed_sql_query_for_payables_returning_balance_smaller_than_one_gwei(
     ) {
@@ -5973,7 +5973,7 @@ mod tests {
     #[test]
     #[should_panic(
         expected = "Broken code: ReceivableAccount with balance between 1 and 0 gwei passed through \
-     db query constrains; wallet: 0x0000000000000000000000000061626364313233, balance: 7686005"
+     db query constraints; wallet: 0x0000000000000000000000000061626364313233, balance: 7686005"
     )]
     fn compute_financials_blows_up_on_screwed_sql_query_for_receivables_returning_balance_smaller_than_one_gwei(
     ) {
