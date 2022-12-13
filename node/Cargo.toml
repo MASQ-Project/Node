@@ -1,6 +1,6 @@
 [package]
 name = "node"
-version = "0.6.2"
+version = "0.6.3"
 license = "GPL-3.0-only"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 copyright = "Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved."
