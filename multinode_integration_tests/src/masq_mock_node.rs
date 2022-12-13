@@ -59,11 +59,6 @@ impl Clone for MASQMockNode {
 }
 
 impl MASQNode for MASQMockNode {
-    fn absorb_configuration(&mut self, node_record: &NodeRecord) {
-        self.guts.earning_wallet = node_record.earning_wallet();
-        self.guts.rate_pack = *node_record.rate_pack();
-    }
-
     fn name(&self) -> &str {
         self.guts.name.as_str()
     }
@@ -427,6 +422,12 @@ impl MASQMockNode {
         let mut stream = self.control_stream.borrow_mut();
         stream.flush().unwrap();
         stream.shutdown(Shutdown::Both).unwrap();
+    }
+
+    pub fn absorb_configuration(&mut self, node_record: &NodeRecord) {
+        // Copy attributes from the NodeRecord into the MASQNode.
+        self.guts.earning_wallet = node_record.earning_wallet();
+        self.guts.rate_pack = *node_record.rate_pack();
     }
 
     fn do_docker_run(node_addr: &NodeAddr, host_node_parent_dir: Option<String>, name: &str) {

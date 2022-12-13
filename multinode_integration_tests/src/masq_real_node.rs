@@ -664,11 +664,6 @@ pub struct MASQRealNode {
 }
 
 impl MASQNode for MASQRealNode {
-    fn absorb_configuration(&mut self, node_record: &NodeRecord) {
-        self.guts.earning_wallet = node_record.earning_wallet();
-        self.guts.rate_pack = *node_record.rate_pack();
-    }
-
     fn name(&self) -> &str {
         &self.guts.name
     }
@@ -703,7 +698,9 @@ impl MASQNode for MASQRealNode {
     }
 
     fn alias_public_key(&self) -> &PublicKey {
-        self.alias_cryptde_null().unwrap().public_key()
+        self.alias_cryptde_null()
+            .expect("Alias Cryptde Null not found")
+            .public_key()
     }
 
     fn ip_address(&self) -> IpAddr {
