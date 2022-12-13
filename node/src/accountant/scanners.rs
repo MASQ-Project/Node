@@ -3,6 +3,7 @@
 use crate::accountant::payable_dao::{Payable, PayableDao};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDao;
+use crate::accountant::scanners_tools::common_tools::update_timestamp_and_log;
 use crate::accountant::scanners_tools::payable_scanner_tools::{
     investigate_debt_extremes, qualified_payables_and_summary, separate_early_errors,
 };
@@ -237,20 +238,11 @@ impl Scanner<ReportAccountsPayable, SentPayable> for PayableScanner {
     }
 
     fn mark_as_ended(&mut self, logger: &Logger) {
-        match self.scan_started_at() {
-            Some(timestamp) => {
-                let elapsed_time = SystemTime::now()
-                    .duration_since(timestamp)
-                    .expect("Unable to calculate elapsed time for the scan.")
-                    .as_millis();
-                info!(logger, "The Payable scan ended in {elapsed_time}ms.");
-                self.common.initiated_at_opt = None;
-            }
-            None => error!(
-                logger,
-                "Called scan_finished() for Payable scanner but timestamp was not found"
-            ),
-        };
+        update_timestamp_and_log(
+            &mut self.common.initiated_at_opt,
+            ScanType::Payables,
+            logger,
+        );
     }
 
     as_any_impl!();
@@ -409,23 +401,11 @@ impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingP
     }
 
     fn mark_as_ended(&mut self, logger: &Logger) {
-        match self.scan_started_at() {
-            Some(timestamp) => {
-                let elapsed_time = SystemTime::now()
-                    .duration_since(timestamp)
-                    .expect("Unable to calculate elapsed time for the scan.")
-                    .as_millis();
-                info!(
-                    logger,
-                    "The Pending Payable scan ended in {elapsed_time}ms."
-                );
-                self.common.initiated_at_opt = None;
-            }
-            None => error!(
-                logger,
-                "Called scan_finished() for Pending Payable scanner but timestamp was not found"
-            ),
-        };
+        update_timestamp_and_log(
+            &mut self.common.initiated_at_opt,
+            ScanType::PendingPayables,
+            logger,
+        );
     }
 
     as_any_impl!();
@@ -660,20 +640,11 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
     }
 
     fn mark_as_ended(&mut self, logger: &Logger) {
-        match self.scan_started_at() {
-            Some(timestamp) => {
-                let elapsed_time = SystemTime::now()
-                    .duration_since(timestamp)
-                    .expect("Unable to calculate elapsed time for the scan.")
-                    .as_millis();
-                info!(logger, "The Receivable scan ended in {elapsed_time}ms.");
-                self.common.initiated_at_opt = None;
-            }
-            None => error!(
-                logger,
-                "Called scan_finished() for Receivable scanner but timestamp was not found"
-            ),
-        };
+        update_timestamp_and_log(
+            &mut self.common.initiated_at_opt,
+            ScanType::Receivables,
+            logger,
+        );
     }
 
     as_any_impl!();
@@ -1170,7 +1141,7 @@ mod tests {
             ),
         ]);
         log_handler.exists_log_matching(
-            "INFO: payable_scanner_handles_sent_payable_message: The Payable scan ended in \\d+ms.",
+            "INFO: payable_scanner_handles_sent_payable_message: The Payables scan ended in \\d+ms.",
         );
     }
 
@@ -1697,8 +1668,7 @@ mod tests {
                 test_name, transaction_hash_2
             ),
                 "INFO: pending_payable_scanner_handles_report_transaction_receipts_message: The \
-                Pending Payable scan ended in \\d+ms.",
-
+                PendingPayables scan ended in \\d+ms.",
         ]);
     }
 
@@ -1724,7 +1694,7 @@ mod tests {
             "DEBUG: {test_name}: No transaction receipts found."
         ));
         tlh.exists_log_matching(&format!(
-            "INFO: {test_name}: The Pending Payable scan ended in \\d+ms."
+            "INFO: {test_name}: The PendingPayables scan ended in \\d+ms."
         ));
     }
 
@@ -1904,7 +1874,7 @@ mod tests {
         assert_eq!(total_paid_receivable, 2222 + 45780 + 33345);
         assert_eq!(*more_money_received_params, vec![(now, receivables)]);
         TestLogHandler::new().exists_log_matching(
-            "INFO: receivable_scanner_handles_received_payments_message: The Receivable scan ended in \\d+ms.",
+            "INFO: receivable_scanner_handles_received_payments_message: The Receivables scan ended in \\d+ms.",
         );
     }
 }
