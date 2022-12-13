@@ -623,10 +623,9 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
         logger: &Logger,
     ) -> Option<NodeToUiMessage> {
         if message.payments.is_empty() {
-            warning!(
+            info!(
                 logger,
-                "Handling received payments we got zero payments but expected some, \
-                    skipping database operations"
+                "No new received payments were detected during the scanning process."
             )
         } else {
             let total_newly_paid_receivable = message
@@ -1857,8 +1856,7 @@ mod tests {
 
         assert_eq!(message_opt, None);
         TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {test_name}: Handling received payments we got zero payments but \
-            expected some, skipping database operations"
+            "INFO: {test_name}: No new received payments were detected during the scanning process."
         ));
     }
 
