@@ -552,61 +552,105 @@ mod tests {
         )
     }
 
-    fn run_performance_test_for_mark_pending_payable_rowids(
+    fn make_str_wallet_from_idx(idx: usize) -> String {
+        format!("0x{:0>40}", idx)
+    }
+
+    fn create_initial_state_records(
+        conn: &dyn ConnectionWrapper,
+        range_of_attempts: &RangeInclusive<usize>,
+    ) {
+        let set_of_values = range_of_attempts
+            .clone()
+            .map(|idx| format!("('{}', 1000, 12345, null)", make_str_wallet_from_idx(idx)))
+            .join(", ");
+        let sql = format!("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values {}", set_of_values);
+        let _ = conn.prepare(&sql).unwrap().execute([]).unwrap();
+    }
+
+    fn assert_count_and_return_all_updated_rows(
+        conn: &dyn ConnectionWrapper,
+        range_of_attempts: &RangeInclusive<usize>,
+    ) -> Vec<(String, i64)> {
+        let sql_count = "select count(*) from payable";
+        let count_found = conn
+            .prepare(sql_count)
+            .unwrap()
+            .query_row([], |row| row.get::<usize, usize>(0))
+            .unwrap();
+        assert_eq!(
+            count_found,
+            range_of_attempts.end() - range_of_attempts.start() + 1
+        );
+        let sql = "select wallet_address, pending_payable_rowid from payable where pending_payable_rowid not null";
+        conn.prepare(sql)
+            .unwrap()
+            .query_map([], |row| {
+                Ok((
+                    row.get::<usize, String>(0).unwrap(),
+                    row.get::<usize, Option<i64>>(1).unwrap().unwrap(),
+                ))
+            })
+            .unwrap()
+            .flatten()
+            .collect()
+    }
+
+    fn assert_zig_zag_task_has_been_done_completely(
+        conn: &dyn ConnectionWrapper,
+        range_of_attempts: &RangeInclusive<usize>,
+    ) {
+        let updated_wallets_and_rowids =
+            assert_count_and_return_all_updated_rows(conn, range_of_attempts);
+        let odd_idx_iterator = range_of_attempts.clone().into_iter().step_by(2);
+        assert_eq!(
+            updated_wallets_and_rowids.len(),
+            odd_idx_iterator.clone().count()
+        );
+        assert!(!updated_wallets_and_rowids.is_empty());
+        updated_wallets_and_rowids
+            .into_iter()
+            .zip(odd_idx_iterator)
+            .for_each(|((wallet, rowid), idx)| {
+                assert_eq!(rowid as usize, idx);
+                assert_eq!(wallet, make_str_wallet_from_idx(idx));
+            })
+    }
+
+    fn assert_long_traverse_task_has_been_done_completely(
+        conn: &dyn ConnectionWrapper,
+        range_of_attempts: &RangeInclusive<usize>,
+    ) {
+        let updated_wallets_and_rowids =
+            assert_count_and_return_all_updated_rows(conn, range_of_attempts);
+        let just_corner_records_idx = [range_of_attempts.start(), range_of_attempts.end()];
+        assert_eq!(updated_wallets_and_rowids.len(), 2);
+        updated_wallets_and_rowids
+            .into_iter()
+            .zip(just_corner_records_idx)
+            .for_each(|((wallet, rowid), idx)| {
+                assert_eq!(rowid as usize, *idx);
+                assert_eq!(wallet, make_str_wallet_from_idx(*idx));
+            })
+    }
+
+    fn update_call(idx: usize, conn: &dyn ConnectionWrapper) {
+        let rows_changed = conn
+            .prepare("update payable set pending_payable_rowid = ? where wallet_address = ?")
+            .unwrap()
+            .execute(&[&idx as &dyn ToSql, &make_str_wallet_from_idx(idx)])
+            .unwrap();
+        assert_eq!(rows_changed, 1)
+    }
+
+    fn basic_body_for_performance_test(
         test_name: &str,
         range_of_attempts: RangeInclusive<usize>,
+        create_initial_records: fn(&dyn ConnectionWrapper, &RangeInclusive<usize>),
+        attempt_logic_for_separate_call: fn(&dyn ConnectionWrapper, &RangeInclusive<usize>),
+        provide_args_for_multi_update_records: fn(&RangeInclusive<usize>) -> Vec<(Wallet, u64)>,
+        assert_all_updates_done_correctly: fn(&dyn ConnectionWrapper, &RangeInclusive<usize>),
     ) -> (Duration, Duration) {
-        /*
-           The case statement used in the multi record SQL forces us into going through all records; it seems like a good idea to test the performance;
-           We're going to compare an amount of time needed for updates done via
-           a) separate db calls
-           b) a single db call using a case statement
-        */
-        fn make_str_wallet_from_idx(idx: usize) -> String {
-            format!("0x{:0>40}", idx)
-        }
-        fn create_initial_state_records(
-            conn: &dyn ConnectionWrapper,
-            range_of_attempts: RangeInclusive<usize>,
-        ) {
-            let set_of_values = range_of_attempts
-                .map(|idx| format!("('{}', 1000, 12345, null)", make_str_wallet_from_idx(idx)))
-                .join(", ");
-            let sql = format!("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values {}", set_of_values);
-            let _ = conn.prepare(&sql).unwrap().execute([]).unwrap();
-        }
-        fn assert_task_has_been_done_completely(
-            conn: &dyn ConnectionWrapper,
-            range_of_attempts: RangeInclusive<usize>,
-        ) {
-            let sql = "select wallet_address, pending_payable_rowid from payable where pending_payable_rowid not null";
-            let updated_wallets_and_rowids = conn
-                .prepare(sql)
-                .unwrap()
-                .query_map([], |row| {
-                    Ok((
-                        row.get::<usize, String>(0).unwrap(),
-                        row.get::<usize, Option<i64>>(1).unwrap().unwrap(),
-                    ))
-                })
-                .unwrap()
-                .flatten()
-                .collect::<Vec<(String, i64)>>();
-            let odd_idx_iterator = range_of_attempts.into_iter().step_by(2);
-            assert_eq!(
-                updated_wallets_and_rowids.len(),
-                odd_idx_iterator.clone().count()
-            );
-            assert!(!updated_wallets_and_rowids.is_empty());
-            updated_wallets_and_rowids
-                .into_iter()
-                .zip(odd_idx_iterator)
-                .for_each(|((wallet, rowid), idx)| {
-                    assert_eq!(rowid as usize, idx);
-                    assert_eq!(wallet, make_str_wallet_from_idx(idx));
-                })
-        }
-
         let test_home_folder = ensure_node_home_directory_exists("payable_dao", test_name);
         let db_for_separate_calls = DbInitializerReal::default()
             .initialize(
@@ -615,32 +659,17 @@ mod tests {
                 MigratorConfig::test_default(),
             )
             .unwrap();
-        create_initial_state_records(db_for_separate_calls.as_ref(), range_of_attempts.clone());
-        let update_call = |idx: usize| {
-            let rows_changed = db_for_separate_calls
-                .prepare("update payable set pending_payable_rowid = ? where wallet_address = ?")
-                .unwrap()
-                .execute(&[&idx as &dyn ToSql, &make_str_wallet_from_idx(idx)])
-                .unwrap();
-            assert_eq!(rows_changed, 1)
-        };
+        create_initial_records(db_for_separate_calls.as_ref(), &range_of_attempts);
         let separate_calls_start = SystemTime::now();
 
-        range_of_attempts.clone().for_each(|attempt| {
-            if attempt % 2 != 0 {
-                update_call(attempt)
-            }
-        });
+        attempt_logic_for_separate_call(db_for_separate_calls.as_ref(), &range_of_attempts);
 
         let separate_calls_end = SystemTime::now();
-        assert_task_has_been_done_completely(
-            db_for_separate_calls.as_ref(),
-            range_of_attempts.clone(),
-        );
+        assert_all_updates_done_correctly(db_for_separate_calls.as_ref(), &range_of_attempts);
         let separate_calls_attempt_duration = separate_calls_end
             .duration_since(separate_calls_start)
             .unwrap();
-        ////////////////////////////////////////////////////////////////////////////
+        ////     THE SECOND PART    ////
         let single_call_path = test_home_folder.join("single_call");
         let db_for_single_call = DbInitializerReal::default()
             .initialize(
@@ -649,22 +678,10 @@ mod tests {
                 MigratorConfig::test_default(),
             )
             .unwrap();
-        create_initial_state_records(db_for_single_call.as_ref(), range_of_attempts.clone());
+        create_initial_records(db_for_single_call.as_ref(), &range_of_attempts);
         let dao = PayableDaoReal::new(db_for_single_call);
-        let generated_owned_args = range_of_attempts
-            .clone()
-            .flat_map(|idx| {
-                if idx % 2 != 0 {
-                    Some((
-                        Wallet::from_str(&make_str_wallet_from_idx(idx)).unwrap(),
-                        idx as u64,
-                    ))
-                } else {
-                    None
-                }
-            })
-            .collect::<Vec<_>>();
-        let args = generated_owned_args
+        let provided_owned_args = provide_args_for_multi_update_records(&range_of_attempts);
+        let args = provided_owned_args
             .iter()
             .map(|(wallet, id)| (wallet, *id))
             .collect::<Vec<(&Wallet, u64)>>();
@@ -674,13 +691,56 @@ mod tests {
 
         let single_call_end = SystemTime::now();
         let conn = Connection::open(single_call_path.join(DATABASE_FILE)).unwrap();
-        let wrapped_conn = ConnectionWrapperReal::new(conn);
-        assert_task_has_been_done_completely(&wrapped_conn, range_of_attempts.clone());
+        let helper_conn = ConnectionWrapperReal::new(conn);
+        assert_all_updates_done_correctly(&helper_conn, &range_of_attempts);
         let single_call_attempt_duration =
             single_call_end.duration_since(single_call_start).unwrap();
+        eprintln!(
+            "test: {}, single call: {:?}\nseparate call: {:?}",
+            test_name,
+            single_call_attempt_duration.as_micros(),
+            separate_calls_attempt_duration.as_micros()
+        );
         (
             single_call_attempt_duration,
             separate_calls_attempt_duration,
+        )
+    }
+
+    fn specialized_body_for_zig_zag_test(
+        test_name: &str,
+        range_of_attempts: RangeInclusive<usize>,
+    ) -> (Duration, Duration) {
+        let separate_calls_logic =
+            |conn: &dyn ConnectionWrapper, range_of_attempts: &RangeInclusive<usize>| {
+                range_of_attempts.clone().for_each(|attempt| {
+                    if attempt % 2 != 0 {
+                        update_call(attempt, conn)
+                    }
+                })
+            };
+        let provided_owned_args = |range_of_attempts: &RangeInclusive<usize>| {
+            range_of_attempts
+                .clone()
+                .flat_map(|idx| {
+                    if idx % 2 != 0 {
+                        Some((
+                            Wallet::from_str(&make_str_wallet_from_idx(idx)).unwrap(),
+                            idx as u64,
+                        ))
+                    } else {
+                        None
+                    }
+                })
+                .collect::<Vec<_>>()
+        };
+        basic_body_for_performance_test(
+            test_name,
+            range_of_attempts,
+            create_initial_state_records,
+            separate_calls_logic,
+            provided_owned_args,
+            assert_zig_zag_task_has_been_done_completely,
         )
     }
 
@@ -688,29 +748,36 @@ mod tests {
     fn performance_test_for_mark_pending_payable_rowids_with_five_updates() {
         //processing every odd item in the range
         let tested_range_of_cumulative_updates = 1..=9;
-        let (single_call_attempt_duration, separate_calls_attempt_duration) =
-            run_performance_test_for_mark_pending_payable_rowids(
-                "performance_test_for_mark_pending_payable_rowids_with_multiple_updates",
-                tested_range_of_cumulative_updates,
-            );
-        assert!(single_call_attempt_duration * 22 / 10 < separate_calls_attempt_duration,
+        let (single_call_duration, separate_calls_duration) = specialized_body_for_zig_zag_test(
+            "performance_test_for_mark_pending_payable_rowids_with_five_updates",
+            tested_range_of_cumulative_updates,
+        );
+
+        let cpu_coefficient = if is_running_under_github_actions() {
+            22
+        } else {
+            40
+        };
+        assert!(single_call_duration * cpu_coefficient / 10 < separate_calls_duration,
                 "With multi-update machinery: {} μs, with a very simple call: {} μs; where the former is {} μs with 220 % correction",
-                single_call_attempt_duration.as_micros(),
-                separate_calls_attempt_duration.as_micros(),
-                ((single_call_attempt_duration * 22) / 100).as_micros()
+                single_call_duration.as_micros(),
+                separate_calls_duration.as_micros(),
+                ((single_call_duration * cpu_coefficient) / 10).as_micros()
         )
-        //I've also often seen 350 % or even 400 % better performance but 220 % is safe for CI and CPU timing.
+        //I've also often seen even better than 400 % but 220 % is safe for CI and CPU timing.
         //The here disregarded benefit is though that the first model requires only a single database call and so with the number of thread synchronizations
         //performed by the manager
     }
 
     #[test]
-    fn performance_test_for_mark_pending_payable_rowids_on_just_one_update() {
-        fn single_round() -> (u128, u128) {
-            let tested_range_of_cumulative_updates = 1..=1;
+    fn performance_test_for_mark_pending_payable_rowids_with_low_counts() {
+        //from more than one update done at a time, not even does the performance of this solution hinder us,
+        //it is significantly beneficial with each additional updated record
+        fn perform_with_counts_of_updates(ending_range_num: usize) -> (u128, u128) {
+            let tested_range_of_cumulative_updates = 1..=ending_range_num;
             let (single_call_attempt_duration, separate_calls_attempt_duration) =
-                run_performance_test_for_mark_pending_payable_rowids(
-                    "performance_test_for_mark_pending_payable_rowids_on_just_one_update",
+                specialized_body_for_zig_zag_test(
+                    "performance_test_for_mark_pending_payable_rowids_with_low_repetition",
                     tested_range_of_cumulative_updates,
                 );
             (
@@ -719,32 +786,61 @@ mod tests {
             )
         }
 
-        let ((single, separate), plus_correction) = if is_running_under_github_actions() {
-            eprintln!("Running in Actions: performance_test_for_mark_pending_payable_rowids_on_just_one_update");
+        let (single_one, separate_one) = perform_with_counts_of_updates(1);
+        //means 2 performed updates, each even number is skipped
+        let (single_two, separate_two) = perform_with_counts_of_updates(3);
 
-            (
-                (0..3).fold((0, 0), |acc, _| {
-                    let (a, b) = single_round();
-                    (acc.0 + a, acc.1 + b)
-                }),
-                120,
-            )
+        let first_cpu_coefficient = if is_running_under_github_actions() {
+            20
         } else {
-            eprintln!("Running in dev environment");
+            15
+        };
+        assert!(single_one < separate_one * first_cpu_coefficient / 10);
+        let ratio_one = (single_one * 100) / separate_one;
+        let ratio_two = (single_two * 100) / separate_two;
+        assert!(ratio_one > ratio_two * 10 / 14)
+        //these values in the assertions have got a safety margin; the performance is averagely much better
+        //but there are spikes occasionally that would crash the test
+    }
 
-            (single_round(), 135)
+    #[test]
+    fn pending_payable_rowids_long_traverse_performance_test() {
+        //in this test we update a record only at the beginning and at the end of a long list of 100 records
+        const FULL_RANGE_OF_RECORDS: RangeInclusive<usize> = 1..=100;
+        const ONLY_UPDATED_RECORDS: [usize; 2] = [1, 100];
+        let separate_calls_logic =
+            |conn: &dyn ConnectionWrapper, _range_of_attempts: &RangeInclusive<usize>| {
+                ONLY_UPDATED_RECORDS
+                    .into_iter()
+                    .for_each(|attempt| update_call(attempt, conn))
+            };
+        let provided_owned_args = |_range_of_attempts: &RangeInclusive<usize>| {
+            ONLY_UPDATED_RECORDS
+                .into_iter()
+                .map(|idx| {
+                    (
+                        Wallet::from_str(&make_str_wallet_from_idx(idx)).unwrap(),
+                        idx as u64,
+                    )
+                })
+                .collect::<Vec<(Wallet, u64)>>()
         };
 
-        let single_call_attempt_duration = single / 3;
-        let separate_calls_attempt_duration = separate / 3;
-        assert!(single_call_attempt_duration < separate_calls_attempt_duration * plus_correction / 100,
-                "With multi-update machinery: {} μs, with a very simple call: {} μs; where the letter is {} μs with {}% correction",
-                single_call_attempt_duration,
-                separate_calls_attempt_duration,
-                plus_correction - 100,
-                ((separate_calls_attempt_duration * plus_correction) / 100)
+        let (single_call_duration, separate_calls_duration) = basic_body_for_performance_test(
+            "pending_payable_rowids_long_traverse_performance_test",
+            FULL_RANGE_OF_RECORDS,
+            create_initial_state_records,
+            separate_calls_logic,
+            provided_owned_args,
+            assert_long_traverse_task_has_been_done_completely,
+        );
+
+        assert!(single_call_duration < separate_calls_duration * 2,
+                "With multi-update machinery: {} μs, with a very simple call: {} μs; where the former is {} μs with 220 % correction",
+                single_call_duration.as_micros(),
+                separate_calls_duration.as_micros(),
+                ((single_call_duration * 22) / 10).as_micros()
         )
-        //I've seen only 10% correction to work just okay and frequently.
     }
 
     #[test]
