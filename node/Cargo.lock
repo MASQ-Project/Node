@@ -1827,7 +1827,7 @@ dependencies = [
 
 [[package]]
 name = "masq"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "clap",
  "crossbeam-channel 0.5.1",
@@ -1844,7 +1844,7 @@ dependencies = [
 
 [[package]]
 name = "masq_lib"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "actix",
  "clap",
@@ -2020,7 +2020,7 @@ dependencies = [
 
 [[package]]
 name = "multinode_integration_tests"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "base64 0.13.0",
  "crossbeam-channel 0.5.1",
@@ -2114,7 +2114,7 @@ dependencies = [
 
 [[package]]
 name = "node"
-version = "0.6.2"
+version = "0.6.3"
 dependencies = [
  "actix",
  "automap",
