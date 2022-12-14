@@ -990,10 +990,8 @@ mod tests {
         let now = SystemTime::now();
         let (qualified_payable_accounts, _, all_non_pending_payables) =
             make_payables(now, &PaymentThresholds::default());
-        let len_of_qualified_payables = qualified_payable_accounts.len();
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
-
         let mut subject = PayableScanner::default().payable_dao(payable_dao);
 
         let result = subject.begin_scan(now, None, &Logger::new(test_name));
@@ -1009,7 +1007,10 @@ mod tests {
         );
         TestLogHandler::new().assert_logs_match_in_order(vec![
             &format!("INFO: {test_name}: Scanning for payables"),
-            &format!("INFO: {test_name}: Chose {len_of_qualified_payables} qualified debts to pay"),
+            &format!(
+                "INFO: {test_name}: Chose {} qualified debts to pay",
+                qualified_payable_accounts.len()
+            ),
         ])
     }
 
