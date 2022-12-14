@@ -1042,7 +1042,6 @@ mod tests {
             make_payables(now, &PaymentThresholds::default());
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(unqualified_payable_accounts);
-
         let mut subject = PayableScanner::default().payable_dao(payable_dao);
 
         let result = subject.begin_scan(now, None, &Logger::new(test_name));
@@ -1060,7 +1059,7 @@ mod tests {
     #[should_panic(
         expected = "Payable fingerprint for 0x0000…0315 doesn't exist but should by now; system unreliable"
     )]
-    fn payable_scanner_throws_error_when_fingerprint_is_not_found() {
+    fn payable_scanner_panics_when_fingerprint_is_not_found() {
         let now = SystemTime::now();
         let payment_hash = H256::from_uint(&U256::from(789));
         let payable = Payable::new(make_wallet("booga"), 6789, payment_hash, now);
@@ -1169,7 +1168,7 @@ mod tests {
         let fingerprint_rowid_params = fingerprint_rowid_params_arc.lock().unwrap();
         assert_eq!(message_opt, None);
         assert_eq!(is_scan_running, false);
-        //we know the other two errors are associated with an initiated transaction having a backup
+        //we know the other two errors are associated with an initiated transaction having its existing fingerprint
         assert_eq!(*fingerprint_rowid_params, vec![payable_2_hash]);
         let log_handler = TestLogHandler::new();
         log_handler.assert_logs_contain_in_order(vec![
@@ -1188,9 +1187,9 @@ mod tests {
                 "DEBUG: {test_name}: Forgetting a transaction attempt that even did not reach the signing stage"
             ),
         ]);
-        log_handler.exists_log_matching(
-            "INFO: payable_scanner_handles_sent_payable_message: The Payables scan ended in \\d+ms.",
-        );
+        log_handler.exists_log_matching(&format!(
+            "INFO: {test_name}: The Payables scan ended in \\d+ms."
+        ));
     }
 
     #[test]
@@ -1206,7 +1205,6 @@ mod tests {
             amount: 1_000_000,
             process_error: None,
         }];
-        let no_of_pending_payables = fingerprints.len();
         let pending_payable_dao =
             PendingPayableDaoMock::new().return_all_fingerprints_result(fingerprints.clone());
         let mut pending_payable_scanner =
@@ -1214,6 +1212,7 @@ mod tests {
 
         let result = pending_payable_scanner.begin_scan(now, None, &Logger::new(test_name));
 
+        let no_of_pending_payables = fingerprints.len();
         let is_scan_running = pending_payable_scanner.scan_started_at().is_some();
         assert_eq!(is_scan_running, true);
         assert_eq!(
