@@ -669,11 +669,11 @@ impl ReceivableScanner {
 
     pub fn scan_for_delinquencies(&self, timestamp: SystemTime, logger: &Logger) {
         info!(logger, "Scanning for delinquencies");
-        self.ban_nodes(timestamp, logger);
-        self.unban_nodes(timestamp, logger);
+        self.find_and_ban_delinquents(timestamp, logger);
+        self.find_and_unban_reformed_nodes(timestamp, logger);
     }
 
-    pub fn ban_nodes(&self, timestamp: SystemTime, logger: &Logger) {
+    fn find_and_ban_delinquents(&self, timestamp: SystemTime, logger: &Logger) {
         self.receivable_dao
             .new_delinquencies(timestamp, self.common.payment_thresholds.as_ref())
             .into_iter()
@@ -690,7 +690,7 @@ impl ReceivableScanner {
             });
     }
 
-    pub fn unban_nodes(&self, timestamp: SystemTime, logger: &Logger) {
+    fn find_and_unban_reformed_nodes(&self, timestamp: SystemTime, logger: &Logger) {
         self.receivable_dao
             .paid_delinquencies(self.common.payment_thresholds.as_ref())
             .into_iter()
@@ -725,19 +725,19 @@ where
     }
 
     fn finish_scan(&mut self, _message: EndMessage, _logger: &Logger) -> Option<NodeToUiMessage> {
-        panic!("Called from NullScanner");
+        panic!("Called finish_scan() from NullScanner");
     }
 
     fn scan_started_at(&self) -> Option<SystemTime> {
-        panic!("Called from NullScanner");
+        panic!("Called scan_started_at() from NullScanner");
     }
 
     fn mark_as_started(&mut self, _timestamp: SystemTime) {
-        panic!("Called from NullScanner");
+        panic!("Called mark_as_started() from NullScanner");
     }
 
     fn mark_as_ended(&mut self, _logger: &Logger) {
-        panic!("Called from NullScanner");
+        panic!("Called mark_as_ended() from NullScanner");
     }
 
     as_any_impl!();
@@ -791,15 +791,15 @@ where
     }
 
     fn scan_started_at(&self) -> Option<SystemTime> {
-        unimplemented!()
+        intentionally_blank!()
     }
 
     fn mark_as_started(&mut self, _timestamp: SystemTime) {
-        unimplemented!()
+        intentionally_blank!()
     }
 
     fn mark_as_ended(&mut self, _logger: &Logger) {
-        unimplemented!()
+        intentionally_blank!()
     }
 }
 
