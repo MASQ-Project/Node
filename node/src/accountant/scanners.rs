@@ -896,7 +896,6 @@ mod tests {
 
     #[test]
     fn scanners_struct_can_be_constructed_with_the_respective_scanners() {
-        let payment_thresholds = Rc::new(PaymentThresholds::default());
         let payable_dao_factory = PayableDaoFactoryMock::new()
             .make_result(PayableDaoMock::new())
             .make_result(PayableDaoMock::new());
@@ -906,6 +905,16 @@ mod tests {
         let receivable_dao_factory =
             ReceivableDaoFactoryMock::new().make_result(ReceivableDaoMock::new());
         let banned_dao_factory = BannedDaoFactoryMock::new().make_result(BannedDaoMock::new());
+        let when_pending_too_long_sec = 1234;
+        let financial_statistics = FinancialStatistics {
+            total_paid_payable: 1,
+            total_paid_receivable: 2,
+        };
+        let earning_wallet = make_wallet("unique_wallet");
+        let payment_thresholds = make_custom_payment_thresholds();
+        let payment_thresholds_rc = Rc::new(payment_thresholds);
+        let initial_rc_count = Rc::strong_count(&payment_thresholds_rc);
+
         let scanners = Scanners::new(
             DaoFactories {
                 payable_dao_factory: Box::new(payable_dao_factory),
@@ -913,27 +922,65 @@ mod tests {
                 receivable_dao_factory: Box::new(receivable_dao_factory),
                 banned_dao_factory: Box::new(banned_dao_factory),
             },
-            Rc::clone(&payment_thresholds),
-            Rc::new(make_wallet("earning")),
-            0,
-            Rc::new(RefCell::new(FinancialStatistics::default())),
+            Rc::clone(&payment_thresholds_rc),
+            Rc::new(earning_wallet.clone()),
+            when_pending_too_long_sec,
+            Rc::new(RefCell::new(financial_statistics.clone())),
         );
 
-        scanners
+        let payable_scanner = scanners
             .payable
             .as_any()
             .downcast_ref::<PayableScanner>()
             .unwrap();
-        scanners
+        let pending_payable_scanner = scanners
             .pending_payable
             .as_any()
             .downcast_ref::<PendingPayableScanner>()
             .unwrap();
-        scanners
+        let receivable_scanner = scanners
             .receivable
             .as_any()
             .downcast_ref::<ReceivableScanner>()
             .unwrap();
+        assert_eq!(
+            pending_payable_scanner.when_pending_too_long_sec,
+            when_pending_too_long_sec
+        );
+        assert_eq!(
+            *pending_payable_scanner.financial_statistics.borrow(),
+            financial_statistics
+        );
+        assert_eq!(
+            *receivable_scanner.financial_statistics.borrow(),
+            financial_statistics
+        );
+        assert_eq!(
+            receivable_scanner.earning_wallet.address(),
+            earning_wallet.address()
+        );
+        assert_eq!(
+            payable_scanner.common.payment_thresholds.as_ref(),
+            &payment_thresholds
+        );
+        assert_eq!(
+            pending_payable_scanner.common.payment_thresholds.as_ref(),
+            &payment_thresholds
+        );
+        assert_eq!(
+            receivable_scanner.common.payment_thresholds.as_ref(),
+            &payment_thresholds
+        );
+        assert_eq!(payable_scanner.common.initiated_at_opt.is_some(), false);
+        assert_eq!(
+            pending_payable_scanner.common.initiated_at_opt.is_some(),
+            false
+        );
+        assert_eq!(receivable_scanner.common.initiated_at_opt.is_some(), false);
+        assert_eq!(
+            Rc::strong_count(&payment_thresholds_rc),
+            initial_rc_count + 3
+        );
     }
 
     #[test]
