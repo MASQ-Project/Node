@@ -18,7 +18,6 @@ use node_lib::sub_lib::neighborhood::RatePack;
 use node_lib::sub_lib::proxy_client::DnsResolveFailure_0v1;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::versioned_data::VersionedData;
-use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use std::convert::TryInto;
 use std::net::SocketAddr;
