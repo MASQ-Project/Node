@@ -226,10 +226,9 @@ impl RoutingService {
         component: Component,
     ) -> Option<ExpiredCoresPackage<MessageType>> {
         let data_len = live_package.payload.len();
-        let (payload_cryptde, cryptde_name) = if component == Component::Neighborhood {
-            (self.cryptdes.main, "main")
-        } else {
-            (self.cryptdes.alias, "alias")
+        let (payload_cryptde, cryptde_name) = match component {
+            Component::ProxyServer => (self.cryptdes.alias, "alias"),
+            _ => (self.cryptdes.main, "main"),
         };
         let expired_package = match live_package.to_expired(
             immediate_neighbor_addr,
