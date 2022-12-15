@@ -622,13 +622,14 @@ This command requests financial statistics from the Node. Without any parameters
 of financial information; but the output can be customized to show more details.
 
 The details can bear on two different account types stored in two tables of the persistent database. Those types are
-payables and receivable.  
+payables and receivables.  
 
-One option to get more information about them is a query of the top N records from these financial tables, ordered by one's
-preferences, either by balance or age. This command setup always returns two sets of accounts, one set for each type.
+One option to get more information about them is a query of the top N records from these financial tables, ordered by
+one's preferences, either by balance or age. This command setup always returns two sets of accounts, one set for each
+type.
 
 In a different query mode, the user provides a customized query for either payables or receivables or both. The user
-will be requested to specify a range of age and balance to constrain the result set.
+will be requested to specify ranges of age and balance to constrain the result set.
 
 The limits for the age range can vary from 0 (as recent as possible) to 9,223,372,036,854,775,807 seconds ago (well
 beyond any reasonable scientific estimate of the age of the universe). The limits for the balance range are similarly
@@ -658,16 +659,16 @@ both account types, payables and receivables. Possibly only one of them is queri
 balances with negative values, and therefore this is a good fit for a complete check of receivable accounts going 
 possibly negative. 
 
-`payableOpt` is an optional field with values that configure the customized search for payable. It holds four numbers
+`payableOpt` is an optional field with values that configure the customized search for payables. It holds four numbers
 that define two ranges of balance and age used as the scope of the search.
 
-`receivableOpt` is an optional field with values that configure the customized search for receivable. It holds four
+`receivableOpt` is an optional field with values that configure the customized search for receivables. It holds four
 numbers that define two ranges of balance and age used as the scope of the search.
 
-Both `payableOpt` and `receivableOpt` are superior structures containing four subfields. There is a number in each of
-these subfields that represents the end point of either the range of balance or age. Regarding names of the subfields,
-both structures are identical. The only difference lies in the values that the balance parameters can take on. While
-receivables are valid between -9223372036854775808 and 9223372036854775807, payables only between 0 and
+Both `payableOpt` and `receivableOpt` are complex structures containing four subfields. There is a number in each of
+these subfields that represents the end point of the range of either balance or age. Regarding the names of the
+subfields, both structures are identical. The only difference lies in the values that the balance parameters can take
+on. While receivables are valid between -9223372036854775808 and 9223372036854775807, payables only between 0 and
 9223372036854775807.   
 
 `minAgeS` is measured in seconds before the present time and sets a time constraint for the accounts we will be 
@@ -676,9 +677,9 @@ searching over; this is the lower limit for the debt's age, or how long it has b
 `maxAgeS` is measured in seconds before the present time and sets a constraint for the accounts we will be
 searching over; this is the upper limit for the debt's age, or how long it has been since the last payment.
 
-`minBalanceGwei` is represented as an amount of gwei. Any records with balance below this value will not be returned.
+`minBalanceGwei` is represented as an amount of gwei. Any records with balance above this value will not be returned.
 
-`maxBalanceGwei` is represented as an amount of gwei. Any records with balance below this value will not be returned.
+`maxBalanceGwei` is represented as an amount of gwei. Any records with balance above this value will not be returned.
 
 #### `financials`
 ##### Direction: Response
@@ -732,7 +733,7 @@ payments that have been made but not yet confirmed.
 `totalPaidReceivableGwei` is the number of gwei we have successfully received in confirmed payments from our debtors.
 
 `queryResultsOpt` with no respect to which mode of record retrieval was requested, this is always the field that will
-hold the found records. If there are no records matching the query, the response will bring an empty array. 
+hold the records found. If there are no records matching the query, the response will bring an empty array. 
 
 If the `topRecords` parameter is used, the results will be sorted in descending order by either balance or age,
 depending on the value of the orderedBy parameter. The number of results returned will be no greater than the value
@@ -742,10 +743,9 @@ With `customQueryOpt`, the limiting age and balance ranges depend on the user's 
 records being returned. The results are always ordered by balance in this mode, and it is the case here too, that
 an empty array is handed back if no records can be retrieved. 
 
-Since this command as a whole is optional, and it is also a valid option to request just a single table view, instead of
-both of necessity, null should be anticipated at various places, either at the position of individual tables
-(`payableOpt`, `receivableOpt`) or in place of the whole thing (`customQueryOpt`), which implies that no query was
-actually requested. 
+This query mode is just optional, and it is also a valid option to request just a single table view. Therefore, null
+should be anticipated at various places, either at the position of individual tables (`payableOpt`, `receivableOpt`)
+or in place of the whole thing (`customQueryOpt`), which implies that a command with these arguments was not used. 
 
 `payableOpt` is the part referring to payable records if any exist, null or an empty array are also possible.
 
@@ -756,9 +756,9 @@ payment was later also confirmed on the blockchain.
 
 `balanceGwei` is a number of gwei we owe to this particular Node.
 
-`pendingPayableHashOpt` is present only sporadically, but denotes that we've recently sent a payment to the blockchain,
-but our confirmation detector has not yet determined that the payment has been confirmed. The value is either null or
-stores a transaction hash of the pending transaction. 
+`pendingPayableHashOpt` is present only sporadically. When it is, it denotes that we've recently sent a payment to the
+blockchain, but our confirmation detector has not yet determined that the payment has been confirmed. The value is
+either null or stores a transaction hash of the pending transaction. 
 
 `receivable` is the field devoted to receivable records if any exist.
 

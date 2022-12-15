@@ -734,7 +734,7 @@ impl FinancialsCommand {
                     error_msg(str_gwei, 0, MASQ_TOTAL_SUPPLY)
                 }
                 _ => format!(
-                    "Non numeric value '{}', it must be a valid number",
+                    "Non numeric value '{}', it must be a valid integer",
                     str_gwei
                 ),
             }
@@ -855,7 +855,7 @@ impl FinancialsCommand {
                 Err(format!("Value '{}' exceeds the limit of maximally nine decimal digits (only gwei supported)", num))
             }
         }
-        let gwei_to_wei_conversion = |parse_result: N, exponent: u32| {
+        let decimal_shift_to_wei = |parse_result: N, exponent: u32| {
             parse_result
                 .checked_mul(&N::try_from(10_i64.pow(exponent)).expect("no fear"))
                 .ok_or_else(|| {
@@ -870,16 +870,16 @@ impl FinancialsCommand {
         if let Some(dot_idx) = dot_opt {
             Self::check_right_dot_usage(num, dot_idx)?;
             let full_range_of_digits = all_digits_with_dot_removed(num);
-            let pseudo_integer_parsed: N =
+            let all_digits_with_dot_removed_parsed: N =
                 Self::parse_integer_within_limits(&full_range_of_digits)?;
             let decimal_digits_count = decimal_digits_count(num, dot_idx)?;
-            gwei_to_wei_conversion(
-                pseudo_integer_parsed,
+            decimal_shift_to_wei(
+                all_digits_with_dot_removed_parsed,
                 DIGITS_IN_BILLION - decimal_digits_count,
             )
         } else {
             let integer_parsed = Self::parse_integer_within_limits::<N>(num)?;
-            gwei_to_wei_conversion(integer_parsed, DIGITS_IN_BILLION)
+            decimal_shift_to_wei(integer_parsed, DIGITS_IN_BILLION)
         }
     }
 
@@ -1774,10 +1774,10 @@ mod tests {
 
     #[test]
     fn parse_integer_overflow_indicates_too_big_number_supplied_for_i64() {
-        let err_msg_u64: Result<i64, String> =
+        let err_msg_i64: Result<i64, String> =
             FinancialsCommand::parse_integer_within_limits(&(i64::MAX as u64 + 1).to_string());
 
-        assert_eq!(err_msg_u64.unwrap_err(), "Supplied value of 9,223,372,036,854,775,808 gwei overflows the tech limits. You probably want one between -37,500,000 and 37,500,000 MASQ");
+        assert_eq!(err_msg_i64.unwrap_err(), "Supplied value of 9,223,372,036,854,775,808 gwei overflows the tech limits. You probably want one between -37,500,000 and 37,500,000 MASQ");
 
         let err_msg_i64: Result<i64, String> =
             FinancialsCommand::parse_integer_within_limits(&(i64::MIN as i128 - 1).to_string());
@@ -1792,9 +1792,9 @@ mod tests {
 
         assert_eq!(err_msg_u64.unwrap_err(), "Supplied value of 9,223,372,036,854,775,808 gwei overflows the tech limits. You probably want one between 0 and 37,500,000 MASQ");
 
-        let err_msg_i64: Result<u64, String> = FinancialsCommand::parse_integer_within_limits("-1");
+        let err_msg_u64: Result<u64, String> = FinancialsCommand::parse_integer_within_limits("-1");
 
-        assert_eq!(err_msg_i64.unwrap_err(), "Supplied value of -1 gwei overflows the tech limits. You probably want one between 0 and 37,500,000 MASQ")
+        assert_eq!(err_msg_u64.unwrap_err(), "Supplied value of -1 gwei overflows the tech limits. You probably want one between 0 and 37,500,000 MASQ")
     }
 
     #[test]
@@ -1803,7 +1803,7 @@ mod tests {
 
         assert_eq!(
             err_msg.unwrap_err(),
-            "Non numeric value '.1', it must be a valid number"
+            "Non numeric value '.1', it must be a valid integer"
         )
     }
 
@@ -2899,7 +2899,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err("Non numeric value 'blah', it must be a valid number".to_string())
+            Err("Non numeric value 'blah', it must be a valid integer".to_string())
         )
     }
 
