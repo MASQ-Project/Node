@@ -896,7 +896,7 @@ mod tests {
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::rc::Rc;
-    use std::sync::{Arc, Mutex, MutexGuard};
+    use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H256, U256};
 
@@ -1315,7 +1315,8 @@ mod tests {
         let hash = H256::from_uint(&U256::from(567));
         let rowid = 466;
         let tx_receipt = TransactionReceipt::default(); //status defaulted to None
-        let when_sent = SystemTime::now().sub(Duration::from_millis(100));
+        let duration_in_ms = 100;
+        let when_sent = SystemTime::now().sub(Duration::from_millis(duration_in_ms));
         let fingerprint = PendingPayableFingerprint {
             rowid_opt: Some(rowid),
             timestamp: when_sent,
@@ -1336,8 +1337,8 @@ mod tests {
             PendingTransactionStatus::StillPending(PendingPayableId { hash, rowid })
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {test_name}: Pending \
-         transaction '0x0000…0237' couldn't be confirmed at attempt 1 at ",
+            "INFO: {}: Pending transaction '{:?}' couldn't be confirmed at attempt 1 at {}ms after its sending",
+            test_name, hash, duration_in_ms
         ));
     }
 

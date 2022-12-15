@@ -198,7 +198,7 @@ pub(crate) mod pending_payable_scanner_tools {
     ) -> PendingTransactionStatus {
         info!(
             logger,
-            "Pending transaction '{}' couldn't be confirmed at attempt \
+            "Pending transaction '{:?}' couldn't be confirmed at attempt \
             {} at {}ms after its sending",
             fingerprint.hash,
             fingerprint.attempt_opt.expectv("initialized attempt"),
