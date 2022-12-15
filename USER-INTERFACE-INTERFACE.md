@@ -392,7 +392,7 @@ database password. If you want to know whether the password you have is the corr
 * `earningWalletAddressOpt`: The wallet address for the earning wallet. This is not secret, so
   if you don't get this field, it's because it hasn't been set yet.
 
-* `gasPrice`: The Node will not pay more than this number of Gwei for gas to complete a transaction.
+* `gasPrice`: The Node will not pay more than this number of gwei for gas to complete a transaction.
 
 * `neighborhoodMode`: The neighborhood mode being currently used, this parameter has nothing to do with descriptors which 
   may have been used in order to set the Node's nearest neighborhood. It is only informative, to know what mode is running
@@ -417,7 +417,7 @@ database password. If you want to know whether the password you have is the corr
   allowed to remain unpaid, or a pending receivable that won’t cause a ban, decreases linearly from the debtThresholdGwei
   to permanentDebtAllowedGwei or unbanBelowGwei.
 
-* `debtThresholdGwei`: Payables higher than this -- in Gwei of MASQ -- will be suggested for payment immediately upon
+* `debtThresholdGwei`: Payables higher than this -- in gwei of MASQ -- will be suggested for payment immediately upon
   passing the maturityThresholdSec age. Payables less than this can stay unpaid longer. Receivables higher than this
   will be expected to be settled by other Nodes, but will never cause bans until they pass the maturityThresholdSec +
   paymentGracePeriodSec age. Receivables less than this will survive longer without banning.
@@ -428,15 +428,15 @@ database password. If you want to know whether the password you have is the corr
 * `paymentGracePeriodSec`: A large receivable can get as old as maturityThresholdSec + paymentGracePeriodSec -- in seconds
   -- before the Node that owes it will be banned.
 
-* `permanentDebtAllowedGwei`: Receivables this small and smaller -- in Gwei of MASQ -- will not cause bans no matter 
+* `permanentDebtAllowedGwei`: Receivables this small and smaller -- in gwei of MASQ -- will not cause bans no matter 
   how old they get.
 
 * `unbanBelowGwei`: When a delinquent Node has been banned due to non-payment, the receivables balance must be paid
-  below this level -- in Gwei of MASQ -- to cause them to be unbanned. In most cases, you'll want this to be set the
+  below this level -- in gwei of MASQ -- to cause them to be unbanned. In most cases, you'll want this to be set the
   same as permanentDebtAllowedGwei.
 
 * `ratePack`: These four parameters specify your rates that your Node will use for charging other Nodes for your provided
-  services. They are currently denominated in Gwei of MASQ, but will be improved to allow denomination in Wei units.
+  services. They are currently denominated in gwei of MASQ, but will be improved to allow denomination in wei units.
   These are ever present values, no matter if the user's set any value, they have defaults.
 
 * `exitByteRate`: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload while the Node
@@ -621,18 +621,21 @@ field will be null or absent.
 This command requests financial statistics from the Node. Without any parameters specified, it produces a brief summary
 of financial information; but the output can be customized to show more details.
 
-A certain way of getting more information can be a query of the top N records from the financial tables, ordered by
-one's preferences, either by balance or age. This command setup always returns two datasets representing both payable
-and receivable accounts.
+The details can bear on two different account types stored in two tables of the persistent database. Those types are
+payables and receivables.  
 
-In the other query mode, the user can provide a customized query for either payables or receivables or both. In this
-case, the user will specify an age range and a balance range to constrain the result set.
+One option to get more information about them is a query of the top N records from these financial tables, ordered by
+one's preferences, either by balance or age. This command setup always returns two sets of accounts, one set for each
+type.
+
+In a different query mode, the user provides a customized query for either payables or receivables or both. The user
+will be requested to specify ranges of age and balance to constrain the result set.
 
 The limits for the age range can vary from 0 (as recent as possible) to 9,223,372,036,854,775,807 seconds ago (well
 beyond any reasonable scientific estimate of the age of the universe). The limits for the balance range are similarly
 generous, except that receivable balances can be negative as well as positive.
 
-You should also know that each mode excludes the other one.
+It needs to be stated that each mode excludes the other one.
 
 While statistics has been considered the foundation of this command, it reports back structured information about
 the Node's historical financial operations. This will include services ordered from other Nodes as well as the opposite,
@@ -656,16 +659,17 @@ both account types, payables and receivables. Possibly only one of them is queri
 balances with negative values, and therefore this is a good fit for a complete check of receivable accounts going 
 possibly negative. 
 
-`payableOpt` is an optional field by which a customized search for payable accounts is specified. It holds four values
-that define constraints, ranges of balance and age, to be applied within the search.
+`payableOpt` is an optional field with values that configure the customized search for payables. It holds four numbers
+that define two ranges of balance and age used as the scope of the search.
 
-`receivableOpt` is an optional field by which a customized search for receivable accounts is specified. It holds four
-values that define constraints, ranges of balance and age, to be applied within the search.
+`receivableOpt` is an optional field with values that configure the customized search for receivables. It holds four
+numbers that define two ranges of balance and age used as the scope of the search.
 
-Inside both `payableOpt` and `receivableOpt` there are four subfields. These carry values that act as the marginal
-points of two ranges and are almost identical in both cases. The only difference lies in the values that the balance
-parameters can take. Payables are valid between 0 and 9223372036854775807 but receivables between -9223372036854775808 and
-9223372036854775807 .   
+Both `payableOpt` and `receivableOpt` are complex structures containing four subfields. There is a number in each of
+these subfields that represents the end point of the range of either balance or age. Regarding the names of the
+subfields, both structures are identical. The only difference lies in the values that the balance parameters can take
+on. While receivables are valid between -9223372036854775808 and 9223372036854775807, payables only between 0 and
+9223372036854775807.   
 
 `minAgeS` is measured in seconds before the present time and sets a time constraint for the accounts we will be 
 searching over; this is the lower limit for the debt's age, or how long it has been since the last payment.
@@ -673,9 +677,9 @@ searching over; this is the lower limit for the debt's age, or how long it has b
 `maxAgeS` is measured in seconds before the present time and sets a constraint for the accounts we will be
 searching over; this is the upper limit for the debt's age, or how long it has been since the last payment.
 
-`minBalanceGwei` is represented as an amount of Gwei. Any records with balance below this value will not be returned.
+`minBalanceGwei` is represented as an amount of gwei. Any records with balance above this value will not be returned.
 
-`maxBalanceGwei` is represented as an amount of Gwei. Any records with balance below this value will not be returned.
+`maxBalanceGwei` is represented as an amount of gwei. Any records with balance above this value will not be returned.
 
 #### `financials`
 ##### Direction: Response
@@ -716,20 +720,20 @@ Contains the requested financial statistics or subsets (views) of the database t
 `statsOpt` provides a collection of metrics on services consumed and provided. The current span of the tracked data
 is since the start of the still running Node. Later on, we'd like to change it to all-time values.  
 
-`totalUnpaidAndPendingPayableGwei` is the number of Gwei we believe we owe to other Nodes and that those other Nodes
+`totalUnpaidAndPendingPayableGwei` is the number of gwei we believe we owe to other Nodes and that those other Nodes
 have not yet received, as far as we know. This includes both bills we haven't yet paid and bills we have paid, but whose
 transactions we have not yet seen confirmed on the blockchain.
 
-`totalPaidPayableGwei` is the number of Gwei we have successfully paid to our creditors and seen confirmed.
+`totalPaidPayableGwei` is the number of gwei we have successfully paid to our creditors and seen confirmed.
 
-`totalUnpaidReceivableGwei` is the number of Gwei we believe other Nodes owe to us, but have not yet been included in
+`totalUnpaidReceivableGwei` is the number of gwei we believe other Nodes owe to us, but have not yet been included in
 payments we have seen confirmed on the blockchain. This includes both payments that have never been made and also
 payments that have been made but not yet confirmed.
 
-`totalPaidReceivableGwei` is the number of Gwei we have successfully received in confirmed payments from our debtors.
+`totalPaidReceivableGwei` is the number of gwei we have successfully received in confirmed payments from our debtors.
 
 `queryResultsOpt` with no respect to which mode of record retrieval was requested, this is always the field that will
-contain the resulting records. If there are no records matching the query, the response will bring an empty array. 
+hold the records found. If there are no records matching the query, the response will bring an empty array. 
 
 If the `topRecords` parameter is used, the results will be sorted in descending order by either balance or age,
 depending on the value of the orderedBy parameter. The number of results returned will be no greater than the value
@@ -739,9 +743,9 @@ With `customQueryOpt`, the limiting age and balance ranges depend on the user's 
 records being returned. The results are always ordered by balance in this mode, and it is the case here too, that
 an empty array is handed back if no records can be retrieved. 
 
-Because it's a valid option to request just a single table view, null should be anticipated at various places, either
-at the position of individual tables (`payableOpt`, `receivableOpt`) or in place of the whole thing (`customQueryOpt`),
-which implies that no query was actually requested. 
+This query mode is just optional, and it is also a valid option to request just a single table view. Therefore, null
+should be anticipated at various places, either at the position of individual tables (`payableOpt`, `receivableOpt`)
+or in place of the whole thing (`customQueryOpt`), which implies that a command with these arguments was not used. 
 
 `payableOpt` is the part referring to payable records if any exist, null or an empty array are also possible.
 
@@ -750,11 +754,11 @@ which implies that no query was actually requested.
 `ageS` is a number of seconds that elapsed since our payment to this particular Node was sent out last time, and the
 payment was later also confirmed on the blockchain.
 
-`balanceGwei` is a number of Gwei we owe to this particular Node.
+`balanceGwei` is a number of gwei we owe to this particular Node.
 
-`pendingPayableHashOpt` is present only sporadically, but denotes that we've recently sent a payment to the blockchain,
-but our confirmation detector has not yet determined that the payment has been confirmed. The value is either null or
-stores a transaction hash of the pending transaction. 
+`pendingPayableHashOpt` is present only sporadically. When it is, it denotes that we've recently sent a payment to the
+blockchain, but our confirmation detector has not yet determined that the payment has been confirmed. The value is
+either null or stores a transaction hash of the pending transaction. 
 
 `receivable` is the field devoted to receivable records if any exist.
 
@@ -763,7 +767,7 @@ stores a transaction hash of the pending transaction.
 `age` is a number of seconds that elapsed since this particular debtor made the last payment to our account in order to 
 redeem his liabilities.
 
-`balanceGwei` is a number of Gwei that this debtor owes to us.
+`balanceGwei` is a number of gwei that this debtor owes to us.
 
 
 #### `generateWallets`
