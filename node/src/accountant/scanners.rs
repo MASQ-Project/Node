@@ -109,10 +109,10 @@ impl BeginScanError {
     ) {
         match self {
             BeginScanError::NothingToProcess => {
-                debug!(
-                    logger,
-                    "There was nothing to process during {:?} scan.", scan_type
-                );
+                let log_message =
+                    format!("There was nothing to process during {:?} scan.", scan_type);
+
+                BeginScanError::log(logger, log_message, is_externally_triggered);
             }
             BeginScanError::ScanAlreadyRunning(timestamp) => {
                 let log_message = format!(
@@ -122,10 +122,7 @@ impl BeginScanError {
                     BeginScanError::timestamp_as_string(&timestamp)
                 );
 
-                match is_externally_triggered {
-                    true => info!(logger, "{}", log_message),
-                    false => debug!(logger, "{}", log_message),
-                }
+                BeginScanError::log(logger, log_message, is_externally_triggered);
             }
             BeginScanError::CalledFromNullScanner => {
                 if !cfg!(test) {
@@ -143,6 +140,13 @@ impl BeginScanError {
         offset_date_time
             .format(&parse(TIME_FORMATTING_STRING).unwrap())
             .unwrap()
+    }
+
+    pub fn log(logger: &Logger, log_message: String, is_externally_triggered: bool) {
+        match is_externally_triggered {
+            true => info!(logger, "{}", log_message),
+            false => debug!(logger, "{}", log_message),
+        }
     }
 }
 
@@ -189,21 +193,23 @@ impl Scanner<ReportAccountsPayable, SentPayable> for PayableScanner {
             all_non_pending_payables,
             self.common.payment_thresholds.as_ref(),
         );
-        info!(
-            logger,
-            "Chose {} qualified debts to pay",
-            qualified_payables.len()
-        );
         debug!(logger, "{}", summary);
         match qualified_payables.is_empty() {
             true => {
                 self.mark_as_ended(logger);
                 Err(BeginScanError::NothingToProcess)
             }
-            false => Ok(ReportAccountsPayable {
-                accounts: qualified_payables,
-                response_skeleton_opt,
-            }),
+            false => {
+                info!(
+                    logger,
+                    "Chose {} qualified debts to pay",
+                    qualified_payables.len()
+                );
+                Ok(ReportAccountsPayable {
+                    accounts: qualified_payables,
+                    response_skeleton_opt,
+                })
+            }
         }
     }
 
@@ -345,10 +351,10 @@ impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingP
         let filtered_pending_payable = self.pending_payable_dao.return_all_fingerprints();
         match filtered_pending_payable.is_empty() {
             true => {
-                debug!(
-                    logger,
-                    "Pending payable scan ended. No pending payable found."
-                );
+                // debug!(
+                //     logger,
+                //     "Pending payable scan ended. No pending payable found."
+                // );
                 self.mark_as_ended(logger);
                 Err(BeginScanError::NothingToProcess)
             }
@@ -1035,8 +1041,6 @@ mod tests {
 
     #[test]
     fn payable_scanner_throws_error_in_case_no_qualified_payable_is_found() {
-        init_test_logging();
-        let test_name = "payable_scanner_throws_error_in_case_no_qualified_payable_is_found";
         let now = SystemTime::now();
         let (_, unqualified_payable_accounts, _) =
             make_payables(now, &PaymentThresholds::default());
@@ -1044,15 +1048,11 @@ mod tests {
             PayableDaoMock::new().non_pending_payables_result(unqualified_payable_accounts);
         let mut subject = PayableScanner::default().payable_dao(payable_dao);
 
-        let result = subject.begin_scan(now, None, &Logger::new(test_name));
+        let result = subject.begin_scan(now, None, &Logger::new("test"));
 
         let is_scan_running = subject.scan_started_at().is_some();
         assert_eq!(is_scan_running, false);
         assert_eq!(result, Err(BeginScanError::NothingToProcess));
-        TestLogHandler::new().assert_logs_match_in_order(vec![
-            &format!("INFO: {test_name}: Scanning for payables"),
-            "Chose 0 qualified debts to pay",
-        ]);
     }
 
     #[test]
@@ -1256,23 +1256,17 @@ mod tests {
 
     #[test]
     fn pending_payable_scanner_throws_an_error_when_no_fingerprint_is_found() {
-        init_test_logging();
-        let test_name = "pending_payable_scanner_throws_an_error_when_no_fingerprint_is_found";
         let now = SystemTime::now();
         let pending_payable_dao =
             PendingPayableDaoMock::new().return_all_fingerprints_result(vec![]);
         let mut pending_payable_scanner =
             PendingPayableScanner::default().pending_payable_dao(pending_payable_dao);
 
-        let result = pending_payable_scanner.begin_scan(now, None, &Logger::new(test_name));
+        let result = pending_payable_scanner.begin_scan(now, None, &Logger::new("test"));
 
         let is_scan_running = pending_payable_scanner.scan_started_at().is_some();
         assert_eq!(result, Err(BeginScanError::NothingToProcess));
         assert_eq!(is_scan_running, false);
-        TestLogHandler::new().assert_logs_match_in_order(vec![
-            &format!("INFO: {test_name}: Scanning for pending payable"),
-            &format!("DEBUG: {test_name}: Pending payable scan ended. No pending payable found."),
-        ])
     }
 
     #[test]
