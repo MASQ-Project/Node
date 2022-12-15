@@ -1463,7 +1463,7 @@ mod tests {
     }
 
     #[test]
-    fn order_cancel_pending_transaction_works() {
+    fn order_cancel_failed_transaction_works() {
         init_test_logging();
         let test_name = "order_cancel_pending_transaction_works";
         let mark_failure_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1495,7 +1495,7 @@ mod tests {
         expected = "Unsuccessful attempt for transaction 0x051a…8c19 to mark fatal error at payable \
                 fingerprint due to UpdateFailed(\"no no no\"); database unreliable"
     )]
-    fn order_cancel_pending_transaction_panics_when_it_fails_to_mark_failure() {
+    fn order_cancel_failed_transaction_panics_when_it_fails_to_mark_failure() {
         let payable_dao = PayableDaoMock::default().transaction_canceled_result(Ok(()));
         let pending_payable_dao = PendingPayableDaoMock::default().mark_failure_result(Err(
             PendingPayableDaoError::UpdateFailed("no no no".to_string()),
@@ -1515,7 +1515,7 @@ mod tests {
         expected = "Was unable to delete payable fingerprint '0x0000…0315' after successful \
                 transaction due to 'RecordDeletion(\"the database is fooling around with us\")'"
     )]
-    fn handle_confirm_pending_transaction_panics_while_deleting_pending_payable_fingerprint() {
+    fn order_confirm_transaction_panics_while_deleting_pending_payable_fingerprint() {
         let hash = H256::from_uint(&U256::from(789));
         let rowid = 3;
         let payable_dao = PayableDaoMock::new().transaction_confirmed_result(Ok(()));
@@ -1708,13 +1708,12 @@ mod tests {
                 "INFO: {}: Transaction {:?} has gone through the whole confirmation process succeeding",
                 test_name, transaction_hash_2
             ),
-                "INFO: pending_payable_scanner_handles_report_transaction_receipts_message: The \
-                PendingPayables scan ended in \\d+ms.",
+            &format!("INFO: {test_name}: The PendingPayables scan ended in \\d+ms."),
         ]);
     }
 
     #[test]
-    fn pending_payable_scanner_handles_report_transaction_receipts_message_with_empty_vector() {
+    fn pending_payable_scanner_handles_empty_report_transaction_receipts_message() {
         init_test_logging();
         let test_name =
             "pending_payable_scanner_handles_report_transaction_receipts_message_with_empty_vector";
@@ -1812,21 +1811,24 @@ mod tests {
             .receivable_dao(receivable_dao)
             .banned_dao(banned_dao)
             .payment_thresholds(payment_thresholds.clone());
+        let now = SystemTime::now();
 
-        let _result = receivable_scanner.begin_scan(
-            SystemTime::now(),
-            None,
-            &Logger::new("DELINQUENCY_TEST"),
-        );
+        let result = receivable_scanner.begin_scan(now, None, &Logger::new("DELINQUENCY_TEST"));
 
-        let new_delinquencies_parameters: MutexGuard<Vec<(SystemTime, PaymentThresholds)>> =
-            new_delinquencies_parameters_arc.lock().unwrap();
         assert_eq!(
-            payment_thresholds.clone(),
-            new_delinquencies_parameters[0].1
+            result,
+            Ok(RetrieveTransactions {
+                recipient: make_wallet("earning"),
+                response_skeleton_opt: None
+            })
         );
-        let paid_delinquencies_parameters: MutexGuard<Vec<PaymentThresholds>> =
-            paid_delinquencies_parameters_arc.lock().unwrap();
+        let new_delinquencies_parameters = new_delinquencies_parameters_arc.lock().unwrap();
+        assert_eq!(new_delinquencies_parameters.len(), 1);
+        let (timestamp_actual, payment_thresholds_actual) = new_delinquencies_parameters[0];
+        assert_eq!(timestamp_actual, now);
+        assert_eq!(payment_thresholds_actual, payment_thresholds.clone());
+        let paid_delinquencies_parameters = paid_delinquencies_parameters_arc.lock().unwrap();
+        assert_eq!(paid_delinquencies_parameters.len(), 1);
         assert_eq!(payment_thresholds, paid_delinquencies_parameters[0]);
         let ban_parameters = ban_parameters_arc.lock().unwrap();
         assert!(ban_parameters.contains(&newly_banned_1.wallet));
