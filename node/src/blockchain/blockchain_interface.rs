@@ -43,11 +43,11 @@ pub struct BlockchainTransaction {
     pub wei_amount: u128,
 }
 
-impl fmt::Display for BlockchainTransaction {
+impl Display for BlockchainTransaction {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), fmt::Error> {
         write!(
             f,
-            "{}gw from {} ({})",
+            "{}wei from {} ({:?})",
             self.wei_amount, self.from, self.block_number
         )
     }
@@ -96,7 +96,7 @@ where
 
     fn retrieve_transactions(
         &self,
-        start_block: u64,
+        start_block: BlockNumber,
         end_block: BlockNumber,
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError>;
@@ -157,7 +157,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
 
     fn retrieve_transactions(
         &self,
-        _start_block: u64,
+        _start_block: BlockNumber,
         _latest_block: BlockNumber,
         _recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
@@ -234,9 +234,9 @@ impl<T: BatchTransport + Debug + 'static> BlockchainInterfaceNonClandestine<T> {
 
 const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]);
 
-pub fn to_wei(gwub: u64) -> U256 {
-    let subgwei = U256::from(gwub);
-    subgwei.full_mul(GWEI).try_into().expect("Internal Error")
+pub fn to_wei(gwei: u64) -> U256 {
+    let result = U256::from(gwei);
+    result.full_mul(GWEI).try_into().expect("Internal Error")
 }
 
 impl<T> BlockchainInterface for BlockchainInterfaceNonClandestine<T>
@@ -249,21 +249,22 @@ where
 
     fn retrieve_transactions(
         &self,
-        start_block: u64,
+        start_block: BlockNumber,
         end_block: BlockNumber,
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
         debug!(
             self.logger,
-            "Retrieving transactions from start block: {} for: {} chain_id: {} contract: {:#x}",
+            "Retrieving transactions from start block: {:?} end block: {:?} for: {} chain_id: {} contract: {:#x}",
             start_block,
+            end_block,
             recipient,
             self.chain.rec().num_chain_id,
             self.contract_address()
         );
         let filter = FilterBuilder::default()
             .address(vec![self.contract_address()])
-            .from_block(BlockNumber::Number(ethereum_types::U64::from(start_block)))
+            .from_block(start_block)
             .to_block(end_block)
             .topics(
                 Some(vec![TRANSACTION_LITERAL]),
@@ -275,7 +276,13 @@ where
 
         let fallback_end_block_number = match end_block {
             BlockNumber::Number(eb) => eb.as_u64(),
-            _ => start_block + 1,
+            _ => {
+                if let BlockNumber::Number(start_block_number) = start_block {
+                    start_block_number.as_u64() + 1u64
+                } else {
+                    panic!("start_block of Latest, Earliest, and Pending are not supported");
+                }
+            }
         };
         let block_request = self.web3_batch.eth().block_number();
         let log_request = self.web3_batch.eth().logs(filter);
@@ -301,44 +308,17 @@ where
                             );
                             Err(BlockchainError::InvalidResponse)
                         } else {
-                            let transactions: Vec<BlockchainTransaction> = logs
-                                .iter()
-                                .filter_map(|log: &Log| match log.block_number {
-                                    Some(block_number) => {
-                                        let amount: U256 = U256::from(log.data.0.as_slice());
-                                        let wei_amount_result = u128::try_from(amount);
-                                        wei_amount_result.ok().map(|wei_amount| {
-                                            BlockchainTransaction {
-                                                block_number: u64::try_from(block_number)
-                                                    .expect("Internal Error"),
-                                                from: Wallet::from(log.topics[1]),
-                                                wei_amount,
-                                            }
-                                        })
-                                    }
-                                    None => None,
-                                })
-                                .collect();
+                            let transactions: Vec<BlockchainTransaction> =
+                                self.extract_transactions_from_logs(logs);
                             debug!(logger, "Retrieved transactions: {:?}", transactions);
                             // Get the largest transaction block number, unless there are no
                             // transactions, in which case use end_block, unless get_latest_block()
                             // was not successful.
-                            let transaction_max_block_number = if transactions.is_empty() {
-                                match end_block {
-                                    BlockNumber::Number(U64([eb])) => eb,
-                                    _ => response_block_number,
-                                }
-                            } else {
-                                transactions
-                                    .iter()
-                                    .fold(response_block_number, |so_far, elem| {
-                                        if elem.block_number > so_far {
-                                            elem.block_number
-                                        } else {
-                                            so_far
-                                        }
-                                    })
-                            };
+                            let transaction_max_block_number = self
+                                .find_largest_transaction_block_number(
+                                    response_block_number,
+                                    &transactions,
+                                );
                             Ok(RetrievedBlockchainTransactions {
                                 new_start_block: transaction_max_block_number,
                                 transactions,
@@ -431,6 +411,52 @@ where
             &self.web3,
             fingerprint_request_recipient,
         ))
+    }
+}
+
+impl<T> BlockchainInterfaceNonClandestine<T>
+where
+    T: 'static + BatchTransport + Debug,
+{
+    fn find_largest_transaction_block_number(
+        &self,
+        response_block_number: u64,
+        transactions: &Vec<BlockchainTransaction>,
+    ) -> u64 {
+        if transactions.is_empty() {
+            response_block_number
+        } else {
+            transactions
+                .iter()
+                .fold(response_block_number, |so_far, elem| {
+                    if elem.block_number > so_far {
+                        elem.block_number
+                    } else {
+                        so_far
+                    }
+                })
+        }
+    }
+}
+
+impl<T> BlockchainInterfaceNonClandestine<T>
+where
+    T: 'static + BatchTransport + Debug,
+{
+    fn extract_transactions_from_logs(&self, logs: Vec<Log>) -> Vec<BlockchainTransaction> {
+        logs.iter()
+            .filter_map(|log: &Log| match log.block_number {
+                None => None,
+                Some(block_number) => {
+                    let wei_amount = U256::from(log.data.0.as_slice()).as_u128();
+                    Some(BlockchainTransaction {
+                        block_number: block_number.as_u64(),
+                        from: Wallet::from(log.topics[1]),
+                        wei_amount,
+                    })
+                }
+            })
+            .collect()
     }
 }
 
@@ -750,7 +776,7 @@ mod tests {
         );
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
@@ -764,8 +790,8 @@ mod tests {
 
         let result = subject
             .retrieve_transactions(
-                42,
-                BlockNumber::Number(U64::from(end_block_nbr)),
+                BlockNumber::Number(42u64.into()),
+                BlockNumber::Number(end_block_nbr.into()),
                 &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
             )
             .unwrap();
@@ -780,8 +806,8 @@ mod tests {
             .map(|b| serde_json::to_string(&b).unwrap())
             .collect();
         assert_eq!(
+            bodies,
             vec![format!("[{{\"id\":0,\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[]}},{{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{{\"address\":\"0x384dec25e03f94931767ce4c3556168468ba24c3\",\"fromBlock\":\"0x2a\",\"toBlock\":\"0x400\",\"topics\":[\"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef\",null,\"0x000000000000000000000000{}\"]}}]}}]", &to[2..])],
-            bodies //bodies[0]["params"][0]["topics"][1].to_string(),
         );
         assert_eq!(
             result,
@@ -837,7 +863,7 @@ mod tests {
         ]);
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
@@ -849,8 +875,8 @@ mod tests {
         let end_block_nbr = 1024u64;
         let result = subject
             .retrieve_transactions(
-                42,
-                BlockNumber::Number(U64::from(end_block_nbr)),
+                BlockNumber::Number(42u64.into()),
+                BlockNumber::Number(end_block_nbr.into()),
                 &Wallet::from_str(&to).unwrap(),
             )
             .unwrap();
@@ -865,8 +891,8 @@ mod tests {
             .map(|b| serde_json::to_string(&b).unwrap())
             .collect();
         assert_eq!(
-            vec![format!("[{{\"id\":0,\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[]}},{{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{{\"address\":\"0x384dec25e03f94931767ce4c3556168468ba24c3\",\"fromBlock\":\"0x2a\",\"toBlock\":\"0x400\",\"topics\":[\"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef\",null,\"0x000000000000000000000000{}\"]}}]}}]", &to[2..])],
             bodies,
+            vec![format!("[{{\"id\":0,\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[]}},{{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{{\"address\":\"0x384dec25e03f94931767ce4c3556168468ba24c3\",\"fromBlock\":\"0x2a\",\"toBlock\":\"0x400\",\"topics\":[\"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef\",null,\"0x000000000000000000000000{}\"]}}]}}]", &to[2..])],
         );
         assert_eq!(
             result,
@@ -877,13 +903,13 @@ mod tests {
                         block_number: 0x4be663,
                         from: Wallet::from_str("0x3ab28ecedea6cdb6feed398e93ae8c7b316b1182")
                             .unwrap(),
-                        wei_amount: 4_503_599_627_370_496,
+                        wei_amount: 4_503_599_627_370_496u128,
                     },
                     BlockchainTransaction {
                         block_number: 0x4be662,
                         from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
                             .unwrap(),
-                        wei_amount: 4_503_599_627_370_496,
+                        wei_amount: 4_503_599_627_370_496u128,
                     },
                 ]
             }
@@ -898,7 +924,7 @@ mod tests {
             br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{"jsonrpc":"2.0","id":3,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","blockNumber":"0x4be663","data":"0x0000000000000000000000000000000000000000000000056bc75e2d63100000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
         ]);
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
@@ -908,9 +934,9 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
-        let end_block = BlockNumber::Number(U64::from(1024u64));
+        let end_block = BlockNumber::Number(1024u64.into());
         let result = subject.retrieve_transactions(
-            42,
+            BlockNumber::Number(42u64.into()),
             end_block,
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
@@ -930,7 +956,7 @@ mod tests {
         ]);
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
@@ -941,9 +967,9 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
-        let end_block = BlockNumber::Number(U64::from(1024u64));
+        let end_block = BlockNumber::Number(1024u64.into());
         let result = subject.retrieve_transactions(
-            42,
+            BlockNumber::Number(42u64.into()),
             end_block,
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
@@ -960,7 +986,7 @@ mod tests {
         ]);
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
@@ -973,8 +999,8 @@ mod tests {
 
         let end_block_nbr = 1024u64;
         let result = subject.retrieve_transactions(
-            42,
-            BlockNumber::Number(U64::from(end_block_nbr)),
+            BlockNumber::Number(42u64.into()),
+            BlockNumber::Number(end_block_nbr.into()),
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
@@ -996,7 +1022,7 @@ mod tests {
         ]);
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
@@ -1007,17 +1033,23 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
-        let start_block = 42;
+        let start_block = BlockNumber::Number(42u64.into());
         let result = subject.retrieve_transactions(
             start_block,
             BlockNumber::Latest,
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
+        let new_start_block = if let BlockNumber::Number(start_block_nbr) = start_block {
+            start_block_nbr.as_u64() + 1u64
+        } else {
+            panic!("start_block of Latest, Earliest, and Pending are not supported!")
+        };
+
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: start_block + 1,
+                new_start_block,
                 transactions: vec![]
             })
         );
@@ -1032,7 +1064,7 @@ mod tests {
         );
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
@@ -1058,7 +1090,7 @@ mod tests {
     ) {
         let port = 8545;
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
@@ -1083,12 +1115,8 @@ mod tests {
             vec![br#"{"jsonrpc":"2.0","id":0,"result":"0xFFFQ"}"#.to_vec()],
         );
 
-        let (event_loop_handle, transport) = Http::new(&format!(
-            "http://{}:{}",
-            &Ipv4Addr::LOCALHOST.to_string(),
-            port
-        ))
-        .unwrap();
+        let (event_loop_handle, transport) =
+            Http::new(&format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port)).unwrap();
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
             event_loop_handle,
@@ -1115,7 +1143,7 @@ mod tests {
         ]);
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
@@ -1140,7 +1168,7 @@ mod tests {
     ) {
         let port = 8545;
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
@@ -1165,7 +1193,7 @@ mod tests {
         ]);
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
@@ -1194,7 +1222,7 @@ mod tests {
         ]);
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
@@ -1811,7 +1839,7 @@ mod tests {
         private_key: H256,
     }
 
-    fn assert_signature(chain: Chain, slice_of_sclices: &[&[u8]]) {
+    fn assert_signature(chain: Chain, slice_of_slices: &[&[u8]]) {
         let first_part_tx_1 = r#"[{"nonce": "0x9", "gasPrice": "0x4a817c800", "gasLimit": "0x5208", "to": "0x3535353535353535353535353535353535353535", "value": "0xde0b6b3a7640000", "data": []}, {"private_key": "0x4646464646464646464646464646464646464646464646464646464646464646", "signed": "#;
         let first_part_tx_2 = r#"[{"nonce": "0x0", "gasPrice": "0xd55698372431", "gasLimit": "0x1e8480", "to": "0xF0109fC8DF283027b6285cc889F5aA624EaC1F55", "value": "0x3b9aca00", "data": []}, {"private_key": "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318", "signed": "#;
         let first_part_tx_3 = r#"[{"nonce": "0x00", "gasPrice": "0x09184e72a000", "gasLimit": "0x2710", "to": null, "value": "0x00", "data": [127,116,101,115,116,50,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,96,0,87]}, {"private_key": "0xe331b6d69882b4cb4ea581d88e0b604039a3de5967688d3dcffdd2270c0fd109", "signed": "#;
@@ -1823,7 +1851,7 @@ mod tests {
             "[{}]",
             vec![first_part_tx_1, first_part_tx_2, first_part_tx_3]
                 .iter()
-                .zip(slice_of_sclices.iter())
+                .zip(slice_of_slices.iter())
                 .zip(0usize..2)
                 .fold(String::new(), |so_far, actual| [
                     so_far,
@@ -1935,7 +1963,7 @@ mod tests {
                 .to_vec()
         ]);
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
@@ -1970,7 +1998,7 @@ mod tests {
     fn get_transaction_receipt_handles_errors() {
         let port = find_free_port();
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
@@ -2009,20 +2037,6 @@ mod tests {
         let converted_wei = to_wei(1);
 
         assert_eq!(converted_wei, U256::from_dec_str("1000000000").unwrap());
-    }
-
-    #[test]
-    fn constant_gwei_matches_calculated_value() {
-        let value = U256::from(1_000_000_000);
-        assert_eq!(value.0[0], 1_000_000_000);
-        assert_eq!(value.0[1], 0);
-        assert_eq!(value.0[2], 0);
-        assert_eq!(value.0[3], 0);
-
-        let gwei = U256([1_000_000_000u64, 0, 0, 0]);
-        assert_eq!(value, gwei);
-        assert_eq!(gwei, GWEI);
-        assert_eq!(value, GWEI);
     }
 
     #[test]

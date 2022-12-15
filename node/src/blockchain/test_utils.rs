@@ -52,7 +52,7 @@ pub fn make_meaningless_seed() -> Seed {
 
 #[derive(Default)]
 pub struct BlockchainInterfaceMock {
-    retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, BlockNumber, Wallet)>>>,
+    retrieve_transactions_parameters: Arc<Mutex<Vec<(BlockNumber, BlockNumber, Wallet)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
     send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u128, U256, u64)>>>,
@@ -66,76 +66,10 @@ pub struct BlockchainInterfaceMock {
     get_block_number_results: RefCell<Vec<LatestBlockNumber>>,
 }
 
-impl BlockchainInterface for BlockchainInterfaceMock {
-    fn contract_address(&self) -> Address {
-        self.contract_address_results.borrow_mut().remove(0)
-    }
-
-    fn retrieve_transactions(
-        &self,
-        start_block: u64,
-        end_block: BlockNumber,
-        recipient: &Wallet,
-    ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
-        self.retrieve_transactions_parameters.lock().unwrap().push((
-            start_block,
-            end_block,
-            recipient.clone(),
-        ));
-        self.retrieve_transactions_results.borrow_mut().remove(0)
-    }
-
-    fn send_transaction<'b>(
-        &self,
-        inputs: SendTransactionInputs,
-    ) -> Result<(H256, SystemTime), BlockchainTransactionError> {
-        self.send_transaction_parameters
-            .lock()
-            .unwrap()
-            .push(inputs.abstract_for_assertions());
-        self.send_transaction_results.borrow_mut().remove(0)
-    }
-
-    fn get_eth_balance(&self, _address: &Wallet) -> Balance {
-        unimplemented!()
-    }
-
-    fn get_token_balance(&self, _address: &Wallet) -> Balance {
-        unimplemented!()
-    }
-
-    fn get_block_number(&self) -> LatestBlockNumber {
-        self.get_block_number_results.borrow_mut().remove(0)
-    }
-
-    fn get_transaction_count(&self, wallet: &Wallet) -> Nonce {
-        self.get_transaction_count_parameters
-            .lock()
-            .unwrap()
-            .push(wallet.clone());
-        self.get_transaction_count_results.borrow_mut().remove(0)
-    }
-
-    fn get_transaction_receipt(&self, hash: H256) -> Receipt {
-        self.get_transaction_receipt_params
-            .lock()
-            .unwrap()
-            .push(hash);
-        self.get_transaction_receipt_results.borrow_mut().remove(0)
-    }
-
-    fn send_transaction_tools<'a>(
-        &'a self,
-        _fingerprint_request_recipient: &'a Recipient<PendingPayableFingerprint>,
-    ) -> Box<dyn SendTransactionToolsWrapper + 'a> {
-        self.send_transaction_tools_results.borrow_mut().remove(0)
-    }
-}
-
 impl BlockchainInterfaceMock {
     pub fn retrieve_transactions_params(
         mut self,
-        params: &Arc<Mutex<Vec<(u64, BlockNumber, Wallet)>>>,
+        params: &Arc<Mutex<Vec<(BlockNumber, BlockNumber, Wallet)>>>,
     ) -> Self {
         self.retrieve_transactions_parameters = params.clone();
         self
@@ -192,6 +126,11 @@ impl BlockchainInterfaceMock {
         self
     }
 
+    pub fn get_block_number_result(self, result: LatestBlockNumber) -> Self {
+        self.get_block_number_results.borrow_mut().push(result);
+        self
+    }
+
     pub fn send_transaction_tools_result(
         self,
         result: Box<dyn SendTransactionToolsWrapper>,
@@ -210,13 +149,15 @@ impl BlockchainInterface for BlockchainInterfaceMock {
 
     fn retrieve_transactions(
         &self,
-        start_block: u64,
+        start_block: BlockNumber,
+        end_block: BlockNumber,
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
-        self.retrieve_transactions_parameters
-            .lock()
-            .unwrap()
-            .push((start_block, recipient.clone()));
+        self.retrieve_transactions_parameters.lock().unwrap().push((
+            start_block,
+            end_block,
+            recipient.clone(),
+        ));
         self.retrieve_transactions_results.borrow_mut().remove(0)
     }
 
@@ -231,9 +172,39 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.send_transaction_results.borrow_mut().remove(0)
     }
 
-    pub fn get_block_number_result(self, result: LatestBlockNumber) -> Self {
-        self.get_block_number_results.borrow_mut().push(result);
-        self
+    fn get_eth_balance(&self, _address: &Wallet) -> Balance {
+        unimplemented!()
+    }
+
+    fn get_token_balance(&self, _address: &Wallet) -> Balance {
+        unimplemented!()
+    }
+
+    fn get_block_number(&self) -> LatestBlockNumber {
+        self.get_block_number_results.borrow_mut().remove(0)
+    }
+
+    fn get_transaction_count(&self, wallet: &Wallet) -> Nonce {
+        self.get_transaction_count_parameters
+            .lock()
+            .unwrap()
+            .push(wallet.clone());
+        self.get_transaction_count_results.borrow_mut().remove(0)
+    }
+
+    fn get_transaction_receipt(&self, hash: H256) -> Receipt {
+        self.get_transaction_receipt_params
+            .lock()
+            .unwrap()
+            .push(hash);
+        self.get_transaction_receipt_results.borrow_mut().remove(0)
+    }
+
+    fn send_transaction_tools<'a>(
+        &'a self,
+        _fingerprint_request_recipient: &'a Recipient<PendingPayableFingerprint>,
+    ) -> Box<dyn SendTransactionToolsWrapper + 'a> {
+        self.send_transaction_tools_results.borrow_mut().remove(0)
     }
 }
 

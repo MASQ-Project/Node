@@ -283,7 +283,7 @@ impl BlockchainBridge {
         };
 
         let start_block = match self.persistent_config.start_block() {
-            Ok (sb) => sb,
+            Ok (sb) => BlockNumber::Number(sb.into()),
             Err (e) => panic! ("Cannot retrieve start block from database; payments to you may not be processed: {:?}", e)
         };
         let retrieved_transactions =
@@ -1144,12 +1144,12 @@ mod tests {
                 BlockchainTransaction {
                     block_number: 7,
                     from: earning_wallet.clone(),
-                    gwei_amount: amount,
+                    wei_amount: amount,
                 },
                 BlockchainTransaction {
                     block_number: 9,
                     from: earning_wallet.clone(),
-                    gwei_amount: amount2,
+                    wei_amount: amount2,
                 },
             ],
         };
@@ -1195,7 +1195,7 @@ mod tests {
         let retrieve_transactions_params = retrieve_transactions_params_arc.lock().unwrap();
         assert_eq!(
             *retrieve_transactions_params,
-            vec![(6u64, BlockNumber::Latest, earning_wallet)]
+            vec![(BlockNumber::from(6u64), BlockNumber::Latest, earning_wallet)]
         );
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_received_payment.len(), 1);
@@ -1279,7 +1279,11 @@ mod tests {
         let retrieve_transactions_params = retrieve_transactions_params_arc.lock().unwrap();
         assert_eq!(
             *retrieve_transactions_params,
-            vec![(6u64, BlockNumber::from(1024u64), earning_wallet)]
+            vec![(
+                BlockNumber::from(6u64),
+                BlockNumber::from(1024u64),
+                earning_wallet
+            )]
         );
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_received_payment.len(), 1);
