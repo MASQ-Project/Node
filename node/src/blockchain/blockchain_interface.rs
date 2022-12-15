@@ -100,7 +100,6 @@ where
         &self,
         start_block: BlockNumber,
         end_block: BlockNumber,
-        end_block: BlockNumber,
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError>;
 
@@ -116,10 +115,6 @@ where
     fn get_block_number(&self) -> LatestBlockNumber;
 
     fn get_transaction_count(&self, address: &Wallet) -> ResultForNonce;
-
-    fn get_block_number(&self) -> LatestBlockNumber;
-
-    fn get_transaction_count(&self, address: &Wallet) -> Nonce;
 
     fn get_transaction_receipt(&self, hash: H256) -> Receipt;
 
@@ -158,7 +153,6 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     fn retrieve_transactions(
         &self,
         _start_block: BlockNumber,
-        _end_block: BlockNumber,
         _latest_block: BlockNumber,
         _recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
@@ -251,7 +245,6 @@ where
     fn retrieve_transactions(
         &self,
         start_block: BlockNumber,
-        end_block: BlockNumber,
         end_block: BlockNumber,
         recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
@@ -555,9 +548,9 @@ where
     fn transmission_log(&self, recipient: &Wallet, amount: u128) -> String {
         format!(
             "About to send transaction:\n\
-            recipient: {},\n\
-            amount: {} wei,\n\
-            (chain: {}, contract: {:#x})",
+        recipient: {},\n\
+        amount: {} wei,\n\
+        (chain: {}, contract: {:#x})",
             recipient,
             amount.separate_with_commas(),
             self.chain.rec().literal_identifier,
@@ -806,7 +799,6 @@ mod tests {
             .retrieve_transactions(
                 BlockNumber::Number(42u64.into()),
                 BlockNumber::Number(end_block_nbr.into()),
-                BlockNumber::Number(U64::from(end_block_nbr)),
                 &Wallet::from_str(&to).unwrap(),
             )
             .unwrap();
@@ -895,7 +887,6 @@ mod tests {
             .retrieve_transactions(
                 BlockNumber::Number(42u64.into()),
                 BlockNumber::Number(end_block_nbr.into()),
-                BlockNumber::Number(U64::from(end_block_nbr)),
                 &Wallet::from_str(&to).unwrap(),
             )
             .unwrap();
@@ -992,7 +983,6 @@ mod tests {
         let result = subject.retrieve_transactions(
             BlockNumber::Number(42u64.into()),
             end_block,
-            end_block,
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
@@ -1023,7 +1013,6 @@ mod tests {
         let result = subject.retrieve_transactions(
             BlockNumber::Number(42u64.into()),
             BlockNumber::Number(end_block_nbr.into()),
-            end_block,
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
@@ -1093,7 +1082,7 @@ mod tests {
         ]);
 
         let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
@@ -1104,17 +1093,23 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
-        let start_block = 42;
+        let start_block = BlockNumber::Number(42u64.into());
         let result = subject.retrieve_transactions(
             start_block,
             BlockNumber::Latest,
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
+        let new_start_block = if let BlockNumber::Number(start_block_nbr) = start_block {
+            start_block_nbr.as_u64() + 1u64
+        } else {
+            panic!("start_block of Latest, Earliest, and Pending are not supported!")
+        };
+
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block: start_block + 1,
+                new_start_block,
                 transactions: vec![]
             })
         );
@@ -1311,7 +1306,7 @@ mod tests {
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
-        )
+        );
     }
 
     #[test]
