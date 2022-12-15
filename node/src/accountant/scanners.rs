@@ -132,7 +132,7 @@ impl BeginScanError {
         }
     }
 
-    pub fn timestamp_as_string(timestamp: &SystemTime) -> String {
+    fn timestamp_as_string(timestamp: &SystemTime) -> String {
         const TIME_FORMATTING_STRING: &str =
             "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]";
 
@@ -142,7 +142,7 @@ impl BeginScanError {
             .unwrap()
     }
 
-    pub fn log(logger: &Logger, log_message: String, is_externally_triggered: bool) {
+    fn log(logger: &Logger, log_message: String, is_externally_triggered: bool) {
         match is_externally_triggered {
             true => info!(logger, "{}", log_message),
             false => debug!(logger, "{}", log_message),
