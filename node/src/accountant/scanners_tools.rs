@@ -381,8 +381,10 @@ mod tests {
     fn payable_above_threshold_values_is_marked_qualified_and_returns_threshold() {
         let now = SystemTime::now();
         let payment_thresholds = PaymentThresholds::default();
-        let debt = payment_thresholds.permanent_debt_allowed_gwei + 1_000_000_000;
-        let time = to_time_t(now) - payment_thresholds.maturity_threshold_sec - 1;
+        let debt = payment_thresholds.debt_threshold_gwei - 1;
+        let time = payment_thresholds.maturity_threshold_sec
+            + payment_thresholds.threshold_interval_sec
+            - 1;
         let payment_thresholds_rc = Rc::new(payment_thresholds);
         let qualified_payable = PayableAccount {
             wallet: make_wallet("wallet0"),
