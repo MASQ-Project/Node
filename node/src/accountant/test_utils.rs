@@ -889,8 +889,10 @@ impl PendingPayableDaoFactoryMock {
     }
 }
 
-impl Default for PayableScanner {
-    fn default() -> Self {
+pub type PayableScannerBuilder = PayableScanner;
+
+impl Default for PayableScannerBuilder {
+    fn default() -> PayableScanner {
         PayableScanner::new(
             Box::new(PayableDaoMock::new()),
             Box::new(PendingPayableDaoMock::new()),
@@ -899,7 +901,7 @@ impl Default for PayableScanner {
     }
 }
 
-impl PayableScanner {
+impl PayableScannerBuilder {
     pub fn payable_dao(mut self, payable_dao: PayableDaoMock) -> Self {
         self.payable_dao = Box::new(payable_dao);
         self
@@ -911,8 +913,10 @@ impl PayableScanner {
     }
 }
 
-impl Default for PendingPayableScanner {
-    fn default() -> Self {
+pub type PendingPayableScannerBuilder = PendingPayableScanner;
+
+impl Default for PendingPayableScannerBuilder {
+    fn default() -> PendingPayableScanner {
         PendingPayableScanner::new(
             Box::new(PayableDaoMock::new()),
             Box::new(PendingPayableDaoMock::new()),
@@ -923,7 +927,7 @@ impl Default for PendingPayableScanner {
     }
 }
 
-impl PendingPayableScanner {
+impl PendingPayableScannerBuilder {
     pub fn payable_dao(mut self, payable_dao: PayableDaoMock) -> Self {
         self.payable_dao = Box::new(payable_dao);
         self
@@ -935,8 +939,10 @@ impl PendingPayableScanner {
     }
 }
 
-impl Default for ReceivableScanner {
-    fn default() -> Self {
+pub type ReceivableScannerBuilder = ReceivableScanner;
+
+impl Default for ReceivableScannerBuilder {
+    fn default() -> ReceivableScanner {
         ReceivableScanner::new(
             Box::new(ReceivableDaoMock::new()),
             Box::new(BannedDaoMock::new()),
@@ -947,7 +953,7 @@ impl Default for ReceivableScanner {
     }
 }
 
-impl ReceivableScanner {
+impl ReceivableScannerBuilder {
     pub fn receivable_dao(mut self, receivable_dao: ReceivableDaoMock) -> Self {
         self.receivable_dao = Box::new(receivable_dao);
         self

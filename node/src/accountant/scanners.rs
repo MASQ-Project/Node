@@ -873,8 +873,9 @@ mod tests {
     use crate::accountant::test_utils::{
         make_custom_payment_thresholds, make_payables, make_pending_payable_fingerprint,
         make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, PayableDaoFactoryMock,
-        PayableDaoMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
-        ReceivableDaoFactoryMock, ReceivableDaoMock,
+        PayableDaoMock, PayableScannerBuilder, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
+        PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock,
+        ReceivableScannerBuilder,
     };
     use crate::accountant::{
         PendingPayableId, PendingTransactionStatus, ReceivedPayments, ReportTransactionReceipts,
@@ -998,7 +999,7 @@ mod tests {
             make_payables(now, &PaymentThresholds::default());
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
-        let mut subject = PayableScanner::default().payable_dao(payable_dao);
+        let mut subject = PayableScannerBuilder::default().payable_dao(payable_dao);
 
         let result = subject.begin_scan(now, None, &Logger::new(test_name));
 
@@ -1026,7 +1027,7 @@ mod tests {
         let (_, _, all_non_pending_payables) = make_payables(now, &PaymentThresholds::default());
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
-        let mut subject = PayableScanner::default().payable_dao(payable_dao);
+        let mut subject = PayableScannerBuilder::default().payable_dao(payable_dao);
         let _result = subject.begin_scan(now, None, &Logger::new("test"));
 
         let run_again_result = subject.begin_scan(SystemTime::now(), None, &Logger::new("test"));
@@ -1046,7 +1047,7 @@ mod tests {
             make_payables(now, &PaymentThresholds::default());
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(unqualified_payable_accounts);
-        let mut subject = PayableScanner::default().payable_dao(payable_dao);
+        let mut subject = PayableScannerBuilder::default().payable_dao(payable_dao);
 
         let result = subject.begin_scan(now, None, &Logger::new("test"));
 
@@ -1065,7 +1066,7 @@ mod tests {
         let payable = Payable::new(make_wallet("booga"), 6789, payment_hash, now);
         let payable_dao = PayableDaoMock::new().mark_pending_payable_rowid_result(Ok(()));
         let pending_payable_dao = PendingPayableDaoMock::default().fingerprint_rowid_result(None);
-        let mut subject = PayableScanner::default()
+        let mut subject = PayableScannerBuilder::default()
             .payable_dao(payable_dao)
             .pending_payable_dao(pending_payable_dao);
         let sent_payable = SentPayable {
@@ -1100,7 +1101,7 @@ mod tests {
             .delete_fingerprint_result(Err(PendingPayableDaoError::RecordDeletion(
                 "we slept over, sorry".to_string(),
             )));
-        let mut subject = PayableScanner::default().pending_payable_dao(pending_payable_dao);
+        let mut subject = PayableScannerBuilder::default().pending_payable_dao(pending_payable_dao);
 
         let _ = subject.finish_scan(sent_payable, &Logger::new("test"));
     }
@@ -1121,7 +1122,7 @@ mod tests {
             .mark_pending_payable_rowid_result(Err(PayableDaoError::SignConversion(9999999999999)));
         let pending_payable_dao =
             PendingPayableDaoMock::default().fingerprint_rowid_result(Some(7879));
-        let mut subject = PayableScanner::default()
+        let mut subject = PayableScannerBuilder::default()
             .payable_dao(payable_dao)
             .pending_payable_dao(pending_payable_dao);
         let sent_payable = SentPayable {
@@ -1157,7 +1158,7 @@ mod tests {
         let pending_payable_dao = PendingPayableDaoMock::default()
             .fingerprint_rowid_params(&fingerprint_rowid_params_arc)
             .fingerprint_rowid_result(Some(payable_2_rowid));
-        let mut subject = PayableScanner::default()
+        let mut subject = PayableScannerBuilder::default()
             .payable_dao(payable_dao)
             .pending_payable_dao(pending_payable_dao);
         subject.mark_as_started(SystemTime::now());
@@ -1208,7 +1209,7 @@ mod tests {
         let pending_payable_dao =
             PendingPayableDaoMock::new().return_all_fingerprints_result(fingerprints.clone());
         let mut pending_payable_scanner =
-            PendingPayableScanner::default().pending_payable_dao(pending_payable_dao);
+            PendingPayableScannerBuilder::default().pending_payable_dao(pending_payable_dao);
 
         let result = pending_payable_scanner.begin_scan(now, None, &Logger::new(test_name));
 
@@ -1244,7 +1245,8 @@ mod tests {
                     process_error: None,
                 },
             ]);
-        let mut subject = PendingPayableScanner::default().pending_payable_dao(pending_payable_dao);
+        let mut subject =
+            PendingPayableScannerBuilder::default().pending_payable_dao(pending_payable_dao);
         let _ = subject.begin_scan(now, None, &Logger::new("test"));
 
         let result = subject.begin_scan(SystemTime::now(), None, &Logger::new("test"));
@@ -1260,7 +1262,7 @@ mod tests {
         let pending_payable_dao =
             PendingPayableDaoMock::new().return_all_fingerprints_result(vec![]);
         let mut pending_payable_scanner =
-            PendingPayableScanner::default().pending_payable_dao(pending_payable_dao);
+            PendingPayableScannerBuilder::default().pending_payable_dao(pending_payable_dao);
 
         let result = pending_payable_scanner.begin_scan(now, None, &Logger::new("test"));
 
@@ -1279,7 +1281,7 @@ mod tests {
         let tx_receipt = TransactionReceipt::default(); //status defaulted to None
         let when_sent =
             SystemTime::now().sub(Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC + 5)); //old transaction
-        let subject = PendingPayableScanner::default();
+        let subject = PendingPayableScannerBuilder::default();
         let fingerprint = PendingPayableFingerprint {
             rowid_opt: Some(rowid),
             timestamp: when_sent,
@@ -1311,7 +1313,7 @@ mod tests {
     fn interpret_transaction_receipt_when_transaction_status_is_none_and_within_waiting_interval() {
         init_test_logging();
         let test_name = "interpret_transaction_receipt_when_transaction_status_is_none_and_within_waiting_interval";
-        let subject = PendingPayableScanner::default();
+        let subject = PendingPayableScannerBuilder::default();
         let hash = H256::from_uint(&U256::from(567));
         let rowid = 466;
         let tx_receipt = TransactionReceipt::default(); //status defaulted to None
@@ -1351,7 +1353,7 @@ mod tests {
         tx_receipt.status = Some(U64::from(456));
         let mut fingerprint = make_pending_payable_fingerprint();
         fingerprint.hash = H256::from_uint(&U256::from(123));
-        let subject = PendingPayableScanner::default();
+        let subject = PendingPayableScannerBuilder::default();
 
         let _ =
             subject.interpret_transaction_receipt(&tx_receipt, &fingerprint, &Logger::new("test"));
@@ -1361,7 +1363,7 @@ mod tests {
     fn interpret_transaction_receipt_when_transaction_status_is_a_failure() {
         init_test_logging();
         let test_name = "interpret_transaction_receipt_when_transaction_status_is_a_failure";
-        let subject = PendingPayableScanner::default();
+        let subject = PendingPayableScannerBuilder::default();
         let mut tx_receipt = TransactionReceipt::default();
         tx_receipt.status = Some(U64::from(0)); //failure
         let hash = H256::from_uint(&U256::from(4567));
@@ -1397,7 +1399,7 @@ mod tests {
     fn handle_pending_tx_handles_none_returned_for_transaction_receipt() {
         init_test_logging();
         let test_name = "handle_pending_tx_handles_none_returned_for_transaction_receipt";
-        let subject = PendingPayableScanner::default();
+        let subject = PendingPayableScannerBuilder::default();
         let tx_receipt_opt = None;
         let rowid = 455;
         let hash = H256::from_uint(&U256::from(2323));
@@ -1438,7 +1440,8 @@ mod tests {
         let pending_payable_dao = PendingPayableDaoMock::default()
             .update_fingerprint_params(&update_after_cycle_params_arc)
             .update_fingerprint_results(Ok(()));
-        let subject = PendingPayableScanner::default().pending_payable_dao(pending_payable_dao);
+        let subject =
+            PendingPayableScannerBuilder::default().pending_payable_dao(pending_payable_dao);
         let transaction_id = PendingPayableId { hash, rowid };
 
         subject.update_payable_fingerprint(transaction_id, &Logger::new("test"));
@@ -1457,7 +1460,8 @@ mod tests {
         let pending_payable_dao = PendingPayableDaoMock::default().update_fingerprint_results(Err(
             PendingPayableDaoError::UpdateFailed("yeah, bad".to_string()),
         ));
-        let subject = PendingPayableScanner::default().pending_payable_dao(pending_payable_dao);
+        let subject =
+            PendingPayableScannerBuilder::default().pending_payable_dao(pending_payable_dao);
         let transaction_id = PendingPayableId { hash, rowid };
 
         subject.update_payable_fingerprint(transaction_id, &Logger::new("test"));
@@ -1471,7 +1475,8 @@ mod tests {
         let pending_payable_dao = PendingPayableDaoMock::default()
             .mark_failure_params(&mark_failure_params_arc)
             .mark_failure_result(Ok(()));
-        let subject = PendingPayableScanner::default().pending_payable_dao(pending_payable_dao);
+        let subject =
+            PendingPayableScannerBuilder::default().pending_payable_dao(pending_payable_dao);
         let tx_hash = H256::from("sometransactionhash".keccak256());
         let rowid = 2;
         let transaction_id = PendingPayableId {
@@ -1501,7 +1506,7 @@ mod tests {
         let pending_payable_dao = PendingPayableDaoMock::default().mark_failure_result(Err(
             PendingPayableDaoError::UpdateFailed("no no no".to_string()),
         ));
-        let subject = PendingPayableScanner::default()
+        let subject = PendingPayableScannerBuilder::default()
             .payable_dao(payable_dao)
             .pending_payable_dao(pending_payable_dao);
         let rowid = 2;
@@ -1525,7 +1530,7 @@ mod tests {
                 "the database is fooling around with us".to_string(),
             ),
         ));
-        let mut subject = PendingPayableScanner::default()
+        let mut subject = PendingPayableScannerBuilder::default()
             .payable_dao(payable_dao)
             .pending_payable_dao(pending_payable_dao);
         let mut pending_payable_fingerprint = make_pending_payable_fingerprint();
@@ -1547,7 +1552,7 @@ mod tests {
         let pending_payable_dao = PendingPayableDaoMock::default()
             .delete_fingerprint_params(&delete_pending_payable_fingerprint_params_arc)
             .delete_fingerprint_result(Ok(()));
-        let mut subject = PendingPayableScanner::default()
+        let mut subject = PendingPayableScannerBuilder::default()
             .payable_dao(payable_dao)
             .pending_payable_dao(pending_payable_dao);
         let tx_hash = H256::from("sometransactionhash".keccak256());
@@ -1609,7 +1614,7 @@ mod tests {
             .transaction_confirmed_result(Ok(()));
         let pending_payable_dao =
             PendingPayableDaoMock::default().delete_fingerprint_result(Ok(()));
-        let mut subject = PendingPayableScanner::default()
+        let mut subject = PendingPayableScannerBuilder::default()
             .payable_dao(payable_dao)
             .pending_payable_dao(pending_payable_dao);
         let mut financial_statistics = subject.financial_statistics.borrow().clone();
@@ -1635,7 +1640,7 @@ mod tests {
         let payable_dao = PayableDaoMock::new().transaction_confirmed_result(Err(
             PayableDaoError::RusqliteError("record change not successful".to_string()),
         ));
-        let mut subject = PendingPayableScanner::default().payable_dao(payable_dao);
+        let mut subject = PendingPayableScannerBuilder::default().payable_dao(payable_dao);
         let mut fingerprint = make_pending_payable_fingerprint();
         fingerprint.rowid_opt = Some(rowid);
         fingerprint.hash = hash;
@@ -1655,7 +1660,7 @@ mod tests {
         let pending_payable_dao = PendingPayableDaoMock::new()
             .delete_fingerprint_result(Ok(()))
             .delete_fingerprint_result(Ok(()));
-        let mut subject = PendingPayableScanner::default()
+        let mut subject = PendingPayableScannerBuilder::default()
             .payable_dao(payable_dao)
             .pending_payable_dao(pending_payable_dao);
         let transaction_hash_1 = H256::from_uint(&U256::from(4545));
@@ -1718,7 +1723,7 @@ mod tests {
         init_test_logging();
         let test_name =
             "pending_payable_scanner_handles_report_transaction_receipts_message_with_empty_vector";
-        let mut subject = PendingPayableScanner::default();
+        let mut subject = PendingPayableScannerBuilder::default();
         let msg = ReportTransactionReceipts {
             fingerprints_with_receipts: vec![],
             response_skeleton_opt: None,
@@ -1748,7 +1753,7 @@ mod tests {
             .new_delinquencies_result(vec![])
             .paid_delinquencies_result(vec![]);
         let earning_wallet = make_wallet("earning");
-        let mut receivable_scanner = ReceivableScanner::default()
+        let mut receivable_scanner = ReceivableScannerBuilder::default()
             .receivable_dao(receivable_dao)
             .earning_wallet(earning_wallet.clone());
 
@@ -1775,7 +1780,7 @@ mod tests {
             .new_delinquencies_result(vec![])
             .paid_delinquencies_result(vec![]);
         let earning_wallet = make_wallet("earning");
-        let mut receivable_scanner = ReceivableScanner::default()
+        let mut receivable_scanner = ReceivableScannerBuilder::default()
             .receivable_dao(receivable_dao)
             .earning_wallet(earning_wallet.clone());
         let _ = receivable_scanner.begin_scan(now, None, &Logger::new("test"));
@@ -1808,7 +1813,7 @@ mod tests {
             .ban_list_result(vec![])
             .ban_parameters(&ban_parameters_arc)
             .unban_parameters(&unban_parameters_arc);
-        let mut receivable_scanner = ReceivableScanner::default()
+        let mut receivable_scanner = ReceivableScannerBuilder::default()
             .receivable_dao(receivable_dao)
             .banned_dao(banned_dao)
             .payment_thresholds(payment_thresholds.clone());
@@ -1862,7 +1867,7 @@ mod tests {
     fn receivable_scanner_aborts_scan_if_no_payments_were_supplied() {
         init_test_logging();
         let test_name = "receivable_scanner_aborts_scan_if_no_payments_were_supplied";
-        let mut subject = ReceivableScanner::default();
+        let mut subject = ReceivableScannerBuilder::default();
         let msg = ReceivedPayments {
             timestamp: SystemTime::now(),
             payments: vec![],
@@ -1886,7 +1891,7 @@ mod tests {
         let receivable_dao = ReceivableDaoMock::new()
             .more_money_received_parameters(&more_money_received_params_arc)
             .more_money_receivable_result(Ok(()));
-        let mut subject = ReceivableScanner::default().receivable_dao(receivable_dao);
+        let mut subject = ReceivableScannerBuilder::default().receivable_dao(receivable_dao);
         let mut financial_statistics = subject.financial_statistics.borrow().clone();
         financial_statistics.total_paid_receivable += 2222;
         subject.financial_statistics.replace(financial_statistics);
