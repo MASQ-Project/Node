@@ -3,7 +3,6 @@ use crate::accountant::unsigned_to_signed;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{connection_or_panic, DbInitializerReal};
 use crate::database::db_migrations::MigratorConfig;
-use masq_lib::utils::ExpectValue;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 use std::time::SystemTime;

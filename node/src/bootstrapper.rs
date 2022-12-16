@@ -1,4 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactoryToolsReal};
@@ -327,7 +328,7 @@ pub struct BootstrapperConfig {
     pub dns_servers: Vec<SocketAddr>,
     pub scan_intervals_opt: Option<ScanIntervals>,
     pub suppress_initial_scans_opt: Option<bool>,
-    pub when_pending_too_long_opt: Option<u64>,
+    pub when_pending_too_long: u64,
     pub crash_point: CrashPoint,
     pub clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     pub ui_gateway_config: UiGatewayConfig,
@@ -390,7 +391,7 @@ impl BootstrapperConfig {
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop,
             },
-            when_pending_too_long_opt: None,
+            when_pending_too_long: DEFAULT_PENDING_TOO_LONG_SEC,
         }
     }
 
@@ -407,7 +408,7 @@ impl BootstrapperConfig {
         self.scan_intervals_opt = unprivileged.scan_intervals_opt;
         self.suppress_initial_scans_opt = unprivileged.suppress_initial_scans_opt;
         self.payment_thresholds_opt = unprivileged.payment_thresholds_opt;
-        self.when_pending_too_long_opt = unprivileged.when_pending_too_long_opt;
+        self.when_pending_too_long = unprivileged.when_pending_too_long;
     }
 
     pub fn exit_service_rate(&self) -> u64 {
@@ -1233,7 +1234,7 @@ mod tests {
         unprivileged_config.db_password_opt = db_password_opt.clone();
         unprivileged_config.scan_intervals_opt = Some(ScanIntervals::default());
         unprivileged_config.suppress_initial_scans_opt = Some(false);
-        unprivileged_config.when_pending_too_long_opt = Some(DEFAULT_PENDING_TOO_LONG_SEC);
+        unprivileged_config.when_pending_too_long = DEFAULT_PENDING_TOO_LONG_SEC;
 
         privileged_config.merge_unprivileged(unprivileged_config);
 
@@ -1259,8 +1260,8 @@ mod tests {
         );
         assert_eq!(privileged_config.suppress_initial_scans_opt, Some(false));
         assert_eq!(
-            privileged_config.when_pending_too_long_opt,
-            Some(DEFAULT_PENDING_TOO_LONG_SEC)
+            privileged_config.when_pending_too_long,
+            DEFAULT_PENDING_TOO_LONG_SEC
         );
         //some values from the privileged config
         assert_eq!(privileged_config.log_level, Off);

@@ -17,7 +17,7 @@ use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use crate::accountant::payable_dao::{Payable, PayableDaoError};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDaoError;
-use crate::accountant::scanners::{BeginScanError, NotifyLaterForScanners, Scanners};
+use crate::accountant::scanners::{NotifyLaterForScanners, Scanners};
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
 use crate::bootstrapper::BootstrapperConfig;
@@ -376,13 +376,9 @@ impl Accountant {
             .take()
             .expectv("Payment thresholds");
         let scan_intervals = config.scan_intervals_opt.take().expectv("Scan Intervals");
-        let when_pending_too_long_sec = config
-            .when_pending_too_long_opt
-            .take()
-            .expectv("When pending too long sec");
-
         let earning_wallet = Rc::new(config.earning_wallet.clone());
         let financial_statistics = Rc::new(RefCell::new(FinancialStatistics::default()));
+
         Accountant {
             scan_intervals,
             suppress_initial_scans_opt: config.suppress_initial_scans_opt,
@@ -395,7 +391,7 @@ impl Accountant {
                 dao_factories,
                 Rc::new(payment_thresholds),
                 Rc::clone(&earning_wallet),
-                when_pending_too_long_sec,
+                config.when_pending_too_long,
                 Rc::clone(&financial_statistics),
             ),
             crashable: config.crash_point == CrashPoint::Message,
@@ -790,7 +786,7 @@ mod tests {
 
     use crate::accountant::payable_dao::{PayableAccount, PayableDaoError};
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
-    use crate::accountant::scanners::{NullScanner, ScannerMock};
+    use crate::accountant::scanners::{BeginScanError, NullScanner, ScannerMock};
     use crate::accountant::test_utils::{
         bc_from_earning_wallet, bc_from_wallets, make_payables, BannedDaoFactoryMock,
         MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock,
