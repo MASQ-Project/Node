@@ -1029,7 +1029,7 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             scan_intervals_opt: Some(ScanIntervals::default()),
-            suppress_initial_scans_opt: Some(false),
+            suppress_initial_scans: false,
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -1102,7 +1102,7 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             scan_intervals_opt: None,
-            suppress_initial_scans_opt: None,
+            suppress_initial_scans: false,
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -1401,7 +1401,7 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             scan_intervals_opt: None,
-            suppress_initial_scans_opt: None,
+            suppress_initial_scans: false,
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -1586,7 +1586,7 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             scan_intervals_opt: None,
-            suppress_initial_scans_opt: None,
+            suppress_initial_scans: false,
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {

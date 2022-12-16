@@ -61,7 +61,7 @@ pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
 
 pub struct Accountant {
     scan_intervals: ScanIntervals,
-    suppress_initial_scans_opt: Option<bool>,
+    suppress_initial_scans: bool,
     consuming_wallet: Option<Wallet>,
     earning_wallet: Rc<Wallet>,
     payable_dao: Box<dyn PayableDao>,
@@ -140,11 +140,7 @@ impl Handler<StartMessage> for Accountant {
     type Result = ();
 
     fn handle(&mut self, _msg: StartMessage, ctx: &mut Self::Context) -> Self::Result {
-        let suppress_initial_scans = self
-            .suppress_initial_scans_opt
-            .take()
-            .expect("Can't process StartMessage for Accountant.");
-        if suppress_initial_scans {
+        if self.suppress_initial_scans {
             info!(
                 &self.logger,
                 "Started with --scans off; declining to begin database and blockchain scans"
@@ -381,7 +377,7 @@ impl Accountant {
 
         Accountant {
             scan_intervals,
-            suppress_initial_scans_opt: config.suppress_initial_scans_opt,
+            suppress_initial_scans: config.suppress_initial_scans,
             consuming_wallet: config.consuming_wallet_opt.clone(),
             earning_wallet: Rc::clone(&earning_wallet),
             payable_dao: dao_factories.payable_dao_factory.make(),
@@ -990,7 +986,7 @@ mod tests {
             receivable_scan_interval: Duration::from_millis(10_000),
             pending_payable_scan_interval: Duration::from_secs(100),
         });
-        config.suppress_initial_scans_opt = Some(true);
+        config.suppress_initial_scans = true;
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .build();
@@ -1110,7 +1106,7 @@ mod tests {
     #[test]
     fn scan_pending_payables_request() {
         let mut config = bc_from_earning_wallet(make_wallet("some_wallet_address"));
-        config.suppress_initial_scans_opt = Some(true);
+        config.suppress_initial_scans = true;
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_millis(10_000),
             receivable_scan_interval: Duration::from_millis(10_000),
@@ -1169,7 +1165,7 @@ mod tests {
         init_test_logging();
         let test_name = "scan_request_from_ui_is_handled_in_case_the_scan_is_already_running";
         let mut config = bc_from_earning_wallet(make_wallet("some_wallet_address"));
-        config.suppress_initial_scans_opt = Some(true);
+        config.suppress_initial_scans = true;
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_millis(10_000),
             receivable_scan_interval: Duration::from_millis(10_000),
@@ -1858,7 +1854,7 @@ mod tests {
             receivable_scan_interval: Duration::from_millis(100),
             pending_payable_scan_interval: Duration::from_millis(100),
         });
-        config.suppress_initial_scans_opt = Some(true);
+        config.suppress_initial_scans = true;
         let peer_actors = peer_actors_builder().build();
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
