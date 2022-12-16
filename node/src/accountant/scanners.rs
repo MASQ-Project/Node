@@ -351,10 +351,6 @@ impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingP
         let filtered_pending_payable = self.pending_payable_dao.return_all_fingerprints();
         match filtered_pending_payable.is_empty() {
             true => {
-                // debug!(
-                //     logger,
-                //     "Pending payable scan ended. No pending payable found."
-                // );
                 self.mark_as_ended(logger);
                 Err(BeginScanError::NothingToProcess)
             }
