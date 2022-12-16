@@ -27,7 +27,7 @@ pub fn from_time_t(time_t: i64) -> SystemTime {
 pub struct DaoFactoryReal {
     pub data_directory: PathBuf,
     pub create_if_necessary: bool,
-    pub migrator_config: Option<MigratorConfig>,
+    pub migrator_config: MigratorConfig,
 }
 
 impl DaoFactoryReal {
@@ -39,7 +39,7 @@ impl DaoFactoryReal {
         Self {
             data_directory: data_directory.to_path_buf(),
             create_if_necessary,
-            migrator_config: Some(migrator_config),
+            migrator_config,
         }
     }
 
@@ -48,7 +48,7 @@ impl DaoFactoryReal {
             &DbInitializerReal::default(),
             &self.data_directory,
             self.create_if_necessary,
-            self.migrator_config.clone().expectv("MigratorConfig"),
+            self.migrator_config.clone(),
         )
     }
 }
