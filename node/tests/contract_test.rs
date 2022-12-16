@@ -123,3 +123,11 @@ fn masq_erc20_contract_exists_on_polygon_mainnet_integration() {
 
     assert_contract(blockchain_urls, &chain, "MASQ (PoS)", 18)
 }
+
+#[test]
+fn masq_erc20_contract_exists_on_ethereum_mainnet_integration() {
+    let blockchain_urls = vec!["https://mainnet.infura.io/v3/0ead23143b174f6983c76f69ddcf4026"];
+    let chain = Chain::EthMainnet;
+
+    assert_contract(blockchain_urls, &chain, "MASQ", 18)
+}
