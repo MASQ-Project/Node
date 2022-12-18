@@ -135,7 +135,6 @@ impl TerminalWrapper {
         Self::configure_interface_generic(Box::new(Self::result_wrapper_for_in_memory_terminal))
     }
 
-    #[allow(clippy::unnecessary_wraps)]
     pub fn result_wrapper_for_in_memory_terminal() -> std::io::Result<test_cfg::MemoryTerminal> {
         Ok(test_cfg::MemoryTerminal::new())
     }

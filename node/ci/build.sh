@@ -6,7 +6,7 @@ pushd "$CI_DIR/.."
 if [[ "$1" == "clear" ]]; then
   sudo chmod -R 777 target
 fi
-cargo build --all --lib --bins --release --verbose --features "masq_lib/no_test_share automap/no_test_share"
+cargo build --all --lib --bins --release --verbose --features "no_test_share masq_lib/no_test_share automap/no_test_share"
 if [[ "$1" == "clear" ]]; then
   sudo chmod -R 777 target
 fi

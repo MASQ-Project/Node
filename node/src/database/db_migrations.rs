@@ -11,7 +11,7 @@ use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
-#[cfg(test)]
+#[cfg(any(test, not(feature = "no_test_share")))]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
 use rusqlite::{Error, Transaction};
@@ -634,7 +634,7 @@ impl MigratorConfig {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, not(feature = "no_test_share")))]
     pub fn test_default() -> Self {
         Self {
             should_be_suppressed: Suppression::Yes,
