@@ -109,12 +109,19 @@ impl Handler<BindMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: BindMessage, ctx: &mut Self::Context) -> Self::Result {
+        let peer_addrs = self
+            .overall_connection_status
+            .progress
+            .iter()
+            .map(|connection_progress| connection_progress.current_peer_addr)
+            .collect::<Vec<IpAddr>>();
         ctx.set_mailbox_capacity(NODE_MAILBOX_CAPACITY);
         self.hopper_opt = Some(msg.peer_actors.hopper.from_hopper_client);
         self.hopper_no_lookup_opt = Some(msg.peer_actors.hopper.from_hopper_client_no_lookup);
         self.connected_signal_opt = Some(msg.peer_actors.accountant.start);
         self.gossip_acceptor_opt = Some(Box::new(GossipAcceptorReal::new(
             self.cryptde,
+            peer_addrs,
             msg.peer_actors.neighborhood.connection_progress_sub,
         )));
         self.gossip_producer_opt = Some(Box::new(GossipProducerReal::new()));

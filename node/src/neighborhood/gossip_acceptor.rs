@@ -566,9 +566,14 @@ impl GossipHandler for PassHandler {
 }
 
 impl PassHandler {
-    fn new() -> PassHandler {
+    fn new(peer_addrs: Vec<IpAddr>) -> PassHandler {
+        let now = SystemTime::now();
+        let mut hashmap = HashMap::new();
+        for peer_addr in peer_addrs {
+            hashmap.insert(peer_addr, now);
+        }
         PassHandler {
-            previous_pass_targets: RefCell::new(Default::default()),
+            previous_pass_targets: RefCell::new(hashmap),
         }
     }
 }
@@ -1247,13 +1252,14 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
 impl<'a> GossipAcceptorReal<'a> {
     pub fn new(
         cryptde: &'a dyn CryptDE,
+        peer_addrs: Vec<IpAddr>,
         cpm_recipient: Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptorReal {
         let logger = Logger::new("GossipAcceptor");
         GossipAcceptorReal {
             gossip_handlers: vec![
                 Box::new(DebutHandler::new(logger.clone())),
-                Box::new(PassHandler::new()),
+                Box::new(PassHandler::new(peer_addrs)),
                 Box::new(IntroductionHandler::new(logger.clone())),
                 Box::new(StandardGossipHandler::new(logger.clone())),
                 Box::new(RejectHandler::new()),
@@ -1307,7 +1313,7 @@ mod tests {
     use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage};
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::neighborhood_test_utils::{
-        db_from_node, make_meaningless_db, make_node_record, make_node_record_f,
+        db_from_node, make_ip, make_meaningless_db, make_node_record, make_node_record_f,
     };
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
@@ -1593,7 +1599,7 @@ mod tests {
     #[test]
     fn proper_pass_is_identified_and_processed() {
         let (gossip, pass_target, gossip_source) = make_pass(2345);
-        let subject = PassHandler::new();
+        let subject = PassHandler::new(vec![]);
         let mut dest_db = make_meaningless_db();
         let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
@@ -1623,10 +1629,47 @@ mod tests {
     }
 
     #[test]
+    fn pass_handler_constructs_previous_pass_targets_with_initial_peer_addrs() {
+        let peer_1 = make_ip(1);
+        let peer_2 = make_ip(2);
+        let peer_3 = make_ip(3);
+        let initial_peers = vec![peer_1, peer_2, peer_3];
+
+        let subject = PassHandler::new(initial_peers.clone());
+
+        assert!(subject.previous_pass_targets.borrow().contains_key(&peer_1));
+        assert!(subject.previous_pass_targets.borrow().contains_key(&peer_2));
+        assert!(subject.previous_pass_targets.borrow().contains_key(&peer_3));
+    }
+
+    #[test]
+    fn pass_handler_rejects_the_gossip_that_passes_a_node_which_was_one_of_the_initial_peer() {
+        let (gossip, pass_target, gossip_source) = make_pass(4242);
+        let initial_peer_ip = pass_target.metadata.node_addr_opt.unwrap().ip_addr();
+        let subject = PassHandler::new(vec![initial_peer_ip]);
+        let mut dest_db = make_meaningless_db();
+        let cryptde = CryptDENull::from(dest_db.root().public_key(), TEST_DEFAULT_CHAIN);
+        let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+        let (cpm_recipient, _) = make_cpm_recipient();
+
+        let qualifies_result = subject.qualifies(&dest_db, agrs_vec.as_slice(), gossip_source);
+        let handle_result = subject.handle(
+            &cryptde,
+            &mut dest_db,
+            agrs_vec,
+            gossip_source,
+            &cpm_recipient,
+        );
+
+        assert_eq!(qualifies_result, Qualification::Matched);
+        assert_eq!(handle_result, GossipAcceptanceResult::Ignored);
+    }
+
+    #[test]
     fn pass_without_node_addr_is_rejected() {
         let (mut gossip, _, gossip_source) = make_pass(2345);
         gossip.node_records[0].node_addr_opt = None;
-        let subject = PassHandler::new();
+        let subject = PassHandler::new(vec![]);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
         let result = subject.qualifies(&make_meaningless_db(), agrs_vec.as_slice(), gossip_source);
@@ -1644,7 +1687,7 @@ mod tests {
         let (mut gossip, _, gossip_source) = make_pass(2345);
         gossip.node_records[0].node_addr_opt =
             Some(NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[]));
-        let subject = PassHandler::new();
+        let subject = PassHandler::new(vec![]);
         let agrs_vec: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
         let result = subject.qualifies(&make_meaningless_db(), agrs_vec.as_slice(), gossip_source);
@@ -3279,7 +3322,7 @@ mod tests {
 
     #[test]
     fn pass_handler_is_constructed_properly() {
-        let pass_handler = PassHandler::new();
+        let pass_handler = PassHandler::new(vec![]);
 
         assert_eq!(
             pass_handler,
@@ -3318,7 +3361,7 @@ mod tests {
         let cryptde = main_cryptde();
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
-        let subject = PassHandler::new();
+        let subject = PassHandler::new(vec![]);
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let system = System::new("handles_a_new_pass_target");
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
@@ -3363,7 +3406,7 @@ mod tests {
         let cryptde = main_cryptde();
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
-        let subject = PassHandler::new();
+        let subject = PassHandler::new(vec![]);
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let pass_target_ip_addr = pass_target.node_addr_opt().unwrap().ip_addr();
         subject.previous_pass_targets.borrow_mut().insert(
@@ -3408,7 +3451,7 @@ mod tests {
         let cryptde = main_cryptde();
         let root_node = make_node_record(1234, true);
         let mut db = db_from_node(&root_node);
-        let subject = PassHandler::new();
+        let subject = PassHandler::new(vec![]);
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
         let pass_target_ip_addr = pass_target.node_addr_opt().unwrap().ip_addr();
@@ -4068,7 +4111,7 @@ mod tests {
         let (neighborhood, _, _) = make_recorder();
         let addr = neighborhood.start();
         let recipient = addr.recipient::<ConnectionProgressMessage>();
-        GossipAcceptorReal::new(crypt_de, recipient)
+        GossipAcceptorReal::new(crypt_de, vec![], recipient)
     }
 
     fn assert_node_records_eq(
