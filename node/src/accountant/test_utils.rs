@@ -2,8 +2,6 @@
 
 #![cfg(test)]
 
-use crate::accountant::big_int_db_processor::KnownKeyVariants::TestKey;
-use crate::accountant::big_int_db_processor::{ExtendedParamsMarker, KnownKeyVariants};
 use crate::accountant::dao_utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
@@ -67,14 +65,6 @@ pub fn make_payable_account_with_recipient_and_balance_and_timestamp_opt(
         balance_wei: balance,
         last_paid_timestamp: timestamp_opt.unwrap_or(SystemTime::now()),
         pending_payable_opt: None,
-    }
-}
-
-pub fn test_database_key<'a>(val: &'a dyn ExtendedParamsMarker) -> KnownKeyVariants<'a> {
-    TestKey {
-        var_name: "name",
-        sub_name: ":name",
-        val,
     }
 }
 
