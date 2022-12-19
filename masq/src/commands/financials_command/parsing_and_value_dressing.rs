@@ -126,7 +126,7 @@ pub(in crate::commands::financials_command) mod visibility_restricted {
     pub fn split_time_range(range: &str) -> (&str, &str) {
         let age_args: Vec<&str> = range.split('-').collect();
         (
-            age_args.get(0).expectv("age min"),
+            age_args.first().expectv("age min"),
             age_args.get(1).expectv("age max"),
         )
     }

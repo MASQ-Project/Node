@@ -3,7 +3,7 @@
 pub(in crate::commands::financials_command) mod visibility_restricted {
     use masq_lib::messages::{CustomQueries, RangeQuery};
 
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Eq)]
     pub struct CustomQueryInput {
         pub query: CustomQueries,
         pub users_payable_format_opt: Option<UserOriginalTypingOfRanges>,

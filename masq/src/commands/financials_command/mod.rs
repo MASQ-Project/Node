@@ -32,13 +32,12 @@ use masq_lib::messages::{
 use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
 use num::CheckedMul;
-use regex::{Regex, Split};
 use std::fmt::{Debug, Display};
 use std::io::Write;
 use std::num::ParseIntError;
 use std::str::FromStr;
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct FinancialsCommand {
     stats_required: bool,
     gwei_precision: bool,
@@ -330,6 +329,7 @@ mod tests {
     };
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::utils::array_of_borrows_to_vec;
+    use regex::Regex;
     use std::sync::{Arc, Mutex};
 
     fn meaningless_financials_response() -> MessageBody {
