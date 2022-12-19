@@ -495,6 +495,13 @@ impl BigIntDivider {
         (num & 0x7FFFFFFFFFFFFFFFi128) as i64
     }
 
+    pub fn reconstitute(high_bytes: i64, low_bytes: i64) -> i128 {
+        Self::forbidden_low_bytes_negativity_check(low_bytes);
+        let low_bytes = low_bytes as i128;
+        let high_bytes = high_bytes as i128;
+        (high_bytes << 63) | low_bytes
+    }
+
     fn deconstruct_range_check(num: i128) {
         let top_two_bits = num >> 126 & 0b11;
         if top_two_bits == 0b01 {
@@ -502,13 +509,6 @@ impl BigIntDivider {
         } else if top_two_bits == 0b10 {
             panic!("Dividing big integer for special database storage: {:#X} is too small, minimally 0xC0000000000000000000000000000000 allowed",num)
         }
-    }
-
-    pub fn reconstitute(high_bytes: i64, low_bytes: i64) -> i128 {
-        Self::forbidden_low_bytes_negativity_check(low_bytes);
-        let low_bytes = low_bytes as i128;
-        let high_bytes = high_bytes as i128;
-        (high_bytes << 63) | low_bytes
     }
 
     fn forbidden_low_bytes_negativity_check(low_bytes: i64) {

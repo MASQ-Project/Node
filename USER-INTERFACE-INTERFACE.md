@@ -677,7 +677,7 @@ searching over; this is the lower limit for the debt's age, or how long it has b
 `maxAgeS` is measured in seconds before the present time and sets a constraint for the accounts we will be
 searching over; this is the upper limit for the debt's age, or how long it has been since the last payment.
 
-`minBalanceGwei` is represented as an amount of gwei. Any records with balance above this value will not be returned.
+`minBalanceGwei` is represented as an amount of gwei. Any records with balance below this value will not be returned.
 
 `maxBalanceGwei` is represented as an amount of gwei. Any records with balance above this value will not be returned.
 

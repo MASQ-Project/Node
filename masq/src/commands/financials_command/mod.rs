@@ -1,44 +1,42 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+pub mod args_validation;
+pub mod data_structures;
+pub mod parsing_and_value_dressing;
+pub mod pretty_print_utils;
+#[cfg(test)]
+pub mod test_utils;
+
 use crate::command_context::CommandContext;
 use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
-use clap::{App, Arg, ArgGroup, ArgMatches, SubCommand};
-use masq_lib::constants::{MASQ_TOTAL_SUPPLY, WEIS_OF_GWEI};
+use crate::commands::financials_command::args_validation::financials_subcommand;
+use crate::commands::financials_command::data_structures::visibility_restricted::{
+    CustomQueryInput, ProcessAccountsMetadata, RangeQueryInput, UserOriginalTypingOfRanges,
+};
+use crate::commands::financials_command::parsing_and_value_dressing::visibility_restricted::{
+    parse_masq_range_to_gwei, parse_time_params, split_time_range,
+};
+use crate::commands::financials_command::pretty_print_utils::visibility_restricted::process_gwei_into_requested_format;
+use crate::commands::financials_command::pretty_print_utils::visibility_restricted::{
+    financial_status_totals_title, main_title_for_tops_opt, no_records_found, prepare_metadata,
+    render_accounts_generic, subtitle_for_tops, title_for_custom_query,
+    triple_or_single_blank_line, StringValuesFormattableAccount,
+};
+use clap::ArgMatches;
 use masq_lib::messages::{
     CustomQueries, QueryResults, RangeQuery, TopRecordsConfig, UiFinancialStatistics,
-    UiFinancialsRequest, UiFinancialsResponse, UiPayableAccount, UiReceivableAccount,
+    UiFinancialsRequest, UiFinancialsResponse,
 };
-use masq_lib::shared_schema::common_validators::validate_non_zero_u16;
 use masq_lib::short_writeln;
 use masq_lib::utils::ExpectValue;
 use num::CheckedMul;
-use regex::{Captures, Regex};
-use std::any::type_name;
-use std::collections::VecDeque;
-use std::default::Default;
+use regex::{Regex, Split};
 use std::fmt::{Debug, Display};
 use std::io::Write;
-use std::num::{IntErrorKind, ParseIntError};
+use std::num::ParseIntError;
 use std::str::FromStr;
-use thousands::Separable;
-
-const FINANCIALS_SUBCOMMAND_ABOUT: &str =
-    "Displays financial statistics of this Node. Only valid if Node is already running.";
-const TOP_ARG_HELP: &str = "Fetches the top N records (or fewer) from both payable and receivable. The default order is decreasing by balance, but can be changed with the additional '--ordered' argument.";
-const PAYABLE_ARG_HELP: &str = "Enables querying payable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired gwei precision). \
- The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1). If this \
-  parameter is being set in the non-interactive mode, the value needs to be enclosed in quotes (single or double).";
-const RECEIVABLE_ARG_HELP: &str = "Enables querying receivable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired gwei precision). \
- The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1). If this \
-  parameter is being set in the non-interactive mode, the value needs to be enclosed in quotes (single or double).";
-const NO_STATS_ARG_HELP: &str = "Disables statistics that display by default, containing totals of paid and unpaid money from the perspective of debtors and creditors. This argument is not accepted alone and must be placed \
- before other arguments.";
-const GWEI_HELP: &str =
-    "Orders money values rendering in gwei of MASQ instead of whole MASQs as the default.";
-const ORDERED_HELP: &str = "Determines in what ordering the top records will be returned. This option works only with the '--top' argument.";
-const WALLET_ADDRESS_LENGTH: usize = 42;
 
 #[derive(Debug, PartialEq)]
 pub struct FinancialsCommand {
@@ -46,102 +44,6 @@ pub struct FinancialsCommand {
     gwei_precision: bool,
     top_records_opt: Option<TopRecordsConfig>,
     custom_queries_opt: Option<CustomQueryInput>,
-}
-
-#[derive(Debug, PartialEq)]
-struct CustomQueryInput {
-    query: CustomQueries,
-    users_payable_format_opt: Option<UserOriginalTypingOfRanges>,
-    users_receivable_format_opt: Option<UserOriginalTypingOfRanges>,
-}
-
-type UserOriginalTypingOfRanges = ((String, String), (String, String));
-
-pub fn financials_subcommand() -> App<'static, 'static> {
-    SubCommand::with_name("financials")
-        .about(FINANCIALS_SUBCOMMAND_ABOUT)
-        .arg(
-            Arg::with_name("top")
-                .help(TOP_ARG_HELP)
-                .value_name("TOP")
-                .long("top")
-                .short("t")
-                .required(false)
-                .case_insensitive(false)
-                .takes_value(true)
-                .validator(validate_non_zero_u16),
-        )
-        .arg(
-            Arg::with_name("payable")
-                .help(PAYABLE_ARG_HELP)
-                .value_name("PAYABLE")
-                .long("payable")
-                .short("p")
-                .required(false)
-                .case_insensitive(false)
-                .takes_value(true)
-                .validator(validate_two_ranges::<u64>),
-        )
-        .arg(
-            Arg::with_name("receivable")
-                .help(RECEIVABLE_ARG_HELP)
-                .value_name("RECEIVABLE")
-                .long("receivable")
-                .short("r")
-                .required(false)
-                .case_insensitive(false)
-                .takes_value(true)
-                .validator(validate_two_ranges::<i64>),
-        )
-        .arg(
-            Arg::with_name("no-stats")
-                .help(NO_STATS_ARG_HELP)
-                .value_name("NO-STATS")
-                .long("no-stats")
-                .short("n")
-                .case_insensitive(false)
-                .takes_value(false)
-                .required(false),
-        )
-        .arg(
-            Arg::with_name("gwei")
-                .help(GWEI_HELP)
-                .value_name("GWEI")
-                .long("gwei")
-                .short("g")
-                .case_insensitive(false)
-                .takes_value(false)
-                .required(false),
-        )
-        .arg(
-            Arg::with_name("ordered")
-                .help(ORDERED_HELP)
-                .value_name("ORDERED")
-                .long("ordered")
-                .short("o")
-                .case_insensitive(false)
-                .default_value_if("top", None, "balance")
-                .possible_values(&["balance", "age"])
-                .required(false),
-        )
-        .groups(&[
-            ArgGroup::with_name("at_least_one_query")
-                .args(&["receivable", "payable", "top"])
-                .multiple(true),
-            ArgGroup::with_name("no-stats-requirement-group")
-                .arg("no-stats")
-                .requires("at_least_one_query"),
-            ArgGroup::with_name("custom-queries")
-                .args(&["payable", "receivable"])
-                .multiple(true),
-            ArgGroup::with_name("top-records-conflicts")
-                .args(&["top"])
-                .conflicts_with("custom-queries")
-                .requires("ordered"),
-            ArgGroup::with_name("ordered-conflicts")
-                .arg("ordered")
-                .conflicts_with("custom-queries"),
-        ])
 }
 
 impl Command for FinancialsCommand {
@@ -170,15 +72,10 @@ macro_rules! dump_statistics_lines {
        $(dump_parameter_line(
                 $stdout,
                 $parameter_name,
-                &Self::process_gwei_into_requested_format($stats.$gwei, $gwei_flag),
+                &process_gwei_into_requested_format($stats.$gwei, $gwei_flag),
             )
        );+
     }
-}
-
-struct RangeQueryInputs<T> {
-    num_values: RangeQuery<T>,
-    captured_literal_input: UserOriginalTypingOfRanges,
 }
 
 impl FinancialsCommand {
@@ -225,7 +122,7 @@ impl FinancialsCommand {
         stats: &UiFinancialStatistics,
         gwei_flag: bool,
     ) {
-        Self::financial_status_totals_title(stdout, gwei_flag);
+        financial_status_totals_title(stdout, gwei_flag);
         dump_statistics_lines!(
             stats,
             "Unpaid and pending payable:",
@@ -249,10 +146,10 @@ impl FinancialsCommand {
         gwei_flag: bool,
     ) {
         let is_both_sets = self.are_both_sets_to_be_displayed();
-        let (payable_metadata, receivable_metadata) = Self::prepare_metadata(gwei_flag);
+        let (payable_metadata, receivable_metadata) = prepare_metadata(gwei_flag);
 
-        Self::triple_or_single_blank_line(stdout, is_first_printed_thing);
-        self.main_title_for_tops_opt(stdout);
+        triple_or_single_blank_line(stdout, is_first_printed_thing);
+        main_title_for_tops_opt(self, stdout);
         self.process_returned_records_in_requested_mode(
             returned_records.payable_opt,
             stdout,
@@ -260,7 +157,7 @@ impl FinancialsCommand {
             |custom_query_input| &custom_query_input.users_payable_format_opt,
         );
         if is_both_sets {
-            Self::triple_or_single_blank_line(stdout, false)
+            triple_or_single_blank_line(stdout, false)
         }
         self.process_returned_records_in_requested_mode(
             returned_records.receivable_opt,
@@ -268,6 +165,16 @@ impl FinancialsCommand {
             receivable_metadata,
             |custom_query_input| &custom_query_input.users_receivable_format_opt,
         );
+    }
+
+    fn are_both_sets_to_be_displayed(&self) -> bool {
+        self.top_records_opt.is_some()
+            || (if let Some(custom_queries) = self.custom_queries_opt.as_ref() {
+                custom_queries.users_payable_format_opt.is_some()
+                    && custom_queries.users_receivable_format_opt.is_some()
+            } else {
+                false
+            })
     }
 
     fn process_returned_records_in_requested_mode<A>(
@@ -280,33 +187,23 @@ impl FinancialsCommand {
         A: StringValuesFormattableAccount,
     {
         if self.top_records_opt.is_some() {
-            self.subtitle_for_tops(stdout, metadata.table_type);
+            subtitle_for_tops(stdout, metadata.table_type);
             let accounts = returned_records_opt.expectv(metadata.table_type);
             if !accounts.is_empty() {
-                self.render_accounts_generic(stdout, accounts, &metadata.headings);
+                render_accounts_generic(stdout, accounts, &metadata.headings);
             } else {
-                Self::no_records_found(stdout, metadata.headings.words.as_slice())
+                no_records_found(stdout, metadata.headings.words.as_slice())
             }
         } else if let Some(custom_queries) = self.custom_queries_opt.as_ref() {
             if let Some(user_range_format) = user_range_format_fetcher(custom_queries) {
-                Self::title_for_custom_query(stdout, metadata.table_type, user_range_format);
+                title_for_custom_query(stdout, metadata.table_type, user_range_format);
                 if let Some(accounts) = returned_records_opt {
-                    self.render_accounts_generic(stdout, accounts, &metadata.headings)
+                    render_accounts_generic(stdout, accounts, &metadata.headings)
                 } else {
-                    Self::no_records_found(stdout, metadata.headings.words.as_slice())
+                    no_records_found(stdout, metadata.headings.words.as_slice())
                 }
             }
         }
-    }
-
-    fn are_both_sets_to_be_displayed(&self) -> bool {
-        self.top_records_opt.is_some()
-            || (if let Some(custom_queries) = self.custom_queries_opt.as_ref() {
-                custom_queries.users_payable_format_opt.is_some()
-                    && custom_queries.users_receivable_format_opt.is_some()
-            } else {
-                false
-            })
     }
 
     fn parse_top_records_args(matches: &ArgMatches) -> Option<TopRecordsConfig> {
@@ -324,15 +221,15 @@ impl FinancialsCommand {
 
     fn parse_custom_query_args(matches: &ArgMatches) -> Option<CustomQueryInput> {
         fn decompose_optional_inputs<N>(
-            composed_parameters_opt: Option<RangeQueryInputs<N>>,
+            composed_parameters_opt: Option<RangeQueryInput<N>>,
         ) -> (Option<RangeQuery<N>>, Option<UserOriginalTypingOfRanges>) {
             composed_parameters_opt
                 .map(|inputs| (Some(inputs.num_values), Some(inputs.captured_literal_input)))
                 .unwrap_or_default()
         }
         fn handle_inputs_for_custom_query(
-            payable_range_inputs_opt: Option<RangeQueryInputs<u64>>,
-            receivable_range_inputs_opt: Option<RangeQueryInputs<i64>>,
+            payable_range_inputs_opt: Option<RangeQueryInput<u64>>,
+            receivable_range_inputs_opt: Option<RangeQueryInput<i64>>,
         ) -> Option<CustomQueryInput> {
             {
                 let (payable_opt, users_payable_format_opt) =
@@ -353,8 +250,8 @@ impl FinancialsCommand {
         }
 
         match (
-            Self::parse_range_query_arg::<u64>(matches, "payable"),
-            Self::parse_range_query_arg::<i64>(matches, "receivable"),
+            Self::parse_range_for_query::<u64>(matches, "payable"),
+            Self::parse_range_for_query::<i64>(matches, "receivable"),
         ) {
             (None, None) => None,
             (payable_range_inputs_opt, receivable_range_inputs_opt) => {
@@ -366,10 +263,10 @@ impl FinancialsCommand {
         }
     }
 
-    fn parse_range_query_arg<'a, N>(
+    fn parse_range_for_query<'a, N>(
         matches: &'a ArgMatches,
         parameter_name: &'a str,
-    ) -> Option<RangeQueryInputs<N>>
+    ) -> Option<RangeQueryInput<N>>
     where
         N: FromStr<Err = ParseIntError> + TryFrom<i64> + TryFrom<u64> + CheckedMul + Display + Copy,
         i64: TryFrom<N>,
@@ -377,609 +274,43 @@ impl FinancialsCommand {
         <N as TryFrom<i64>>::Error: Debug,
         <i64 as TryFrom<N>>::Error: Debug,
     {
-        let parse_params =
-            |time_range: &[&str], money_range: &str| -> ((u64, u64), (N, N, String, String)) {
-                (
-                    Self::parse_time_params(time_range).expect("blew up after validation"),
-                    Self::parse_masq_range_to_gwei(money_range).expect("blew up after validation"),
-                )
-            };
+        let parse_params = |age_min: &str,
+                            age_max: &str,
+                            money_range: &str|
+         -> ((u64, u64), (N, N, String, String)) {
+            (
+                parse_time_params(age_min, age_max).expect("blew up after validation"),
+                parse_masq_range_to_gwei(money_range).expect("blew up after validation"),
+            )
+        };
 
         matches.value_of(parameter_name).map(|pair_of_ranges| {
             //already after thoroughfare Clap validation
             let mut separated_ranges = pair_of_ranges.split('|');
-            let time_range = separated_ranges
-                .next()
-                .expectv("first range")
-                .split('-')
-                .collect::<Vec<&str>>();
+            let (min_age_str, max_age_str) =
+                split_time_range(separated_ranges.next().expectv("first range"));
             let (
                 (min_age, max_age),
-                (min_amount_num, max_amount_num, min_amount_str, max_amount_str),
-            ) = parse_params(&time_range, separated_ranges.next().expectv("second range"));
+                (min_balance_num, max_balance_num, min_balance_str, max_balance_str),
+            ) = parse_params(
+                min_age_str,
+                max_age_str,
+                separated_ranges.next().expectv("second range"),
+            );
 
-            RangeQueryInputs {
+            RangeQueryInput {
                 num_values: RangeQuery {
                     min_age_s: min_age,
                     max_age_s: max_age,
-                    min_amount_gwei: min_amount_num,
-                    max_amount_gwei: max_amount_num,
+                    min_amount_gwei: min_balance_num,
+                    max_amount_gwei: max_balance_num,
                 },
                 captured_literal_input: (
-                    (time_range[0].to_string(), time_range[1].to_string()),
-                    (min_amount_str, max_amount_str),
+                    (min_age_str.to_string(), max_age_str.to_string()),
+                    (min_balance_str, max_balance_str),
                 ),
             }
         })
-    }
-
-    fn gwei_or_masq_balance(is_gwei: bool) -> String {
-        format!("Balance {}", Self::gwei_or_masq_units(is_gwei))
-    }
-
-    fn gwei_or_masq_units(is_gwei: bool) -> &'static str {
-        if is_gwei {
-            "[gwei]"
-        } else {
-            "[MASQ]"
-        }
-    }
-
-    fn prepare_metadata(is_gwei: bool) -> (ProcessAccountsMetadata, ProcessAccountsMetadata) {
-        let (payable_headings, receivable_headings) = Self::prepare_headings_of_records(is_gwei);
-        (
-            ProcessAccountsMetadata {
-                table_type: "payable",
-                headings: payable_headings,
-            },
-            ProcessAccountsMetadata {
-                table_type: "receivable",
-                headings: receivable_headings,
-            },
-        )
-    }
-
-    fn prepare_headings_of_records(is_gwei: bool) -> (HeadingsHolder, HeadingsHolder) {
-        fn to_owned_strings(words: Vec<&str>) -> Vec<String> {
-            words.iter().map(|str| str.to_string()).collect()
-        }
-        let balance = Self::gwei_or_masq_balance(is_gwei);
-        (
-            HeadingsHolder {
-                words: to_owned_strings(vec!["#", "Wallet", "Age [s]", &balance, "Pending tx"]),
-                is_gwei,
-            },
-            HeadingsHolder {
-                words: to_owned_strings(vec!["#", "Wallet", "Age [s]", &balance]),
-                is_gwei,
-            },
-        )
-    }
-
-    fn process_gwei_into_requested_format<N>(gwei: N, should_stay_gwei: bool) -> String
-    where
-        N: From<u32> + Separable + Display,
-        i64: TryFrom<N>,
-        <i64 as TryFrom<N>>::Error: Debug,
-    {
-        if should_stay_gwei {
-            gwei.separate_with_commas()
-        } else {
-            let gwei_as_i64 = i64::try_from(gwei)
-                .expect("Clap validation failed: value bigger than i64::MAX is forbidden");
-            Self::convert_masq_from_gwei_and_dress_well(gwei_as_i64)
-        }
-    }
-
-    fn convert_masq_from_gwei_and_dress_well(balance_gwei: i64) -> String {
-        const MASK_FOR_NON_SIGNIFICANT_DIGITS: i64 = 10_000_000;
-        let balance_masq_int = (balance_gwei / WEIS_OF_GWEI as i64).abs();
-        let balance_masq_frac = (balance_gwei % WEIS_OF_GWEI as i64).abs();
-        let balance_masq_frac_trunc = balance_masq_frac / MASK_FOR_NON_SIGNIFICANT_DIGITS;
-        match (
-            (balance_masq_int == 0) && (balance_masq_frac_trunc == 0),
-            balance_gwei >= 0,
-        ) {
-            (true, true) => "< 0.01".to_string(),
-            (true, false) => "-0.01 < x < 0".to_string(),
-            _ => {
-                format!(
-                    "{}{}.{:0>2}",
-                    if balance_gwei < 0 { "-" } else { "" },
-                    balance_masq_int.separate_with_commas(),
-                    balance_masq_frac_trunc
-                )
-            }
-        }
-    }
-
-    fn financial_status_totals_title(stdout: &mut dyn Write, is_gwei: bool) {
-        short_writeln!(
-            stdout,
-            "\nFinancial status totals in {}\n",
-            &Self::gwei_or_masq_balance(is_gwei)[9..13]
-        );
-    }
-
-    fn main_title_for_tops_opt(&self, stdout: &mut dyn Write) {
-        if let Some(tr_config) = self.top_records_opt.as_ref() {
-            short_writeln!(stdout, "Up to {} top accounts\n", tr_config.count)
-        }
-    }
-
-    fn subtitle_for_tops(&self, stdout: &mut dyn Write, account_type: &str) {
-        fn capitalize(name: &str) -> String {
-            let mut letter_iterator = name.chars();
-            let first = letter_iterator
-                .next()
-                .expect("empty string instead of name");
-            first.to_uppercase().chain(letter_iterator).collect()
-        }
-        short_writeln!(stdout, "{}\n", capitalize(account_type))
-    }
-
-    fn title_for_custom_query(
-        stdout: &mut dyn Write,
-        table_type: &str,
-        user_written_ranges: &UserOriginalTypingOfRanges,
-    ) {
-        let (age_range, balance_range) =
-            Self::neaten_users_writing_if_possible(user_written_ranges);
-        short_writeln!(
-            stdout,
-            "Specific {} query: {} sec {} MASQ\n",
-            table_type,
-            age_range,
-            balance_range
-        )
-    }
-
-    fn neaten_users_writing_if_possible(
-        user_ranges: &UserOriginalTypingOfRanges,
-    ) -> (String, String) {
-        fn collect_captured_parts_of_a_number(captures: Captures) -> [Option<String>; 3] {
-            let fetch_group = |idx: usize| -> Option<String> {
-                FinancialsCommand::single_capture(&captures, idx)
-            };
-            [fetch_group(1), fetch_group(2), fetch_group(3)]
-        }
-        fn assemble_string_segments_into_single_number(strings: [Option<String>; 3]) -> String {
-            strings.into_iter().flatten().collect()
-        }
-        fn assemble_age_and_balance_string_ranges(
-            mut numbers: VecDeque<String>,
-        ) -> (String, String) {
-            if numbers.get(3).expectv("fourth element").is_empty() {
-                //meaning the 4th limit deliberately omitted by the user
-                numbers[3] = "UNLIMITED".to_string()
-            };
-            let mut pop = || numbers.pop_front();
-            (
-                format!("{}-{}", pop().expectv("age min"), pop().expectv("age max")),
-                format!(
-                    "{}-{}",
-                    pop().expectv("balance min"),
-                    pop().expectv("balance max")
-                ),
-            )
-        }
-
-        //the 4th capture group is inactivated by ?:
-        let simplifying_extractor =
-            Regex::new(r#"^(-?)0*(\d+)(?:(\.\d*[1-9])0*$|\.0|$)"#).expect("wrong regex");
-        let apply_care = |cached_user_input: &str| -> [Option<String>; 3] {
-            simplifying_extractor
-                .captures(cached_user_input)
-                .map(collect_captured_parts_of_a_number)
-                .unwrap_or_else(
-                    || panic!("Broken code: value must have been present during a check but yet wrong: {}", cached_user_input)
-                )
-        };
-        let ((time_min, time_max), (amount_min, amount_max)) = user_ranges;
-        let vec_of_possibly_corrected_values = [
-            apply_care(time_min),
-            apply_care(time_max),
-            apply_care(amount_min),
-            if amount_max.is_empty() {
-                Default::default()
-            } else {
-                apply_care(amount_max)
-            },
-        ]
-        .into_iter()
-        .map(assemble_string_segments_into_single_number)
-        .collect::<VecDeque<String>>();
-        assemble_age_and_balance_string_ranges(vec_of_possibly_corrected_values)
-    }
-
-    fn triple_or_single_blank_line(stdout: &mut dyn Write, leading_dump: bool) {
-        if leading_dump {
-            short_writeln!(stdout)
-        } else {
-            short_writeln!(stdout, "\n\n")
-        }
-    }
-
-    fn no_records_found(stdout: &mut dyn Write, headings: &[String]) {
-        let mut headings_widths = Self::widths_of_str_values(headings);
-        headings_widths[1] = WALLET_ADDRESS_LENGTH;
-        Self::write_column_formatted(stdout, &Self::zip_them(headings, &headings_widths));
-        short_writeln!(stdout, "\nNo records found",)
-    }
-
-    fn width_precise_calculation(
-        headings: &HeadingsHolder,
-        values_of_accounts: &[Vec<String>],
-    ) -> Vec<usize> {
-        let headings_widths = Self::widths_of_str_values(headings.words.as_slice());
-        let values_widths = Self::figure_out_max_widths(values_of_accounts);
-        Self::yield_bigger_values_from_vecs(headings_widths, &values_widths)
-    }
-
-    fn widths_of_str_values<T: AsRef<str>>(headings: &[T]) -> Vec<usize> {
-        headings
-            .iter()
-            .map(|phrase| phrase.as_ref().len())
-            .collect()
-    }
-
-    fn render_accounts_generic<A: StringValuesFormattableAccount>(
-        &self,
-        stdout: &mut dyn Write,
-        accounts: Vec<A>,
-        headings: &HeadingsHolder,
-    ) {
-        let preformatted_subset = &accounts
-            .iter()
-            .enumerate()
-            .map(|(idx, account)| account.convert_to_strings(idx + 1, headings.is_gwei))
-            .collect::<Vec<_>>();
-        let optimal_widths = Self::width_precise_calculation(headings, preformatted_subset);
-        let headings_and_widths = &Self::zip_them(headings.words.as_slice(), &optimal_widths);
-        Self::write_column_formatted(stdout, headings_and_widths);
-        preformatted_subset.iter().for_each(|account| {
-            let zipped_inputs = Self::zip_them(account, &optimal_widths);
-            Self::write_column_formatted(stdout, &zipped_inputs);
-        });
-    }
-
-    fn zip_them<'a>(
-        words: &'a [String],
-        optimal_widths: &'a [usize],
-    ) -> Vec<(&'a String, &'a usize)> {
-        words.iter().zip(optimal_widths.iter()).collect()
-    }
-
-    fn write_column_formatted(
-        stdout: &mut dyn Write,
-        account_segments_values_as_strings_and_widths: &[(&String, &usize)],
-    ) {
-        let column_count = account_segments_values_as_strings_and_widths.len();
-        account_segments_values_as_strings_and_widths
-            .iter()
-            .enumerate()
-            .for_each(|(idx, (value, optimal_width))| {
-                write!(
-                    stdout,
-                    "{:<width$}{:gap$}",
-                    value,
-                    "",
-                    width = optimal_width,
-                    gap = if idx + 1 == column_count { 0 } else { 3 }
-                )
-                .expect("write failed")
-            });
-        short_writeln!(stdout, "")
-    }
-
-    fn figure_out_max_widths(values_of_accounts: &[Vec<String>]) -> Vec<usize> {
-        //two-dimensional set of strings; measuring their lengths and saving the largest value for each column
-        //the first value (ordinal number) and the second (wallet) are processed specifically, in shortcut
-        let init = vec![0_usize; values_of_accounts[0].len() - 2];
-        let widths_except_ordinal_num = values_of_accounts.iter().fold(init, |acc, record| {
-            Self::yield_bigger_values_from_vecs(acc, &Self::widths_of_str_values(record)[2..])
-        });
-        let mut result = vec![
-            (values_of_accounts.len() as f64).log10() as usize + 1,
-            WALLET_ADDRESS_LENGTH,
-        ];
-        result.extend(widths_except_ordinal_num);
-        result
-    }
-
-    fn yield_bigger_values_from_vecs(first: Vec<usize>, second: &[usize]) -> Vec<usize> {
-        (0..first.len()).fold(vec![], |mut acc, idx| {
-            acc.push(first[idx].max(second[idx]));
-            acc
-        })
-    }
-
-    fn parse_integer_within_limits<N>(str_gwei: &str) -> Result<N, String>
-    where
-        N: FromStr<Err = ParseIntError> + Copy + TryFrom<u64>,
-        u64: TryFrom<N>,
-    {
-        fn error_msg<N: Separable>(
-            gwei: &str,
-            lower_expected_limit: N,
-            higher_expected_limit: N,
-        ) -> String {
-            let numbers = [
-                &gwei as &dyn Separable,
-                &lower_expected_limit,
-                &higher_expected_limit,
-            ]
-            .into_iter()
-            .map(|value| value.separate_with_commas())
-            .collect::<Vec<String>>();
-            format!(
-                "Supplied value of {} gwei overflows the tech limits. You probably want one between {} and {} MASQ", numbers[0], numbers[1], numbers[2]
-            )
-        }
-        let handle_parsing_error = |str_gwei: &str, e: ParseIntError| -> String {
-            let minus_sign_regex = Regex::new(r#"\s*-\s*\d+"#).expect("bad regex");
-            match (e.kind(), minus_sign_regex.is_match(str_gwei)) {
-                (IntErrorKind::NegOverflow | IntErrorKind::PosOverflow, _) => {
-                    if type_name::<N>() == type_name::<u64>() {
-                        error_msg(str_gwei, 0, MASQ_TOTAL_SUPPLY)
-                    } else {
-                        error_msg(
-                            str_gwei,
-                            -(MASQ_TOTAL_SUPPLY as i64),
-                            MASQ_TOTAL_SUPPLY as i64,
-                        )
-                    }
-                }
-                (IntErrorKind::InvalidDigit, true) if type_name::<N>() == type_name::<u64>() => {
-                    error_msg(str_gwei, 0, MASQ_TOTAL_SUPPLY)
-                }
-                _ => format!(
-                    "Non numeric value '{}', it must be a valid integer",
-                    str_gwei
-                ),
-            }
-        };
-
-        match str::parse::<N>(str_gwei) {
-            Ok(int) => match u64::try_from(int) {
-                Ok(int_as_u64) => {
-                    if int_as_u64 <= i64::MAX as u64 {
-                        Ok(int)
-                    } else {
-                        Err(error_msg(str_gwei, 0, MASQ_TOTAL_SUPPLY))
-                    }
-                }
-                Err(_) => {
-                    //This error can only signalize a negative number
-                    //because we always expect N to be u64 or i64
-                    Ok(int)
-                }
-            },
-            Err(e) => Err(handle_parsing_error(str_gwei, e)),
-        }
-    }
-
-    fn parse_time_params(time_range: &[&str]) -> Result<(u64, u64), String> {
-        Ok((
-            Self::parse_integer_within_limits(time_range[0])?,
-            Self::parse_integer_within_limits(time_range[1])?,
-        ))
-    }
-
-    fn single_capture(captures: &Captures, idx: usize) -> Option<String> {
-        captures.get(idx).map(|catch| catch.as_str().to_owned())
-    }
-
-    fn extract_individual_masq_values(
-        masq_in_range_str: &str,
-        masq_values_in_range_regex: Regex,
-    ) -> Result<(String, Option<String>), String> {
-        fn handle_captures(captures: Captures) -> (Option<String>, Option<String>) {
-            let fetch_group = |idx: usize| FinancialsCommand::single_capture(&captures, idx);
-            match (fetch_group(2), fetch_group(3)) {
-                (Some(second), Some(third)) => (Some(second), Some(third)),
-                (None, None) => {
-                    let four = fetch_group(4).expect("the regex is wrong if it allows this panic");
-                    (Some(four), None)
-                }
-                (x, y) => {
-                    unreachable!(
-                        "the regex was designed not to allow '{:?}' for the second and \
-                     '{:?}' for the third capture group",
-                        x, y
-                    )
-                }
-            }
-        }
-
-        match masq_values_in_range_regex
-            .captures(masq_in_range_str)
-            .map(handle_captures)
-        {
-            Some((Some(first), Some(second))) => Ok((first, Some(second))),
-            Some((Some(first), None)) => Ok((first, None)),
-            _ => Err(format!(
-                "Balance range '{}' in improper format",
-                masq_in_range_str
-            )),
-        }
-    }
-
-    fn parse_masq_range_to_gwei<N>(range: &str) -> Result<(N, N, String, String), String>
-    where
-        N: FromStr<Err = ParseIntError> + TryFrom<i64> + TryFrom<u64> + CheckedMul + Display + Copy,
-        i64: TryFrom<N>,
-        u64: TryFrom<N>,
-        <N as TryFrom<i64>>::Error: Debug,
-        <i64 as TryFrom<N>>::Error: Debug,
-    {
-        let regex = Regex::new(r#"^((-?\d+\.?\d*)\s*-\s*(-?\d+\.?\d*))|(-?\d+\.?\d*)$"#)
-            .expect("wrong regex");
-        let (first, second_opt) = Self::extract_individual_masq_values(range, regex)?;
-        let first_numeral = Self::process_optionally_fractional_number(&first)?;
-        let second_numeral = if let Some(second) = second_opt.as_ref() {
-            Self::process_optionally_fractional_number(second)?
-        } else {
-            N::try_from(i64::MAX).expect("must fit in between limits")
-        };
-        Ok((
-            first_numeral,
-            second_numeral,
-            first,
-            second_opt.unwrap_or_default(), //None signifies unlimited bounds
-        ))
-    }
-
-    fn process_optionally_fractional_number<N>(num: &str) -> Result<N, String>
-    where
-        N: FromStr<Err = ParseIntError> + TryFrom<i64> + TryFrom<u64> + CheckedMul + Display + Copy,
-        i64: TryFrom<N>,
-        u64: TryFrom<N>,
-        <N as TryFrom<i64>>::Error: Debug,
-        <i64 as TryFrom<N>>::Error: Debug,
-    {
-        const DIGITS_IN_BILLION: u32 = 9;
-        fn all_digits_with_dot_removed(num: &str) -> String {
-            num.chars().filter(|char| *char != '.').collect()
-        }
-        fn number_of_decimal_digits_unchecked(num: &str, dot_idx: usize) -> u32 {
-            let int_part_plus_dot_length = dot_idx + 1;
-            u32::try_from(num.chars().count() - int_part_plus_dot_length)
-                .expect("previous check of maximally 9 decimal digits failed")
-        }
-        fn decimal_digits_count(num: &str, dot_idx: usize) -> Result<u32, String> {
-            let decimal_digits_count = number_of_decimal_digits_unchecked(num, dot_idx);
-            if decimal_digits_count <= DIGITS_IN_BILLION {
-                Ok(decimal_digits_count)
-            } else {
-                Err(format!("Value '{}' exceeds the limit of maximally nine decimal digits (only gwei supported)", num))
-            }
-        }
-        let decimal_shift_to_wei = |parse_result: N, exponent: u32| {
-            parse_result
-                .checked_mul(&N::try_from(10_i64.pow(exponent)).expect("no fear"))
-                .ok_or_else(|| {
-                    format!(
-                        "Amount bigger than the MASQ total supply: {}, total supply: {}",
-                        num, MASQ_TOTAL_SUPPLY
-                    )
-                })
-        };
-
-        let dot_opt = num.chars().position(|char| char == '.');
-        if let Some(dot_idx) = dot_opt {
-            Self::check_right_dot_usage(num, dot_idx)?;
-            let full_range_of_digits = all_digits_with_dot_removed(num);
-            let all_digits_with_dot_removed_parsed: N =
-                Self::parse_integer_within_limits(&full_range_of_digits)?;
-            let decimal_digits_count = decimal_digits_count(num, dot_idx)?;
-            decimal_shift_to_wei(
-                all_digits_with_dot_removed_parsed,
-                DIGITS_IN_BILLION - decimal_digits_count,
-            )
-        } else {
-            let integer_parsed = Self::parse_integer_within_limits::<N>(num)?;
-            decimal_shift_to_wei(integer_parsed, DIGITS_IN_BILLION)
-        }
-    }
-
-    fn check_right_dot_usage(num: &str, dot_idx: usize) -> Result<(), String> {
-        if dot_idx == (num.len() - 1) {
-            Err(format!(
-                "Ending dot at decimal number, like here '{}', is unsupported",
-                num
-            ))
-        } else if num.chars().filter(|char| *char == '.').count() != 1 {
-            Err(format!("Misused decimal number dot delimiter at '{}'", num))
-        } else {
-            Ok(())
-        }
-    }
-}
-
-struct ProcessAccountsMetadata {
-    table_type: &'static str,
-    headings: HeadingsHolder,
-}
-
-struct HeadingsHolder {
-    words: Vec<String>,
-    is_gwei: bool,
-}
-
-trait StringValuesFormattableAccount {
-    fn convert_to_strings(&self, ordinal_num: usize, is_gwei: bool) -> Vec<String>;
-}
-
-impl StringValuesFormattableAccount for UiPayableAccount {
-    fn convert_to_strings(&self, ordinal_num: usize, is_gwei: bool) -> Vec<String> {
-        vec![
-            ordinal_num.to_string(),
-            self.wallet.to_string(),
-            self.age_s.separate_with_commas(),
-            FinancialsCommand::process_gwei_into_requested_format(self.balance_gwei, is_gwei),
-            if let Some(hash) = &self.pending_payable_hash_opt {
-                hash.to_string()
-            } else {
-                "None".to_string()
-            },
-        ]
-    }
-}
-
-impl StringValuesFormattableAccount for UiReceivableAccount {
-    fn convert_to_strings(&self, ordinal_num: usize, is_gwei: bool) -> Vec<String> {
-        vec![
-            ordinal_num.to_string(),
-            self.wallet.to_string(),
-            self.age_s.separate_with_commas(),
-            FinancialsCommand::process_gwei_into_requested_format(self.balance_gwei, is_gwei),
-        ]
-    }
-}
-
-fn validate_two_ranges<N>(two_ranges: String) -> Result<(), String>
-where
-    N: FromStr<Err = ParseIntError>
-        + TryFrom<i64>
-        + TryFrom<u64>
-        + CheckedMul
-        + Display
-        + Copy
-        + PartialOrd,
-    i64: TryFrom<N>,
-    u64: TryFrom<N>,
-    <N as TryFrom<i64>>::Error: Debug,
-    <i64 as TryFrom<N>>::Error: Debug,
-{
-    fn checked_split<'a>(
-        str: &'a str,
-        delim: char,
-        err_msg_formatter: fn(&'a str) -> String,
-    ) -> Result<Vec<&'a str>, String> {
-        let ranges = str.split(delim).collect::<Vec<&str>>();
-        if ranges.len() != 2 {
-            return Err(err_msg_formatter(str));
-        }
-        Ok(ranges)
-    }
-    let separate_ranges = checked_split(&two_ranges, '|', |wrong_input| {
-        format!("Vertical delimiter | should be used between age and balance ranges and only there. Example: '1234-2345|3456-4567', not '{}'", wrong_input)
-    })?;
-    let time_range = checked_split(separate_ranges[0], '-', |wrong_input| {
-        format!("Age range '{}' is formatted wrong", wrong_input)
-    })?;
-    let (min_age, max_age) = FinancialsCommand::parse_time_params(&time_range)?;
-    let (min_amount, max_amount, _, _): (N, N, _, _) =
-        FinancialsCommand::parse_masq_range_to_gwei(separate_ranges[1])?;
-    //Reasons why only a range input is allowed:
-    //There is no use trying to check an exact age because of its all time moving nature.
-    //The backend engine does the search always with a wei precision while at this end you cannot
-    //pick values more precisely than as 1 gwei, so it's quite impossible to guess an exact value anyway.
-    if min_age >= max_age || min_amount >= max_amount {
-        Err(format!("Both ranges '{}' must be low to high", two_ranges))
-    } else {
-        Ok(())
     }
 }
 
@@ -989,9 +320,10 @@ mod tests {
     use crate::command_context::ContextError::ConnectionDropped;
     use crate::command_factory::{CommandFactory, CommandFactoryError, CommandFactoryReal};
     use crate::commands::commands_common::CommandError::ConnectionProblem;
+    use crate::commands::financials_command::args_validation::financials_subcommand;
+    use crate::commands::financials_command::test_utils::transpose_inputs_to_nested_tuples;
     use crate::test_utils::mocks::CommandContextMock;
     use atty::Stream;
-    use masq_lib::constants::WEIS_OF_GWEI;
     use masq_lib::messages::{
         ToMessageBody, TopRecordsOrdering, UiFinancialStatistics, UiFinancialsResponse,
         UiPayableAccount, UiReceivableAccount,
@@ -999,32 +331,6 @@ mod tests {
     use masq_lib::ui_gateway::MessageBody;
     use masq_lib::utils::array_of_borrows_to_vec;
     use std::sync::{Arc, Mutex};
-
-    #[test]
-    fn constants_have_correct_values() {
-        assert_eq!(
-            FINANCIALS_SUBCOMMAND_ABOUT,
-            "Displays financial statistics of this Node. Only valid if Node is already running."
-        );
-        assert_eq!(
-            TOP_ARG_HELP,
-            "Fetches the top N records (or fewer) from both payable and receivable. The default order is decreasing by balance, but can be changed with the additional '--ordered' argument."
-        );
-        assert_eq!(PAYABLE_ARG_HELP, "Enables querying payable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired gwei precision). \
-            The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1). \
-            If this parameter is being set in the non-interactive mode, the value needs to be enclosed in quotes (single or double).");
-        assert_eq!(RECEIVABLE_ARG_HELP,"Enables querying receivable records by two specified ranges, one for the age in seconds and another for the balance in MASQs (use the decimal notation to achieve the desired gwei precision). \
-            The correct format consists of two ranges separated by | as in the example <MIN-AGE>-<MAX-AGE>|<MIN-BALANCE>-<MAX-BALANCE>. Leaving out <MAX-BALANCE>, including the preceding hyphen, will default to maximum (2^64 - 1). \
-            If this parameter is being set in the non-interactive mode, the value needs to be enclosed in quotes (single or double).");
-        assert_eq!(NO_STATS_ARG_HELP,"Disables statistics that display by default, containing totals of paid and unpaid money from the perspective of debtors and creditors. This argument is not accepted alone and must be placed \
-                    before other arguments.");
-        assert_eq!(
-            GWEI_HELP,
-            "Orders money values rendering in gwei of MASQ instead of whole MASQs as the default."
-        );
-        assert_eq!(ORDERED_HELP, "Determines in what ordering the top records will be returned. This option works only with the '--top' argument.");
-        assert_eq!(WALLET_ADDRESS_LENGTH, 42);
-    }
 
     fn meaningless_financials_response() -> MessageBody {
         UiFinancialsResponse {
@@ -1618,221 +924,6 @@ mod tests {
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
-    #[derive(Clone)]
-    struct TestAccount {
-        a: &'static str,
-        b: &'static str,
-        c: &'static str,
-    }
-
-    impl StringValuesFormattableAccount for TestAccount {
-        fn convert_to_strings(&self, ordinal_num: usize, _gwei: bool) -> Vec<String> {
-            vec![
-                ordinal_num.to_string(),
-                self.a.to_string(),
-                self.b.to_string(),
-                self.c.to_string(),
-            ]
-        }
-    }
-
-    #[test]
-    fn figure_out_max_widths_works() {
-        let mut vec_of_accounts = vec![
-            TestAccount {
-                a: "all",
-                b: "howdy",
-                c: "15489",
-            },
-            TestAccount {
-                a: "whoooooo",
-                b: "the",
-                c: "meow",
-            },
-            TestAccount {
-                a: "ki",
-                b: "",
-                c: "baabaalooo",
-            },
-        ];
-        //filling used to reach an ordinal number with more than just one digit, here three digits
-        vec_of_accounts.append(&mut vec![
-            TestAccount {
-                a: "",
-                b: "",
-                c: ""
-            };
-            100
-        ]);
-        let preformatted_subset = &vec_of_accounts
-            .iter()
-            .enumerate()
-            .map(|(idx, account)| account.convert_to_strings(idx, false))
-            .collect::<Vec<_>>();
-
-        let result = FinancialsCommand::figure_out_max_widths(&preformatted_subset);
-
-        //the first number means number of digits within the biggest ordinal number
-        //the second number is always 42 as the length of wallet address
-        assert_eq!(result, vec![3, 42, 5, 10])
-    }
-
-    fn transpose_inputs_to_nested_tuples(
-        inputs: [&str; 4],
-    ) -> ((String, String), (String, String)) {
-        (
-            (inputs[0].to_string(), inputs[1].to_string()),
-            (inputs[2].to_string(), inputs[3].to_string()),
-        )
-    }
-
-    #[test]
-    fn neaten_users_writing_handles_leading_and_tailing_zeros() {
-        let result = FinancialsCommand::neaten_users_writing_if_possible(
-            &transpose_inputs_to_nested_tuples([
-                "00045656",
-                "0354865.1500000",
-                "000124856",
-                "01561785.3300",
-            ]),
-        );
-
-        assert_eq!(
-            result,
-            (
-                "45656-354865.15".to_string(),
-                "124856-1561785.33".to_string()
-            )
-        )
-    }
-
-    #[test]
-    fn neaten_users_writing_handles_plain_zero_after_the_dot() {
-        let result = FinancialsCommand::neaten_users_writing_if_possible(
-            &transpose_inputs_to_nested_tuples(["45656.0", "354865.0", "124856.0", "1561785.0"]),
-        );
-
-        assert_eq!(
-            result,
-            ("45656-354865".to_string(), "124856-1561785".to_string())
-        )
-    }
-
-    #[test]
-    fn neaten_users_writing_returns_same_thing_if_no_change_needed() {
-        let result = FinancialsCommand::neaten_users_writing_if_possible(
-            &transpose_inputs_to_nested_tuples(["456500", "35481533", "-500", "0.4545"]),
-        );
-
-        assert_eq!(
-            result,
-            ("456500-35481533".to_string(), "-500-0.4545".to_string())
-        )
-    }
-
-    #[test]
-    fn neaten_users_writing_returns_well_formatted_range_for_negative_values() {
-        let result = FinancialsCommand::neaten_users_writing_if_possible(
-            &transpose_inputs_to_nested_tuples(["456500", "35481533", "-500", "-45"]),
-        );
-
-        assert_eq!(
-            result,
-            ("456500-35481533".to_string(), "-500--45".to_string())
-        )
-    }
-
-    #[test]
-    fn neaten_users_writing_treats_zero_followed_decimal_numbers_gently() {
-        let result = FinancialsCommand::neaten_users_writing_if_possible(
-            &transpose_inputs_to_nested_tuples([
-                "0.45545000",
-                "000.333300",
-                "000.00010000",
-                "565.454500",
-            ]),
-        );
-
-        assert_eq!(
-            result,
-            ("0.45545-0.3333".to_string(), "0.0001-565.4545".to_string())
-        )
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Broken code: value must have been present during a check but yet wrong: 0.4554booooga45"
-    )]
-    fn neaten_users_writing_complains_about_leaked_string_with_bad_syntax() {
-        FinancialsCommand::neaten_users_writing_if_possible(&transpose_inputs_to_nested_tuples([
-            "0.4554booooga45",
-            "333300",
-            "0.0001",
-            "565",
-        ]));
-    }
-
-    #[test]
-    fn parse_integer_overflow_indicates_too_big_number_supplied_for_i64() {
-        let err_msg_i64: Result<i64, String> =
-            FinancialsCommand::parse_integer_within_limits(&(i64::MAX as u64 + 1).to_string());
-
-        assert_eq!(err_msg_i64.unwrap_err(), "Supplied value of 9,223,372,036,854,775,808 gwei overflows the tech limits. You probably want one between -37,500,000 and 37,500,000 MASQ");
-
-        let err_msg_i64: Result<i64, String> =
-            FinancialsCommand::parse_integer_within_limits(&(i64::MIN as i128 - 1).to_string());
-
-        assert_eq!(err_msg_i64.unwrap_err(), "Supplied value of -9,223,372,036,854,775,809 gwei overflows the tech limits. You probably want one between -37,500,000 and 37,500,000 MASQ")
-    }
-
-    #[test]
-    fn parse_integer_overflow_indicates_too_big_number_supplied_for_u64() {
-        let err_msg_u64: Result<u64, String> =
-            FinancialsCommand::parse_integer_within_limits(&(i64::MAX as u64 + 1).to_string());
-
-        assert_eq!(err_msg_u64.unwrap_err(), "Supplied value of 9,223,372,036,854,775,808 gwei overflows the tech limits. You probably want one between 0 and 37,500,000 MASQ");
-
-        let err_msg_u64: Result<u64, String> = FinancialsCommand::parse_integer_within_limits("-1");
-
-        assert_eq!(err_msg_u64.unwrap_err(), "Supplied value of -1 gwei overflows the tech limits. You probably want one between 0 and 37,500,000 MASQ")
-    }
-
-    #[test]
-    fn unparsable_u64_but_not_because_of_minus_sign() {
-        let err_msg: Result<u64, String> = FinancialsCommand::parse_integer_within_limits(".1");
-
-        assert_eq!(
-            err_msg.unwrap_err(),
-            "Non numeric value '.1', it must be a valid integer"
-        )
-    }
-
-    #[test]
-    fn u64_detect_minus_sign_error_with_different_white_spaces_around() {
-        ["- 5", "   -8", " - 1"].into_iter().for_each(|example|{
-            let err_msg: Result<u64, String> =
-                FinancialsCommand::parse_integer_within_limits(example);
-            assert_eq!(err_msg.unwrap_err(), format!("Supplied value of {} gwei overflows the tech limits. You probably want one between 0 and 37,500,000 MASQ", example))
-        })
-    }
-
-    #[test]
-    fn i64_interpretation_capabilities_are_good_enough_for_masq_total_supply_in_gwei() {
-        let _: i64 = (MASQ_TOTAL_SUPPLY * WEIS_OF_GWEI as u64)
-            .try_into()
-            .unwrap();
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "entered unreachable code: the regex was designed not to allow 'None' for the second and 'Some(\"ghi\")' for the third capture group"
-    )]
-    fn extract_individual_masq_values_regex_is_wrong() {
-        let regex = Regex::new("(abc)?(def)?(ghi)").unwrap();
-
-        let _ = FinancialsCommand::extract_individual_masq_values("ghi", regex);
-    }
-
     #[test]
     fn are_both_sets_to_be_displayed_works_for_top_records() {
         //top records always print as a pair so it always consists of both sets
@@ -1887,44 +978,6 @@ mod tests {
         let result = subject.are_both_sets_to_be_displayed();
 
         assert_eq!(result, true)
-    }
-
-    #[test]
-    fn convert_masq_from_gwei_and_dress_well_handles_values_smaller_than_one_hundredth_of_masq_and_bigger_than_zero(
-    ) {
-        let gwei: i64 = 9999999;
-
-        let result = FinancialsCommand::convert_masq_from_gwei_and_dress_well(gwei);
-
-        assert_eq!(result, "< 0.01")
-    }
-
-    #[test]
-    fn convert_masq_from_gwei_and_dress_well_handles_values_bigger_than_minus_one_hundredth_of_masq_and_smaller_than_zero(
-    ) {
-        let gwei: i64 = -9999999;
-
-        let result = FinancialsCommand::convert_masq_from_gwei_and_dress_well(gwei);
-
-        assert_eq!(result, "-0.01 < x < 0")
-    }
-
-    #[test]
-    fn convert_masq_from_gwei_and_dress_well_handles_positive_number() {
-        let gwei: i64 = 987654321987654;
-
-        let result = FinancialsCommand::convert_masq_from_gwei_and_dress_well(gwei);
-
-        assert_eq!(result, "987,654.32")
-    }
-
-    #[test]
-    fn convert_masq_from_gwei_and_dress_well_handles_negative_number() {
-        let gwei: i64 = -1234567891234;
-
-        let result = FinancialsCommand::convert_masq_from_gwei_and_dress_well(gwei);
-
-        assert_eq!(result, "-1,234.56")
     }
 
     fn response_with_stats_and_either_top_records_or_top_queries(
@@ -2018,7 +1071,7 @@ mod tests {
             )]
         );
         assert_eq!(stdout_arc.lock().unwrap().get_string(),
-            "\
+                   "\
                 \n\
                 Financial status totals in MASQ\n\
                 \n\
@@ -2095,7 +1148,7 @@ mod tests {
             )]
         );
         assert_eq!(stdout_arc.lock().unwrap().get_string(),
-            "\
+                   "\
                 \n\
                 Financial status totals in MASQ\n\
                 \n\
@@ -2118,7 +1171,7 @@ mod tests {
                 #   Wallet                                       Age [s]   Balance [MASQ]\n\
                 \n\
                 No records found\n"
-            );
+        );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
@@ -2154,7 +1207,7 @@ mod tests {
             )]
         );
         assert_eq!(stdout_arc.lock().unwrap().get_string(),
-            "\
+                   "\
                 \n\
                 Financial status totals in gwei\n\
                 \n\
@@ -2180,7 +1233,7 @@ mod tests {
                 #   Wallet                                       Age [s]   Balance [gwei]   \n\
                 1   0x6e250504DdfFDb986C4F0bb8Df162503B4118b05   22,000    2,444,533,124,512\n\
                 2   0x8bA50675e590b545D2128905b89039256Eaa24F6   19,000    -328,123,256,546 \n"
-            );
+        );
         assert_eq!(stderr_arc.lock().unwrap().get_string(), String::new());
     }
 
@@ -2324,7 +1377,7 @@ mod tests {
             )]
         );
         assert_eq!(stdout_arc.lock().unwrap().get_string(),
-           "\n\
+                   "\n\
             Specific payable query: 0-350000 sec 5-UNLIMITED MASQ\n\
             \n\
             #   Wallet                                       Age [s]   Balance [MASQ]   Pending tx                                                        \n\
@@ -2574,7 +1627,7 @@ mod tests {
         );
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
-               "\n\
+            "\n\
                 Up to 7 top accounts\n\
                 \n\
                 Payable\n\
@@ -2665,7 +1718,7 @@ mod tests {
         );
         assert_eq!(
             stdout_arc.lock().unwrap().get_string(),
-               "\n\
+            "\n\
                 Specific payable query: 3000-40000 sec 88-1000 MASQ\n\
                 \n\
                 #   Wallet                                       Age [s]     Balance [MASQ]   Pending tx                                                        \n\
@@ -2785,151 +1838,5 @@ mod tests {
             stderr_arc.lock().unwrap().get_string(),
             "Financials retrieval failed: ConnectionProblem(\"Booga\")\n"
         );
-    }
-
-    #[test]
-    fn validate_two_ranges_also_integers_are_acceptable_for_masqs_range() {
-        let result = validate_two_ranges::<i64>("454-2000|2000-30000".to_string());
-
-        assert_eq!(result, Ok(()))
-    }
-
-    #[test]
-    fn validate_two_ranges_one_side_negative_range_is_acceptable_for_masqs_range() {
-        let result = validate_two_ranges::<i64>("454-2000|-2000-30000".to_string());
-
-        assert_eq!(result, Ok(()))
-    }
-
-    #[test]
-    fn validate_two_ranges_both_side_negative_range_is_acceptable_for_masqs_range() {
-        let result = validate_two_ranges::<i64>("454-2000|-2000--1000".to_string());
-
-        assert_eq!(result, Ok(()))
-    }
-
-    #[test]
-    fn validate_two_ranges_with_decimal_part_longer_than_the_whole_gwei_range() {
-        let result = validate_two_ranges::<i64>("454-2000|100-1000.000111222333".to_string());
-
-        assert_eq!(result, Err("Value '1000.000111222333' exceeds the limit of maximally nine decimal digits (only gwei supported)".to_string()))
-    }
-
-    #[test]
-    fn validate_two_ranges_with_decimal_part_fully_used_up() {
-        let result = validate_two_ranges::<i64>("454-2000|100-1000.000111222".to_string());
-
-        assert_eq!(result, Ok(()))
-    }
-
-    #[test]
-    fn validate_two_ranges_with_misused_central_delimiter() {
-        let result = validate_two_ranges::<i64>("45-500545-006".to_string());
-
-        assert_eq!(
-            result,
-            Err("Vertical delimiter | should be used between age and balance ranges and only there. \
-             Example: '1234-2345|3456-4567', not '45-500545-006'".to_string())
-        )
-    }
-
-    #[test]
-    fn validate_two_ranges_with_misused_range_delimiter() {
-        let result = validate_two_ranges::<i64>("45+500|545+006".to_string());
-
-        assert_eq!(
-            result,
-            Err("Age range '45+500' is formatted wrong".to_string())
-        )
-    }
-
-    #[test]
-    fn validate_two_ranges_second_value_smaller_than_the_first_for_time() {
-        let result = validate_two_ranges::<u64>("4545-2000|20000.0-30000.0".to_string());
-
-        assert_eq!(
-            result,
-            Err("Both ranges '4545-2000|20000.0-30000.0' must be low to high".to_string())
-        )
-    }
-
-    #[test]
-    fn validate_two_ranges_both_values_the_same_for_time() {
-        let result = validate_two_ranges::<i64>("2000-2000|20000.0-30000.0".to_string());
-
-        assert_eq!(
-            result,
-            Err("Both ranges '2000-2000|20000.0-30000.0' must be low to high".to_string())
-        )
-    }
-
-    #[test]
-    fn validate_two_ranges_both_values_the_same_for_masqs() {
-        let result = validate_two_ranges::<i64>("1000-2000|20000.0-20000.0".to_string());
-
-        assert_eq!(
-            result,
-            Err("Both ranges '1000-2000|20000.0-20000.0' must be low to high".to_string())
-        )
-    }
-
-    #[test]
-    fn validate_two_ranges_second_value_smaller_than_the_first_for_masqs_but_not_in_decimals() {
-        let result = validate_two_ranges::<i64>("2000-4545|30.0-27.0".to_string());
-
-        assert_eq!(
-            result,
-            Err("Both ranges '2000-4545|30.0-27.0' must be low to high".to_string())
-        )
-    }
-
-    #[test]
-    fn validate_two_ranges_second_value_smaller_than_the_first_for_masqs_in_decimals() {
-        let result = validate_two_ranges::<u64>("2000-4545|20.13-20.11".to_string());
-
-        assert_eq!(
-            result,
-            Err("Both ranges '2000-4545|20.13-20.11' must be low to high".to_string())
-        )
-    }
-
-    #[test]
-    fn validate_two_ranges_non_numeric_value_for_first_range() {
-        let result = validate_two_ranges::<i64>("blah-1234|899-999".to_string());
-
-        assert_eq!(
-            result,
-            Err("Non numeric value 'blah', it must be a valid integer".to_string())
-        )
-    }
-
-    #[test]
-    fn validate_two_ranges_non_numeric_value_for_second_range() {
-        let result = validate_two_ranges::<i64>("1000-1234|7878.0-a lot".to_string());
-
-        assert_eq!(
-            result,
-            Err("Balance range '7878.0-a lot' in improper format".to_string())
-        )
-    }
-
-    #[test]
-    fn process_optionally_fractional_number_dislikes_dot_as_the_last_char() {
-        let result = FinancialsCommand::process_optionally_fractional_number::<i64>("4556.");
-
-        assert_eq!(
-            result,
-            Err("Ending dot at decimal number, like here '4556.', is unsupported".to_string())
-        )
-    }
-
-    #[test]
-    fn process_optionally_fractional_number_dislikes_more_than_one_dot() {
-        let result = FinancialsCommand::process_optionally_fractional_number::<i64>("45.056.000");
-
-        assert_eq!(
-            result,
-            Err("Misused decimal number dot delimiter at '45.056.000'".to_string())
-        )
     }
 }
