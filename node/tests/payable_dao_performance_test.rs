@@ -1,13 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use masq_lib::test_utils::utils::is_running_under_github_actions;
 use node_lib::test_utils::payable_dao_performance_utils::shared_test_environment::specialized_body_for_zig_zag_test;
-use std::cmp;
 
 #[test]
 fn progressive_efficiency_of_mark_pending_payable_rowids_integration() {
-    //from more than one update done at a time, not even does the performance of this solution hinder us,
-    //it is significantly beneficial with each additional updated record
     fn perform_with_counts_of_updates(ending_range_num: usize) -> (u64, u64) {
         let tested_range_of_cumulative_updates = 1..=ending_range_num;
         let (single_call_attempt_duration, separate_calls_attempt_duration) =
@@ -21,50 +17,104 @@ fn progressive_efficiency_of_mark_pending_payable_rowids_integration() {
         )
     }
 
-    let times_of_single_and_separate_calls = (1_usize..7)
+    let times_of_single_and_separate_calls = (1_usize..=7)
         .step_by(2)
         .into_iter()
         .map(perform_with_counts_of_updates)
         .collect::<Vec<(u64, u64)>>();
 
-    let (single_call_sum_of_time, separate_calls_sum_of_time) =
-        times_of_single_and_separate_calls.iter().fold(
-            (0_u64, 0_u64),
-            |(sum_single, sum_separate), (time_from_single_call, time_from_separate_calls)| {
-                (
-                    sum_single + *time_from_single_call,
-                    sum_separate + *time_from_separate_calls,
-                )
-            },
-        );
-    let single_call_average_time =
-        single_call_sum_of_time / times_of_single_and_separate_calls.len() as u64;
-    let separate_calls_average_time =
-        separate_calls_sum_of_time / times_of_single_and_separate_calls.len() as u64;
-    let (sum_quadratic_diff_single, sum_quadratic_diff_separate) =
-        times_of_single_and_separate_calls.iter().fold(
-            (0_u64, 0_u64),
-            |(sum_quadratic_diff_single, sum_quadratic_diff_separate),
-             (time_from_single_call, time_from_separate_calls)| {
-                fn add_quadratic_difference(acc_sum: u64, time_current: u64, mean: u64) -> u64 {
-                    acc_sum + (time_current as i64 - mean as i64).pow(2) as u64
-                }
-                (
-                    add_quadratic_difference(
-                        sum_quadratic_diff_single,
-                        *time_from_single_call,
-                        single_call_average_time,
-                    ),
-                    add_quadratic_difference(
-                        sum_quadratic_diff_separate,
-                        *time_from_separate_calls,
-                        separate_calls_average_time,
-                    ),
+    let (standard_deviation_single, standard_deviation_separate) = {
+        let (single_call_sum_of_time, separate_calls_sum_of_time) =
+            times_of_single_and_separate_calls.iter().fold(
+                (0_u64, 0_u64),
+                |(sum_single, sum_separate), (time_from_single_call, time_from_separate_calls)| {
+                    (
+                        sum_single + *time_from_single_call,
+                        sum_separate + *time_from_separate_calls,
+                    )
+                },
+            );
+        let single_call_average_time =
+            single_call_sum_of_time / times_of_single_and_separate_calls.len() as u64;
+        let separate_calls_average_time =
+            separate_calls_sum_of_time / times_of_single_and_separate_calls.len() as u64;
+        let (sum_quadratic_diff_single, sum_quadratic_diff_separate) =
+            times_of_single_and_separate_calls.iter().fold(
+                (0_u64, 0_u64),
+                |(sum_quadratic_diff_single, sum_quadratic_diff_separate),
+                 (time_from_single_call, time_from_separate_calls)| {
+                    fn add_quadratic_difference(acc_sum: u64, time_current: u64, mean: u64) -> u64 {
+                        acc_sum + (time_current as i64 - mean as i64).pow(2) as u64
+                    }
+                    (
+                        add_quadratic_difference(
+                            sum_quadratic_diff_single,
+                            *time_from_single_call,
+                            single_call_average_time,
+                        ),
+                        add_quadratic_difference(
+                            sum_quadratic_diff_separate,
+                            *time_from_separate_calls,
+                            separate_calls_average_time,
+                        ),
+                    )
+                },
+            );
+        let standard_deviation = |sum_of_quadratic_differences| {
+            ((sum_of_quadratic_differences / times_of_single_and_separate_calls.len() as u64)
+                as f64)
+                .sqrt()
+        };
+        (
+            standard_deviation(sum_quadratic_diff_single),
+            standard_deviation(sum_quadratic_diff_separate),
+        )
+    };
+    eprintln!("times {:?}", times_of_single_and_separate_calls);
+    eprintln!("single sd  = {}", standard_deviation_single);
+    eprintln!("separate sd = {}", standard_deviation_separate);
+    assert!(
+        standard_deviation_single < 200.0,
+        "sd for single call was {}",
+        standard_deviation_single
+    );
+    assert!(
+        standard_deviation_single * 100.0 < standard_deviation_separate,
+        "sd of the single call {}, sd of the separate calls {}, multiplied {}",
+        standard_deviation_single,
+        standard_deviation_separate,
+        standard_deviation_single * 100.0
+    );
+    let first_for_single = times_of_single_and_separate_calls[0].0;
+    let first_for_separate = times_of_single_and_separate_calls[0].1;
+    assert!(
+        (first_for_separate <= (first_for_single) * 13 / 10)
+            && (((first_for_single) * 7) / 10 <= first_for_separate)
+    );
+    times_of_single_and_separate_calls
+        .iter()
+        .skip(1)
+        .enumerate()
+        .for_each(
+            |(attempt_number, (single_attempt_time_needed, separate_attempt_time_needed))| {
+                let lap_coefficient = {
+                    let base = (attempt_number as u64 + 2) * 10;
+                    base - ((2 * base) / 10)
+                };
+                assert!(
+                    (*single_attempt_time_needed * lap_coefficient) / 10 < *separate_attempt_time_needed,
+                    "the expected difference given by coefficient {} / 10 wasn't met; time for single \
+                     {} and time for separate {}",
+                    lap_coefficient,
+                    single_attempt_time_needed,
+                    separate_attempt_time_needed
                 )
             },
         );
 
-    //TODO in Actions...
+    //TODO remove this
+    //
+    // in Actions...
     // single call: 858
     // separate call: 1124   ...ration 0
     // and then
@@ -92,22 +142,4 @@ fn progressive_efficiency_of_mark_pending_payable_rowids_integration() {
     // _____
     // single call: 31097
     // separate call: 76185
-
-    let first_cpu_coefficient = if is_running_under_github_actions() {
-        25
-    } else {
-        15
-    };
-    assert!(single_one < separate_one * first_cpu_coefficient / 10);
-    let ratio_one = (single_one * 100) / separate_one;
-    let ratio_two = (single_two * 100) / separate_two;
-    eprintln!("ration 1: {}, ratio 2: {}", ratio_one, ratio_two);
-    eprintln!(
-        "github ratio 1: {}, ratio 2: {}",
-        (858 * 100) / 1124,
-        (1791 * 100) / 1139
-    );
-    assert!(ratio_one > ratio_two * 10 / 14)
-    //these values in the assertions have got a safety margin; the performance is averagely much better
-    //but there are spikes occasionally that would crash the test
 }
