@@ -484,42 +484,6 @@ mod tests {
         );
     }
 
-    // #[test]
-    // fn prevents_duplication_of_records_in_case_it_receives_a_known_neighbor_peer_addr_through_pass_gossip(
-    // ) {
-    //     let neighbor_1 = make_ip(1);
-    //     let neighbor_2 = make_ip(2);
-    //     let desc_1 = make_node_descriptor(neighbor_1);
-    //     let desc_2 = make_node_descriptor(neighbor_2);
-    //     let mut subject = OverallConnectionStatus::new(vec![desc_1.clone(), desc_2.clone()]);
-    //     let neighbor_2_cpm = subject.get_connection_progress_by_ip(neighbor_2).unwrap();
-    //     OverallConnectionStatus::update_connection_stage(
-    //         subject.get_connection_progress_by_ip(neighbor_1).unwrap(),
-    //         ConnectionProgressEvent::TcpConnectionSuccessful,
-    //         &Logger::new("test"),
-    //     );
-    //     OverallConnectionStatus::update_connection_stage(
-    //         subject.get_connection_progress_by_ip(neighbor_2).unwrap(),
-    //         ConnectionProgressEvent::TcpConnectionSuccessful,
-    //         &Logger::new("test"),
-    //     );
-    //
-    //     OverallConnectionStatus::update_connection_stage(
-    //         subject.get_connection_progress_by_ip(neighbor_2).unwrap(),
-    //         ConnectionProgressEvent::PassGossipReceived(neighbor_1),
-    //         &Logger::new("test"),
-    //     );
-    //
-    //     eprintln!(
-    //         "{:?}",
-    //         subject.get_connection_progress_by_desc(&desc_1).unwrap()
-    //     );
-    //     eprintln!(
-    //         "{:?}",
-    //         subject.get_connection_progress_by_desc(&desc_2).unwrap()
-    //     );
-    // }
-
     #[test]
     fn can_receive_connection_progress_from_initial_node_desc() {
         let desc_1 = make_node_descriptor(make_ip(1));
