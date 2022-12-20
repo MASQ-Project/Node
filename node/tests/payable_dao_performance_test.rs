@@ -57,8 +57,8 @@ fn progressive_efficiency_of_mark_pending_payable_rowids_integration() {
     let first_for_single = time_laps_of_single_calls[0];
     let first_for_separate = time_laps_of_separate_calls[0];
     assert!(
-        (first_for_separate <= (first_for_single) * 13 / 10)
-            && (((first_for_single) * 7) / 10 <= first_for_separate),
+        (first_for_separate <= (first_for_single) * 8 / 5)
+            && (((first_for_single) * 2) / 5 <= first_for_separate),
         "{}",
         debug_helper()
     );
