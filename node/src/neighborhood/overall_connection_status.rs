@@ -3,7 +3,9 @@
 use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
     NoGossipResponseReceived, PassLoopFound, TcpConnectionFailed,
 };
-use crate::sub_lib::neighborhood::{ConnectionProgressEvent, NodeDescriptor};
+use crate::sub_lib::neighborhood::{
+    ConnectionProgressEvent, ConnectionProgressMessage, NodeDescriptor,
+};
 use actix::Recipient;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
@@ -221,6 +223,39 @@ impl OverallConnectionStatus {
             ConnectionProgressEvent::NoGossipResponseReceived => {
                 modify_connection_progress(ConnectionStage::Failed(NoGossipResponseReceived));
             }
+        }
+    }
+
+    pub fn get_connection_progress_to_modify(
+        &mut self,
+        msg: &ConnectionProgressMessage,
+    ) -> Result<&mut ConnectionProgress, String> {
+        match msg.event {
+            ConnectionProgressEvent::PassGossipReceived(pass_target) => {
+                // Check if Pass Target can potentially create a duplicate ConnectionProgress
+                let peer_addrs = self
+                    .progress
+                    .iter()
+                    .map(|connection_progress| connection_progress.current_peer_addr)
+                    .collect::<Vec<IpAddr>>();
+                if peer_addrs.contains(&pass_target) {
+                    return Err(format!(
+                        "We've been passed to a peer with IP Address: {:?} that's \
+                        already a part of different connection progress.",
+                        pass_target
+                    ));
+                }
+            }
+            _ => (),
+        };
+
+        if let Ok(connection_progress) = self.get_connection_progress_by_ip(msg.peer_addr) {
+            return Ok(connection_progress);
+        } else {
+            Err(format!(
+                "An unnecessary ConnectionProgressMessage received containing IP Address: {:?}",
+                msg.peer_addr
+            ))
         }
     }
 
@@ -482,13 +517,6 @@ mod tests {
     //     eprintln!(
     //         "{:?}",
     //         subject.get_connection_progress_by_desc(&desc_2).unwrap()
-    //     );
-    //     assert_eq!(
-    //         subject
-    //             .get_connection_progress_by_ip(neighbor_1)
-    //             .unwrap()
-    //             .connection_stage,
-    //         ConnectionStage::TcpConnectionEstablished
     //     );
     // }
 

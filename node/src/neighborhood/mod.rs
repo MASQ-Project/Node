@@ -273,38 +273,37 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: ConnectionProgressMessage, ctx: &mut Self::Context) -> Self::Result {
-        if let Ok(connection_progress) = self
+        match self
             .overall_connection_status
-            .get_connection_progress_by_ip(msg.peer_addr)
+            .get_connection_progress_to_modify(&msg)
         {
-            OverallConnectionStatus::update_connection_stage(
-                connection_progress,
-                msg.event.clone(),
-                &self.logger,
-            );
-            match msg.event {
-                ConnectionProgressEvent::TcpConnectionSuccessful => {
-                    self.send_ask_about_debut_gossip_message(ctx, msg.peer_addr);
+            Ok(connection_progress) => {
+                OverallConnectionStatus::update_connection_stage(
+                    connection_progress,
+                    msg.event.clone(),
+                    &self.logger,
+                );
+                match msg.event {
+                    ConnectionProgressEvent::TcpConnectionSuccessful => {
+                        self.send_ask_about_debut_gossip_message(ctx, msg.peer_addr);
+                    }
+                    ConnectionProgressEvent::IntroductionGossipReceived(_)
+                    | ConnectionProgressEvent::StandardGossipReceived => {
+                        self.overall_connection_status
+                            .update_ocs_stage_and_send_message_to_ui(
+                                OverallConnectionStage::ConnectedToNeighbor,
+                                self.node_to_ui_recipient_opt
+                                    .as_ref()
+                                    .expect("UI Gateway is unbound"),
+                                &self.logger,
+                            );
+                    }
+                    _ => (),
                 }
-                ConnectionProgressEvent::IntroductionGossipReceived(_)
-                | ConnectionProgressEvent::StandardGossipReceived => {
-                    self.overall_connection_status
-                        .update_ocs_stage_and_send_message_to_ui(
-                            OverallConnectionStage::ConnectedToNeighbor,
-                            self.node_to_ui_recipient_opt
-                                .as_ref()
-                                .expect("UI Gateway is unbound"),
-                            &self.logger,
-                        );
-                }
-                _ => (),
             }
-        } else {
-            trace!(
-                self.logger,
-                "An unnecessary ConnectionProgressMessage received from IP Address: {:?}",
-                msg.peer_addr
-            );
+            Err(e) => {
+                trace!(self.logger, "{}", e);
+            }
         }
     }
 }
@@ -1816,7 +1815,7 @@ mod tests {
     }
 
     #[test]
-    pub fn neighborhood_logs_with_trace_if_it_receives_a_cpm_with_an_unknown_peer_addr() {
+    fn neighborhood_logs_with_trace_if_it_receives_a_cpm_with_an_unknown_peer_addr() {
         init_test_logging();
         let known_peer = make_ip(1);
         let unknown_peer = make_ip(2);
@@ -1843,8 +1842,55 @@ mod tests {
         System::current().stop();
         assert_eq!(system.run(), 0);
         TestLogHandler::new().exists_log_containing(&format!(
-            "TRACE: Neighborhood: An unnecessary ConnectionProgressMessage received from IP Address: {:?}",
+            "TRACE: Neighborhood: An unnecessary ConnectionProgressMessage received containing IP Address: {:?}",
             unknown_peer
+        ));
+    }
+
+    #[test]
+    fn neighborhood_logs_with_trace_if_it_receives_a_cpm_with_a_pass_target_that_is_a_part_of_a_different_connection_progress(
+    ) {
+        init_test_logging();
+        let peer_1 = make_ip(1);
+        let peer_2 = make_ip(2);
+        let this_node_addr = NodeAddr::new(&IpAddr::from_str("111.111.111.111").unwrap(), &[8765]);
+        let initial_node_descriptors =
+            vec![make_node_descriptor(peer_1), make_node_descriptor(peer_2)];
+        let neighborhood_config = NeighborhoodConfig {
+            mode: NeighborhoodMode::Standard(
+                this_node_addr,
+                initial_node_descriptors,
+                rate_pack(100),
+            ),
+        };
+        let bootstrap_config =
+            bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
+        let mut subject = Neighborhood::new(main_cryptde(), &bootstrap_config);
+        subject
+            .overall_connection_status
+            .get_connection_progress_by_ip(peer_1)
+            .unwrap()
+            .connection_stage = ConnectionStage::TcpConnectionEstablished;
+        subject
+            .overall_connection_status
+            .get_connection_progress_by_ip(peer_2)
+            .unwrap()
+            .connection_stage = ConnectionStage::TcpConnectionEstablished;
+        let addr = subject.start();
+        let cpm_recipient = addr.clone().recipient::<ConnectionProgressMessage>();
+        let system = System::new("testing");
+        let cpm = ConnectionProgressMessage {
+            peer_addr: peer_2,
+            event: ConnectionProgressEvent::PassGossipReceived(peer_1),
+        };
+
+        cpm_recipient.try_send(cpm).unwrap();
+
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "TRACE: Neighborhood: We've been passed to a peer with IP Address: {:?} that's already a part of different connection progress.",
+            peer_1
         ));
     }
 
