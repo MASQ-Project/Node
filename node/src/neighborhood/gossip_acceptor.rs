@@ -541,13 +541,19 @@ impl GossipHandler for PassHandler {
 
         let mut hash_map = self.previous_pass_targets.borrow_mut();
         let gossip_acceptance_result = match hash_map.get_mut(&pass_target_ip_addr) {
-            None => {
-                hash_map.insert(pass_target_ip_addr, SystemTime::now());
-                send_cpm(ConnectionProgressEvent::PassGossipReceived(
-                    pass_target_ip_addr,
-                ));
-                gossip_acceptance_reply()
-            }
+            None => match peer_addrs.contains(&pass_target_ip_addr) {
+                true => {
+                    send_cpm(ConnectionProgressEvent::PassLoopFound);
+                    GossipAcceptanceResult::Ignored
+                }
+                false => {
+                    hash_map.insert(pass_target_ip_addr, SystemTime::now());
+                    send_cpm(ConnectionProgressEvent::PassGossipReceived(
+                        pass_target_ip_addr,
+                    ));
+                    gossip_acceptance_reply()
+                }
+            },
             Some(timestamp) => {
                 let duration_since = SystemTime::now()
                     .duration_since(*timestamp)
@@ -3479,6 +3485,40 @@ mod tests {
         let timestamp = previous_pass_targets.get(&pass_target_ip_addr).unwrap();
         assert_eq!(previous_pass_targets.len(), 1);
         assert!(initial_timestamp <= *timestamp && *timestamp <= final_timestamp);
+    }
+
+    #[test]
+    fn handles_pass_target_that_is_a_part_of_a_different_connection_progress() {
+        let cryptde = main_cryptde();
+        let root_node = make_node_record(1234, true);
+        let mut db = db_from_node(&root_node);
+        let subject = PassHandler::new();
+        let (gossip, pass_target, gossip_source) = make_pass(2345);
+        let pass_target_ip_addr = pass_target.node_addr_opt().unwrap().ip_addr();
+        let system = System::new("handles_pass_target_that_is_not_yet_expired");
+        let (cpm_recipient, recording_arc) = make_cpm_recipient();
+
+        let result = subject.handle(
+            cryptde,
+            &mut db,
+            gossip.try_into().unwrap(),
+            gossip_source,
+            &vec![pass_target_ip_addr],
+            &cpm_recipient,
+        );
+
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        assert_eq!(result, GossipAcceptanceResult::Ignored);
+        let recording = recording_arc.lock().unwrap();
+        let received_message: &ConnectionProgressMessage = recording.get_record(0);
+        assert_eq!(
+            received_message,
+            &ConnectionProgressMessage {
+                peer_addr: gossip_source.ip(),
+                event: ConnectionProgressEvent::PassLoopFound
+            }
+        );
     }
 
     #[test]

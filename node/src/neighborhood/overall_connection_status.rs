@@ -227,7 +227,6 @@ impl OverallConnectionStatus {
     }
 
     pub fn get_peer_addrs(&self) -> Vec<IpAddr> {
-        todo!("Drive Me through test");
         self.progress
             .iter()
             .map(|connection_progress| connection_progress.current_peer_addr)
@@ -508,6 +507,21 @@ mod tests {
             subject.get_connection_progress_by_desc(&desc_2),
             Ok(&mut ConnectionProgress::new(desc_2))
         );
+    }
+
+    #[test]
+    fn can_receive_current_peer_addrs() {
+        let peer_1 = make_ip(1);
+        let peer_2 = make_ip(2);
+        let peer_3 = make_ip(3);
+
+        let subject = OverallConnectionStatus::new(vec![
+            make_node_descriptor(peer_1),
+            make_node_descriptor(peer_2),
+            make_node_descriptor(peer_3),
+        ]);
+
+        assert_eq!(subject.get_peer_addrs(), vec![peer_1, peer_2, peer_3]);
     }
 
     #[test]
