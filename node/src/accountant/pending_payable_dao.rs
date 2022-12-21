@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::big_int_db_processor::BigIntDivider;
+use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
 use crate::accountant::dao_utils::{
     from_time_t, to_time_t, DaoFactoryReal, VigilantRusqliteFlatten,
 };
@@ -183,7 +183,7 @@ impl<'a> PendingPayableDaoReal<'a> {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::big_int_db_processor::BigIntDivider;
+    use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
     use crate::accountant::dao_utils::from_time_t;
     use crate::accountant::pending_payable_dao::{
         PendingPayableDao, PendingPayableDaoError, PendingPayableDaoReal,
