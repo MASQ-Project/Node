@@ -49,9 +49,11 @@ fn progressive_efficiency_of_mark_pending_payable_rowids_integration() {
             slope_for_separate
         )
     };
+    //All the coefficients are underestimated to enable this test also for slow Actions.
+    //For example for the slope, strong machine handles a multiple of 60.
     assert!(
-        slope_for_single * 80.0 < slope_for_separate,
-        "{}",
+        slope_for_single * 15.0 < slope_for_separate,
+        "failing at slope check: {}",
         debug_helper()
     );
     let first_for_single = time_laps_of_single_calls[0];
@@ -59,15 +61,13 @@ fn progressive_efficiency_of_mark_pending_payable_rowids_integration() {
     assert!(
         (first_for_separate <= (first_for_single) * 8 / 5)
             && (((first_for_single) * 2) / 5 <= first_for_separate),
-        "{}",
+        "failing at first attempts comparison: {}",
         debug_helper()
     );
-    //Linux
-    //times [(1309, 1010), (1631, 1799), (1986, 7660), (1561, 3803)]
-
-    //MacOs
-    //times [(1233, 944), (1008, 1980), (1000, 2904), (1062, 3787)]
-
-    //Windows
-    //times [(1803, 1617), (6853, 5272), (1906, 6876), (2683, 7531)]
+    let last_for_separate = *(time_laps_of_separate_calls.last().unwrap());
+    assert!(
+        (first_for_separate * 3 <= last_for_separate),
+        "failing at first and last comparison for separate calls: {}",
+        debug_helper()
+    );
 }
