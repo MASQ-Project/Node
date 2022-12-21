@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::commands::financials_command::parsing_and_value_dressing::visibility_restricted::{
+use crate::commands::financials_command::parsing_and_value_dressing::restricted::{
     parse_masq_range_to_gwei, parse_time_params,
 };
 use clap::{App, Arg, ArgGroup, SubCommand};

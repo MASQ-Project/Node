@@ -469,7 +469,7 @@ mod tests {
     use crate::accountant::big_int_processing::big_int_db_processor::WeiChange::{
         Addition, Subtraction,
     };
-    use crate::accountant::big_int_processing::test_utils::mod_restricted::{
+    use crate::accountant::big_int_processing::test_utils::restricted::{
         create_new_empty_db, test_database_key,
     };
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};

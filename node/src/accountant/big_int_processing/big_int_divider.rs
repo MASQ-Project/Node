@@ -265,12 +265,12 @@ mod tests {
 
     #[test]
     fn divided_integers_can_be_ordered() {
+        let init = i64::MAX as i128 * 23;
         let numbers_ordered = vec![
-            i64::MAX as i128 * 23;
             i64::MAX as i128 + 1,
             i64::MAX as i128,
             (i64::MAX - 1) as i128,
-            5432,
+            7654,
             0,
             -4567,
             (i64::MIN + 1) as i128,
