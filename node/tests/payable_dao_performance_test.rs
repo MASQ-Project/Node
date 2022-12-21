@@ -5,6 +5,11 @@ use node_lib::test_utils::payable_dao_performance_utils::shared_test_environment
 
 #[test]
 fn progressive_efficiency_of_mark_pending_payable_rowids_integration() {
+    //this test is supposed to prove that our multirow update statement beats separate sql calls;
+    //tested for 1, 2, 3, 4, 5 updates;
+    //before each round a full database of records is created;
+    //every second number in the ruling range means a single updated row;
+    //the gaps between are simply untouched rows
     fn perform_one_round_with_particular_count_of_updates(ending_range_num: usize) -> (u32, u32) {
         let this_attempt_range = 1..=ending_range_num;
         let (single_call_attempt_duration, separate_calls_attempt_duration) =
@@ -21,7 +26,7 @@ fn progressive_efficiency_of_mark_pending_payable_rowids_integration() {
         )
     }
 
-    let range_definition = (1_usize..=7).step_by(2);
+    let range_definition = (1_usize..=9).step_by(2);
     let discrete_counts = range_definition
         .clone()
         .map(|count| count as u32)
@@ -50,9 +55,9 @@ fn progressive_efficiency_of_mark_pending_payable_rowids_integration() {
         )
     };
     //All the coefficients are underestimated to enable this test also for slow Actions.
-    //For example for the slope, strong machine handles a multiple of 60.
+    //For example for the slope, a decent machine handles a multiple of 60.
     assert!(
-        slope_for_single * 15.0 < slope_for_separate,
+        slope_for_single * 17.0 < slope_for_separate,
         "failing at slope check: {}",
         debug_helper()
     );
@@ -65,8 +70,9 @@ fn progressive_efficiency_of_mark_pending_payable_rowids_integration() {
         debug_helper()
     );
     let last_for_separate = *(time_laps_of_separate_calls.last().unwrap());
+    //this coefficient is low / it can be 5 for a decent machine
     assert!(
-        (first_for_separate * 3 <= last_for_separate),
+        (first_for_separate * 25) / 10 <= last_for_separate,
         "failing at first and last comparison for separate calls: {}",
         debug_helper()
     );
