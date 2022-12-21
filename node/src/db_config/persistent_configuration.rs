@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 #[cfg(test)]
-use crate::arbitrary_id_stamp;
+use crate::arbitrary_id_stamp_in_trait;
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::bip39::{Bip39, Bip39Error};
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -148,7 +148,7 @@ pub trait PersistentConfiguration {
     fn set_scan_intervals(&mut self, intervals: String) -> Result<(), PersistentConfigError>;
 
     #[cfg(test)]
-    arbitrary_id_stamp!();
+    arbitrary_id_stamp_in_trait!();
 }
 
 pub struct PersistentConfigurationReal {
@@ -258,9 +258,9 @@ impl PersistentConfiguration for PersistentConfigurationReal {
             || (unchecked_port > u64::from(HIGHEST_USABLE_PORT))
         {
             panic!("Can't continue; clandestine port configuration is incorrect. Must be between {} and {}, not {}. Specify --clandestine-port <p> where <p> is an unused port.",
-                LOWEST_USABLE_INSECURE_PORT,
-                HIGHEST_USABLE_PORT,
-                unchecked_port
+                   LOWEST_USABLE_INSECURE_PORT,
+                   HIGHEST_USABLE_PORT,
+                   unchecked_port
             );
         }
         let port = unchecked_port as u16;
@@ -538,7 +538,7 @@ impl PersistentConfigurationReal {
     ) -> Result<T, PersistentConfigError> {
         match decoder(self.get(parameter)?)? {
             None => Self::missing_value_panic(parameter),
-            Some(rate) => Ok(rate),
+            Some(value) => Ok(value),
         }
     }
 
@@ -552,7 +552,7 @@ impl PersistentConfigurationReal {
     {
         match decode_combined_params(values_parser, self.get(parameter)?)? {
             None => Self::missing_value_panic(parameter),
-            Some(rate) => Ok(rate),
+            Some(value) => Ok(value),
         }
     }
 
@@ -568,8 +568,9 @@ impl PersistentConfigurationReal {
 mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
-    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::database::db_migrations::MigratorConfig;
+    use crate::database::db_initializer::{
+        DbInitializationConfig, DbInitializer, DbInitializerReal,
+    };
     use crate::db_config::config_dao::ConfigDaoRecord;
     use crate::db_config::mocks::ConfigDaoMock;
     use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
@@ -1888,7 +1889,7 @@ mod tests {
             "current_config_table_schema",
         );
         let db_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let mut statement = db_conn.prepare("select name from config").unwrap();
         statement

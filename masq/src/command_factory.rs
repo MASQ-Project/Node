@@ -52,7 +52,10 @@ impl CommandFactory for CommandFactoryReal {
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             "descriptor" => Box::new(DescriptorCommand::new()),
-            "financials" => Box::new(FinancialsCommand::new()),
+            "financials" => match FinancialsCommand::new(pieces) {
+                Ok(command) => Box::new(command),
+                Err(msg) => return Err(CommandSyntax(msg)),
+            },
             "generate-wallets" => match GenerateWalletsCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
@@ -359,6 +362,33 @@ mod tests {
         };
         assert_eq!(msg.contains("Found argument"), true, "{}", msg);
         assert_eq!(msg.contains("--invalid"), true, "{}", msg);
+        assert_eq!(
+            msg.contains("which wasn't expected, or isn't valid in this context"),
+            true,
+            "{}",
+            msg
+        );
+    }
+
+    #[test]
+    fn complains_about_financials_command_with_bad_syntax() {
+        let subject = CommandFactoryReal::new();
+
+        let result = subject
+            .make(&[
+                "financials".to_string(),
+                "--make-me-rich".to_string(),
+                "slowly".to_string(),
+            ])
+            .err()
+            .unwrap();
+
+        let msg = match result {
+            CommandSyntax(msg) => msg,
+            x => panic!("Expected syntax error, got {:?}", x),
+        };
+        assert_eq!(msg.contains("Found argument"), true, "{}", msg);
+        assert_eq!(msg.contains("--make-me-rich"), true, "{}", msg);
         assert_eq!(
             msg.contains("which wasn't expected, or isn't valid in this context"),
             true,
