@@ -1,10 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub(in crate::commands::financials_command) mod visibility_restricted {
-    use crate::commands::financials_command::data_structures::visibility_restricted::{
+pub(in crate::commands::financials_command) mod restricted {
+    use crate::commands::financials_command::data_structures::restricted::{
         HeadingsHolder, ProcessAccountsMetadata, UserOriginalTypingOfRanges,
     };
-    use crate::commands::financials_command::parsing_and_value_dressing::visibility_restricted::{
+    use crate::commands::financials_command::parsing_and_value_dressing::restricted::{
         convert_masq_from_gwei_and_dress_well, neaten_users_writing_if_possible,
     };
     use crate::commands::financials_command::FinancialsCommand;
@@ -248,7 +248,7 @@ pub(in crate::commands::financials_command) mod visibility_restricted {
 
 #[cfg(test)]
 mod tests {
-    use crate::commands::financials_command::pretty_print_utils::visibility_restricted::{
+    use crate::commands::financials_command::pretty_print_utils::restricted::{
         figure_out_max_widths, StringValuesFormattableAccount,
     };
 

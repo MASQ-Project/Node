@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub(in crate::accountant::big_int_processing) mod mod_restricted {
+pub(in crate::accountant::big_int_processing) mod restricted {
     use crate::accountant::big_int_processing::big_int_db_processor::KnownKeyVariants::TestKey;
     use crate::accountant::big_int_processing::big_int_db_processor::{
         ExtendedParamsMarker, KnownKeyVariants,

@@ -12,14 +12,14 @@ use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use crate::commands::financials_command::args_validation::financials_subcommand;
-use crate::commands::financials_command::data_structures::visibility_restricted::{
+use crate::commands::financials_command::data_structures::restricted::{
     CustomQueryInput, ProcessAccountsMetadata, RangeQueryInput, UserOriginalTypingOfRanges,
 };
-use crate::commands::financials_command::parsing_and_value_dressing::visibility_restricted::{
+use crate::commands::financials_command::parsing_and_value_dressing::restricted::{
     parse_masq_range_to_gwei, parse_time_params, split_time_range,
 };
-use crate::commands::financials_command::pretty_print_utils::visibility_restricted::process_gwei_into_requested_format;
-use crate::commands::financials_command::pretty_print_utils::visibility_restricted::{
+use crate::commands::financials_command::pretty_print_utils::restricted::process_gwei_into_requested_format;
+use crate::commands::financials_command::pretty_print_utils::restricted::{
     financial_status_totals_title, main_title_for_tops_opt, no_records_found, prepare_metadata,
     render_accounts_generic, subtitle_for_tops, title_for_custom_query,
     triple_or_single_blank_line, StringValuesFormattableAccount,

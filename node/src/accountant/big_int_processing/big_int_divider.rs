@@ -135,7 +135,7 @@ impl Display for UserDefinedFunctionError {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::big_int_processing::test_utils::mod_restricted::create_new_empty_db;
+    use crate::accountant::big_int_processing::test_utils::restricted::create_new_empty_db;
     use rusqlite::Error::SqliteFailure;
     use rusqlite::ErrorCode;
 
@@ -265,24 +265,25 @@ mod tests {
 
     #[test]
     fn divided_integers_can_be_ordered() {
-        let a = i64::MAX as i128 * 23;
-        let b = i64::MAX as i128 + 1;
-        let c = i64::MAX as i128;
-        let d = (i64::MAX - 1) as i128;
-        let e = 5432;
-        let f = 0;
-        let g = -4567;
-        let h = (i64::MIN + 1) as i128;
-        let i = i64::MIN as i128;
-        let j = i64::MIN as i128 - 1;
-        let k = i64::MIN as i128 * 32;
-        let vec = vec![b, c, d, e, f, g, h, i, j, k];
+        let numbers_ordered = vec![
+            i64::MAX as i128 * 23;
+            i64::MAX as i128 + 1,
+            i64::MAX as i128,
+            (i64::MAX - 1) as i128,
+            5432,
+            0,
+            -4567,
+            (i64::MIN + 1) as i128,
+            i64::MIN as i128,
+            i64::MIN as i128 - 1,
+            i64::MIN as i128 * 32,
+        ];
 
-        let _ = vec.into_iter().enumerate().fold(
-            a,
-            |previous, current: (usize, i128)| {
-                let (previous_high_b, previous_low_b) = BigIntDivider::deconstruct(previous);
-                let (current_high_b, current_low_b) = BigIntDivider::deconstruct(current.1);
+        let _ = numbers_ordered.into_iter().enumerate().fold(
+            init,
+            |previous_big_int, (idx, current_big_int): (usize, i128)| {
+                let (previous_high_b, previous_low_b) = BigIntDivider::deconstruct(previous_big_int);
+                let (current_high_b, current_low_b) = BigIntDivider::deconstruct(current_big_int);
                 assert!(
                     (previous_high_b > current_high_b) || (previous_high_b == current_high_b && previous_low_b > current_low_b) ,
                     "previous_high_b: {}, current_high_b: {} and previous_low_b: {}, current_low_b: {} for {} and {} which is idx {}",
@@ -292,9 +293,9 @@ mod tests {
                     current_low_b,
                     BigIntDivider::reconstitute(previous_high_b, previous_low_b),
                     BigIntDivider::reconstitute(current_high_b, current_low_b),
-                    current.0
+                    idx
                 );
-                current.1
+                current_big_int
             },
         );
     }

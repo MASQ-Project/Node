@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub(in crate::commands::financials_command) mod visibility_restricted {
-    use crate::commands::financials_command::data_structures::visibility_restricted::UserOriginalTypingOfRanges;
+pub(in crate::commands::financials_command) mod restricted {
+    use crate::commands::financials_command::data_structures::restricted::UserOriginalTypingOfRanges;
     use masq_lib::constants::{MASQ_TOTAL_SUPPLY, WEIS_OF_GWEI};
     use masq_lib::utils::ExpectValue;
     use num::CheckedMul;
@@ -304,7 +304,7 @@ pub(in crate::commands::financials_command) mod visibility_restricted {
 
 #[cfg(test)]
 mod tests {
-    use crate::commands::financials_command::parsing_and_value_dressing::visibility_restricted::{
+    use crate::commands::financials_command::parsing_and_value_dressing::restricted::{
         convert_masq_from_gwei_and_dress_well, extract_individual_masq_values,
         neaten_users_writing_if_possible, parse_integer_within_limits,
         process_optionally_fractional_number,
