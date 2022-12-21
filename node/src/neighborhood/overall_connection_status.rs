@@ -226,6 +226,14 @@ impl OverallConnectionStatus {
         }
     }
 
+    pub fn get_peer_addrs(&self) -> Vec<IpAddr> {
+        todo!("Drive Me through test");
+        self.progress
+            .iter()
+            .map(|connection_progress| connection_progress.current_peer_addr)
+            .collect()
+    }
+
     pub fn get_connection_progress_to_modify(
         &mut self,
         msg: &ConnectionProgressMessage,

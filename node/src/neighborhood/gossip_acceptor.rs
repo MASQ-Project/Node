@@ -63,6 +63,7 @@ trait GossipHandler: NamedType + Send /* Send because lazily-written tests requi
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
+        peer_addrs: &Vec<IpAddr>,
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult;
 }
@@ -132,6 +133,7 @@ impl GossipHandler for DebutHandler {
         database: &mut NeighborhoodDatabase,
         mut agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
+        _peer_addrs: &Vec<IpAddr>,
         _cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult {
         let source_agr = {
@@ -508,6 +510,7 @@ impl GossipHandler for PassHandler {
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         _gossip_source: SocketAddr,
+        peer_addrs: &Vec<IpAddr>,
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult {
         let pass_agr = &agrs[0]; // empty Gossip shouldn't get here
@@ -619,6 +622,7 @@ impl GossipHandler for IntroductionHandler {
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
+        peer_addrs: &Vec<IpAddr>,
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult {
         if database.root().full_neighbor_keys(database).len() >= MAX_DEGREE {
@@ -923,6 +927,7 @@ impl GossipHandler for StandardGossipHandler {
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
+        peer_addrs: &Vec<IpAddr>,
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult {
         let initial_neighborship_status =
@@ -1180,6 +1185,7 @@ impl GossipHandler for RejectHandler {
         _database: &mut NeighborhoodDatabase,
         _agrs: Vec<AccessibleGossipRecord>,
         _gossip_source: SocketAddr,
+        peer_addrs: &Vec<IpAddr>,
         _cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult {
         panic!("Should never be called")
@@ -1198,6 +1204,7 @@ pub trait GossipAcceptor: Send /* Send because lazily-written tests require it *
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
+        peer_addrs: &Vec<IpAddr>,
     ) -> GossipAcceptanceResult;
 }
 
@@ -1214,6 +1221,7 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
+        peer_addrs: &Vec<IpAddr>,
     ) -> GossipAcceptanceResult {
         let (qualification, handler_ref) = self
             .gossip_handlers
@@ -1233,6 +1241,7 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
                     database,
                     agrs,
                     gossip_source,
+                    peer_addrs,
                     &self.cpm_recipient,
                 )
             }
@@ -1353,6 +1362,7 @@ mod tests {
             &mut db,
             agrs_vec,
             gossip_source_opt,
+            &vec![],
             &cpm_recipient,
         );
 
@@ -1384,8 +1394,14 @@ mod tests {
         let subject = DebutHandler::new(Logger::new("test"));
 
         let qualifies_result = subject.qualifies(&db, agrs_vec.as_slice(), gossip_source.clone());
-        let handle_result =
-            subject.handle(&cryptde, &mut db, agrs_vec, gossip_source, &cpm_recipient);
+        let handle_result = subject.handle(
+            &cryptde,
+            &mut db,
+            agrs_vec,
+            gossip_source,
+            &vec![],
+            &cpm_recipient,
+        );
 
         assert_eq!(Qualification::Matched, qualifies_result);
         let introduction = GossipBuilder::new(&db)
@@ -1438,6 +1454,7 @@ mod tests {
             &mut dest_db,
             agrs_vec,
             src_root.node_addr_opt().unwrap().into(),
+            &vec![],
             &cpm_recipient,
         );
 
@@ -1471,6 +1488,7 @@ mod tests {
             &mut dest_db,
             agrs_vec,
             src_root.node_addr_opt().unwrap().into(),
+            &vec![],
             &cpm_recipient,
         );
 
@@ -1584,6 +1602,7 @@ mod tests {
             &mut dest_db,
             agrs_vec,
             dest_root.node_addr_opt().clone().unwrap().into(),
+            &vec![],
             &cpm_recipient,
         );
 
@@ -1605,6 +1624,7 @@ mod tests {
             &mut dest_db,
             agrs_vec,
             gossip_source,
+            &vec![],
             &cpm_recipient,
         );
 
@@ -1863,6 +1883,7 @@ mod tests {
             &mut dest_db,
             agrs.clone(),
             gossip_source,
+            &vec![],
             &cpm_recipient,
         );
 
@@ -1909,6 +1930,7 @@ mod tests {
             &mut dest_db,
             agrs.clone(),
             gossip_source,
+            &vec![],
             &cpm_recipient,
         );
 
@@ -1958,6 +1980,7 @@ mod tests {
             &mut dest_db,
             agrs.clone(),
             gossip_source,
+            &vec![],
             &cpm_recipient,
         );
 
@@ -1987,6 +2010,7 @@ mod tests {
             &mut dest_db,
             agrs.clone(),
             gossip_source,
+            &vec![],
             &cpm_recipient,
         );
 
@@ -2043,6 +2067,7 @@ mod tests {
             &mut dest_db,
             agrs.clone(),
             gossip_source,
+            &vec![],
             &cpm_recipient,
         );
 
@@ -2294,6 +2319,7 @@ mod tests {
             &mut dest_db,
             agrs_vec,
             gossip_source,
+            &vec![],
             &cpm_recipient,
         );
 
@@ -2524,7 +2550,14 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let result = subject.handle(cryptde, &mut node_a_db, agrs, gossip_source, &cpm_recipient);
+        let result = subject.handle(
+            cryptde,
+            &mut node_a_db,
+            agrs,
+            gossip_source,
+            &vec![],
+            &cpm_recipient,
+        );
 
         assert_eq!(result, GossipAcceptanceResult::Ignored);
     }
@@ -2556,6 +2589,7 @@ mod tests {
             &mut root_db,
             agrs,
             src_node_socket_addr,
+            &vec![],
             &cpm_recipient,
         );
 
@@ -2594,6 +2628,7 @@ mod tests {
             &mut root_db,
             agrs,
             src_node_socket_addr,
+            &vec![],
             &cpm_recipient,
         );
 
@@ -2639,6 +2674,7 @@ mod tests {
             &mut root_db,
             agrs,
             src_node_socket_addr,
+            &vec![],
             &cpm_recipient,
         );
 
@@ -2678,6 +2714,7 @@ mod tests {
             &mut root_db,
             agrs,
             src_node_socket_addr,
+            &vec![],
             &cpm_recipient,
         );
 
@@ -2721,6 +2758,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             src_root.node_addr_opt().clone().unwrap().into(),
+            &vec![],
         );
 
         assert_eq!(result, GossipAcceptanceResult::Ignored);
@@ -2804,6 +2842,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             src_node.node_addr_opt().unwrap().into(),
+            &vec![],
         );
 
         assert_eq!(GossipAcceptanceResult::Ignored, result);
@@ -2818,7 +2857,12 @@ mod tests {
         let subject = make_subject(&root_node_cryptde);
         let before = time_t_timestamp();
 
-        let result = subject.handle(&mut dest_db, gossip.try_into().unwrap(), gossip_source);
+        let result = subject.handle(
+            &mut dest_db,
+            gossip.try_into().unwrap(),
+            gossip_source,
+            &vec![],
+        );
 
         let after = time_t_timestamp();
         assert_eq!(GossipAcceptanceResult::Accepted, result);
@@ -2852,7 +2896,12 @@ mod tests {
         let subject = make_subject(&root_node_cryptde);
         let before = time_t_timestamp();
 
-        let result = subject.handle(&mut dest_db, gossip.try_into().unwrap(), gossip_source);
+        let result = subject.handle(
+            &mut dest_db,
+            gossip.try_into().unwrap(),
+            gossip_source,
+            &vec![],
+        );
 
         let after = time_t_timestamp();
         let expected_acceptance_gossip = GossipBuilder::new(&dest_db)
@@ -2918,7 +2967,12 @@ mod tests {
         let subject = make_subject(&root_node_cryptde);
         let before = time_t_timestamp();
 
-        let result = subject.handle(&mut dest_db, gossip.try_into().unwrap(), gossip_source);
+        let result = subject.handle(
+            &mut dest_db,
+            gossip.try_into().unwrap(),
+            gossip_source,
+            &vec![],
+        );
 
         let after = time_t_timestamp();
         let expected_acceptance_gossip_1 = GossipBuilder::new(&dest_db)
@@ -3009,7 +3063,12 @@ mod tests {
         let (gossip, debut_node, gossip_source) = make_debut(2345, Mode::Standard);
         let subject = make_subject(&root_node_cryptde);
 
-        let result = subject.handle(&mut dest_db, gossip.try_into().unwrap(), gossip_source);
+        let result = subject.handle(
+            &mut dest_db,
+            gossip.try_into().unwrap(),
+            gossip_source,
+            &vec![],
+        );
 
         let expected_acceptance_gossip_2 = GossipBuilder::new(&dest_db)
             .node(existing_node_2_key, true)
@@ -3093,7 +3152,12 @@ mod tests {
         let (gossip, debut_node, gossip_source) = make_debut(2345, Mode::Standard);
         let subject = make_subject(&root_node_cryptde);
 
-        let result = subject.handle(&mut dest_db, gossip.try_into().unwrap(), gossip_source);
+        let result = subject.handle(
+            &mut dest_db,
+            gossip.try_into().unwrap(),
+            gossip_source,
+            &vec![],
+        );
 
         let expected_acceptance_gossip = GossipBuilder::new(&dest_db)
             .node(existing_node_5_key, true)
@@ -3143,7 +3207,12 @@ mod tests {
         let gossip_source: SocketAddr = src_node.node_addr_opt().unwrap().into();
         let subject = make_subject(main_cryptde());
 
-        let result = subject.handle(&mut dest_db, debut.try_into().unwrap(), gossip_source);
+        let result = subject.handle(
+            &mut dest_db,
+            debut.try_into().unwrap(),
+            gossip_source,
+            &vec![],
+        );
 
         assert_eq!(GossipAcceptanceResult::Ignored, result);
         assert_eq!(
@@ -3177,7 +3246,7 @@ mod tests {
         let subject = make_subject(main_cryptde());
 
         let begin_at = time_t_timestamp();
-        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source);
+        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source, &vec![]);
         let end_at = time_t_timestamp();
 
         assert_eq!(GossipAcceptanceResult::Accepted, result);
@@ -3205,7 +3274,7 @@ mod tests {
         let gossip_source = src_node.node_addr_opt().unwrap().into();
         let subject = make_subject(main_cryptde());
 
-        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source);
+        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source, &vec![]);
 
         assert_eq!(result, GossipAcceptanceResult::Accepted);
         assert_eq!(
@@ -3235,7 +3304,7 @@ mod tests {
         let gossip_source = src_node.node_addr_opt().unwrap().into();
         let subject = make_subject(main_cryptde());
 
-        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source);
+        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source, &vec![]);
 
         assert_eq!(result, GossipAcceptanceResult::Accepted);
         assert_eq!(
@@ -3262,7 +3331,14 @@ mod tests {
         let system =
             System::new("introduction_gossip_handler_sends_cpm_for_neighborship_established");
 
-        subject.handle(cryptde, &mut db, agrs, gossip_source, &cpm_recipient);
+        subject.handle(
+            cryptde,
+            &mut db,
+            agrs,
+            gossip_source,
+            &vec![],
+            &cpm_recipient,
+        );
 
         System::current().stop();
         assert_eq!(system.run(), 0);
@@ -3297,7 +3373,7 @@ mod tests {
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let subject = make_subject(main_cryptde());
 
-        let result = subject.handle(&mut db, gossip.try_into().unwrap(), gossip_source);
+        let result = subject.handle(&mut db, gossip.try_into().unwrap(), gossip_source, &vec![]);
 
         let expected_relay_gossip = GossipBuilder::new(&db)
             .node(root_node.public_key(), true)
@@ -3329,6 +3405,7 @@ mod tests {
             &mut db,
             gossip.try_into().unwrap(),
             gossip_source,
+            &vec![],
             &cpm_recipient,
         );
 
@@ -3381,6 +3458,7 @@ mod tests {
             &mut db,
             gossip.try_into().unwrap(),
             gossip_source,
+            &vec![],
             &cpm_recipient,
         );
 
@@ -3425,6 +3503,7 @@ mod tests {
             &mut db,
             gossip.try_into().unwrap(),
             gossip_source,
+            &vec![],
             &cpm_recipient,
         );
 
@@ -3507,6 +3586,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             node_a.node_addr_opt().unwrap().into(),
+            &vec![],
         );
 
         let after = time_t_timestamp();
@@ -3622,6 +3702,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             src_node.node_addr_opt().unwrap().into(),
+            &vec![],
         );
 
         let after = time_t_timestamp();
@@ -3708,6 +3789,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             src_root.node_addr_opt().unwrap().into(),
+            &vec![],
         );
 
         let after = time_t_timestamp();

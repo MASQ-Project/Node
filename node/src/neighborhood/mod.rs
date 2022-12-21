@@ -723,11 +723,17 @@ impl Neighborhood {
     fn handle_agrs(&mut self, agrs: Vec<AccessibleGossipRecord>, gossip_source: SocketAddr) {
         let ignored_node_name = self.gossip_source_name(&agrs, gossip_source);
         let gossip_record_count = agrs.len();
+        let peer_addrs = self.overall_connection_status.get_peer_addrs();
         let acceptance_result = self
             .gossip_acceptor_opt
             .as_ref()
             .expect("Gossip Acceptor wasn't created.")
-            .handle(&mut self.neighborhood_database, agrs, gossip_source);
+            .handle(
+                &mut self.neighborhood_database,
+                agrs,
+                gossip_source,
+                &peer_addrs,
+            );
         match acceptance_result {
             GossipAcceptanceResult::Accepted => self.gossip_to_neighbors(),
             GossipAcceptanceResult::Reply(next_debut, target_key, target_node_addr) => {
@@ -3615,6 +3621,7 @@ mod tests {
             database: &mut NeighborhoodDatabase,
             _agrs: Vec<AccessibleGossipRecord>,
             _gossip_source: SocketAddr,
+            _peer_addrs: &Vec<IpAddr>,
         ) -> GossipAcceptanceResult {
             let non_root_database_keys = database
                 .keys()
@@ -3804,6 +3811,7 @@ mod tests {
             database: &mut NeighborhoodDatabase,
             _agrs: Vec<AccessibleGossipRecord>,
             _gossip_source: SocketAddr,
+            _peer_addrs: &Vec<IpAddr>,
         ) -> GossipAcceptanceResult {
             let half_neighbor_keys = database
                 .root()
@@ -5464,6 +5472,7 @@ mod tests {
             database: &mut NeighborhoodDatabase,
             agrs: Vec<AccessibleGossipRecord>,
             gossip_source: SocketAddr,
+            _peer_addrs: &Vec<IpAddr>,
         ) -> GossipAcceptanceResult {
             self.handle_params
                 .lock()
