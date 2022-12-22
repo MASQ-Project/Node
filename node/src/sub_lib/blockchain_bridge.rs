@@ -83,7 +83,7 @@ where
         &self,
         batch_wide_timestamp: SystemTime,
         new_pp_fingerprints_sub: &Recipient<NewPendingPayableFingerprints>,
-        payable_attributes: &[(H256, u64)],
+        payable_attributes: &[(H256, u128)],
     );
     fn submit_batch(
         &self,
@@ -128,7 +128,7 @@ impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T
         &self,
         batch_wide_timestamp: SystemTime,
         pp_fingerprint_sub: &Recipient<NewPendingPayableFingerprints>,
-        chief_payable_attributes: &[(H256, u64)],
+        chief_payable_attributes: &[(H256, u128)],
     ) {
         pp_fingerprint_sub
             .try_send(NewPendingPayableFingerprints {

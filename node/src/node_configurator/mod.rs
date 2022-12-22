@@ -6,8 +6,8 @@ pub mod node_configurator_standard;
 pub mod unprivileged_parse_args_configuration;
 
 use crate::bootstrapper::RealUser;
+use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
-use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
@@ -66,11 +66,10 @@ pub fn determine_config_file_path(
 
 pub fn initialize_database(
     data_directory: &Path,
-    create_if_necessary: bool,
-    migrator_config: MigratorConfig,
+    migrator_config: DbInitializationConfig,
 ) -> Box<dyn PersistentConfiguration> {
     let conn = DbInitializerReal::default()
-        .initialize(data_directory, create_if_necessary, migrator_config)
+        .initialize(data_directory, migrator_config)
         .unwrap_or_else(|e| {
             panic!(
                 "Can't initialize database at {:?}: {:?}",

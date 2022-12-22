@@ -54,8 +54,7 @@ pub mod shared_test_environment {
 pub mod test_environment {
     use crate::accountant::payable_dao::{PayableDao, PayableDaoReal};
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
-    use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
-    use crate::database::db_migrations::MigratorConfig;
+    use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE, DbInitializationConfig};
     use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
@@ -171,8 +170,7 @@ pub mod test_environment {
         let db_for_separate_calls = DbInitializerReal::default()
             .initialize(
                 test_home_folder.join("separate_calls").as_path(),
-                true,
-                MigratorConfig::test_default(),
+                DbInitializationConfig::test_default(),
             )
             .unwrap();
         create_initial_records(db_for_separate_calls.as_ref(), &range_of_attempts);
@@ -190,8 +188,7 @@ pub mod test_environment {
         let db_for_single_call = DbInitializerReal::default()
             .initialize(
                 single_call_path.as_path(),
-                true,
-                MigratorConfig::test_default(),
+                DbInitializationConfig::test_default(),
             )
             .unwrap();
         create_initial_records(db_for_single_call.as_ref(), &range_of_attempts);

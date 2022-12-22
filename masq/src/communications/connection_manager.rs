@@ -555,7 +555,8 @@ mod tests {
     use crate::test_utils::client_utils::make_client;
     use crossbeam_channel::TryRecvError;
     use masq_lib::messages::{
-        CrashReason, FromMessageBody, ToMessageBody, UiNodeCrashedBroadcast, UiSetupBroadcast,
+        CrashReason, FromMessageBody, ToMessageBody, UiFinancialStatistics, UiNodeCrashedBroadcast,
+        UiSetupBroadcast,
     };
     use masq_lib::messages::{
         UiFinancialsRequest, UiFinancialsResponse, UiRedirect, UiSetupRequest, UiSetupResponse,
@@ -1170,10 +1171,13 @@ mod tests {
         let node_port = find_free_port();
         let node_server = MockWebSocketsServer::new(node_port).queue_response(
             UiFinancialsResponse {
-                total_unpaid_and_pending_payable: 10,
-                total_paid_payable: 22,
-                total_unpaid_receivable: 29,
-                total_paid_receivable: 32,
+                stats_opt: Some(UiFinancialStatistics {
+                    total_unpaid_and_pending_payable_gwei: 10,
+                    total_paid_payable_gwei: 22,
+                    total_unpaid_receivable_gwei: 29,
+                    total_paid_receivable_gwei: 32,
+                }),
+                query_results_opt: None,
             }
             .tmb(1),
         );
@@ -1187,7 +1191,12 @@ mod tests {
                 payload: r#"{"payableMinimumAmount":12,"payableMaximumAge":23,"receivableMinimumAmount":34,"receivableMaximumAge":45}"#.to_string()
             }.tmb(0));
         let daemon_stop_handle = daemon_server.start();
-        let request = UiFinancialsRequest {}.tmb(1);
+        let request = UiFinancialsRequest {
+            stats_required: true,
+            top_records_opt: None,
+            custom_queries_opt: None,
+        }
+        .tmb(1);
         let send_params_arc = Arc::new(Mutex::new(vec![]));
         let broadcast_handler = BroadcastHandleMock::new().send_params(&send_params_arc);
         let mut subject = ConnectionManager::new();
@@ -1204,10 +1213,13 @@ mod tests {
         assert_eq!(
             response,
             UiFinancialsResponse {
-                total_unpaid_and_pending_payable: 10,
-                total_paid_payable: 22,
-                total_unpaid_receivable: 29,
-                total_paid_receivable: 32
+                stats_opt: Some(UiFinancialStatistics {
+                    total_unpaid_and_pending_payable_gwei: 10,
+                    total_paid_payable_gwei: 22,
+                    total_unpaid_receivable_gwei: 29,
+                    total_paid_receivable_gwei: 32,
+                }),
+                query_results_opt: None
             }
         );
         assert_eq!(context_id, 1);

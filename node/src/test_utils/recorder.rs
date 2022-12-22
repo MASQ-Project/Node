@@ -3,7 +3,7 @@
 use crate::accountant::ReportTransactionReceipts;
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables,
-    ScanForPendingPayables, ScanForReceivables, SentPayable,
+    ScanForPendingPayables, ScanForReceivables, SentPayables,
 };
 use crate::blockchain::blockchain_bridge::NewPendingPayableFingerprints;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
@@ -23,6 +23,7 @@ use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{HopperSubs, MessageType};
+use crate::sub_lib::neighborhood::ConnectionProgressMessage;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
@@ -30,7 +31,6 @@ use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
-use crate::sub_lib::neighborhood::{ConnectionProgressMessage, NeighborhoodDotGraphRequest};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::peer_actors::PeerActors;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
@@ -126,7 +126,6 @@ recorder_message_handler!(ExpiredCoresPackage<MessageType>);
 recorder_message_handler!(InboundClientData);
 recorder_message_handler!(InboundServerData);
 recorder_message_handler!(IncipientCoresPackage);
-recorder_message_handler!(NeighborhoodDotGraphRequest);
 recorder_message_handler!(NewPasswordMessage);
 recorder_message_handler!(NewPublicIp);
 recorder_message_handler!(NodeFromUiMessage);
@@ -141,7 +140,7 @@ recorder_message_handler!(ReportServicesConsumedMessage);
 recorder_message_handler!(ReportExitServiceProvidedMessage);
 recorder_message_handler!(ReportRoutingServiceProvidedMessage);
 recorder_message_handler!(ScanError);
-recorder_message_handler!(SentPayable);
+recorder_message_handler!(SentPayables);
 recorder_message_handler!(SetConsumingWalletMessage);
 recorder_message_handler!(SetDbPasswordMsg);
 recorder_message_handler!(SetGasPriceMsg);
@@ -417,7 +416,7 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_new_payments: recipient!(addr, ReceivedPayments),
         init_pending_payable_fingerprints: recipient!(addr, NewPendingPayableFingerprints),
         report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
-        report_sent_payments: recipient!(addr, SentPayable),
+        report_sent_payments: recipient!(addr, SentPayables),
         scan_errors: recipient!(addr, ScanError),
         ui_message_sub: recipient!(addr, NodeFromUiMessage),
     }

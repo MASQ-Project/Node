@@ -2,15 +2,15 @@
 
 use crate::accountant::payable_dao::PayableAccount;
 use crate::accountant::{
-    ReceivedPayments, ResponseSkeleton, ScanError, SentPayable, SkeletonOptHolder,
+    ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
 };
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
     BlockchainInterfaceNonClandestine, BlockchainResult, ProcessedPayableFallible,
 };
+use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DATABASE_FILE};
-use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
@@ -46,7 +46,7 @@ pub struct BlockchainBridge<T: Transport = Http> {
     logger: Logger,
     persistent_config: Box<dyn PersistentConfiguration>,
     set_consuming_wallet_subs_opt: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
-    sent_payable_subs_opt: Option<Recipient<SentPayable>>,
+    sent_payable_subs_opt: Option<Recipient<SentPayables>>,
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
     scan_error_subs_opt: Option<Recipient<ScanError>>,
     crashable: bool,
@@ -146,7 +146,7 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
 #[derive(Debug, Clone, PartialEq, Eq, Message)]
 pub struct NewPendingPayableFingerprints {
     pub batch_wide_timestamp: SystemTime,
-    pub init_params: Vec<(H256, u64)>,
+    pub init_params: Vec<(H256, u128)>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -155,7 +155,7 @@ pub struct PendingPayableFingerprint {
     pub timestamp: SystemTime,
     pub hash: H256,
     pub attempt: u16,
-    pub amount: u64,
+    pub amount: u128,
     pub process_error: Option<String>,
 }
 
@@ -213,7 +213,10 @@ impl BlockchainBridge {
         };
         let config_dao = Box::new(ConfigDaoReal::new(
             db_initializer
-                .initialize(&data_directory, true, MigratorConfig::panic_on_migration())
+                .initialize(
+                    &data_directory,
+                    DbInitializationConfig::panic_on_migration(),
+                )
                 .unwrap_or_else(|_| {
                     panic!(
                         "Failed to connect to database at {:?}",
@@ -252,7 +255,7 @@ impl BlockchainBridge {
         self.sent_payable_subs_opt
             .as_ref()
             .expect("Accountant is unbound")
-            .try_send(SentPayable {
+            .try_send(SentPayables {
                 payment_outcome: result,
                 response_skeleton_opt: skeleton,
             })
@@ -441,6 +444,7 @@ struct PendingTxInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::dao_utils::from_time_t;
     use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
@@ -449,7 +453,6 @@ mod tests {
         BlockchainError, BlockchainTransaction, RetrievedBlockchainTransactions,
     };
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
-    use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::node_test_utils::check_timestamp;
@@ -559,7 +562,7 @@ mod tests {
         let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
-                balance: 42,
+                balance_wei: 42,
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],
@@ -610,13 +613,13 @@ mod tests {
         let accounts = vec![
             PayableAccount {
                 wallet: wallet_account_1.clone(),
-                balance: 420,
+                balance_wei: 420,
                 last_paid_timestamp: from_time_t(150_000_000),
                 pending_payable_opt: None,
             },
             PayableAccount {
                 wallet: wallet_account_2.clone(),
-                balance: 210,
+                balance_wei: 210,
                 last_paid_timestamp: from_time_t(160_000_000),
                 pending_payable_opt: None,
             },
@@ -650,10 +653,10 @@ mod tests {
         assert_eq!(*get_transaction_count_params, vec![consuming_wallet]);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 1);
-        let sent_payments_msg = accountant_recording.get_record::<SentPayable>(0);
+        let sent_payments_msg = accountant_recording.get_record::<SentPayables>(0);
         assert_eq!(
             *sent_payments_msg,
-            SentPayable {
+            SentPayables {
                 payment_outcome: Ok(vec![
                     Correct(PendingPayable {
                         recipient_wallet: wallet_account_1,
@@ -703,7 +706,7 @@ mod tests {
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         let accounts = vec![PayableAccount {
             wallet: wallet_account,
-            balance: 420,
+            balance_wei: 111_420_204,
             last_paid_timestamp: from_time_t(150_000_000),
             pending_payable_opt: None,
         }];
@@ -723,10 +726,10 @@ mod tests {
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 2);
-        let sent_payments_msg = accountant_recording.get_record::<SentPayable>(0);
+        let sent_payments_msg = accountant_recording.get_record::<SentPayables>(0);
         assert_eq!(
             *sent_payments_msg,
-            SentPayable {
+            SentPayables {
                 payment_outcome: expected_error,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -761,7 +764,7 @@ mod tests {
         let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
-                balance: 42,
+                balance_wei: 123_456,
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],
@@ -799,7 +802,7 @@ mod tests {
         let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
-                balance: 42,
+                balance_wei: 424_454,
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],
@@ -837,7 +840,7 @@ mod tests {
         let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
-                balance: 42,
+                balance_wei: 42,
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],
@@ -1134,12 +1137,12 @@ mod tests {
                 BlockchainTransaction {
                     block_number: 7,
                     from: earning_wallet.clone(),
-                    gwei_amount: amount,
+                    wei_amount: amount,
                 },
                 BlockchainTransaction {
                     block_number: 9,
                     from: earning_wallet.clone(),
-                    gwei_amount: amount2,
+                    wei_amount: amount2,
                 },
             ],
         };
@@ -1292,7 +1295,7 @@ mod tests {
                 transactions: vec![BlockchainTransaction {
                     block_number: 1000,
                     from: make_wallet("somewallet"),
-                    gwei_amount: 2345,
+                    wei_amount: 2345,
                 }],
             }),
         );

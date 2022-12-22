@@ -5,7 +5,7 @@
 use crate::blockchain::blockchain_bridge::NewPendingPayableFingerprints;
 use crate::blockchain::blockchain_interface::{
     Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce,
-    ProcessedPayableFallible, Receipt, REQUESTS_IN_PARALLEL,
+    ProcessedPayableFallible, Receipt, REQUESTS_IN_PARALLEL
 };
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -311,7 +311,7 @@ pub struct BatchPayableToolsMock<T: BatchTransport> {
             Vec<(
                 SystemTime,
                 Recipient<NewPendingPayableFingerprints>,
-                Vec<(H256, u64)>,
+                Vec<(H256, u128)>,
             )>,
         >,
     >,
@@ -351,7 +351,7 @@ impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
         &self,
         batch_wide_timestamp: SystemTime,
         pp_fingerprint_sub: &Recipient<NewPendingPayableFingerprints>,
-        payable_attributes: &[(H256, u64)],
+        payable_attributes: &[(H256, u128)],
     ) {
         self.send_new_payable_fingerprint_credentials_params
             .lock()
@@ -405,7 +405,7 @@ impl<T: BatchTransport> BatchPayableToolsMock<T> {
                 Vec<(
                     SystemTime,
                     Recipient<NewPendingPayableFingerprints>,
-                    Vec<(H256, u64)>,
+                    Vec<(H256, u128)>,
                 )>,
             >,
         >,

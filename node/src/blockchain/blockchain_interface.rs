@@ -2,9 +2,7 @@
 
 use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
 use crate::blockchain::blockchain_bridge::NewPendingPayableFingerprints;
-use crate::blockchain::blockchain_interface::BlockchainError::{
-    InvalidAddress, InvalidResponse, InvalidUrl, PayableTransactionFailed, QueryFailed,
-};
+use crate::blockchain::blockchain_interface::BlockchainError::{InvalidAddress, InvalidResponse, InvalidUrl, PayableTransactionFailed, QueryFailed, SignedValueConversion};
 use crate::sub_lib::blockchain_bridge::{BatchPayableTools, BatchPayableToolsReal};
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, Recipient};
@@ -20,6 +18,7 @@ use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
+use thousands::Separable;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{
@@ -43,7 +42,7 @@ const TRANSFER_METHOD_ID: [u8; 4] = [0xa9, 0x05, 0x9c, 0xbb];
 pub struct BlockchainTransaction {
     pub block_number: u64,
     pub from: Wallet,
-    pub gwei_amount: u64,
+    pub wei_amount: u128,
 }
 
 impl fmt::Display for BlockchainTransaction {
@@ -51,7 +50,7 @@ impl fmt::Display for BlockchainTransaction {
         write!(
             f,
             "{}gw from {} ({})",
-            self.gwei_amount, self.from, self.block_number
+            self.wei_amount, self.from, self.block_number
         )
     }
 }
@@ -62,6 +61,7 @@ pub enum BlockchainError {
     InvalidAddress,
     InvalidResponse,
     QueryFailed(String),
+    SignedValueConversion(i128),
     PayableTransactionFailed {
         msg: String,
         signed_and_saved_txs_opt: Option<Vec<H256>>,
@@ -94,6 +94,7 @@ impl Display for BlockchainError {
             InvalidUrl => Left("Invalid url."),
             InvalidAddress => Left("Invalid address."),
             InvalidResponse => Left("Invalid response."),
+            SignedValueConversion(num) => todo!(),
             QueryFailed(msg) => Right(format!("Query failed: {}.", msg)),
             PayableTransactionFailed {
                 msg,
@@ -241,10 +242,6 @@ pub struct BlockchainInterfaceNonClandestine<T: BatchTransport + Debug> {
 
 const GWEI: U256 = U256([1_000_000_000u64, 0, 0, 0]);
 
-pub fn to_gwei(wei: U256) -> Option<u64> {
-    u64::try_from(wei / GWEI).ok()
-}
-
 pub fn to_wei(gwub: u64) -> U256 {
     let subgwei = U256::from(gwub);
     subgwei.full_mul(GWEI).try_into().expect("Internal Error")
@@ -306,12 +303,14 @@ where
                                 .filter_map(|log: &Log| match log.block_number {
                                     Some(block_number) => {
                                         let amount: U256 = U256::from(log.data.0.as_slice());
-                                        let gwei_amount = to_gwei(amount);
-                                        gwei_amount.map(|gwei_amount| BlockchainTransaction {
-                                            block_number: u64::try_from(block_number)
-                                                .expect("Internal Error"),
-                                            from: Wallet::from(log.topics[1]),
-                                            gwei_amount,
+                                        let wei_amount_result = u128::try_from(amount);
+                                        wei_amount_result.ok().map(|wei_amount| {
+                                            BlockchainTransaction {
+                                                block_number: u64::try_from(block_number)
+                                                    .expect("Internal Error"),
+                                                from: Wallet::from(log.topics[1]),
+                                                wei_amount,
+                                            }
                                         })
                                     }
                                     None => None,
@@ -438,7 +437,7 @@ pub struct RpcPayableFailure {
     pub hash: H256,
 }
 
-type HashAndAmountResult = Result<Vec<(H256, u64)>, PayableTransactionError>;
+type HashAndAmountResult = Result<Vec<(H256, u128)>, PayableTransactionError>;
 
 impl<T> BlockchainInterfaceNonClandestine<T>
 where
@@ -496,7 +495,7 @@ where
 
     fn sign_and_register_single_payment(
         &self,
-        hashes_and_amounts: Vec<(H256, u64)>,
+        hashes_and_amounts: Vec<(H256, u128)>,
         consuming_wallet: &Wallet,
         nonce: U256,
         gas_price: u64,
@@ -504,19 +503,19 @@ where
     ) -> HashAndAmountResult {
         debug!(
             self.logger,
-            "Preparing payment of {} Gwei to {} with nonce {}", // TODO fix this later to Wei
-            account.balance,
+            "Preparing payment of {} Wei to {} with nonce {}",
+            account.balance_wei,
             account.wallet,
             nonce
         );
         self.handle_new_transaction(
             &account.wallet,
             consuming_wallet,
-            account.balance as u64,
+            account.balance_wei,
             nonce,
             gas_price,
         )
-        .map(|new_hash| plus(hashes_and_amounts, (new_hash, account.balance as u64)))
+        .map(|new_hash| plus(hashes_and_amounts, (new_hash, account.balance_wei)))
     }
 
     fn advance_used_nonce(current_nonce: U256) -> U256 {
@@ -527,7 +526,7 @@ where
 
     fn merged_output_data(
         responses: Vec<web3::transports::Result<Value>>,
-        hashes_and_paid_amounts: Vec<(H256, u64)>,
+        hashes_and_paid_amounts: Vec<(H256, u128)>,
         accounts: &[PayableAccount],
     ) -> Vec<ProcessedPayableFallible> {
         let iterator_with_all_data = responses
@@ -551,7 +550,7 @@ where
 
     fn error_with_hashes(
         error: Error,
-        hashes_and_paid_amounts: Vec<(H256, u64)>,
+        hashes_and_paid_amounts: Vec<(H256, u128)>,
     ) -> BlockchainError {
         let hashes = hashes_and_paid_amounts
             .into_iter()
@@ -568,7 +567,7 @@ where
         &self,
         recipient: &'a Wallet,
         consuming_wallet: &'a Wallet,
-        amount: u64,
+        amount: u128,
         nonce: U256,
         gas_price: u64,
     ) -> Result<H256, PayableTransactionError> {
@@ -583,14 +582,16 @@ where
         &self,
         recipient: &'a Wallet,
         consuming_wallet: &'a Wallet,
-        amount: u64,
+        amount: u128,
         nonce: U256,
         gas_price: u64,
     ) -> Result<SignedTransaction, PayableTransactionError> {
         let mut data = [0u8; 4 + 32 + 32];
         data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
         data[16..36].copy_from_slice(&recipient.address().0[..]);
-        to_wei(amount).to_big_endian(&mut data[36..68]);
+        U256::try_from(amount)
+            .expect("shouldn't overflow")
+            .to_big_endian(&mut data[36..68]);
         let base_gas_limit = Self::base_gas_limit(self.chain);
         let gas_limit =
             ethereum_types::U256::try_from(data.iter().fold(base_gas_limit, |acc, v| {
@@ -648,7 +649,7 @@ where
         )); //TODO change to Wei later
         let body = accounts
             .iter()
-            .map(|account| format!("{}   {}\n", account.wallet, account.balance));
+            .map(|account| format!("{}   {}\n", account.wallet, account.balance_wei));
         introduction.chain(body).collect()
     }
 
@@ -722,7 +723,7 @@ mod tests {
         make_default_signed_transaction, make_fake_event_loop_handle, make_tx_hash,
         BatchPayableToolsMock, TestTransport,
     };
-    use crate::database::dao_utils::from_time_t;
+    use crate::accountant::dao_utils::from_time_t;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::decode_hex;
@@ -751,6 +752,7 @@ mod tests {
     use web3::transports::Http;
     use web3::types::H2048;
     use web3::Error as Web3Error;
+    use crate::accountant::{gwei_to_wei, wei_to_gwei};
 
     #[test]
     fn constants_have_correct_values() {
@@ -957,13 +959,13 @@ mod tests {
                         block_number: 0x4be663,
                         from: Wallet::from_str("0x3ab28ecedea6cdb6feed398e93ae8c7b316b1182")
                             .unwrap(),
-                        gwei_amount: 4_503_599,
+                        wei_amount: 4_503_599_627_370_496,
                     },
                     BlockchainTransaction {
                         block_number: 0x4be662,
                         from: Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc")
                             .unwrap(),
-                        gwei_amount: 4_503_599,
+                        wei_amount: 4_503_599_627_370_496,
                     },
                 ]
             }
@@ -1316,19 +1318,19 @@ mod tests {
         );
         subject.logger = logger;
         let gas_price = 120;
-        let amount_1 = 900000000;
+        let amount_1 = gwei_to_wei(900_000_000_u64);
         let account_1 = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             make_wallet("w123"),
             amount_1,
             None,
         );
-        let amount_2 = 111111111;
+        let amount_2 = gwei_to_wei(111_111_111_u64);
         let account_2 = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             make_wallet("w555"),
             amount_2,
             None,
         );
-        let amount_3 = 33355666;
+        let amount_3 = gwei_to_wei(33_355_666_u64);
         let account_3 = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             make_wallet("w987"),
             amount_3,
@@ -1586,18 +1588,18 @@ mod tests {
         subject.batch_payable_tools = Box::new(batch_payables_tools);
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret);
         let gas_price = 123;
-        let first_payment_amount = 50_000;
+        let first_payment_amount = 50_123_321;
         let first_creditor_wallet = make_wallet("creditor321");
         let first_account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             first_creditor_wallet.clone(),
-            first_payment_amount as i64,
+            first_payment_amount,
             None,
         );
-        let second_payment_amount = 11_111;
+        let second_payment_amount = 11_222_333;
         let second_creditor_wallet = make_wallet("creditor123");
         let second_account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             second_creditor_wallet.clone(),
-            second_payment_amount as i64,
+            second_payment_amount,
             None,
         );
 
@@ -1656,8 +1658,8 @@ mod tests {
         assert_eq!(
             actual_pending_payables,
             &vec![
-                (first_hash, first_payment_amount as u64),
-                (second_hash, second_payment_amount as u64)
+                (first_hash, first_payment_amount),
+                (second_hash, second_payment_amount)
             ]
         );
         let mut enter_raw_transaction_to_batch_params =
@@ -1962,7 +1964,7 @@ mod tests {
         Wallet::from(address)
     }
 
-    const TEST_PAYMENT_AMOUNT: u64 = 1000;
+    const TEST_PAYMENT_AMOUNT: u128 = 1_000_000_000_000;
     const TEST_GAS_PRICE_ETH: u64 = 110;
     const TEST_GAS_PRICE_POLYGON: u64 = 50;
 
@@ -1984,7 +1986,7 @@ mod tests {
         };
         let payable_account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             recipient_wallet,
-            i64::try_from(TEST_PAYMENT_AMOUNT).unwrap(),
+            TEST_PAYMENT_AMOUNT,
             None,
         );
 
@@ -1992,7 +1994,7 @@ mod tests {
             .sign_transaction(
                 &payable_account.wallet,
                 &consuming_wallet,
-                payable_account.balance as u64,
+                payable_account.balance_wei,
                 nonce_correct_type,
                 gas_price,
             )
@@ -2327,11 +2329,6 @@ mod tests {
     }
 
     #[test]
-    fn to_gwei_truncates_units_smaller_than_gwei() {
-        assert_eq!(Some(1), to_gwei(U256::from(1_999_999_999)));
-    }
-
-    #[test]
     fn to_wei_converts_units_properly_for_max_value() {
         let converted_wei = to_wei(u64::MAX);
 
@@ -2456,14 +2453,15 @@ mod tests {
                     BlockchainError::InvalidAddress => (to_resolve.to_string(), 22),
                     BlockchainError::InvalidResponse => (to_resolve.to_string(), 33),
                     BlockchainError::QueryFailed(..) => (to_resolve.to_string(), 44),
+                    BlockchainError::SignedValueConversion(_) => (to_resolve.to_string(), 55),
                     BlockchainError::PayableTransactionFailed {
                         signed_and_saved_txs_opt: None,
                         ..
-                    } => (to_resolve.to_string(), 55),
+                    } => (to_resolve.to_string(), 66),
                     BlockchainError::PayableTransactionFailed {
                         signed_and_saved_txs_opt: Some(_),
                         ..
-                    } => (to_resolve.to_string(), 66),
+                    } => (to_resolve.to_string(), 77),
                 }
             })
             .collect::<Vec<(String, u16)>>();
@@ -2472,7 +2470,7 @@ mod tests {
             .iter()
             .map(|(_, num_check)| *num_check)
             .collect::<Vec<u16>>();
-        assert_eq!(formal_comprehensiveness_check, vec![11, 22, 33, 44, 55, 66]);
+        assert_eq!(formal_comprehensiveness_check, vec![11, 22, 33, 44, 55, 66, 77]);
         let actual_error_msgs = displayed_errors
             .into_iter()
             .map(|(msg, _)| msg)
@@ -2519,12 +2517,17 @@ mod tests {
                     assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
                     44
                 }
+                BlockchainError::SignedValueConversion(_) => {
+                    todo!("do we really need this error???; check it out");
+                    assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
+                    55
+                }
                 BlockchainError::PayableTransactionFailed {
                     signed_and_saved_txs_opt: None,
                     ..
                 } => {
                     assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
-                    55
+                    66
                 }
                 BlockchainError::PayableTransactionFailed {
                     signed_and_saved_txs_opt: Some(vec_of_hashes),
@@ -2533,12 +2536,12 @@ mod tests {
                     let result = to_assert.carries_transaction_hashes_opt();
                     let assertable_in_the_loop = result.as_ref();
                     assert_eq!(assertable_in_the_loop, Some(vec_of_hashes));
-                    66
+                    77
                 }
             })
             .collect();
 
-        assert_eq!(check, vec![11, 22, 33, 44, 55, 66])
+        assert_eq!(check, vec![11, 22, 33, 44, 55, 66,77])
     }
 
     #[test]
@@ -2556,18 +2559,18 @@ mod tests {
         let accounts = vec![
             PayableAccount {
                 wallet: make_wallet("4567"),
-                balance: 2345,
+                balance_wei: 2_345_678,
                 last_paid_timestamp: from_time_t(4500000),
                 pending_payable_opt: None,
             },
             PayableAccount {
                 wallet: make_wallet("5656"),
-                balance: 6543,
+                balance_wei: 6_543_210,
                 last_paid_timestamp: from_time_t(333000),
                 pending_payable_opt: None,
             },
         ];
-        let fingerprint_inputs = vec![(make_tx_hash(444), 2346), (make_tx_hash(333), 6543)];
+        let fingerprint_inputs = vec![(make_tx_hash(444), 2_345_678), (make_tx_hash(333), 6_543_210)];
         let responses = vec![
             Ok(Value::String(String::from("blah"))),
             Err(web3::Error::Rpc(Error {

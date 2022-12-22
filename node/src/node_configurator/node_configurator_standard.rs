@@ -16,7 +16,7 @@ use log::LevelFilter;
 
 use crate::apps::app_node;
 use crate::bootstrapper::PortConfiguration;
-use crate::database::db_migrations::{ExternalData, MigratorConfig};
+use crate::database::db_initializer::{DbInitializationConfig, ExternalData};
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::http_request_start_finder::HttpRequestDiscriminatorFactory;
 use crate::node_configurator::unprivileged_parse_args_configuration::{
@@ -83,8 +83,7 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
     ) -> Result<BootstrapperConfig, ConfiguratorError> {
         let mut persistent_config = initialize_database(
             &self.privileged_config.data_directory,
-            true,
-            MigratorConfig::create_or_migrate(self.wrap_up_db_externals(multi_config)),
+            DbInitializationConfig::create_or_migrate(ExternalData::from((self, multi_config))),
         );
         let mut unprivileged_config = BootstrapperConfig::new();
         let parse_args_configurator = UnprivilegedParseArgsConfigurationDaoReal {};
@@ -99,22 +98,33 @@ impl NodeConfigurator<BootstrapperConfig> for NodeConfiguratorStandardUnprivileg
     }
 }
 
+impl<'a>
+    From<(
+        &'a NodeConfiguratorStandardUnprivileged,
+        &'a MultiConfig<'a>,
+    )> for ExternalData
+{
+    fn from(tuple: (&'a NodeConfiguratorStandardUnprivileged, &'a MultiConfig)) -> ExternalData {
+        let (node_configurator_standard, multi_config) = tuple;
+        let (neighborhood_mode, db_password_opt) =
+            collect_externals_from_multi_config(multi_config);
+        ExternalData::new(
+            node_configurator_standard
+                .privileged_config
+                .blockchain_bridge_config
+                .chain,
+            neighborhood_mode,
+            db_password_opt,
+        )
+    }
+}
+
 impl NodeConfiguratorStandardUnprivileged {
     pub fn new(privileged_config: &BootstrapperConfig) -> Self {
         Self {
             privileged_config: privileged_config.clone(),
             logger: Logger::new("NodeConfiguratorStandardUnprivileged"),
         }
-    }
-
-    fn wrap_up_db_externals(&self, multi_config: &MultiConfig) -> ExternalData {
-        let (neighborhood_mode, db_password_opt) =
-            collect_externals_from_multi_config(multi_config);
-        ExternalData::new(
-            self.privileged_config.blockchain_bridge_config.chain,
-            neighborhood_mode,
-            db_password_opt,
-        )
     }
 }
 
@@ -311,7 +321,7 @@ mod tests {
         .unwrap()];
         {
             let conn = DbInitializerReal::default()
-                .initialize(home_dir.as_path(), true, MigratorConfig::test_default())
+                .initialize(home_dir.as_path(), DbInitializationConfig::test_default())
                 .unwrap();
             let mut persistent_config = PersistentConfigurationReal::from(conn);
             persistent_config.change_password(None, "password").unwrap();
@@ -456,7 +466,7 @@ mod tests {
         );
         let mut persistent_config = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir.clone(), true, MigratorConfig::test_default())
+                .initialize(&home_dir.clone(), DbInitializationConfig::test_default())
                 .unwrap(),
         )));
         let consuming_private_key =
@@ -937,9 +947,13 @@ mod tests {
     }
 
     #[test]
-    fn wrap_up_db_externals_is_properly_set_when_password_is_provided() {
-        let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
-        subject.privileged_config.blockchain_bridge_config.chain = DEFAULT_CHAIN;
+    fn external_data_is_properly_created_when_password_is_provided() {
+        let mut configurator_standard =
+            NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
+        configurator_standard
+            .privileged_config
+            .blockchain_bridge_config
+            .chain = DEFAULT_CHAIN;
         let multi_config = make_simplified_multi_config([
             "--neighborhood-mode",
             "zero-hop",
@@ -947,7 +961,7 @@ mod tests {
             "password",
         ]);
 
-        let result = subject.wrap_up_db_externals(&multi_config);
+        let result = ExternalData::from((&configurator_standard, &multi_config));
 
         let expected = ExternalData::new(
             DEFAULT_CHAIN,
@@ -958,12 +972,16 @@ mod tests {
     }
 
     #[test]
-    fn wrap_up_db_externals_is_properly_set_when_no_password_is_provided() {
-        let mut subject = NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
-        subject.privileged_config.blockchain_bridge_config.chain = DEFAULT_CHAIN;
+    fn external_data_is_properly_created_when_no_password_is_provided() {
+        let mut configurator_standard =
+            NodeConfiguratorStandardUnprivileged::new(&BootstrapperConfig::new());
+        configurator_standard
+            .privileged_config
+            .blockchain_bridge_config
+            .chain = DEFAULT_CHAIN;
         let multi_config = make_simplified_multi_config(["--neighborhood-mode", "zero-hop"]);
 
-        let result = subject.wrap_up_db_externals(&multi_config);
+        let result = ExternalData::from((&configurator_standard, &multi_config));
 
         let expected = ExternalData::new(DEFAULT_CHAIN, NeighborhoodModeLight::ZeroHop, None);
         assert_eq!(result, expected)
