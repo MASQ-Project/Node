@@ -3620,7 +3620,7 @@ mod tests {
             database: &mut NeighborhoodDatabase,
             _agrs: Vec<AccessibleGossipRecord>,
             _gossip_source: SocketAddr,
-            _peer_addrs: &Vec<IpAddr>,
+            _peer_addrs: &[IpAddr],
         ) -> GossipAcceptanceResult {
             let non_root_database_keys = database
                 .keys()
@@ -3852,7 +3852,7 @@ mod tests {
             database: &mut NeighborhoodDatabase,
             _agrs: Vec<AccessibleGossipRecord>,
             _gossip_source: SocketAddr,
-            _peer_addrs: &Vec<IpAddr>,
+            _peer_addrs: &[IpAddr],
         ) -> GossipAcceptanceResult {
             let half_neighbor_keys = database
                 .root()
@@ -5513,7 +5513,7 @@ mod tests {
             database: &mut NeighborhoodDatabase,
             agrs: Vec<AccessibleGossipRecord>,
             gossip_source: SocketAddr,
-            _peer_addrs: &Vec<IpAddr>,
+            _peer_addrs: &[IpAddr],
         ) -> GossipAcceptanceResult {
             self.handle_params
                 .lock()

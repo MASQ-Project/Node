@@ -63,7 +63,7 @@ trait GossipHandler: NamedType + Send /* Send because lazily-written tests requi
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
-        peer_addrs: &Vec<IpAddr>,
+        peer_addrs: &[IpAddr],
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult;
 }
@@ -133,7 +133,7 @@ impl GossipHandler for DebutHandler {
         database: &mut NeighborhoodDatabase,
         mut agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
-        _peer_addrs: &Vec<IpAddr>,
+        _peer_addrs: &[IpAddr],
         _cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult {
         let source_agr = {
@@ -510,7 +510,7 @@ impl GossipHandler for PassHandler {
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         _gossip_source: SocketAddr,
-        peer_addrs: &Vec<IpAddr>,
+        peer_addrs: &[IpAddr],
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult {
         let pass_agr = &agrs[0]; // empty Gossip shouldn't get here
@@ -628,7 +628,7 @@ impl GossipHandler for IntroductionHandler {
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
-        _peer_addrs: &Vec<IpAddr>,
+        _peer_addrs: &[IpAddr],
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult {
         if database.root().full_neighbor_keys(database).len() >= MAX_DEGREE {
@@ -933,7 +933,7 @@ impl GossipHandler for StandardGossipHandler {
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
-        _peer_addrs: &Vec<IpAddr>,
+        _peer_addrs: &[IpAddr],
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult {
         let initial_neighborship_status =
@@ -1191,7 +1191,7 @@ impl GossipHandler for RejectHandler {
         _database: &mut NeighborhoodDatabase,
         _agrs: Vec<AccessibleGossipRecord>,
         _gossip_source: SocketAddr,
-        _peer_addrs: &Vec<IpAddr>,
+        _peer_addrs: &[IpAddr],
         _cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult {
         panic!("Should never be called")
@@ -1210,7 +1210,7 @@ pub trait GossipAcceptor: Send /* Send because lazily-written tests require it *
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
-        peer_addrs: &Vec<IpAddr>,
+        peer_addrs: &[IpAddr],
     ) -> GossipAcceptanceResult;
 }
 
@@ -1227,7 +1227,7 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
-        peer_addrs: &Vec<IpAddr>,
+        peer_addrs: &[IpAddr],
     ) -> GossipAcceptanceResult {
         let (qualification, handler_ref) = self
             .gossip_handlers

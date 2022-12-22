@@ -257,7 +257,7 @@ impl OverallConnectionStatus {
         };
 
         if let Ok(connection_progress) = self.get_connection_progress_by_ip(msg.peer_addr) {
-            return Ok(connection_progress);
+            Ok(connection_progress)
         } else {
             Err(format!(
                 "An unnecessary ConnectionProgressMessage received containing IP Address: {:?}",
