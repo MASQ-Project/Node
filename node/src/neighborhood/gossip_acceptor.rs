@@ -628,7 +628,7 @@ impl GossipHandler for IntroductionHandler {
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
-        peer_addrs: &Vec<IpAddr>,
+        _peer_addrs: &Vec<IpAddr>,
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult {
         if database.root().full_neighbor_keys(database).len() >= MAX_DEGREE {
@@ -933,7 +933,7 @@ impl GossipHandler for StandardGossipHandler {
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
-        peer_addrs: &Vec<IpAddr>,
+        _peer_addrs: &Vec<IpAddr>,
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult {
         let initial_neighborship_status =
@@ -1191,7 +1191,7 @@ impl GossipHandler for RejectHandler {
         _database: &mut NeighborhoodDatabase,
         _agrs: Vec<AccessibleGossipRecord>,
         _gossip_source: SocketAddr,
-        peer_addrs: &Vec<IpAddr>,
+        _peer_addrs: &Vec<IpAddr>,
         _cpm_recipient: &Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptanceResult {
         panic!("Should never be called")

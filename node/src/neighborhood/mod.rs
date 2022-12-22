@@ -3760,7 +3760,7 @@ mod tests {
         subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
         subject.gossip_acceptor_opt = Some(Box::new(gossip_acceptor));
         let mut peer_2_db = db_from_node(&peer_2);
-        peer_2_db.add_node(peer_1.clone());
+        peer_2_db.add_node(peer_1.clone()).unwrap();
         peer_2_db.add_arbitrary_full_neighbor(peer_2.public_key(), peer_1.public_key());
         let peer_2_socket_addr: SocketAddr = peer_2.metadata.node_addr_opt.unwrap().into();
         let pass_gossip = GossipBuilder::new(&peer_2_db)
