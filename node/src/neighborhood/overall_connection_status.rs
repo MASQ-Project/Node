@@ -237,23 +237,21 @@ impl OverallConnectionStatus {
         &mut self,
         msg: &ConnectionProgressMessage,
     ) -> Result<&mut ConnectionProgress, String> {
-        match msg.event {
-            ConnectionProgressEvent::PassGossipReceived(pass_target) => {
-                // Check if Pass Target can potentially create a duplicate ConnectionProgress
-                let peer_addrs = self
-                    .progress
-                    .iter()
-                    .map(|connection_progress| connection_progress.current_peer_addr)
-                    .collect::<Vec<IpAddr>>();
-                if peer_addrs.contains(&pass_target) {
-                    return Err(format!(
-                        "We've been passed to a peer with IP Address: {:?} that's \
+        if let ConnectionProgressEvent::PassGossipReceived(pass_target) = msg.event {
+            // Check if Pass Target can potentially create a duplicate ConnectionProgress
+            let is_duplicate = self
+                .progress
+                .iter()
+                .map(|connection_progress| connection_progress.current_peer_addr)
+                .any(|peer| peer == pass_target);
+
+            if is_duplicate {
+                return Err(format!(
+                    "We've been passed to a peer with IP Address: {:?} that's \
                         already a part of different connection progress.",
-                        pass_target
-                    ));
-                }
+                    pass_target
+                ));
             }
-            _ => (),
         };
 
         if let Ok(connection_progress) = self.get_connection_progress_by_ip(msg.peer_addr) {
