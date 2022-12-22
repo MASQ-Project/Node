@@ -33,9 +33,9 @@ impl WalletAddressesCommand {
 const WALLET_ADDRESS_SUBCOMMAND_ABOUT: &str =
     "Provides addresses of consuming and earning wallets.\
      Only valid if the wallets were successfully generated (generate-wallets) or \
-     recovered (recover-wallets)";
+     recovered (recover-wallets).";
 const DB_PASSWORD_ARG_HELP: &str =
-    "The current database password (a password must be set to use this command)";
+    "The current database password (a password must be set to use this command).";
 
 pub fn wallet_addresses_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("wallet-addresses")
@@ -87,11 +87,11 @@ mod tests {
             WALLET_ADDRESS_SUBCOMMAND_ABOUT,
             "Provides addresses of consuming and earning wallets.\
              Only valid if the wallets were successfully generated \
-             (generate-wallets) or recovered (recover-wallets)"
+             (generate-wallets) or recovered (recover-wallets)."
         );
         assert_eq!(
             DB_PASSWORD_ARG_HELP,
-            "The current database password (a password must be set to use this command)"
+            "The current database password (a password must be set to use this command)."
         );
     }
 

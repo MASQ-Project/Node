@@ -6,7 +6,7 @@ use masq_lib::messages::{UiSetConfigurationRequest, UiSetConfigurationResponse};
 use masq_lib::shared_schema::common_validators;
 use masq_lib::shared_schema::GAS_PRICE_HELP;
 use masq_lib::short_writeln;
-use masq_lib::utils::{ExpectValue, WrapResult};
+use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use std::any::Any;
 
@@ -18,18 +18,17 @@ pub struct SetConfigurationCommand {
 
 impl SetConfigurationCommand {
     pub fn new(pieces: &[String]) -> Result<Self, String> {
-        let parameter_opt = pieces.get(1).map(|s| s.replace("--", ""));
+        let parameter_opt = pieces.get(1).map(|s| &s[2..]);
         match set_configuration_subcommand().get_matches_from_safe(pieces) {
             Ok(matches) => {
                 let parameter = parameter_opt.expectv("required param");
-                SetConfigurationCommand {
-                    name: parameter.clone(),
+                Ok(SetConfigurationCommand {
+                    name: parameter.to_string(),
                     value: matches
                         .value_of(parameter)
                         .expectv("required param")
                         .to_string(),
-                }
-                .wrap_to_ok()
+                })
             }
 
             Err(e) => Err(format!("{}", e)),
@@ -60,7 +59,7 @@ impl Command for SetConfigurationCommand {
 }
 
 const SET_CONFIGURATION_ABOUT: &str =
-    "Sets Node configuration parameters being enabled for this operation when the Node is running";
+    "Sets Node configuration parameters being enabled for this operation when the Node is running.";
 const START_BLOCK_HELP: &str =
     "Ordinal number of the Ethereum block where scanning for transactions will start.";
 
@@ -105,7 +104,7 @@ mod tests {
     fn constants_have_correct_values() {
         assert_eq!(
             SET_CONFIGURATION_ABOUT,
-            "Sets Node configuration parameters being enabled for this operation when the Node is running"
+            "Sets Node configuration parameters being enabled for this operation when the Node is running."
         );
         assert_eq!(
             START_BLOCK_HELP,

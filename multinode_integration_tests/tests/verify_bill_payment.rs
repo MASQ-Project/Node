@@ -2,6 +2,7 @@
 use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::WEIS_OF_GWEI;
 use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils};
@@ -17,16 +18,17 @@ use node_lib::blockchain::bip32::Bip32ECKeyProvider;
 use node_lib::blockchain::blockchain_interface::{
     BlockchainInterface, BlockchainInterfaceNonClandestine, REQUESTS_IN_PARALLEL,
 };
-use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
-use node_lib::database::db_migrations::{ExternalData, MigratorConfig};
+use node_lib::database::db_initializer::{
+    DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,
+};
 use node_lib::sub_lib::accountant::PaymentThresholds;
 use node_lib::sub_lib::wallet::Wallet;
 use node_lib::test_utils;
 use rustc_hex::{FromHex, ToHex};
 use std::convert::TryFrom;
 use std::path::{Path, PathBuf};
-use std::thread;
 use std::time::{Duration, Instant, SystemTime};
+use std::{thread, u128};
 use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes, TransactionParameters};
@@ -94,7 +96,7 @@ fn verify_bill_payment() {
         derivation_path(0, 3),
     );
 
-    let amount = 10u64 * u64::try_from(payment_thresholds.permanent_debt_allowed_gwei).unwrap();
+    let amount = 10 * payment_thresholds.permanent_debt_allowed_gwei as u128 * WEIS_OF_GWEI as u128;
 
     let project_root = MASQNodeUtils::find_project_root();
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
@@ -102,8 +104,7 @@ fn verify_bill_payment() {
     let consuming_node_connection = DbInitializerReal::default()
         .initialize(
             Path::new(&consuming_node_path),
-            true,
-            make_migrator_config(cluster.chain),
+            make_init_config(cluster.chain),
         )
         .unwrap();
     let consuming_payable_dao = PayableDaoReal::new(consuming_node_connection);
@@ -141,8 +142,7 @@ fn verify_bill_payment() {
     let serving_node_1_connection = DbInitializerReal::default()
         .initialize(
             Path::new(&serving_node_1_path),
-            true,
-            make_migrator_config(cluster.chain),
+            make_init_config(cluster.chain),
         )
         .unwrap();
     let serving_node_1_receivable_dao = ReceivableDaoReal::new(serving_node_1_connection);
@@ -157,8 +157,7 @@ fn verify_bill_payment() {
     let serving_node_2_connection = DbInitializerReal::default()
         .initialize(
             Path::new(&serving_node_2_path),
-            true,
-            make_migrator_config(cluster.chain),
+            make_init_config(cluster.chain),
         )
         .unwrap();
     let serving_node_2_receivable_dao = ReceivableDaoReal::new(serving_node_2_connection);
@@ -173,8 +172,7 @@ fn verify_bill_payment() {
     let serving_node_3_connection = DbInitializerReal::default()
         .initialize(
             Path::new(&serving_node_3_path),
-            true,
-            make_migrator_config(cluster.chain),
+            make_init_config(cluster.chain),
         )
         .unwrap();
     let serving_node_3_receivable_dao = ReceivableDaoReal::new(serving_node_3_connection);
@@ -245,21 +243,21 @@ fn verify_bill_payment() {
         &serving_node_1_wallet,
         &blockchain_interface,
         "100000000000000000000",
-        (1_000_000_000 * amount).to_string().as_str(),
+        amount.to_string().as_str(),
     );
 
     assert_balances(
         &serving_node_2_wallet,
         &blockchain_interface,
         "100000000000000000000",
-        (1_000_000_000 * amount).to_string().as_str(),
+        amount.to_string().as_str(),
     );
 
     assert_balances(
         &serving_node_3_wallet,
         &blockchain_interface,
         "100000000000000000000",
-        (1_000_000_000 * amount).to_string().as_str(),
+        amount.to_string().as_str(),
     );
 
     let serving_node_1 = cluster.start_named_real_node(
@@ -290,29 +288,29 @@ fn verify_bill_payment() {
 
     test_utils::wait_for(Some(1000), Some(15000), || {
         if let Some(status) = serving_node_1_receivable_dao.account_status(&contract_owner_wallet) {
-            status.balance == 0
+            status.balance_wei == 0
         } else {
             false
         }
     });
     test_utils::wait_for(Some(1000), Some(15000), || {
         if let Some(status) = serving_node_2_receivable_dao.account_status(&contract_owner_wallet) {
-            status.balance == 0
+            status.balance_wei == 0
         } else {
             false
         }
     });
     test_utils::wait_for(Some(1000), Some(15000), || {
         if let Some(status) = serving_node_3_receivable_dao.account_status(&contract_owner_wallet) {
-            status.balance == 0
+            status.balance_wei == 0
         } else {
             false
         }
     });
 }
 
-fn make_migrator_config(chain: Chain) -> MigratorConfig {
-    MigratorConfig::create_or_migrate(ExternalData::new(
+fn make_init_config(chain: Chain) -> DbInitializationConfig {
+    DbInitializationConfig::create_or_migrate(ExternalData::new(
         chain,
         NeighborhoodModeLight::Standard,
         None,
@@ -422,7 +420,7 @@ fn build_config(
 
 fn expire_payables(path: PathBuf) {
     let conn = DbInitializerReal::default()
-        .initialize(&path, true, MigratorConfig::panic_on_migration())
+        .initialize(&path, DbInitializationConfig::panic_on_migration())
         .unwrap();
     let mut statement = conn
         .prepare("update payable set last_paid_timestamp = 0 where pending_payable_rowid is null")
@@ -437,7 +435,7 @@ fn expire_payables(path: PathBuf) {
 
 fn expire_receivables(path: PathBuf) {
     let conn = DbInitializerReal::default()
-        .initialize(&path, true, MigratorConfig::panic_on_migration())
+        .initialize(&path, DbInitializationConfig::panic_on_migration())
         .unwrap();
     let mut statement = conn
         .prepare("update receivable set last_received_timestamp = 0")

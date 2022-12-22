@@ -16,7 +16,7 @@ pub trait SendTransactionToolsWrapper: Debug {
         transaction_params: TransactionParameters,
         key: &secp256k1secrets::key::SecretKey,
     ) -> Result<SignedTransaction, Web3Error>;
-    fn request_new_payable_fingerprint(&self, transaction_hash: H256, amount: u64) -> SystemTime;
+    fn request_new_payable_fingerprint(&self, transaction_hash: H256, amount: u128) -> SystemTime;
     fn send_raw_transaction(&self, rlp: Bytes) -> Result<H256, Web3Error>;
 }
 
@@ -57,7 +57,7 @@ impl<'a, T: Transport + Debug> SendTransactionToolsWrapper
             .wait()
     }
 
-    fn request_new_payable_fingerprint(&self, hash: H256, amount: u64) -> SystemTime {
+    fn request_new_payable_fingerprint(&self, hash: H256, amount: u128) -> SystemTime {
         let now = SystemTime::now();
         self.pending_payable_fingerprint_sub
             .try_send(PendingPayableFingerprint {
@@ -89,7 +89,11 @@ impl SendTransactionToolsWrapper for SendTransactionToolsWrapperNull {
         panic!("sign_transaction() should never be called on the null object")
     }
 
-    fn request_new_payable_fingerprint(&self, _transaction_hash: H256, _amount: u64) -> SystemTime {
+    fn request_new_payable_fingerprint(
+        &self,
+        _transaction_hash: H256,
+        _amount: u128,
+    ) -> SystemTime {
         panic!(
             "request_new_pending_payable_fingerprint() should never be called on the null object"
         )
