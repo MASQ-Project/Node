@@ -3733,6 +3733,48 @@ mod tests {
     }
 
     #[test]
+    fn neighborhood_ignores_gossip_if_it_receives_a_pass_target_which_is_a_part_of_a_different_connection_progress(
+    ) {
+        init_test_logging();
+        let handle_params_arc = Arc::new(Mutex::new(vec![]));
+        let gossip_acceptor = GossipAcceptorMock::new()
+            .handle_params(&handle_params_arc)
+            .handle_result(GossipAcceptanceResult::Ignored);
+        let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
+        let peer_1 = make_node_record(1234, true);
+        let peer_2 = make_node_record(2345, true);
+        let desc_1 = peer_1.node_descriptor(Chain::Dev, main_cryptde());
+        let desc_2 = peer_2.node_descriptor(Chain::Dev, main_cryptde());
+        let this_node = make_node_record(7777, true);
+        let initial_node_descriptors = vec![desc_1, desc_2];
+        let neighborhood_config = NeighborhoodConfig {
+            mode: NeighborhoodMode::Standard(
+                this_node.node_addr_opt().unwrap(),
+                initial_node_descriptors,
+                rate_pack(100),
+            ),
+        };
+        let bootstrap_config =
+            bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
+        let mut subject = Neighborhood::new(main_cryptde(), &bootstrap_config);
+        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
+        subject.gossip_acceptor_opt = Some(Box::new(gossip_acceptor));
+        let mut peer_2_db = db_from_node(&peer_2);
+        peer_2_db.add_node(peer_1.clone());
+        peer_2_db.add_arbitrary_full_neighbor(peer_2.public_key(), peer_1.public_key());
+        let peer_2_socket_addr: SocketAddr = peer_2.metadata.node_addr_opt.unwrap().into();
+        let pass_gossip = GossipBuilder::new(&peer_2_db)
+            .node(peer_1.public_key(), true)
+            .build();
+        let agrs: Vec<AccessibleGossipRecord> = pass_gossip.try_into().unwrap();
+
+        subject.handle_agrs(agrs, peer_2_socket_addr);
+
+        TestLogHandler::new()
+            .exists_log_containing(&format!("Gossip from {} ignored", peer_2_socket_addr));
+    }
+
+    #[test]
     fn neighborhood_updates_ocs_stage_and_sends_message_to_the_ui_when_first_route_can_be_made() {
         init_test_logging();
         let test_name = "neighborhood_updates_ocs_stage_and_sends_message_to_the_ui_when_first_route_can_be_made";
