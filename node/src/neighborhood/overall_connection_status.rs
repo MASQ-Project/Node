@@ -239,11 +239,7 @@ impl OverallConnectionStatus {
     ) -> Result<&mut ConnectionProgress, String> {
         if let ConnectionProgressEvent::PassGossipReceived(pass_target) = msg.event {
             // Check if Pass Target can potentially create a duplicate ConnectionProgress
-            let is_duplicate = self
-                .progress
-                .iter()
-                .map(|connection_progress| connection_progress.current_peer_addr)
-                .any(|peer| peer == pass_target);
+            let is_duplicate = self.get_peer_addrs().contains(&pass_target);
 
             if is_duplicate {
                 return Err(format!(
@@ -512,14 +508,15 @@ mod tests {
         let peer_1 = make_ip(1);
         let peer_2 = make_ip(2);
         let peer_3 = make_ip(3);
-
         let subject = OverallConnectionStatus::new(vec![
             make_node_descriptor(peer_1),
             make_node_descriptor(peer_2),
             make_node_descriptor(peer_3),
         ]);
 
-        assert_eq!(subject.get_peer_addrs(), vec![peer_1, peer_2, peer_3]);
+        let result = subject.get_peer_addrs();
+
+        assert_eq!(result, vec![peer_1, peer_2, peer_3]);
     }
 
     #[test]
