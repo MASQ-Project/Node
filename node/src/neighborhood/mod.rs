@@ -3746,7 +3746,7 @@ mod tests {
             .handle_result(GossipAcceptanceResult::Ignored);
         let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
         let peer_1 = make_node_record(1234, true);
-        let peer_2 = make_node_record(2345, true);
+        let peer_2 = make_node_record(6721, true);
         let desc_1 = peer_1.node_descriptor(Chain::Dev, main_cryptde());
         let desc_2 = peer_2.node_descriptor(Chain::Dev, main_cryptde());
         let this_node = make_node_record(7777, true);
