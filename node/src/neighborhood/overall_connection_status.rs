@@ -247,8 +247,8 @@ impl OverallConnectionStatus {
 
             if is_duplicate {
                 return Err(format!(
-                    "We've been passed to a peer with IP Address: {:?} that's \
-                        already a part of different connection progress.",
+                    "Pass target with IP Address: {:?} is already a \
+                    part of different connection progress.",
                     pass_target
                 ));
             }
@@ -258,7 +258,7 @@ impl OverallConnectionStatus {
             Ok(connection_progress)
         } else {
             Err(format!(
-                "An unnecessary ConnectionProgressMessage received containing IP Address: {:?}",
+                "No peer found with the IP Address: {:?}",
                 msg.peer_addr
             ))
         }

@@ -295,7 +295,11 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
                 }
             }
             Err(e) => {
-                trace!(self.logger, "{}", e);
+                trace!(
+                    self.logger,
+                    "Found unnecessary connection progress message - {}",
+                    e
+                );
             }
         }
     }
@@ -1840,7 +1844,7 @@ mod tests {
         System::current().stop();
         assert_eq!(system.run(), 0);
         TestLogHandler::new().exists_log_containing(&format!(
-            "TRACE: Neighborhood: An unnecessary ConnectionProgressMessage received containing IP Address: {:?}",
+            "TRACE: Neighborhood: Found unnecessary connection progress message - No peer found with the IP Address: {:?}",
             unknown_peer
         ));
     }
@@ -1887,7 +1891,8 @@ mod tests {
         System::current().stop();
         assert_eq!(system.run(), 0);
         TestLogHandler::new().exists_log_containing(&format!(
-            "TRACE: Neighborhood: We've been passed to a peer with IP Address: {:?} that's already a part of different connection progress.",
+            "TRACE: Neighborhood: Found unnecessary connection progress message - Pass target with \
+            IP Address: {:?} is already a part of different connection progress.",
             peer_1
         ));
     }
