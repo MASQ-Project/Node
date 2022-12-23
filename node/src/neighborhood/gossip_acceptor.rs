@@ -3495,7 +3495,8 @@ mod tests {
         let subject = PassHandler::new();
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let pass_target_ip_addr = pass_target.node_addr_opt().unwrap().ip_addr();
-        let system = System::new("handles_pass_target_that_is_not_yet_expired");
+        let system =
+            System::new("handles_pass_target_that_is_a_part_of_a_different_connection_progress");
         let (cpm_recipient, recording_arc) = make_cpm_recipient();
 
         let result = subject.handle(
