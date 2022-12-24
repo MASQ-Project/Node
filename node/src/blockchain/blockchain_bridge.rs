@@ -2,15 +2,15 @@
 
 use crate::accountant::payable_dao::{Payable, PayableAccount};
 use crate::accountant::{
-    ReceivedPayments, ResponseSkeleton, ScanError, SentPayable, SkeletonOptHolder,
+    ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
 };
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
-    BlockchainInterfaceNonClandestine, BlockchainResult, SendTransactionInputs,
+    BlockchainInterfaceNonClandestine, BlockchainResult, BlockchainTxnInputs,
 };
+use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DATABASE_FILE};
-use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
@@ -32,7 +32,6 @@ use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::plus;
-use std::convert::TryFrom;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use web3::transports::Http;
@@ -46,7 +45,7 @@ pub struct BlockchainBridge {
     logger: Logger,
     persistent_config: Box<dyn PersistentConfiguration>,
     set_consuming_wallet_subs_opt: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
-    sent_payable_subs_opt: Option<Recipient<SentPayable>>,
+    sent_payable_subs_opt: Option<Recipient<SentPayables>>,
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
     scan_error_subs_opt: Option<Recipient<ScanError>>,
     crashable: bool,
@@ -149,7 +148,7 @@ pub struct PendingPayableFingerprint {
     pub timestamp: SystemTime,
     pub hash: H256,
     pub attempt_opt: Option<u16>, //None when initialized
-    pub amount: u64,
+    pub amount: u128,
     pub process_error: Option<String>,
 }
 
@@ -207,7 +206,10 @@ impl BlockchainBridge {
         };
         let config_dao = Box::new(ConfigDaoReal::new(
             db_initializer
-                .initialize(&data_directory, true, MigratorConfig::panic_on_migration())
+                .initialize(
+                    &data_directory,
+                    DbInitializationConfig::panic_on_migration(),
+                )
                 .unwrap_or_else(|_| {
                     panic!(
                         "Failed to connect to database at {:?}",
@@ -236,12 +238,12 @@ impl BlockchainBridge {
         creditors_msg: &ReportAccountsPayable,
     ) -> Result<(), String> {
         let skeleton = creditors_msg.response_skeleton_opt;
-        let processed_payments = self.handle_report_accounts_payable_inner(creditors_msg);
+        let processed_payments = self.preprocess_payments(creditors_msg);
         processed_payments.map(|payments| {
             self.sent_payable_subs_opt
                 .as_ref()
                 .expect("Accountant is unbound")
-                .try_send(SentPayable {
+                .try_send(SentPayables {
                     timestamp: SystemTime::now(),
                     payable: payments,
                     response_skeleton_opt: skeleton,
@@ -250,15 +252,17 @@ impl BlockchainBridge {
         })
     }
 
-    fn handle_report_accounts_payable_inner(
+    fn preprocess_payments(
         &self,
         creditors_msg: &ReportAccountsPayable,
     ) -> Result<Vec<BlockchainResult<Payable>>, String> {
         match self.consuming_wallet_opt.as_ref() {
             Some(consuming_wallet) => match self.persistent_config.gas_price() {
-                Ok(gas_price) => {
-                    Ok(self.process_payments(creditors_msg, gas_price, consuming_wallet))
-                }
+                Ok(gas_price) => Ok(creditors_msg
+                    .accounts
+                    .iter()
+                    .map(|payable| self.process_payments(payable, gas_price, consuming_wallet))
+                    .collect::<Vec<BlockchainResult<Payable>>>()),
                 Err(err) => Err(format!("ReportAccountPayable: gas-price: {:?}", err)),
             },
             None => Err(String::from("No consuming wallet specified")),
@@ -381,19 +385,6 @@ impl BlockchainBridge {
 
     fn process_payments(
         &self,
-        creditors_msg: &ReportAccountsPayable,
-        gas_price: u64,
-        consuming_wallet: &Wallet,
-    ) -> Vec<BlockchainResult<Payable>> {
-        creditors_msg
-            .accounts
-            .iter()
-            .map(|payable| self.process_payments_inner_body(payable, gas_price, consuming_wallet))
-            .collect::<Vec<BlockchainResult<Payable>>>()
-    }
-
-    fn process_payments_inner_body(
-        &self,
         payable: &PayableAccount,
         gas_price: u64,
         consuming_wallet: &Wallet,
@@ -401,9 +392,7 @@ impl BlockchainBridge {
         let nonce = self
             .blockchain_interface
             .get_transaction_count(consuming_wallet)?;
-        let unsigned_amount = u64::try_from(payable.balance)
-            .expect("negative balance for qualified payable is nonsense");
-        let send_tools = self.blockchain_interface.send_transaction_tools(
+        let send_tx_tools = self.blockchain_interface.send_transaction_tools(
             self.payment_confirmation
                 .transaction_fingerprint_subs_opt
                 .as_ref()
@@ -411,16 +400,16 @@ impl BlockchainBridge {
         );
         match self
             .blockchain_interface
-            .send_transaction(SendTransactionInputs::new(
+            .send_transaction(BlockchainTxnInputs::new(
                 payable,
                 consuming_wallet,
                 nonce,
                 gas_price,
-                send_tools.as_ref(),
-            )?) {
+                send_tx_tools.as_ref(),
+            )) {
             Ok((hash, timestamp)) => Ok(Payable::new(
                 payable.wallet.clone(),
-                unsigned_amount,
+                payable.balance_wei,
                 hash,
                 timestamp,
             )),
@@ -440,6 +429,7 @@ struct PendingTxInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::dao_utils::from_time_t;
     use crate::accountant::payable_dao::PayableAccount;
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
@@ -450,7 +440,6 @@ mod tests {
     };
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
-    use crate::database::dao_utils::from_time_t;
     use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::node_test_utils::check_timestamp;
@@ -571,7 +560,7 @@ mod tests {
         let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
-                balance: 42,
+                balance_wei: 42,
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],
@@ -583,7 +572,7 @@ mod tests {
             .payment_confirmation
             .transaction_fingerprint_subs_opt = Some(fingerprint_recipient);
 
-        let result = subject.handle_report_accounts_payable_inner(&request);
+        let result = subject.preprocess_payments(&request);
 
         assert_eq!(
             result,
@@ -609,14 +598,14 @@ mod tests {
         let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
-                balance: 42,
+                balance_wei: 42,
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],
             response_skeleton_opt: None,
         };
 
-        let result = subject.handle_report_accounts_payable_inner(&request);
+        let result = subject.preprocess_payments(&request);
 
         assert_eq!(result, Err("No consuming wallet specified".to_string()));
     }
@@ -664,13 +653,13 @@ mod tests {
                 accounts: vec![
                     PayableAccount {
                         wallet: make_wallet("blah"),
-                        balance: 420,
+                        balance_wei: 420,
                         last_paid_timestamp: from_time_t(150_000_000),
                         pending_payable_opt: None,
                     },
                     PayableAccount {
                         wallet: make_wallet("foo"),
-                        balance: 210,
+                        balance_wei: 210,
                         last_paid_timestamp: from_time_t(160_000_000),
                         pending_payable_opt: None,
                     },
@@ -712,11 +701,11 @@ mod tests {
         );
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_received_payment.len(), 1);
-        let sent_payments_msg = accountant_received_payment.get_record::<SentPayable>(0);
+        let sent_payments_msg = accountant_received_payment.get_record::<SentPayables>(0);
         check_timestamp(before, sent_payments_msg.timestamp, after);
         assert_eq!(
             *sent_payments_msg,
-            SentPayable {
+            SentPayables {
                 timestamp: sent_payments_msg.timestamp,
                 payable: vec![
                     Ok(Payable {
@@ -757,7 +746,7 @@ mod tests {
         let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
-                balance: 42,
+                balance_wei: 42,
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],
@@ -1054,12 +1043,12 @@ mod tests {
                 BlockchainTransaction {
                     block_number: 7,
                     from: earning_wallet.clone(),
-                    gwei_amount: amount,
+                    wei_amount: amount,
                 },
                 BlockchainTransaction {
                     block_number: 9,
                     from: earning_wallet.clone(),
-                    gwei_amount: amount2,
+                    wei_amount: amount2,
                 },
             ],
         };
@@ -1212,7 +1201,7 @@ mod tests {
                 transactions: vec![BlockchainTransaction {
                     block_number: 1000,
                     from: make_wallet("somewallet"),
-                    gwei_amount: 2345,
+                    wei_amount: 2345,
                 }],
             }),
         );

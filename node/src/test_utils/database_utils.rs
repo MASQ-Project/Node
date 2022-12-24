@@ -2,16 +2,19 @@
 
 #![cfg(test)]
 
+use crate::accountant::dao_utils::VigilantRusqliteFlatten;
 use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::DbMigrator;
-use itertools::Itertools;
 use masq_lib::logger::Logger;
-use rusqlite::Connection;
+use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+use masq_lib::utils::NeighborhoodModeLight;
+use rusqlite::{Connection, Error};
 use std::cell::RefCell;
-use std::collections::HashSet;
 use std::env::current_dir;
 use std::fs::{remove_file, File};
 use std::io::Read;
+use std::iter::once;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 
@@ -99,7 +102,159 @@ pub fn retrieve_config_row(conn: &dyn ConnectionWrapper, name: &str) -> (Option<
         })
 }
 
-pub fn query_specific_schema_information(
+pub fn assert_table_does_not_exist(conn: &dyn ConnectionWrapper, table_name: &str) {
+    let error_stm = conn
+        .prepare(&format!("select * from {}", table_name))
+        .unwrap_err();
+    let error_msg = match error_stm {
+        Error::SqliteFailure(_, Some(msg)) => msg,
+        x => panic!("we expected SqliteFailure but we got: {:?}", x),
+    };
+    assert_eq!(error_msg, format!("no such table: {}", table_name))
+}
+
+pub fn assert_create_table_stm_contains_all_parts(
+    conn: &dyn ConnectionWrapper,
+    table_name: &str,
+    expected_sql_chopped: ExpectedLinesOfSQLChoppedIntoWords,
+) {
+    assert_sql_lines_contain_parts_exhaustive(
+        parse_sql_to_pieces(&fetch_table_sql(conn, table_name)),
+        expected_sql_chopped,
+    )
+}
+
+pub fn assert_index_stm_is_coupled_with_right_parameter(
+    conn: &dyn ConnectionWrapper,
+    index_name: &str,
+    expected_sql_chopped: ExpectedLinesOfSQLChoppedIntoWords,
+) {
+    assert_sql_lines_contain_parts_exhaustive(
+        parse_sql_to_pieces(&fetch_index_sql(conn, index_name)),
+        expected_sql_chopped,
+    )
+}
+
+pub fn assert_no_index_exists_for_table(conn: &dyn ConnectionWrapper, table_name: &str) {
+    let table_name = isolated_name(table_name);
+    query_specific_schema_information(conn, "index")
+        .iter()
+        .for_each(|index_stm| {
+            assert!(
+                !index_stm.contains(&table_name),
+                "unexpected index on this table: {}",
+                index_stm
+            )
+        })
+}
+
+pub fn assert_table_created_as_strict(conn: &dyn ConnectionWrapper, table_name: &str) {
+    let payable_creation_sql = fetch_table_sql(conn, table_name);
+    let last_word_reversed = payable_creation_sql
+        .chars()
+        .rev()
+        .skip_while(|char| char.is_whitespace())
+        .take_while(|char| !char.is_whitespace())
+        .collect::<String>();
+    let last_word = last_word_reversed.chars().rev().collect::<String>();
+    assert_eq!(
+        last_word, "strict",
+        "we expected the 'strict' key word but got: {}",
+        last_word
+    )
+}
+
+fn zippered<'a>(
+    actual: &'a Vec<Vec<String>>,
+    expected: ExpectedLinesOfSQLChoppedIntoWords,
+) -> Vec<(SQLLinesChoppedIntoWords, &'a Vec<String>)> {
+    once(prepare_expected_vectors_of_words_including_sorting(
+        expected,
+    ))
+    .cycle()
+    .zip(actual.iter())
+    .collect()
+}
+
+fn assert_sql_lines_contain_parts_exhaustive(
+    actual: SQLLinesChoppedIntoWords,
+    expected: ExpectedLinesOfSQLChoppedIntoWords,
+) {
+    zippered(&actual, expected)
+        .iter()
+        .for_each(|(left, right)| contains_particular_list_of_key_words(left, right))
+}
+
+fn contains_particular_list_of_key_words(
+    expected_words: &SQLLinesChoppedIntoWords,
+    single_actual_line_of_words: &[String],
+) {
+    let mut found = 0_u16;
+    expected_words.iter().for_each(|vec_of_words_expected| {
+        if single_actual_line_of_words == vec_of_words_expected {
+            found += 1
+        }
+    });
+    assert_eq!(found,1, "We found {} occurrences of the searched line in the tested sql although only a one is considered correct", found)
+}
+
+fn prepare_expected_vectors_of_words_including_sorting(
+    expected: ExpectedLinesOfSQLChoppedIntoWords,
+) -> SQLLinesChoppedIntoWords {
+    expected
+        .into_iter()
+        .map(|slice_of_strs| {
+            let mut one_line = slice_of_strs
+                .into_iter()
+                .map(|word| word.to_string())
+                .collect::<Vec<String>>();
+            one_line.sort();
+            one_line
+        })
+        .collect()
+}
+
+type SQLLinesChoppedIntoWords = Vec<Vec<String>>;
+
+type ExpectedLinesOfSQLChoppedIntoWords<'a> = &'a [&'a [&'a str]];
+
+//prepares collections of isolated key words from a column declaration, by lines
+fn parse_sql_to_pieces(sql: &str) -> SQLLinesChoppedIntoWords {
+    let body: String = sql
+        .chars()
+        .skip_while(|char| char != &'(')
+        .skip(1)
+        .take_while(|char| char != &')')
+        .collect();
+    let lines = body.split(',');
+    lines
+        .map(|sql_line| {
+            let mut vec_of_words = sql_line
+                .split(|char: char| char.is_whitespace())
+                .filter(|chunk| !chunk.is_empty())
+                .map(|chunk| chunk.to_string())
+                .collect::<Vec<String>>();
+            vec_of_words.sort();
+            vec_of_words
+        })
+        .collect()
+}
+
+fn fetch_table_sql(conn: &dyn ConnectionWrapper, specific_table: &str) -> String {
+    let found_table_sqls = query_specific_schema_information(conn, "table");
+    select_desired_sql_element(found_table_sqls, &isolated_name(specific_table))
+}
+
+fn fetch_index_sql(conn: &dyn ConnectionWrapper, index_name: &str) -> String {
+    let found_indexes = query_specific_schema_information(conn, "index");
+    select_desired_sql_element(found_indexes, &isolated_name(index_name))
+}
+
+fn isolated_name(name: &str) -> String {
+    format!(" {} ", name)
+}
+
+fn query_specific_schema_information(
     conn: &dyn ConnectionWrapper,
     query_object: &str,
 ) -> Vec<String> {
@@ -112,101 +267,13 @@ pub fn query_specific_schema_information(
     table_stm
         .query_map([], |row| Ok(row.get::<usize, Option<String>>(0).unwrap()))
         .unwrap()
-        .flatten()
+        .vigilant_flatten()
         .flatten()
         .collect()
-}
-
-pub fn assert_create_table_statement_contains_all_important_parts(
-    conn: &dyn ConnectionWrapper,
-    table_name: &str,
-    expected_sql_chopped: &[&[&str]],
-) {
-    assert_sql_statements_contain_important_parts(
-        parse_sql_to_pieces(&fetch_table_sql(conn, table_name)),
-        expected_sql_chopped,
-    )
-}
-
-pub fn assert_index_statement_is_coupled_with_right_parameter(
-    conn: &dyn ConnectionWrapper,
-    index_name: &str,
-    expected_sql_chopped: &[&[&str]],
-) {
-    assert_sql_statements_contain_important_parts(
-        parse_sql_to_pieces(&fetch_index_sql(conn, index_name)),
-        expected_sql_chopped,
-    )
-}
-
-pub fn assert_no_index_exists_for_table(conn: &dyn ConnectionWrapper, table_name: &str) {
-    let found_indexes = query_specific_schema_information(conn, "index");
-    let isolated_table_name = format!(" {} ", table_name);
-    found_indexes.iter().for_each(|index_stm| {
-        assert!(
-            !index_stm.contains(&isolated_table_name),
-            "unexpected index on this table: {}",
-            index_stm
-        )
-    })
-}
-
-fn assert_sql_statements_contain_important_parts(
-    actual: Vec<HashSet<String>>,
-    expected: &[&[&str]],
-) {
-    let mut prepared_expected = expected.into_iter().map(|slice_of_strs| {
-        HashSet::from_iter(slice_of_strs.into_iter().map(|str| str.to_string()))
-    });
-    actual.into_iter().for_each(|hash_set| {
-        assert!(
-            prepared_expected
-                .find(|hash_set_expected| hash_set
-                    .symmetric_difference(&hash_set_expected)
-                    .collect_vec()
-                    .is_empty())
-                .is_some(),
-            "part of the fetched statement (one line) that cannot \
-                     be found in the template (key words unsorted): {:?}",
-            hash_set
-        )
-    })
-}
-
-//prepares collections of isolated key words from a column declaration, by lines
-fn parse_sql_to_pieces(sql: &str) -> Vec<HashSet<String>> {
-    let body: String = sql
-        .chars()
-        .skip_while(|char| char != &'(')
-        .skip(1)
-        .take_while(|char| char != &')')
-        .collect();
-    let lines = body.split(',');
-    lines
-        .map(|line| {
-            HashSet::from_iter(
-                line.split(|char: char| char.is_whitespace())
-                    .filter(|chunk| !chunk.is_empty())
-                    .map(|chunk| chunk.to_string()),
-            )
-        })
-        .collect()
-}
-
-fn fetch_table_sql(conn: &dyn ConnectionWrapper, specific_table: &str) -> String {
-    let found_table_sqls = query_specific_schema_information(conn, "table");
-    let specific_table_isolated = format!(" {} ", specific_table);
-    select_desired_sql_element(found_table_sqls, &specific_table_isolated)
-}
-
-fn fetch_index_sql(conn: &dyn ConnectionWrapper, index_name: &str) -> String {
-    let found_indexes = query_specific_schema_information(conn, "index");
-    let index_name_isolated = format!(" {} ", index_name);
-    select_desired_sql_element(found_indexes, &index_name_isolated)
 }
 
 fn select_desired_sql_element(found_elements: Vec<String>, searched_element_name: &str) -> String {
-    let mut wanted_element_lowercase: Vec<String> = found_elements
+    let mut searched_element: Vec<String> = found_elements
         .into_iter()
         .flat_map(|element| {
             let introducing_part: String =
@@ -218,8 +285,19 @@ fn select_desired_sql_element(found_elements: Vec<String>, searched_element_name
             }
         })
         .collect();
-    if wanted_element_lowercase.len() != 1 {
-        panic!("search failed, we should've found any matching element")
+    if searched_element.len() != 1 {
+        panic!(
+            "search failed, we should've found one matching element but got {}",
+            searched_element.len()
+        )
     }
-    wanted_element_lowercase.remove(0)
+    searched_element.remove(0)
+}
+
+pub fn make_external_data() -> ExternalData {
+    ExternalData {
+        chain: TEST_DEFAULT_CHAIN,
+        neighborhood_mode: NeighborhoodModeLight::Standard,
+        db_password_opt: None,
+    }
 }

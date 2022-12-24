@@ -1,13 +1,15 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchains::chains::Chain;
+use crate::test_utils::environment_guard::EnvironmentGuard;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 pub const TEST_DEFAULT_CHAIN: Chain = Chain::EthRopsten;
 pub const TEST_DEFAULT_MULTINODE_CHAIN: Chain = Chain::Dev;
 pub const BASE_TEST_DIR: &str = "generated/test";
+const MASQ_SOURCE_CODE_UNAVAILABLE: &str = "MASQ_SOURCE_CODE_UNAVAILABLE";
 
 pub fn node_home_directory(module: &str, name: &str) -> PathBuf {
     let home_dir_string = format!("{}/{}/{}/home", BASE_TEST_DIR, module, name);
@@ -32,6 +34,33 @@ pub fn is_running_under_github_actions() -> bool {
         &value == "true"
     } else {
         false
+    }
+}
+
+#[derive(PartialEq, Eq)]
+pub enum ShouldWeRunTheTest {
+    GoAhead,
+    Skip,
+}
+
+pub fn check_if_source_code_is_attached(current_dir: &Path) -> ShouldWeRunTheTest {
+    let _guard = EnvironmentGuard::new();
+    if current_dir.join("src").exists() && current_dir.join("Cargo.toml").exists() {
+        ShouldWeRunTheTest::GoAhead
+    } else if std::env::var(MASQ_SOURCE_CODE_UNAVAILABLE).is_ok() {
+        eprintln!(
+            "Trying to run a test dependent on reading the source code which wasn't \
+             found. Nevertheless, MASQ_SOURCE_CODE_UNAVAILABLE environment variable has been \
+              supplied; skipping this test."
+        );
+        ShouldWeRunTheTest::Skip
+    } else {
+        panic!(
+            "Test depending on interaction with the source code, but it was not found at \
+             {:?}. If that does not surprise you, set the environment variable \
+              MASQ_SOURCE_CODE_UNAVAILABLE to some non-blank value and run the tests again.",
+            current_dir
+        )
     }
 }
 

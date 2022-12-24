@@ -8,13 +8,19 @@ pub const DEFAULT_CHAIN: Chain = Chain::PolyMainnet;
 pub const HIGHEST_RANDOM_CLANDESTINE_PORT: u16 = 9999;
 pub const HTTP_PORT: u16 = 80;
 pub const TLS_PORT: u16 = 443;
-pub const MASQ_URL_PREFIX: &str = "masq://";
-pub const DEFAULT_GAS_PRICE: u64 = 1;
 pub const LOWEST_USABLE_INSECURE_PORT: u16 = 1025;
 pub const HIGHEST_USABLE_PORT: u16 = 65535;
 pub const DEFAULT_UI_PORT: u16 = 5333;
+
+pub const MASQ_URL_PREFIX: &str = "masq://";
 pub const CURRENT_LOGFILE_NAME: &str = "MASQNode_rCURRENT.log";
 pub const MASQ_PROMPT: &str = "masq> ";
+
+pub const DEFAULT_GAS_PRICE: u64 = 1; //TODO ?? Really
+
+pub const WALLET_ADDRESS_LENGTH: usize = 42;
+pub const MASQ_TOTAL_SUPPLY: u64 = 37_500_000;
+pub const WEIS_OF_GWEI: i128 = 1_000_000_000;
 
 pub const ETH_MAINNET_CONTRACT_CREATION_BLOCK: u64 = 11_170_708;
 pub const ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 8_688_171;
@@ -52,6 +58,12 @@ pub const SETUP_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 5;
 pub const TIMEOUT_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 6;
 pub const SCAN_ERROR: u64 = UI_NODE_COMMUNICATION_PREFIX | 7;
 
+//accountant
+pub const ACCOUNTANT_PREFIX: u64 = 0x0040_0000_0000_0000;
+pub const REQUEST_WITH_NO_VALUES: u64 = ACCOUNTANT_PREFIX | 1;
+pub const REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS: u64 = ACCOUNTANT_PREFIX | 2;
+pub const VALUE_EXCEEDS_ALLOWED_LIMIT: u64 = ACCOUNTANT_PREFIX | 3;
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 pub const COMBINED_PARAMETERS_DELIMITER: char = '|';
@@ -81,13 +93,16 @@ mod tests {
         assert_eq!(HIGHEST_RANDOM_CLANDESTINE_PORT, 9999);
         assert_eq!(HTTP_PORT, 80);
         assert_eq!(TLS_PORT, 443);
-        assert_eq!(MASQ_URL_PREFIX, "masq://");
-        assert_eq!(DEFAULT_GAS_PRICE, 1);
         assert_eq!(LOWEST_USABLE_INSECURE_PORT, 1025);
         assert_eq!(HIGHEST_USABLE_PORT, 65535);
         assert_eq!(DEFAULT_UI_PORT, 5333);
+        assert_eq!(MASQ_URL_PREFIX, "masq://");
         assert_eq!(CURRENT_LOGFILE_NAME, "MASQNode_rCURRENT.log");
         assert_eq!(MASQ_PROMPT, "masq> ");
+        assert_eq!(DEFAULT_GAS_PRICE, 1);
+        assert_eq!(WALLET_ADDRESS_LENGTH, 42);
+        assert_eq!(MASQ_TOTAL_SUPPLY, 37_500_000);
+        assert_eq!(WEIS_OF_GWEI, 1_000_000_000);
         assert_eq!(ETH_MAINNET_CONTRACT_CREATION_BLOCK, 11_170_708);
         assert_eq!(ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK, 8_688_171);
         assert_eq!(MULTINODE_TESTNET_CONTRACT_CREATION_BLOCK, 0);
@@ -118,6 +133,14 @@ mod tests {
         assert_eq!(UNMARSHAL_ERROR, UI_NODE_COMMUNICATION_PREFIX | 4);
         assert_eq!(SETUP_ERROR, UI_NODE_COMMUNICATION_PREFIX | 5);
         assert_eq!(TIMEOUT_ERROR, UI_NODE_COMMUNICATION_PREFIX | 6);
+        assert_eq!(SCAN_ERROR, UI_NODE_COMMUNICATION_PREFIX | 7);
+        assert_eq!(ACCOUNTANT_PREFIX, 0x0040_0000_0000_0000);
+        assert_eq!(REQUEST_WITH_NO_VALUES, ACCOUNTANT_PREFIX | 1);
+        assert_eq!(
+            REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS,
+            ACCOUNTANT_PREFIX | 2
+        );
+        assert_eq!(VALUE_EXCEEDS_ALLOWED_LIMIT, ACCOUNTANT_PREFIX | 3);
         assert_eq!(CENTRAL_DELIMITER, '@');
         assert_eq!(CHAIN_IDENTIFIER_DELIMITER, ':');
         assert_eq!(MAINNET, "mainnet");

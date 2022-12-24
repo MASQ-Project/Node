@@ -8,7 +8,7 @@ use crate::commands::configuration_command::configuration_subcommand;
 use crate::commands::connection_status_command::connection_status_subcommand;
 use crate::commands::crash_command::crash_subcommand;
 use crate::commands::descriptor_command::descriptor_subcommand;
-use crate::commands::financials_command::financials_subcommand;
+use crate::commands::financials_command::args_validation::financials_subcommand;
 use crate::commands::generate_wallets_command::generate_wallets_subcommand;
 use crate::commands::recover_wallets_command::recover_wallets_subcommand;
 use crate::commands::scan_command::scan_subcommand;

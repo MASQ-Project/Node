@@ -21,6 +21,7 @@ use multinode_integration_tests_lib::mock_blockchain_client_server::MBCSBuilder;
 use multinode_integration_tests_lib::utils::{
     config_dao, open_all_file_permissions, receivable_dao, UrlHolder,
 };
+use node_lib::accountant::dao_utils::CustomQuery;
 use node_lib::sub_lib::wallet::Wallet;
 
 #[test]
@@ -85,16 +86,24 @@ fn debtors_are_credited_once_but_not_twice() {
             .more_money_receivable(
                 SystemTime::UNIX_EPOCH.add(Duration::from_secs(15_000_000)),
                 &Wallet::new("0x3333333333333333333333333333333333333333"),
-                1_000_000,
+                9_000_000_000,
             )
             .unwrap();
     }
     // Use the receivable DAO to verify that the receivable's balance has been initialized
     {
         let receivable_dao = receivable_dao(&node_name);
-        let receivable_accounts = receivable_dao.receivables();
+        let receivable_accounts = receivable_dao
+            .custom_query(CustomQuery::RangeQuery {
+                min_age_s: 0,
+                max_age_s: i64::MAX as u64,
+                min_amount_gwei: 0,
+                max_amount_gwei: i64::MAX,
+                timestamp: SystemTime::now(),
+            })
+            .unwrap_or_default();
         assert_eq!(receivable_accounts.len(), 1);
-        assert_eq!(receivable_accounts[0].balance, 1_000_000);
+        assert_eq!(receivable_accounts[0].balance_wei, 9_000_000_000);
     }
     // Use the config DAO to verify that the start block has been set to 1000
     {
@@ -121,9 +130,17 @@ fn debtors_are_credited_once_but_not_twice() {
     // Use the receivable DAO to verify that the receivable's balance has been adjusted
     {
         let receivable_dao = receivable_dao(&node_name);
-        let receivable_accounts = receivable_dao.receivables();
+        let receivable_accounts = receivable_dao
+            .custom_query(CustomQuery::RangeQuery {
+                min_age_s: 0,
+                max_age_s: i64::MAX as u64,
+                min_amount_gwei: i64::MIN,
+                max_amount_gwei: i64::MAX,
+                timestamp: SystemTime::now(),
+            })
+            .unwrap_or_default();
         assert_eq!(receivable_accounts.len(), 1);
-        assert_eq!(receivable_accounts[0].balance, 1_000_000);
+        assert_eq!(receivable_accounts[0].balance_wei, 9_000_000_000);
     }
     // Use the config DAO to verify that the start block has been advanced to 2001
     {
