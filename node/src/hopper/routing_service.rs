@@ -1399,7 +1399,6 @@ mod tests {
                 Component::ProxyClient,
             ),
         ];
-
         let hops = live_hops
             .iter()
             .map(|hop| match hop.encode(&hop.public_key, main_cryptde) {
@@ -1407,11 +1406,9 @@ mod tests {
                 Err(e) => panic!("Couldn't encode hop: {:?}", e),
             })
             .collect();
-
         let route = Route { hops };
-
         let icp =
-            IncipientCoresPackage::new(main_cryptde, route, payload, alias_cryptde.public_key())
+            IncipientCoresPackage::new(main_cryptde, route, payload, main_cryptde.public_key())
                 .unwrap();
         let (lcp, _) = LiveCoresPackage::from_incipient(icp, main_cryptde).unwrap();
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
