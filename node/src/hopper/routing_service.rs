@@ -230,6 +230,11 @@ impl RoutingService {
             Component::ProxyServer => (self.cryptdes.alias, "alias"),
             _ => (self.cryptdes.main, "main"),
         };
+        // panic!(
+        //     "I'll attempt to expire the cores package with {} with public key {:?}",
+        //     cryptde_name,
+        //     payload_cryptde.public_key()
+        // );
         let expired_package = match live_package.to_expired(
             immediate_neighbor_addr,
             self.cryptdes.main,
@@ -820,7 +825,7 @@ mod tests {
             route,
             encodex::<MessageType>(
                 main_cryptde,
-                &alias_cryptde.public_key(),
+                &main_cryptde.public_key(),
                 &payload.clone().into(),
             )
             .unwrap(),
