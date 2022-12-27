@@ -221,17 +221,30 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
     )
 }
 
-pub fn route_to_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
-    shift_one_hop(zero_hop_route_response(key, cryptde).route, cryptde)
+// TODO: The three functions below should use only one argument, cryptde
+pub fn route_to_proxy_client(main_key: &PublicKey, main_cryptde: &dyn CryptDE) -> Route {
+    shift_one_hop(
+        zero_hop_route_response(main_key, main_cryptde).route,
+        main_cryptde,
+    )
 }
 
-pub fn route_from_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
+pub fn route_from_proxy_client(main_key: &PublicKey, main_cryptde: &dyn CryptDE) -> Route {
     // Happens to be the same
-    route_to_proxy_client(key, cryptde)
+    let round_trip = route_to_proxy_client(main_key, main_cryptde);
+    shortened_route(round_trip, 2)
 }
 
-pub fn route_to_proxy_server(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
-    shift_one_hop(route_from_proxy_client(key, cryptde), cryptde)
+pub fn route_to_proxy_server(main_key: &PublicKey, main_cryptde: &dyn CryptDE) -> Route {
+    let round_trip = route_to_proxy_client(main_key, main_cryptde);
+    shortened_route(round_trip, 3)
+}
+
+fn shortened_route(mut route: Route, hops_to_remove: usize) -> Route {
+    let remaining_hops = route.hops.drain(..hops_to_remove).collect();
+    Route {
+        hops: remaining_hops,
+    }
 }
 
 pub fn zero_hop_route_response(

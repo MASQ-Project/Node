@@ -230,11 +230,11 @@ impl RoutingService {
             Component::ProxyServer => (self.cryptdes.alias, "alias"),
             _ => (self.cryptdes.main, "main"),
         };
-        // panic!(
-        //     "I'll attempt to expire the cores package with {} with public key {:?}",
-        //     cryptde_name,
-        //     payload_cryptde.public_key()
-        // );
+        info!(
+            self.logger,
+            "{cryptde_name} key: {}",
+            payload_cryptde.public_key()
+        );
         let expired_package = match live_package.to_expired(
             immediate_neighbor_addr,
             self.cryptdes.main,
@@ -686,7 +686,7 @@ mod tests {
         subject.route(inbound_client_data);
 
         TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Couldn't expire CORES package with 51-byte payload to ProxyClient using alias key: DecryptionError(OpeningFailed)",
+            "ERROR: RoutingService: Couldn't expire CORES package with 51-byte payload to ProxyClient using main key: DecryptionError(OpeningFailed)",
         );
     }
 
