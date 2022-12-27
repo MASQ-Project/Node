@@ -751,7 +751,7 @@ mod tests {
             route,
             encodex::<MessageType>(
                 main_cryptde,
-                &alias_cryptde.public_key(),
+                &main_cryptde.public_key(),
                 &payload.clone().into(),
             )
             .unwrap(),
@@ -802,7 +802,7 @@ mod tests {
             .to_expired(
                 SocketAddr::from_str("1.2.3.4:5678").unwrap(),
                 main_cryptde,
-                alias_cryptde,
+                main_cryptde,
             )
             .unwrap();
         assert_eq!(record.immediate_neighbor, expected_ecp.immediate_neighbor);
