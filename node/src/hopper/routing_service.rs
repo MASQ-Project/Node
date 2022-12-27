@@ -86,6 +86,7 @@ impl RoutingService {
             }
         };
 
+        eprintln!("Route before we call next_hop: {:?}", live_package.route);
         let next_hop = match live_package.route.next_hop(self.cryptdes.main.borrow()) {
             Ok(hop) => hop,
             Err(e) => {
@@ -108,6 +109,7 @@ impl RoutingService {
         last_data: bool,
         ibcd_but_data: &InboundClientData,
     ) {
+        panic!("reached route_data");
         if (next_hop.component == Component::Hopper) && (!self.is_destined_for_here(&next_hop)) {
             debug!(
                 self.logger,
@@ -138,6 +140,7 @@ impl RoutingService {
         live_package: LiveCoresPackage,
         ibcd_but_data: &InboundClientData,
     ) {
+        panic!("reached route_data_internally");
         let payload_size = live_package.payload.len();
         if next_hop.component == Component::Hopper {
             self.route_data_around_again(live_package, ibcd_but_data)
@@ -206,6 +209,7 @@ impl RoutingService {
         live_package: LiveCoresPackage,
         payer_owns_secret_key: bool,
     ) {
+        panic!("reached route_data_to_peripheral_component");
         let expired_package =
             match self.extract_expired_package(immediate_neighbor_addr, live_package, component) {
                 None => return,
@@ -230,11 +234,11 @@ impl RoutingService {
             Component::ProxyServer => (self.cryptdes.alias, "alias"),
             _ => (self.cryptdes.main, "main"),
         };
-        info!(
-            self.logger,
-            "{cryptde_name} key: {}",
-            payload_cryptde.public_key()
-        );
+        // panic!(
+        //     "Component: {:?} {cryptde_name} key: {}",
+        //     component,
+        //     payload_cryptde.public_key()
+        // );
         let expired_package = match live_package.to_expired(
             immediate_neighbor_addr,
             self.cryptdes.main,
@@ -262,6 +266,7 @@ impl RoutingService {
         expired_package: ExpiredCoresPackage<MessageType>,
         payer_owns_secret_key: bool,
     ) {
+        panic!("called route_expired_package");
         let immediate_neighbor = expired_package.immediate_neighbor;
         match (component, expired_package.payload) {
             (Component::ProxyClient, MessageType::ClientRequest(vd)) => {
@@ -879,9 +884,10 @@ mod tests {
         BAN_CACHE.clear();
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();
-        let (component, _, component_recording_arc) = make_recorder();
+        let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let route = route_to_proxy_server(&main_cryptde.public_key(), main_cryptde);
-        let payload = make_response_payload(0, main_cryptde);
+        eprintln!("Hops: {:?}", route.hops);
+        let payload = make_response_payload(0, alias_cryptde);
         let lcp = LiveCoresPackage::new(
             route,
             encodex::<MessageType>(
@@ -904,7 +910,7 @@ mod tests {
         };
 
         let system = System::new("converts_live_message_to_expired_for_proxy_server");
-        let peer_actors = peer_actors_builder().proxy_server(component).build();
+        let peer_actors = peer_actors_builder().proxy_server(proxy_server).build();
         let subject = RoutingService::new(
             CryptDEPair {
                 main: main_cryptde,
@@ -927,9 +933,10 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let component_recording = component_recording_arc.lock().unwrap();
+        let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
         let record =
-            component_recording.get_record::<ExpiredCoresPackage<ClientResponsePayload_0v1>>(0);
+            proxy_server_recording.get_record::<ExpiredCoresPackage<ClientResponsePayload_0v1>>(0);
+        panic!("reached");
         let expected_ecp = lcp_a
             .to_expired(
                 SocketAddr::from_str("1.3.2.4:5678").unwrap(),
