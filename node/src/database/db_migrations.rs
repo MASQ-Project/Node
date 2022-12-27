@@ -13,11 +13,9 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::{RatePack, DEFAULT_RATE_PACK};
 use itertools::Itertools;
 use masq_lib::logger::Logger;
+use masq_lib::utils::{ExpectValue, WrapResult};
 use rusqlite::{params_from_iter, Error, Row, ToSql, Transaction};
 use std::fmt::{Debug, Display, Formatter};
-#[cfg(any(test, not(feature = "no_test_share")))]
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-use masq_lib::utils::{ExpectValue, NeighborhoodModeLight, WrapResult};
 use tiny_hderive::bip32::ExtendedPrivKey;
 
 pub trait DbMigrator {

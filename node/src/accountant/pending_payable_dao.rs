@@ -1,10 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
+use crate::accountant::checked_conversion;
 use crate::accountant::dao_utils::{
     from_time_t, to_time_t, DaoFactoryReal, VigilantRusqliteFlatten,
 };
-use crate::accountant::{checked_conversion};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use itertools::Itertools;
@@ -78,7 +78,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         let mut stm = self
             .conn
             .prepare(
-                "select rowid, transaction_hash, amount, \
+                "select rowid, transaction_hash, amount_high_b, amount_low_b, \
                  payable_timestamp, attempt from pending_payable where process_error is null",
             )
             .expect("Internal error");
@@ -237,11 +237,11 @@ impl<'a> PendingPayableDaoReal<'a> {
 #[cfg(test)]
 mod tests {
     use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
+    use crate::accountant::checked_conversion;
     use crate::accountant::dao_utils::from_time_t;
     use crate::accountant::pending_payable_dao::{
         PendingPayableDao, PendingPayableDaoError, PendingPayableDaoReal,
     };
-    use crate::accountant::{checked_conversion, sign_conversion};
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
@@ -479,7 +479,9 @@ mod tests {
             .unwrap();
         {
             wrapped_conn
-                .prepare("insert into pending_payable (rowid, transaction_hash, amount, payable_timestamp, attempt, process_error) values (1, 'silly_hash', 1234, 10000000000, 1, null)")
+                .prepare("insert into pending_payable \
+                (rowid, transaction_hash, amount_high_b, amount_low_b, payable_timestamp, attempt, process_error) \
+                values (1, 'silly_hash', 4, 111, 10000000000, 1, null)")
                 .unwrap()
                 .execute([])
                 .unwrap();
@@ -775,7 +777,7 @@ mod tests {
             "mark_failures_panics_on_wrong_row_change_count",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir,DbInitializationConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = PendingPayableDaoReal::new(conn);
 

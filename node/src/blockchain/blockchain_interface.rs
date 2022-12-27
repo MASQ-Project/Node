@@ -2,7 +2,10 @@
 
 use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
 use crate::blockchain::blockchain_bridge::NewPendingPayableFingerprints;
-use crate::blockchain::blockchain_interface::BlockchainError::{InvalidAddress, InvalidResponse, InvalidUrl, PayableTransactionFailed, QueryFailed, SignedValueConversion};
+use crate::blockchain::blockchain_interface::BlockchainError::{
+    InvalidAddress, InvalidResponse, InvalidUrl, PayableTransactionFailed, QueryFailed,
+    SignedValueConversion,
+};
 use crate::sub_lib::blockchain_bridge::{BatchPayableTools, BatchPayableToolsReal};
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, Recipient};
@@ -18,7 +21,6 @@ use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
-use thousands::Separable;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{
@@ -714,6 +716,8 @@ impl From<PayableTransactionError> for BlockchainError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::dao_utils::from_time_t;
+    use crate::accountant::gwei_to_wei;
     use crate::accountant::test_utils::{
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
     };
@@ -723,7 +727,6 @@ mod tests {
         make_default_signed_transaction, make_fake_event_loop_handle, make_tx_hash,
         BatchPayableToolsMock, TestTransport,
     };
-    use crate::accountant::dao_utils::from_time_t;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::decode_hex;
@@ -752,7 +755,6 @@ mod tests {
     use web3::transports::Http;
     use web3::types::H2048;
     use web3::Error as Web3Error;
-    use crate::accountant::{gwei_to_wei, wei_to_gwei};
 
     #[test]
     fn constants_have_correct_values() {
@@ -2470,7 +2472,10 @@ mod tests {
             .iter()
             .map(|(_, num_check)| *num_check)
             .collect::<Vec<u16>>();
-        assert_eq!(formal_comprehensiveness_check, vec![11, 22, 33, 44, 55, 66, 77]);
+        assert_eq!(
+            formal_comprehensiveness_check,
+            vec![11, 22, 33, 44, 55, 66, 77]
+        );
         let actual_error_msgs = displayed_errors
             .into_iter()
             .map(|(msg, _)| msg)
@@ -2541,7 +2546,7 @@ mod tests {
             })
             .collect();
 
-        assert_eq!(check, vec![11, 22, 33, 44, 55, 66,77])
+        assert_eq!(check, vec![11, 22, 33, 44, 55, 66, 77])
     }
 
     #[test]
@@ -2570,7 +2575,10 @@ mod tests {
                 pending_payable_opt: None,
             },
         ];
-        let fingerprint_inputs = vec![(make_tx_hash(444), 2_345_678), (make_tx_hash(333), 6_543_210)];
+        let fingerprint_inputs = vec![
+            (make_tx_hash(444), 2_345_678),
+            (make_tx_hash(333), 6_543_210),
+        ];
         let responses = vec![
             Ok(Value::String(String::from("blah"))),
             Err(web3::Error::Rpc(Error {

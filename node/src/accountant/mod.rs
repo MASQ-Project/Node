@@ -437,6 +437,7 @@ impl Accountant {
     }
 
     pub fn dao_factory(data_directory: &Path) -> DaoFactoryReal {
+        todo!("write a test for me that it panics on nonexistent db and then remove the test for 'make_connection' in dao_utils.rs");
         DaoFactoryReal::new(data_directory, DbInitializationConfig::panic_on_migration())
     }
 

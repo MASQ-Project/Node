@@ -54,7 +54,9 @@ pub mod shared_test_environment {
 pub mod test_environment {
     use crate::accountant::payable_dao::{PayableDao, PayableDaoReal};
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
-    use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE, DbInitializationConfig};
+    use crate::database::db_initializer::{
+        DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
+    };
     use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
@@ -73,9 +75,18 @@ pub mod test_environment {
     ) {
         let set_of_values = range_of_attempts
             .clone()
-            .map(|idx| format!("('{}', 1000, 12345, null)", make_str_wallet_from_idx(idx)))
+            .map(|idx| {
+                format!(
+                    "('{}', 0, 1000, 12345, null)",
+                    make_str_wallet_from_idx(idx)
+                )
+            })
             .join(", ");
-        let sql = format!("insert into payable (wallet_address, balance, last_paid_timestamp, pending_payable_rowid) values {}", set_of_values);
+        let sql = format!(
+            "insert into payable (wallet_address, balance_high_b, \
+         balance_low_b, last_paid_timestamp, pending_payable_rowid) values {}",
+            set_of_values
+        );
         let _ = conn.prepare(&sql).unwrap().execute([]).unwrap();
     }
 

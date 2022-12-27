@@ -5,7 +5,7 @@
 use crate::blockchain::blockchain_bridge::NewPendingPayableFingerprints;
 use crate::blockchain::blockchain_interface::{
     Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce,
-    ProcessedPayableFallible, Receipt, REQUESTS_IN_PARALLEL
+    ProcessedPayableFallible, Receipt, REQUESTS_IN_PARALLEL,
 };
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;

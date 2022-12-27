@@ -12,7 +12,7 @@ use masq_lib::constants::WEIS_OF_GWEI;
 use masq_lib::messages::{
     RangeQuery, TopRecordsConfig, TopRecordsOrdering, UiPayableAccount, UiReceivableAccount,
 };
-use masq_lib::utils::{ExpectValue, plus};
+use masq_lib::utils::{plus, ExpectValue};
 use rusqlite::{Row, ToSql};
 use std::cell::RefCell;
 use std::fmt::{Debug, Display};
@@ -375,8 +375,6 @@ pub fn multi_row_update_rows_changed<T: Debug>(
 
 #[cfg(test)]
 mod tests {
-    use std::option::IntoIter;
-    use std::str::FromStr;
     use super::*;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::test_utils::make_wallet;
@@ -384,6 +382,8 @@ mod tests {
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::types::{ToSqlOutput, Value};
     use rusqlite::{Connection, OpenFlags};
+    use std::option::IntoIter;
+    use std::str::FromStr;
     use std::time::UNIX_EPOCH;
 
     #[test]
@@ -622,7 +622,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-    expected = "broken code: we expect to get maximally a single error but got: [QueryReturnedNoRows, InvalidQuery]"
+        expected = "broken code: we expect to get maximally a single error but got: [QueryReturnedNoRows, InvalidQuery]"
     )]
     fn more_than_one_error_is_considered_a_malformation() {
         //it's important to note that the real situation can only be a single error, not more errors
