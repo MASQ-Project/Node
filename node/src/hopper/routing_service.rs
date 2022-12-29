@@ -90,6 +90,7 @@ impl RoutingService {
         let next_hop = match live_package.route.next_hop(self.cryptdes.main.borrow()) {
             Ok(hop) => hop,
             Err(e) => {
+                panic!("facing the error from the next_hop(): {:?}", e);
                 error!(
                     self.logger,
                     "Invalid {}-byte CORES package: {:?}", data_size, e

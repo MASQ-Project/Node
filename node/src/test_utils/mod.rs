@@ -242,12 +242,10 @@ pub fn route_to_proxy_server(main_key: &PublicKey, main_cryptde: &dyn CryptDE) -
 
 fn shortened_route(mut route: Route, hops_to_remove: usize) -> Route {
     eprintln!("Route before drain: {:?}", route.hops);
-    let first = route.hops[0].clone();
-    let mut remaining_hops = route
+    let remaining_hops = route
         .hops
         .drain(hops_to_remove..)
         .collect::<Vec<CryptData>>();
-    remaining_hops.insert(remaining_hops.len(), first);
     Route {
         hops: remaining_hops,
     }

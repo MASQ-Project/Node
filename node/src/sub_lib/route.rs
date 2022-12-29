@@ -83,6 +83,7 @@ impl Route {
 
     // This cryptde must be the CryptDE of the next hop to come off the Route.
     pub fn next_hop(&self, cryptde: &dyn CryptDE) -> Result<LiveHop, CodexError> {
+        eprintln!("Hops inside next_hop(): {:?}", self.hops);
         match self.hops.first() {
             None => Err(CodexError::RoutingError(RouteError::EmptyRoute)),
             Some(first) => LiveHop::decode(cryptde, &first.clone()),
@@ -170,6 +171,8 @@ impl Route {
             &mut hops,
             contract_address,
         );
+
+        eprintln!("Hops while constructing: {:?}", hops);
 
         Route::hops_to_route(
             hops[0..].to_vec(),

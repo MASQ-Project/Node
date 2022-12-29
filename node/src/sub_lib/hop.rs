@@ -28,6 +28,7 @@ impl LiveHop {
     }
 
     pub fn decode(cryptde: &dyn CryptDE, crypt_data: &CryptData) -> Result<Self, CodexError> {
+        eprintln!("Cryptdata in decode: {:?}", crypt_data);
         decodex::<LiveHop>(cryptde, crypt_data)
     }
 
