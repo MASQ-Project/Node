@@ -610,10 +610,7 @@ where
     };
     match serde_cbor::de::from_slice(decrypted.as_slice()) {
         Ok(t) => Ok(t),
-        Err(e) => {
-            panic!("Error in decodex: {:?}", e);
-            Err(CodexError::DeserializationError(SerdeCborError::new(e)))
-        }
+        Err(e) => Err(CodexError::DeserializationError(SerdeCborError::new(e))),
     }
 }
 

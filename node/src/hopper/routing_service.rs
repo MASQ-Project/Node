@@ -86,11 +86,9 @@ impl RoutingService {
             }
         };
 
-        eprintln!("Route before we call next_hop: {:?}", live_package.route);
         let next_hop = match live_package.route.next_hop(self.cryptdes.main.borrow()) {
             Ok(hop) => hop,
             Err(e) => {
-                panic!("facing the error from the next_hop(): {:?}", e);
                 error!(
                     self.logger,
                     "Invalid {}-byte CORES package: {:?}", data_size, e
@@ -110,7 +108,6 @@ impl RoutingService {
         last_data: bool,
         ibcd_but_data: &InboundClientData,
     ) {
-        panic!("reached route_data");
         if (next_hop.component == Component::Hopper) && (!self.is_destined_for_here(&next_hop)) {
             debug!(
                 self.logger,
@@ -141,7 +138,6 @@ impl RoutingService {
         live_package: LiveCoresPackage,
         ibcd_but_data: &InboundClientData,
     ) {
-        panic!("reached route_data_internally");
         let payload_size = live_package.payload.len();
         if next_hop.component == Component::Hopper {
             self.route_data_around_again(live_package, ibcd_but_data)
@@ -210,7 +206,6 @@ impl RoutingService {
         live_package: LiveCoresPackage,
         payer_owns_secret_key: bool,
     ) {
-        panic!("reached route_data_to_peripheral_component");
         let expired_package =
             match self.extract_expired_package(immediate_neighbor_addr, live_package, component) {
                 None => return,
@@ -267,7 +262,6 @@ impl RoutingService {
         expired_package: ExpiredCoresPackage<MessageType>,
         payer_owns_secret_key: bool,
     ) {
-        panic!("called route_expired_package");
         let immediate_neighbor = expired_package.immediate_neighbor;
         match (component, expired_package.payload) {
             (Component::ProxyClient, MessageType::ClientRequest(vd)) => {
@@ -607,7 +601,7 @@ mod tests {
         let route = route_from_proxy_client(&cryptdes.main.public_key(), cryptdes.main);
         let lcp = LiveCoresPackage::new(
             route,
-            encodex(cryptdes.main, &cryptdes.alias.public_key(), &[42u8]).unwrap(),
+            encodex(cryptdes.main, &cryptdes.main.public_key(), &[42u8]).unwrap(),
         );
         let data_enc = encodex(cryptdes.main, &cryptdes.main.public_key(), &lcp).unwrap();
         let inbound_client_data = InboundClientData {
@@ -638,7 +632,7 @@ mod tests {
         subject.route(inbound_client_data);
 
         TestLogHandler::new().exists_log_containing(
-            "ERROR: RoutingService: Couldn't expire CORES package with 35-byte payload to ProxyClient using alias key",
+            "ERROR: RoutingService: Couldn't expire CORES package with 35-byte payload to ProxyClient using main key",
         );
     }
 
@@ -707,7 +701,7 @@ mod tests {
             route,
             encodex(
                 main_cryptde,
-                &alias_cryptde.public_key(),
+                &main_cryptde.public_key(),
                 &MessageType::Gossip(payload.into()),
             )
             .unwrap(),
@@ -887,7 +881,6 @@ mod tests {
         let alias_cryptde = alias_cryptde();
         let (proxy_server, _, proxy_server_recording_arc) = make_recorder();
         let route = route_to_proxy_server(&main_cryptde.public_key(), main_cryptde);
-        eprintln!("Hops: {:?}", route.hops);
         let payload = make_response_payload(0, alias_cryptde);
         let lcp = LiveCoresPackage::new(
             route,
@@ -937,7 +930,6 @@ mod tests {
         let proxy_server_recording = proxy_server_recording_arc.lock().unwrap();
         let record =
             proxy_server_recording.get_record::<ExpiredCoresPackage<ClientResponsePayload_0v1>>(0);
-        panic!("reached");
         let expected_ecp = lcp_a
             .to_expired(
                 SocketAddr::from_str("1.3.2.4:5678").unwrap(),
@@ -1913,7 +1905,7 @@ mod tests {
         let payload_factory = |cryptdes: &CryptDEPair| {
             encodex(
                 cryptdes.alias,
-                cryptdes.alias.public_key(),
+                cryptdes.main.public_key(),
                 &MessageType::ClientRequest(VersionedData::new(
                     &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
                     &ClientRequestPayload_0v1 {
