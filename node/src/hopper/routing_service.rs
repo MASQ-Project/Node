@@ -230,11 +230,6 @@ impl RoutingService {
             Component::ProxyServer => (self.cryptdes.alias, "alias"),
             _ => (self.cryptdes.main, "main"),
         };
-        // panic!(
-        //     "Component: {:?} {cryptde_name} key: {}",
-        //     component,
-        //     payload_cryptde.public_key()
-        // );
         let expired_package = match live_package.to_expired(
             immediate_neighbor_addr,
             self.cryptdes.main,

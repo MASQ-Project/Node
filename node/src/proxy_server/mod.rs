@@ -563,7 +563,7 @@ impl ProxyServer {
                     .try_send(return_route_info)
                     .expect("ProxyServer is dead");
                 ProxyServer::transmit_to_hopper(
-                    args.common.cryptde,
+                    args.common.main_cryptde,
                     args.hopper_sub,
                     args.common.timestamp,
                     args.common.payload,
@@ -645,7 +645,7 @@ impl ProxyServer {
 
     #[allow(clippy::too_many_arguments)]
     fn transmit_to_hopper(
-        cryptde: &'static dyn CryptDE,
+        main_cryptde: &'static dyn CryptDE,
         hopper: &Recipient<IncipientCoresPackage>,
         timestamp: SystemTime,
         payload: ClientRequestPayload_0v1,
@@ -664,7 +664,8 @@ impl ProxyServer {
                 _ => None,
             })
         } else {
-            Some(payload.originator_alias_public_key.clone())
+            // In Zero Hop Mode the exit node public key is the same as this public key
+            Some(main_cryptde.public_key().clone())
         };
         match destination_key_opt {
             None => ProxyServer::handle_route_failure(payload, logger, source_addr, dispatcher),
@@ -676,7 +677,7 @@ impl ProxyServer {
                 let payload_size = payload.sequenced_packet.data.len();
                 let stream_key = payload.stream_key;
                 let pkg = IncipientCoresPackage::new(
-                    cryptde,
+                    main_cryptde,
                     route.clone(),
                     payload.into(),
                     &payload_destination_key,
@@ -892,7 +893,7 @@ impl IBCDHelper for IBCDHelperReal {
         };
         let local_args = TTHLocalArgs {
             common: TTHCommonArgs {
-                cryptde: proxy.main_cryptde,
+                main_cryptde: proxy.main_cryptde,
                 payload,
                 source_addr,
                 timestamp,
@@ -1837,7 +1838,7 @@ mod tests {
                         originator_alias_public_key: alias_cryptde.public_key().clone(),
                     }
                 )),
-                alias_cryptde.public_key()
+                main_cryptde.public_key()
             )
             .unwrap()
         );
@@ -1918,7 +1919,7 @@ mod tests {
                         originator_alias_public_key: alias_cryptde.public_key().clone(),
                     }
                 ),),
-                alias_cryptde.public_key()
+                main_cryptde.public_key()
             )
             .unwrap()
         );
@@ -2434,7 +2435,7 @@ mod tests {
         let logger = Logger::new("test");
         let local_tth_args = TTHLocalArgs {
             common: TTHCommonArgs {
-                cryptde,
+                main_cryptde: cryptde,
                 payload,
                 source_addr,
                 timestamp: now,
@@ -2520,7 +2521,7 @@ mod tests {
         let logger = Logger::new("test");
         let local_tth_args = TTHLocalArgs {
             common: TTHCommonArgs {
-                cryptde,
+                main_cryptde: cryptde,
                 payload,
                 source_addr,
                 timestamp: SystemTime::now(),
@@ -2776,7 +2777,7 @@ mod tests {
         let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_tth_args = TTHLocalArgs {
             common: TTHCommonArgs {
-                cryptde,
+                main_cryptde: cryptde,
                 payload,
                 source_addr,
                 timestamp: SystemTime::now(),
