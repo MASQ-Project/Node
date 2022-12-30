@@ -3513,7 +3513,8 @@ mod tests {
         System::current().stop();
         system.run();
         let mut handle_params = handle_params_arc.lock().unwrap();
-        let (call_database, call_agrs, call_gossip_source) = handle_params.remove(0);
+        let (call_database, call_agrs, call_gossip_source, connection_progress_peers) =
+            handle_params.remove(0);
         assert!(handle_params.is_empty());
         assert_eq!(&subject_node, call_database.root());
         assert_eq!(1, call_database.keys().len());
@@ -3521,6 +3522,8 @@ mod tests {
         assert_eq!(agrs, call_agrs);
         let actual_gossip_source: SocketAddr = subject_node.node_addr_opt().unwrap().into();
         assert_eq!(actual_gossip_source, call_gossip_source);
+        let neighbor_ip = neighbor.node_addr_opt().unwrap().ip_addr();
+        assert_eq!(connection_progress_peers, vec![neighbor_ip]);
     }
 
     #[test]
@@ -5506,6 +5509,7 @@ mod tests {
                     NeighborhoodDatabase,
                     Vec<AccessibleGossipRecord>,
                     SocketAddr,
+                    Vec<IpAddr>,
                 )>,
             >,
         >,
@@ -5518,12 +5522,14 @@ mod tests {
             database: &mut NeighborhoodDatabase,
             agrs: Vec<AccessibleGossipRecord>,
             gossip_source: SocketAddr,
-            _connection_progress_peers: &[IpAddr],
+            connection_progress_peers: &[IpAddr],
         ) -> GossipAcceptanceResult {
-            self.handle_params
-                .lock()
-                .unwrap()
-                .push((database.clone(), agrs, gossip_source));
+            self.handle_params.lock().unwrap().push((
+                database.clone(),
+                agrs,
+                gossip_source,
+                connection_progress_peers.to_vec(),
+            ));
             self.handle_results.borrow_mut().remove(0)
         }
     }
@@ -5544,6 +5550,7 @@ mod tests {
                         NeighborhoodDatabase,
                         Vec<AccessibleGossipRecord>,
                         SocketAddr,
+                        Vec<IpAddr>,
                     )>,
                 >,
             >,
