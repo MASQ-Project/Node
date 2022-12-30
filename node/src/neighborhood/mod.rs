@@ -295,7 +295,11 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
                 }
             }
             Err(e) => {
-                trace!(self.logger, "{}", e);
+                trace!(
+                    self.logger,
+                    "Found unnecessary connection progress message - {}",
+                    e
+                );
             }
         }
     }
@@ -722,7 +726,7 @@ impl Neighborhood {
     fn handle_agrs(&mut self, agrs: Vec<AccessibleGossipRecord>, gossip_source: SocketAddr) {
         let ignored_node_name = self.gossip_source_name(&agrs, gossip_source);
         let gossip_record_count = agrs.len();
-        let peer_addrs = self.overall_connection_status.get_peer_addrs();
+        let connection_progress_peers = self.overall_connection_status.get_peer_addrs();
         let acceptance_result = self
             .gossip_acceptor_opt
             .as_ref()
@@ -731,7 +735,7 @@ impl Neighborhood {
                 &mut self.neighborhood_database,
                 agrs,
                 gossip_source,
-                &peer_addrs,
+                &connection_progress_peers,
             );
         match acceptance_result {
             GossipAcceptanceResult::Accepted => self.gossip_to_neighbors(),
@@ -1840,7 +1844,7 @@ mod tests {
         System::current().stop();
         assert_eq!(system.run(), 0);
         TestLogHandler::new().exists_log_containing(&format!(
-            "TRACE: Neighborhood: An unnecessary ConnectionProgressMessage received containing IP Address: {:?}",
+            "TRACE: Neighborhood: Found unnecessary connection progress message - No peer found with the IP Address: {:?}",
             unknown_peer
         ));
     }
@@ -1887,7 +1891,8 @@ mod tests {
         System::current().stop();
         assert_eq!(system.run(), 0);
         TestLogHandler::new().exists_log_containing(&format!(
-            "TRACE: Neighborhood: We've been passed to a peer with IP Address: {:?} that's already a part of different connection progress.",
+            "TRACE: Neighborhood: Found unnecessary connection progress message - Pass target with \
+            IP Address: {:?} is already a part of different connection progress.",
             peer_1
         ));
     }
@@ -3508,7 +3513,8 @@ mod tests {
         System::current().stop();
         system.run();
         let mut handle_params = handle_params_arc.lock().unwrap();
-        let (call_database, call_agrs, call_gossip_source) = handle_params.remove(0);
+        let (call_database, call_agrs, call_gossip_source, connection_progress_peers) =
+            handle_params.remove(0);
         assert!(handle_params.is_empty());
         assert_eq!(&subject_node, call_database.root());
         assert_eq!(1, call_database.keys().len());
@@ -3516,6 +3522,8 @@ mod tests {
         assert_eq!(agrs, call_agrs);
         let actual_gossip_source: SocketAddr = subject_node.node_addr_opt().unwrap().into();
         assert_eq!(actual_gossip_source, call_gossip_source);
+        let neighbor_ip = neighbor.node_addr_opt().unwrap().ip_addr();
+        assert_eq!(connection_progress_peers, vec![neighbor_ip]);
     }
 
     #[test]
@@ -3620,7 +3628,7 @@ mod tests {
             database: &mut NeighborhoodDatabase,
             _agrs: Vec<AccessibleGossipRecord>,
             _gossip_source: SocketAddr,
-            _peer_addrs: &[IpAddr],
+            _connection_progress_peers: &[IpAddr],
         ) -> GossipAcceptanceResult {
             let non_root_database_keys = database
                 .keys()
@@ -3741,7 +3749,7 @@ mod tests {
             .handle_result(GossipAcceptanceResult::Ignored);
         let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
         let peer_1 = make_node_record(1234, true);
-        let peer_2 = make_node_record(2345, true);
+        let peer_2 = make_node_record(6721, true);
         let desc_1 = peer_1.node_descriptor(Chain::Dev, main_cryptde());
         let desc_2 = peer_2.node_descriptor(Chain::Dev, main_cryptde());
         let this_node = make_node_record(7777, true);
@@ -3852,7 +3860,7 @@ mod tests {
             database: &mut NeighborhoodDatabase,
             _agrs: Vec<AccessibleGossipRecord>,
             _gossip_source: SocketAddr,
-            _peer_addrs: &[IpAddr],
+            _connection_progress_peers: &[IpAddr],
         ) -> GossipAcceptanceResult {
             let half_neighbor_keys = database
                 .root()
@@ -5501,6 +5509,7 @@ mod tests {
                     NeighborhoodDatabase,
                     Vec<AccessibleGossipRecord>,
                     SocketAddr,
+                    Vec<IpAddr>,
                 )>,
             >,
         >,
@@ -5513,12 +5522,14 @@ mod tests {
             database: &mut NeighborhoodDatabase,
             agrs: Vec<AccessibleGossipRecord>,
             gossip_source: SocketAddr,
-            _peer_addrs: &[IpAddr],
+            connection_progress_peers: &[IpAddr],
         ) -> GossipAcceptanceResult {
-            self.handle_params
-                .lock()
-                .unwrap()
-                .push((database.clone(), agrs, gossip_source));
+            self.handle_params.lock().unwrap().push((
+                database.clone(),
+                agrs,
+                gossip_source,
+                connection_progress_peers.to_vec(),
+            ));
             self.handle_results.borrow_mut().remove(0)
         }
     }
@@ -5539,6 +5550,7 @@ mod tests {
                         NeighborhoodDatabase,
                         Vec<AccessibleGossipRecord>,
                         SocketAddr,
+                        Vec<IpAddr>,
                     )>,
                 >,
             >,
