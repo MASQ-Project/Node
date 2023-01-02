@@ -433,7 +433,7 @@ fn create_server_drop_report(
         exit_node.main_cryptde_null().unwrap(),
         route,
         payload,
-        originating_node.main_public_key(),
+        originating_node.alias_public_key(),
     )
     .unwrap()
 }
