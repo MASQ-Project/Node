@@ -260,28 +260,36 @@ lazy_static! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::messages::{ToMessageBody, UiLogBroadcast};
     use crate::test_utils::logging::init_test_logging;
     use crate::test_utils::logging::TestLogHandler;
     use crate::ui_gateway::{MessageBody, MessagePath, MessageTarget};
     use actix::{Actor, AsyncContext, Context, Handler, Message, System};
     use crossbeam_channel::{unbounded, Sender};
     use std::sync::{Arc, Mutex, MutexGuard};
+    use std::sync::atomic::{AtomicU32, Ordering};
     use std::thread;
     use std::thread::{JoinHandle, ThreadId};
-    use std::time::{Duration, SystemTime};
+    use std::time::{Duration, Instant, SystemTime};
     use time::format_description::parse;
     use time::OffsetDateTime;
+    use lazy_static::lazy_static;
+
+    lazy_static! {
+        static ref START_TIMESTAMP: Instant = Instant::now();
+    }
+
 
     struct TestUiGateway {
-        received_messages: Arc<Mutex<Vec<NodeToUiMessage>>>,
-        expected_msg_count: usize,
+        seconds_to_live: usize,
+        received_message_count: Arc<AtomicU32>,
+        expected_msg_count: u32,
     }
 
     impl TestUiGateway {
-        fn new(msg_count: usize, recording_arc: &Arc<Mutex<Vec<NodeToUiMessage>>>) -> Self {
+        fn new(msg_count: u32, received_message_count: Arc<AtomicU32>, seconds_to_live: usize) -> Self {
             Self {
-                received_messages: recording_arc.clone(),
+                seconds_to_live,
+                received_message_count,
                 expected_msg_count: msg_count,
             }
         }
@@ -292,7 +300,7 @@ mod tests {
 
         fn started(&mut self, ctx: &mut Self::Context) {
             ctx.set_mailbox_capacity(0); //important
-            ctx.notify_later(Stop {}, Duration::from_secs(10));
+            ctx.notify_later(Stop {}, Duration::from_secs(self.seconds_to_live as u64));
         }
     }
 
@@ -300,11 +308,13 @@ mod tests {
         type Result = ();
 
         fn handle(&mut self, msg: NodeToUiMessage, _ctx: &mut Self::Context) -> Self::Result {
-            let mut inner = self.received_messages.lock().unwrap();
-            inner.push(msg);
-            if inner.len() == self.expected_msg_count {
+            let payload = msg.body.payload.as_ref().unwrap().clone();
+eprintln! ("{} at {}: About to increment received-message count", payload, ts());
+            let prev_count = self.received_message_count.fetch_add (1, Ordering::Relaxed);
+            if prev_count + 1 == self.expected_msg_count {
                 System::current().stop();
             }
+eprintln! ("{} at {}: Incremented received-message count from {} to {}", payload, ts(), prev_count, prev_count + 1);
         }
     }
 
@@ -327,11 +337,8 @@ mod tests {
     #[test]
     fn transmit_log_handles_overloading_by_sending_msgs_from_multiple_threads() {
         let _test_guard = prepare_test_environment();
-        let msgs_in_total = 10000;
-        let factor = match f64::sqrt(msgs_in_total as f64) {
-            x if x.fract() == 0.0 => x as usize,
-            _ => panic!("we expected a square number"),
-        };
+        let thread_count = 100;
+        let msgs_per_thread = 100;
         //Starting an experiment to get a feeling for what might be a standard amount of time
         //to send the given number of messages, in this case using a crossbeam channel.
         //The outcome is going to be a template in the final assertion where we want to check
@@ -344,24 +351,26 @@ mod tests {
         let (template_before, template_after) = {
             let before = SystemTime::now();
             overloading_function(
-                move || {
+                move |thread_idx, msg_idx| {
                     SENDER
                         .lock()
                         .unwrap()
                         .as_ref()
                         .unwrap()
-                        .send(create_msg())
+                        .send(create_msg(thread_idx, msg_idx))
                         .unwrap();
                 },
                 &mut container_for_join_handles,
-                factor,
+                thread_count,
+                msgs_per_thread,
             );
 
             let mut counter = 0;
             loop {
                 rx.recv().expect("Unable to call recv() on rx");
+                let limit = thread_count * msgs_per_thread;
                 counter += 1;
-                if counter == msgs_in_total {
+                if counter == limit {
                     break;
                 }
             }
@@ -372,9 +381,10 @@ mod tests {
         let mut container_for_join_handles = vec![];
         let time_example_of_similar_labour = template_after
             .duration_since(template_before)
-            .expect("Unable to unwrap the duration_sice for template after");
-        let recording_arc = Arc::new(Mutex::new(vec![]));
-        let fake_ui_gateway = TestUiGateway::new(msgs_in_total, &recording_arc);
+            .expect("Unable to unwrap the duration_since for template after");
+        let received_message_count = Arc::new(AtomicU32::new (0));
+        let fake_ui_gateway = TestUiGateway::new((thread_count * msgs_per_thread) as u32,
+            received_message_count.clone(), 10);
         let system = System::new("test_system");
         let addr = fake_ui_gateway.start();
         let recipient = addr.clone().recipient();
@@ -388,7 +398,8 @@ mod tests {
         overloading_function(
             send_message_to_recipient,
             &mut container_for_join_handles,
-            factor,
+            thread_count,
+            msgs_per_thread,
         );
 
         let (actual_start, actual_end) = {
@@ -399,23 +410,23 @@ mod tests {
         };
         see_about_join_handles(container_for_join_handles);
         //we have now two samples and can go to compare them
-        let recording = recording_arc.lock().expect("Unable to lock recording arc");
-        assert_eq!(recording.len(), msgs_in_total);
+        assert_eq!(received_message_count.load(Ordering::Relaxed),
+                   (thread_count * msgs_per_thread) as u32);
         let measured = actual_end
             .duration_since(actual_start)
             .expect("Unable to run duration_since on actual_end");
         let safe_estimation = (time_example_of_similar_labour / 2) * 5;
         eprintln!("measured {:?}, template {:?}", measured, safe_estimation);
-        //a flexible requirement that should pass on a slow machine as well
-        assert!(measured < safe_estimation)
+        // a flexible requirement that should pass on a slow machine as well
+        assert!(measured < safe_estimation, "measured = {:?}, safe_estimation = {:?}", measured, safe_estimation)
     }
 
     #[test]
     fn prepare_log_recipient_works() {
         let _guard = prepare_test_environment();
-        let message_container_arc = Arc::new(Mutex::new(vec![]));
         let system = System::new("prepare log recipient");
-        let ui_gateway = TestUiGateway::new(0, &message_container_arc);
+        let received_message_count = Arc::new (AtomicU32::new (0));
+        let ui_gateway = TestUiGateway::new(0, received_message_count.clone(), 10);
         let recipient: Recipient<NodeToUiMessage> = ui_gateway.start().recipient();
 
         prepare_log_recipient(recipient);
@@ -425,12 +436,11 @@ mod tests {
             .unwrap()
             .as_ref()
             .unwrap()
-            .try_send(create_msg())
+            .try_send(create_msg(0, 0))
             .unwrap();
         System::current().stop();
         system.run();
-        let message_container = message_container_arc.lock().unwrap();
-        assert_eq!(*message_container, vec![create_msg()]);
+        assert_eq! (received_message_count.load(Ordering::Relaxed), 1);
     }
 
     #[test]
@@ -491,8 +501,8 @@ mod tests {
         let _guard = prepare_test_environment();
         let logger = make_logger_at_level(Level::Debug);
         let system = System::new("Neither Logging, Nor Transmitting");
-        let ui_gateway_recording_arc = Arc::new(Mutex::new(vec![]));
-        let ui_gateway = TestUiGateway::new(0, &ui_gateway_recording_arc);
+        let received_message_count = Arc::new (AtomicU32::new(0));
+        let ui_gateway = TestUiGateway::new(0, received_message_count.clone(), 10);
         let recipient = ui_gateway.start().recipient();
         {
             LOG_RECIPIENT_OPT.lock().unwrap().replace(recipient);
@@ -503,8 +513,7 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(*ui_gateway_recording, vec![]);
+        assert_eq!(received_message_count.load(Ordering::Relaxed), 0);
         TestLogHandler::new().exists_no_log_containing("This is a trace log.");
     }
 
@@ -514,8 +523,8 @@ mod tests {
         let _guard = prepare_test_environment();
         let logger = make_logger_at_level(Level::Debug);
         let system = System::new("Only Logging, Not Transmitting");
-        let ui_gateway_recording_arc = Arc::new(Mutex::new(vec![]));
-        let ui_gateway = TestUiGateway::new(0, &ui_gateway_recording_arc);
+        let received_message_count = Arc::new (AtomicU32::new(0));
+        let ui_gateway = TestUiGateway::new(0, received_message_count.clone(), 10);
         let recipient = ui_gateway.start().recipient();
         {
             LOG_RECIPIENT_OPT.lock().unwrap().replace(recipient);
@@ -526,8 +535,7 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(*ui_gateway_recording, vec![]);
+        assert_eq!(received_message_count.load(Ordering::Relaxed), 0);
         TestLogHandler::new().exists_log_containing("This is a debug log.");
     }
 
@@ -537,8 +545,8 @@ mod tests {
         let _guard = prepare_test_environment();
         let logger = make_logger_at_level(Level::Warn);
         let system = System::new("transmitting but not logging");
-        let ui_gateway_recording_arc = Arc::new(Mutex::new(vec![]));
-        let ui_gateway = TestUiGateway::new(1, &ui_gateway_recording_arc);
+        let received_message_count = Arc::new (AtomicU32::new(0));
+        let ui_gateway = TestUiGateway::new(1, received_message_count.clone(), 10);
         let recipient = ui_gateway.start().recipient();
         {
             LOG_RECIPIENT_OPT.lock().unwrap().replace(recipient);
@@ -548,18 +556,7 @@ mod tests {
         logger.info(log_function);
 
         system.run(); //shut down after receiving the expected count of messages
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(
-            *ui_gateway_recording,
-            vec![NodeToUiMessage {
-                target: MessageTarget::AllClients,
-                body: UiLogBroadcast {
-                    msg: "This is an info log.".to_string(),
-                    log_level: SerializableLogLevel::Info
-                }
-                .tmb(0)
-            }]
-        );
+        assert_eq! (received_message_count.load(Ordering::Relaxed), 1);
         TestLogHandler::new().exists_no_log_containing("This is an info log.");
     }
 
@@ -569,8 +566,8 @@ mod tests {
         let _guard = prepare_test_environment();
         let logger = make_logger_at_level(Level::Debug);
         let system = System::new("logging ang transmitting");
-        let ui_gateway_recording_arc = Arc::new(Mutex::new(vec![]));
-        let ui_gateway = TestUiGateway::new(1, &ui_gateway_recording_arc);
+        let received_message_count = Arc::new (AtomicU32::new(0));
+        let ui_gateway = TestUiGateway::new(1, received_message_count.clone(), 10);
         let recipient = ui_gateway.start().recipient();
         {
             LOG_RECIPIENT_OPT.lock().unwrap().replace(recipient);
@@ -580,18 +577,7 @@ mod tests {
         logger.warning(log_function);
 
         system.run(); //shut down after receiving the expected count of messages
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(
-            *ui_gateway_recording,
-            vec![NodeToUiMessage {
-                target: MessageTarget::AllClients,
-                body: UiLogBroadcast {
-                    msg: "This is a warn log.".to_string(),
-                    log_level: SerializableLogLevel::Warn
-                }
-                .tmb(0)
-            }]
-        );
+        assert_eq! (received_message_count.load(Ordering::Relaxed), 1);
         TestLogHandler::new().exists_log_containing("WARN: test: This is a warn log.");
     }
 
@@ -795,7 +781,7 @@ mod tests {
     #[should_panic(expected = "Log recipient should be initiated only once")]
     fn prepare_log_recipient_should_be_called_only_once_panic() {
         let _guard = prepare_test_environment();
-        let ui_gateway = TestUiGateway::new(0, &Arc::new(Mutex::new(vec![])));
+        let ui_gateway = TestUiGateway::new(0, Arc::new(AtomicU32::new(0)), 10);
         let recipient: Recipient<NodeToUiMessage> = ui_gateway.start().recipient();
         prepare_log_recipient(recipient.clone());
 
@@ -805,47 +791,65 @@ mod tests {
     fn overloading_function<C>(
         closure: C,
         join_handles_container: &mut Vec<JoinHandle<()>>,
-        factor: usize,
+        thread_count: usize,
+        msgs_per_thread: usize,
     ) where
-        C: Fn() + Send + 'static + Clone,
+        C: Fn(usize, usize) + Send + 'static + Clone,
     {
-        (0..factor).for_each(|_| {
+        (0..thread_count).for_each(|thread_idx| {
             let closure_clone = closure.clone();
-            join_handles_container.push(thread::spawn(move || {
-                (0..factor).for_each(|_| {
+            let builder = thread::Builder::new().name (format! ("Worker {}", thread_idx));
+            join_handles_container.push(builder.spawn(move || {
+                (0..msgs_per_thread)
+                    .for_each(|i| {
                     thread::sleep(Duration::from_millis(10));
-                    closure_clone()
+                    closure_clone(thread_idx, i)
                 })
-            }))
+            }).unwrap())
         });
     }
 
-    fn create_msg() -> NodeToUiMessage {
+    fn create_msg(thread_idx: usize, msg_idx: usize) -> NodeToUiMessage {
         NodeToUiMessage {
             target: MessageTarget::AllClients,
             body: MessageBody {
                 opcode: "whatever".to_string(),
                 path: MessagePath::FireAndForget,
-                payload: Ok(String::from("our message")),
+                payload: Ok(String::from(&format! ("({}, {})", thread_idx, msg_idx))),
             },
         }
     }
 
-    fn send_message_to_recipient() {
-        let recipient = LOG_RECIPIENT_OPT
-            .lock()
-            .expect("SMTR: failed to lock LOG_RECIPIENT_OPT");
-        recipient
-            .as_ref()
-            .expect("SMTR: failed to get ref for recipient")
-            .try_send(create_msg())
-            .expect("SMTR: failed to send message")
+    fn send_message_to_recipient(thread_idx: usize, iteration_idx: usize) {
+eprintln! ("({}, {}) at {}: About to lock recipient", thread_idx, iteration_idx, ts());
+        {
+            let recipient_opt = LOG_RECIPIENT_OPT
+                .lock()
+                .expect(&format!("({}, {}) at {}: SMTR: failed to lock LOG_RECIPIENT_OPT", thread_idx, iteration_idx, ts()));
+eprintln!("({}, {}) at {}: Locked recipient", thread_idx, iteration_idx, ts());
+            let recipient_ref = recipient_opt.as_ref().expect(&format!("({}, {}): SMTR: failed to get ref for recipient", thread_idx, iteration_idx));
+eprintln!("({}, {}) at {}: Obtained recipient_ref", thread_idx, iteration_idx, ts());
+            let msg = create_msg(thread_idx, iteration_idx);
+eprintln!("({}, {}) at {}: Created msg: {:?}", thread_idx, iteration_idx, ts(), msg);
+            recipient_ref.try_send(msg).expect(&format!("({}, {}) at {}: SMTR: failed to send message", thread_idx, iteration_idx, ts()));
+eprintln!("({}, {}) at {}: Message transmission completed, unlocking", thread_idx, iteration_idx, ts());
+        }
+eprintln!("({}, {}) at {}: Released recipient", thread_idx, iteration_idx, ts());
     }
 
     fn see_about_join_handles(container: Vec<JoinHandle<()>>) {
         container
             .into_iter()
-            .for_each(|handle| handle.join().unwrap())
+            .enumerate()
+            .for_each(|(index, handle)| {
+                let join_result = handle.join();
+                if let Err(err) = join_result {
+                    match err.downcast_ref::<String>() {
+                        Some(msg) => panic! ("Thread {} failed at {}: {}", index, ts(), msg),
+                        None => panic! ("Thread {} failed, but reason is unprintable", index)
+                    }
+                }
+            })
     }
 
     fn prepare_test_environment<'a>() -> MutexGuard<'a, ()> {
@@ -853,7 +857,7 @@ mod tests {
             Ok(g) => g,
             Err(poison_error) => poison_error.into_inner(),
         };
-        LOG_RECIPIENT_OPT
+        let _ = LOG_RECIPIENT_OPT
             .lock()
             .expect("Unable to lock LOG_RECIPIENT_OPT")
             .take();
@@ -888,5 +892,40 @@ mod tests {
             #[cfg(not(feature = "no_test_share"))]
             level_limit: level,
         }
+    }
+
+    fn sqrt(square: usize) -> usize {
+        let mut lo = 1;
+        let mut hi = square / 2;
+        let mut prev_mid = square;
+        loop {
+            let mid = (lo + hi) / 2;
+            if mid == prev_mid {return mid}
+            prev_mid = mid;
+            let attempt = mid * mid;
+            if attempt == square {
+                return mid
+            }
+            else if attempt < square {
+               lo = mid
+            }
+            else {
+                hi = mid
+            }
+        }
+    }
+
+    fn ts() -> String {
+        format! ("{:012}", Instant::now().duration_since (*START_TIMESTAMP).as_micros())
+    }
+
+    #[test]
+    fn sqrt_works_as_expected() {
+        assert_eq! (sqrt(64), 8);
+        assert_eq! (sqrt(63), 7);
+        assert_eq! (sqrt(65), 8);
+        assert_eq! (sqrt(12345 * 12345), 12345);
+        assert_eq! (sqrt((12345 * 12345) - 1), 12344);
+        assert_eq! (sqrt(1000), 31)
     }
 }

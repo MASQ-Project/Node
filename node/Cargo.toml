@@ -22,7 +22,6 @@ clap = "2.33.3"
 crossbeam-channel = "0.5.1"
 dirs = "4.0.0"
 ethabi = "12.0.0"
-#ethsign = {version = "0.7.3", default-features = false, features = ["pure-rust"]}
 ethsign = {version = "0.8.0", default-features = false, features = ["pure-rust"]}
 ethsign-crypto = "0.2.1"
 ethereum-types = "0.9.0"
