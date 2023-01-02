@@ -38,8 +38,8 @@ jobs:
             ~/.cargo/registry/cache/
             ~/.cargo/git/db/
             target/
-          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
-          restore-keys: ${{ runner.OS }}-cargo-
+          key: ${{ runner.os }}-cargo
+          restore-keys: ${{ runner.OS }}-cargo
       - name: Build ${{ matrix.target.os }}
         run: |
           ./ci/all.sh
