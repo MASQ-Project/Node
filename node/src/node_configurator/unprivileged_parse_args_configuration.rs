@@ -498,7 +498,7 @@ fn configure_accountant_config(
     config.payment_thresholds_opt = Some(payment_thresholds);
     config.scan_intervals_opt = Some(scan_intervals);
     config.suppress_initial_scans = suppress_initial_scans;
-    config.when_pending_too_long = DEFAULT_PENDING_TOO_LONG_SEC;
+    config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
     Ok(())
 }
 
@@ -1753,7 +1753,10 @@ mod tests {
         );
         assert_eq!(config.scan_intervals_opt, Some(expected_scan_intervals));
         assert_eq!(config.suppress_initial_scans, false);
-        assert_eq!(config.when_pending_too_long, DEFAULT_PENDING_TOO_LONG_SEC);
+        assert_eq!(
+            config.when_pending_too_long_sec,
+            DEFAULT_PENDING_TOO_LONG_SEC
+        );
         let set_scan_intervals_params = set_scan_intervals_params_arc.lock().unwrap();
         assert_eq!(*set_scan_intervals_params, vec!["180|150|130".to_string()]);
         let set_payment_thresholds_params = set_payment_thresholds_params_arc.lock().unwrap();
@@ -1828,7 +1831,7 @@ mod tests {
             expected_suppress_initial_scans
         );
         assert_eq!(
-            config.when_pending_too_long,
+            config.when_pending_too_long_sec,
             expected_when_pending_too_long_sec
         );
         //no prepared results for the setter methods, that is they were uncalled

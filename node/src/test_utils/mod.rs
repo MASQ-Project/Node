@@ -609,7 +609,7 @@ pub mod unshared_test_utils {
         let mut config = BootstrapperConfig::new();
         config.scan_intervals_opt = Some(ScanIntervals::default());
         config.suppress_initial_scans = false;
-        config.when_pending_too_long = DEFAULT_PENDING_TOO_LONG_SEC;
+        config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
         config.payment_thresholds_opt = Some(PaymentThresholds::default());
         config
     }

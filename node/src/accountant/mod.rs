@@ -387,7 +387,7 @@ impl Accountant {
                 dao_factories,
                 Rc::new(payment_thresholds),
                 Rc::clone(&earning_wallet),
-                config.when_pending_too_long,
+                config.when_pending_too_long_sec,
                 Rc::clone(&financial_statistics),
             ),
             crashable: config.crash_point == CrashPoint::Message,
