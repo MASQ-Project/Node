@@ -63,6 +63,7 @@ fn manual(parameters: AutomapParameters) {
         .zip(results.into_iter())
         .for_each(|(method, result)| report_on_method(method, result, &parameters));
 
+    #[allow(clippy::bool_to_int_with_if)]
     std::process::exit(if cumulative_success { 0 } else { 1 })
 }
 

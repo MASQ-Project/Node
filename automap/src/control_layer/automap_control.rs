@@ -136,9 +136,9 @@ impl AutomapControlReal {
     pub fn new(usual_protocol_opt: Option<AutomapProtocol>, change_handler: ChangeHandler) -> Self {
         Self {
             transactors: RefCell::new(vec![
-                Box::new(PcpTransactor::default()),
-                Box::new(PmpTransactor::default()),
-                Box::new(IgdpTransactor::default()),
+                Box::<PcpTransactor>::default(),
+                Box::<PmpTransactor>::default(),
+                Box::<IgdpTransactor>::default(),
             ]),
             housekeeping_tools: RefCell::new(HousekeepingTools {
                 change_handler_opt: Some(change_handler),

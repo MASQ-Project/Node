@@ -255,7 +255,7 @@ impl Default for PcpTransactor {
     fn default() -> Self {
         Self {
             inner_arc: Arc::new(Mutex::new(PcpTransactorInner {
-                mapping_transactor: Box::new(MappingTransactorReal::default()),
+                mapping_transactor: Box::<MappingTransactorReal>::default(),
                 factories: Factories::default(),
             })),
             router_port: ROUTER_PORT,
