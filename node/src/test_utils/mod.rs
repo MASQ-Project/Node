@@ -875,36 +875,63 @@ pub mod unshared_test_utils {
         }
     }
 
-    //This is intended as an aid when standard constructs (e.g. downcasting,
-    //raw pointers) fail to help us make an assertion on a parameter use of a particular trait object.
-    //It is actually handy for very specific scenarios:
+    //The whole concept of an ArbitraryIdStamp is intended as an aid to reach out when standard
+    //constructs (e.g. downcasting, raw pointers) fail to help make the desired kind of assertion
+    //towards some hard-to-inspect trait objects.
     //
-    //Consider writing a test. We initiate a mocked trait object "O" encapsulated in a Box (so we will be
-    //moving ownership) and we plan to paste it in a function A. The function contains other functions like
-    //B, C, D. Let's say C takes our trait object as downgraded (with a plain reference) because D later takes
-    //"O" wholly as within the box. That means we couldn't easily call it in C.
-    //We need to assert from outside of fn A that "O" was pasted in C properly. However for capturing a param
-    //we need an owned or a clonable object, neither of those is usually acceptable. A possible raw pointer of "O"
-    //that we create outside of fn A will be always different than what we have in C, because a move occurred
-    //in between, by moving the Box around.
-    //Downcasting is also a pain and not proving anything alone.
+    //The scenario is quite specific because it requires that you're testing conditions in your
+    //test while you're also using a mock version of certain object, and that implies a trait object.
     //
-    //That's why we can add a test-only method to our arbitrary trait by this macro. It allows to implement
-    //a method fetching a made up id which is internally generated and dedicated to the object before the test begins.
-    //Then, at any stage, there is a chance to ask for that id from within any mocked function
-    //where we want to precisely identify what we get with the arguments that come in. The captured id represents the
-    //supplied instance, one of the function's parameters, and can be later asserted by comparing it with a copy of
-    //the same artificial id generated in the setup part of the test.
+    //The issues we work around by this look principally as follows:
+    //
+    // 1) Our mockable objects are never Clone themselves (as it would break Rust trait object
+    // safeness),
+    // 2) You can get only very limited information by downcasting: you can inspect the guts, yes,
+    // but it can hardly ever answer your question if the object you're looking at is the same which
+    // you've pasted in before at the other end.
+    // 3) Using raw pointers to link the real memory address to your objects does not lead to good
+    // results in all cases (It was found confusing and hard to be done correctly or even impossible
+    // to implement this approach for references that are just "childs" of a dereferenced Box that
+    // was supplied as an argument into the testing environment at the very beginning, or we can
+    // suspect the link already broken by moves of the owned, boxed instance within the tested code)
+    //
+    //As a reaction to these difficulties, this new tool was devised as ultimately powerful.
+    //
+    //The trick is not a big idea, it is simple. We need to add a test-only method to our arbitrary
+    //trait. (Yes, that means the method is going to have no place in the production code).
+    //Because it's now a method belonging to the trait, the trait object will respond to it
+    //too, if you try call the method.
+    //The mock version of the trait object needs to have another field that is going to store the
+    //arbitrary id which we will give to it in the setup phase of the test whereas it gets its
+    //unique identification.
+
+    //You want to go to the function where the trait object acts as an argument and which will
+    //be put under the test. This place is actually going to need to be just a method of another
+    //trait object (which is why we think about catching the passed arguments).
+
+    //You also need not to forget about querying the id from the trait object when the tested
+    //function is being executed. When you've got all arguments of the function stored in your
+    //Arc<Mutex<T>> container you can finally assert on these values, including the arbitrary id of
+    //the discussed trait object.
+    //
+    //If it matches with the id which comes from the setup phase of the test, the circle encloses
+    //and the assertion has validated exactly that what we tried to achieve.
+    //
+    //In most of case, you can use the convenient macros offered down here. Their easy implemen-
+    //tation should spare some work for you.
+    //
+    //Note for future maintainers:
+    //A trait object cannot be cloned so you don't have to worry if the later captured id comes
+    //from the original object or from some of its successors. There is now way how it wouldn't.
 
     lazy_static! {
         pub static ref ARBITRARY_ID_STAMP_SEQUENCER: Mutex<MutexIncrementInset> =
             Mutex::new(MutexIncrementInset(0));
     }
 
-    #[derive(Debug, PartialEq, Eq)]
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct ArbitraryIdStamp {
-        id: usize,
-        chronological_ancestors: Vec<usize>,
+        id: usize
     }
 
     impl ArbitraryIdStamp {
@@ -914,37 +941,12 @@ pub mod unshared_test_utils {
                     let mut access = ARBITRARY_ID_STAMP_SEQUENCER.lock().unwrap();
                     access.0 += 1;
                     access.0
-                },
-                chronological_ancestors: vec![],
-            }
-        }
-        pub fn with_ancestors(ancestors: Vec<usize>) -> Self {
-            let mut new_instance = ArbitraryIdStamp::new();
-            new_instance.chronological_ancestors = ancestors;
-            new_instance
-        }
-
-        pub fn hand_over_the_baton(&self) -> Vec<usize> {
-            let mut history = self.chronological_ancestors.clone();
-            history.push(self.id);
-            history
-        }
-
-        pub fn identical_clone(&self) -> Self {
-            ArbitraryIdStamp {
-                id: self.id,
-                chronological_ancestors: self.chronological_ancestors.clone(),
+                }
             }
         }
     }
 
-    impl Clone for ArbitraryIdStamp {
-        fn clone(&self) -> Self {
-            ArbitraryIdStamp::with_ancestors(self.hand_over_the_baton())
-        }
-    }
-
-    //to be put among the methods in your trait
+    //to be added to other methods in your trait
     #[macro_export]
     macro_rules! arbitrary_id_stamp_in_trait {
         () => {
@@ -957,13 +959,14 @@ pub mod unshared_test_utils {
     }
 
     //the following macros might be handy but your object must contain exactly this field:
-    //arbitrary_id_stamp_opt: RefCell<Option<ArbitraryIdStamp>>
+    //arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>
+    //Refcell is omitted because the id is Copy
 
     #[macro_export]
     macro_rules! arbitrary_id_stamp {
         () => {
             fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-                *self.arbitrary_id_stamp_opt.borrow().as_ref().unwrap()
+                *self.arbitrary_id_stamp_opt.as_ref().unwrap()
             }
         };
     }
@@ -971,10 +974,9 @@ pub mod unshared_test_utils {
     #[macro_export]
     macro_rules! set_arbitrary_id_stamp {
         () => {
-            pub fn set_arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-                let id_stamp = ArbitraryIdStamp::new();
-                self.arbitrary_id_stamp_opt.borrow_mut().replace(id_stamp);
-                id_stamp
+            pub fn set_arbitrary_id_stamp(mut self, id_stamp: ArbitraryIdStamp) -> Self {
+                self.arbitrary_id_stamp_opt.replace(id_stamp);
+                self
             }
         };
     }

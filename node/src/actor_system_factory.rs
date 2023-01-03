@@ -510,7 +510,6 @@ impl ActorFactory for ActorFactoryReal {
         let addr: Addr<BlockchainBridge> = arbiter.start(move |_| {
             let (blockchain_interface, persistent_config) = BlockchainBridge::make_connections(
                 blockchain_service_url_opt,
-                &DbInitializerReal::default(),
                 data_directory,
                 chain_id,
             );
@@ -1989,7 +1988,7 @@ mod tests {
         let persistent_config_id = ArbitraryIdStamp::new();
         let persistent_config = Box::new(
             PersistentConfigurationMock::default()
-                .set_arbitrary_id_stamp(persistent_config_id.identical_clone()),
+                .set_arbitrary_id_stamp(persistent_config_id),
         );
         let persistent_config_before_raw = addr_of!(*persistent_config);
         let tools = ActorSystemFactoryToolsMock::default()

@@ -4,7 +4,6 @@ use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
 use crate::blockchain::blockchain_bridge::NewPendingPayableFingerprints;
 use crate::blockchain::blockchain_interface::BlockchainError::{
     InvalidAddress, InvalidResponse, InvalidUrl, PayableTransactionFailed, QueryFailed,
-    SignedValueConversion,
 };
 use crate::sub_lib::blockchain_bridge::{BatchPayableTools, BatchPayableToolsReal};
 use crate::sub_lib::wallet::Wallet;
@@ -21,6 +20,7 @@ use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::iter::once;
+use thousands::Separable;
 use web3::contract::{Contract, Options};
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{
@@ -63,7 +63,6 @@ pub enum BlockchainError {
     InvalidAddress,
     InvalidResponse,
     QueryFailed(String),
-    SignedValueConversion(i128),
     PayableTransactionFailed {
         msg: String,
         signed_and_saved_txs_opt: Option<Vec<H256>>,
@@ -96,7 +95,6 @@ impl Display for BlockchainError {
             InvalidUrl => Left("Invalid url."),
             InvalidAddress => Left("Invalid address."),
             InvalidResponse => Left("Invalid response."),
-            SignedValueConversion(num) => todo!(),
             QueryFailed(msg) => Right(format!("Query failed: {}.", msg)),
             PayableTransactionFailed {
                 msg,
@@ -505,8 +503,8 @@ where
     ) -> HashAndAmountResult {
         debug!(
             self.logger,
-            "Preparing payment of {} Wei to {} with nonce {}",
-            account.balance_wei,
+            "Preparing payment of {} wei to {} with nonce {}",
+            account.balance_wei.separate_with_commas(),
             account.wallet,
             nonce
         );
@@ -643,15 +641,15 @@ where
         Paying to creditors...\n\
         Transactions in the batch:\n\
         \n\
-        gas price:                                   {} Gwei\n\
+        gas price:                                   {} gwei\n\
         chain:                                       {}\n\
         \n\
-        [wallet address]                             [payment in Gwei]\n",
+        [wallet address]                             [payment in wei]\n",
             gas_price, chain_name
-        )); //TODO change to Wei later
+        ));
         let body = accounts
             .iter()
-            .map(|account| format!("{}   {}\n", account.wallet, account.balance_wei));
+            .map(|account| format!("{}   {}\n", account.wallet, account.balance_wei.separate_with_commas()));
         introduction.chain(body).collect()
     }
 
@@ -1295,8 +1293,8 @@ mod tests {
         init_test_logging();
         let send_batch_params_arc = Arc::new(Mutex::new(vec![]));
         //we compute the hashes ourselves during the batch preparation and so we don't care about
-        //the same ones coming back with the response; we use the OKs as indicators of success though...
-        //and, of course, the eventual rpc errors origin in the response too...
+        //the same ones coming back with the response; we use the returned OKs as indicators of success only.
+        //Any eventual rpc errors brought back are processed as well...
         let expected_batch_responses = vec![
             Ok(json!("...unnecessarily important hash...")),
             Err(web3::Error::Rpc(Error {
@@ -1326,7 +1324,7 @@ mod tests {
             amount_1,
             None,
         );
-        let amount_2 = gwei_to_wei(111_111_111_u64);
+        let amount_2 = 111_111_123_456_888;
         let account_2 = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             make_wallet("w555"),
             amount_2,
@@ -1377,9 +1375,9 @@ mod tests {
                     Call::MethodCall(MethodCall {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
-                        params: Params::Array(vec![Value::String("0xf8a907851bf08eb00082dba894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
-        0000000000000000000000000000000000000000000000000000077353535000000000000000000000000000000000000000000000000018abef77dc106002aa0b8e6f40ca31fb2\
-        0fab191bb87b4dd1194e854205e2471a0a46cb14feee8718bea066c439c9129703904f96b12404cb8321e1ec79b64a415995982c2f5485ee413d".to_string())]),
+                        params: Params::Array(vec![Value::String("0xf8a907851bf08eb00082db6894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb0000\
+        0000000000000000000000000000000000000000000000000000773535350000000000000000000000000000000000000000000000000000650e130b537829a05c8f3defe9ac3979\
+        c0701af26d3fa6b77900067370c21a736f3d058ac9c1bd1da02ff4a5fae925a40c09da3d0e0c256ad8ac55e251ff51a622093f1b7bcc9f4689".to_string())]),
                         id: Id::Num(1)
                     })
                 ),
@@ -1435,7 +1433,7 @@ mod tests {
         );
         assert_eq!(
             hash_2,
-            &H256::from_str("17990f09f6cd6474ba0ed4e980a8f509c3f867cbc6691928f9b08ddd58da1adc")
+            &H256::from_str("1bff0d231c533e3e67c5a3257545deea342cc3674b1826588e9d31434bbcdba3")
                 .unwrap()
         );
         assert_eq!(recipient_2, &make_wallet("w555"));
@@ -1463,21 +1461,21 @@ mod tests {
                             "26e5e0cec02023e40faff67e88e3cf48a98574b5f9fdafc03ef42cad96dae1c1"
                         )
                         .unwrap(),
-                        900000000
+                        gwei_to_wei(900_000_000_u64)
                     ),
                     (
                         H256::from_str(
-                            "17990f09f6cd6474ba0ed4e980a8f509c3f867cbc6691928f9b08ddd58da1adc"
+                            "1bff0d231c533e3e67c5a3257545deea342cc3674b1826588e9d31434bbcdba3"
                         )
                         .unwrap(),
-                        111111111
+                        111_111_123_456_888
                     ),
                     (
                         H256::from_str(
                             "a472e3b81bc167140a217447d9701e9ed2b65252f1428f7779acc3710a9ede44"
                         )
                         .unwrap(),
-                        33355666
+                        gwei_to_wei(33_355_666_u64)
                     )
                 ]
             }
@@ -1487,28 +1485,28 @@ mod tests {
         Common attributes of payables to be transacted: sender wallet: 0x5c361ba8d82fcf0e5538b2a823e9d457a2296725, contract: \
           0x384dec25e03f94931767ce4c3556168468ba24c3, chain_id: 3, gas_price: 120");
         log_handler.exists_log_containing(
-            "DEBUG: sending_batch_payments: Preparing payment of 900000000 Gwei \
+            "DEBUG: sending_batch_payments: Preparing payment of 900,000,000,000,000,000 wei \
         to 0x0000000000000000000000000000000077313233 with nonce 6",
         );
         log_handler.exists_log_containing(
-            "DEBUG: sending_batch_payments: Preparing payment of 111111111 Gwei \
+            "DEBUG: sending_batch_payments: Preparing payment of 111,111,123,456,888 wei \
         to 0x0000000000000000000000000000000077353535 with nonce 7",
         );
         log_handler.exists_log_containing(
-            "DEBUG: sending_batch_payments: Preparing payment of 33355666 Gwei \
+            "DEBUG: sending_batch_payments: Preparing payment of 33,355,666,000,000,000 wei \
         to 0x0000000000000000000000000000000077393837 with nonce 8",
         );
         log_handler.exists_log_containing(
             "INFO: sending_batch_payments: Paying to creditors...\n\
         Transactions in the batch:\n\
         \n\
-        gas price:                                   120 Gwei\n\
+        gas price:                                   120 gwei\n\
         chain:                                       ropsten\n\
         \n\
-        [wallet address]                             [payment in Gwei]\n\
-        0x0000000000000000000000000000000077313233   900000000\n\
-        0x0000000000000000000000000000000077353535   111111111\n\
-        0x0000000000000000000000000000000077393837   33355666\n",
+        [wallet address]                             [payment in wei]\n\
+        0x0000000000000000000000000000000077313233   900,000,000,000,000,000\n\
+        0x0000000000000000000000000000000077353535   111,111,123,456,888\n\
+        0x0000000000000000000000000000000077393837   33,355,666,000,000,000\n",
         );
     }
 
@@ -1541,7 +1539,7 @@ mod tests {
             data: Bytes(vec![
                 169, 5, 156, 187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 99, 114, 101, 100, 105, 116, 111, 114, 51, 50, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 45, 121, 136, 61, 32, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 77, 149, 149, 231, 24,
             ]),
             chain_id: Some(1),
         };
@@ -1560,7 +1558,7 @@ mod tests {
             data: Bytes(vec![
                 169, 5, 156, 187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 99, 114, 101, 100, 105, 116, 111, 114, 49, 50, 51, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
-                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 10, 26, 251, 53, 70, 0,
+                0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 156, 231, 56, 4,
             ]),
             chain_id: Some(1),
         };
@@ -1590,14 +1588,14 @@ mod tests {
         subject.batch_payable_tools = Box::new(batch_payables_tools);
         let consuming_wallet = make_paying_wallet(consuming_wallet_secret);
         let gas_price = 123;
-        let first_payment_amount = 50_123_321;
+        let first_payment_amount = 333_222_111_000;
         let first_creditor_wallet = make_wallet("creditor321");
         let first_account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             first_creditor_wallet.clone(),
             first_payment_amount,
             None,
         );
-        let second_payment_amount = 11_222_333;
+        let second_payment_amount = 11_222_333_444;
         let second_creditor_wallet = make_wallet("creditor123");
         let second_account = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             second_creditor_wallet.clone(),
@@ -2455,15 +2453,14 @@ mod tests {
                     BlockchainError::InvalidAddress => (to_resolve.to_string(), 22),
                     BlockchainError::InvalidResponse => (to_resolve.to_string(), 33),
                     BlockchainError::QueryFailed(..) => (to_resolve.to_string(), 44),
-                    BlockchainError::SignedValueConversion(_) => (to_resolve.to_string(), 55),
                     BlockchainError::PayableTransactionFailed {
                         signed_and_saved_txs_opt: None,
                         ..
-                    } => (to_resolve.to_string(), 66),
+                    } => (to_resolve.to_string(), 55),
                     BlockchainError::PayableTransactionFailed {
                         signed_and_saved_txs_opt: Some(_),
                         ..
-                    } => (to_resolve.to_string(), 77),
+                    } => (to_resolve.to_string(), 66),
                 }
             })
             .collect::<Vec<(String, u16)>>();
@@ -2474,7 +2471,7 @@ mod tests {
             .collect::<Vec<u16>>();
         assert_eq!(
             formal_comprehensiveness_check,
-            vec![11, 22, 33, 44, 55, 66, 77]
+            vec![11, 22, 33, 44, 55, 66]
         );
         let actual_error_msgs = displayed_errors
             .into_iter()
@@ -2522,17 +2519,12 @@ mod tests {
                     assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
                     44
                 }
-                BlockchainError::SignedValueConversion(_) => {
-                    todo!("do we really need this error???; check it out");
-                    assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
-                    55
-                }
                 BlockchainError::PayableTransactionFailed {
                     signed_and_saved_txs_opt: None,
                     ..
                 } => {
                     assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
-                    66
+                    55
                 }
                 BlockchainError::PayableTransactionFailed {
                     signed_and_saved_txs_opt: Some(vec_of_hashes),
@@ -2541,12 +2533,12 @@ mod tests {
                     let result = to_assert.carries_transaction_hashes_opt();
                     let assertable_in_the_loop = result.as_ref();
                     assert_eq!(assertable_in_the_loop, Some(vec_of_hashes));
-                    77
+                    66
                 }
             })
             .collect();
 
-        assert_eq!(check, vec![11, 22, 33, 44, 55, 66, 77])
+        assert_eq!(check, vec![11, 22, 33, 44, 55, 66])
     }
 
     #[test]

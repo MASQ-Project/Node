@@ -30,7 +30,8 @@ impl<'a, T: TableNameDAO> BigIntDbProcessor<T> {
             .params
             .merge_pure_rusqlite_and_wei_params((&config.params.wei_change_params).into());
         match stm.execute(params.as_slice()) {
-            Ok(_) => Ok(()),
+            Ok(1) => Ok(()),
+            Ok(x) => Err(BigIntDbError(format!("Expected 1 row to be changed for the unique key {} but got this count: {}", config.key_param_value(), x))),
             //SQLITE_CONSTRAINT_DATATYPE (3091),
             //the moment of Sqlite trying to store the number as REAL in a strict INT column
             Err(Error::SqliteFailure(e, _)) if e.extended_code == 3091 => {
@@ -1273,6 +1274,34 @@ mod tests {
             Err(BigIntDbError(
                 "Error from invalid upsert command for test_table table and change of 4879898145125 \
                 wei to 'name = Joe' with error 'Invalid parameter name: :balance_high_b'"
+                    .to_string()
+            ))
+        );
+    }
+
+    #[test]
+    fn different_count_of_changed_rows_than_expected_with_only_update_allowed() {
+        let conn = initiate_simple_connection_and_test_table(
+            "big_int_db_processor",
+            "different_count_of_changed_rows_than_expected_with_only_update_allowed",
+        );
+        let subject = BigIntDbProcessor::<DummyDao>::default();
+        let balance_change = Addition("balance", 12345);
+        let config = BigIntSqlConfig::new(
+            STANDARD_EXAMPLE_OF_UPDATE_CLAUSE,
+            "",
+            SQLParamsBuilder::default()
+                .key(test_database_key(&"Joe"))
+                .wei_change(balance_change)
+                .build(),
+        );
+
+        let result = subject.execute(Left(conn.as_ref()), config);
+
+        assert_eq!(
+            result,
+            Err(BigIntDbError(
+                "Expected 1 row to be changed for the unique key Joe but got this count: 0"
                     .to_string()
             ))
         );

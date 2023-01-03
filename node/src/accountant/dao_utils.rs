@@ -383,7 +383,6 @@ mod tests {
     use rusqlite::types::{ToSqlOutput, Value};
     use rusqlite::{Connection, OpenFlags};
     use std::option::IntoIter;
-    use std::str::FromStr;
     use std::time::UNIX_EPOCH;
 
     #[test]
@@ -579,11 +578,17 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Failed to connect to database at \"nonexistent")]
+    #[should_panic(
+        expected = "Failed to connect to database at \"generated/test/dao_utils/connection_panics_if_connection_cannot_be_made/home/nonexistent_db/node-data.db\""
+    )]
     fn connection_panics_if_connection_cannot_be_made() {
+        let data_dir = ensure_node_home_directory_exists(
+            "dao_utils",
+            "connection_panics_if_connection_cannot_be_made",
+        );
         let subject = DaoFactoryReal::new(
-            &PathBuf::from_str("nonexistent").unwrap(),
-            DbInitializationConfig::test_default(),
+            &data_dir.join("nonexistent_db"),
+            DbInitializationConfig::panic_on_migration(),
         );
 
         let _ = subject.make_connection();

@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::accountant::dao_utils::DaoFactoryReal;
 use crate::accountant::payable_dao::PayableAccount;
 use crate::accountant::{
     ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
@@ -10,7 +11,6 @@ use crate::blockchain::blockchain_interface::{
     BlockchainInterfaceNonClandestine, BlockchainResult, ProcessedPayableFallible,
 };
 use crate::database::db_initializer::DbInitializationConfig;
-use crate::database::db_initializer::{DbInitializer, DATABASE_FILE};
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
@@ -193,7 +193,6 @@ impl BlockchainBridge {
 
     pub fn make_connections(
         blockchain_service_url: Option<String>,
-        db_initializer: &dyn DbInitializer,
         data_directory: PathBuf,
         chain: Chain,
     ) -> (
@@ -212,17 +211,11 @@ impl BlockchainBridge {
             }
         };
         let config_dao = Box::new(ConfigDaoReal::new(
-            db_initializer
-                .initialize(
-                    &data_directory,
-                    DbInitializationConfig::panic_on_migration(),
-                )
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "Failed to connect to database at {:?}",
-                        &data_directory.join(DATABASE_FILE)
-                    )
-                }),
+            DaoFactoryReal::new(
+                &data_directory,
+                DbInitializationConfig::panic_on_migration(),
+            )
+            .make_connection(),
         ));
         (
             blockchain_interface,
@@ -453,7 +446,6 @@ mod tests {
         BlockchainError, BlockchainTransaction, RetrievedBlockchainTransactions,
     };
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
-    use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::node_test_utils::check_timestamp;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
@@ -543,7 +535,6 @@ mod tests {
         let blockchain_service_url = Some("http://λ:8545".to_string());
         let _ = BlockchainBridge::make_connections(
             blockchain_service_url,
-            &DbInitializerMock::default(),
             data_directory,
             DEFAULT_CHAIN,
         );

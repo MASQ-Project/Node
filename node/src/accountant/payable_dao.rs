@@ -915,6 +915,10 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let setup_holder = make_fingerprint_pair_and_insert_initial_payable_records(conn.as_ref());
+        conn.prepare("delete from payable where wallet_address = ?")
+            .unwrap()
+            .execute(&[&setup_holder.wallet_2])
+            .unwrap();
         let subject = PayableDaoReal::new(conn);
         let expected_account_1 = PayableAccount {
             wallet: setup_holder.wallet_1.clone(),
@@ -922,30 +926,21 @@ mod tests {
             last_paid_timestamp: setup_holder.fingerprint_1.timestamp,
             pending_payable_opt: None,
         };
-        let new_payment_timestamp_2 = setup_holder.fingerprint_2.timestamp;
-        let mut fingerprint_2 = setup_holder.fingerprint_2;
-        fingerprint_2.amount = u128::MAX;
 
-        let result = subject.transactions_confirmed(&[setup_holder.fingerprint_1, fingerprint_2]);
+        let result = subject
+            .transactions_confirmed(&[setup_holder.fingerprint_1, setup_holder.fingerprint_2]);
 
-        assert_eq!(result, Err(PayableDaoError::SignConversion(u128::MAX)));
+        assert_eq!(
+            result,
+            Err(PayableDaoError::RusqliteError(
+                "Expected 1 row to be changed for the unique key 792 but got this count: 0"
+                    .to_string()
+            ))
+        );
         let account_1_opt = subject.account_status(&setup_holder.wallet_1);
         assert_eq!(account_1_opt, Some(expected_account_1));
         let account_2_opt = subject.account_status(&setup_holder.wallet_2);
-        assert_eq!(
-            account_2_opt,
-            Some(PayableAccount {
-                wallet: setup_holder.wallet_2,
-                balance_wei: setup_holder.starting_amount_2,
-                last_paid_timestamp: from_time_t(187_100_000),
-                pending_payable_opt: Some(PendingPayableId {
-                    rowid: 792,
-                    hash: H256::default()
-                })
-            })
-        );
-        //negation
-        assert_ne!(new_payment_timestamp_2, from_time_t(187_100_000))
+        assert_eq!(account_2_opt, None);
     }
 
     fn trick_rusqlite_with_read_only_conn(path: &Path) -> Connection {

@@ -630,13 +630,14 @@ pub mod test_utils {
     use std::cell::RefCell;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
+    use crate::set_arbitrary_id_stamp;
 
     #[derive(Debug, Default)]
     pub struct ConnectionWrapperMock<'b, 'a: 'b> {
         prepare_params: Arc<Mutex<Vec<String>>>,
         prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
         transaction_results: RefCell<Vec<Result<Transaction<'b>, Error>>>,
-        arbitrary_id_stamp_opt: RefCell<Option<ArbitraryIdStamp>>,
+        arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
     }
 
     unsafe impl<'a: 'b, 'b> Send for ConnectionWrapperMock<'a, 'b> {}
@@ -655,6 +656,8 @@ pub mod test_utils {
             self.transaction_results.borrow_mut().push(result);
             self
         }
+
+        set_arbitrary_id_stamp!();
     }
 
     impl<'a: 'b, 'b> ConnectionWrapper for ConnectionWrapperMock<'a, 'b> {

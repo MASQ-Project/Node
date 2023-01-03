@@ -169,17 +169,6 @@ mod tests {
     }
 
     #[test]
-    fn help() {
-        // let tested_number = i64::MAX as i128 + 1;
-        //
-        // let result = BigIntDivider::deconstruct(tested_number);
-        //
-        // assert_eq!(result, (1, 0));
-        eprintln!("{}", BigIntDivider::reconstitute(0, i64::MAX));
-        todo!("destroy me");
-    }
-
-    #[test]
     fn deconstruct_works_for_big_number() {
         let tested_number = i64::MAX as i128;
         let result = BigIntDivider::deconstruct(i64::MAX as i128);
