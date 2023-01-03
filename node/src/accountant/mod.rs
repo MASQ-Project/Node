@@ -1712,7 +1712,7 @@ mod tests {
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_secs(100),
             receivable_scan_interval: Duration::from_secs(100),
-            pending_payable_scan_interval: Duration::from_millis(100),
+            pending_payable_scan_interval: Duration::from_millis(98),
         });
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
@@ -1748,13 +1748,13 @@ mod tests {
                     ScanForPendingPayables {
                         response_skeleton_opt: None
                     },
-                    Duration::from_millis(100)
+                    Duration::from_millis(98)
                 ),
                 (
                     ScanForPendingPayables {
                         response_skeleton_opt: None
                     },
-                    Duration::from_millis(100)
+                    Duration::from_millis(98)
                 ),
             ]
         )
@@ -1778,7 +1778,7 @@ mod tests {
             .stop_the_system();
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
-            payable_scan_interval: Duration::from_millis(100),
+            payable_scan_interval: Duration::from_millis(97),
             receivable_scan_interval: Duration::from_secs(100), // We'll never run this scanner
             pending_payable_scan_interval: Duration::from_secs(100), // We'll never run this scanner
         });
@@ -1816,13 +1816,13 @@ mod tests {
                     ScanForPayables {
                         response_skeleton_opt: None
                     },
-                    Duration::from_millis(100)
+                    Duration::from_millis(97)
                 ),
                 (
                     ScanForPayables {
                         response_skeleton_opt: None
                     },
-                    Duration::from_millis(100)
+                    Duration::from_millis(97)
                 ),
             ]
         )
