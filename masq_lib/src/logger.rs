@@ -21,7 +21,7 @@ use time::format_description::parse;
 use time::OffsetDateTime;
 
 const UI_MESSAGE_LOG_LEVEL: Level = Level::Info;
-const TIME_FORMATTING_STRING: &str =
+pub const TIME_FORMATTING_STRING: &str =
     "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]";
 
 lazy_static! {
@@ -874,7 +874,7 @@ mod tests {
 
     fn timestamp_as_string(timestamp: OffsetDateTime) -> String {
         timestamp
-            .format(&parse(TIME_FORMATTING_STRING).unwrap())
+            .format(&parse(TIME_FORMATTING_STRING).expect("Error in parsing"))
             .unwrap()
     }
 

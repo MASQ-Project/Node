@@ -24,6 +24,7 @@ use crate::sub_lib::utils::NotifyLaterHandle;
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, System};
 use masq_lib::logger::Logger;
+use masq_lib::logger::TIME_FORMATTING_STRING;
 use masq_lib::messages::{ScanType, ToMessageBody, UiScanResponse};
 use masq_lib::ui_gateway::{MessageTarget, NodeToUiMessage};
 use masq_lib::utils::ExpectValue;
@@ -133,13 +134,13 @@ impl BeginScanError {
     }
 
     fn timestamp_as_string(timestamp: &SystemTime) -> String {
-        const TIME_FORMATTING_STRING: &str =
-            "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]";
-
         let offset_date_time = OffsetDateTime::from(*timestamp);
         offset_date_time
-            .format(&parse(TIME_FORMATTING_STRING).unwrap())
-            .unwrap()
+            .format(
+                &parse(TIME_FORMATTING_STRING)
+                    .expect("Error while parsing the time formatting string."),
+            )
+            .expect("Error while formatting timestamp as string.")
     }
 
     fn log(logger: &Logger, log_message: String, is_externally_triggered: bool) {
