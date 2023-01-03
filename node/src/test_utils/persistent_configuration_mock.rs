@@ -7,11 +7,11 @@ use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::ArbitraryIdStamp;
+use crate::{arbitrary_id_stamp, set_arbitrary_id_stamp};
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
 use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
-use crate::{arbitrary_id_stamp, set_arbitrary_id_stamp};
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]

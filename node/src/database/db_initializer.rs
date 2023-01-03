@@ -9,7 +9,7 @@ use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
 use masq_lib::logger::Logger;
-#[cfg(test)]
+#[cfg(any(test, not(feature = "no_test_share")))]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::NeighborhoodModeLight;
 use rand::prelude::*;
@@ -550,7 +550,7 @@ impl DbInitializationConfig {
         }
     }
 
-    #[cfg(test)]
+    #[cfg(any(test, not(feature = "no_test_share")))]
     pub fn test_default() -> Self {
         Self {
             mode: InitializationMode::CreationAndMigration {
@@ -624,13 +624,13 @@ pub mod test_utils {
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, InitializationError};
+    use crate::set_arbitrary_id_stamp;
     use crate::test_utils::unshared_test_utils::ArbitraryIdStamp;
     use rusqlite::Transaction;
     use rusqlite::{Error, Statement};
     use std::cell::RefCell;
     use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
-    use crate::set_arbitrary_id_stamp;
 
     #[derive(Debug, Default)]
     pub struct ConnectionWrapperMock<'b, 'a: 'b> {

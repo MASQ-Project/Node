@@ -931,7 +931,7 @@ pub mod unshared_test_utils {
 
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub struct ArbitraryIdStamp {
-        id: usize
+        id: usize,
     }
 
     impl ArbitraryIdStamp {
@@ -941,7 +941,7 @@ pub mod unshared_test_utils {
                     let mut access = ARBITRARY_ID_STAMP_SEQUENCER.lock().unwrap();
                     access.0 += 1;
                     access.0
-                }
+                },
             }
         }
     }

@@ -24,7 +24,6 @@ use ethereum_types::{BigEndianHash, U256};
 use itertools::Either::Left;
 use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
-use rusqlite::types::ToSql;
 #[cfg(test)]
 use rusqlite::OptionalExtension;
 use rusqlite::{Error, Row};
@@ -463,8 +462,8 @@ mod tests {
     use crate::test_utils::payable_dao_performance_utils::test_environment::specialized_body_for_long_traverse_test;
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::Connection as RusqliteConnection;
     use rusqlite::{Connection, OpenFlags};
+    use rusqlite::{Connection as RusqliteConnection, ToSql};
     use std::ops::RangeInclusive;
     use std::path::Path;
     use std::str::FromStr;
@@ -612,12 +611,12 @@ mod tests {
     fn performance_test_for_pending_payable_rowids_long_traverse() {
         //in this test we update a record only at the beginning and at the end of a long list of 100 records
         let full_range_of_records: RangeInclusive<usize> = 1..=100;
-        let only_updated_records: [usize; 2] = [1, 100];
+        let matrix_of_only_updated_records: [usize; 2] = [1, 100];
         let (single_call_duration, separate_calls_duration) =
             specialized_body_for_long_traverse_test(
                 "performance_test_for_pending_payable_rowids_long_traverse",
                 full_range_of_records,
-                only_updated_records,
+                matrix_of_only_updated_records,
             );
 
         assert!(single_call_duration < separate_calls_duration * 18 / 10,

@@ -647,9 +647,13 @@ where
         [wallet address]                             [payment in wei]\n",
             gas_price, chain_name
         ));
-        let body = accounts
-            .iter()
-            .map(|account| format!("{}   {}\n", account.wallet, account.balance_wei.separate_with_commas()));
+        let body = accounts.iter().map(|account| {
+            format!(
+                "{}   {}\n",
+                account.wallet,
+                account.balance_wei.separate_with_commas()
+            )
+        });
         introduction.chain(body).collect()
     }
 
@@ -2469,10 +2473,7 @@ mod tests {
             .iter()
             .map(|(_, num_check)| *num_check)
             .collect::<Vec<u16>>();
-        assert_eq!(
-            formal_comprehensiveness_check,
-            vec![11, 22, 33, 44, 55, 66]
-        );
+        assert_eq!(formal_comprehensiveness_check, vec![11, 22, 33, 44, 55, 66]);
         let actual_error_msgs = displayed_errors
             .into_iter()
             .map(|(msg, _)| msg)
