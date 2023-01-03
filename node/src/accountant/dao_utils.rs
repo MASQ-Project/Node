@@ -578,10 +578,24 @@ mod tests {
     }
 
     #[test]
+    #[cfg(not(target_os = "windows"))]
     #[should_panic(
         expected = "Failed to connect to database at \"generated/test/dao_utils/connection_panics_if_connection_cannot_be_made/home/nonexistent_db/node-data.db\""
     )]
     fn connection_panics_if_connection_cannot_be_made() {
+        connection_panics_if_connection_cannot_be_made_common_body()
+    }
+
+    #[test]
+    #[cfg(target_os = "windows")]
+    #[should_panic(
+        expected = "Failed to connect to database at \"generated\\test\\dao_utils\\connection_panics_if_connection_cannot_be_made\\home\\nonexistent_db\\node-data.db\""
+    )]
+    fn connection_panics_if_connection_cannot_be_made() {
+        connection_panics_if_connection_cannot_be_made_common_body()
+    }
+
+    fn connection_panics_if_connection_cannot_be_made_common_body() {
         let data_dir = ensure_node_home_directory_exists(
             "dao_utils",
             "connection_panics_if_connection_cannot_be_made",
