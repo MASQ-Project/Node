@@ -1669,7 +1669,7 @@ mod tests {
         system.run();
         let begin_scan_params = begin_scan_params_arc.lock().unwrap();
         let notify_later_receivable_params = notify_later_receivable_params_arc.lock().unwrap();
-        TestLogHandler::new().exists_log_matching(&format!(
+        TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during Receivables scan."
         ));
         assert_eq!(begin_scan_params.len(), 2);
