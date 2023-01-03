@@ -1191,29 +1191,21 @@ mod tests {
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         let system = System::new("test");
+        let first_message = NodeFromUiMessage {
+            client_id: 1234,
+            body: UiScanRequest {
+                scan_type: ScanType::PendingPayables,
+            }
+            .tmb(4321),
+        };
+        let second_message = first_message.clone();
         let peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
             .build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        subject_addr
-            .try_send(NodeFromUiMessage {
-                client_id: 1234,
-                body: UiScanRequest {
-                    scan_type: ScanType::PendingPayables,
-                }
-                .tmb(4321),
-            })
-            .unwrap();
+        subject_addr.try_send(first_message).unwrap();
 
-        subject_addr
-            .try_send(NodeFromUiMessage {
-                client_id: 1234,
-                body: UiScanRequest {
-                    scan_type: ScanType::PendingPayables,
-                }
-                .tmb(4321),
-            })
-            .unwrap();
+        subject_addr.try_send(second_message).unwrap();
 
         System::current().stop();
         system.run();
