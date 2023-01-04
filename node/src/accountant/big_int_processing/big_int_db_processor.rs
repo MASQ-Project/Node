@@ -1280,10 +1280,10 @@ mod tests {
     }
 
     #[test]
-    fn different_count_of_changed_rows_than_expected_with_only_update_allowed() {
+    fn different_count_of_changed_rows_than_expected_with_update_only_configuration() {
         let conn = initiate_simple_connection_and_test_table(
             "big_int_db_processor",
-            "different_count_of_changed_rows_than_expected_with_only_update_allowed",
+            "different_count_of_changed_rows_than_expected_with_update_only_configuration",
         );
         let subject = BigIntDbProcessor::<DummyDao>::default();
         let balance_change = Addition("balance", 12345);

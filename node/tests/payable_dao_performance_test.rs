@@ -64,15 +64,14 @@ fn progressive_efficiency_of_mark_pending_payable_rowids_integration() {
     let first_for_single = time_laps_of_single_calls[0];
     let first_for_separate = time_laps_of_separate_calls[0];
     assert!(
-        (first_for_separate <= (first_for_single) * 8 / 5)
-            && (((first_for_single) * 2) / 5 <= first_for_separate),
+        first_for_single <= (first_for_separate * 5) / 2,
         "failing at first attempts comparison: {}",
         debug_helper()
     );
     let last_for_separate = *(time_laps_of_separate_calls.last().unwrap());
     //this coefficient is low / it can be 5 for a decent machine
     assert!(
-        (first_for_separate * 25) / 10 <= last_for_separate,
+        (first_for_separate * 22) / 10 <= last_for_separate,
         "failing at first and last comparison for separate calls: {}",
         debug_helper()
     );

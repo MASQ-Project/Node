@@ -589,7 +589,7 @@ mod tests {
     #[test]
     #[cfg(target_os = "windows")]
     #[should_panic(
-        expected = "Failed to connect to database at \"generated\\test\\dao_utils\\connection_panics_if_connection_cannot_be_made\\home\\nonexistent_db\\node-data.db\""
+        expected = "Failed to connect to database at \"generated/test/dao_utils/connection_panics_if_connection_cannot_be_made/home\\\\nonexistent_db\\\\node-data.db\""
     )]
     fn connection_panics_if_connection_cannot_be_made() {
         connection_panics_if_connection_cannot_be_made_common_body()

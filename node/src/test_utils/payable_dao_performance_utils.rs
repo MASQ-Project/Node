@@ -219,12 +219,6 @@ pub mod test_environment {
         assert_all_updates_done_correctly(&helper_conn, &range_of_attempts);
         let single_call_attempt_duration =
             single_call_end.duration_since(single_call_start).unwrap();
-        eprintln!(
-            "test: {},\nsingle call: {:?}\nseparate call: {:?}",
-            test_name,
-            single_call_attempt_duration.as_micros(),
-            separate_calls_attempt_duration.as_micros()
-        );
         (
             single_call_attempt_duration,
             separate_calls_attempt_duration,
