@@ -4,8 +4,8 @@ pub mod utils;
 
 use node_lib::test_utils::read_until_timeout;
 use std::io::Write;
-use std::net::TcpStream;
 use std::net::SocketAddr;
+use std::net::TcpStream;
 use std::str::FromStr;
 use std::time::Duration;
 

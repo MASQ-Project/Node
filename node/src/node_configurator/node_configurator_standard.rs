@@ -631,11 +631,10 @@ mod tests {
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::{
-        make_pre_populated_mocked_directory_wrapper, make_simplified_multi_config,
+        make_default_persistent_configuration, make_pre_populated_mocked_directory_wrapper,
+        make_simplified_multi_config,
     };
-    use crate::test_utils::{
-        assert_string_contains, main_cryptde, make_default_persistent_configuration, ArgsBuilder,
-    };
+    use crate::test_utils::{assert_string_contains, main_cryptde, ArgsBuilder};
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::multi_config::VirtualCommandLine;
