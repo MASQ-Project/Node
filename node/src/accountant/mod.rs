@@ -1737,7 +1737,7 @@ mod tests {
         let begin_scan_params = begin_scan_params_arc.lock().unwrap();
         let notify_later_pending_payable_params =
             notify_later_pending_payable_params_arc.lock().unwrap();
-        TestLogHandler::new().exists_log_matching(&format!(
+        TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during PendingPayables scan."
         ));
         assert_eq!(begin_scan_params.len(), 2);
@@ -1805,7 +1805,7 @@ mod tests {
         //the second attempt is the one where the queue is empty and System::current.stop() ends the cycle
         let begin_scan_params = begin_scan_params_arc.lock().unwrap();
         let notify_later_payables_params = notify_later_payables_params_arc.lock().unwrap();
-        TestLogHandler::new().exists_log_matching(&format!(
+        TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during Payables scan."
         ));
         assert_eq!(begin_scan_params.len(), 2);
