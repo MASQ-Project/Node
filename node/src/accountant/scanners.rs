@@ -3,7 +3,7 @@
 use crate::accountant::payable_dao::{Payable, PayableDao};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDao;
-use crate::accountant::scanners_tools::common_tools::update_timestamp_and_log;
+use crate::accountant::scanners_tools::common_tools::remove_timestamp_and_log;
 use crate::accountant::scanners_tools::payable_scanner_tools::{
     investigate_debt_extremes, qualified_payables_and_summary, separate_early_errors,
 };
@@ -245,7 +245,7 @@ impl Scanner<ReportAccountsPayable, SentPayable> for PayableScanner {
     }
 
     fn mark_as_ended(&mut self, logger: &Logger) {
-        update_timestamp_and_log(
+        remove_timestamp_and_log(
             &mut self.common.initiated_at_opt,
             ScanType::Payables,
             logger,
@@ -404,7 +404,7 @@ impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingP
     }
 
     fn mark_as_ended(&mut self, logger: &Logger) {
-        update_timestamp_and_log(
+        remove_timestamp_and_log(
             &mut self.common.initiated_at_opt,
             ScanType::PendingPayables,
             logger,
@@ -643,7 +643,7 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
     }
 
     fn mark_as_ended(&mut self, logger: &Logger) {
-        update_timestamp_and_log(
+        remove_timestamp_and_log(
             &mut self.common.initiated_at_opt,
             ScanType::Receivables,
             logger,

@@ -271,7 +271,7 @@ pub mod common_tools {
     use masq_lib::messages::ScanType;
     use std::time::SystemTime;
 
-    pub fn update_timestamp_and_log(
+    pub fn remove_timestamp_and_log(
         time_initiated_opt: &mut Option<SystemTime>,
         scan_type: ScanType,
         logger: &Logger,
@@ -302,7 +302,7 @@ pub mod common_tools {
 mod tests {
     use crate::accountant::payable_dao::{Payable, PayableAccount};
     use crate::accountant::receivable_dao::ReceivableAccount;
-    use crate::accountant::scanners_tools::common_tools::update_timestamp_and_log;
+    use crate::accountant::scanners_tools::common_tools::remove_timestamp_and_log;
     use crate::accountant::scanners_tools::payable_scanner_tools::{
         calculate_payout_threshold, exceeded_summary, investigate_debt_extremes,
         is_payable_qualified, payable_time_diff, qualified_payables_and_summary,
@@ -533,7 +533,7 @@ mod tests {
     fn update_timestamp_and_log_panics_if_timestamp_is_wrong() {
         let time_in_future = SystemTime::now().add(Duration::seconds(10));
 
-        update_timestamp_and_log(
+        remove_timestamp_and_log(
             &mut Some(time_in_future),
             ScanType::Payables,
             &Logger::new("test"),
@@ -547,7 +547,7 @@ mod tests {
         let time_in_past = SystemTime::now().sub(Duration::seconds(10));
         let logger = Logger::new(test_name);
 
-        update_timestamp_and_log(&mut Some(time_in_past), ScanType::Payables, &logger);
+        remove_timestamp_and_log(&mut Some(time_in_past), ScanType::Payables, &logger);
 
         TestLogHandler::new().exists_log_matching(&format!(
             "INFO: {test_name}: The Payables scan ended in \\d+ms."
@@ -560,7 +560,7 @@ mod tests {
         let test_name = "update_timestamp_and_log_if_timestamp_is_not_found";
         let logger = Logger::new(test_name);
 
-        update_timestamp_and_log(&mut None, ScanType::Receivables, &logger);
+        remove_timestamp_and_log(&mut None, ScanType::Receivables, &logger);
 
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: {test_name}: Called scan_finished() for Receivables scanner but timestamp was not found"
