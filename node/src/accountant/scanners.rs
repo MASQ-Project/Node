@@ -3,7 +3,6 @@
 use crate::accountant::payable_dao::{Payable, PayableDao};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDao;
-use crate::accountant::scanners_tools::common_tools::remove_timestamp_and_log;
 use crate::accountant::scanners_tools::payable_scanner_tools::{
     investigate_debt_extremes, qualified_payables_and_summary, separate_early_errors,
 };
@@ -163,6 +162,28 @@ impl ScannerCommon {
             payment_thresholds,
         }
     }
+
+    fn remove_timestamp_and_log(&mut self, scan_type: ScanType, logger: &Logger) {
+        match self.initiated_at_opt.take() {
+            Some(timestamp) => {
+                let elapsed_time = SystemTime::now()
+                    .duration_since(timestamp)
+                    .expect("Unable to calculate elapsed time for the scan.")
+                    .as_millis();
+                info!(
+                    logger,
+                    "The {:?} scan ended in {}ms.", scan_type, elapsed_time
+                );
+            }
+            None => {
+                error!(
+                    logger,
+                    "Called scan_finished() for {:?} scanner but timestamp was not found",
+                    scan_type
+                );
+            }
+        };
+    }
 }
 
 pub struct PayableScanner {
@@ -245,11 +266,8 @@ impl Scanner<ReportAccountsPayable, SentPayable> for PayableScanner {
     }
 
     fn mark_as_ended(&mut self, logger: &Logger) {
-        remove_timestamp_and_log(
-            &mut self.common.initiated_at_opt,
-            ScanType::Payables,
-            logger,
-        );
+        self.common
+            .remove_timestamp_and_log(ScanType::Payables, logger);
     }
 
     as_any_impl!();
@@ -404,11 +422,8 @@ impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingP
     }
 
     fn mark_as_ended(&mut self, logger: &Logger) {
-        remove_timestamp_and_log(
-            &mut self.common.initiated_at_opt,
-            ScanType::PendingPayables,
-            logger,
-        );
+        self.common
+            .remove_timestamp_and_log(ScanType::PendingPayables, logger);
     }
 
     as_any_impl!();
@@ -643,11 +658,8 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
     }
 
     fn mark_as_ended(&mut self, logger: &Logger) {
-        remove_timestamp_and_log(
-            &mut self.common.initiated_at_opt,
-            ScanType::Receivables,
-            logger,
-        );
+        self.common
+            .remove_timestamp_and_log(ScanType::Receivables, logger);
     }
 
     as_any_impl!();
@@ -865,7 +877,8 @@ pub struct NotifyLaterForScanners {
 #[cfg(test)]
 mod tests {
     use crate::accountant::scanners::{
-        BeginScanError, PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner, Scanners,
+        BeginScanError, PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner,
+        ScannerCommon, Scanners,
     };
     use crate::accountant::test_utils::{
         make_custom_payment_thresholds, make_payables, make_pending_payable_fingerprint,
@@ -880,7 +893,7 @@ mod tests {
     };
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
     use std::cell::RefCell;
-    use std::ops::Sub;
+    use std::ops::{Add, Sub};
 
     use crate::accountant::payable_dao::{Payable, PayableDaoError};
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
@@ -892,6 +905,7 @@ mod tests {
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
     use masq_lib::logger::Logger;
+    use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::rc::Rc;
     use std::sync::{Arc, Mutex};
@@ -1922,5 +1936,46 @@ mod tests {
         TestLogHandler::new().exists_log_matching(
             "INFO: receivable_scanner_handles_received_payments_message: The Receivables scan ended in \\d+ms.",
         );
+    }
+
+    #[test]
+    #[should_panic(expected = "Unable to calculate elapsed time for the scan.")]
+    fn update_timestamp_and_log_panics_if_timestamp_is_wrong() {
+        let time_in_future = SystemTime::now().add(Duration::from_secs(10));
+        let mut subject = ScannerCommon::new(Rc::new(make_custom_payment_thresholds()));
+        subject.initiated_at_opt = Some(time_in_future);
+
+        subject.remove_timestamp_and_log(ScanType::Payables, &Logger::new("test"));
+    }
+
+    #[test]
+    fn update_timestamp_and_log_if_timestamp_is_correct() {
+        init_test_logging();
+        let test_name = "update_timestamp_and_log_if_timestamp_is_correct";
+        let time_in_past = SystemTime::now().sub(Duration::from_secs(10));
+        let logger = Logger::new(test_name);
+        let mut subject = ScannerCommon::new(Rc::new(make_custom_payment_thresholds()));
+        subject.initiated_at_opt = Some(time_in_past);
+
+        subject.remove_timestamp_and_log(ScanType::Payables, &logger);
+
+        TestLogHandler::new().exists_log_matching(&format!(
+            "INFO: {test_name}: The Payables scan ended in \\d+ms."
+        ));
+    }
+
+    #[test]
+    fn update_timestamp_and_log_if_timestamp_is_not_found() {
+        init_test_logging();
+        let test_name = "update_timestamp_and_log_if_timestamp_is_not_found";
+        let logger = Logger::new(test_name);
+        let mut subject = ScannerCommon::new(Rc::new(make_custom_payment_thresholds()));
+        subject.initiated_at_opt = None;
+
+        subject.remove_timestamp_and_log(ScanType::Receivables, &logger);
+
+        TestLogHandler::new().exists_log_containing(&format!(
+            "ERROR: {test_name}: Called scan_finished() for Receivables scanner but timestamp was not found"
+        ));
     }
 }

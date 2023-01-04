@@ -266,43 +266,10 @@ pub mod receivable_scanner_tools {
     }
 }
 
-pub mod common_tools {
-    use masq_lib::logger::Logger;
-    use masq_lib::messages::ScanType;
-    use std::time::SystemTime;
-
-    pub fn remove_timestamp_and_log(
-        time_initiated_opt: &mut Option<SystemTime>,
-        scan_type: ScanType,
-        logger: &Logger,
-    ) {
-        match time_initiated_opt.take() {
-            Some(timestamp) => {
-                let elapsed_time = SystemTime::now()
-                    .duration_since(timestamp)
-                    .expect("Unable to calculate elapsed time for the scan.")
-                    .as_millis();
-                info!(
-                    logger,
-                    "The {:?} scan ended in {}ms.", scan_type, elapsed_time
-                );
-            }
-            None => {
-                error!(
-                    logger,
-                    "Called scan_finished() for {:?} scanner but timestamp was not found",
-                    scan_type
-                );
-            }
-        };
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use crate::accountant::payable_dao::{Payable, PayableAccount};
     use crate::accountant::receivable_dao::ReceivableAccount;
-    use crate::accountant::scanners_tools::common_tools::remove_timestamp_and_log;
     use crate::accountant::scanners_tools::payable_scanner_tools::{
         calculate_payout_threshold, exceeded_summary, investigate_debt_extremes,
         is_payable_qualified, payable_time_diff, qualified_payables_and_summary,
@@ -316,12 +283,9 @@ mod tests {
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
     use masq_lib::logger::Logger;
-    use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use std::ops::{Add, Sub};
     use std::rc::Rc;
     use std::time::SystemTime;
-    use time::Duration;
 
     #[test]
     fn payable_generated_within_maturity_time_limit_is_marked_unqualified() {
@@ -525,45 +489,6 @@ mod tests {
         TestLogHandler::new().exists_log_containing(&format!(
             "WARN: {}: Outbound transaction failure due to '{:?}",
             test_name, error
-        ));
-    }
-
-    #[test]
-    #[should_panic(expected = "Unable to calculate elapsed time for the scan.")]
-    fn update_timestamp_and_log_panics_if_timestamp_is_wrong() {
-        let time_in_future = SystemTime::now().add(Duration::seconds(10));
-
-        remove_timestamp_and_log(
-            &mut Some(time_in_future),
-            ScanType::Payables,
-            &Logger::new("test"),
-        );
-    }
-
-    #[test]
-    fn update_timestamp_and_log_if_timestamp_is_correct() {
-        init_test_logging();
-        let test_name = "update_timestamp_and_log_if_timestamp_is_correct";
-        let time_in_past = SystemTime::now().sub(Duration::seconds(10));
-        let logger = Logger::new(test_name);
-
-        remove_timestamp_and_log(&mut Some(time_in_past), ScanType::Payables, &logger);
-
-        TestLogHandler::new().exists_log_matching(&format!(
-            "INFO: {test_name}: The Payables scan ended in \\d+ms."
-        ));
-    }
-
-    #[test]
-    fn update_timestamp_and_log_if_timestamp_is_not_found() {
-        init_test_logging();
-        let test_name = "update_timestamp_and_log_if_timestamp_is_not_found";
-        let logger = Logger::new(test_name);
-
-        remove_timestamp_and_log(&mut None, ScanType::Receivables, &logger);
-
-        TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: Called scan_finished() for Receivables scanner but timestamp was not found"
         ));
     }
 }
