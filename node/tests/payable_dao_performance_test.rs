@@ -37,12 +37,22 @@ fn progressive_efficiency_of_mark_pending_payable_rowids_integration() {
             .into_iter()
             .map(perform_one_round_with_particular_count_of_updates)
             .unzip();
-
+    //excluding the first attempt with a single update that usually distorts the dataset by an accidental jump up
+    let make_regression_array = |time_laps: &[u32]| -> Vec<(u32, u32)> {
+        discrete_counts
+            .iter()
+            .zip(time_laps.iter())
+            .skip(1)
+            .map(|(a, b)| (*a, *b))
+            .collect()
+    };
+    let regression_array_for_single = make_regression_array(&time_laps_of_single_calls);
+    let regression_array_for_separate = make_regression_array(&time_laps_of_separate_calls);
     let lin_regression_for_single: (f64, _) =
-        linreg::linear_regression(&discrete_counts, &time_laps_of_single_calls).unwrap();
+        linreg::linear_regression_of(&regression_array_for_single).unwrap();
     let (slope_for_single, _) = lin_regression_for_single;
     let lin_regression_for_separate: (f64, _) =
-        linreg::linear_regression(&discrete_counts, &time_laps_of_separate_calls).unwrap();
+        linreg::linear_regression_of(&regression_array_for_separate).unwrap();
     let (slope_for_separate, _) = lin_regression_for_separate;
     let debug_helper = || {
         format!(

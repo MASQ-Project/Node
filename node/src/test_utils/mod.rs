@@ -875,14 +875,11 @@ pub mod unshared_test_utils {
         }
     }
 
-    //The whole concept of an ArbitraryIdStamp is intended as an aid to reach out when standard
-    //constructs (e.g. downcasting, raw pointers) fail to help make the desired kind of assertion
-    //towards some hard-to-inspect trait objects.
+    //The whole concept of the ArbitraryIdStamp has been intended as making an aid to reach out when
+    //standard constructs, such as downcasting or raw pointers, fail to help make some desired
+    //assertion to prove an identity of a certain trait object used at a certain place.
     //
-    //The scenario is quite specific because it requires that you're testing conditions in your
-    //test while you're also using a mock version of certain object, and that implies a trait object.
-    //
-    //The issues we work around by this look principally as follows:
+    //The issues we're going to cross over look practically as follows:
     //
     // 1) Our mockable objects are never Clone themselves (as it would break Rust trait object
     // safeness),
@@ -891,34 +888,50 @@ pub mod unshared_test_utils {
     // you've pasted in before at the other end.
     // 3) Using raw pointers to link the real memory address to your objects does not lead to good
     // results in all cases (It was found confusing and hard to be done correctly or even impossible
-    // to implement this approach for references that are just "childs" of a dereferenced Box that
+    // to implement this approach for references that are just "children" of a dereferenced Box that
     // was supplied as an argument into the testing environment at the very beginning, or we can
     // suspect the link already broken by moves of the owned, boxed instance within the tested code)
     //
-    //As a reaction to these difficulties, this new tool was devised as ultimately powerful.
+    //The new tool was devised as ultimately powerful and capable of addressing these difficulties.
     //
-    //The trick is not a big idea, it is simple. We need to add a test-only method to our arbitrary
-    //trait. (Yes, that means the method is going to have no place in the production code).
-    //Because it's now a method belonging to the trait, the trait object will respond to it
-    //too, if you try call the method.
-    //The mock version of the trait object needs to have another field that is going to store the
-    //arbitrary id which we will give to it in the setup phase of the test whereas it gets its
-    //unique identification.
-
-    //You want to go to the function where the trait object acts as an argument and which will
-    //be put under the test. This place is actually going to need to be just a method of another
-    //trait object (which is why we think about catching the passed arguments).
-
-    //You also need not to forget about querying the id from the trait object when the tested
-    //function is being executed. When you've got all arguments of the function stored in your
-    //Arc<Mutex<T>> container you can finally assert on these values, including the arbitrary id of
-    //the discussed trait object.
+    //The most fundamental idea of that is trivial. The hard part is to wrap your one's head around
+    //the preferred routine with its realization.
     //
-    //If it matches with the id which comes from the setup phase of the test, the circle encloses
-    //and the assertion has validated exactly that what we tried to achieve.
+    //We need to mount a test-only method to our arbitrary trait. (Yes, that means the method is
+    //not going to have any place in the production code).
+    //Because it's now a method of the trait, the trait object will also respond if you try to call
+    //it up.
+    //We will be using the trait as a trait object. The mock version of it will need an extra field
+    //whose job will be to store the arbitrary id that we will hand to it within the setup phase of
+    //the test.
+    //That's the way the trait object gets its unique identifier.
     //
-    //In most of case, you can use the convenient macros offered down here. Their easy implemen-
-    //tation should spare some work for you.
+    //You'll want to go back to the function with which you had difficulties when you were going
+    //to assert on the values coming in as its arguments.
+    //
+    //Let's mention certain attributes of this function, knowing it will always hold true.
+    //It's going to be just another method of some other trait, moreover, also intended to be used
+    //as a trait object.
+    //We can state this because proper seizing function arguments is enabled only if the examined
+    //function belongs to another mockable object.
+    //
+    //In vast majority of cases, for all methods of such a mock, it goes that they've got the body
+    //filled with code of two tasks: to capture params and also to push out a prepared result that
+    //the exercised method will return.
+    //To fulfill the first task you might like to query an id from any supplied trait object,
+    //a mock, that comes up as the examined method's argument.
+    //
+    //Use your convenient method by which you previously extended the trait of the incoming trait
+    //object and which can get you the id. Once done, you can simply add the id in to the other
+    //parameters in the container you've got to be later used for the delivery of the params to
+    //place with an assertion (the standard container is Arc<Mutex<T>>).
+    //Write an assertion for the captured values, including the arbitrary id.
+    //
+    //If it matches with the id which originates in the setup phase of the test, the circle encloses
+    //and the test is appeased.
+    //
+    //Most often, you would be advised to use the convenient macros offered down here. Their easy
+    //implementation should spare some work for you.
     //
     //Note for future maintainers:
     //A trait object cannot be cloned so you don't have to worry if the later captured id comes
