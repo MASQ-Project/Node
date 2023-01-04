@@ -1,4 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+#![cfg(test)]
 
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
@@ -14,7 +15,6 @@ use std::sync::{Arc, Mutex};
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
-#[cfg(any(test, not(feature = "no_test_share")))]
 pub struct PersistentConfigurationMock {
     blockchain_service_url_results: RefCell<Vec<Result<Option<String>, PersistentConfigError>>>,
     set_blockchain_service_url_params: Arc<Mutex<Vec<String>>>,
@@ -65,11 +65,9 @@ pub struct PersistentConfigurationMock {
     scan_intervals_results: RefCell<Vec<Result<ScanIntervals, PersistentConfigError>>>,
     set_scan_intervals_params: Arc<Mutex<Vec<String>>>,
     set_scan_intervals_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    #[allow(dead_code)]
     arbitrary_id_stamp_opt: RefCell<Option<ArbitraryIdStamp>>,
 }
 
-#[cfg(any(test, not(feature = "no_test_share")))]
 impl PersistentConfiguration for PersistentConfigurationMock {
     fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError> {
         self.blockchain_service_url_results.borrow_mut().remove(0)

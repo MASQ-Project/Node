@@ -34,7 +34,6 @@ use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
@@ -210,13 +209,6 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
             .flatten()
             .collect::<Vec<u8>>(),
     )
-}
-
-pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
-    PersistentConfigurationMock::new()
-        .past_neighbors_result(Ok(None))
-        .gas_price_result(Ok(1))
-        .mapping_protocol_result(Ok(None))
 }
 
 pub fn route_to_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
@@ -513,6 +505,7 @@ pub struct TestRawTransaction {
     pub data: Vec<u8>,
 }
 
+#[cfg(test)]
 pub mod unshared_test_utils {
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::apps::app_node;
@@ -550,6 +543,13 @@ pub mod unshared_test_utils {
     #[derive(Message)]
     pub struct AssertionsMessage<A: Actor> {
         pub assertions: Box<dyn FnOnce(&mut A) + Send>,
+    }
+
+    pub fn make_default_persistent_configuration() -> PersistentConfigurationMock {
+        PersistentConfigurationMock::new()
+            .past_neighbors_result(Ok(None))
+            .gas_price_result(Ok(1))
+            .mapping_protocol_result(Ok(None))
     }
 
     pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {
