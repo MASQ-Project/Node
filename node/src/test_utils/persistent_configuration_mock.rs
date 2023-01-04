@@ -5,6 +5,8 @@ use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::ArbitraryIdStamp;
+#[cfg(test)]
+use crate::{arbitrary_id_stamp, set_arbitrary_id_stamp};
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
 use std::cell::RefCell;
@@ -12,6 +14,7 @@ use std::sync::{Arc, Mutex};
 
 #[allow(clippy::type_complexity)]
 #[derive(Clone, Default)]
+#[cfg(any(test, not(feature = "no_test_share")))]
 pub struct PersistentConfigurationMock {
     blockchain_service_url_results: RefCell<Vec<Result<Option<String>, PersistentConfigError>>>,
     set_blockchain_service_url_params: Arc<Mutex<Vec<String>>>,
@@ -62,9 +65,11 @@ pub struct PersistentConfigurationMock {
     scan_intervals_results: RefCell<Vec<Result<ScanIntervals, PersistentConfigError>>>,
     set_scan_intervals_params: Arc<Mutex<Vec<String>>>,
     set_scan_intervals_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
+    #[allow(dead_code)]
+    arbitrary_id_stamp_opt: RefCell<Option<ArbitraryIdStamp>>,
 }
 
+#[cfg(any(test, not(feature = "no_test_share")))]
 impl PersistentConfiguration for PersistentConfigurationMock {
     fn blockchain_service_url(&self) -> Result<Option<String>, PersistentConfigError> {
         self.blockchain_service_url_results.borrow_mut().remove(0)
@@ -264,9 +269,8 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_scan_intervals_results.borrow_mut().remove(0)
     }
 
-    fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-        self.arbitrary_id_stamp_opt.unwrap()
-    }
+    #[cfg(test)]
+    arbitrary_id_stamp!();
 }
 
 impl PersistentConfigurationMock {
@@ -611,10 +615,8 @@ impl PersistentConfigurationMock {
         self
     }
 
-    pub fn set_arbitrary_id_stamp(mut self, stamp: ArbitraryIdStamp) -> Self {
-        self.arbitrary_id_stamp_opt = Some(stamp);
-        self
-    }
+    #[cfg(test)]
+    set_arbitrary_id_stamp!();
 
     // fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
     //     *self.arbitrary_id_stamp_opt.as_ref().unwrap()

@@ -4,11 +4,16 @@ use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::node_home_directory;
 use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
 use masq_lib::utils::localhost;
+use node_lib::database::connection_wrapper::ConnectionWrapper;
+use node_lib::database::db_initializer::{
+    DbInitializationConfig, DbInitializer, DbInitializerReal,
+};
 use node_lib::test_utils::await_value;
 use regex::{Captures, Regex};
 use std::env;
 use std::io;
-use std::net::SocketAddr;
+use std::net::TcpStream;
+use std::net::{Shutdown, SocketAddr};
 use std::ops::Drop;
 use std::path::{Path, PathBuf};
 use std::process;
@@ -185,6 +190,7 @@ impl MASQNode {
         limit_ms: Option<u64>,
     ) -> Vec<Vec<String>> {
         let logfile_path = Self::path_to_logfile(logfile_dir);
+
         let do_with_log_output = |log_output: &String, regex: &Regex| -> Option<Vec<Vec<String>>> {
             let captures = regex
                 .captures_iter(&log_output[..])
@@ -207,6 +213,7 @@ impl MASQNode {
                 .collect::<Vec<Vec<String>>>();
             Some(structured_captures)
         };
+
         Self::wait_for_log_at_directory(
             pattern,
             logfile_path.as_ref(),
@@ -534,4 +541,15 @@ fn node_command() -> String {
         .unwrap();
     let bin_dir = &format!("target\\{}", debug_or_release);
     format!("{}\\MASQNode.exe", bin_dir)
+}
+
+pub fn make_conn(home_dir: &Path) -> Box<dyn ConnectionWrapper> {
+    DbInitializerReal::default()
+        .initialize(home_dir, DbInitializationConfig::panic_on_migration())
+        .unwrap()
+}
+
+pub fn handle_connection_error(stream: TcpStream) {
+    let _ = stream.shutdown(Shutdown::Both).is_ok();
+    thread::sleep(Duration::from_millis(5000));
 }

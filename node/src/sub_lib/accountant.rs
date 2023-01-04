@@ -1,10 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-use crate::accountant::{ReceivedPayments, ReportTransactionReceipts, ScanError, SentPayable};
+use crate::accountant::{
+    checked_conversion, Accountant, ReceivedPayments, ReportTransactionReceipts, ScanError,
+    SentPayables,
+};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
-use actix::Message;
 use actix::Recipient;
+use actix::{Addr, Message};
 use lazy_static::lazy_static;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 #[cfg(test)]
@@ -38,22 +41,18 @@ lazy_static! {
 //please, alphabetical order
 #[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]
 pub struct PaymentThresholds {
-    pub debt_threshold_gwei: i64,
-    pub maturity_threshold_sec: i64,
-    pub payment_grace_period_sec: i64,
-    pub permanent_debt_allowed_gwei: i64,
-    pub threshold_interval_sec: i64,
-    pub unban_below_gwei: i64,
+    pub debt_threshold_gwei: u64,
+    pub maturity_threshold_sec: u64,
+    pub payment_grace_period_sec: u64,
+    pub permanent_debt_allowed_gwei: u64,
+    pub threshold_interval_sec: u64,
+    pub unban_below_gwei: u64,
 }
 
-//this code is used in tests in Accountant
 impl PaymentThresholds {
     pub fn sugg_and_grace(&self, now: i64) -> i64 {
-        now - self.maturity_threshold_sec - self.payment_grace_period_sec
-    }
-
-    pub fn sugg_thru_decreasing(&self, now: i64) -> i64 {
-        self.sugg_and_grace(now) - self.threshold_interval_sec
+        now - checked_conversion::<u64, i64>(self.maturity_threshold_sec)
+            - checked_conversion::<u64, i64>(self.payment_grace_period_sec)
     }
 }
 
@@ -72,7 +71,7 @@ pub struct AccountantConfig {
     pub when_pending_too_long_sec: u64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct AccountantSubs {
     pub bind: Recipient<BindMessage>,
     pub start: Recipient<StartMessage>,
@@ -82,7 +81,7 @@ pub struct AccountantSubs {
     pub report_new_payments: Recipient<ReceivedPayments>,
     pub pending_payable_fingerprint: Recipient<PendingPayableFingerprint>,
     pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,
-    pub report_sent_payments: Recipient<SentPayable>,
+    pub report_sent_payments: Recipient<SentPayables>,
     pub scan_errors: Recipient<ScanError>,
     pub ui_message_sub: Recipient<NodeFromUiMessage>,
 }
@@ -90,6 +89,18 @@ pub struct AccountantSubs {
 impl Debug for AccountantSubs {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         write!(f, "AccountantSubs")
+    }
+}
+
+pub trait AccountantSubsFactory {
+    fn make(&self, addr: &Addr<Accountant>) -> AccountantSubs;
+}
+
+pub struct AccountantSubsFactoryReal {}
+
+impl AccountantSubsFactory for AccountantSubsFactoryReal {
+    fn make(&self, addr: &Addr<Accountant>) -> AccountantSubs {
+        Accountant::make_subs_from(addr)
     }
 }
 
@@ -137,8 +148,15 @@ pub struct ExitServiceConsumed {
 
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct FinancialStatistics {
-    pub total_paid_payable: u64,
-    pub total_paid_receivable: u64,
+    pub total_paid_payable_wei: u128,
+    pub total_paid_receivable_wei: u128,
+}
+
+#[derive(PartialEq, Eq, Debug)]
+pub enum SignConversionError {
+    U64(String),
+    U128(String),
+    I128(String),
 }
 
 pub trait MessageIdGenerator {
@@ -158,10 +176,13 @@ impl MessageIdGenerator for MessageIdGeneratorReal {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::test_utils::AccountantBuilder;
+    use crate::accountant::{checked_conversion, Accountant};
     use crate::sub_lib::accountant::{
-        MessageIdGenerator, MessageIdGeneratorReal, PaymentThresholds, ScanIntervals,
-        DEFAULT_EARNING_WALLET, DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS,
-        MSG_ID_INCREMENTER, TEMPORARY_CONSUMING_WALLET,
+        AccountantSubsFactory, AccountantSubsFactoryReal, MessageIdGenerator,
+        MessageIdGeneratorReal, PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET,
+        DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS, MSG_ID_INCREMENTER,
+        TEMPORARY_CONSUMING_WALLET,
     };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::recorder::{make_accountant_subs_from_recorder, Recorder};
@@ -172,6 +193,12 @@ mod tests {
     use std::time::Duration;
 
     static MSG_ID_GENERATOR_TEST_GUARD: Mutex<()> = Mutex::new(());
+
+    impl PaymentThresholds {
+        pub fn sugg_thru_decreasing(&self, now: i64) -> i64 {
+            self.sugg_and_grace(now) - checked_conversion::<u64, i64>(self.threshold_interval_sec)
+        }
+    }
 
     #[test]
     fn constants_have_correct_values() {
@@ -208,6 +235,17 @@ mod tests {
         let subject = make_accountant_subs_from_recorder(&addr);
 
         assert_eq!(format!("{:?}", subject), "AccountantSubs");
+    }
+
+    #[test]
+    fn accountant_subs_factory_produces_proper_subs() {
+        let subject = AccountantSubsFactoryReal {};
+        let accountant = AccountantBuilder::default().build();
+        let addr = accountant.start();
+
+        let subs = subject.make(&addr);
+
+        assert_eq!(subs, Accountant::make_subs_from(&addr))
     }
 
     #[test]

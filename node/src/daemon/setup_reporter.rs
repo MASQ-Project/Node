@@ -5,8 +5,8 @@ use crate::bootstrapper::{main_cryptde_ref, BootstrapperConfig};
 use crate::daemon::dns_inspector::dns_inspector_factory::{
     DnsInspectorFactory, DnsInspectorFactoryReal,
 };
+use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal, InitializationError};
-use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao_null::ConfigDaoNull;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
@@ -430,8 +430,7 @@ impl SetupReporterReal {
         let initializer = DbInitializerReal::default();
         match initializer.initialize(
             data_directory,
-            false,
-            MigratorConfig::migration_suppressed_with_error(),
+            DbInitializationConfig::migration_suppressed_with_error(),
         ) {
             Ok(conn) => {
                 let parse_args_configuration = UnprivilegedParseArgsConfigurationDaoReal {};
@@ -1183,7 +1182,7 @@ mod tests {
         );
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let mut config = PersistentConfigurationReal::from(conn);
         config.change_password(None, "password").unwrap();
@@ -1465,7 +1464,7 @@ mod tests {
             ("MASQ_MAPPING_PROTOCOL", "pmp"),
             ("MASQ_NEIGHBORHOOD_MODE", "originate-only"),
             ("MASQ_NEIGHBORS", "masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678"),
-            ("MASQ_PAYMENT_THRESHOLDS","1234|50000|1000|1234|19000|20000"),
+            ("MASQ_PAYMENT_THRESHOLDS","12345|50000|1000|1234|19000|20000"),
             ("MASQ_RATE_PACK","1|3|3|8"),
             #[cfg(not(target_os = "windows"))]
             ("MASQ_REAL_USER", "9999:9999:booga"),
@@ -1496,7 +1495,7 @@ mod tests {
             ("mapping-protocol", "pmp", Configured),
             ("neighborhood-mode", "originate-only", Configured),
             ("neighbors", "masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@1.2.3.4:1234,masq://polygon-mumbai:MTIzNDU2Nzg5MTEyMzQ1Njc4OTIxMjM0NTY3ODkzMTI@5.6.7.8:5678", Configured),
-            ("payment-thresholds","1234|50000|1000|1234|19000|20000",Configured),
+            ("payment-thresholds","12345|50000|1000|1234|19000|20000",Configured),
             ("rate-pack","1|3|3|8",Configured),
             #[cfg(not(target_os = "windows"))]
             ("real-user", "9999:9999:booga", Configured),
@@ -1558,7 +1557,7 @@ mod tests {
             config_file.write_all(b"scans = \"off\"\n").unwrap();
             config_file.write_all(b"rate-pack = \"2|2|2|2\"\n").unwrap();
             config_file
-                .write_all(b"payment-thresholds = \"33|55|33|646|999|999\"\n")
+                .write_all(b"payment-thresholds = \"3333|55|33|646|999|999\"\n")
                 .unwrap();
             config_file
                 .write_all(b"scan-intervals = \"111|100|99\"\n")
@@ -1602,7 +1601,7 @@ mod tests {
                 .write_all(b"rate-pack = \"55|50|60|61\"\n")
                 .unwrap();
             config_file
-                .write_all(b"payment-thresholds = \"1000|1000|3000|3333|10000|20000\"\n")
+                .write_all(b"payment-thresholds = \"4000|1000|3000|3333|10000|20000\"\n")
                 .unwrap();
             config_file
                 .write_all(b"scan-intervals = \"555|555|555\"\n")
@@ -1664,7 +1663,7 @@ mod tests {
             ("neighbors", "", Blank),
             (
                 "payment-thresholds",
-                "1000|1000|3000|3333|10000|20000",
+                "4000|1000|3000|3333|10000|20000",
                 Configured,
             ),
             ("rate-pack", "55|50|60|61", Configured),
@@ -2130,11 +2129,11 @@ mod tests {
     }
 
     #[test]
-    fn run_configuration_without_existing_database_implies_config_dao_null_to_use() {
+    fn run_configuration_without_existing_database_implies_config_dao_null_to_be_used() {
         let _guard = EnvironmentGuard::new();
         let home_dir = ensure_node_home_directory_exists(
             "setup_reporter",
-            "run_configuration_without_existing_database_implies_config_dao_null_to_use",
+            "run_configuration_without_existing_database_implies_config_dao_null_to_be_used",
         );
         let current_default_gas_price = DEFAULT_GAS_PRICE;
         let gas_price_for_set_attempt = current_default_gas_price + 78;
@@ -2147,7 +2146,7 @@ mod tests {
             subject.run_configuration(&multi_config, &home_dir);
 
         let error = DbInitializerReal::default()
-            .initialize(&home_dir, false, MigratorConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::panic_on_migration())
             .unwrap_err();
         assert_eq!(error, InitializationError::Nonexistent);
         assert_eq!(
@@ -2496,7 +2495,7 @@ mod tests {
         let data_directory =
             ensure_node_home_directory_exists("setup_reporter", "mapping_protocol_is_blanked_out");
         let conn = DbInitializerReal::default()
-            .initialize(&data_directory, true, MigratorConfig::test_default())
+            .initialize(&data_directory, DbInitializationConfig::test_default())
             .unwrap();
         let mut persist_config = PersistentConfigurationReal::from(conn);
         persist_config
@@ -3276,7 +3275,7 @@ mod tests {
     fn payment_thresholds_computed_default_persistent_config_unequal_to_default() {
         let mut payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
         payment_thresholds.maturity_threshold_sec += 12;
-        payment_thresholds.unban_below_gwei -= 11;
+        payment_thresholds.unban_below_gwei -= 12;
         payment_thresholds.debt_threshold_gwei += 1111;
 
         assert_computed_default_when_persistent_config_unequal_to_default(

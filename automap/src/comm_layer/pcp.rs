@@ -669,7 +669,6 @@ mod tests {
     use super::*;
     use crate::comm_layer::pcp_pmp_common::ROUTER_PORT;
     use crate::comm_layer::{AutomapErrorCause, LocalIpFinder};
-    use crate::mocks::TestMulticastSocketHolder;
     use crate::mocks::{
         FreePortFactoryMock, LocalIpFinderMock, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock,
     };
@@ -677,10 +676,8 @@ mod tests {
     use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket};
     use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
     use core::ptr::addr_of;
-    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::utils::{find_free_port, localhost};
-    use pretty_hex::*;
     use socket2::{Domain, Socket, Type};
     use std::cell::RefCell;
     use std::collections::HashSet;

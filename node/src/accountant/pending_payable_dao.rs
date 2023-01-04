@@ -1,9 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::unsigned_to_signed;
+use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
+use crate::accountant::dao_utils::{
+    from_time_t, to_time_t, DaoFactoryReal, VigilantRusqliteFlatten,
+};
+use crate::accountant::{checked_conversion, sign_conversion};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::database::dao_utils::{from_time_t, to_time_t, DaoFactoryReal};
 use masq_lib::utils::ExpectValue;
 use rusqlite::types::Value::Null;
 use rusqlite::{Row, ToSql};
@@ -27,7 +30,7 @@ pub trait PendingPayableDao {
     fn insert_new_fingerprint(
         &self,
         transaction_hash: H256,
-        amount: u64,
+        amount: u128,
         timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError>;
     fn delete_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError>;
@@ -52,42 +55,44 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
     }
 
     fn return_all_fingerprints(&self) -> Vec<PendingPayableFingerprint> {
-        let mut stm = self.conn.prepare("select rowid, transaction_hash, amount, payable_timestamp, attempt from pending_payable where process_error is null").expect("Internal error");
+        let mut stm = self.conn.prepare("select rowid, transaction_hash, amount_high_b, amount_low_b, payable_timestamp, attempt from pending_payable where process_error is null").expect("Internal error");
         stm.query_map([], |row| {
             let rowid: u64 = Self::get_with_expect(row, 0);
             let transaction_hash: String = Self::get_with_expect(row, 1);
-            let amount: u64 = Self::get_with_expect(row, 2);
-            let timestamp: i64 = Self::get_with_expect(row, 3);
-            let attempt: u16 = Self::get_with_expect(row, 4);
+            let amount_high_bytes: i64 = Self::get_with_expect(row, 2);
+            let amount_low_bytes: i64 = Self::get_with_expect(row, 3);
+            let timestamp: i64 = Self::get_with_expect(row, 4);
+            let attempt: u16 = Self::get_with_expect(row, 5);
             Ok(PendingPayableFingerprint {
                 rowid_opt: Some(rowid),
                 timestamp: from_time_t(timestamp),
                 hash: H256::from_str(&transaction_hash[2..]).expectv("string hash"),
                 attempt_opt: Some(attempt),
-                amount,
+                amount: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
+                    amount_high_bytes,
+                    amount_low_bytes,
+                )),
                 process_error: None,
             })
         })
         .expect("rusqlite failure")
-        .map(|fingerprint_result| match fingerprint_result {
-            Ok(val) => val,
-            Err(e) => panic!("hitting an error: {:?}", e),
-        })
+        .vigilant_flatten()
         .collect()
     }
 
     fn insert_new_fingerprint(
         &self,
         transaction_hash: H256,
-        amount: u64,
+        amount: u128,
         timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError> {
-        let signed_amount =
-            unsigned_to_signed(amount).map_err(PendingPayableDaoError::SignConversionError)?;
-        let mut stm = self.conn.prepare("insert into pending_payable (transaction_hash, amount, payable_timestamp, attempt, process_error) values (?,?,?,?,?)").expect("Internal error");
+        let (high_bytes, low_bytes) =
+            BigIntDivider::deconstruct(checked_conversion::<u128, i128>(amount));
+        let mut stm = self.conn.prepare("insert into pending_payable (transaction_hash, amount_high_b, amount_low_b, payable_timestamp, attempt, process_error) values (?,?,?,?,?,?)").expect("Internal error");
         let params: &[&dyn ToSql] = &[
             &format!("{:?}", transaction_hash),
-            &signed_amount,
+            &high_bytes,
+            &low_bytes,
             &to_time_t(timestamp),
             &1,
             &Null,
@@ -100,8 +105,8 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
     }
 
     fn delete_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError> {
-        let signed_id =
-            unsigned_to_signed(id).expect("SQLite counts up to i64::MAX; should never happen");
+        let signed_id = sign_conversion::<u64, i64>(id)
+            .expect("SQLite counts up to i64::MAX; should never happen");
         let mut stm = self
             .conn
             .prepare("delete from pending_payable where rowid = ?")
@@ -117,8 +122,8 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
     }
 
     fn update_fingerprint(&self, id: u64) -> Result<(), PendingPayableDaoError> {
-        let signed_id =
-            unsigned_to_signed(id).expect("SQLite counts up to i64::MAX; should never happen");
+        let signed_id = sign_conversion::<u64, i64>(id)
+            .expect("SQLite counts up to i64::MAX; should never happen");
         let mut stm = self
             .conn
             .prepare("update pending_payable set attempt = attempt + 1 where rowid = ?")
@@ -134,8 +139,8 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
     }
 
     fn mark_failure(&self, id: u64) -> Result<(), PendingPayableDaoError> {
-        let signed_id =
-            unsigned_to_signed(id).expect("SQLite counts up to i64::MAX; should never happen");
+        let signed_id = sign_conversion::<u64, i64>(id)
+            .expect("SQLite counts up to i64::MAX; should never happen");
         let mut stm = self
             .conn
             .prepare("update pending_payable set process_error = 'ERROR' where rowid = ?")
@@ -170,6 +175,7 @@ impl<'a> PendingPayableDaoReal<'a> {
     pub fn new(conn: Box<dyn ConnectionWrapper + 'a>) -> Self {
         Self { conn }
     }
+
     fn get_with_expect<T: rusqlite::types::FromSql>(row: &Row, index: usize) -> T {
         row.get(index).expect("database is corrupt")
     }
@@ -177,15 +183,17 @@ impl<'a> PendingPayableDaoReal<'a> {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
+    use crate::accountant::dao_utils::from_time_t;
     use crate::accountant::pending_payable_dao::{
         PendingPayableDao, PendingPayableDaoError, PendingPayableDaoReal,
     };
-    use crate::accountant::unsigned_to_signed;
+    use crate::accountant::{checked_conversion, sign_conversion};
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
-    use crate::database::dao_utils::from_time_t;
-    use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
-    use crate::database::db_migrations::MigratorConfig;
+    use crate::database::db_initializer::{
+        DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
+    };
     use ethereum_types::BigEndianHash;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, Error, OpenFlags, Row};
@@ -200,7 +208,7 @@ mod tests {
             "insert_fingerprint_happy_path",
         );
         let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let hash = H256::from_uint(&U256::from(45466));
         let amount = 55556;
@@ -231,7 +239,7 @@ mod tests {
             ensure_node_home_directory_exists("pending_payable_dao", "insert_fingerprint_sad_path");
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap();
         }
         let conn_read_only = Connection::open_with_flags(
@@ -262,7 +270,7 @@ mod tests {
             "fingerprint_rowid_when_record_reachable",
         );
         let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = PendingPayableDaoReal::new(wrapped_conn);
         let timestamp = from_time_t(195_000_000);
@@ -286,7 +294,7 @@ mod tests {
             "fingerprint_rowid_when_nonexistent_record",
         );
         let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         {
             let mut stm = wrapped_conn
@@ -311,7 +319,7 @@ mod tests {
             "return_all_fingerprints_works_when_no_records_with_errors_marks",
         );
         let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = PendingPayableDaoReal::new(wrapped_conn);
         let timestamp_1 = from_time_t(195_000_000);
@@ -363,7 +371,7 @@ mod tests {
             "return_all_fingerprints_works_when_some_records_with_errors_marks",
         );
         let wrapped_conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = PendingPayableDaoReal::new(wrapped_conn);
         let timestamp = from_time_t(198_000_000);
@@ -406,7 +414,7 @@ mod tests {
             "delete_fingerprint_happy_path",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let hash = H256::from_uint(&U256::from(666666));
         let rowid = 1;
@@ -422,7 +430,7 @@ mod tests {
 
         assert_eq!(result, Ok(()));
         let conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
-        let signed_row_id = unsigned_to_signed(rowid).unwrap();
+        let signed_row_id = sign_conversion::<u64, i64>(rowid).unwrap();
         let mut stm2 = conn
             .prepare("select * from pending_payable where rowid = ?")
             .unwrap();
@@ -438,7 +446,7 @@ mod tests {
             ensure_node_home_directory_exists("pending_payable_dao", "delete_fingerprint_sad_path");
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap();
         }
         let conn_read_only = Connection::open_with_flags(
@@ -467,7 +475,7 @@ mod tests {
             "update_fingerprint_after_scan_cycle_works",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let hash = H256::from_uint(&U256::from(666));
         let amount = 1234;
@@ -505,7 +513,7 @@ mod tests {
         );
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap();
         }
         let conn_read_only = Connection::open_with_flags(
@@ -531,7 +539,7 @@ mod tests {
         let home_dir =
             ensure_node_home_directory_exists("pending_payable_dao", "mark_failure_works");
         let conn = DbInitializerReal::default()
-            .initialize(&home_dir, true, MigratorConfig::test_default())
+            .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let hash = H256::from_uint(&U256::from(666));
         let amount = 1234;
@@ -544,44 +552,42 @@ mod tests {
         }
         let assert_conn = Connection::open(home_dir.join(DATABASE_FILE)).unwrap();
         let mut assert_stm = assert_conn
-            .prepare("select * from pending_payable")
+            .prepare("select rowid, transaction_hash, amount_high_b, amount_low_b, payable_timestamp, attempt, process_error from pending_payable")
             .unwrap();
-        let mut assert_closure = || {
-            assert_stm
-                .query_row([], |row| {
-                    let rowid: u64 = row.get(0).unwrap();
-                    let transaction_hash: String = row.get(1).unwrap();
-                    let amount: u64 = row.get(2).unwrap();
-                    let timestamp: i64 = row.get(3).unwrap();
-                    let attempt: u16 = row.get(4).unwrap();
-                    let process_error: Option<String> = row.get(5).unwrap();
-                    Ok(PendingPayableFingerprint {
-                        rowid_opt: Some(rowid),
-                        timestamp: from_time_t(timestamp),
-                        hash: H256::from_str(&transaction_hash[2..]).unwrap(),
-                        attempt_opt: Some(attempt),
-                        amount,
-                        process_error,
-                    })
-                })
-                .unwrap()
-        };
-        let assertion_before = assert_closure();
-        assert_eq!(assertion_before.hash, hash);
-        assert_eq!(assertion_before.rowid_opt.unwrap(), 1);
-        assert_eq!(assertion_before.attempt_opt.unwrap(), 1);
-        assert_eq!(assertion_before.process_error, None);
-        assert_eq!(assertion_before.timestamp, timestamp);
 
         let result = subject.mark_failure(1);
 
         assert_eq!(result, Ok(()));
-        let assertion_after = assert_closure();
-        assert_eq!(assertion_after.hash, hash);
-        assert_eq!(assertion_after.rowid_opt.unwrap(), 1);
-        assert_eq!(assertion_after.attempt_opt.unwrap(), 1);
-        assert_eq!(assertion_after.process_error, Some("ERROR".to_string()));
-        assert_eq!(assertion_after.timestamp, timestamp);
+        let resulting_fingerprint = assert_stm
+            .query_row([], |row| {
+                let rowid: u64 = row.get(0).unwrap();
+                let transaction_hash: String = row.get(1).unwrap();
+                let amount_high_b: i64 = row.get(2).unwrap();
+                let amount_low_b: i64 = row.get(3).unwrap();
+                let timestamp: i64 = row.get(4).unwrap();
+                let attempt: u16 = row.get(5).unwrap();
+                let process_error: Option<String> = row.get(6).unwrap();
+                Ok(PendingPayableFingerprint {
+                    rowid_opt: Some(rowid),
+                    timestamp: from_time_t(timestamp),
+                    hash: H256::from_str(&transaction_hash[2..]).unwrap(),
+                    attempt_opt: Some(attempt),
+                    amount: checked_conversion::<i128, u128>(BigIntDivider::reconstitute(
+                        amount_high_b,
+                        amount_low_b,
+                    )),
+                    process_error,
+                })
+            })
+            .unwrap();
+        assert_eq!(resulting_fingerprint.hash, hash);
+        assert_eq!(resulting_fingerprint.rowid_opt.unwrap(), 1);
+        assert_eq!(resulting_fingerprint.attempt_opt.unwrap(), 1);
+        assert_eq!(
+            resulting_fingerprint.process_error,
+            Some("ERROR".to_string())
+        );
+        assert_eq!(resulting_fingerprint.timestamp, timestamp);
     }
 
     #[test]
@@ -590,7 +596,7 @@ mod tests {
             ensure_node_home_directory_exists("pending_payable_dao", "mark_failure_sad_path");
         {
             DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap();
         }
         let conn_read_only = Connection::open_with_flags(

@@ -184,7 +184,6 @@ macro_rules! conversation_message {
 ///////////////////////////////////////////////////////////////////////
 // These messages are sent only to and/or by the Daemon, not the Node
 ///////////////////////////////////////////////////////////////////////
-
 // if a fire-and-forget message for the Node was detected but the Node is down
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiUndeliveredFireAndForget {
@@ -534,17 +533,17 @@ pub struct UiScanIntervals {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiPaymentThresholds {
     #[serde(rename = "thresholdIntervalSec")]
-    pub threshold_interval_sec: i64,
+    pub threshold_interval_sec: u64,
     #[serde(rename = "debtThresholdGwei")]
-    pub debt_threshold_gwei: i64,
+    pub debt_threshold_gwei: u64,
     #[serde(rename = "paymentGracePeriodSec")]
-    pub payment_grace_period_sec: i64,
+    pub payment_grace_period_sec: u64,
     #[serde(rename = "maturityThresholdSec")]
-    pub maturity_threshold_sec: i64,
+    pub maturity_threshold_sec: u64,
     #[serde(rename = "permanentDebtAllowedGwei")]
-    pub permanent_debt_allowed_gwei: i64,
+    pub permanent_debt_allowed_gwei: u64,
     #[serde(rename = "unbanBelowGwei")]
-    pub unban_below_gwei: i64,
+    pub unban_below_gwei: u64,
 }
 
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq)]
@@ -583,11 +582,98 @@ pub struct UiDescriptorResponse {
 }
 conversation_message!(UiDescriptorResponse, "descriptor");
 
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct UiFinancialsRequest {
+    #[serde(rename = "statsRequired")]
+    pub stats_required: bool,
+    #[serde(rename = "topRecordsOpt")]
+    pub top_records_opt: Option<TopRecordsConfig>,
+    #[serde(rename = "customQueriesOpt")]
+    pub custom_queries_opt: Option<CustomQueries>,
+}
+conversation_message!(UiFinancialsRequest, "financials");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy)]
+pub struct TopRecordsConfig {
+    pub count: u16,
+    #[serde(rename = "orderedBy")]
+    pub ordered_by: TopRecordsOrdering,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy)]
+pub enum TopRecordsOrdering {
+    Age,
+    Balance,
+}
+
+impl TryFrom<&str> for TopRecordsOrdering {
+    type Error = String;
+
+    fn try_from(value: &str) -> Result<Self, Self::Error> {
+        Ok(match value {
+            "balance" => Self::Balance,
+            "age" => Self::Age,
+            x => return Err(format!("Unrecognized ordering: '{}'", x)),
+        })
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct CustomQueries {
+    #[serde(rename = "payableOpt")]
+    pub payable_opt: Option<RangeQuery<u64>>,
+    #[serde(rename = "receivableOpt")]
+    pub receivable_opt: Option<RangeQuery<i64>>,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct RangeQuery<T> {
+    #[serde(rename = "minAgeS")]
+    pub min_age_s: u64,
+    #[serde(rename = "maxAgeS")]
+    pub max_age_s: u64,
+    #[serde(rename = "minAmountGwei")]
+    pub min_amount_gwei: T,
+    #[serde(rename = "maxAmountGwei")]
+    pub max_amount_gwei: T,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct UiFinancialsResponse {
+    #[serde(rename = "statsOpt")]
+    pub stats_opt: Option<UiFinancialStatistics>,
+    #[serde(rename = "queryResultsOpt")]
+    pub query_results_opt: Option<QueryResults>,
+}
+conversation_message!(UiFinancialsResponse, "financials");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct UiFinancialStatistics {
+    #[serde(rename = "totalUnpaidAndPendingPayableGwei")]
+    pub total_unpaid_and_pending_payable_gwei: u64,
+    #[serde(rename = "totalPaidPayableGwei")]
+    pub total_paid_payable_gwei: u64,
+    #[serde(rename = "totalUnpaidReceivableGwei")]
+    pub total_unpaid_receivable_gwei: i64,
+    #[serde(rename = "totalPaidReceivableGwei")]
+    pub total_paid_receivable_gwei: u64,
+}
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+pub struct QueryResults {
+    #[serde(rename = "payableOpt")]
+    pub payable_opt: Option<Vec<UiPayableAccount>>,
+    #[serde(rename = "receivableOpt")]
+    pub receivable_opt: Option<Vec<UiReceivableAccount>>,
+}
+
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct UiPayableAccount {
     pub wallet: String,
-    pub age: u64,
-    pub amount: u64,
+    #[serde(rename = "ageS")]
+    pub age_s: u64,
+    #[serde(rename = "balanceGwei")]
+    pub balance_gwei: u64,
     #[serde(rename = "pendingPayableHashOpt")]
     pub pending_payable_hash_opt: Option<String>,
 }
@@ -595,26 +681,11 @@ pub struct UiPayableAccount {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
 pub struct UiReceivableAccount {
     pub wallet: String,
-    pub age: u64,
-    pub amount: u64,
+    #[serde(rename = "ageS")]
+    pub age_s: u64,
+    #[serde(rename = "balanceGwei")]
+    pub balance_gwei: i64,
 }
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
-pub struct UiFinancialsRequest {}
-conversation_message!(UiFinancialsRequest, "financials");
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
-pub struct UiFinancialsResponse {
-    #[serde(rename = "totalUnpaidAndPendingPayable")]
-    pub total_unpaid_and_pending_payable: u64,
-    #[serde(rename = "totalPaidPayable")]
-    pub total_paid_payable: u64,
-    #[serde(rename = "totalUnpaidReceivable")]
-    pub total_unpaid_receivable: i64,
-    #[serde(rename = "totalPaidReceivable")]
-    pub total_paid_receivable: u64,
-}
-conversation_message!(UiFinancialsResponse, "financials");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiGenerateSeedSpec {
@@ -1115,6 +1186,26 @@ mod tests {
         assert_eq!(
             result,
             Err("Unrecognized ScanType: 'unrecognized'".to_string())
+        );
+    }
+
+    #[test]
+    fn top_records_ordering_from_str() {
+        assert_eq!(
+            TopRecordsOrdering::try_from("balance").unwrap(),
+            TopRecordsOrdering::Balance
+        );
+        assert_eq!(
+            TopRecordsOrdering::try_from("age").unwrap(),
+            TopRecordsOrdering::Age
+        )
+    }
+
+    #[test]
+    fn top_records_ordering_from_str_error() {
+        assert_eq!(
+            TopRecordsOrdering::try_from("upside-down"),
+            Err("Unrecognized ordering: 'upside-down'".to_string())
         );
     }
 }

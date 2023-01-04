@@ -25,7 +25,7 @@ use std::net::{IpAddr, SocketAddr};
 pub struct GossipNodeRecord {
     pub signed_data: PlainData,
     pub signature: CryptData,
-    pub node_addr_opt: Option<NodeAddr>, // Only for use in introductions
+    pub node_addr_opt: Option<NodeAddr>,
 }
 
 impl Debug for GossipNodeRecord {

@@ -20,8 +20,8 @@ use masq_lib::ui_gateway::{
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::bip39::Bip39;
 use crate::bootstrapper::main_cryptde_ref;
+use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
@@ -97,7 +97,10 @@ impl Configurator {
     pub fn new(data_directory: PathBuf, crashable: bool) -> Self {
         let initializer = DbInitializerReal::default();
         let conn = initializer
-            .initialize(&data_directory, false, MigratorConfig::panic_on_migration())
+            .initialize(
+                &data_directory,
+                DbInitializationConfig::panic_on_migration(),
+            )
             .expect("Couldn't initialize database");
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config: Box<dyn PersistentConfiguration> =
@@ -857,7 +860,7 @@ mod tests {
             ensure_node_home_directory_exists("configurator", "constructor_connects_with_database");
         let verifier = PersistentConfigurationReal::new(Box::new(ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&data_dir, true, MigratorConfig::test_default())
+                .initialize(&data_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         )));
         let (recorder, _, _) = make_recorder();

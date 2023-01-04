@@ -1544,7 +1544,12 @@ mod tests {
         subject_addr
             .try_send(make_daemon_bind_message(ui_gateway))
             .unwrap();
-        let body: MessageBody = UiFinancialsRequest {}.tmb(4321);
+        let body: MessageBody = UiFinancialsRequest {
+            stats_required: true,
+            top_records_opt: None,
+            custom_queries_opt: None,
+        }
+        .tmb(4321);
 
         subject_addr
             .try_send(NodeFromUiMessage {

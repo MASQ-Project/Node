@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::accountant::dao_utils::DaoFactoryReal;
 use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::database::dao_utils::DaoFactoryReal;
 use rusqlite::types::ToSql;
 use rusqlite::{Row, Rows, Statement};
 
@@ -151,10 +151,10 @@ fn row_to_config_dao_record(row: &Row) -> ConfigDaoRecord {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{
         DbInitializer, DbInitializerReal, CURRENT_SCHEMA_VERSION,
     };
-    use crate::database::db_migrations::MigratorConfig;
     use crate::test_utils::assert_contains;
     use masq_lib::constants::MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
@@ -165,7 +165,7 @@ mod tests {
             ensure_node_home_directory_exists("config_dao", "get_all_returns_multiple_results");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
 
@@ -201,7 +201,7 @@ mod tests {
         );
         let subject = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
 
@@ -215,7 +215,7 @@ mod tests {
         let home_dir = ensure_node_home_directory_exists("config_dao", "set_and_get_work");
         let subject = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
         let modified_value = ConfigDaoRecord::new(
@@ -244,7 +244,7 @@ mod tests {
         );
         let subject = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
 
@@ -261,7 +261,7 @@ mod tests {
         );
         let subject = ConfigDaoReal::new(
             DbInitializerReal::default()
-                .initialize(&home_dir, true, MigratorConfig::test_default())
+                .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
         let _ = subject.set("schema_version", None).unwrap();

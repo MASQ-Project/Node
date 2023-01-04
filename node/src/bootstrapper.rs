@@ -3,8 +3,8 @@ use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::actor_system_factory::ActorSystemFactoryToolsReal;
 use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactory};
 use crate::crash_test_dummy::CrashTestDummy;
+use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
@@ -500,8 +500,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
             Box::new(ActorFactoryReal {}),
             initialize_database(
                 &self.config.data_directory,
-                false,
-                MigratorConfig::panic_on_migration(),
+                DbInitializationConfig::panic_on_migration(),
             ),
         );
 
@@ -613,8 +612,7 @@ impl Bootstrapper {
                 let conn = DbInitializerReal::default()
                     .initialize(
                         &self.config.data_directory,
-                        false,
-                        MigratorConfig::panic_on_migration(),
+                        DbInitializationConfig::panic_on_migration(),
                     )
                     .expect("Cannot initialize database");
                 let config_dao = ConfigDaoReal::new(conn);
@@ -680,8 +678,8 @@ mod tests {
         main_cryptde_ref, Bootstrapper, BootstrapperConfig, EnvironmentWrapper, PortConfiguration,
         RealUser,
     };
+    use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-    use crate::database::db_migrations::MigratorConfig;
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
@@ -1771,7 +1769,7 @@ mod tests {
             "set_up_clandestine_port_handles_specified_port_in_standard_mode",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, true, MigratorConfig::test_default())
+            .initialize(&data_dir, DbInitializationConfig::test_default())
             .unwrap();
         let cryptde_actual = CryptDENull::from(&PublicKey::new(&[1, 2, 3, 4]), TEST_DEFAULT_CHAIN);
         let cryptde: &dyn CryptDE = &cryptde_actual;
@@ -1845,7 +1843,7 @@ mod tests {
             "set_up_clandestine_port_handles_unspecified_port_in_standard_mode",
         );
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, true, MigratorConfig::test_default())
+            .initialize(&data_dir, DbInitializationConfig::test_default())
             .unwrap();
         let mut config = BootstrapperConfig::new();
         config.neighborhood_config = NeighborhoodConfig {

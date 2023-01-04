@@ -121,13 +121,13 @@ pub const RATE_PACK_HELP: &str = "\
      These four parameters specify your rates that your Node will use for charging other Nodes for your provided \
      services. These are ever present values, defaulted if left unspecified. The parameters must be always supplied \
      all together, delimited by vertical bars and in the right order.\n\n\
-     1. Routing Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
+     1. Routing Byte Rate: This parameter indicates an amount of MASQ in wei demanded to process 1 byte of routed payload \
      while the Node is a common relay Node.\n\n\
-     2. Routing Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking \
+     2. Routing Service Rate: This parameter indicates an amount of MASQ in wei demanded to provide services, unpacking \
      and repacking 1 CORES package, while the Node is a common relay Node.\n\n\
-     3. Exit Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
+     3. Exit Byte Rate: This parameter indicates an amount of MASQ in wei demanded to process 1 byte of routed payload \
      while the Node acts as the exit Node.\n\n\
-     4. Exit Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking and \
+     4. Exit Service Rate: This parameter indicates an amount of MASQ in wei demanded to provide services, unpacking and \
      repacking 1 CORES package, while the Node acts as the exit Node.";
 pub const PAYMENT_THRESHOLDS_HELP: &str = "\
      These are parameters that define thresholds to determine when and how much to pay other Nodes for routing and \
@@ -136,7 +136,7 @@ pub const PAYMENT_THRESHOLDS_HELP: &str = "\
      since they have not paid mature debts. These are ever present values, no matter if the user's set any value, as \
      they have defaults. The parameters must be always supplied all together, delimited by vertical bars and in the right \
      order.\n\n\
-     1. Debt Threshold Gwei: Payables higher than this -- in Gwei of MASQ -- will be suggested for payment immediately \
+     1. Debt Threshold gwei: Payables higher than this -- in gwei of MASQ -- will be suggested for payment immediately \
      upon passing the Maturity Threshold Sec age. Payables less than this can stay unpaid longer. Receivables higher than \
      this will be expected to be settled by other Nodes, but will never cause bans until they pass the Maturity Threshold Sec \
      + Payment Grace Period Sec age. Receivables less than this will survive longer without banning.\n\n\
@@ -144,15 +144,15 @@ pub const PAYMENT_THRESHOLDS_HELP: &str = "\
      that it be paid.\n\n\
      3. Payment Grace Period Sec: A large receivable can get as old as Maturity Threshold Sec + Payment Grace Period Sec \
      -- in seconds -- before the Node that owes it will be banned.\n\n\
-     4. Permanent Debt Allowed Gwei: Receivables this small and smaller -- in Gwei of MASQ -- will not cause bans no \
+     4. Permanent Debt Allowed gwei: Receivables this small and smaller -- in gwei of MASQ -- will not cause bans no \
      matter how old they get.\n\n\
      5. Threshold Interval Sec: This interval -- in seconds -- begins after Maturity Threshold Sec for payables and after \
      Maturity Threshold Sec + Payment Grace Period Sec for receivables. During the interval, the amount of a payable that is \
-     allowed to remain unpaid, or a pending receivable that won’t cause a ban, decreases linearly from the Debt Threshold Gwei \
-     to Permanent Debt Allowed Gwei or Unban Below Gwei.\n\n\
-     6. Unban Below Gwei: When a delinquent Node has been banned due to non-payment, the receivables balance must be paid \
-     below this level -- in Gwei of MASQ -- to cause them to be unbanned. In most cases, you'll want this to be set the same \
-     as Permanent Debt Allowed Gwei.";
+     allowed to remain unpaid, or a pending receivable that won’t cause a ban, decreases linearly from the Debt Threshold gwei \
+     to Permanent Debt Allowed gwei or Unban Below gwei.\n\n\
+     6. Unban Below gwei: When a delinquent Node has been banned due to non-payment, the receivables balance must be paid \
+     below this level -- in gwei of MASQ -- to cause them to be unbanned. In most cases, you'll want this to be set the same \
+     as Permanent Debt Allowed gwei.";
 pub const SCAN_INTERVALS_HELP:&str = "\
      These three intervals describe the length of three different scan cycles running automatically in the background \
      since the Node has connected to a qualified neighborhood that consists of neighbors enabling a complete 3-hop \
@@ -190,7 +190,7 @@ lazy_static! {
         LOWEST_USABLE_INSECURE_PORT, HIGHEST_USABLE_PORT
     );
     pub static ref GAS_PRICE_HELP: String = format!(
-       "The Gas Price is the amount of Gwei you will pay per unit of gas used in a transaction. \
+       "The Gas Price is the amount of gwei you will pay per unit of gas used in a transaction. \
        If left unspecified, MASQ Node will use the previously stored value (Default {}).",
        DEFAULT_GAS_PRICE);
 }
@@ -562,12 +562,19 @@ pub mod common_validators {
         }
     }
 
+    pub fn validate_non_zero_u16(str: String) -> Result<(), String> {
+        match str::parse::<u16>(&str) {
+            Ok(num) if num > 0 => Ok(()),
+            _ => Err(str),
+        }
+    }
+
     pub fn validate_separate_u64_values(values_with_delimiters: String) -> Result<(), String> {
         values_with_delimiters.split('|').try_for_each(|segment| {
             segment
                 .parse::<u64>()
                 .map_err(|_| {
-                    "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
+                    "Supply positive numeric values separated by vertical bars like 111|222|333|..."
                         .to_string()
                 })
                 .map(|_| ())
@@ -629,6 +636,7 @@ mod tests {
 
     use super::*;
     use crate::blockchains::chains::Chain;
+    use crate::shared_schema::common_validators::validate_non_zero_u16;
     use crate::shared_schema::{common_validators, official_chain_names};
 
     #[test]
@@ -788,7 +796,7 @@ mod tests {
         assert_eq!(
             GAS_PRICE_HELP.to_string(),
             format!(
-                "The Gas Price is the amount of Gwei you will pay per unit of gas used in a transaction. \
+                "The Gas Price is the amount of gwei you will pay per unit of gas used in a transaction. \
                  If left unspecified, MASQ Node will use the previously stored value (Default {}).",
                 DEFAULT_GAS_PRICE
             )
@@ -798,13 +806,13 @@ mod tests {
             "These four parameters specify your rates that your Node will use for charging other Nodes for your provided \
              services. These are ever present values, defaulted if left unspecified. The parameters must be always supplied \
              all together, delimited by vertical bars and in the right order.\n\n\
-             1. Routing Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
+             1. Routing Byte Rate: This parameter indicates an amount of MASQ in wei demanded to process 1 byte of routed payload \
              while the Node is a common relay Node.\n\n\
-             2. Routing Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking \
+             2. Routing Service Rate: This parameter indicates an amount of MASQ in wei demanded to provide services, unpacking \
              and repacking 1 CORES package, while the Node is a common relay Node.\n\n\
-             3. Exit Byte Rate: This parameter indicates an amount of MASQ demanded to process 1 byte of routed payload \
+             3. Exit Byte Rate: This parameter indicates an amount of MASQ in wei demanded to process 1 byte of routed payload \
              while the Node acts as the exit Node.\n\n\
-             4. Exit Service Rate: This parameter indicates an amount of MASQ demanded to provide services, unpacking and \
+             4. Exit Service Rate: This parameter indicates an amount of MASQ in wei demanded to provide services, unpacking and \
              repacking 1 CORES package, while the Node acts as the exit Node."
         );
         assert_eq!(
@@ -814,7 +822,7 @@ mod tests {
              exit services. The thresholds are also used to determine whether to offer services to other Nodes or enact a ban \
              since they have not paid mature debts. These are ever present values, no matter if the user's set any value, as \
              they have defaults. The parameters must be always supplied all together, delimited by vertical bars and in the right order.\n\n\
-             1. Debt Threshold Gwei: Payables higher than this -- in Gwei of MASQ -- will be suggested for payment immediately \
+             1. Debt Threshold gwei: Payables higher than this -- in gwei of MASQ -- will be suggested for payment immediately \
              upon passing the Maturity Threshold Sec age. Payables less than this can stay unpaid longer. Receivables higher than \
              this will be expected to be settled by other Nodes, but will never cause bans until they pass the Maturity Threshold Sec \
              + Payment Grace Period Sec age. Receivables less than this will survive longer without banning.\n\n\
@@ -822,15 +830,15 @@ mod tests {
              that it be paid.\n\n\
              3. Payment Grace Period Sec: A large receivable can get as old as Maturity Threshold Sec + Payment Grace Period Sec \
              -- in seconds -- before the Node that owes it will be banned.\n\n\
-             4. Permanent Debt Allowed Gwei: Receivables this small and smaller -- in Gwei of MASQ -- will not cause bans no \
+             4. Permanent Debt Allowed gwei: Receivables this small and smaller -- in gwei of MASQ -- will not cause bans no \
              matter how old they get.\n\n\
              5. Threshold Interval Sec: This interval -- in seconds -- begins after Maturity Threshold Sec for payables and after \
              Maturity Threshold Sec + Payment Grace Period Sec for receivables. During the interval, the amount of a payable that is \
-             allowed to remain unpaid, or a pending receivable that won’t cause a ban, decreases linearly from the Debt Threshold Gwei \
-             to Permanent Debt Allowed Gwei or Unban Below Gwei.\n\n\
-             6. Unban Below Gwei: When a delinquent Node has been banned due to non-payment, the receivables balance must be paid \
-             below this level -- in Gwei of MASQ -- to cause them to be unbanned. In most cases, you'll want this to be set the same \
-             as Permanent Debt Allowed Gwei."
+             allowed to remain unpaid, or a pending receivable that won’t cause a ban, decreases linearly from the Debt Threshold gwei \
+             to Permanent Debt Allowed gwei or Unban Below gwei.\n\n\
+             6. Unban Below gwei: When a delinquent Node has been banned due to non-payment, the receivables balance must be paid \
+             below this level -- in gwei of MASQ -- to cause them to be unbanned. In most cases, you'll want this to be set the same \
+             as Permanent Debt Allowed gwei."
         );
         assert_eq!(
             SCAN_INTERVALS_HELP,
@@ -956,32 +964,39 @@ mod tests {
     }
 
     #[test]
-    fn validate_gas_prices() {
-        let prices = [
-            "0",
-            "1",
-            "18446744073709551615",
-            "18446744073709551616",
-            "not a decimal number",
-            "0x0",
-        ];
+    fn validate_gas_price_zero() {
+        let result = common_validators::validate_gas_price("0".to_string());
 
-        let results = prices
-            .into_iter()
-            .map(|price| common_validators::validate_gas_price(price.to_string()))
-            .collect::<Vec<Result<(), String>>>();
+        assert_eq!(result, Err(String::from("0")));
+    }
 
-        assert_eq!(
-            results,
-            vec![
-                Err("0".to_string()),                    // 0
-                Ok(()),                                  // 1
-                Ok(()),                                  // 18446744073709551615
-                Err("18446744073709551616".to_string()), // 18446744073709551616
-                Err("not a decimal number".to_string()), // not a decimal number
-                Err("0x0".to_string()),                  // 0x0
-            ]
-        );
+    #[test]
+    fn validate_gas_price_normal() {
+        let result = common_validators::validate_gas_price("2".to_string());
+
+        assert_eq!(result, Ok(()));
+    }
+
+    #[test]
+    fn validate_gas_price_max() {
+        let max = 0xFFFFFFFFFFFFFFFFu64;
+        let max_string = max.to_string();
+        let result = common_validators::validate_gas_price(max_string);
+        assert_eq!(Ok(()), result);
+    }
+
+    #[test]
+    fn validate_gas_price_not_digits_fails() {
+        let result = common_validators::validate_gas_price("not".to_string());
+
+        assert_eq!(result, Err(String::from("not")));
+    }
+
+    #[test]
+    fn validate_gas_price_hex_fails() {
+        let result = common_validators::validate_gas_price("0x0".to_string());
+
+        assert_eq!(result, Err(String::from("0x0")));
     }
 
     #[test]
@@ -998,7 +1013,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
     }
@@ -1010,7 +1025,7 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
     }
@@ -1022,9 +1037,44 @@ mod tests {
         assert_eq!(
             result,
             Err(String::from(
-                "Wrong format, supply positive numeric values separated by vertical bars like 111|222|333|..."
+                "Supply positive numeric values separated by vertical bars like 111|222|333|..."
             ))
         )
+    }
+
+    #[test]
+    fn validate_non_zero_u16_happy_path() {
+        let result = validate_non_zero_u16("456".to_string());
+
+        assert_eq!(result, Ok(()))
+    }
+
+    #[test]
+    fn validate_non_zero_u16_sad_path_with_zero() {
+        let result = validate_non_zero_u16("0".to_string());
+
+        assert_eq!(result, Err("0".to_string()))
+    }
+
+    #[test]
+    fn validate_non_zero_u16_sad_path_with_negative() {
+        let result = validate_non_zero_u16("-123".to_string());
+
+        assert_eq!(result, Err("-123".to_string()))
+    }
+
+    #[test]
+    fn validate_non_zero_u16_too_big() {
+        let result = validate_non_zero_u16("65536".to_string());
+
+        assert_eq!(result, Err("65536".to_string()))
+    }
+
+    #[test]
+    fn validate_non_zero_u16_sad_path_just_junk() {
+        let result = validate_non_zero_u16("garbage".to_string());
+
+        assert_eq!(result, Err("garbage".to_string()))
     }
 
     #[test]
