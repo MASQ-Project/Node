@@ -107,27 +107,27 @@ impl BeginScanError {
         scan_type: ScanType,
         is_externally_triggered: bool,
     ) {
-        match self {
-            BeginScanError::NothingToProcess => {
-                let log_message =
-                    format!("There was nothing to process during {:?} scan.", scan_type);
+        let log_message_opt = match self {
+            BeginScanError::NothingToProcess => Some(format!(
+                "There was nothing to process during {:?} scan.",
+                scan_type
+            )),
+            BeginScanError::ScanAlreadyRunning(timestamp) => Some(format!(
+                "{:?} scan was already initiated at {}. \
+                 Hence, this scan request will be ignored.",
+                scan_type,
+                BeginScanError::timestamp_as_string(&timestamp)
+            )),
+            BeginScanError::CalledFromNullScanner => match cfg!(test) {
+                true => None,
+                false => panic!("Null Scanner shouldn't be running inside production code."),
+            },
+        };
 
-                BeginScanError::log(logger, log_message, is_externally_triggered);
-            }
-            BeginScanError::ScanAlreadyRunning(timestamp) => {
-                let log_message = format!(
-                    "{:?} scan was already initiated at {}. \
-                     Hence, this scan request will be ignored.",
-                    scan_type,
-                    BeginScanError::timestamp_as_string(&timestamp)
-                );
-
-                BeginScanError::log(logger, log_message, is_externally_triggered);
-            }
-            BeginScanError::CalledFromNullScanner => {
-                if !cfg!(test) {
-                    panic!("Null Scanner shouldn't be running inside production code.")
-                }
+        if let Some(log_message) = log_message_opt {
+            match is_externally_triggered {
+                true => info!(logger, "{}", log_message),
+                false => debug!(logger, "{}", log_message),
             }
         }
     }
@@ -140,13 +140,6 @@ impl BeginScanError {
                     .expect("Error while parsing the time formatting string."),
             )
             .expect("Error while formatting timestamp as string.")
-    }
-
-    fn log(logger: &Logger, log_message: String, is_externally_triggered: bool) {
-        match is_externally_triggered {
-            true => info!(logger, "{}", log_message),
-            false => debug!(logger, "{}", log_message),
-        }
     }
 }
 
@@ -1747,7 +1740,7 @@ mod tests {
         assert_eq!(message_opt, None);
         assert_eq!(is_scan_running, false);
         let tlh = TestLogHandler::new();
-        tlh.exists_log_matching(&format!(
+        tlh.exists_log_containing(&format!(
             "DEBUG: {test_name}: No transaction receipts found."
         ));
         tlh.exists_log_matching(&format!(
