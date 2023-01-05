@@ -874,7 +874,7 @@ mod tests {
 
     fn timestamp_as_string(timestamp: OffsetDateTime) -> String {
         timestamp
-            .format(&parse(TIME_FORMATTING_STRING).expect("Error in parsing"))
+            .format(&parse(TIME_FORMATTING_STRING).unwrap())
             .unwrap()
     }
 
