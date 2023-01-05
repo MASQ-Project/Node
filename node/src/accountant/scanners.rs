@@ -179,6 +179,23 @@ impl ScannerCommon {
     }
 }
 
+macro_rules! time_marking_methods {
+    ($scan_type_variant: ident) => {
+        fn scan_started_at(&self) -> Option<SystemTime> {
+            self.common.initiated_at_opt
+        }
+
+        fn mark_as_started(&mut self, timestamp: SystemTime) {
+            self.common.initiated_at_opt = Some(timestamp);
+        }
+
+        fn mark_as_ended(&mut self, logger: &Logger) {
+            self.common
+                .remove_timestamp_and_log(ScanType::$scan_type_variant, logger);
+        }
+    };
+}
+
 pub struct PayableScanner {
     pub common: ScannerCommon,
     pub payable_dao: Box<dyn PayableDao>,
@@ -250,18 +267,7 @@ impl Scanner<ReportAccountsPayable, SentPayable> for PayableScanner {
             })
     }
 
-    fn scan_started_at(&self) -> Option<SystemTime> {
-        self.common.initiated_at_opt
-    }
-
-    fn mark_as_started(&mut self, timestamp: SystemTime) {
-        self.common.initiated_at_opt = Some(timestamp);
-    }
-
-    fn mark_as_ended(&mut self, logger: &Logger) {
-        self.common
-            .remove_timestamp_and_log(ScanType::Payables, logger);
-    }
+    time_marking_methods!(Payables);
 
     as_any_impl!();
 }
@@ -406,18 +412,7 @@ impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingP
             })
     }
 
-    fn scan_started_at(&self) -> Option<SystemTime> {
-        self.common.initiated_at_opt
-    }
-
-    fn mark_as_started(&mut self, timestamp: SystemTime) {
-        self.common.initiated_at_opt = Some(timestamp);
-    }
-
-    fn mark_as_ended(&mut self, logger: &Logger) {
-        self.common
-            .remove_timestamp_and_log(ScanType::PendingPayables, logger);
-    }
+    time_marking_methods!(PendingPayables);
 
     as_any_impl!();
 }
@@ -642,18 +637,7 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
             })
     }
 
-    fn scan_started_at(&self) -> Option<SystemTime> {
-        self.common.initiated_at_opt
-    }
-
-    fn mark_as_started(&mut self, timestamp: SystemTime) {
-        self.common.initiated_at_opt = Some(timestamp);
-    }
-
-    fn mark_as_ended(&mut self, logger: &Logger) {
-        self.common
-            .remove_timestamp_and_log(ScanType::Receivables, logger);
-    }
+    time_marking_methods!(Receivables);
 
     as_any_impl!();
 }
