@@ -98,7 +98,9 @@ fn make_mock_node_map(
         .map(|node| (node.main_public_key().clone(), node))
         .collect::<HashMap<PublicKey, MASQMockNode>>();
     additional_keys_to_mock.iter().for_each(|key| {
-        let mock_node = cluster.start_mock_node_with_public_key(vec![10000], key);
+        let configurable_mock_node =
+            cluster.start_configurable_mock_node_with_public_key(vec![10000], key);
+        let mock_node = cluster.finish_mock_node(configurable_mock_node);
         let mock_node_key = mock_node.main_public_key().clone();
         mock_node_map.insert(mock_node_key, mock_node);
     });
@@ -187,8 +189,10 @@ fn form_mock_node_skeleton(
         .full_neighbor_keys(model_db)
         .into_iter()
         .map(|model_node_key| {
-            let mut node = cluster.start_mock_node_with_public_key(vec![10000], model_node_key);
-            node.absorb_configuration(model_db.node_by_key(model_node_key).unwrap());
+            let mut configurable_node =
+                cluster.start_configurable_mock_node_with_public_key(vec![10000], model_node_key);
+            configurable_node.absorb_configuration(model_db.node_by_key(model_node_key).unwrap());
+            let node = cluster.finish_mock_node(configurable_node);
             node.transmit_debut(real_node).unwrap();
             node.wait_for_gossip(Duration::from_secs(2)).unwrap();
             let standard_gossip = StandardBuilder::new()

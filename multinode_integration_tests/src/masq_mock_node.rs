@@ -36,12 +36,15 @@ use std::net::SocketAddr;
 use std::net::TcpStream;
 use std::net::{IpAddr, Shutdown};
 use std::ops::Add;
+use std::rc::Rc;
 use std::thread;
 use std::time::{Duration, Instant};
 
 pub struct MASQMockNode {
     control_stream: RefCell<TcpStream>,
-    guts: MASQMockNodeGuts,
+    //keep this smart pointer because any drop() called on a clone of the naked structure
+    //would stop the Docker container for this Node...or redesign...
+    guts: Rc<MASQMockNodeGuts>,
 }
 
 enum CryptDEEnum {
@@ -53,7 +56,7 @@ impl Clone for MASQMockNode {
     fn clone(&self) -> Self {
         MASQMockNode {
             control_stream: RefCell::new(self.control_stream.borrow().try_clone().unwrap()),
-            guts: self.guts.clone(),
+            guts: Rc::clone(&self.guts),
         }
     }
 }
@@ -142,14 +145,19 @@ impl MASQNode for MASQMockNode {
     }
 }
 
-impl MASQMockNode {
+pub struct ConfigurableMASQMockNode {
+    pub control_stream: RefCell<TcpStream>,
+    configurable_guts: MASQMockNodeGuts,
+}
+
+impl ConfigurableMASQMockNode {
     pub fn start_with_public_key(
         ports: Vec<u16>,
         index: usize,
         host_node_parent_dir: Option<String>,
         public_key: &PublicKey,
         chain: Chain,
-    ) -> MASQMockNode {
+    ) -> ConfigurableMASQMockNode {
         let main_cryptde = CryptDENull::from(public_key, chain);
         let mut key = public_key.as_slice().to_vec();
         key.reverse();
@@ -163,7 +171,7 @@ impl MASQMockNode {
         index: usize,
         host_node_parent_dir: Option<String>,
         chain: Chain,
-    ) -> MASQMockNode {
+    ) -> ConfigurableMASQMockNode {
         let cryptde_enum = CryptDEEnum::Real(CryptDEReal::new(chain));
         Self::start_with_cryptde_enum(ports, index, host_node_parent_dir, cryptde_enum)
     }
@@ -173,17 +181,17 @@ impl MASQMockNode {
         index: usize,
         host_node_parent_dir: Option<String>,
         cryptde_enum: CryptDEEnum,
-    ) -> MASQMockNode {
+    ) -> ConfigurableMASQMockNode {
         let name = format!("mock_node_{}", index);
         let node_addr = NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8)), &ports);
         let earning_wallet = make_wallet(format!("{}_earning", name).as_str());
         let consuming_wallet = Some(make_paying_wallet(format!("{}_consuming", name).as_bytes()));
         MASQNodeUtils::clean_up_existing_container(&name[..]);
-        Self::do_docker_run(&node_addr, host_node_parent_dir, &name);
+        MASQMockNode::do_docker_run(&node_addr, host_node_parent_dir, &name);
         let wait_addr = SocketAddr::new(node_addr.ip_addr(), CONTROL_STREAM_PORT);
-        let control_stream = RefCell::new(Self::wait_for_startup(wait_addr, &name));
+        let control_stream = RefCell::new(MASQMockNode::wait_for_startup(wait_addr, &name));
         let framer = RefCell::new(DataHunkFramer::new());
-        let guts = MASQMockNodeGuts {
+        let configurable_guts = MASQMockNodeGuts {
             name,
             node_addr,
             earning_wallet,
@@ -193,12 +201,27 @@ impl MASQMockNode {
             framer,
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
         };
-        MASQMockNode {
+        ConfigurableMASQMockNode {
             control_stream,
-            guts,
+            configurable_guts,
         }
     }
 
+    pub fn absorb_configuration(&mut self, node_record: &NodeRecord) {
+        // Copy attributes from the NodeRecord into the MASQNode.
+        self.configurable_guts.earning_wallet = node_record.earning_wallet();
+        self.configurable_guts.rate_pack = *node_record.rate_pack();
+    }
+
+    pub fn finish_with_guts_pointer(self) -> MASQMockNode {
+        MASQMockNode {
+            control_stream: self.control_stream,
+            guts: Rc::new(self.configurable_guts),
+        }
+    }
+}
+
+impl MASQMockNode {
     pub fn cryptde_real(&self) -> Option<&CryptDEReal> {
         match &self.guts.cryptde_enum {
             CryptDEEnum::Fake(_) => None,
@@ -424,12 +447,6 @@ impl MASQMockNode {
         stream.shutdown(Shutdown::Both).unwrap();
     }
 
-    pub fn absorb_configuration(&mut self, node_record: &NodeRecord) {
-        // Copy attributes from the NodeRecord into the MASQNode.
-        self.guts.earning_wallet = node_record.earning_wallet();
-        self.guts.rate_pack = *node_record.rate_pack();
-    }
-
     fn do_docker_run(node_addr: &NodeAddr, host_node_parent_dir: Option<String>, name: &str) {
         let root = match host_node_parent_dir {
             Some(dir) => dir,
@@ -504,23 +521,5 @@ struct MASQMockNodeGuts {
 impl Drop for MASQMockNodeGuts {
     fn drop(&mut self) {
         MASQNodeUtils::stop(self.name.as_str());
-    }
-}
-
-impl Clone for MASQMockNodeGuts {
-    fn clone(&self) -> Self {
-        Self {
-            name: self.name.clone(),
-            node_addr: self.node_addr.clone(),
-            earning_wallet: self.earning_wallet.clone(),
-            consuming_wallet: self.consuming_wallet.clone(),
-            rate_pack: self.rate_pack,
-            cryptde_enum: match &self.cryptde_enum {
-                CryptDEEnum::Fake((m, a)) => CryptDEEnum::Fake((m.clone(), a.clone())),
-                CryptDEEnum::Real(_) => panic!("A mock Node with a real CryptDE? Seriously?"),
-            },
-            framer: self.framer.clone(),
-            chain: self.chain,
-        }
     }
 }
