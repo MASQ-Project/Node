@@ -889,89 +889,130 @@ impl PendingPayableDaoFactoryMock {
     }
 }
 
-pub type PayableScannerBuilder = PayableScanner;
-
-impl Default for PayableScannerBuilder {
-    fn default() -> PayableScanner {
-        PayableScanner::new(
-            Box::new(PayableDaoMock::new()),
-            Box::new(PendingPayableDaoMock::new()),
-            Rc::new(PaymentThresholds::default()),
-        )
-    }
+pub struct PayableScannerBuilder {
+    payable_dao: PayableDaoMock,
+    pending_payable_dao: PendingPayableDaoMock,
+    payment_thresholds: PaymentThresholds,
 }
 
 impl PayableScannerBuilder {
-    pub fn payable_dao(mut self, payable_dao: PayableDaoMock) -> Self {
-        self.payable_dao = Box::new(payable_dao);
+    pub fn new() -> Self {
+        Self {
+            payable_dao: PayableDaoMock::new(),
+            pending_payable_dao: PendingPayableDaoMock::new(),
+            payment_thresholds: PaymentThresholds::default(),
+        }
+    }
+
+    pub fn payable_dao(mut self, payable_dao: PayableDaoMock) -> PayableScannerBuilder {
+        self.payable_dao = payable_dao;
         self
     }
 
-    pub fn pending_payable_dao(mut self, pending_payable_dao: PendingPayableDaoMock) -> Self {
-        self.pending_payable_dao = Box::new(pending_payable_dao);
+    pub fn pending_payable_dao(
+        mut self,
+        pending_payable_dao: PendingPayableDaoMock,
+    ) -> PayableScannerBuilder {
+        self.pending_payable_dao = pending_payable_dao;
         self
+    }
+
+    pub fn build(self) -> PayableScanner {
+        PayableScanner::new(
+            Box::new(self.payable_dao),
+            Box::new(self.pending_payable_dao),
+            Rc::new(self.payment_thresholds),
+        )
     }
 }
 
-pub type PendingPayableScannerBuilder = PendingPayableScanner;
-
-impl Default for PendingPayableScannerBuilder {
-    fn default() -> PendingPayableScanner {
-        PendingPayableScanner::new(
-            Box::new(PayableDaoMock::new()),
-            Box::new(PendingPayableDaoMock::new()),
-            Rc::new(PaymentThresholds::default()),
-            DEFAULT_PENDING_TOO_LONG_SEC,
-            Rc::new(RefCell::new(FinancialStatistics::default())),
-        )
-    }
+pub struct PendingPayableScannerBuilder {
+    payable_dao: PayableDaoMock,
+    pending_payable_dao: PendingPayableDaoMock,
+    payment_thresholds: PaymentThresholds,
+    when_pending_too_long_sec: u64,
+    financial_statistics: FinancialStatistics,
 }
 
 impl PendingPayableScannerBuilder {
+    pub fn new() -> Self {
+        Self {
+            payable_dao: PayableDaoMock::new(),
+            pending_payable_dao: PendingPayableDaoMock::new(),
+            payment_thresholds: PaymentThresholds::default(),
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
+            financial_statistics: FinancialStatistics::default(),
+        }
+    }
+
     pub fn payable_dao(mut self, payable_dao: PayableDaoMock) -> Self {
-        self.payable_dao = Box::new(payable_dao);
+        self.payable_dao = payable_dao;
         self
     }
 
     pub fn pending_payable_dao(mut self, pending_payable_dao: PendingPayableDaoMock) -> Self {
-        self.pending_payable_dao = Box::new(pending_payable_dao);
+        self.pending_payable_dao = pending_payable_dao;
         self
     }
-}
 
-pub type ReceivableScannerBuilder = ReceivableScanner;
-
-impl Default for ReceivableScannerBuilder {
-    fn default() -> ReceivableScanner {
-        ReceivableScanner::new(
-            Box::new(ReceivableDaoMock::new()),
-            Box::new(BannedDaoMock::new()),
-            Rc::new(PaymentThresholds::default()),
-            Rc::new(make_wallet("earning")),
-            Rc::new(RefCell::new(FinancialStatistics::default())),
+    pub fn build(self) -> PendingPayableScanner {
+        PendingPayableScanner::new(
+            Box::new(self.payable_dao),
+            Box::new(self.pending_payable_dao),
+            Rc::new(self.payment_thresholds),
+            self.when_pending_too_long_sec,
+            Rc::new(RefCell::new(self.financial_statistics)),
         )
     }
 }
 
+pub struct ReceivableScannerBuilder {
+    receivable_dao: ReceivableDaoMock,
+    banned_dao: BannedDaoMock,
+    payment_thresholds: PaymentThresholds,
+    earning_wallet: Wallet,
+    financial_statistics: FinancialStatistics,
+}
+
 impl ReceivableScannerBuilder {
+    pub fn new() -> Self {
+        Self {
+            receivable_dao: ReceivableDaoMock::new(),
+            banned_dao: BannedDaoMock::new(),
+            payment_thresholds: PaymentThresholds::default(),
+            earning_wallet: make_wallet("earning_default"),
+            financial_statistics: FinancialStatistics::default(),
+        }
+    }
+
     pub fn receivable_dao(mut self, receivable_dao: ReceivableDaoMock) -> Self {
-        self.receivable_dao = Box::new(receivable_dao);
+        self.receivable_dao = receivable_dao;
         self
     }
 
     pub fn banned_dao(mut self, banned_dao: BannedDaoMock) -> Self {
-        self.banned_dao = Box::new(banned_dao);
+        self.banned_dao = banned_dao;
         self
     }
 
     pub fn payment_thresholds(mut self, payment_thresholds: PaymentThresholds) -> Self {
-        self.common.payment_thresholds = Rc::new(payment_thresholds);
+        self.payment_thresholds = payment_thresholds;
         self
     }
 
     pub fn earning_wallet(mut self, earning_wallet: Wallet) -> Self {
-        self.earning_wallet = Rc::new(earning_wallet);
+        self.earning_wallet = earning_wallet;
         self
+    }
+
+    pub fn build(self) -> ReceivableScanner {
+        ReceivableScanner::new(
+            Box::new(self.receivable_dao),
+            Box::new(self.banned_dao),
+            Rc::new(self.payment_thresholds),
+            Rc::new(self.earning_wallet),
+            Rc::new(RefCell::new(self.financial_statistics)),
+        )
     }
 }
 
