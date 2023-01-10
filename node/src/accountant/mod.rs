@@ -366,18 +366,14 @@ impl Handler<NodeFromUiMessage> for Accountant {
 }
 
 impl Accountant {
-    pub fn new(mut config: BootstrapperConfig, dao_factories: DaoFactories) -> Accountant {
-        let payment_thresholds = config
-            .payment_thresholds_opt
-            .take()
-            .expectv("Payment thresholds");
-        let scan_intervals = config.scan_intervals_opt.take().expectv("Scan Intervals");
+    pub fn new(config: BootstrapperConfig, dao_factories: DaoFactories) -> Accountant {
+        let payment_thresholds = config.payment_thresholds_opt.expectv("Payment thresholds");
+        let scan_intervals = config.scan_intervals_opt.expectv("Scan Intervals");
         let earning_wallet = Rc::new(config.earning_wallet.clone());
         let financial_statistics = Rc::new(RefCell::new(FinancialStatistics::default()));
         let payable_dao = dao_factories.payable_dao_factory.make();
         let pending_payable_dao = dao_factories.pending_payable_dao_factory.make();
         let receivable_dao = dao_factories.receivable_dao_factory.make();
-
         let scanners = Scanners::new(
             dao_factories,
             Rc::new(payment_thresholds),
