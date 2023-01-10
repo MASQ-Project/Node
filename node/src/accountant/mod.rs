@@ -9,7 +9,7 @@ pub mod scanners_tools;
 pub mod test_utils;
 
 use masq_lib::constants::SCAN_ERROR;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 
 use masq_lib::messages::{ScanType, UiScanRequest};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
@@ -725,8 +725,8 @@ impl Accountant {
         }
     }
 
-    fn financial_statistics(&self) -> FinancialStatistics {
-        self.financial_statistics.borrow().clone()
+    fn financial_statistics(&self) -> Ref<'_, FinancialStatistics> {
+        self.financial_statistics.borrow()
     }
 }
 
@@ -905,7 +905,7 @@ mod tests {
             },
         );
 
-        let financial_statistics = result.financial_statistics();
+        let financial_statistics = result.financial_statistics().clone();
         let notify_later = result.notify_later;
         notify_later
             .scan_for_pending_payable
@@ -3234,7 +3234,7 @@ mod tests {
             .receivable_dao(receivable_dao) // For Accountant
             .receivable_dao(ReceivableDaoMock::new()) // For Scanner
             .build();
-        let mut financial_statistics = subject.financial_statistics();
+        let mut financial_statistics = subject.financial_statistics().clone();
         financial_statistics.total_paid_payable += 123456;
         financial_statistics.total_paid_receivable += 334455;
         subject.financial_statistics.replace(financial_statistics);
