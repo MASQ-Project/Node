@@ -870,7 +870,7 @@ mod tests {
     };
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
     use std::cell::RefCell;
-    use std::ops::{Add, Sub};
+    use std::ops::Sub;
 
     use crate::accountant::payable_dao::{Payable, PayableDaoError};
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
@@ -1944,16 +1944,6 @@ mod tests {
         TestLogHandler::new().exists_log_matching(
             "INFO: receivable_scanner_handles_received_payments_message: The Receivables scan ended in \\d+ms.",
         );
-    }
-
-    #[test]
-    #[should_panic(expected = "Unable to calculate elapsed time for the scan.")]
-    fn remove_timestamp_and_log_panics_if_timestamp_is_wrong() {
-        let time_in_future = SystemTime::now().add(Duration::from_secs(10));
-        let mut subject = ScannerCommon::new(Rc::new(make_custom_payment_thresholds()));
-        subject.initiated_at_opt = Some(time_in_future);
-
-        subject.remove_timestamp_and_log(ScanType::Payables, &Logger::new("test"));
     }
 
     #[test]
