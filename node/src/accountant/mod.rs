@@ -374,22 +374,27 @@ impl Accountant {
         let scan_intervals = config.scan_intervals_opt.take().expectv("Scan Intervals");
         let earning_wallet = Rc::new(config.earning_wallet.clone());
         let financial_statistics = Rc::new(RefCell::new(FinancialStatistics::default()));
+        let payable_dao = dao_factories.payable_dao_factory.make();
+        let pending_payable_dao = dao_factories.pending_payable_dao_factory.make();
+        let receivable_dao = dao_factories.receivable_dao_factory.make();
+
+        let scanners = Scanners::new(
+            dao_factories,
+            Rc::new(payment_thresholds),
+            Rc::clone(&earning_wallet),
+            config.when_pending_too_long_sec,
+            Rc::clone(&financial_statistics),
+        );
 
         Accountant {
             scan_intervals,
             suppress_initial_scans: config.suppress_initial_scans,
             consuming_wallet: config.consuming_wallet_opt.clone(),
             earning_wallet: Rc::clone(&earning_wallet),
-            payable_dao: dao_factories.payable_dao_factory.make(),
-            receivable_dao: dao_factories.receivable_dao_factory.make(),
-            pending_payable_dao: dao_factories.pending_payable_dao_factory.make(),
-            scanners: Scanners::new(
-                dao_factories,
-                Rc::new(payment_thresholds),
-                Rc::clone(&earning_wallet),
-                config.when_pending_too_long_sec,
-                Rc::clone(&financial_statistics),
-            ),
+            payable_dao,
+            receivable_dao,
+            pending_payable_dao,
+            scanners,
             crashable: config.crash_point == CrashPoint::Message,
             notify_later: NotifyLaterForScanners::default(),
             financial_statistics: Rc::clone(&financial_statistics),
