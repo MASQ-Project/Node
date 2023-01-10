@@ -306,7 +306,7 @@ mod tests {
     }
 
     #[test]
-    fn payable_with_debt_smaller_than_permanent_debt_allowed_is_marked_unqualified() {
+    fn payable_with_debt_under_the_slope_is_marked_unqualified() {
         let now = SystemTime::now();
         let payment_thresholds = PaymentThresholds::default();
         let unqualified_debt = payment_thresholds.permanent_debt_allowed_gwei - 1;
@@ -342,7 +342,7 @@ mod tests {
     }
 
     #[test]
-    fn payable_above_threshold_values_is_marked_qualified_and_returns_threshold() {
+    fn payable_with_debt_above_the_slope_is_qualified_and_the_threshold_value_is_returned() {
         let now = SystemTime::now();
         let payment_thresholds = PaymentThresholds::default();
         let debt = payment_thresholds.debt_threshold_gwei - 1;
