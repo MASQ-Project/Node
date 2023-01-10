@@ -2,6 +2,7 @@
 
 #![cfg(test)]
 
+use crate::accountant::dao_utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
@@ -11,13 +12,11 @@ use crate::accountant::pending_payable_dao::{
 use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
-use crate::accountant::{Accountant, PendingPayableId};
+use crate::accountant::{gwei_to_wei, Accountant, PendingPayableId};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::bootstrapper::BootstrapperConfig;
-use crate::database::dao_utils;
-use crate::database::dao_utils::{from_time_t, to_time_t};
 use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
 use crate::sub_lib::accountant::{AccountantConfig, MessageIdGenerator, PaymentThresholds};
@@ -26,8 +25,9 @@ use crate::test_utils::make_wallet;
 use crate::test_utils::unshared_test_utils::make_populated_accountant_config_with_defaults;
 use actix::System;
 use ethereum_types::{BigEndianHash, H256, U256};
-use rusqlite::{Connection, Error, OptionalExtension};
+use rusqlite::{Connection, Row};
 use std::cell::RefCell;
+use std::fmt::Debug;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -40,7 +40,7 @@ pub fn make_receivable_account(n: u64, expected_delinquent: bool) -> ReceivableA
             n,
             if expected_delinquent { "d" } else { "n" }
         )),
-        balance: (n * 1_000_000_000) as i64,
+        balance_wei: gwei_to_wei(n),
         last_received_timestamp: from_time_t(now - (n as i64)),
     }
 }
@@ -50,19 +50,19 @@ pub fn make_payable_account(n: u64) -> PayableAccount {
     let timestamp = from_time_t(now - (n as i64));
     make_payable_account_with_recipient_and_balance_and_timestamp_opt(
         make_wallet(&format!("wallet{}", n)),
-        (n * 1_000_000_000) as i64,
+        gwei_to_wei(n),
         Some(timestamp),
     )
 }
 
 pub fn make_payable_account_with_recipient_and_balance_and_timestamp_opt(
     recipient: Wallet,
-    balance: i64,
+    balance: u128,
     timestamp_opt: Option<SystemTime>,
 ) -> PayableAccount {
     PayableAccount {
         wallet: recipient,
-        balance,
+        balance_wei: balance,
         last_paid_timestamp: timestamp_opt.unwrap_or(SystemTime::now()),
         pending_payable_opt: None,
     }
@@ -260,20 +260,20 @@ impl ConfigDaoFactoryMock {
 
 #[derive(Debug, Default)]
 pub struct PayableDaoMock {
-    more_money_payable_parameters: Arc<Mutex<Vec<(SystemTime, Wallet, u64)>>>,
+    more_money_payable_parameters: Arc<Mutex<Vec<(SystemTime, Wallet, u128)>>>,
     more_money_payable_results: RefCell<Vec<Result<(), PayableDaoError>>>,
-    non_pending_payables_params: Arc<Mutex<Vec<()>>>,
-    non_pending_payables_results: RefCell<Vec<Vec<PayableAccount>>>,
+    non_pending_payable_params: Arc<Mutex<Vec<()>>>,
+    non_pending_payable_results: RefCell<Vec<Vec<PayableAccount>>>,
     mark_pending_payable_rowid_parameters: Arc<Mutex<Vec<(Wallet, u64)>>>,
     mark_pending_payable_rowid_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     transaction_confirmed_params: Arc<Mutex<Vec<PendingPayableFingerprint>>>,
     transaction_confirmed_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     transaction_canceled_params: Arc<Mutex<Vec<PendingPayableId>>>,
     transaction_canceled_results: RefCell<Vec<Result<(), PayableDaoError>>>,
-    top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
-    top_records_results: RefCell<Vec<Vec<PayableAccount>>>,
-    total_results: RefCell<Vec<u64>>,
-    pub have_non_pending_payables_shut_down_the_system: bool,
+    custom_query_params: Arc<Mutex<Vec<CustomQuery<u64>>>>,
+    custom_query_result: RefCell<Vec<Option<Vec<PayableAccount>>>>,
+    total_results: RefCell<Vec<u128>>,
+    pub have_non_pending_payable_shut_down_the_system: bool,
 }
 
 impl PayableDao for PayableDaoMock {
@@ -281,7 +281,7 @@ impl PayableDao for PayableDaoMock {
         &self,
         now: SystemTime,
         wallet: &Wallet,
-        amount: u64,
+        amount: u128,
     ) -> Result<(), PayableDaoError> {
         self.more_money_payable_parameters
             .lock()
@@ -316,26 +316,28 @@ impl PayableDao for PayableDaoMock {
     }
 
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
-        self.non_pending_payables_params.lock().unwrap().push(());
-        if self.have_non_pending_payables_shut_down_the_system
-            && self.non_pending_payables_results.borrow().is_empty()
+        self.non_pending_payable_params.lock().unwrap().push(());
+        if self.have_non_pending_payable_shut_down_the_system
+            && self.non_pending_payable_results.borrow().is_empty()
         {
             System::current().stop();
             return vec![];
         }
-        self.non_pending_payables_results.borrow_mut().remove(0)
+        self.non_pending_payable_results.borrow_mut().remove(0)
     }
 
-    fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<PayableAccount> {
-        self.top_records_parameters
-            .lock()
-            .unwrap()
-            .push((minimum_amount, maximum_age));
-        self.top_records_results.borrow_mut().remove(0)
+    fn custom_query(&self, custom_query: CustomQuery<u64>) -> Option<Vec<PayableAccount>> {
+        self.custom_query_params.lock().unwrap().push(custom_query);
+        self.custom_query_result.borrow_mut().remove(0)
     }
 
-    fn total(&self) -> u64 {
+    fn total(&self) -> u128 {
         self.total_results.borrow_mut().remove(0)
+    }
+
+    fn account_status(&self, _wallet: &Wallet) -> Option<PayableAccount> {
+        //test-only trait member
+        intentionally_blank!()
     }
 }
 
@@ -346,7 +348,7 @@ impl PayableDaoMock {
 
     pub fn more_money_payable_params(
         mut self,
-        parameters: Arc<Mutex<Vec<(SystemTime, Wallet, u64)>>>,
+        parameters: Arc<Mutex<Vec<(SystemTime, Wallet, u128)>>>,
     ) -> Self {
         self.more_money_payable_parameters = parameters;
         self
@@ -358,12 +360,12 @@ impl PayableDaoMock {
     }
 
     pub fn non_pending_payables_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-        self.non_pending_payables_params = params.clone();
+        self.non_pending_payable_params = params.clone();
         self
     }
 
     pub fn non_pending_payables_result(self, result: Vec<PayableAccount>) -> Self {
-        self.non_pending_payables_results.borrow_mut().push(result);
+        self.non_pending_payable_results.borrow_mut().push(result);
         self
     }
 
@@ -408,17 +410,17 @@ impl PayableDaoMock {
         self
     }
 
-    pub fn top_records_parameters(mut self, parameters: &Arc<Mutex<Vec<(u64, u64)>>>) -> Self {
-        self.top_records_parameters = parameters.clone();
+    pub fn custom_query_params(mut self, params: &Arc<Mutex<Vec<CustomQuery<u64>>>>) -> Self {
+        self.custom_query_params = params.clone();
         self
     }
 
-    pub fn top_records_result(self, result: Vec<PayableAccount>) -> Self {
-        self.top_records_results.borrow_mut().push(result);
+    pub fn custom_query_result(self, result: Option<Vec<PayableAccount>>) -> Self {
+        self.custom_query_result.borrow_mut().push(result);
         self
     }
 
-    pub fn total_result(self, result: u64) -> Self {
+    pub fn total_result(self, result: u128) -> Self {
         self.total_results.borrow_mut().push(result);
         self
     }
@@ -426,20 +428,17 @@ impl PayableDaoMock {
 
 #[derive(Debug, Default)]
 pub struct ReceivableDaoMock {
-    account_status_parameters: Arc<Mutex<Vec<Wallet>>>,
-    account_status_results: RefCell<Vec<Option<ReceivableAccount>>>,
-    more_money_receivable_parameters: Arc<Mutex<Vec<(SystemTime, Wallet, u64)>>>,
+    more_money_receivable_parameters: Arc<Mutex<Vec<(SystemTime, Wallet, u128)>>>,
     more_money_receivable_results: RefCell<Vec<Result<(), ReceivableDaoError>>>,
     more_money_received_parameters: Arc<Mutex<Vec<(SystemTime, Vec<BlockchainTransaction>)>>>,
     more_money_received_results: RefCell<Vec<Result<(), PayableDaoError>>>,
-    receivables_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     new_delinquencies_parameters: Arc<Mutex<Vec<(SystemTime, PaymentThresholds)>>>,
     new_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
     paid_delinquencies_parameters: Arc<Mutex<Vec<PaymentThresholds>>>,
     paid_delinquencies_results: RefCell<Vec<Vec<ReceivableAccount>>>,
-    top_records_parameters: Arc<Mutex<Vec<(u64, u64)>>>,
-    top_records_results: RefCell<Vec<Vec<ReceivableAccount>>>,
-    total_results: RefCell<Vec<i64>>,
+    custom_query_params: Arc<Mutex<Vec<CustomQuery<i64>>>>,
+    custom_query_result: RefCell<Vec<Option<Vec<ReceivableAccount>>>>,
+    total_results: RefCell<Vec<i128>>,
     pub have_new_delinquencies_shutdown_the_system: bool,
 }
 
@@ -448,7 +447,7 @@ impl ReceivableDao for ReceivableDaoMock {
         &self,
         now: SystemTime,
         wallet: &Wallet,
-        amount: u64,
+        amount: u128,
     ) -> Result<(), ReceivableDaoError> {
         self.more_money_receivable_parameters
             .lock()
@@ -462,19 +461,6 @@ impl ReceivableDao for ReceivableDaoMock {
             .lock()
             .unwrap()
             .push((now, transactions));
-    }
-
-    fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount> {
-        self.account_status_parameters
-            .lock()
-            .unwrap()
-            .push(wallet.clone());
-
-        self.account_status_results.borrow_mut().remove(0)
-    }
-
-    fn receivables(&self) -> Vec<ReceivableAccount> {
-        self.receivables_results.borrow_mut().remove(0)
     }
 
     fn new_delinquencies(
@@ -503,16 +489,18 @@ impl ReceivableDao for ReceivableDaoMock {
         self.paid_delinquencies_results.borrow_mut().remove(0)
     }
 
-    fn top_records(&self, minimum_amount: u64, maximum_age: u64) -> Vec<ReceivableAccount> {
-        self.top_records_parameters
-            .lock()
-            .unwrap()
-            .push((minimum_amount, maximum_age));
-        self.top_records_results.borrow_mut().remove(0)
+    fn custom_query(&self, custom_query: CustomQuery<i64>) -> Option<Vec<ReceivableAccount>> {
+        self.custom_query_params.lock().unwrap().push(custom_query);
+        self.custom_query_result.borrow_mut().remove(0)
     }
 
-    fn total(&self) -> i64 {
+    fn total(&self) -> i128 {
         self.total_results.borrow_mut().remove(0)
+    }
+
+    fn account_status(&self, _wallet: &Wallet) -> Option<ReceivableAccount> {
+        //test-only trait member
+        intentionally_blank!()
     }
 }
 
@@ -523,7 +511,7 @@ impl ReceivableDaoMock {
 
     pub fn more_money_receivable_parameters(
         mut self,
-        parameters: &Arc<Mutex<Vec<(SystemTime, Wallet, u64)>>>,
+        parameters: &Arc<Mutex<Vec<(SystemTime, Wallet, u128)>>>,
     ) -> Self {
         self.more_money_receivable_parameters = parameters.clone();
         self
@@ -573,17 +561,17 @@ impl ReceivableDaoMock {
         self
     }
 
-    pub fn top_records_parameters(mut self, parameters: &Arc<Mutex<Vec<(u64, u64)>>>) -> Self {
-        self.top_records_parameters = parameters.clone();
+    pub fn custom_query_params(mut self, params: &Arc<Mutex<Vec<CustomQuery<i64>>>>) -> Self {
+        self.custom_query_params = params.clone();
         self
     }
 
-    pub fn top_records_result(self, result: Vec<ReceivableAccount>) -> Self {
-        self.top_records_results.borrow_mut().push(result);
+    pub fn custom_query_result(self, result: Option<Vec<ReceivableAccount>>) -> Self {
+        self.custom_query_result.borrow_mut().push(result);
         self
     }
 
-    pub fn total_result(self, result: i64) -> Self {
+    pub fn total_result(self, result: i128) -> Self {
         self.total_results.borrow_mut().push(result);
         self
     }
@@ -666,7 +654,7 @@ pub struct PendingPayableDaoMock {
     fingerprint_rowid_results: RefCell<Vec<Option<u64>>>,
     delete_fingerprint_params: Arc<Mutex<Vec<u64>>>,
     delete_fingerprint_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
-    insert_fingerprint_params: Arc<Mutex<Vec<(H256, u64, SystemTime)>>>,
+    insert_fingerprint_params: Arc<Mutex<Vec<(H256, u128, SystemTime)>>>,
     insert_fingerprint_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
     update_fingerprint_params: Arc<Mutex<Vec<u64>>>,
     update_fingerprint_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
@@ -700,7 +688,7 @@ impl PendingPayableDao for PendingPayableDaoMock {
     fn insert_new_fingerprint(
         &self,
         transaction_hash: H256,
-        amount: u64,
+        amount: u128,
         timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError> {
         self.insert_fingerprint_params
@@ -739,7 +727,7 @@ impl PendingPayableDaoMock {
 
     pub fn insert_fingerprint_params(
         mut self,
-        params: &Arc<Mutex<Vec<(H256, u64, SystemTime)>>>,
+        params: &Arc<Mutex<Vec<(H256, u128, SystemTime)>>>,
     ) -> Self {
         self.insert_fingerprint_params = params.clone();
         self
@@ -830,6 +818,13 @@ pub fn make_pending_payable_fingerprint() -> PendingPayableFingerprint {
     }
 }
 
+pub fn convert_to_all_string_values(str_args: Vec<(&str, &str)>) -> Vec<(String, String)> {
+    str_args
+        .into_iter()
+        .map(|(a, b)| (a.to_string(), b.to_string()))
+        .collect()
+}
+
 #[derive(Default)]
 pub struct MessageIdGeneratorMock {
     ids: RefCell<Vec<u32>>,
@@ -848,35 +843,16 @@ impl MessageIdGeneratorMock {
     }
 }
 
-//warning: this test function will not tell you anything about the transaction record in the pending_payable table
-pub fn account_status(conn: &Connection, wallet: &Wallet) -> Option<PayableAccount> {
-    let mut stmt = conn
-        .prepare("select balance, last_paid_timestamp, pending_payable_rowid from payable where wallet_address = ?")
+pub fn assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types<F, R>(tested_fn: F)
+where
+    F: Fn(&Row) -> rusqlite::Result<R>,
+{
+    let conn = Connection::open_in_memory().unwrap();
+    conn.execute("create table whatever (exclamations text)", [])
         .unwrap();
-    stmt.query_row(&[&wallet], |row| {
-        let balance_result = row.get(0);
-        let last_paid_timestamp_result = row.get(1);
-        let pending_payable_rowid_result: Result<Option<i64>, Error> = row.get(2);
-        match (
-            balance_result,
-            last_paid_timestamp_result,
-            pending_payable_rowid_result,
-        ) {
-            (Ok(balance), Ok(last_paid_timestamp), Ok(rowid)) => Ok(PayableAccount {
-                wallet: wallet.clone(),
-                balance,
-                last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-                pending_payable_opt: match rowid {
-                    Some(rowid) => Some(PendingPayableId {
-                        rowid: u64::try_from(rowid).unwrap(),
-                        hash: H256::from_uint(&U256::from(0)), //garbage
-                    }),
-                    None => None,
-                },
-            }),
-            _ => panic!("Database is corrupt: PAYABLE table columns and/or types"),
-        }
-    })
-    .optional()
-    .unwrap()
+    conn.execute("insert into whatever (exclamations) values ('Gosh')", [])
+        .unwrap();
+
+    conn.query_row("select exclamations from whatever", [], tested_fn)
+        .unwrap();
 }

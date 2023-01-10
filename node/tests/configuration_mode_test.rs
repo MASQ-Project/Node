@@ -73,7 +73,7 @@ fn dump_configuration_and_no_preexisting_database_integration() {
             let stderr = String::from_utf8_lossy(&output.stderr);
             assert_string_contains(stderr.as_ref(), "Could not find database at:");
             assert_string_contains(stderr.as_ref(),
-                                   "Would be created when the Node firstly operates. Running --dump-config before has no effect"
+                                   "It is created when the Node operates the first time. Running --dump-config before that has no effect"
             )
         }
     };

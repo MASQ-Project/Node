@@ -132,8 +132,8 @@ impl Default for ConfigDaoNull {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::DbInitializer;
-    use crate::database::db_migrations::MigratorConfig;
     use crate::db_config::config_dao::ConfigDaoReal;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::{DEFAULT_CHAIN, ETH_MAINNET_CONTRACT_CREATION_BLOCK};
@@ -207,7 +207,7 @@ mod tests {
         );
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&data_dir, true, MigratorConfig::test_default())
+            .initialize(&data_dir, DbInitializationConfig::test_default())
             .unwrap();
         let real_config_dao = ConfigDaoReal::new(conn);
         let subject = ConfigDaoNull::default();

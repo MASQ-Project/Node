@@ -8,8 +8,9 @@ use masq_lib::utils::NeighborhoodModeLight;
 use node_lib::accountant::payable_dao::{PayableDao, PayableDaoReal};
 use node_lib::accountant::receivable_dao::{ReceivableDao, ReceivableDaoReal};
 use node_lib::database::connection_wrapper::ConnectionWrapper;
-use node_lib::database::db_initializer::{DbInitializer, DbInitializerReal};
-use node_lib::database::db_migrations::{ExternalData, MigratorConfig};
+use node_lib::database::db_initializer::{
+    DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData,
+};
 use node_lib::db_config::config_dao::{ConfigDao, ConfigDaoReal};
 use node_lib::neighborhood::node_record::NodeRecordInner_0v1;
 use node_lib::neighborhood::AccessibleGossipRecord;
@@ -76,8 +77,7 @@ pub fn database_conn(node_name: &str) -> Box<dyn ConnectionWrapper> {
     db_initializer
         .initialize(
             &path,
-            true,
-            MigratorConfig::create_or_migrate(ExternalData {
+            DbInitializationConfig::create_or_migrate(ExternalData {
                 chain: TEST_DEFAULT_MULTINODE_CHAIN,
                 neighborhood_mode: NeighborhoodModeLight::Standard,
                 db_password_opt: None,

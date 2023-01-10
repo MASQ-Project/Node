@@ -1,3 +1,4 @@
+use std::fmt::{Debug, Formatter};
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::messages::SerializableLogLevel;
 #[cfg(not(feature = "log_recipient_test"))]
@@ -45,6 +46,12 @@ pub struct Logger {
     name: String,
     #[cfg(not(feature = "no_test_share"))]
     level_limit: Level,
+}
+
+impl Debug for Logger {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Logger{{ name: \"{}\" }}", self.name)
+    }
 }
 
 #[macro_export]
@@ -870,6 +877,13 @@ mod tests {
         tlh.exists_log_containing("info! 42");
         tlh.exists_log_containing("warning! 42");
         tlh.exists_log_containing("error! 42");
+    }
+
+    #[test]
+    fn debug_for_logger() {
+        let logger = Logger::new("my new logger");
+
+        assert_eq!(format!("{:?}", logger), "Logger{ name: \"my new logger\" }")
     }
 
     fn timestamp_as_string(timestamp: OffsetDateTime) -> String {

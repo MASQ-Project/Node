@@ -13,11 +13,13 @@ use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
 use crate::blockchain::blockchain_bridge::BlockchainBridge;
 use crate::bootstrapper::CryptDEPair;
+use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{connection_or_panic, DbInitializer, DbInitializerReal};
-use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::persistent_configuration::PersistentConfiguration;
 use crate::node_configurator::configurator::Configurator;
-use crate::sub_lib::accountant::AccountantSubs;
+use crate::sub_lib::accountant::{
+    AccountantSubs, AccountantSubsFactory, AccountantSubsFactoryReal,
+};
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::configurator::ConfiguratorSubs;
 use crate::sub_lib::cryptde::CryptDE;
@@ -47,7 +49,6 @@ use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, AutomapProtocol};
 use std::net::{IpAddr, Ipv4Addr};
-use std::path::Path;
 
 pub trait ActorSystemFactory {
     fn make_and_start_actors(
@@ -153,9 +154,9 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         let neighborhood_subs = actor_factory.make_and_start_neighborhood(cryptdes.main, &config);
         let accountant_subs = actor_factory.make_and_start_accountant(
             &config,
-            &config.data_directory.clone(),
             &db_initializer,
             &BannedCacheLoaderReal {},
+            &AccountantSubsFactoryReal {},
         );
         let ui_gateway_subs = actor_factory.make_and_start_ui_gateway(&config);
         let stream_handler_pool_subs = actor_factory.make_and_start_stream_handler_pool(&config);
@@ -360,9 +361,9 @@ pub trait ActorFactory {
     fn make_and_start_accountant(
         &self,
         config: &BootstrapperConfig,
-        data_directory: &Path,
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
+        accountant_subs_factory: &dyn AccountantSubsFactory,
     ) -> AccountantSubs;
     fn make_and_start_ui_gateway(&self, config: &BootstrapperConfig) -> UiGatewaySubs;
     fn make_and_start_stream_handler_pool(
@@ -439,11 +440,11 @@ impl ActorFactory for ActorFactoryReal {
     fn make_and_start_accountant(
         &self,
         config: &BootstrapperConfig,
-        data_directory: &Path,
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
+        accountant_subs_factory: &dyn AccountantSubsFactory,
     ) -> AccountantSubs {
-        let cloned_config = config.clone();
+        let data_directory = config.data_directory.as_path();
         let payable_dao_factory = Accountant::dao_factory(data_directory);
         let receivable_dao_factory = Accountant::dao_factory(data_directory);
         let pending_payable_dao_factory = Accountant::dao_factory(data_directory);
@@ -451,9 +452,9 @@ impl ActorFactory for ActorFactoryReal {
         banned_cache_loader.load(connection_or_panic(
             db_initializer,
             data_directory,
-            false,
-            MigratorConfig::panic_on_migration(),
+            DbInitializationConfig::panic_on_migration(),
         ));
+        let cloned_config = config.clone();
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Accountant> = arbiter.start(move |_| {
             Accountant::new(
@@ -464,7 +465,7 @@ impl ActorFactory for ActorFactoryReal {
                 Box::new(banned_dao_factory),
             )
         });
-        Accountant::make_subs_from(&addr)
+        accountant_subs_factory.make(&addr)
     }
 
     fn make_and_start_ui_gateway(&self, config: &BootstrapperConfig) -> UiGatewaySubs {
@@ -600,6 +601,9 @@ impl LogRecipientSetter for LogRecipientSetterReal {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::accountant::check_sqlite_fns::TestUserDefinedSqliteFnsForNewDelinquencies;
+    use crate::accountant::test_utils::bc_from_ac_plus_earning_wallet;
+    use crate::actor_system_factory::tests::ShouldWeRunTheTest::{GoAhead, Skip};
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::node_test_utils::{
@@ -639,20 +643,27 @@ mod tests {
     use automap_lib::mocks::{
         parameterizable_automap_control, TransactorMock, PUBLIC_IP, ROUTER_IP,
     };
-    use crossbeam_channel::unbounded;
+    use crossbeam_channel::{bounded, unbounded, Sender};
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
     #[cfg(feature = "log_recipient_test")]
     use masq_lib::logger::INITIALIZATION_COUNTER;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest, UiDescriptorRequest};
-    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use masq_lib::test_utils::utils::{
+        check_if_source_code_is_attached, ensure_node_home_directory_exists, ShouldWeRunTheTest,
+        TEST_DEFAULT_CHAIN,
+    };
     use masq_lib::ui_gateway::NodeFromUiMessage;
     use masq_lib::utils::running_test;
     use masq_lib::utils::AutomapProtocol::Igdp;
+    use regex::Regex;
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::convert::TryFrom;
+    use std::env::current_dir;
+    use std::fs::File;
+    use std::io::{BufRead, BufReader};
     use std::net::Ipv4Addr;
     use std::net::{IpAddr, SocketAddr, SocketAddrV4};
     use std::path::PathBuf;
@@ -855,15 +866,15 @@ mod tests {
         fn make_and_start_accountant(
             &self,
             config: &BootstrapperConfig,
-            data_directory: &Path,
             _db_initializer: &dyn DbInitializer,
             _banned_cache_loader: &dyn BannedCacheLoader,
+            _accountant_subs_factory: &dyn AccountantSubsFactory,
         ) -> AccountantSubs {
             self.parameters
                 .accountant_params
                 .lock()
                 .unwrap()
-                .get_or_insert((config.clone(), data_directory.to_path_buf()));
+                .get_or_insert(config.clone());
             let addr: Addr<Recorder> = start_recorder_refcell_opt(&self.accountant);
             make_accountant_subs_from_recorder(&addr)
         }
@@ -940,7 +951,7 @@ mod tests {
         proxy_server_params: Arc<Mutex<Option<(CryptDEPair, BootstrapperConfig)>>>,
         hopper_params: Arc<Mutex<Option<HopperConfig>>>,
         neighborhood_params: Arc<Mutex<Option<(&'a dyn CryptDE, BootstrapperConfig)>>>,
-        accountant_params: Arc<Mutex<Option<(BootstrapperConfig, PathBuf)>>>,
+        accountant_params: Arc<Mutex<Option<BootstrapperConfig>>>,
         ui_gateway_params: Arc<Mutex<Option<UiGatewayConfig>>>,
         blockchain_bridge_params: Arc<Mutex<Option<BootstrapperConfig>>>,
         configurator_params: Arc<Mutex<Option<BootstrapperConfig>>>,
@@ -1815,6 +1826,152 @@ mod tests {
         );
     }
 
+    struct AccountantSubsFactoryTestOnly {
+        address_leaker: Sender<Addr<Accountant>>,
+    }
+
+    impl AccountantSubsFactory for AccountantSubsFactoryTestOnly {
+        fn make(&self, addr: &Addr<Accountant>) -> AccountantSubs {
+            self.address_leaker.try_send(addr.clone()).unwrap();
+            let nonsensical_addr = Recorder::new().start();
+            make_accountant_subs_from_recorder(&nonsensical_addr)
+        }
+    }
+
+    fn check_ongoing_usage_of_user_defined_fns_within_new_delinquencies_for_receivable_dao(
+    ) -> ShouldWeRunTheTest {
+        fn skip_down_to_first_line_saying_new_delinquencies(
+            previous: impl Iterator<Item = String>,
+        ) -> impl Iterator<Item = String> {
+            previous
+                .skip_while(|line| {
+                    let adjusted_line: String = line
+                        .chars()
+                        .skip_while(|char| char.is_whitespace())
+                        .collect();
+                    !adjusted_line.starts_with("fn new_delinquencies(")
+                })
+                .skip(1)
+        }
+        fn user_defined_functions_detected(line_undivided_fn_body: &str) -> bool {
+            line_undivided_fn_body.contains(" slope_drop_high_bytes(")
+                && line_undivided_fn_body.contains(" slope_drop_low_bytes(")
+        }
+        fn assert_is_not_trait_definition(body_lines: impl Iterator<Item = String>) -> String {
+            fn yield_if_contains_semicolon(line: &str) -> Option<String> {
+                line.contains(';').then(|| line.to_string())
+            }
+            let mut semicolon_line_opt = None;
+            let line_undivided_fn_body = body_lines
+                .map(|line| {
+                    if semicolon_line_opt.is_none() {
+                        if let Some(result) = yield_if_contains_semicolon(&line) {
+                            semicolon_line_opt = Some(result)
+                        }
+                    }
+                    line
+                })
+                .collect::<String>();
+            if let Some(line) = semicolon_line_opt {
+                let regex = Regex::new(r"Vec<\w+>;").unwrap();
+                if regex.is_match(&line) {
+                    // The important part of the regex is the ending semicolon. Trait implementations don't use it;
+                    // they just go on with an opening bracket of the function body. Its presence therefore signifies
+                    // we have to do with a trait definition
+                    panic!("the second parsed chunk of code is a trait definition and the implementation lies first")
+                }
+            } else {
+                () //means is a clean function body without semicolon
+            }
+            line_undivided_fn_body
+        }
+
+        let current_dir = current_dir().unwrap();
+        let file_path = current_dir
+            .join("src")
+            .join("accountant")
+            .join("receivable_dao.rs");
+        let file = match File::open(file_path) {
+            Ok(file) => file,
+            Err(_) => {
+                if Skip == check_if_source_code_is_attached(&current_dir) {
+                    return Skip;
+                } else {
+                    panic!(
+                        "if panics, the file receivable_dao.rs probably doesn't exist or \
+                has been moved to an unexpected location"
+                    )
+                }
+            }
+        };
+        let reader = BufReader::new(file);
+        let lines_without_fn_trait_definition =
+            skip_down_to_first_line_saying_new_delinquencies(reader.lines().flatten());
+        let function_body_ready_for_final_check = {
+            let assumed_implemented_function_body =
+                skip_down_to_first_line_saying_new_delinquencies(lines_without_fn_trait_definition)
+                    .take_while(|line| {
+                        let adjusted_line: String = line
+                            .chars()
+                            .skip_while(|char| char.is_whitespace())
+                            .collect();
+                        !adjusted_line.starts_with("fn")
+                    });
+            assert_is_not_trait_definition(assumed_implemented_function_body)
+        };
+        if user_defined_functions_detected(&function_body_ready_for_final_check) {
+            GoAhead
+        } else {
+            panic!("was about to test user-defined SQLite functions (slope_drop_high_bytes and slope_drop_low_bytes)
+             in new_delinquencies() but found out those are absent at the expected place and would leave falsely positive results")
+        }
+    }
+
+    #[test]
+    fn our_big_int_sqlite_functions_are_linked_to_receivable_dao_within_accountant() {
+        //condition: .new_delinquencies() still encompasses our user defined functions (that's why a formal check opens this test)
+        if let Skip =
+            check_ongoing_usage_of_user_defined_fns_within_new_delinquencies_for_receivable_dao()
+        {
+            eprintln!("skipping test our_big_int_sqlite_functions_are_linked_to_receivable_dao_within_accountant;
+             was unable to find receivable_dao.rs");
+            return;
+        };
+        let data_dir = ensure_node_home_directory_exists(
+            "actor_system_factory",
+            "our_big_int_sqlite_functions_are_linked_to_receivable_dao_within_accountant",
+        );
+        let accountant_config = make_populated_accountant_config_with_defaults();
+        let _ = DbInitializerReal::default()
+            .initialize(data_dir.as_ref(), DbInitializationConfig::test_default())
+            .unwrap();
+        let mut b_config = bc_from_ac_plus_earning_wallet(accountant_config, make_wallet("mine"));
+        b_config.data_directory = data_dir;
+        let system = System::new(
+            "our_big_int_sqlite_functions_are_linked_to_receivable_dao_within_accountant",
+        );
+        let (addr_tx, addr_rv) = bounded(1);
+        let subject = ActorFactoryReal {};
+
+        subject.make_and_start_accountant(
+            &b_config,
+            &DbInitializerReal::default(),
+            &BannedCacheLoaderMock::default(),
+            &AccountantSubsFactoryTestOnly {
+                address_leaker: addr_tx,
+            },
+        );
+
+        let accountant_addr = addr_rv.try_recv().unwrap();
+        //this message also stops the system after the check
+        accountant_addr
+            .try_send(TestUserDefinedSqliteFnsForNewDelinquencies {})
+            .unwrap();
+        assert_eq!(system.run(), 0);
+        //we didn't blow up, it recognized the functions
+        //this is an example of the error: "no such function: slope_drop_high_bytes"
+    }
+
     #[test]
     fn make_and_start_actors_happy_path() {
         let validate_database_chain_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1832,10 +1989,8 @@ mod tests {
         let alias_cryptde_public_key_before = public_key_for_dyn_cryptde_being_null(alias_cryptde);
         let actor_factory = Box::new(ActorFactoryReal {}) as Box<dyn ActorFactory>;
         let actor_factory_before_raw_address = addr_of!(*actor_factory);
-        let persistent_config_id = ArbitraryIdStamp::new();
-        let persistent_config = Box::new(
-            PersistentConfigurationMock::default().set_arbitrary_id_stamp(persistent_config_id),
-        );
+        let persistent_config = Box::new(PersistentConfigurationMock::default());
+        let persistent_config_id = persistent_config.set_arbitrary_id_stamp();
         let persistent_config_before_raw = addr_of!(*persistent_config);
         let tools = ActorSystemFactoryToolsMock::default()
             .cryptdes_result(CryptDEPair {
