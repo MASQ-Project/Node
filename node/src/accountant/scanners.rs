@@ -1949,7 +1949,7 @@ mod tests {
     #[test]
     fn remove_timestamp_and_log_if_timestamp_is_correct() {
         init_test_logging();
-        let test_name = "update_timestamp_and_log_if_timestamp_is_correct";
+        let test_name = "remove_timestamp_and_log_if_timestamp_is_correct";
         let time_in_past = SystemTime::now().sub(Duration::from_secs(10));
         let logger = Logger::new(test_name);
         let mut subject = ScannerCommon::new(Rc::new(make_custom_payment_thresholds()));
@@ -1965,7 +1965,7 @@ mod tests {
     #[test]
     fn remove_timestamp_and_log_if_timestamp_is_not_found() {
         init_test_logging();
-        let test_name = "update_timestamp_and_log_if_timestamp_is_not_found";
+        let test_name = "remove_timestamp_and_log_if_timestamp_is_not_found";
         let logger = Logger::new(test_name);
         let mut subject = ScannerCommon::new(Rc::new(make_custom_payment_thresholds()));
         subject.initiated_at_opt = None;
