@@ -328,7 +328,7 @@ pub struct BootstrapperConfig {
     pub dns_servers: Vec<SocketAddr>,
     pub scan_intervals_opt: Option<ScanIntervals>,
     pub suppress_initial_scans: bool,
-    pub when_pending_too_long: u64,
+    pub when_pending_too_long_sec: u64,
     pub crash_point: CrashPoint,
     pub clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     pub ui_gateway_config: UiGatewayConfig,
@@ -391,7 +391,7 @@ impl BootstrapperConfig {
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop,
             },
-            when_pending_too_long: DEFAULT_PENDING_TOO_LONG_SEC,
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         }
     }
 
@@ -408,7 +408,7 @@ impl BootstrapperConfig {
         self.scan_intervals_opt = unprivileged.scan_intervals_opt;
         self.suppress_initial_scans = unprivileged.suppress_initial_scans;
         self.payment_thresholds_opt = unprivileged.payment_thresholds_opt;
-        self.when_pending_too_long = unprivileged.when_pending_too_long;
+        self.when_pending_too_long_sec = unprivileged.when_pending_too_long_sec;
     }
 
     pub fn exit_service_rate(&self) -> u64 {
@@ -1234,7 +1234,7 @@ mod tests {
         unprivileged_config.db_password_opt = db_password_opt.clone();
         unprivileged_config.scan_intervals_opt = Some(ScanIntervals::default());
         unprivileged_config.suppress_initial_scans = false;
-        unprivileged_config.when_pending_too_long = DEFAULT_PENDING_TOO_LONG_SEC;
+        unprivileged_config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
 
         privileged_config.merge_unprivileged(unprivileged_config);
 
@@ -1260,7 +1260,7 @@ mod tests {
         );
         assert_eq!(privileged_config.suppress_initial_scans, false);
         assert_eq!(
-            privileged_config.when_pending_too_long,
+            privileged_config.when_pending_too_long_sec,
             DEFAULT_PENDING_TOO_LONG_SEC
         );
         //some values from the privileged config

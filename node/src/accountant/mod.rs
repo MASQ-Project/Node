@@ -9,7 +9,7 @@ pub mod scanners_tools;
 pub mod test_utils;
 
 use masq_lib::constants::SCAN_ERROR;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 
 use masq_lib::messages::{ScanType, UiScanRequest};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
@@ -195,7 +195,7 @@ impl Handler<ScanForPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
-        self.handle_request_for_scan_for_payable(msg.response_skeleton_opt);
+        self.handle_request_of_scan_for_payable(msg.response_skeleton_opt);
         let _ = self.notify_later.scan_for_payable.notify_later(
             ScanForPayables {
                 response_skeleton_opt: None,
@@ -210,7 +210,7 @@ impl Handler<ScanForPendingPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
-        self.handle_request_for_scan_for_pending_payable(msg.response_skeleton_opt);
+        self.handle_request_of_scan_for_pending_payable(msg.response_skeleton_opt);
         let _ = self.notify_later.scan_for_pending_payable.notify_later(
             ScanForPendingPayables {
                 response_skeleton_opt: None, // because scheduled scans don't respond
@@ -225,7 +225,7 @@ impl Handler<ScanForReceivables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
-        self.handle_request_for_scan_for_receivable(msg.response_skeleton_opt);
+        self.handle_request_of_scan_for_receivable(msg.response_skeleton_opt);
         let _ = self.notify_later.scan_for_receivable.notify_later(
             ScanForReceivables {
                 response_skeleton_opt: None, // because scheduled scans don't respond
@@ -366,30 +366,31 @@ impl Handler<NodeFromUiMessage> for Accountant {
 }
 
 impl Accountant {
-    pub fn new(mut config: BootstrapperConfig, dao_factories: DaoFactories) -> Accountant {
-        let payment_thresholds = config
-            .payment_thresholds_opt
-            .take()
-            .expectv("Payment thresholds");
-        let scan_intervals = config.scan_intervals_opt.take().expectv("Scan Intervals");
-        let earning_wallet = Rc::new(config.earning_wallet.clone());
+    pub fn new(config: BootstrapperConfig, dao_factories: DaoFactories) -> Accountant {
+        let payment_thresholds = config.payment_thresholds_opt.expectv("Payment thresholds");
+        let scan_intervals = config.scan_intervals_opt.expectv("Scan Intervals");
+        let earning_wallet = Rc::new(config.earning_wallet);
         let financial_statistics = Rc::new(RefCell::new(FinancialStatistics::default()));
+        let payable_dao = dao_factories.payable_dao_factory.make();
+        let pending_payable_dao = dao_factories.pending_payable_dao_factory.make();
+        let receivable_dao = dao_factories.receivable_dao_factory.make();
+        let scanners = Scanners::new(
+            dao_factories,
+            Rc::new(payment_thresholds),
+            Rc::clone(&earning_wallet),
+            config.when_pending_too_long_sec,
+            Rc::clone(&financial_statistics),
+        );
 
         Accountant {
             scan_intervals,
             suppress_initial_scans: config.suppress_initial_scans,
             consuming_wallet: config.consuming_wallet_opt.clone(),
             earning_wallet: Rc::clone(&earning_wallet),
-            payable_dao: dao_factories.payable_dao_factory.make(),
-            receivable_dao: dao_factories.receivable_dao_factory.make(),
-            pending_payable_dao: dao_factories.pending_payable_dao_factory.make(),
-            scanners: Scanners::new(
-                dao_factories,
-                Rc::new(payment_thresholds),
-                Rc::clone(&earning_wallet),
-                config.when_pending_too_long,
-                Rc::clone(&financial_statistics),
-            ),
+            payable_dao,
+            receivable_dao,
+            pending_payable_dao,
+            scanners,
             crashable: config.crash_point == CrashPoint::Message,
             notify_later: NotifyLaterForScanners::default(),
             financial_statistics: Rc::clone(&financial_statistics),
@@ -619,7 +620,7 @@ impl Accountant {
             .expect("UiGateway is dead");
     }
 
-    fn handle_request_for_scan_for_payable(
+    fn handle_request_of_scan_for_payable(
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
@@ -643,7 +644,7 @@ impl Accountant {
         }
     }
 
-    fn handle_request_for_scan_for_pending_payable(
+    fn handle_request_of_scan_for_pending_payable(
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
@@ -666,7 +667,7 @@ impl Accountant {
         }
     }
 
-    fn handle_request_for_scan_for_receivable(
+    fn handle_request_of_scan_for_receivable(
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
@@ -696,12 +697,12 @@ impl Accountant {
         response_skeleton: ResponseSkeleton,
     ) {
         match scan_type {
-            ScanType::Payables => self.handle_request_for_scan_for_payable(Some(response_skeleton)),
+            ScanType::Payables => self.handle_request_of_scan_for_payable(Some(response_skeleton)),
             ScanType::PendingPayables => {
-                self.handle_request_for_scan_for_pending_payable(Some(response_skeleton));
+                self.handle_request_of_scan_for_pending_payable(Some(response_skeleton));
             }
             ScanType::Receivables => {
-                self.handle_request_for_scan_for_receivable(Some(response_skeleton))
+                self.handle_request_of_scan_for_receivable(Some(response_skeleton))
             }
         }
     }
@@ -724,8 +725,8 @@ impl Accountant {
         }
     }
 
-    fn financial_statistics(&self) -> FinancialStatistics {
-        self.financial_statistics.borrow().clone()
+    fn financial_statistics(&self) -> Ref<'_, FinancialStatistics> {
+        self.financial_statistics.borrow()
     }
 }
 
@@ -904,7 +905,7 @@ mod tests {
             },
         );
 
-        let financial_statistics = result.financial_statistics();
+        let financial_statistics = result.financial_statistics().clone();
         let notify_later = result.notify_later;
         notify_later
             .scan_for_pending_payable
@@ -1191,29 +1192,21 @@ mod tests {
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         let system = System::new("test");
+        let first_message = NodeFromUiMessage {
+            client_id: 1234,
+            body: UiScanRequest {
+                scan_type: ScanType::PendingPayables,
+            }
+            .tmb(4321),
+        };
+        let second_message = first_message.clone();
         let peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
             .build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        subject_addr
-            .try_send(NodeFromUiMessage {
-                client_id: 1234,
-                body: UiScanRequest {
-                    scan_type: ScanType::PendingPayables,
-                }
-                .tmb(4321),
-            })
-            .unwrap();
+        subject_addr.try_send(first_message).unwrap();
 
-        subject_addr
-            .try_send(NodeFromUiMessage {
-                client_id: 1234,
-                body: UiScanRequest {
-                    scan_type: ScanType::PendingPayables,
-                }
-                .tmb(4321),
-            })
-            .unwrap();
+        subject_addr.try_send(second_message).unwrap();
 
         System::current().stop();
         system.run();
@@ -1677,7 +1670,7 @@ mod tests {
         system.run();
         let begin_scan_params = begin_scan_params_arc.lock().unwrap();
         let notify_later_receivable_params = notify_later_receivable_params_arc.lock().unwrap();
-        TestLogHandler::new().exists_log_matching(&format!(
+        TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during Receivables scan."
         ));
         assert_eq!(begin_scan_params.len(), 2);
@@ -1720,7 +1713,7 @@ mod tests {
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_secs(100),
             receivable_scan_interval: Duration::from_secs(100),
-            pending_payable_scan_interval: Duration::from_millis(100),
+            pending_payable_scan_interval: Duration::from_millis(98),
         });
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
@@ -1745,7 +1738,7 @@ mod tests {
         let begin_scan_params = begin_scan_params_arc.lock().unwrap();
         let notify_later_pending_payable_params =
             notify_later_pending_payable_params_arc.lock().unwrap();
-        TestLogHandler::new().exists_log_matching(&format!(
+        TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during PendingPayables scan."
         ));
         assert_eq!(begin_scan_params.len(), 2);
@@ -1756,13 +1749,13 @@ mod tests {
                     ScanForPendingPayables {
                         response_skeleton_opt: None
                     },
-                    Duration::from_millis(100)
+                    Duration::from_millis(98)
                 ),
                 (
                     ScanForPendingPayables {
                         response_skeleton_opt: None
                     },
-                    Duration::from_millis(100)
+                    Duration::from_millis(98)
                 ),
             ]
         )
@@ -1786,7 +1779,7 @@ mod tests {
             .stop_the_system();
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
-            payable_scan_interval: Duration::from_millis(100),
+            payable_scan_interval: Duration::from_millis(97),
             receivable_scan_interval: Duration::from_secs(100), // We'll never run this scanner
             pending_payable_scan_interval: Duration::from_secs(100), // We'll never run this scanner
         });
@@ -1813,7 +1806,7 @@ mod tests {
         //the second attempt is the one where the queue is empty and System::current.stop() ends the cycle
         let begin_scan_params = begin_scan_params_arc.lock().unwrap();
         let notify_later_payables_params = notify_later_payables_params_arc.lock().unwrap();
-        TestLogHandler::new().exists_log_matching(&format!(
+        TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {test_name}: There was nothing to process during Payables scan."
         ));
         assert_eq!(begin_scan_params.len(), 2);
@@ -1824,13 +1817,13 @@ mod tests {
                     ScanForPayables {
                         response_skeleton_opt: None
                     },
-                    Duration::from_millis(100)
+                    Duration::from_millis(97)
                 ),
                 (
                     ScanForPayables {
                         response_skeleton_opt: None
                     },
-                    Duration::from_millis(100)
+                    Duration::from_millis(97)
                 ),
             ]
         )
@@ -1839,15 +1832,8 @@ mod tests {
     #[test]
     fn start_message_triggers_no_scans_in_suppress_mode() {
         init_test_logging();
-        let system = System::new("start_message_triggers_no_scans_in_suppress_mode");
-        let payable_begin_scan_params_arc = Arc::new(Mutex::new(vec![]));
-        let pending_payable_begin_scan_params_arc = Arc::new(Mutex::new(vec![]));
-        let receivable_begin_scan_params_arc = Arc::new(Mutex::new(vec![]));
-        let payable_scanner = ScannerMock::new().begin_scan_params(&payable_begin_scan_params_arc);
-        let pending_payable_scanner =
-            ScannerMock::new().begin_scan_params(&pending_payable_begin_scan_params_arc);
-        let receivable_scanner =
-            ScannerMock::new().begin_scan_params(&receivable_begin_scan_params_arc);
+        let test_name = "start_message_triggers_no_scans_in_suppress_mode";
+        let system = System::new(test_name);
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_millis(100),
@@ -1859,9 +1845,7 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .build();
-        subject.scanners.payable = Box::new(payable_scanner);
-        subject.scanners.pending_payable = Box::new(pending_payable_scanner);
-        subject.scanners.receivable = Box::new(receivable_scanner);
+        subject.logger = Logger::new(test_name);
         let subject_addr = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
         send_bind_message!(subject_subs, peer_actors);
@@ -1869,17 +1853,10 @@ mod tests {
         send_start_message!(subject_subs);
 
         System::current().stop();
-        system.run();
-        let payable_begin_scan_params = payable_begin_scan_params_arc.lock().unwrap();
-        let pending_payable_begin_scan_params =
-            pending_payable_begin_scan_params_arc.lock().unwrap();
-        let receivable_begin_scan_params = receivable_begin_scan_params_arc.lock().unwrap();
-        assert_eq!(payable_begin_scan_params.is_empty(), true);
-        assert_eq!(pending_payable_begin_scan_params.is_empty(), true);
-        assert_eq!(receivable_begin_scan_params.is_empty(), true);
+        assert_eq!(system.run(), 0);
         // no panics because of recalcitrant DAOs; therefore DAOs were not called; therefore test passes
         TestLogHandler::new().exists_log_containing(
-            "Started with --scans off; declining to begin database and blockchain scans",
+            &format!("{test_name}: Started with --scans off; declining to begin database and blockchain scans"),
         );
     }
 
@@ -3241,7 +3218,7 @@ mod tests {
             .receivable_dao(receivable_dao) // For Accountant
             .receivable_dao(ReceivableDaoMock::new()) // For Scanner
             .build();
-        let mut financial_statistics = subject.financial_statistics();
+        let mut financial_statistics = subject.financial_statistics().clone();
         financial_statistics.total_paid_payable += 123456;
         financial_statistics.total_paid_receivable += 334455;
         subject.financial_statistics.replace(financial_statistics);

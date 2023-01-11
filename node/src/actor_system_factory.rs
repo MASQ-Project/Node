@@ -1056,7 +1056,7 @@ mod tests {
                 ),
             },
             payment_thresholds_opt: Some(PaymentThresholds::default()),
-            when_pending_too_long: DEFAULT_PENDING_TOO_LONG_SEC,
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("eth-ropsten".to_string());
@@ -1129,7 +1129,7 @@ mod tests {
                 ),
             },
             payment_thresholds_opt: Default::default(),
-            when_pending_too_long: DEFAULT_PENDING_TOO_LONG_SEC
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
         };
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = make_subject_with_null_setter();
@@ -1424,7 +1424,7 @@ mod tests {
                 mode: NeighborhoodMode::ConsumeOnly(vec![]),
             },
             payment_thresholds_opt: Default::default(),
-            when_pending_too_long: DEFAULT_PENDING_TOO_LONG_SEC
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
         };
         let system = System::new("MASQNode");
         let mut subject = make_subject_with_null_setter();
@@ -1613,7 +1613,7 @@ mod tests {
             },
             node_descriptor: Default::default(),
             payment_thresholds_opt: Default::default(),
-            when_pending_too_long: DEFAULT_PENDING_TOO_LONG_SEC,
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
         let subject = make_subject_with_null_setter();
         let system = System::new("MASQNode");
