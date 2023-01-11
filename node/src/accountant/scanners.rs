@@ -1831,7 +1831,7 @@ mod tests {
         let mut receivable_scanner = ReceivableScannerBuilder::new()
             .receivable_dao(receivable_dao)
             .banned_dao(banned_dao)
-            .payment_thresholds(payment_thresholds.clone())
+            .payment_thresholds(payment_thresholds)
             .earning_wallet(earning_wallet.clone())
             .build();
         let now = SystemTime::now();
@@ -1849,7 +1849,7 @@ mod tests {
         assert_eq!(new_delinquencies_parameters.len(), 1);
         let (timestamp_actual, payment_thresholds_actual) = new_delinquencies_parameters[0];
         assert_eq!(timestamp_actual, now);
-        assert_eq!(payment_thresholds_actual, payment_thresholds.clone());
+        assert_eq!(payment_thresholds_actual, payment_thresholds);
         let paid_delinquencies_parameters = paid_delinquencies_parameters_arc.lock().unwrap();
         assert_eq!(paid_delinquencies_parameters.len(), 1);
         assert_eq!(payment_thresholds, paid_delinquencies_parameters[0]);
