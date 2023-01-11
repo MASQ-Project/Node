@@ -152,7 +152,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         let neighborhood_subs = actor_factory.make_and_start_neighborhood(cryptdes.main, &config);
         let data_directory = config.data_directory.clone();
         let accountant_subs = actor_factory.make_and_start_accountant(
-            &mut config.clone(),
+            config.clone(),
             &data_directory,
             &db_initializer,
             &BannedCacheLoaderReal {},
@@ -359,7 +359,7 @@ pub trait ActorFactory {
     ) -> NeighborhoodSubs;
     fn make_and_start_accountant(
         &self,
-        config: &mut BootstrapperConfig,
+        config: BootstrapperConfig,
         data_directory: &Path,
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
@@ -438,12 +438,11 @@ impl ActorFactory for ActorFactoryReal {
 
     fn make_and_start_accountant(
         &self,
-        config: &mut BootstrapperConfig,
+        config: BootstrapperConfig,
         data_directory: &Path,
         db_initializer: &dyn DbInitializer,
         banned_cache_loader: &dyn BannedCacheLoader,
     ) -> AccountantSubs {
-        let mut cloned_config = config.clone();
         let payable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         let pending_payable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         let receivable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
@@ -457,7 +456,7 @@ impl ActorFactory for ActorFactoryReal {
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Accountant> = arbiter.start(move |_| {
             Accountant::new(
-                &mut cloned_config,
+                config,
                 DaoFactories {
                     payable_dao_factory,
                     pending_payable_dao_factory,
@@ -609,7 +608,7 @@ mod tests {
         make_stream_handler_pool_subs_from, make_stream_handler_pool_subs_from_recorder,
         start_recorder_refcell_opt,
     };
-    use crate::sub_lib::accountant::PaymentThresholds;
+    use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
     use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -631,9 +630,7 @@ mod tests {
         make_ui_gateway_subs_from_recorder, Recording,
     };
     use crate::test_utils::recorder::{make_recorder, Recorder};
-    use crate::test_utils::unshared_test_utils::{
-        make_scan_intervals_with_defaults, ArbitraryIdStamp, SystemKillerActor,
-    };
+    use crate::test_utils::unshared_test_utils::{ArbitraryIdStamp, SystemKillerActor};
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
@@ -858,7 +855,7 @@ mod tests {
 
         fn make_and_start_accountant(
             &self,
-            config: &mut BootstrapperConfig,
+            config: BootstrapperConfig,
             data_directory: &Path,
             _db_initializer: &dyn DbInitializer,
             _banned_cache_loader: &dyn BannedCacheLoader,
@@ -1031,8 +1028,8 @@ mod tests {
             log_level: LevelFilter::Off,
             crash_point: CrashPoint::None,
             dns_servers: vec![],
-            scan_intervals_opt: Some(make_scan_intervals_with_defaults()),
-            suppress_initial_scans_opt: Some(false),
+            scan_intervals_opt: Some(ScanIntervals::default()),
+            suppress_initial_scans: false,
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -1059,7 +1056,7 @@ mod tests {
                 ),
             },
             payment_thresholds_opt: Some(PaymentThresholds::default()),
-            when_pending_too_long_opt: Some(DEFAULT_PENDING_TOO_LONG_SEC),
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
         let persistent_config =
             PersistentConfigurationMock::default().chain_name_result("eth-ropsten".to_string());
@@ -1105,7 +1102,7 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             scan_intervals_opt: None,
-            suppress_initial_scans_opt: None,
+            suppress_initial_scans: false,
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -1132,7 +1129,7 @@ mod tests {
                 ),
             },
             payment_thresholds_opt: Default::default(),
-            when_pending_too_long_opt: None
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
         };
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = make_subject_with_null_setter();
@@ -1404,7 +1401,7 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             scan_intervals_opt: None,
-            suppress_initial_scans_opt: None,
+            suppress_initial_scans: false,
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -1427,7 +1424,7 @@ mod tests {
                 mode: NeighborhoodMode::ConsumeOnly(vec![]),
             },
             payment_thresholds_opt: Default::default(),
-            when_pending_too_long_opt: None
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
         };
         let system = System::new("MASQNode");
         let mut subject = make_subject_with_null_setter();
@@ -1589,7 +1586,7 @@ mod tests {
             crash_point: CrashPoint::None,
             dns_servers: vec![],
             scan_intervals_opt: None,
-            suppress_initial_scans_opt: None,
+            suppress_initial_scans: false,
             clandestine_discriminator_factories: Vec::new(),
             ui_gateway_config: UiGatewayConfig { ui_port: 5335 },
             blockchain_bridge_config: BlockchainBridgeConfig {
@@ -1616,7 +1613,7 @@ mod tests {
             },
             node_descriptor: Default::default(),
             payment_thresholds_opt: Default::default(),
-            when_pending_too_long_opt: None,
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         };
         let subject = make_subject_with_null_setter();
         let system = System::new("MASQNode");

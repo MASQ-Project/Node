@@ -9,7 +9,7 @@ pub mod scanners_tools;
 pub mod test_utils;
 
 use masq_lib::constants::SCAN_ERROR;
-use std::cell::RefCell;
+use std::cell::{Ref, RefCell};
 
 use masq_lib::messages::{ScanType, UiScanRequest};
 use masq_lib::ui_gateway::{MessageBody, MessagePath};
@@ -17,8 +17,7 @@ use masq_lib::ui_gateway::{MessageBody, MessagePath};
 use crate::accountant::payable_dao::{Payable, PayableDaoError};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDaoError;
-use crate::accountant::scanners::{BeginScanError, NotifyLaterForScanners, Scanners};
-use crate::accountant::scanners_tools::common_tools::timestamp_as_string;
+use crate::accountant::scanners::{NotifyLaterForScanners, Scanners};
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
 use crate::bootstrapper::BootstrapperConfig;
@@ -62,7 +61,7 @@ pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
 
 pub struct Accountant {
     scan_intervals: ScanIntervals,
-    suppress_initial_scans_opt: Option<bool>,
+    suppress_initial_scans: bool,
     consuming_wallet: Option<Wallet>,
     earning_wallet: Rc<Wallet>,
     payable_dao: Box<dyn PayableDao>,
@@ -141,11 +140,7 @@ impl Handler<StartMessage> for Accountant {
     type Result = ();
 
     fn handle(&mut self, _msg: StartMessage, ctx: &mut Self::Context) -> Self::Result {
-        let suppress_initial_scans = self
-            .suppress_initial_scans_opt
-            .take()
-            .expect("Can't process StartMessage for Accountant.");
-        if suppress_initial_scans {
+        if self.suppress_initial_scans {
             info!(
                 &self.logger,
                 "Started with --scans off; declining to begin database and blockchain scans"
@@ -200,7 +195,7 @@ impl Handler<ScanForPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
-        self.handle_scan_for_payable_request(msg.response_skeleton_opt);
+        self.handle_request_of_scan_for_payable(msg.response_skeleton_opt);
         let _ = self.notify_later.scan_for_payable.notify_later(
             ScanForPayables {
                 response_skeleton_opt: None,
@@ -215,7 +210,7 @@ impl Handler<ScanForPendingPayables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
-        self.handle_scan_for_pending_payable_request(msg.response_skeleton_opt);
+        self.handle_request_of_scan_for_pending_payable(msg.response_skeleton_opt);
         let _ = self.notify_later.scan_for_pending_payable.notify_later(
             ScanForPendingPayables {
                 response_skeleton_opt: None, // because scheduled scans don't respond
@@ -230,7 +225,7 @@ impl Handler<ScanForReceivables> for Accountant {
     type Result = ();
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
-        self.handle_scan_for_receivables_request(msg.response_skeleton_opt);
+        self.handle_request_of_scan_for_receivable(msg.response_skeleton_opt);
         let _ = self.notify_later.scan_for_receivable.notify_later(
             ScanForReceivables {
                 response_skeleton_opt: None, // because scheduled scans don't respond
@@ -371,37 +366,32 @@ impl Handler<NodeFromUiMessage> for Accountant {
 }
 
 impl Accountant {
-    pub fn new(config: &mut BootstrapperConfig, dao_factories: DaoFactories) -> Accountant {
-        let payment_thresholds = Rc::new(
-            config
-                .payment_thresholds_opt
-                .take()
-                .expectv("Payment thresholds"),
-        );
-        let scan_intervals = config.scan_intervals_opt.take().expectv("Scan Intervals");
-        let when_pending_too_long_sec = config
-            .when_pending_too_long_opt
-            .take()
-            .expectv("When pending too long sec");
-
-        let earning_wallet = Rc::new(config.earning_wallet.clone());
+    pub fn new(config: BootstrapperConfig, dao_factories: DaoFactories) -> Accountant {
+        let payment_thresholds = config.payment_thresholds_opt.expectv("Payment thresholds");
+        let scan_intervals = config.scan_intervals_opt.expectv("Scan Intervals");
+        let earning_wallet = Rc::new(config.earning_wallet);
         let financial_statistics = Rc::new(RefCell::new(FinancialStatistics::default()));
+        let payable_dao = dao_factories.payable_dao_factory.make();
+        let pending_payable_dao = dao_factories.pending_payable_dao_factory.make();
+        let receivable_dao = dao_factories.receivable_dao_factory.make();
+        let scanners = Scanners::new(
+            dao_factories,
+            Rc::new(payment_thresholds),
+            Rc::clone(&earning_wallet),
+            config.when_pending_too_long_sec,
+            Rc::clone(&financial_statistics),
+        );
+
         Accountant {
             scan_intervals,
-            suppress_initial_scans_opt: config.suppress_initial_scans_opt,
+            suppress_initial_scans: config.suppress_initial_scans,
             consuming_wallet: config.consuming_wallet_opt.clone(),
             earning_wallet: Rc::clone(&earning_wallet),
-            payable_dao: dao_factories.payable_dao_factory.make(),
-            receivable_dao: dao_factories.receivable_dao_factory.make(),
-            pending_payable_dao: dao_factories.pending_payable_dao_factory.make(),
+            payable_dao,
+            receivable_dao,
+            pending_payable_dao,
+            scanners,
             crashable: config.crash_point == CrashPoint::Message,
-            scanners: Scanners::new(
-                dao_factories,
-                payment_thresholds,
-                Rc::clone(&earning_wallet),
-                when_pending_too_long_sec,
-                Rc::clone(&financial_statistics),
-            ),
             notify_later: NotifyLaterForScanners::default(),
             financial_statistics: Rc::clone(&financial_statistics),
             report_accounts_payable_sub_opt: None,
@@ -630,43 +620,31 @@ impl Accountant {
             .expect("UiGateway is dead");
     }
 
-    fn handle_scan_for_payable_request(&mut self, response_skeleton_opt: Option<ResponseSkeleton>) {
+    fn handle_request_of_scan_for_payable(
+        &mut self,
+        response_skeleton_opt: Option<ResponseSkeleton>,
+    ) {
         match self.scanners.payable.begin_scan(
             SystemTime::now(),
             response_skeleton_opt,
             &self.logger,
         ) {
-            Ok(message) => {
+            Ok(scan_message) => {
                 self.report_accounts_payable_sub_opt
                     .as_ref()
                     .expect("BlockchainBridge is unbound")
-                    .try_send(message.clone())
+                    .try_send(scan_message.clone())
                     .expect("BlockchainBridge is dead");
-                eprintln!("Message was sent to the blockchain bridge, {:?}", message);
             }
-            Err(BeginScanError::CalledFromNullScanner) => {
-                if cfg!(test) {
-                    eprintln!("Payable scan is disabled.");
-                } else {
-                    panic!("Null Scanner shouldn't be running inside production code.")
-                }
-            }
-            Err(BeginScanError::NothingToProcess) => {
-                eprintln!("No payable found to process. The Scan was ended.");
-                // TODO: Do something better than just using eprintln
-            }
-            Err(BeginScanError::ScanAlreadyRunning(timestamp)) => {
-                info!(
-                    &self.logger,
-                    "Payable scan was already initiated at {}. \
-                    Hence, this scan request will be ignored.",
-                    timestamp_as_string(&timestamp)
-                )
-            }
+            Err(e) => e.handle_error(
+                &self.logger,
+                ScanType::Payables,
+                response_skeleton_opt.is_some(),
+            ),
         }
     }
 
-    fn handle_scan_for_pending_payable_request(
+    fn handle_request_of_scan_for_pending_payable(
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
@@ -675,35 +653,21 @@ impl Accountant {
             response_skeleton_opt,
             &self.logger,
         ) {
-            Ok(message) => self
+            Ok(scan_message) => self
                 .request_transaction_receipts_subs_opt
                 .as_ref()
                 .expect("BlockchainBridge is unbound")
-                .try_send(message)
+                .try_send(scan_message)
                 .expect("BlockchainBridge is dead"),
-            Err(BeginScanError::CalledFromNullScanner) => {
-                if cfg!(test) {
-                    eprintln!("Pending payable scan is disabled.");
-                } else {
-                    panic!("Null Scanner shouldn't be running inside production code.")
-                }
-            }
-            Err(BeginScanError::NothingToProcess) => {
-                eprintln!("No pending payable found to process. The Scan was ended.");
-                // TODO: Do something better than just using eprintln
-            }
-            Err(BeginScanError::ScanAlreadyRunning(timestamp)) => {
-                info!(
-                    &self.logger,
-                    "Pending Payable scan was already initiated at {}. \
-                    Hence, this scan request will be ignored.",
-                    timestamp_as_string(&timestamp)
-                )
-            }
+            Err(e) => e.handle_error(
+                &self.logger,
+                ScanType::PendingPayables,
+                response_skeleton_opt.is_some(),
+            ),
         }
     }
 
-    fn handle_scan_for_receivables_request(
+    fn handle_request_of_scan_for_receivable(
         &mut self,
         response_skeleton_opt: Option<ResponseSkeleton>,
     ) {
@@ -712,31 +676,17 @@ impl Accountant {
             response_skeleton_opt,
             &self.logger,
         ) {
-            Ok(message) => self
+            Ok(scan_message) => self
                 .retrieve_transactions_sub
                 .as_ref()
                 .expect("BlockchainBridge is unbound")
-                .try_send(message)
+                .try_send(scan_message)
                 .expect("BlockchainBridge is dead"),
-            Err(BeginScanError::CalledFromNullScanner) => {
-                if cfg!(test) {
-                    eprintln!("Receivable scan is disabled.");
-                } else {
-                    panic!("Null Scanner shouldn't be running inside production code.")
-                }
-            }
-            Err(BeginScanError::NothingToProcess) => {
-                eprintln!("The Scan was ended.");
-                // TODO: Do something better than just using eprintln
-            }
-            Err(BeginScanError::ScanAlreadyRunning(timestamp)) => {
-                info!(
-                    &self.logger,
-                    "Receivable scan was already initiated at {}. \
-                    Hence, this scan request will be ignored.",
-                    timestamp_as_string(&timestamp)
-                )
-            }
+            Err(e) => e.handle_error(
+                &self.logger,
+                ScanType::Receivables,
+                response_skeleton_opt.is_some(),
+            ),
         };
     }
 
@@ -747,12 +697,12 @@ impl Accountant {
         response_skeleton: ResponseSkeleton,
     ) {
         match scan_type {
-            ScanType::Payables => self.handle_scan_for_payable_request(Some(response_skeleton)),
+            ScanType::Payables => self.handle_request_of_scan_for_payable(Some(response_skeleton)),
             ScanType::PendingPayables => {
-                self.handle_scan_for_pending_payable_request(Some(response_skeleton));
+                self.handle_request_of_scan_for_pending_payable(Some(response_skeleton));
             }
             ScanType::Receivables => {
-                self.handle_scan_for_receivables_request(Some(response_skeleton))
+                self.handle_request_of_scan_for_receivable(Some(response_skeleton))
             }
         }
     }
@@ -775,8 +725,8 @@ impl Accountant {
         }
     }
 
-    fn financial_statistics(&self) -> FinancialStatistics {
-        self.financial_statistics.as_ref().borrow().clone()
+    fn financial_statistics(&self) -> Ref<'_, FinancialStatistics> {
+        self.financial_statistics.borrow()
     }
 }
 
@@ -833,7 +783,7 @@ mod tests {
 
     use crate::accountant::payable_dao::{PayableAccount, PayableDaoError};
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
-    use crate::accountant::scanners::{NullScanner, ScannerMock};
+    use crate::accountant::scanners::{BeginScanError, NullScanner, ScannerMock};
     use crate::accountant::test_utils::{
         bc_from_earning_wallet, bc_from_wallets, make_payables, BannedDaoFactoryMock,
         MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock,
@@ -874,7 +824,7 @@ mod tests {
 
     #[test]
     fn new_calls_factories_properly() {
-        let mut config = make_bc_with_defaults();
+        let config = make_bc_with_defaults();
         let payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let pending_payable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
         let receivable_dao_factory_params_arc = Arc::new(Mutex::new(vec![]));
@@ -898,7 +848,7 @@ mod tests {
             .make_result(BannedDaoMock::new()); // For Receivable Scanner
 
         let _ = Accountant::new(
-            &mut config,
+            config,
             DaoFactories {
                 payable_dao_factory: Box::new(payable_dao_factory),
                 pending_payable_dao_factory: Box::new(pending_payable_dao_factory),
@@ -924,7 +874,7 @@ mod tests {
 
     #[test]
     fn accountant_have_proper_defaulted_values() {
-        let mut bootstrapper_config = make_bc_with_defaults();
+        let bootstrapper_config = make_bc_with_defaults();
         let payable_dao_factory = Box::new(
             PayableDaoFactoryMock::new()
                 .make_result(PayableDaoMock::new()) // For Accountant
@@ -946,7 +896,7 @@ mod tests {
             Box::new(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));
 
         let result = Accountant::new(
-            &mut bootstrapper_config,
+            bootstrapper_config,
             DaoFactories {
                 payable_dao_factory,
                 pending_payable_dao_factory,
@@ -955,7 +905,7 @@ mod tests {
             },
         );
 
-        let financial_statistics = result.financial_statistics();
+        let financial_statistics = result.financial_statistics().clone();
         let notify_later = result.notify_later;
         notify_later
             .scan_for_pending_payable
@@ -1037,7 +987,7 @@ mod tests {
             receivable_scan_interval: Duration::from_millis(10_000),
             pending_payable_scan_interval: Duration::from_secs(100),
         });
-        config.suppress_initial_scans_opt = Some(true);
+        config.suppress_initial_scans = true;
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .build();
@@ -1157,7 +1107,7 @@ mod tests {
     #[test]
     fn scan_pending_payables_request() {
         let mut config = bc_from_earning_wallet(make_wallet("some_wallet_address"));
-        config.suppress_initial_scans_opt = Some(true);
+        config.suppress_initial_scans = true;
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_millis(10_000),
             receivable_scan_interval: Duration::from_millis(10_000),
@@ -1216,7 +1166,7 @@ mod tests {
         init_test_logging();
         let test_name = "scan_request_from_ui_is_handled_in_case_the_scan_is_already_running";
         let mut config = bc_from_earning_wallet(make_wallet("some_wallet_address"));
-        config.suppress_initial_scans_opt = Some(true);
+        config.suppress_initial_scans = true;
         config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_millis(10_000),
             receivable_scan_interval: Duration::from_millis(10_000),
@@ -1242,33 +1192,27 @@ mod tests {
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         let system = System::new("test");
+        let first_message = NodeFromUiMessage {
+            client_id: 1234,
+            body: UiScanRequest {
+                scan_type: ScanType::PendingPayables,
+            }
+            .tmb(4321),
+        };
+        let second_message = first_message.clone();
         let peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
             .build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-        let ui_message = NodeFromUiMessage {
-            client_id: 1234,
-            body: UiScanRequest {
-                scan_type: ScanType::PendingPayables,
-            }
-            .tmb(4321),
-        };
-        subject_addr.try_send(ui_message).unwrap();
-        let ui_message = NodeFromUiMessage {
-            client_id: 1234,
-            body: UiScanRequest {
-                scan_type: ScanType::PendingPayables,
-            }
-            .tmb(4321),
-        };
+        subject_addr.try_send(first_message).unwrap();
 
-        subject_addr.try_send(ui_message).unwrap();
+        subject_addr.try_send(second_message).unwrap();
 
         System::current().stop();
         system.run();
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {}: Pending Payable scan was already initiated",
+            "INFO: {}: PendingPayables scan was already initiated",
             test_name
         ));
         assert_eq!(blockchain_bridge_recording.len(), 1);
@@ -1403,7 +1347,7 @@ mod tests {
             hash
         ));
         log_handler.exists_log_containing(
-            r#"WARN: Accountant: Failed transaction with a hash '0x0000…3039' but without the record - thrown out"#,
+            r#"WARN: Accountant: Failed transaction with a hash '0x0000000000000000000000000000000000000000000000000000000000003039' but without the record - thrown out"#,
         );
     }
 
@@ -1481,7 +1425,7 @@ mod tests {
         log_handler.exists_log_containing("WARN: Accountant: Encountered transaction error at this end: \
          'TransactionFailed { msg: \"Attempt failed\", hash_opt: Some(0x0000000000000000000000000000000000000000000000000000000000003039)");
         log_handler.exists_log_containing(
-            "DEBUG: Accountant: Deleting an existing backup for a failed transaction 0x0000…3039",
+            "DEBUG: Accountant: Deleting an existing fingerprint for a failed transaction 0x0000000000000000000000000000000000000000000000000000000000003039",
         );
     }
 
@@ -1584,15 +1528,11 @@ mod tests {
             gwei_amount: 10000,
         };
         let more_money_received_params_arc = Arc::new(Mutex::new(vec![]));
-        let payable_dao = PayableDaoMock::new().non_pending_payables_result(vec![]);
         let receivable_dao = ReceivableDaoMock::new()
             .more_money_received_parameters(&more_money_received_params_arc)
             .more_money_received_result(Ok(()));
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(earning_wallet.clone()))
-            .payable_dao(payable_dao)
-            .payable_dao(PayableDaoMock::new())
-            .payable_dao(PayableDaoMock::new())
             .receivable_dao(ReceivableDaoMock::new())
             .receivable_dao(receivable_dao)
             .build();
@@ -1660,14 +1600,6 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_containing("INFO: Accountant: Scanning for payables");
-        tlh.exists_log_containing("INFO: Accountant: Scanning for pending payable");
-        tlh.exists_log_containing(&format!(
-            "INFO: Accountant: Scanning for receivables to {}",
-            earning_wallet
-        ));
-        tlh.exists_log_containing("INFO: Accountant: Scanning for delinquencies");
         let payable_params = payable_params_arc.lock().unwrap();
         let pending_payable_params = pending_payable_params_arc.lock().unwrap();
         //proof of calling pieces of scan_for_delinquencies()
@@ -1684,6 +1616,14 @@ mod tests {
         assert_eq!(captured_curves, PaymentThresholds::default());
         assert_eq!(paid_delinquencies_params.len(), 1);
         assert_eq!(paid_delinquencies_params[0], PaymentThresholds::default());
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing("INFO: Accountant: Scanning for payables");
+        tlh.exists_log_containing("INFO: Accountant: Scanning for pending payable");
+        tlh.exists_log_containing(&format!(
+            "INFO: Accountant: Scanning for receivables to {}",
+            earning_wallet
+        ));
+        tlh.exists_log_containing("INFO: Accountant: Scanning for delinquencies");
     }
 
     #[test]
@@ -1711,6 +1651,7 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .build();
+        subject.logger = Logger::new(test_name);
         subject.scanners.payable = Box::new(NullScanner::new()); // Skipping
         subject.scanners.pending_payable = Box::new(NullScanner::new()); // Skipping
         subject.scanners.receivable = Box::new(receivable_scanner);
@@ -1729,6 +1670,9 @@ mod tests {
         system.run();
         let begin_scan_params = begin_scan_params_arc.lock().unwrap();
         let notify_later_receivable_params = notify_later_receivable_params_arc.lock().unwrap();
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: There was nothing to process during Receivables scan."
+        ));
         assert_eq!(begin_scan_params.len(), 2);
         assert_eq!(
             *notify_later_receivable_params,
@@ -1774,6 +1718,7 @@ mod tests {
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .build();
+        subject.logger = Logger::new(test_name);
         subject.scanners.payable = Box::new(NullScanner::new()); //skipping
         subject.scanners.pending_payable = Box::new(pending_payable_scanner);
         subject.scanners.receivable = Box::new(NullScanner::new()); //skipping
@@ -1791,9 +1736,12 @@ mod tests {
 
         system.run();
         let begin_scan_params = begin_scan_params_arc.lock().unwrap();
-        assert_eq!(begin_scan_params.len(), 2);
         let notify_later_pending_payable_params =
             notify_later_pending_payable_params_arc.lock().unwrap();
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: There was nothing to process during PendingPayables scan."
+        ));
+        assert_eq!(begin_scan_params.len(), 2);
         assert_eq!(
             *notify_later_pending_payable_params,
             vec![
@@ -1858,7 +1806,10 @@ mod tests {
         //the second attempt is the one where the queue is empty and System::current.stop() ends the cycle
         let begin_scan_params = begin_scan_params_arc.lock().unwrap();
         let notify_later_payables_params = notify_later_payables_params_arc.lock().unwrap();
-        assert_eq!(*begin_scan_params, vec![(), ()]);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: {test_name}: There was nothing to process during Payables scan."
+        ));
+        assert_eq!(begin_scan_params.len(), 2);
         assert_eq!(
             *notify_later_payables_params,
             vec![
@@ -1881,25 +1832,20 @@ mod tests {
     #[test]
     fn start_message_triggers_no_scans_in_suppress_mode() {
         init_test_logging();
-        let system = System::new("start_message_triggers_no_scans_in_suppress_mode");
+        let test_name = "start_message_triggers_no_scans_in_suppress_mode";
+        let system = System::new(test_name);
         let mut config = bc_from_earning_wallet(make_wallet("hi"));
         config.scan_intervals_opt = Some(ScanIntervals {
-            payable_scan_interval: Duration::from_millis(1),
-            receivable_scan_interval: Duration::from_millis(1),
-            pending_payable_scan_interval: Duration::from_secs(100),
+            payable_scan_interval: Duration::from_millis(100),
+            receivable_scan_interval: Duration::from_millis(100),
+            pending_payable_scan_interval: Duration::from_millis(100),
         });
-        config.suppress_initial_scans_opt = Some(true);
-        let payable_dao = PayableDaoMock::new(); // No payables: demanding one would cause a panic
-        let receivable_dao = ReceivableDaoMock::new(); // No delinquencies: demanding one would cause a panic
+        config.suppress_initial_scans = true;
         let peer_actors = peer_actors_builder().build();
-        let subject = AccountantBuilder::default()
+        let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_dao(payable_dao) // For Accountant
-            .payable_dao(PayableDaoMock::new()) // For Payable Scanner
-            .payable_dao(PayableDaoMock::new()) // For PendingPayable Scanner
-            .receivable_dao(receivable_dao) // For Accountant
-            .receivable_dao(ReceivableDaoMock::new()) // For Scanner
             .build();
+        subject.logger = Logger::new(test_name);
         let subject_addr = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
         send_bind_message!(subject_subs, peer_actors);
@@ -1910,7 +1856,7 @@ mod tests {
         assert_eq!(system.run(), 0);
         // no panics because of recalcitrant DAOs; therefore DAOs were not called; therefore test passes
         TestLogHandler::new().exists_log_containing(
-            "Started with --scans off; declining to begin database and blockchain scans",
+            &format!("{test_name}: Started with --scans off; declining to begin database and blockchain scans"),
         );
     }
 
@@ -1927,7 +1873,6 @@ mod tests {
         };
         let config = bc_from_earning_wallet(make_wallet("mine"));
         let now = to_time_t(SystemTime::now());
-
         let accounts = vec![
             // below minimum balance, to the right of time intersection (inside buffer zone)
             PayableAccount {
@@ -1992,7 +1937,7 @@ mod tests {
         let mut config = bc_from_earning_wallet(make_wallet("mine"));
         config.scan_intervals_opt = Some(ScanIntervals {
             pending_payable_scan_interval: Duration::from_secs(50_000),
-            payable_scan_interval: Duration::from_millis(100),
+            payable_scan_interval: Duration::from_secs(50_000),
             receivable_scan_interval: Duration::from_secs(50_000),
         });
         let now = to_time_t(SystemTime::now());
@@ -2054,19 +1999,19 @@ mod tests {
     }
 
     #[test]
-    fn accountant_doesn_t_starts_another_scan_in_case_it_receives_the_message_and_the_scanner_is_running(
+    fn accountant_does_not_initiate_another_scan_in_case_it_receives_the_message_and_the_scanner_is_running(
     ) {
         init_test_logging();
-        let test_name = "accountant_doesn_t_starts_another_scan_in_case_it_receives_the_message_and_the_scanner_is_running";
+        let test_name = "accountant_does_not_initiate_another_scan_in_case_it_receives_the_message_and_the_scanner_is_running";
         let payable_dao = PayableDaoMock::default();
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
         let report_accounts_payable_sub = blockchain_bridge.start().recipient();
-        let now =
+        let last_paid_timestamp =
             to_time_t(SystemTime::now()) - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec - 1;
         let payable_account = PayableAccount {
             wallet: make_wallet("scan_for_payables"),
             balance: DEFAULT_PAYMENT_THRESHOLDS.debt_threshold_gwei + 1,
-            last_paid_timestamp: from_time_t(now),
+            last_paid_timestamp: from_time_t(last_paid_timestamp),
             pending_payable_opt: None,
         };
         let mut payable_dao =
@@ -2081,7 +2026,6 @@ mod tests {
             .bootstrapper_config(config)
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
-        subject.scan_intervals.payable_scan_interval = Duration::from_millis(10);
         subject.logger = Logger::new(test_name);
         let addr = subject.start();
         addr.try_send(ScanForPayables {
@@ -2100,7 +2044,7 @@ mod tests {
         let messages_received = recording.len();
         assert_eq!(messages_received, 0);
         TestLogHandler::new().exists_log_containing(&format!(
-            "INFO: {}: Payable scan was already initiated",
+            "DEBUG: {}: Payables scan was already initiated",
             test_name
         ));
     }
@@ -3135,9 +3079,9 @@ mod tests {
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(
-            "WARN: Accountant: Broken transaction 0x0000…007b left with an error mark; you should take over the care of this transaction to make sure your debts will be paid because there \
+            "WARN: Accountant: Broken transaction 0x000000000000000000000000000000000000000000000000000000000000007b left with an error mark; you should take over the care of this transaction to make sure your debts will be paid because there \
              is no automated process that can fix this without you");
-        log_handler.exists_log_matching("INFO: Accountant: Transaction '0x0000…0237' has been added to the blockchain; detected locally at attempt 4 at \\d{2,}ms after its sending");
+        log_handler.exists_log_matching("INFO: Accountant: Transaction '0x0000000000000000000000000000000000000000000000000000000000000237' has been added to the blockchain; detected locally at attempt 4 at \\d{2,}ms after its sending");
         log_handler.exists_log_containing("INFO: Accountant: Transaction 0x0000000000000000000000000000000000000000000000000000000000000237 has gone through the whole confirmation process succeeding");
     }
 
@@ -3274,9 +3218,9 @@ mod tests {
             .receivable_dao(receivable_dao) // For Accountant
             .receivable_dao(ReceivableDaoMock::new()) // For Scanner
             .build();
-        let mut financial_statistics = subject.financial_statistics();
-        financial_statistics.total_paid_payable = 123456;
-        financial_statistics.total_paid_receivable = 334455;
+        let mut financial_statistics = subject.financial_statistics().clone();
+        financial_statistics.total_paid_payable += 123456;
+        financial_statistics.total_paid_receivable += 334455;
         subject.financial_statistics.replace(financial_statistics);
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject_addr = subject.start();

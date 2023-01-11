@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub(crate) mod payable_scanner_tools {
+pub mod payable_scanner_tools {
     use crate::accountant::payable_dao::{Payable, PayableAccount};
     use crate::accountant::SentPayable;
     use crate::blockchain::blockchain_interface::BlockchainError;
@@ -10,7 +10,7 @@ pub(crate) mod payable_scanner_tools {
     use std::time::SystemTime;
 
     //for debugging only
-    pub(crate) fn investigate_debt_extremes(
+    pub fn investigate_debt_extremes(
         timestamp: SystemTime,
         all_non_pending_payables: &[PayableAccount],
     ) -> String {
@@ -71,7 +71,7 @@ pub(crate) mod payable_scanner_tools {
                 oldest.balance, oldest.age)
     }
 
-    pub(crate) fn is_payable_qualified(
+    pub fn is_payable_qualified(
         time: SystemTime,
         payable: &PayableAccount,
         payment_thresholds: &PaymentThresholds,
@@ -98,16 +98,13 @@ pub(crate) mod payable_scanner_tools {
         Some(payout_threshold as u64)
     }
 
-    pub(crate) fn payable_time_diff(time: SystemTime, payable: &PayableAccount) -> u64 {
+    pub fn payable_time_diff(time: SystemTime, payable: &PayableAccount) -> u64 {
         time.duration_since(payable.last_paid_timestamp)
             .expect("Payable time is corrupt")
             .as_secs()
     }
 
-    pub(crate) fn calculate_payout_threshold(
-        x: u64,
-        payment_thresholds: &PaymentThresholds,
-    ) -> f64 {
+    pub fn calculate_payout_threshold(x: u64, payment_thresholds: &PaymentThresholds) -> f64 {
         let m = -((payment_thresholds.debt_threshold_gwei as f64
             - payment_thresholds.permanent_debt_allowed_gwei as f64)
             / (payment_thresholds.threshold_interval_sec as f64
@@ -117,11 +114,7 @@ pub(crate) mod payable_scanner_tools {
         m * x as f64 + b
     }
 
-    pub(crate) fn exceeded_summary(
-        time: SystemTime,
-        payable: &PayableAccount,
-        threshold: u64,
-    ) -> String {
+    pub fn exceeded_summary(time: SystemTime, payable: &PayableAccount, threshold: u64) -> String {
         format!(
             "{} owed for {}sec exceeds threshold: {}; creditor: {}\n",
             payable.balance,
@@ -131,7 +124,7 @@ pub(crate) mod payable_scanner_tools {
         )
     }
 
-    pub(crate) fn qualified_payables_and_summary(
+    pub fn qualified_payables_and_summary(
         time: SystemTime,
         non_pending_payables: Vec<PayableAccount>,
         payment_thresholds: &PaymentThresholds,
@@ -155,7 +148,7 @@ pub(crate) mod payable_scanner_tools {
         (qualified_payables, summary)
     }
 
-    pub(crate) fn separate_early_errors(
+    pub fn separate_early_errors(
         sent_payments: &SentPayable,
         logger: &Logger,
     ) -> (Vec<Payable>, Vec<BlockchainError>) {
@@ -177,7 +170,7 @@ pub(crate) mod payable_scanner_tools {
     }
 }
 
-pub(crate) mod pending_payable_scanner_tools {
+pub mod pending_payable_scanner_tools {
     use crate::accountant::{PendingPayableId, PendingTransactionStatus};
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use masq_lib::logger::Logger;
@@ -198,7 +191,7 @@ pub(crate) mod pending_payable_scanner_tools {
     ) -> PendingTransactionStatus {
         info!(
             logger,
-            "Pending transaction '{}' couldn't be confirmed at attempt \
+            "Pending transaction '{:?}' couldn't be confirmed at attempt \
             {} at {}ms after its sending",
             fingerprint.hash,
             fingerprint.attempt_opt.expectv("initialized attempt"),
@@ -235,7 +228,7 @@ pub(crate) mod pending_payable_scanner_tools {
     ) -> PendingTransactionStatus {
         info!(
             logger,
-            "Transaction '{}' has been added to the blockchain; detected locally at attempt \
+            "Transaction '{:?}' has been added to the blockchain; detected locally at attempt \
             {} at {}ms after its sending",
             fingerprint.hash,
             fingerprint.attempt_opt.expectv("initialized attempt"),
@@ -260,35 +253,16 @@ pub(crate) mod pending_payable_scanner_tools {
     }
 }
 
-pub(crate) mod receivable_scanner_tools {
+pub mod receivable_scanner_tools {
     use crate::accountant::receivable_dao::ReceivableAccount;
     use std::time::{Duration, SystemTime};
 
-    pub(crate) fn balance_and_age(
-        time: SystemTime,
-        account: &ReceivableAccount,
-    ) -> (String, Duration) {
+    pub fn balance_and_age(time: SystemTime, account: &ReceivableAccount) -> (String, Duration) {
         let balance = format!("{}", (account.balance as f64) / 1_000_000_000.0);
         let age = time
             .duration_since(account.last_received_timestamp)
             .unwrap_or_else(|_| Duration::new(0, 0));
         (balance, age)
-    }
-}
-
-pub mod common_tools {
-    use std::time::SystemTime;
-    use time::format_description::parse;
-    use time::OffsetDateTime;
-
-    const TIME_FORMATTING_STRING: &str =
-        "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]";
-
-    pub fn timestamp_as_string(timestamp: &SystemTime) -> String {
-        let offset_date_time = OffsetDateTime::from(*timestamp);
-        offset_date_time
-            .format(&parse(TIME_FORMATTING_STRING).unwrap())
-            .unwrap()
     }
 }
 
@@ -302,17 +276,19 @@ mod tests {
         separate_early_errors,
     };
     use crate::accountant::scanners_tools::receivable_scanner_tools::balance_and_age;
+    use crate::accountant::test_utils::make_payables;
     use crate::accountant::SentPayable;
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
     use masq_lib::logger::Logger;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::rc::Rc;
     use std::time::SystemTime;
 
     #[test]
-    fn payable_generated_before_maturity_time_limit_is_marked_unqualified() {
+    fn payable_generated_within_maturity_time_limit_is_marked_unqualified() {
         let now = SystemTime::now();
         let payment_thresholds = PaymentThresholds::default();
         let qualified_debt = payment_thresholds.permanent_debt_allowed_gwei + 1;
@@ -330,7 +306,7 @@ mod tests {
     }
 
     #[test]
-    fn payable_with_low_debt_is_marked_unqualified() {
+    fn payable_with_debt_under_the_slope_is_marked_unqualified() {
         let now = SystemTime::now();
         let payment_thresholds = PaymentThresholds::default();
         let unqualified_debt = payment_thresholds.permanent_debt_allowed_gwei - 1;
@@ -366,11 +342,13 @@ mod tests {
     }
 
     #[test]
-    fn payable_above_threshold_values_is_marked_qualified_and_returns_threshold() {
+    fn payable_with_debt_above_the_slope_is_qualified_and_the_threshold_value_is_returned() {
         let now = SystemTime::now();
         let payment_thresholds = PaymentThresholds::default();
-        let debt = payment_thresholds.permanent_debt_allowed_gwei + 1_000_000_000;
-        let time = to_time_t(now) - payment_thresholds.maturity_threshold_sec - 1;
+        let debt = payment_thresholds.debt_threshold_gwei - 1;
+        let time = payment_thresholds.maturity_threshold_sec
+            + payment_thresholds.threshold_interval_sec
+            - 1;
         let payment_thresholds_rc = Rc::new(payment_thresholds);
         let qualified_payable = PayableAccount {
             wallet: make_wallet("wallet0"),
@@ -382,7 +360,6 @@ mod tests {
             payable_time_diff(now, &qualified_payable),
             &payment_thresholds_rc,
         );
-        eprintln!("Threshold: {}, Debt: {}", threshold, debt);
 
         let result = is_payable_qualified(now, &qualified_payable, &payment_thresholds_rc);
 
@@ -393,35 +370,8 @@ mod tests {
     fn qualified_payables_can_be_filtered_out_from_non_pending_payables_along_with_their_summary() {
         let now = SystemTime::now();
         let payment_thresholds = PaymentThresholds::default();
-        let unqualified_payable_accounts = vec![PayableAccount {
-            wallet: make_wallet("wallet1"),
-            balance: payment_thresholds.permanent_debt_allowed_gwei + 1,
-            last_paid_timestamp: from_time_t(
-                to_time_t(now) - payment_thresholds.maturity_threshold_sec + 1,
-            ),
-            pending_payable_opt: None,
-        }];
-        let qualified_payable_accounts = vec![
-            PayableAccount {
-                wallet: make_wallet("wallet2"),
-                balance: payment_thresholds.permanent_debt_allowed_gwei + 1_000_000_000,
-                last_paid_timestamp: from_time_t(
-                    to_time_t(now) - payment_thresholds.maturity_threshold_sec - 1,
-                ),
-                pending_payable_opt: None,
-            },
-            PayableAccount {
-                wallet: make_wallet("wallet3"),
-                balance: payment_thresholds.permanent_debt_allowed_gwei + 1_200_000_000,
-                last_paid_timestamp: from_time_t(
-                    to_time_t(now) - payment_thresholds.maturity_threshold_sec - 100,
-                ),
-                pending_payable_opt: None,
-            },
-        ];
-        let mut all_non_pending_payables = Vec::new();
-        all_non_pending_payables.extend(qualified_payable_accounts.clone());
-        all_non_pending_payables.extend(unqualified_payable_accounts.clone());
+        let (qualified_payable_accounts, _, all_non_pending_payables) =
+            make_payables(now, &PaymentThresholds::default());
 
         let (qualified_payables, summary) =
             qualified_payables_and_summary(now, all_non_pending_payables, &payment_thresholds);
@@ -435,13 +385,12 @@ mod tests {
                     as u64,
             ))
         }
-
         assert_eq!(qualified_payables, qualified_payable_accounts);
         assert_eq!(summary, expected_summary);
     }
 
     #[test]
-    fn returns_empty_array_and_summary_when_no_qualified_payables_are_found() {
+    fn returns_an_empty_vector_and_summary_when_no_qualified_payables_are_found() {
         let now = SystemTime::now();
         let payment_thresholds = PaymentThresholds::default();
         let unqualified_payable_accounts = vec![PayableAccount {
@@ -518,6 +467,8 @@ mod tests {
 
     #[test]
     fn separate_early_errors_works() {
+        init_test_logging();
+        let test_name = "separate_early_errors_works";
         let payable_ok = Payable {
             to: make_wallet("blah"),
             amount: 5555,
@@ -531,9 +482,13 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let (ok, err) = separate_early_errors(&sent_payable, &Logger::new("test"));
+        let (ok, err) = separate_early_errors(&sent_payable, &Logger::new(test_name));
 
         assert_eq!(ok, vec![payable_ok]);
-        assert_eq!(err, vec![error])
+        assert_eq!(err, vec![error.clone()]);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "WARN: {}: Outbound transaction failure due to '{:?}",
+            test_name, error
+        ));
     }
 }

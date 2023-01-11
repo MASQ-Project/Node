@@ -1,4 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactoryToolsReal};
@@ -326,8 +327,8 @@ pub struct BootstrapperConfig {
     pub log_level: LevelFilter,
     pub dns_servers: Vec<SocketAddr>,
     pub scan_intervals_opt: Option<ScanIntervals>,
-    pub suppress_initial_scans_opt: Option<bool>,
-    pub when_pending_too_long_opt: Option<u64>,
+    pub suppress_initial_scans: bool,
+    pub when_pending_too_long_sec: u64,
     pub crash_point: CrashPoint,
     pub clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     pub ui_gateway_config: UiGatewayConfig,
@@ -362,7 +363,7 @@ impl BootstrapperConfig {
             log_level: LevelFilter::Off,
             dns_servers: vec![],
             scan_intervals_opt: None,
-            suppress_initial_scans_opt: None,
+            suppress_initial_scans: false,
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],
             ui_gateway_config: UiGatewayConfig {
@@ -390,7 +391,7 @@ impl BootstrapperConfig {
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop,
             },
-            when_pending_too_long_opt: None,
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         }
     }
 
@@ -405,9 +406,9 @@ impl BootstrapperConfig {
         self.consuming_wallet_opt = unprivileged.consuming_wallet_opt;
         self.db_password_opt = unprivileged.db_password_opt;
         self.scan_intervals_opt = unprivileged.scan_intervals_opt;
-        self.suppress_initial_scans_opt = unprivileged.suppress_initial_scans_opt;
+        self.suppress_initial_scans = unprivileged.suppress_initial_scans;
         self.payment_thresholds_opt = unprivileged.payment_thresholds_opt;
-        self.when_pending_too_long_opt = unprivileged.when_pending_too_long_opt;
+        self.when_pending_too_long_sec = unprivileged.when_pending_too_long_sec;
     }
 
     pub fn exit_service_rate(&self) -> u64 {
@@ -720,6 +721,7 @@ mod tests {
     use crate::server_initializer::LoggerInitializerWrapper;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::AddStreamMsg;
+    use crate::sub_lib::accountant::ScanIntervals;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -733,9 +735,7 @@ mod tests {
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use crate::test_utils::unshared_test_utils::{
-        make_scan_intervals_with_defaults, make_simplified_multi_config,
-    };
+    use crate::test_utils::unshared_test_utils::make_simplified_multi_config;
     use crate::test_utils::{assert_contains, rate_pack};
     use crate::test_utils::{main_cryptde, make_wallet};
     use actix::Recipient;
@@ -1232,9 +1232,9 @@ mod tests {
         unprivileged_config.earning_wallet = earning_wallet.clone();
         unprivileged_config.consuming_wallet_opt = consuming_wallet_opt.clone();
         unprivileged_config.db_password_opt = db_password_opt.clone();
-        unprivileged_config.scan_intervals_opt = Some(make_scan_intervals_with_defaults());
-        unprivileged_config.suppress_initial_scans_opt = Some(false);
-        unprivileged_config.when_pending_too_long_opt = Some(DEFAULT_PENDING_TOO_LONG_SEC);
+        unprivileged_config.scan_intervals_opt = Some(ScanIntervals::default());
+        unprivileged_config.suppress_initial_scans = false;
+        unprivileged_config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
 
         privileged_config.merge_unprivileged(unprivileged_config);
 
@@ -1256,12 +1256,12 @@ mod tests {
         assert_eq!(privileged_config.db_password_opt, db_password_opt);
         assert_eq!(
             privileged_config.scan_intervals_opt,
-            Some(make_scan_intervals_with_defaults())
+            Some(ScanIntervals::default())
         );
-        assert_eq!(privileged_config.suppress_initial_scans_opt, Some(false));
+        assert_eq!(privileged_config.suppress_initial_scans, false);
         assert_eq!(
-            privileged_config.when_pending_too_long_opt,
-            Some(DEFAULT_PENDING_TOO_LONG_SEC)
+            privileged_config.when_pending_too_long_sec,
+            DEFAULT_PENDING_TOO_LONG_SEC
         );
         //some values from the privileged config
         assert_eq!(privileged_config.log_level, Off);

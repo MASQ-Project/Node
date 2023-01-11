@@ -495,11 +495,10 @@ fn configure_accountant_config(
     )?;
     let suppress_initial_scans =
         value_m!(multi_config, "scans", String).unwrap_or_else(|| "on".to_string()) == *"off";
-    let when_pending_too_long = DEFAULT_PENDING_TOO_LONG_SEC;
     config.payment_thresholds_opt = Some(payment_thresholds);
     config.scan_intervals_opt = Some(scan_intervals);
-    config.suppress_initial_scans_opt = Some(suppress_initial_scans);
-    config.when_pending_too_long_opt = Some(when_pending_too_long);
+    config.suppress_initial_scans = suppress_initial_scans;
+    config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
     Ok(())
 }
 
@@ -1753,10 +1752,10 @@ mod tests {
             Some(expected_payment_thresholds)
         );
         assert_eq!(config.scan_intervals_opt, Some(expected_scan_intervals));
-        assert_eq!(config.suppress_initial_scans_opt, Some(false));
+        assert_eq!(config.suppress_initial_scans, false);
         assert_eq!(
-            config.when_pending_too_long_opt,
-            Some(DEFAULT_PENDING_TOO_LONG_SEC)
+            config.when_pending_too_long_sec,
+            DEFAULT_PENDING_TOO_LONG_SEC
         );
         let set_scan_intervals_params = set_scan_intervals_params_arc.lock().unwrap();
         assert_eq!(*set_scan_intervals_params, vec!["180|150|130".to_string()]);
@@ -1828,12 +1827,12 @@ mod tests {
         );
         assert_eq!(config.scan_intervals_opt, Some(expected_scan_intervals));
         assert_eq!(
-            config.suppress_initial_scans_opt,
-            Some(expected_suppress_initial_scans)
+            config.suppress_initial_scans,
+            expected_suppress_initial_scans
         );
         assert_eq!(
-            config.when_pending_too_long_opt,
-            Some(expected_when_pending_too_long_sec)
+            config.when_pending_too_long_sec,
+            expected_when_pending_too_long_sec
         );
         //no prepared results for the setter methods, that is they were uncalled
     }
@@ -2366,7 +2365,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(bootstrapper_config.suppress_initial_scans_opt, Some(true));
+        assert_eq!(bootstrapper_config.suppress_initial_scans, true);
     }
 
     #[test]
@@ -2387,7 +2386,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(bootstrapper_config.suppress_initial_scans_opt, Some(false));
+        assert_eq!(bootstrapper_config.suppress_initial_scans, false);
     }
 
     #[test]
@@ -2408,7 +2407,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(bootstrapper_config.suppress_initial_scans_opt, Some(false));
+        assert_eq!(bootstrapper_config.suppress_initial_scans, false);
     }
 
     fn make_persistent_config(
