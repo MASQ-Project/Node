@@ -156,7 +156,7 @@ impl ScannerCommon {
         }
     }
 
-    fn remove_timestamp_and_log(&mut self, scan_type: ScanType, logger: &Logger) {
+    fn remove_timestamp(&mut self, scan_type: ScanType, logger: &Logger) {
         match self.initiated_at_opt.take() {
             Some(timestamp) => {
                 let elapsed_time = SystemTime::now()
@@ -191,7 +191,7 @@ macro_rules! time_marking_methods {
 
         fn mark_as_ended(&mut self, logger: &Logger) {
             self.common
-                .remove_timestamp_and_log(ScanType::$scan_type_variant, logger);
+                .remove_timestamp(ScanType::$scan_type_variant, logger);
         }
     };
 }
@@ -1795,7 +1795,7 @@ mod tests {
         let earning_wallet = make_wallet("earning");
         let mut receivable_scanner = ReceivableScannerBuilder::new()
             .receivable_dao(receivable_dao)
-            .earning_wallet(earning_wallet.clone())
+            .earning_wallet(earning_wallet)
             .build();
         let _ = receivable_scanner.begin_scan(now, None, &Logger::new("test"));
 
@@ -1955,7 +1955,7 @@ mod tests {
         let mut subject = ScannerCommon::new(Rc::new(make_custom_payment_thresholds()));
         subject.initiated_at_opt = Some(time_in_past);
 
-        subject.remove_timestamp_and_log(ScanType::Payables, &logger);
+        subject.remove_timestamp(ScanType::Payables, &logger);
 
         TestLogHandler::new().exists_log_matching(&format!(
             "INFO: {test_name}: The Payables scan ended in \\d+ms."
@@ -1970,7 +1970,7 @@ mod tests {
         let mut subject = ScannerCommon::new(Rc::new(make_custom_payment_thresholds()));
         subject.initiated_at_opt = None;
 
-        subject.remove_timestamp_and_log(ScanType::Receivables, &logger);
+        subject.remove_timestamp(ScanType::Receivables, &logger);
 
         TestLogHandler::new().exists_log_containing(&format!(
             "ERROR: {test_name}: Called scan_finished() for Receivables scanner but timestamp was not found"
