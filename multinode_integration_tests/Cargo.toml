@@ -1,6 +1,6 @@
 [package]
 name = "multinode_integration_tests"
-version = "0.6.2"
+version = "0.7.0"
 authors = ["Dan Wiebe <dnwiebe@gmail.com>", "MASQ"]
 license = "GPL-3.0-only"
 copyright = "Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved."
@@ -23,7 +23,7 @@ node = { path = "../node", features = [ "expose_test_privates" ] }
 pretty-hex = "0.2.1"
 primitive-types = {version = "0.5.0", default-features = false, features = ["default", "rlp", "serde"] }
 regex = "1.5.4"
-rusqlite = {version = "0.26.1", features = ["bundled"]}
+rusqlite = {version = "0.28.0", features = ["bundled"]}
 rustc-hex = "2.1.0"
 serde = "1.0.130"
 serde_cbor = "0.11.2"

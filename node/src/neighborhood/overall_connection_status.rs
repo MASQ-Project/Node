@@ -3,7 +3,9 @@
 use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
     NoGossipResponseReceived, PassLoopFound, TcpConnectionFailed,
 };
-use crate::sub_lib::neighborhood::{ConnectionProgressEvent, NodeDescriptor};
+use crate::sub_lib::neighborhood::{
+    ConnectionProgressEvent, ConnectionProgressMessage, NodeDescriptor,
+};
 use actix::Recipient;
 use masq_lib::logger::Logger;
 use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
@@ -221,6 +223,40 @@ impl OverallConnectionStatus {
             ConnectionProgressEvent::NoGossipResponseReceived => {
                 modify_connection_progress(ConnectionStage::Failed(NoGossipResponseReceived));
             }
+        }
+    }
+
+    pub fn get_peer_addrs(&self) -> Vec<IpAddr> {
+        self.progress
+            .iter()
+            .map(|connection_progress| connection_progress.current_peer_addr)
+            .collect()
+    }
+
+    pub fn get_connection_progress_to_modify(
+        &mut self,
+        msg: &ConnectionProgressMessage,
+    ) -> Result<&mut ConnectionProgress, String> {
+        if let ConnectionProgressEvent::PassGossipReceived(pass_target) = msg.event {
+            // Check if Pass Target can potentially create a duplicate ConnectionProgress
+            let is_duplicate = self.get_peer_addrs().contains(&pass_target);
+
+            if is_duplicate {
+                return Err(format!(
+                    "Pass target with IP Address: {:?} is already a \
+                    part of different connection progress.",
+                    pass_target
+                ));
+            }
+        };
+
+        if let Ok(connection_progress) = self.get_connection_progress_by_ip(msg.peer_addr) {
+            Ok(connection_progress)
+        } else {
+            Err(format!(
+                "No peer found with the IP Address: {:?}",
+                msg.peer_addr
+            ))
         }
     }
 
@@ -465,6 +501,22 @@ mod tests {
             subject.get_connection_progress_by_desc(&desc_2),
             Ok(&mut ConnectionProgress::new(desc_2))
         );
+    }
+
+    #[test]
+    fn can_receive_current_peer_addrs() {
+        let peer_1 = make_ip(1);
+        let peer_2 = make_ip(2);
+        let peer_3 = make_ip(3);
+        let subject = OverallConnectionStatus::new(vec![
+            make_node_descriptor(peer_1),
+            make_node_descriptor(peer_2),
+            make_node_descriptor(peer_3),
+        ]);
+
+        let result = subject.get_peer_addrs();
+
+        assert_eq!(result, vec![peer_1, peer_2, peer_3]);
     }
 
     #[test]

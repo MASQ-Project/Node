@@ -1,7 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
-use crate::sub_lib::combined_parameters::CombinedParamsDataTypes::{I64, U64};
+use crate::sub_lib::combined_parameters::CombinedParamsDataTypes::U64;
+use crate::sub_lib::combined_parameters::InitializationState::{Initialized, Uninitialized};
 use crate::sub_lib::neighborhood::RatePack;
 use masq_lib::constants::COMBINED_PARAMETERS_DELIMITER;
 use masq_lib::utils::ExpectValue;
@@ -80,17 +81,27 @@ impl CombinedParamsValueRetriever {
             CombinedParamsValueRetriever::I64(num) => num,
             CombinedParamsValueRetriever::U128(num) => num,
         };
-        *dynamic
-            .downcast_ref::<T>()
-            .unwrap_or_else(|| panic!("expected Some() of {}", std::any::type_name::<T>()))
+        *dynamic.downcast_ref::<T>().unwrap_or_else(|| {
+            panic!(
+                "expected Some() of {} for {}",
+                std::any::type_name::<T>(),
+                parameter_name
+            )
+        })
     }
 }
 
 #[derive(Debug)]
 enum CombinedParams {
-    RatePack(Option<RatePack>),
-    PaymentThresholds(Option<PaymentThresholds>),
-    ScanIntervals(Option<ScanIntervals>),
+    RatePack(InitializationState<RatePack>),
+    PaymentThresholds(InitializationState<PaymentThresholds>),
+    ScanIntervals(InitializationState<ScanIntervals>),
+}
+
+#[derive(Debug)]
+enum InitializationState<T> {
+    Uninitialized,
+    Initialized(T),
 }
 
 impl CombinedParams {
@@ -100,7 +111,7 @@ impl CombinedParams {
             COMBINED_PARAMETERS_DELIMITER,
             self.into(),
         )?;
-        Ok(self.initiate_objects(parsed_values))
+        Ok(self.initialize_objects(parsed_values))
     }
 
     fn parse_combined_params(
@@ -136,12 +147,12 @@ impl CombinedParams {
             .collect())
     }
 
-    fn initiate_objects(
+    fn initialize_objects(
         &self,
         parsed_values: HashMap<String, CombinedParamsValueRetriever>,
     ) -> Self {
         match self {
-            Self::RatePack(None) => Self::RatePack(Some(initiate_struct!(
+            Self::RatePack(Uninitialized) => Self::RatePack(Initialized(initiate_struct!(
                 RatePack,
                 &parsed_values,
                 "routing_byte_rate",
@@ -149,24 +160,28 @@ impl CombinedParams {
                 "exit_byte_rate",
                 "exit_service_rate"
             ))),
-            Self::PaymentThresholds(None) => Self::PaymentThresholds(Some(initiate_struct!(
-                PaymentThresholds,
-                &parsed_values,
-                "maturity_threshold_sec",
-                "payment_grace_period_sec",
-                "permanent_debt_allowed_gwei",
-                "debt_threshold_gwei",
-                "threshold_interval_sec",
-                "unban_below_gwei"
-            ))),
-            Self::ScanIntervals(None) => Self::ScanIntervals(Some(initiate_struct!(
-                ScanIntervals,
-                &parsed_values,
-                Duration::from_secs,
-                "pending_payable_scan_interval",
-                "payable_scan_interval",
-                "receivable_scan_interval"
-            ))),
+            Self::PaymentThresholds(Uninitialized) => {
+                Self::PaymentThresholds(Initialized(initiate_struct!(
+                    PaymentThresholds,
+                    &parsed_values,
+                    "maturity_threshold_sec",
+                    "payment_grace_period_sec",
+                    "permanent_debt_allowed_gwei",
+                    "debt_threshold_gwei",
+                    "threshold_interval_sec",
+                    "unban_below_gwei"
+                )))
+            }
+            Self::ScanIntervals(Uninitialized) => {
+                Self::ScanIntervals(Initialized(initiate_struct!(
+                    ScanIntervals,
+                    &parsed_values,
+                    Duration::from_secs,
+                    "pending_payable_scan_interval",
+                    "payable_scan_interval",
+                    "receivable_scan_interval"
+                )))
+            }
             _ => panic!(
                 "should be called only on uninitialized object, not: {:?}",
                 self
@@ -178,21 +193,21 @@ impl CombinedParams {
 impl From<&CombinedParams> for &[(&str, CombinedParamsDataTypes)] {
     fn from(params: &CombinedParams) -> &'static [(&'static str, CombinedParamsDataTypes)] {
         match params {
-            CombinedParams::RatePack(None) => &[
+            CombinedParams::RatePack(Uninitialized) => &[
                 ("routing_byte_rate", U64),
                 ("routing_service_rate", U64),
                 ("exit_byte_rate", U64),
                 ("exit_service_rate", U64),
             ],
-            CombinedParams::PaymentThresholds(None) => &[
-                ("debt_threshold_gwei", I64),
-                ("maturity_threshold_sec", I64),
-                ("payment_grace_period_sec", I64),
-                ("permanent_debt_allowed_gwei", I64),
-                ("threshold_interval_sec", I64),
-                ("unban_below_gwei", I64),
+            CombinedParams::PaymentThresholds(Uninitialized) => &[
+                ("debt_threshold_gwei", U64),
+                ("maturity_threshold_sec", U64),
+                ("payment_grace_period_sec", U64),
+                ("permanent_debt_allowed_gwei", U64),
+                ("threshold_interval_sec", U64),
+                ("unban_below_gwei", U64),
             ],
-            CombinedParams::ScanIntervals(None) => &[
+            CombinedParams::ScanIntervals(Uninitialized) => &[
                 ("pending_payable_scan_interval", U64),
                 ("payable_scan_interval", U64),
                 ("receivable_scan_interval", U64),
@@ -221,8 +236,8 @@ impl TryFrom<&str> for ScanIntervals {
     type Error = String;
 
     fn try_from(parameters: &str) -> Result<Self, String> {
-        match CombinedParams::ScanIntervals(None).parse(parameters) {
-            Ok(CombinedParams::ScanIntervals(Some(scan_intervals))) => Ok(scan_intervals),
+        match CombinedParams::ScanIntervals(Uninitialized).parse(parameters) {
+            Ok(CombinedParams::ScanIntervals(Initialized(scan_intervals))) => Ok(scan_intervals),
             Err(e) => Err(e),
             _ => unreachable(),
         }
@@ -248,8 +263,8 @@ impl TryFrom<&str> for PaymentThresholds {
     type Error = String;
 
     fn try_from(parameters: &str) -> Result<Self, String> {
-        match CombinedParams::PaymentThresholds(None).parse(parameters) {
-            Ok(CombinedParams::PaymentThresholds(Some(payment_thresholds))) => {
+        match CombinedParams::PaymentThresholds(Uninitialized).parse(parameters) {
+            Ok(CombinedParams::PaymentThresholds(Initialized(payment_thresholds))) => {
                 Ok(payment_thresholds)
             }
             Err(e) => Err(e),
@@ -275,8 +290,8 @@ impl TryFrom<&str> for RatePack {
     type Error = String;
 
     fn try_from(parameters: &str) -> Result<Self, String> {
-        match CombinedParams::RatePack(None).parse(parameters) {
-            Ok(CombinedParams::RatePack(Some(rate_pack))) => Ok(rate_pack),
+        match CombinedParams::RatePack(Uninitialized).parse(parameters) {
+            Ok(CombinedParams::RatePack(Initialized(rate_pack))) => Ok(rate_pack),
             Err(e) => Err(e),
             _ => unreachable(),
         }
@@ -370,7 +385,7 @@ mod tests {
     #[test]
     fn combined_params_can_be_converted_to_collection_of_typed_parametres() {
         let rate_pack: &[(&str, CombinedParamsDataTypes)] =
-            (&CombinedParams::RatePack(None)).into();
+            (&CombinedParams::RatePack(Uninitialized)).into();
         assert_eq!(
             rate_pack,
             &[
@@ -381,7 +396,7 @@ mod tests {
             ]
         );
         let scan_interval: &[(&str, CombinedParamsDataTypes)] =
-            (&CombinedParams::ScanIntervals(None)).into();
+            (&CombinedParams::ScanIntervals(Uninitialized)).into();
         assert_eq!(
             scan_interval,
             &[
@@ -391,16 +406,16 @@ mod tests {
             ]
         );
         let payment_thresholds: &[(&str, CombinedParamsDataTypes)] =
-            (&CombinedParams::PaymentThresholds(None)).into();
+            (&CombinedParams::PaymentThresholds(Uninitialized)).into();
         assert_eq!(
             payment_thresholds,
             &[
-                ("debt_threshold_gwei", I64),
-                ("maturity_threshold_sec", I64),
-                ("payment_grace_period_sec", I64),
-                ("permanent_debt_allowed_gwei", I64),
-                ("threshold_interval_sec", I64),
-                ("unban_below_gwei", I64)
+                ("debt_threshold_gwei", U64),
+                ("maturity_threshold_sec", U64),
+                ("payment_grace_period_sec", U64),
+                ("permanent_debt_allowed_gwei", U64),
+                ("threshold_interval_sec", U64),
+                ("unban_below_gwei", U64)
             ]
         );
     }
@@ -409,7 +424,7 @@ mod tests {
     fn array_type_conversion_should_use_uninitialized_instances_only() {
         let panic_1 = catch_unwind(|| {
             let _: &[(&str, CombinedParamsDataTypes)] =
-                (&CombinedParams::RatePack(Some(DEFAULT_RATE_PACK))).into();
+                (&CombinedParams::RatePack(Initialized(DEFAULT_RATE_PACK))).into();
         })
         .unwrap_err();
         let panic_1_msg = panic_1.downcast_ref::<String>().unwrap();
@@ -417,14 +432,15 @@ mod tests {
         assert_eq!(
             panic_1_msg,
             &format!(
-                "should be called only on uninitialized object, not: RatePack(Some({:?}))",
+                "should be called only on uninitialized object, not: RatePack(Initialized({:?}))",
                 DEFAULT_RATE_PACK
             )
         );
 
         let panic_2 = catch_unwind(|| {
             let _: &[(&str, CombinedParamsDataTypes)] =
-                (&CombinedParams::PaymentThresholds(Some(PaymentThresholds::default()))).into();
+                (&CombinedParams::PaymentThresholds(Initialized(PaymentThresholds::default())))
+                    .into();
         })
         .unwrap_err();
         let panic_2_msg = panic_2.downcast_ref::<String>().unwrap();
@@ -432,14 +448,14 @@ mod tests {
         assert_eq!(
             panic_2_msg,
             &format!(
-                "should be called only on uninitialized object, not: PaymentThresholds(Some({:?}))",
+                "should be called only on uninitialized object, not: PaymentThresholds(Initialized({:?}))",
                 PaymentThresholds::default()
             )
         );
 
         let panic_3 = catch_unwind(|| {
             let _: &[(&str, CombinedParamsDataTypes)] =
-                (&CombinedParams::ScanIntervals(Some(ScanIntervals::default()))).into();
+                (&CombinedParams::ScanIntervals(Initialized(ScanIntervals::default()))).into();
         })
         .unwrap_err();
         let panic_3_msg = panic_3.downcast_ref::<String>().unwrap();
@@ -447,7 +463,7 @@ mod tests {
         assert_eq!(
             panic_3_msg,
             &format!(
-                "should be called only on uninitialized object, not: ScanIntervals(Some({:?}))",
+                "should be called only on uninitialized object, not: ScanIntervals(Initialized({:?}))",
                 ScanIntervals::default()
             )
         );
@@ -456,7 +472,8 @@ mod tests {
     #[test]
     fn initiate_objects_should_use_uninitialized_instances_only() {
         let panic_1 = catch_unwind(|| {
-            (&CombinedParams::RatePack(Some(DEFAULT_RATE_PACK))).initiate_objects(HashMap::new());
+            (&CombinedParams::RatePack(Initialized(DEFAULT_RATE_PACK)))
+                .initialize_objects(HashMap::new());
         })
         .unwrap_err();
         let panic_1_msg = panic_1.downcast_ref::<String>().unwrap();
@@ -464,14 +481,14 @@ mod tests {
         assert_eq!(
             panic_1_msg,
             &format!(
-                "should be called only on uninitialized object, not: RatePack(Some({:?}))",
+                "should be called only on uninitialized object, not: RatePack(Initialized({:?}))",
                 DEFAULT_RATE_PACK
             )
         );
 
         let panic_2 = catch_unwind(|| {
-            (&CombinedParams::PaymentThresholds(Some(PaymentThresholds::default())))
-                .initiate_objects(HashMap::new());
+            (&CombinedParams::PaymentThresholds(Initialized(PaymentThresholds::default())))
+                .initialize_objects(HashMap::new());
         })
         .unwrap_err();
         let panic_2_msg = panic_2.downcast_ref::<String>().unwrap();
@@ -479,14 +496,14 @@ mod tests {
         assert_eq!(
             panic_2_msg,
             &format!(
-                "should be called only on uninitialized object, not: PaymentThresholds(Some({:?}))",
+                "should be called only on uninitialized object, not: PaymentThresholds(Initialized({:?}))",
                 PaymentThresholds::default()
             )
         );
 
         let panic_3 = catch_unwind(|| {
-            (&CombinedParams::ScanIntervals(Some(ScanIntervals::default())))
-                .initiate_objects(HashMap::new());
+            (&CombinedParams::ScanIntervals(Initialized(ScanIntervals::default())))
+                .initialize_objects(HashMap::new());
         })
         .unwrap_err();
         let panic_3_msg = panic_3.downcast_ref::<String>().unwrap();
@@ -494,7 +511,7 @@ mod tests {
         assert_eq!(
             panic_3_msg,
             &format!(
-                "should be called only on uninitialized object, not: ScanIntervals(Some({:?}))",
+                "should be called only on uninitialized object, not: ScanIntervals(Initialized({:?}))",
                 ScanIntervals::default()
             )
         );

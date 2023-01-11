@@ -15,8 +15,8 @@ pub struct ScanCommand {
 }
 
 const SCAN_SUBCOMMAND_ABOUT: &str =
-    "Orders the Node to perform an immediate scan of the indicated type";
-const SCAN_SUBCOMMAND_HELP: &str = "Type of the scan that should be triggered";
+    "Orders the Node to perform an immediate scan of the indicated type.";
+const SCAN_SUBCOMMAND_HELP: &str = "Type of the scan that should be triggered.";
 
 pub fn scan_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("scan")
@@ -79,11 +79,11 @@ mod tests {
     fn constants_have_correct_values() {
         assert_eq!(
             SCAN_SUBCOMMAND_ABOUT,
-            "Orders the Node to perform an immediate scan of the indicated type"
+            "Orders the Node to perform an immediate scan of the indicated type."
         );
         assert_eq!(
             SCAN_SUBCOMMAND_HELP,
-            "Type of the scan that should be triggered"
+            "Type of the scan that should be triggered."
         );
     }
 

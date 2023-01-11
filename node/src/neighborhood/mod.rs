@@ -28,8 +28,8 @@ use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, ExpectValue};
 
 use crate::bootstrapper::BootstrapperConfig;
+use crate::database::db_initializer::DbInitializationConfig;
 use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
-use crate::database::db_migrations::MigratorConfig;
 use crate::db_config::persistent_configuration::{
     PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
 };
@@ -266,38 +266,41 @@ impl Handler<ConnectionProgressMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: ConnectionProgressMessage, ctx: &mut Self::Context) -> Self::Result {
-        if let Ok(connection_progress) = self
+        match self
             .overall_connection_status
-            .get_connection_progress_by_ip(msg.peer_addr)
+            .get_connection_progress_to_modify(&msg)
         {
-            OverallConnectionStatus::update_connection_stage(
-                connection_progress,
-                msg.event.clone(),
-                &self.logger,
-            );
-            match msg.event {
-                ConnectionProgressEvent::TcpConnectionSuccessful => {
-                    self.send_ask_about_debut_gossip_message(ctx, msg.peer_addr);
+            Ok(connection_progress) => {
+                OverallConnectionStatus::update_connection_stage(
+                    connection_progress,
+                    msg.event.clone(),
+                    &self.logger,
+                );
+                match msg.event {
+                    ConnectionProgressEvent::TcpConnectionSuccessful => {
+                        self.send_ask_about_debut_gossip_message(ctx, msg.peer_addr);
+                    }
+                    ConnectionProgressEvent::IntroductionGossipReceived(_)
+                    | ConnectionProgressEvent::StandardGossipReceived => {
+                        self.overall_connection_status
+                            .update_ocs_stage_and_send_message_to_ui(
+                                OverallConnectionStage::ConnectedToNeighbor,
+                                self.node_to_ui_recipient_opt
+                                    .as_ref()
+                                    .expect("UI Gateway is unbound"),
+                                &self.logger,
+                            );
+                    }
+                    _ => (),
                 }
-                ConnectionProgressEvent::IntroductionGossipReceived(_)
-                | ConnectionProgressEvent::StandardGossipReceived => {
-                    self.overall_connection_status
-                        .update_ocs_stage_and_send_message_to_ui(
-                            OverallConnectionStage::ConnectedToNeighbor,
-                            self.node_to_ui_recipient_opt
-                                .as_ref()
-                                .expect("UI Gateway is unbound"),
-                            &self.logger,
-                        );
-                }
-                _ => (),
             }
-        } else {
-            trace!(
-                self.logger,
-                "An unnecessary ConnectionProgressMessage received from IP Address: {:?}",
-                msg.peer_addr
-            );
+            Err(e) => {
+                trace!(
+                    self.logger,
+                    "Found unnecessary connection progress message - {}",
+                    e
+                );
+            }
         }
     }
 }
@@ -551,8 +554,7 @@ impl Neighborhood {
             let conn = db_initializer
                 .initialize(
                     &self.data_directory,
-                    false,
-                    MigratorConfig::panic_on_migration(),
+                    DbInitializationConfig::panic_on_migration(),
                 )
                 .expect("Neighborhood could not connect to database");
             self.persistent_config_opt = Some(Box::new(PersistentConfigurationReal::from(conn)));
@@ -724,11 +726,17 @@ impl Neighborhood {
     fn handle_agrs(&mut self, agrs: Vec<AccessibleGossipRecord>, gossip_source: SocketAddr) {
         let ignored_node_name = self.gossip_source_name(&agrs, gossip_source);
         let gossip_record_count = agrs.len();
+        let connection_progress_peers = self.overall_connection_status.get_peer_addrs();
         let acceptance_result = self
             .gossip_acceptor_opt
             .as_ref()
             .expect("Gossip Acceptor wasn't created.")
-            .handle(&mut self.neighborhood_database, agrs, gossip_source);
+            .handle(
+                &mut self.neighborhood_database,
+                agrs,
+                gossip_source,
+                &connection_progress_peers,
+            );
         match acceptance_result {
             GossipAcceptanceResult::Accepted => self.gossip_to_neighbors(),
             GossipAcceptanceResult::Reply(next_debut, target_key, target_node_addr) => {
@@ -1716,7 +1724,7 @@ mod tests {
         );
         {
             let _ = DbInitializerReal::default()
-                .initialize(&data_dir, true, MigratorConfig::test_default())
+                .initialize(&data_dir, DbInitializationConfig::test_default())
                 .unwrap();
         }
         let cryptde = main_cryptde();
@@ -1809,7 +1817,7 @@ mod tests {
     }
 
     #[test]
-    pub fn neighborhood_logs_with_trace_if_it_receives_a_cpm_with_an_unknown_peer_addr() {
+    fn neighborhood_logs_with_trace_if_it_receives_a_cpm_with_an_unknown_peer_addr() {
         init_test_logging();
         let known_peer = make_ip(1);
         let unknown_peer = make_ip(2);
@@ -1836,8 +1844,56 @@ mod tests {
         System::current().stop();
         assert_eq!(system.run(), 0);
         TestLogHandler::new().exists_log_containing(&format!(
-            "TRACE: Neighborhood: An unnecessary ConnectionProgressMessage received from IP Address: {:?}",
+            "TRACE: Neighborhood: Found unnecessary connection progress message - No peer found with the IP Address: {:?}",
             unknown_peer
+        ));
+    }
+
+    #[test]
+    fn neighborhood_logs_with_trace_if_it_receives_a_cpm_with_a_pass_target_that_is_a_part_of_a_different_connection_progress(
+    ) {
+        init_test_logging();
+        let peer_1 = make_ip(1);
+        let peer_2 = make_ip(2);
+        let this_node_addr = NodeAddr::new(&IpAddr::from_str("111.111.111.111").unwrap(), &[8765]);
+        let initial_node_descriptors =
+            vec![make_node_descriptor(peer_1), make_node_descriptor(peer_2)];
+        let neighborhood_config = NeighborhoodConfig {
+            mode: NeighborhoodMode::Standard(
+                this_node_addr,
+                initial_node_descriptors,
+                rate_pack(100),
+            ),
+        };
+        let bootstrap_config =
+            bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
+        let mut subject = Neighborhood::new(main_cryptde(), &bootstrap_config);
+        subject
+            .overall_connection_status
+            .get_connection_progress_by_ip(peer_1)
+            .unwrap()
+            .connection_stage = ConnectionStage::TcpConnectionEstablished;
+        subject
+            .overall_connection_status
+            .get_connection_progress_by_ip(peer_2)
+            .unwrap()
+            .connection_stage = ConnectionStage::TcpConnectionEstablished;
+        let addr = subject.start();
+        let cpm_recipient = addr.clone().recipient::<ConnectionProgressMessage>();
+        let system = System::new("testing");
+        let cpm = ConnectionProgressMessage {
+            peer_addr: peer_2,
+            event: ConnectionProgressEvent::PassGossipReceived(peer_1),
+        };
+
+        cpm_recipient.try_send(cpm).unwrap();
+
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        TestLogHandler::new().exists_log_containing(&format!(
+            "TRACE: Neighborhood: Found unnecessary connection progress message - Pass target with \
+            IP Address: {:?} is already a part of different connection progress.",
+            peer_1
         ));
     }
 
@@ -3457,7 +3513,8 @@ mod tests {
         System::current().stop();
         system.run();
         let mut handle_params = handle_params_arc.lock().unwrap();
-        let (call_database, call_agrs, call_gossip_source) = handle_params.remove(0);
+        let (call_database, call_agrs, call_gossip_source, connection_progress_peers) =
+            handle_params.remove(0);
         assert!(handle_params.is_empty());
         assert_eq!(&subject_node, call_database.root());
         assert_eq!(1, call_database.keys().len());
@@ -3465,6 +3522,8 @@ mod tests {
         assert_eq!(agrs, call_agrs);
         let actual_gossip_source: SocketAddr = subject_node.node_addr_opt().unwrap().into();
         assert_eq!(actual_gossip_source, call_gossip_source);
+        let neighbor_ip = neighbor.node_addr_opt().unwrap().ip_addr();
+        assert_eq!(connection_progress_peers, vec![neighbor_ip]);
     }
 
     #[test]
@@ -3569,6 +3628,7 @@ mod tests {
             database: &mut NeighborhoodDatabase,
             _agrs: Vec<AccessibleGossipRecord>,
             _gossip_source: SocketAddr,
+            _connection_progress_peers: &[IpAddr],
         ) -> GossipAcceptanceResult {
             let non_root_database_keys = database
                 .keys()
@@ -3680,6 +3740,48 @@ mod tests {
     }
 
     #[test]
+    fn neighborhood_ignores_gossip_if_it_receives_a_pass_target_which_is_a_part_of_a_different_connection_progress(
+    ) {
+        init_test_logging();
+        let handle_params_arc = Arc::new(Mutex::new(vec![]));
+        let gossip_acceptor = GossipAcceptorMock::new()
+            .handle_params(&handle_params_arc)
+            .handle_result(GossipAcceptanceResult::Ignored);
+        let (node_to_ui_recipient, _) = make_node_to_ui_recipient();
+        let peer_1 = make_node_record(1234, true);
+        let peer_2 = make_node_record(6721, true);
+        let desc_1 = peer_1.node_descriptor(Chain::Dev, main_cryptde());
+        let desc_2 = peer_2.node_descriptor(Chain::Dev, main_cryptde());
+        let this_node = make_node_record(7777, true);
+        let initial_node_descriptors = vec![desc_1, desc_2];
+        let neighborhood_config = NeighborhoodConfig {
+            mode: NeighborhoodMode::Standard(
+                this_node.node_addr_opt().unwrap(),
+                initial_node_descriptors,
+                rate_pack(100),
+            ),
+        };
+        let bootstrap_config =
+            bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
+        let mut subject = Neighborhood::new(main_cryptde(), &bootstrap_config);
+        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
+        subject.gossip_acceptor_opt = Some(Box::new(gossip_acceptor));
+        let mut peer_2_db = db_from_node(&peer_2);
+        peer_2_db.add_node(peer_1.clone()).unwrap();
+        peer_2_db.add_arbitrary_full_neighbor(peer_2.public_key(), peer_1.public_key());
+        let peer_2_socket_addr: SocketAddr = peer_2.metadata.node_addr_opt.unwrap().into();
+        let pass_gossip = GossipBuilder::new(&peer_2_db)
+            .node(peer_1.public_key(), true)
+            .build();
+        let agrs: Vec<AccessibleGossipRecord> = pass_gossip.try_into().unwrap();
+
+        subject.handle_agrs(agrs, peer_2_socket_addr);
+
+        TestLogHandler::new()
+            .exists_log_containing(&format!("Gossip from {} ignored", peer_2_socket_addr));
+    }
+
+    #[test]
     fn neighborhood_updates_ocs_stage_and_sends_message_to_the_ui_when_first_route_can_be_made() {
         init_test_logging();
         let test_name = "neighborhood_updates_ocs_stage_and_sends_message_to_the_ui_when_first_route_can_be_made";
@@ -3758,6 +3860,7 @@ mod tests {
             database: &mut NeighborhoodDatabase,
             _agrs: Vec<AccessibleGossipRecord>,
             _gossip_source: SocketAddr,
+            _connection_progress_peers: &[IpAddr],
         ) -> GossipAcceptanceResult {
             let half_neighbor_keys = database
                 .root()
@@ -4377,7 +4480,7 @@ mod tests {
         );
         {
             let _ = DbInitializerReal::default()
-                .initialize(&data_dir, true, MigratorConfig::test_default())
+                .initialize(&data_dir, DbInitializationConfig::test_default())
                 .unwrap();
         }
         let cryptde: &dyn CryptDE = main_cryptde();
@@ -5406,6 +5509,7 @@ mod tests {
                     NeighborhoodDatabase,
                     Vec<AccessibleGossipRecord>,
                     SocketAddr,
+                    Vec<IpAddr>,
                 )>,
             >,
         >,
@@ -5418,11 +5522,14 @@ mod tests {
             database: &mut NeighborhoodDatabase,
             agrs: Vec<AccessibleGossipRecord>,
             gossip_source: SocketAddr,
+            connection_progress_peers: &[IpAddr],
         ) -> GossipAcceptanceResult {
-            self.handle_params
-                .lock()
-                .unwrap()
-                .push((database.clone(), agrs, gossip_source));
+            self.handle_params.lock().unwrap().push((
+                database.clone(),
+                agrs,
+                gossip_source,
+                connection_progress_peers.to_vec(),
+            ));
             self.handle_results.borrow_mut().remove(0)
         }
     }
@@ -5443,6 +5550,7 @@ mod tests {
                         NeighborhoodDatabase,
                         Vec<AccessibleGossipRecord>,
                         SocketAddr,
+                        Vec<IpAddr>,
                     )>,
                 >,
             >,

@@ -1144,39 +1144,42 @@ impl MASQRealNode {
     }
 
     fn extract_node_reference(name: &str) -> Result<NodeReference, String> {
-        let regex = Self::descriptor_regex();
+        let descriptor_regex = Self::descriptor_regex();
         let mut retries_left = 25;
         loop {
+            if retries_left <= 0 {
+                return Err(format!("Node {} never started", name));
+            }
+            retries_left -= 1;
             println!("Checking for {} startup", name);
-            thread::sleep(Duration::from_millis(100));
-            let output = Self::exec_command_on_container_and_wait(
+            thread::sleep(Duration::from_millis(250));
+            match Self::exec_command_on_container_and_wait(
                 name,
                 vec![
                     "cat",
                     &format!("{}/{}", DATA_DIRECTORY, CURRENT_LOGFILE_NAME),
                 ],
-            )
-            .unwrap_or_else(|e| {
-                panic!(
-                    "Failed to read {}/{}: {}",
-                    DATA_DIRECTORY, CURRENT_LOGFILE_NAME, e
-                )
-            });
-            match regex.captures(output.as_str()) {
-                Some(captures) => {
-                    let node_reference =
-                        NodeReference::from_str(captures.get(1).unwrap().as_str()).unwrap();
-                    println!("{} startup detected at {}", name, node_reference);
-                    return Ok(node_reference);
-                }
-                None => {
-                    if retries_left <= 0 {
-                        return Err(format!("Node {} never started:\n{}", name, output));
+            ) {
+                Ok(output) => {
+                    if let Some(captures) = descriptor_regex.captures(output.as_str()) {
+                        let node_reference =
+                            NodeReference::from_str(captures.get(1).unwrap().as_str()).unwrap();
+                        println!("{} startup detected at {}", name, node_reference);
+                        return Ok(node_reference);
                     } else {
-                        retries_left -= 1;
+                        println!(
+                            "No local descriptor for {} in logfile yet\n{}",
+                            name, output
+                        )
                     }
                 }
-            }
+                Err(e) => {
+                    println!(
+                        "Failed to cat logfile for {} at {}/{}: {}",
+                        name, DATA_DIRECTORY, CURRENT_LOGFILE_NAME, e
+                    );
+                }
+            };
         }
     }
 }

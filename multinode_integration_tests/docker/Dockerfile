@@ -1,10 +1,11 @@
 # Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #FROM debian:stable-slim
 #FROM debian:buster-slim
-FROM debian:bullseye-slim
+#FROM debian:bullseye-slim
+FROM debian:bookworm-slim
 
 RUN apt-get update && \
-    apt-get install -y libc6 && \
+    apt-get install -y libc6=2.36-6 && \
 # These lines are commented out because for some reason the installation of iptables-persistent hangs forever on
 # bullseye-slim. Its absence means that the NodeStartupConfigBuilder::open_firewall_port() function won't work, but
 # at the time of this comment it's used in only one place in a way that doesn't have any value. So we decided to
