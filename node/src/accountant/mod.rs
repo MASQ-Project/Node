@@ -369,7 +369,7 @@ impl Accountant {
     pub fn new(config: BootstrapperConfig, dao_factories: DaoFactories) -> Accountant {
         let payment_thresholds = config.payment_thresholds_opt.expectv("Payment thresholds");
         let scan_intervals = config.scan_intervals_opt.expectv("Scan Intervals");
-        let earning_wallet = Rc::new(config.earning_wallet.clone());
+        let earning_wallet = Rc::new(config.earning_wallet);
         let financial_statistics = Rc::new(RefCell::new(FinancialStatistics::default()));
         let payable_dao = dao_factories.payable_dao_factory.make();
         let pending_payable_dao = dao_factories.pending_payable_dao_factory.make();
