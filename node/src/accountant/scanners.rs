@@ -4,8 +4,8 @@ use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDao};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDao;
 use crate::accountant::scanners_utils::payable_scanner_utils::{
-    investigate_debt_extremes, separate_early_errors, PayableThresholdsGauge,
-    PayableThresholdsGaugeReal,
+    investigate_debt_extremes, payables_debug_summary, separate_early_errors,
+    PayableThresholdsGauge, PayableThresholdsGaugeReal,
 };
 use crate::accountant::scanners_utils::pending_payable_scanner_utils::{
     elapsed_in_ms, handle_none_status, handle_status_with_failure, handle_status_with_success,
@@ -24,7 +24,6 @@ use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics, PaymentThres
 use crate::sub_lib::utils::NotifyLaterHandle;
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, System};
-use itertools::Itertools;
 use masq_lib::logger::Logger;
 use masq_lib::logger::TIME_FORMATTING_STRING;
 use masq_lib::messages::{ScanType, ToMessageBody, UiScanResponse};
@@ -36,7 +35,6 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
-use thousands::Separable;
 use time::format_description::parse;
 use time::OffsetDateTime;
 use web3::types::TransactionReceipt;
@@ -95,56 +93,6 @@ where
     fn mark_as_started(&mut self, timestamp: SystemTime);
     fn mark_as_ended(&mut self, logger: &Logger);
     as_any_dcl!();
-}
-
-#[derive(Debug, PartialEq, Eq)]
-pub enum BeginScanError {
-    NothingToProcess,
-    ScanAlreadyRunning(SystemTime),
-    CalledFromNullScanner, // Exclusive for tests
-}
-
-impl BeginScanError {
-    pub fn handle_error(
-        &self,
-        logger: &Logger,
-        scan_type: ScanType,
-        is_externally_triggered: bool,
-    ) {
-        let log_message_opt = match self {
-            BeginScanError::NothingToProcess => Some(format!(
-                "There was nothing to process during {:?} scan.",
-                scan_type
-            )),
-            BeginScanError::ScanAlreadyRunning(timestamp) => Some(format!(
-                "{:?} scan was already initiated at {}. \
-                 Hence, this scan request will be ignored.",
-                scan_type,
-                BeginScanError::timestamp_as_string(&timestamp)
-            )),
-            BeginScanError::CalledFromNullScanner => match cfg!(test) {
-                true => None,
-                false => panic!("Null Scanner shouldn't be running inside production code."),
-            },
-        };
-
-        if let Some(log_message) = log_message_opt {
-            match is_externally_triggered {
-                true => info!(logger, "{}", log_message),
-                false => debug!(logger, "{}", log_message),
-            }
-        }
-    }
-
-    fn timestamp_as_string(timestamp: &SystemTime) -> String {
-        let offset_date_time = OffsetDateTime::from(*timestamp);
-        offset_date_time
-            .format(
-                &parse(TIME_FORMATTING_STRING)
-                    .expect("Error while parsing the time formatting string."),
-            )
-            .expect("Error while formatting timestamp as string.")
-    }
 }
 
 pub struct ScannerCommon {
@@ -220,31 +168,24 @@ impl Scanner<ReportAccountsPayable, SentPayables> for PayableScanner {
         self.mark_as_started(timestamp);
         info!(logger, "Scanning for payables");
         let all_non_pending_payables = self.payable_dao.non_pending_payables();
+
         debug!(
             logger,
             "{}",
             investigate_debt_extremes(timestamp, &all_non_pending_payables)
         );
-        let qualified_payables = all_non_pending_payables
-            .into_iter()
-            .filter(|account| self.payable_exceeded_threshold(account).is_some())
-            .collect::<Vec<PayableAccount>>();
-        // TODO you can rewrite it so that payable_exceed_threshold can produce a vec of tuples of accounts and threshold values, but only if debug is on, otherwise it's None.
-        self.payables_debug_summary(&qualified_payables, logger);
 
-        match qualified_payables.is_empty() {
+        let qualified = self.qualified_payables(all_non_pending_payables, logger);
+
+        match qualified.is_empty() {
             true => {
                 self.mark_as_ended(logger);
                 Err(BeginScanError::NothingToProcess)
             }
             false => {
-                info!(
-                    logger,
-                    "Chose {} qualified debts to pay",
-                    qualified_payables.len()
-                );
+                info!(logger, "Chose {} qualified debts to pay", qualified.len());
                 Ok(ReportAccountsPayable {
-                    accounts: qualified_payables,
+                    accounts: qualified,
                     response_skeleton_opt,
                 })
             }
@@ -320,35 +261,49 @@ impl PayableScanner {
         }
     }
 
-    fn payables_debug_summary(&self, qualified_payables: &[PayableAccount], logger: &Logger) {
-        if qualified_payables.is_empty() {
-            return;
+    fn qualified_payables(
+        &self,
+        non_pending_payables: Vec<PayableAccount>,
+        logger: &Logger,
+    ) -> Vec<PayableAccount> {
+        fn qualified_payables_and_threshold_points(
+            subject: &PayableScanner,
+            non_pending_payables: Vec<PayableAccount>,
+        ) -> impl Iterator<Item = (PayableAccount, u128)> + '_ {
+            non_pending_payables.into_iter().flat_map(|account| {
+                subject
+                    .payable_exceeded_threshold(&account, SystemTime::now())
+                    .and_then(|threshold_point| Some((account, threshold_point)))
+            })
         }
-        debug!(logger, "Paying qualified debts:\n{}", {
-            let now = SystemTime::now();
-            qualified_payables
-                .iter()
-                .map(|payable| {
-                    let p_age = now
-                        .duration_since(payable.last_paid_timestamp)
-                        .expect("Payable time is corrupt");
-                    let threshold = self
-                        .payable_exceeded_threshold(payable)
-                        .expect("Threshold suddenly changed!");
-                    format!(
-                        "{} wei owed for {} sec exceeds threshold: {} wei; creditor: {}",
-                        payable.balance_wei.separate_with_commas(),
-                        p_age.as_secs(),
-                        threshold.separate_with_commas(),
-                        payable.wallet
-                    )
-                })
-                .join("\n")
-        })
+        fn yield_payables_and_drop_points(
+            qp_tp: impl Iterator<Item = (PayableAccount, u128)>,
+        ) -> Vec<PayableAccount> {
+            qp_tp.unzip::<_, _, Vec<PayableAccount>, Vec<_>>().0
+        }
+        fn with_logging(
+            qualified_and_points_iter: impl Iterator<Item = (PayableAccount, u128)>,
+            logger: &Logger,
+        ) -> Vec<PayableAccount> {
+            let qualified_and_points_collected = qualified_and_points_iter.collect::<Vec<(_, _)>>();
+            payables_debug_summary(&qualified_and_points_collected, logger);
+            yield_payables_and_drop_points(qualified_and_points_collected.into_iter())
+        }
+
+        let payables_and_points =
+            qualified_payables_and_threshold_points(&self, non_pending_payables);
+        match logger.debug_enabled() {
+            false => yield_payables_and_drop_points(payables_and_points),
+            true => with_logging(payables_and_points, logger),
+        }
     }
 
-    fn payable_exceeded_threshold(&self, payable: &PayableAccount) -> Option<u128> {
-        let debt_age = SystemTime::now()
+    fn payable_exceeded_threshold(
+        &self,
+        payable: &PayableAccount,
+        now: SystemTime,
+    ) -> Option<u128> {
+        let debt_age = now
             .duration_since(payable.last_paid_timestamp)
             .expect("Internal error")
             .as_secs();
@@ -766,6 +721,56 @@ impl ReceivableScanner {
     }
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum BeginScanError {
+    NothingToProcess,
+    ScanAlreadyRunning(SystemTime),
+    CalledFromNullScanner, // Exclusive for tests
+}
+
+impl BeginScanError {
+    pub fn handle_error(
+        &self,
+        logger: &Logger,
+        scan_type: ScanType,
+        is_externally_triggered: bool,
+    ) {
+        let log_message_opt = match self {
+            BeginScanError::NothingToProcess => Some(format!(
+                "There was nothing to process during {:?} scan.",
+                scan_type
+            )),
+            BeginScanError::ScanAlreadyRunning(timestamp) => Some(format!(
+                "{:?} scan was already initiated at {}. \
+                 Hence, this scan request will be ignored.",
+                scan_type,
+                BeginScanError::timestamp_as_string(&timestamp)
+            )),
+            BeginScanError::CalledFromNullScanner => match cfg!(test) {
+                true => None,
+                false => panic!("Null Scanner shouldn't be running inside production code."),
+            },
+        };
+
+        if let Some(log_message) = log_message_opt {
+            match is_externally_triggered {
+                true => info!(logger, "{}", log_message),
+                false => debug!(logger, "{}", log_message),
+            }
+        }
+    }
+
+    fn timestamp_as_string(timestamp: &SystemTime) -> String {
+        let offset_date_time = OffsetDateTime::from(*timestamp);
+        offset_date_time
+            .format(
+                &parse(TIME_FORMATTING_STRING)
+                    .expect("Error while parsing the time formatting string."),
+            )
+            .expect("Error while formatting timestamp as string.")
+    }
+}
+
 pub struct NullScanner {}
 
 impl<BeginMessage, EndMessage> Scanner<BeginMessage, EndMessage> for NullScanner
@@ -932,8 +937,8 @@ mod tests {
         ReceivableScannerBuilder,
     };
     use crate::accountant::{
-        checked_conversion, gwei_to_wei, PendingPayableId, PendingTransactionStatus,
-        ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, SentPayables,
+        gwei_to_wei, PendingPayableId, PendingTransactionStatus, ReceivedPayments,
+        ReportTransactionReceipts, RequestTransactionReceipts, SentPayables,
         DEFAULT_PENDING_TOO_LONG_SEC,
     };
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
@@ -1268,67 +1273,6 @@ mod tests {
     }
 
     #[test]
-    fn payables_debug_summary_stays_inert_if_no_qualified_payments() {
-        init_test_logging();
-        let subject = PayableScannerBuilder::new().build();
-        let logger = Logger::new("payables_debug_summary_stays_inert_if_no_qualified_payments");
-
-        subject.payables_debug_summary(&vec![], &logger);
-
-        TestLogHandler::new().exists_no_log_containing(
-            "DEBUG: payables_debug_summary_stays_\
-        inert_if_no_qualified_payments: Paying qualified debts:",
-        );
-    }
-
-    #[test]
-    fn payables_debug_summary_prints_pretty_summary() {
-        init_test_logging();
-        let now = to_time_t(SystemTime::now());
-        let payment_thresholds = PaymentThresholds {
-            threshold_interval_sec: 2_592_000,
-            debt_threshold_gwei: 1_000_000_000,
-            payment_grace_period_sec: 86_400,
-            maturity_threshold_sec: 86_400,
-            permanent_debt_allowed_gwei: 10_000_000,
-            unban_below_gwei: 10_000_000,
-        };
-        let qualified_payables = &[
-            PayableAccount {
-                wallet: make_wallet("wallet0"),
-                balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 2000),
-                last_paid_timestamp: from_time_t(
-                    now - checked_conversion::<u64, i64>(
-                        payment_thresholds.maturity_threshold_sec
-                            + payment_thresholds.threshold_interval_sec,
-                    ),
-                ),
-                pending_payable_opt: None,
-            },
-            PayableAccount {
-                wallet: make_wallet("wallet1"),
-                balance_wei: gwei_to_wei(payment_thresholds.debt_threshold_gwei - 1),
-                last_paid_timestamp: from_time_t(
-                    now - checked_conversion::<u64, i64>(
-                        payment_thresholds.maturity_threshold_sec + 55,
-                    ),
-                ),
-                pending_payable_opt: None,
-            },
-        ];
-        let subject = PayableScannerBuilder::new()
-            .payment_thresholds(payment_thresholds)
-            .build();
-        let logger = Logger::new("test");
-
-        subject.payables_debug_summary(qualified_payables, &logger);
-
-        TestLogHandler::new().exists_log_containing("Paying qualified debts:\n\
-                   10,002,000,000,000,000 wei owed for 2678400 sec exceeds threshold: 10,000,000,001,152,000 wei; creditor: 0x0000000000000000000000000077616c6c657430\n\
-                   999,999,999,000,000,000 wei owed for 86455 sec exceeds threshold: 999,978,993,055,555,580 wei; creditor: 0x0000000000000000000000000077616c6c657431");
-    }
-
-    #[test]
     fn payable_is_found_innocent_by_age_and_returns() {
         let is_innocent_age_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_thresholds_gauge = PayableThresholdsGaugeMock::default()
@@ -1336,26 +1280,19 @@ mod tests {
             .is_innocent_age_result(true);
         let mut subject = PayableScannerBuilder::new().build();
         subject.payable_threshold_gauge = Box::new(payable_thresholds_gauge);
-        let last_paid_timestamp = SystemTime::now()
-            .checked_sub(Duration::from_secs(123456))
-            .unwrap();
+        let now = SystemTime::now();
+        let debt_age_s = 111_222;
+        let last_paid_timestamp = now.checked_sub(Duration::from_secs(debt_age_s)).unwrap();
         let mut payable = make_payable_account(111);
         payable.last_paid_timestamp = last_paid_timestamp;
-        let before = SystemTime::now();
 
-        let result = subject.payable_exceeded_threshold(&payable);
+        let result = subject.payable_exceeded_threshold(&payable, now);
 
-        let after = SystemTime::now();
         assert_eq!(result, None);
         let mut is_innocent_age_params = is_innocent_age_params_arc.lock().unwrap();
-        let (debt_age, threshold_value) = is_innocent_age_params.remove(0);
+        let (debt_age_returned, threshold_value) = is_innocent_age_params.remove(0);
         assert!(is_innocent_age_params.is_empty());
-        let time_elapsed_before = before
-            .duration_since(last_paid_timestamp)
-            .unwrap()
-            .as_secs();
-        let time_elapsed_after = after.duration_since(last_paid_timestamp).unwrap().as_secs();
-        assert!(time_elapsed_before <= debt_age && debt_age <= time_elapsed_after);
+        assert_eq!(debt_age_returned, debt_age_s);
         assert_eq!(
             threshold_value,
             DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec
@@ -1374,27 +1311,20 @@ mod tests {
             .is_innocent_balance_result(true);
         let mut subject = PayableScannerBuilder::new().build();
         subject.payable_threshold_gauge = Box::new(payable_thresholds_gauge);
-        let last_paid_timestamp = SystemTime::now()
-            .checked_sub(Duration::from_secs(111111))
-            .unwrap();
+        let now = SystemTime::now();
+        let debt_age_s = 3_456;
+        let last_paid_timestamp = now.checked_sub(Duration::from_secs(debt_age_s)).unwrap();
         let mut payable = make_payable_account(222);
         payable.last_paid_timestamp = last_paid_timestamp;
         payable.balance_wei = 123456;
-        let before = SystemTime::now();
 
-        let result = subject.payable_exceeded_threshold(&payable);
+        let result = subject.payable_exceeded_threshold(&payable, now);
 
-        let after = SystemTime::now();
         assert_eq!(result, None);
         let mut is_innocent_age_params = is_innocent_age_params_arc.lock().unwrap();
-        let (debt_age, _) = is_innocent_age_params.remove(0);
+        let (debt_age_returned, _) = is_innocent_age_params.remove(0);
         assert!(is_innocent_age_params.is_empty());
-        let time_elapsed_before = before
-            .duration_since(last_paid_timestamp)
-            .unwrap()
-            .as_secs();
-        let time_elapsed_after = after.duration_since(last_paid_timestamp).unwrap().as_secs();
-        assert!(time_elapsed_before <= debt_age && debt_age <= time_elapsed_after);
+        assert_eq!(debt_age_returned, debt_age_s);
         let is_innocent_balance_params = is_innocent_balance_params_arc.lock().unwrap();
         assert_eq!(
             *is_innocent_balance_params,
@@ -1412,8 +1342,9 @@ mod tests {
         let is_innocent_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let calculate_payable_threshold_params_arc = Arc::new(Mutex::new(vec![]));
         let balance = gwei_to_wei(5555_u64);
-        let how_far_in_past = Duration::from_secs(1111 + 1);
-        let last_paid_timestamp = SystemTime::now().sub(how_far_in_past);
+        let now = SystemTime::now();
+        let debt_age_s = 1111 + 1;
+        let last_paid_timestamp = now.checked_sub(Duration::from_secs(debt_age_s)).unwrap();
         let payable_account = PayableAccount {
             wallet: make_wallet("hi"),
             balance_wei: balance,
@@ -1431,8 +1362,7 @@ mod tests {
         let payable_thresholds_gauge = PayableThresholdsGaugeMock::default()
             .is_innocent_age_params(&is_innocent_age_params_arc)
             .is_innocent_age_result(
-                how_far_in_past.as_secs()
-                    <= custom_payment_thresholds.maturity_threshold_sec as u64,
+                debt_age_s <= custom_payment_thresholds.maturity_threshold_sec as u64,
             )
             .is_innocent_balance_params(&is_innocent_balance_params_arc)
             .is_innocent_balance_result(
@@ -1444,21 +1374,14 @@ mod tests {
             .payment_thresholds(custom_payment_thresholds)
             .build();
         subject.payable_threshold_gauge = Box::new(payable_thresholds_gauge);
-        let before = SystemTime::now();
 
-        let result = subject.payable_exceeded_threshold(&payable_account);
+        let result = subject.payable_exceeded_threshold(&payable_account, now);
 
-        let after = SystemTime::now();
         assert_eq!(result, Some(4567898));
         let mut is_innocent_age_params = is_innocent_age_params_arc.lock().unwrap();
-        let (time_elapsed, curve_derived_time) = is_innocent_age_params.remove(0);
+        let (debt_age_returned_innocent, curve_derived_time) = is_innocent_age_params.remove(0);
         assert_eq!(*is_innocent_age_params, vec![]);
-        let time_elapsed_before = before
-            .duration_since(last_paid_timestamp)
-            .unwrap()
-            .as_secs();
-        let time_elapsed_after = after.duration_since(last_paid_timestamp).unwrap().as_secs();
-        assert!(time_elapsed_before <= time_elapsed && time_elapsed <= time_elapsed_after);
+        assert_eq!(debt_age_returned_innocent, debt_age_s);
         assert_eq!(
             curve_derived_time,
             custom_payment_thresholds.maturity_threshold_sec as u64
@@ -1473,142 +1396,96 @@ mod tests {
         );
         let mut calculate_payable_curves_params =
             calculate_payable_threshold_params_arc.lock().unwrap();
-        let (payment_thresholds, time_elapsed) = calculate_payable_curves_params.remove(0);
+        let (payment_thresholds, debt_age_returned_curves) =
+            calculate_payable_curves_params.remove(0);
         assert_eq!(*calculate_payable_curves_params, vec![]);
-        assert!(time_elapsed_before <= time_elapsed && time_elapsed <= time_elapsed_after);
+        assert_eq!(debt_age_returned_curves, debt_age_s);
         assert_eq!(payment_thresholds, custom_payment_thresholds)
     }
 
     #[test]
-    fn payable_generated_within_maturity_time_limit_is_marked_unqualified() {
-        todo!("isn't this duplication?")
-        // let now = SystemTime::now();
-        // let payment_thresholds = PaymentThresholds::default();
-        // let qualified_debt = gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1);
-        // let unqualified_time = to_time_t(now) - payment_thresholds.maturity_threshold_sec as i64 + 1;
-        // let subject = PayableScannerBuilder::new().payment_thresholds(payment_thresholds).build();
-        // let unqualified_payable_account = PayableAccount {
-        //     wallet: make_wallet("wallet0"),
-        //     balance_wei: qualified_debt,
-        //     last_paid_timestamp: from_time_t(unqualified_time),
-        //     pending_payable_opt: None,
-        // };
-        //
-        // let result = subject.payable_exceeded_threshold(&unqualified_payable_account);
-        //
-        // assert_eq!(result, None);
-    }
-
-    #[test]
     fn payable_with_debt_under_the_slope_is_marked_unqualified() {
-        todo!("isn't this duplication?")
-        // let now = SystemTime::now();
-        // let payment_thresholds = PaymentThresholds::default();
-        // let unqualified_debt = gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei - 1);
-        // let qualified_time = to_time_t(now) - payment_thresholds.maturity_threshold_sec as i64 - 1;
-        // let subject = PayableScannerBuilder::new().payment_thresholds(payment_thresholds).build();
-        // let unqualified_payable_account = PayableAccount {
-        //     wallet: make_wallet("wallet0"),
-        //     balance_wei: unqualified_debt,
-        //     last_paid_timestamp: from_time_t(qualified_time),
-        //     pending_payable_opt: None,
-        // };
-        //
-        // //TODO what about the badly testable now???????????.......
-        // // supply now from outside and let higher level blow up after you've changed the input in the production code to UNIX_EPOCH
-        // let result = subject.payable_exceeded_threshold(&unqualified_payable_account);
-        //
-        // assert_eq!(result, None);
+        init_test_logging();
+        let now = SystemTime::now();
+        let payment_thresholds = PaymentThresholds::default();
+        let debt = gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1);
+        let time = to_time_t(now) - payment_thresholds.maturity_threshold_sec as i64 - 1;
+        let unqualified_payable_account = vec![PayableAccount {
+            wallet: make_wallet("wallet0"),
+            balance_wei: debt,
+            last_paid_timestamp: from_time_t(time),
+            pending_payable_opt: None,
+        }];
+        let subject = PayableScannerBuilder::new()
+            .payment_thresholds(payment_thresholds)
+            .build();
+        let test_name =
+            "payable_with_debt_above_the_slope_is_qualified_and_the_threshold_value_is_returned";
+        let logger = Logger::new(test_name);
+
+        let result = subject.qualified_payables(unqualified_payable_account, &logger);
+
+        assert_eq!(result, vec![]);
+        TestLogHandler::new()
+            .exists_no_log_containing(&format!("DEBUG: {}: Paying qualified debts", test_name));
     }
 
     #[test]
-    fn payable_with_low_payout_threshold_is_marked_unqualified() {
-        todo!("isn't this duplication?")
-        // let now = SystemTime::now();
-        // let payment_thresholds = PaymentThresholds::default();
-        // let debt = gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1);
-        // let time = to_time_t(now) - payment_thresholds.maturity_threshold_sec as i64 - 1;
-        // let unqualified_payable_account = PayableAccount {
-        //     wallet: make_wallet("wallet0"),
-        //     balance_wei: debt,
-        //     last_paid_timestamp: from_time_t(time),
-        //     pending_payable_opt: None,
-        // };
-        //
-        // let result = is_payable_qualified(now, &unqualified_payable_account, &payment_thresholds);
-        //
-        // assert_eq!(result, None);
+    fn payable_with_debt_above_the_slope_is_qualified() {
+        init_test_logging();
+        let payment_thresholds = PaymentThresholds::default();
+        let debt = gwei_to_wei(payment_thresholds.debt_threshold_gwei - 1);
+        let time = (payment_thresholds.maturity_threshold_sec
+            + payment_thresholds.threshold_interval_sec
+            - 1) as i64;
+        let qualified_payable = PayableAccount {
+            wallet: make_wallet("wallet0"),
+            balance_wei: debt,
+            last_paid_timestamp: from_time_t(time),
+            pending_payable_opt: None,
+        };
+        let subject = PayableScannerBuilder::new()
+            .payment_thresholds(payment_thresholds)
+            .build();
+        let test_name = "payable_with_debt_above_the_slope_is_qualified";
+        let logger = Logger::new(test_name);
+
+        let result = subject.qualified_payables(vec![qualified_payable.clone()], &logger);
+
+        assert_eq!(result, vec![qualified_payable]);
+        TestLogHandler::new().exists_log_matching(&format!(
+            "DEBUG: {}: Paying qualified debts:\n999,999,999,000,000,\
+            000 wei owed for \\d+ sec exceeds threshold: 500,000,000,000,000,000 wei; creditor: \
+             0x0000000000000000000000000077616c6c657430",
+            test_name
+        ));
     }
 
     #[test]
-    fn payable_with_debt_above_the_slope_is_qualified_and_the_threshold_value_is_returned() {
-        todo!("isn't this duplication?")
-        // let now = SystemTime::now();
-        // let payment_thresholds = PaymentThresholds::default();
-        // let debt = gwei_to_wei(payment_thresholds.debt_threshold_gwei - 1);
-        // let time = (payment_thresholds.maturity_threshold_sec
-        //     + payment_thresholds.threshold_interval_sec
-        //     - 1) as i64;
-        // let payment_thresholds_rc = Rc::new(payment_thresholds);
-        // let qualified_payable = PayableAccount {
-        //     wallet: make_wallet("wallet0"),
-        //     balance_wei: debt,
-        //     last_paid_timestamp: from_time_t(time),
-        //     pending_payable_opt: None,
-        // };
-        // let threshold = calculate_payout_threshold(
-        //     payable_time_diff(now, &qualified_payable),
-        //     &payment_thresholds_rc,
-        // );
-        //
-        // let result = is_payable_qualified(now, &qualified_payable, &payment_thresholds_rc);
-        //
-        // assert_eq!(result, Some(threshold as u64));
-    }
+    fn accounts_qualified_to_payment_returns_an_empty_vector_if_all_unqualified() {
+        init_test_logging();
+        //TODO problem??
+        let now = SystemTime::now();
+        let payment_thresholds = PaymentThresholds::default();
+        let unqualified_payable_account = vec![PayableAccount {
+            wallet: make_wallet("wallet1"),
+            balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1),
+            last_paid_timestamp: from_time_t(
+                to_time_t(now) - payment_thresholds.maturity_threshold_sec as i64 + 1,
+            ),
+            pending_payable_opt: None,
+        }];
+        let subject = PayableScannerBuilder::new()
+            .payment_thresholds(payment_thresholds)
+            .build();
+        let test_name = "qualified_payables_and_summary_returns_an_empty_vector_if_all_unqualified";
+        let logger = Logger::new(test_name);
 
-    #[test]
-    fn qualified_payables_can_be_filtered_out_from_non_pending_payables_along_with_their_summary() {
-        todo!("isn't this duplication?")
-        // let now = SystemTime::now();
-        // let payment_thresholds = PaymentThresholds::default();
-        // let (qualified_payable_accounts, _, all_non_pending_payables) =
-        //     make_payables(now, &PaymentThresholds::default());
-        //
-        // let (qualified_payables, summary) =
-        //     qualified_payables_and_summary(now, all_non_pending_payables, &payment_thresholds);
-        //
-        // let mut expected_summary = String::from("Paying qualified debts:\n");
-        // for payable in qualified_payable_accounts.iter() {
-        //     expected_summary.push_str(&exceeded_summary(
-        //         now,
-        //         &payable,
-        //         calculate_payout_threshold(payable_time_diff(now, &payable), &payment_thresholds)
-        //             as u64,
-        //     ))
-        // }
-        // assert_eq!(qualified_payables, qualified_payable_accounts);
-        // assert_eq!(summary, expected_summary);
-    }
+        let result = subject.qualified_payables(unqualified_payable_account, &logger);
 
-    #[test]
-    fn qualified_payables_and_summary_returns_an_empty_vector_if_all_unqualified() {
-        todo!("isn't this duplication?")
-        // let now = SystemTime::now();
-        // let payment_thresholds = PaymentThresholds::default();
-        // let unqualified_payable_accounts = vec![PayableAccount {
-        //     wallet: make_wallet("wallet1"),
-        //     balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1),
-        //     last_paid_timestamp: from_time_t(
-        //         to_time_t(now) - payment_thresholds.maturity_threshold_sec as i64 + 1,
-        //     ),
-        //     pending_payable_opt: None,
-        // }];
-        //
-        // let (qualified_payables, summary) =
-        //     qualified_payables_and_summary(now, unqualified_payable_accounts, &payment_thresholds);
-        //
-        // assert_eq!(qualified_payables, vec![]);
-        // assert_eq!(summary, String::from("No Qualified Payables found."));
+        assert_eq!(result, vec![]);
+        TestLogHandler::new()
+            .exists_no_log_containing(&format!("DEBUG: {}: Paying qualified debts", test_name));
     }
 
     #[test]

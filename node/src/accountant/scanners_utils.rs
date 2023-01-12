@@ -6,11 +6,13 @@ pub mod payable_scanner_utils {
     use crate::accountant::SentPayables;
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::sub_lib::accountant::PaymentThresholds;
+    use itertools::Itertools;
     use masq_lib::logger::Logger;
     use masq_lib::utils::plus;
     use std::any::Any;
     use std::cmp::Ordering;
     use std::time::SystemTime;
+    use thousands::Separable;
 
     //debugging purposes only
     pub fn investigate_debt_extremes(
@@ -61,8 +63,11 @@ pub mod payable_scanner_utils {
             })
             .fold(
                 Default::default(),
-                |(biggest, oldest): (PayableInfo, PayableInfo), payable| {
-                    (bigger(biggest, payable), older(oldest, payable))
+                |(so_far_biggest, so_far_oldest): (PayableInfo, PayableInfo), payable| {
+                    (
+                        bigger(so_far_biggest, payable),
+                        older(so_far_oldest, payable),
+                    )
                 },
             );
 
@@ -99,6 +104,30 @@ pub mod payable_scanner_utils {
                     }
                 }
             })
+    }
+
+    pub fn payables_debug_summary(qualified_accounts: &[(PayableAccount, u128)], logger: &Logger) {
+        if qualified_accounts.is_empty() {
+            return;
+        }
+        debug!(logger, "Paying qualified debts:\n{}", {
+            let now = SystemTime::now();
+            qualified_accounts
+                .iter()
+                .map(|(payable, threshold_point)| {
+                    let p_age = now
+                        .duration_since(payable.last_paid_timestamp)
+                        .expect("Payable time is corrupt");
+                    format!(
+                        "{} wei owed for {} sec exceeds threshold: {} wei; creditor: {}",
+                        payable.balance_wei.separate_with_commas(),
+                        p_age.as_secs(),
+                        threshold_point.separate_with_commas(),
+                        payable.wallet
+                    )
+                })
+                .join("\n")
+        })
     }
 
     pub trait PayableThresholdsGauge {
@@ -242,11 +271,11 @@ mod tests {
     use crate::accountant::payable_dao::{Payable, PayableAccount};
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::scanners_utils::payable_scanner_utils::{
-        investigate_debt_extremes, separate_early_errors, PayableThresholdsGauge,
-        PayableThresholdsGaugeReal,
+        investigate_debt_extremes, payables_debug_summary, separate_early_errors,
+        PayableThresholdsGauge, PayableThresholdsGaugeReal,
     };
     use crate::accountant::scanners_utils::receivable_scanner_utils::balance_and_age;
-    use crate::accountant::{gwei_to_wei, SentPayables};
+    use crate::accountant::{checked_conversion, gwei_to_wei, SentPayables};
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
@@ -336,6 +365,69 @@ mod tests {
             "WARN: {}: Outbound transaction failure due to '{:?}",
             test_name, error
         ));
+    }
+
+    #[test]
+    fn payables_debug_summary_stays_inert_if_no_qualified_payments() {
+        init_test_logging();
+        let logger = Logger::new("payables_debug_summary_stays_inert_if_no_qualified_payments");
+
+        payables_debug_summary(&vec![], &logger);
+
+        TestLogHandler::new().exists_no_log_containing(
+            "DEBUG: payables_debug_summary_stays_\
+        inert_if_no_qualified_payments: Paying qualified debts:",
+        );
+    }
+
+    #[test]
+    fn payables_debug_summary_prints_pretty_summary() {
+        init_test_logging();
+        let now = to_time_t(SystemTime::now());
+        let payment_thresholds = PaymentThresholds {
+            threshold_interval_sec: 2_592_000,
+            debt_threshold_gwei: 1_000_000_000,
+            payment_grace_period_sec: 86_400,
+            maturity_threshold_sec: 86_400,
+            permanent_debt_allowed_gwei: 10_000_000,
+            unban_below_gwei: 10_000_000,
+        };
+        let qualified_payables_and_threshold_points = vec![
+            (
+                PayableAccount {
+                    wallet: make_wallet("wallet0"),
+                    balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 2000),
+                    last_paid_timestamp: from_time_t(
+                        now - checked_conversion::<u64, i64>(
+                            payment_thresholds.maturity_threshold_sec
+                                + payment_thresholds.threshold_interval_sec,
+                        ),
+                    ),
+                    pending_payable_opt: None,
+                },
+                10_000_000_001_152_000_u128,
+            ),
+            (
+                PayableAccount {
+                    wallet: make_wallet("wallet1"),
+                    balance_wei: gwei_to_wei(payment_thresholds.debt_threshold_gwei - 1),
+                    last_paid_timestamp: from_time_t(
+                        now - checked_conversion::<u64, i64>(
+                            payment_thresholds.maturity_threshold_sec + 55,
+                        ),
+                    ),
+                    pending_payable_opt: None,
+                },
+                999_978_993_055_555_580,
+            ),
+        ];
+        let logger = Logger::new("test");
+
+        payables_debug_summary(&qualified_payables_and_threshold_points, &logger);
+
+        TestLogHandler::new().exists_log_containing("Paying qualified debts:\n\
+                   10,002,000,000,000,000 wei owed for 2678400 sec exceeds threshold: 10,000,000,001,152,000 wei; creditor: 0x0000000000000000000000000077616c6c657430\n\
+                   999,999,999,000,000,000 wei owed for 86455 sec exceeds threshold: 999,978,993,055,555,580 wei; creditor: 0x0000000000000000000000000077616c6c657431");
     }
 
     #[test]
