@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-pub mod payable_scanner_tools {
+pub mod payable_scanner_utils {
     use crate::accountant::dao_utils::ThresholdUtils;
     use crate::accountant::payable_dao::{Payable, PayableAccount};
     use crate::accountant::SentPayables;
@@ -9,65 +9,63 @@ pub mod payable_scanner_tools {
     use masq_lib::logger::Logger;
     use masq_lib::utils::plus;
     use std::any::Any;
+    use std::cmp::Ordering;
     use std::time::SystemTime;
 
-    //for debugging only
+    //debugging purposes only
     pub fn investigate_debt_extremes(
         timestamp: SystemTime,
         all_non_pending_payables: &[PayableAccount],
     ) -> String {
-        if all_non_pending_payables.is_empty() {
-            return "Payable scan found no debts".to_string();
-        }
         #[derive(Clone, Copy, Default)]
         struct PayableInfo {
             balance_wei: u128,
             age: u64,
         }
-
         fn bigger(payable_1: PayableInfo, payable_2: PayableInfo) -> PayableInfo {
-            #[allow(clippy::comparison_chain)]
-            if payable_1.balance_wei > payable_2.balance_wei {
-                payable_1
-            } else if payable_2.balance_wei > payable_1.balance_wei {
-                payable_2
-            } else {
-                if payable_1.age != payable_2.age {
-                    return older(payable_1, payable_2);
+            match payable_1.balance_wei.cmp(&payable_2.balance_wei) {
+                Ordering::Greater => payable_1,
+                Ordering::Less => payable_2,
+                Ordering::Equal => {
+                    if payable_1.age == payable_2.age {
+                        payable_1
+                    } else {
+                        older(payable_1, payable_2)
+                    }
                 }
-                payable_1
             }
         }
-
         fn older(payable_1: PayableInfo, payable_2: PayableInfo) -> PayableInfo {
-            #[allow(clippy::comparison_chain)]
-            if payable_1.age > payable_2.age {
-                payable_1
-            } else if payable_2.age > payable_1.age {
-                payable_2
-            } else {
-                if payable_1.balance_wei != payable_2.balance_wei {
-                    return bigger(payable_1, payable_2);
+            match payable_1.age.cmp(&payable_2.age) {
+                Ordering::Greater => payable_1,
+                Ordering::Less => payable_2,
+                Ordering::Equal => {
+                    if payable_1.balance_wei == payable_2.balance_wei {
+                        payable_1
+                    } else {
+                        bigger(payable_1, payable_2)
+                    }
                 }
-                payable_1
             }
         }
 
-        let init = (PayableInfo::default(), PayableInfo::default());
+        if all_non_pending_payables.is_empty() {
+            return "Payable scan found no debts".to_string();
+        }
+
         let (biggest, oldest) = all_non_pending_payables
             .iter()
             .map(|payable| PayableInfo {
                 balance_wei: payable.balance_wei,
                 age: payable_time_diff(timestamp, payable),
             })
-            .fold(init, |so_far, payable| {
-                let (mut biggest, mut oldest) = so_far;
+            .fold(
+                Default::default(),
+                |(biggest, oldest): (PayableInfo, PayableInfo), payable| {
+                    (bigger(biggest, payable), older(oldest, payable))
+                },
+            );
 
-                biggest = bigger(biggest, payable);
-                oldest = older(oldest, payable);
-
-                (biggest, oldest)
-            });
         format!("Payable scan found {} debts; the biggest is {} owed for {}sec, the oldest is {} owed for {}sec",
                 all_non_pending_payables.len(), biggest.balance_wei, biggest.age,
                 oldest.balance_wei, oldest.age)
@@ -137,7 +135,7 @@ pub mod payable_scanner_tools {
     }
 }
 
-pub mod pending_payable_scanner_tools {
+pub mod pending_payable_scanner_utils {
     use crate::accountant::{PendingPayableId, PendingTransactionStatus};
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use masq_lib::logger::Logger;
@@ -220,7 +218,7 @@ pub mod pending_payable_scanner_tools {
     }
 }
 
-pub mod receivable_scanner_tools {
+pub mod receivable_scanner_utils {
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::wei_to_gwei;
     use std::time::{Duration, SystemTime};
@@ -243,11 +241,11 @@ mod tests {
     use crate::accountant::dao_utils::{from_time_t, to_time_t};
     use crate::accountant::payable_dao::{Payable, PayableAccount};
     use crate::accountant::receivable_dao::ReceivableAccount;
-    use crate::accountant::scanners_tools::payable_scanner_tools::{
+    use crate::accountant::scanners_utils::payable_scanner_utils::{
         investigate_debt_extremes, separate_early_errors, PayableThresholdsGauge,
         PayableThresholdsGaugeReal,
     };
-    use crate::accountant::scanners_tools::receivable_scanner_tools::balance_and_age;
+    use crate::accountant::scanners_utils::receivable_scanner_utils::balance_and_age;
     use crate::accountant::{gwei_to_wei, SentPayables};
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::sub_lib::accountant::PaymentThresholds;

@@ -3,14 +3,14 @@
 use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDao};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDao;
-use crate::accountant::scanners_tools::payable_scanner_tools::{
+use crate::accountant::scanners_utils::payable_scanner_utils::{
     investigate_debt_extremes, separate_early_errors, PayableThresholdsGauge,
     PayableThresholdsGaugeReal,
 };
-use crate::accountant::scanners_tools::pending_payable_scanner_tools::{
+use crate::accountant::scanners_utils::pending_payable_scanner_utils::{
     elapsed_in_ms, handle_none_status, handle_status_with_failure, handle_status_with_success,
 };
-use crate::accountant::scanners_tools::receivable_scanner_tools::balance_and_age;
+use crate::accountant::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::{
     gwei_to_wei, Accountant, ReceivedPayments, ReportTransactionReceipts,
     RequestTransactionReceipts, ResponseSkeleton, ScanForPayables, ScanForPendingPayables,
@@ -943,7 +943,7 @@ mod tests {
     use crate::accountant::dao_utils::{from_time_t, to_time_t};
     use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError};
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
-    use crate::accountant::scanners_tools::payable_scanner_tools::PayableThresholdsGaugeReal;
+    use crate::accountant::scanners_utils::payable_scanner_utils::PayableThresholdsGaugeReal;
     use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
     use crate::sub_lib::accountant::{
         DaoFactories, FinancialStatistics, PaymentThresholds, DEFAULT_PAYMENT_THRESHOLDS,

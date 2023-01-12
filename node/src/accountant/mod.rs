@@ -7,7 +7,7 @@ pub mod payable_dao;
 pub mod pending_payable_dao;
 pub mod receivable_dao;
 pub mod scanners;
-pub mod scanners_tools;
+pub mod scanners_utils;
 
 #[cfg(test)]
 pub mod test_utils;
