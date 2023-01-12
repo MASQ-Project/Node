@@ -8,12 +8,12 @@ use crate::accountant::big_int_processing::big_int_db_processor::{
     BigIntDbProcessor, BigIntSqlConfig, SQLParamsBuilder, TableNameDAO,
 };
 use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
+use crate::accountant::checked_conversion;
 use crate::accountant::dao_utils::{
     sum_i128_values_from_table, to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal,
-    RangeStmConfig, TopStmConfig, VigilantRusqliteFlatten,
+    RangeStmConfig, ThresholdUtils, TopStmConfig, VigilantRusqliteFlatten,
 };
 use crate::accountant::receivable_dao::ReceivableDaoError::RusqliteError;
-use crate::accountant::{checked_conversion, ThresholdUtils};
 use crate::accountant::{dao_utils, gwei_to_wei};
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -96,8 +96,8 @@ impl ReceivableDaoFactory for DaoFactoryReal {
     fn make(&self) -> Box<dyn ReceivableDao> {
         let init_config = self
             .init_config
-            .take()
-            .expectv("init config")
+            //TODO can we do better ?
+            .clone()
             .add_special_conn_setup(
                 BigIntDivider::register_big_int_deconstruction_for_sqlite_connection,
             );

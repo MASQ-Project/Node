@@ -1,18 +1,20 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_dao::{Payable, PayableDao};
+use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDao};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDao;
 use crate::accountant::scanners_tools::payable_scanner_tools::{
-    investigate_debt_extremes, qualified_payables_and_summary, separate_early_errors,
+    investigate_debt_extremes, separate_early_errors, PayableThresholdsGauge,
+    PayableThresholdsGaugeReal,
 };
 use crate::accountant::scanners_tools::pending_payable_scanner_tools::{
     elapsed_in_ms, handle_none_status, handle_status_with_failure, handle_status_with_success,
 };
 use crate::accountant::scanners_tools::receivable_scanner_tools::balance_and_age;
 use crate::accountant::{
-    Accountant, ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts,
-    ResponseSkeleton, ScanForPayables, ScanForPendingPayables, ScanForReceivables, SentPayable,
+    gwei_to_wei, Accountant, ReceivedPayments, ReportTransactionReceipts,
+    RequestTransactionReceipts, ResponseSkeleton, ScanForPayables, ScanForPendingPayables,
+    ScanForReceivables, SentPayables,
 };
 use crate::accountant::{PendingPayableId, PendingTransactionStatus, ReportAccountsPayable};
 use crate::banned_dao::BannedDao;
@@ -22,6 +24,7 @@ use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics, PaymentThres
 use crate::sub_lib::utils::NotifyLaterHandle;
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, System};
+use itertools::Itertools;
 use masq_lib::logger::Logger;
 use masq_lib::logger::TIME_FORMATTING_STRING;
 use masq_lib::messages::{ScanType, ToMessageBody, UiScanResponse};
@@ -33,12 +36,13 @@ use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
+use thousands::Separable;
 use time::format_description::parse;
 use time::OffsetDateTime;
 use web3::types::TransactionReceipt;
 
 pub struct Scanners {
-    pub payable: Box<dyn Scanner<ReportAccountsPayable, SentPayable>>,
+    pub payable: Box<dyn Scanner<ReportAccountsPayable, SentPayables>>,
     pub pending_payable: Box<dyn Scanner<RequestTransactionReceipts, ReportTransactionReceipts>>,
     pub receivable: Box<dyn Scanner<RetrieveTransactions, ReceivedPayments>>,
 }
@@ -200,9 +204,10 @@ pub struct PayableScanner {
     pub common: ScannerCommon,
     pub payable_dao: Box<dyn PayableDao>,
     pub pending_payable_dao: Box<dyn PendingPayableDao>,
+    pub payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
 }
 
-impl Scanner<ReportAccountsPayable, SentPayable> for PayableScanner {
+impl Scanner<ReportAccountsPayable, SentPayables> for PayableScanner {
     fn begin_scan(
         &mut self,
         timestamp: SystemTime,
@@ -220,12 +225,13 @@ impl Scanner<ReportAccountsPayable, SentPayable> for PayableScanner {
             "{}",
             investigate_debt_extremes(timestamp, &all_non_pending_payables)
         );
-        let (qualified_payables, summary) = qualified_payables_and_summary(
-            timestamp,
-            all_non_pending_payables,
-            self.common.payment_thresholds.as_ref(),
-        );
-        debug!(logger, "{}", summary);
+        let qualified_payables = all_non_pending_payables
+            .into_iter()
+            .filter(|account| self.payable_exceeded_threshold(account).is_some())
+            .collect::<Vec<PayableAccount>>();
+        // TODO you can rewrite it so that payable_exceed_threshold can produce a vec of tuples of accounts and threshold values, but only if debug is on, otherwise it's None.
+        self.payables_debug_summary(&qualified_payables, logger);
+
         match qualified_payables.is_empty() {
             true => {
                 self.mark_as_ended(logger);
@@ -245,18 +251,18 @@ impl Scanner<ReportAccountsPayable, SentPayable> for PayableScanner {
         }
     }
 
-    fn finish_scan(&mut self, message: SentPayable, logger: &Logger) -> Option<NodeToUiMessage> {
-        let (sent_payables, blockchain_errors) = separate_early_errors(&message, logger);
+    fn finish_scan(&mut self, message: SentPayables, logger: &Logger) -> Option<NodeToUiMessage> {
+        let (sent_payables, errors) = separate_early_errors(&message, logger); //TODO rename to separate errors
         debug!(
             logger,
             "We gathered these errors at sending transactions for payable: {:?}, out of the \
                 total of {} attempts",
-            blockchain_errors,
-            sent_payables.len() + blockchain_errors.len()
+            errors,
+            sent_payables.len() + errors.len()
         );
 
         self.handle_sent_payables(sent_payables, logger);
-        self.handle_blockchain_errors(blockchain_errors, logger);
+        self.handle_errors(errors, logger);
 
         self.mark_as_ended(logger);
         message
@@ -282,6 +288,7 @@ impl PayableScanner {
             common: ScannerCommon::new(payment_thresholds),
             payable_dao,
             pending_payable_dao,
+            payable_threshold_gauge: Box::new(PayableThresholdsGaugeReal::default()),
         }
     }
 
@@ -301,8 +308,7 @@ impl PayableScanner {
                 }
             } else {
                 panic!(
-                    "Payable fingerprint for {} doesn't exist but should by now; \
-                        system unreliable",
+                    "Payable fingerprint for {} doesn't exist but should by now; system unreliable",
                     payable.tx_hash
                 );
             };
@@ -314,8 +320,65 @@ impl PayableScanner {
         }
     }
 
-    fn handle_blockchain_errors(&self, blockchain_errors: Vec<BlockchainError>, logger: &Logger) {
-        for blockchain_error in blockchain_errors {
+    fn payables_debug_summary(&self, qualified_payables: &[PayableAccount], logger: &Logger) {
+        if qualified_payables.is_empty() {
+            return;
+        }
+        debug!(logger, "Paying qualified debts:\n{}", {
+            let now = SystemTime::now();
+            qualified_payables
+                .iter()
+                .map(|payable| {
+                    let p_age = now
+                        .duration_since(payable.last_paid_timestamp)
+                        .expect("Payable time is corrupt");
+                    let threshold = self
+                        .payable_exceeded_threshold(payable)
+                        .expect("Threshold suddenly changed!");
+                    format!(
+                        "{} wei owed for {} sec exceeds threshold: {} wei; creditor: {}",
+                        payable.balance_wei.separate_with_commas(),
+                        p_age.as_secs(),
+                        threshold.separate_with_commas(),
+                        payable.wallet
+                    )
+                })
+                .join("\n")
+        })
+    }
+
+    fn payable_exceeded_threshold(&self, payable: &PayableAccount) -> Option<u128> {
+        let debt_age = SystemTime::now()
+            .duration_since(payable.last_paid_timestamp)
+            .expect("Internal error")
+            .as_secs();
+
+        if self.payable_threshold_gauge.is_innocent_age(
+            debt_age,
+            self.common.payment_thresholds.maturity_threshold_sec,
+        ) {
+            return None;
+        }
+
+        if self.payable_threshold_gauge.is_innocent_balance(
+            payable.balance_wei,
+            gwei_to_wei(self.common.payment_thresholds.permanent_debt_allowed_gwei),
+        ) {
+            return None;
+        }
+
+        let threshold = self
+            .payable_threshold_gauge
+            .calculate_payout_threshold_in_gwei(&self.common.payment_thresholds, debt_age);
+        if payable.balance_wei > threshold {
+            Some(threshold)
+        } else {
+            None
+        }
+    }
+
+    fn handle_errors(&self, errors: Vec<BlockchainError>, logger: &Logger) {
+        for blockchain_error in errors {
             if let Some(hash) = blockchain_error.carries_transaction_hash() {
                 if let Some(rowid) = self.pending_payable_dao.fingerprint_rowid(hash) {
                     debug!(
@@ -489,10 +552,10 @@ impl PendingPayableScanner {
                     self.update_payable_fingerprint(transaction_id, logger);
                 }
                 PendingTransactionStatus::Failure(transaction_id) => {
-                    self.order_cancel_failed_transaction(transaction_id, logger);
+                    self.cancel_tailed_transaction(transaction_id, logger);
                 }
                 PendingTransactionStatus::Confirmed(fingerprint) => {
-                    self.order_confirm_transaction(fingerprint, logger);
+                    self.confirm_transaction(fingerprint, logger);
                 }
             }
         }
@@ -516,7 +579,7 @@ impl PendingPayableScanner {
         }
     }
 
-    fn order_cancel_failed_transaction(&self, transaction_id: PendingPayableId, logger: &Logger) {
+    fn cancel_tailed_transaction(&self, transaction_id: PendingPayableId, logger: &Logger) {
         if let Err(e) = self.pending_payable_dao.mark_failure(transaction_id.rowid) {
             panic!(
                 "Unsuccessful attempt for transaction {} to mark fatal error at payable \
@@ -533,7 +596,7 @@ impl PendingPayableScanner {
         }
     }
 
-    fn order_confirm_transaction(
+    fn confirm_transaction(
         &mut self,
         pending_payable_fingerprint: PendingPayableFingerprint,
         logger: &Logger,
@@ -549,18 +612,20 @@ impl PendingPayableScanner {
             .transaction_confirmed(&pending_payable_fingerprint)
         {
             panic!(
-                "Was unable to uncheck pending payable '{}' after confirmation due to '{:?}'",
+                "Was unable to uncheck pending payable '{:?}' after confirmation due to '{:?}'",
                 hash, e
             );
         } else {
-            self.financial_statistics.borrow_mut().total_paid_payable += amount;
+            self.financial_statistics
+                .borrow_mut()
+                .total_paid_payable_wei += amount;
             debug!(
                 logger,
                 "Confirmation of transaction {}; record for payable was modified", hash
             );
             if let Err(e) = self.pending_payable_dao.delete_fingerprint(rowid) {
                 panic!(
-                    "Was unable to delete payable fingerprint '{}' after successful transaction \
+                    "Was unable to delete payable fingerprint for successful transaction '{:?}' \
                         due to '{:?}'",
                     hash, e
                 );
@@ -620,12 +685,13 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
             let total_newly_paid_receivable = message
                 .payments
                 .iter()
-                .fold(0, |so_far, now| so_far + now.gwei_amount);
+                .fold(0, |so_far, now| so_far + now.wei_amount);
             self.receivable_dao
                 .as_mut()
                 .more_money_received(message.timestamp, message.payments);
-            self.financial_statistics.borrow_mut().total_paid_receivable +=
-                total_newly_paid_receivable;
+            self.financial_statistics
+                .borrow_mut()
+                .total_paid_receivable_wei += total_newly_paid_receivable;
         }
 
         self.mark_as_ended(logger);
@@ -671,12 +737,12 @@ impl ReceivableScanner {
             .into_iter()
             .for_each(|account| {
                 self.banned_dao.ban(&account.wallet);
-                let (balance, age) = balance_and_age(timestamp, &account);
+                let (balance_str_wei, age) = balance_and_age(timestamp, &account);
                 info!(
                     logger,
-                    "Wallet {} (balance: {} MASQ, age: {} sec) banned for delinquency",
+                    "Wallet {} (balance: {} gwei, age: {} sec) banned for delinquency",
                     account.wallet,
-                    balance,
+                    balance_str_wei,
                     age.as_secs()
                 )
             });
@@ -688,12 +754,12 @@ impl ReceivableScanner {
             .into_iter()
             .for_each(|account| {
                 self.banned_dao.unban(&account.wallet);
-                let (balance, age) = balance_and_age(timestamp, &account);
+                let (balance_str_wei, age) = balance_and_age(timestamp, &account);
                 info!(
                     logger,
-                    "Wallet {} (balance: {} MASQ, age: {} sec) is no longer delinquent: unbanned",
+                    "Wallet {} (balance: {} gwei, age: {} sec) is no longer delinquent: unbanned",
                     account.wallet,
-                    balance,
+                    balance_str_wei,
                     age.as_secs()
                 )
             });
@@ -858,25 +924,30 @@ mod tests {
         ScannerCommon, Scanners,
     };
     use crate::accountant::test_utils::{
-        make_custom_payment_thresholds, make_payables, make_pending_payable_fingerprint,
-        make_receivable_account, BannedDaoFactoryMock, BannedDaoMock, PayableDaoFactoryMock,
-        PayableDaoMock, PayableScannerBuilder, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
+        make_custom_payment_thresholds, make_payable_account, make_payables,
+        make_pending_payable_fingerprint, make_receivable_account, BannedDaoFactoryMock,
+        BannedDaoMock, PayableDaoFactoryMock, PayableDaoMock, PayableScannerBuilder,
+        PayableThresholdsGaugeMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock,
         PendingPayableScannerBuilder, ReceivableDaoFactoryMock, ReceivableDaoMock,
         ReceivableScannerBuilder,
     };
     use crate::accountant::{
-        PendingPayableId, PendingTransactionStatus, ReceivedPayments, ReportTransactionReceipts,
-        RequestTransactionReceipts, SentPayable, DEFAULT_PENDING_TOO_LONG_SEC,
+        checked_conversion, gwei_to_wei, PendingPayableId, PendingTransactionStatus,
+        ReceivedPayments, ReportTransactionReceipts, RequestTransactionReceipts, SentPayables,
+        DEFAULT_PENDING_TOO_LONG_SEC,
     };
     use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
     use std::cell::RefCell;
     use std::ops::Sub;
 
-    use crate::accountant::payable_dao::{Payable, PayableDaoError};
+    use crate::accountant::dao_utils::{from_time_t, to_time_t};
+    use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError};
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
+    use crate::accountant::scanners_tools::payable_scanner_tools::PayableThresholdsGaugeReal;
     use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
-    use crate::database::dao_utils::from_time_t;
-    use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics, PaymentThresholds};
+    use crate::sub_lib::accountant::{
+        DaoFactories, FinancialStatistics, PaymentThresholds, DEFAULT_PAYMENT_THRESHOLDS,
+    };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
     use crate::test_utils::make_wallet;
     use ethereum_types::{BigEndianHash, U64};
@@ -902,8 +973,8 @@ mod tests {
         let banned_dao_factory = BannedDaoFactoryMock::new().make_result(BannedDaoMock::new());
         let when_pending_too_long_sec = 1234;
         let financial_statistics = FinancialStatistics {
-            total_paid_payable: 1,
-            total_paid_receivable: 2,
+            total_paid_payable_wei: 1,
+            total_paid_receivable_wei: 2,
         };
         let earning_wallet = make_wallet("unique_wallet");
         let payment_thresholds = make_custom_payment_thresholds();
@@ -939,12 +1010,30 @@ mod tests {
             .downcast_ref::<ReceivableScanner>()
             .unwrap();
         assert_eq!(
+            payable_scanner.common.payment_thresholds.as_ref(),
+            &payment_thresholds
+        );
+        assert_eq!(payable_scanner.common.initiated_at_opt.is_some(), false);
+        payable_scanner
+            .payable_threshold_gauge
+            .as_any()
+            .downcast_ref::<PayableThresholdsGaugeReal>()
+            .unwrap();
+        assert_eq!(
             pending_payable_scanner.when_pending_too_long_sec,
             when_pending_too_long_sec
         );
         assert_eq!(
             *pending_payable_scanner.financial_statistics.borrow(),
             financial_statistics
+        );
+        assert_eq!(
+            pending_payable_scanner.common.payment_thresholds.as_ref(),
+            &payment_thresholds
+        );
+        assert_eq!(
+            pending_payable_scanner.common.initiated_at_opt.is_some(),
+            false
         );
         assert_eq!(
             *receivable_scanner.financial_statistics.borrow(),
@@ -955,21 +1044,8 @@ mod tests {
             earning_wallet.address()
         );
         assert_eq!(
-            payable_scanner.common.payment_thresholds.as_ref(),
-            &payment_thresholds
-        );
-        assert_eq!(
-            pending_payable_scanner.common.payment_thresholds.as_ref(),
-            &payment_thresholds
-        );
-        assert_eq!(
             receivable_scanner.common.payment_thresholds.as_ref(),
             &payment_thresholds
-        );
-        assert_eq!(payable_scanner.common.initiated_at_opt.is_some(), false);
-        assert_eq!(
-            pending_payable_scanner.common.initiated_at_opt.is_some(),
-            false
         );
         assert_eq!(receivable_scanner.common.initiated_at_opt.is_some(), false);
         assert_eq!(
@@ -1051,90 +1127,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Payable fingerprint for 0x0000…0315 doesn't exist but should by now; system unreliable"
-    )]
-    fn payable_scanner_panics_when_fingerprint_is_not_found() {
-        let now = SystemTime::now();
-        let payment_hash = H256::from_uint(&U256::from(789));
-        let payable = Payable::new(make_wallet("booga"), 6789, payment_hash, now);
-        let payable_dao = PayableDaoMock::new().mark_pending_payable_rowid_result(Ok(()));
-        let pending_payable_dao = PendingPayableDaoMock::default().fingerprint_rowid_result(None);
-        let mut subject = PayableScannerBuilder::new()
-            .payable_dao(payable_dao)
-            .pending_payable_dao(pending_payable_dao)
-            .build();
-        let sent_payable = SentPayable {
-            timestamp: now,
-            payable: vec![Ok(payable)],
-            response_skeleton_opt: None,
-        };
-
-        let _ = subject.finish_scan(sent_payable, &Logger::new("test"));
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Database unmaintainable; payable fingerprint deletion for transaction \
-                0x000000000000000000000000000000000000000000000000000000000000007b has stayed \
-                undone due to RecordDeletion(\"we slept over, sorry\")"
-    )]
-    fn payable_scanner_panics_when_failed_payment_fails_to_delete_the_existing_pending_payable_fingerprint(
-    ) {
-        let rowid = 4;
-        let hash = H256::from_uint(&U256::from(123));
-        let sent_payable = SentPayable {
-            timestamp: SystemTime::now(),
-            payable: vec![Err(BlockchainError::TransactionFailed {
-                msg: "blah".to_string(),
-                hash_opt: Some(hash),
-            })],
-            response_skeleton_opt: None,
-        };
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprint_rowid_result(Some(rowid))
-            .delete_fingerprint_result(Err(PendingPayableDaoError::RecordDeletion(
-                "we slept over, sorry".to_string(),
-            )));
-        let mut subject = PayableScannerBuilder::new()
-            .pending_payable_dao(pending_payable_dao)
-            .build();
-
-        let _ = subject.finish_scan(sent_payable, &Logger::new("test"));
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Was unable to create a mark in payables for a new pending payable '0x0000…007b' \
-                due to 'SignConversion(9999999999999)'"
-    )]
-    fn payable_scanner_panics_when_it_fails_to_make_a_mark_in_payables() {
-        let payable = Payable::new(
-            make_wallet("blah"),
-            6789,
-            H256::from_uint(&U256::from(123)),
-            SystemTime::now(),
-        );
-        let payable_dao = PayableDaoMock::new()
-            .mark_pending_payable_rowid_result(Err(PayableDaoError::SignConversion(9999999999999)));
-        let pending_payable_dao =
-            PendingPayableDaoMock::default().fingerprint_rowid_result(Some(7879));
-        let mut subject = PayableScannerBuilder::new()
-            .payable_dao(payable_dao)
-            .pending_payable_dao(pending_payable_dao)
-            .build();
-        let sent_payable = SentPayable {
-            timestamp: SystemTime::now(),
-            payable: vec![Ok(payable)],
-            response_skeleton_opt: None,
-        };
-
-        let _ = subject.finish_scan(sent_payable, &Logger::new("test"));
-    }
-
-    #[test]
     fn payable_scanner_handles_sent_payable_message() {
-        //the two failures differ in the logged messages
+        //one payment out of three was successful
+        //those two failures differ in their log messages
         init_test_logging();
         let test_name = "payable_scanner_handles_sent_payable_message";
         let fingerprint_rowid_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1147,7 +1142,7 @@ mod tests {
             msg: "closing hours, sorry".to_string(),
             hash_opt: None,
         });
-        let sent_payable = SentPayable {
+        let sent_payable = SentPayables {
             timestamp: SystemTime::now(),
             payable: vec![payable_1, Ok(payable_2.clone()), payable_3],
             response_skeleton_opt: None,
@@ -1190,6 +1185,430 @@ mod tests {
         log_handler.exists_log_matching(&format!(
             "INFO: {test_name}: The Payables scan ended in \\d+ms."
         ));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Payable fingerprint for 0x0000…0315 doesn't exist but should by now; system unreliable"
+    )]
+    fn payable_scanner_panics_when_fingerprint_is_not_found() {
+        let now = SystemTime::now();
+        let payment_hash = H256::from_uint(&U256::from(789));
+        let payable = Payable::new(make_wallet("booga"), 6789, payment_hash, now);
+        let pending_payable_dao = PendingPayableDaoMock::default().fingerprint_rowid_result(None);
+        let mut subject = PayableScannerBuilder::new()
+            .pending_payable_dao(pending_payable_dao)
+            .build();
+        let sent_payable = SentPayables {
+            timestamp: now,
+            payable: vec![Ok(payable)],
+            response_skeleton_opt: None,
+        };
+
+        let _ = subject.finish_scan(sent_payable, &Logger::new("test"));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Database unmaintainable; payable fingerprint deletion for transaction \
+                0x000000000000000000000000000000000000000000000000000000000000007b has stayed \
+                undone due to RecordDeletion(\"we slept over, sorry\")"
+    )]
+    fn payable_scanner_panics_when_failed_payment_fails_to_delete_the_existing_pending_payable_fingerprint(
+    ) {
+        let rowid = 4;
+        let hash = H256::from_uint(&U256::from(123));
+        let sent_payable = SentPayables {
+            timestamp: SystemTime::now(),
+            payable: vec![Err(BlockchainError::TransactionFailed {
+                msg: "blah".to_string(),
+                hash_opt: Some(hash),
+            })],
+            response_skeleton_opt: None,
+        };
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .fingerprint_rowid_result(Some(rowid))
+            .delete_fingerprint_result(Err(PendingPayableDaoError::RecordDeletion(
+                "we slept over, sorry".to_string(),
+            )));
+        let mut subject = PayableScannerBuilder::new()
+            .pending_payable_dao(pending_payable_dao)
+            .build();
+
+        let _ = subject.finish_scan(sent_payable, &Logger::new("test"));
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Was unable to create a mark in payables for a new pending payable '0x0000…007b' \
+                due to 'SignConversion(9999999999999)'"
+    )]
+    fn payable_scanner_panics_when_it_fails_to_make_a_mark_in_payables() {
+        let payable = Payable::new(
+            make_wallet("blah"),
+            6789,
+            H256::from_uint(&U256::from(123)),
+            SystemTime::now(),
+        );
+        let payable_dao = PayableDaoMock::new()
+            .mark_pending_payable_rowid_result(Err(PayableDaoError::SignConversion(9999999999999)));
+        let pending_payable_dao =
+            PendingPayableDaoMock::default().fingerprint_rowid_result(Some(7879));
+        let mut subject = PayableScannerBuilder::new()
+            .payable_dao(payable_dao)
+            .pending_payable_dao(pending_payable_dao)
+            .build();
+        let sent_payable = SentPayables {
+            timestamp: SystemTime::now(),
+            payable: vec![Ok(payable)],
+            response_skeleton_opt: None,
+        };
+
+        let _ = subject.finish_scan(sent_payable, &Logger::new("test"));
+    }
+
+    #[test]
+    fn payables_debug_summary_stays_inert_if_no_qualified_payments() {
+        init_test_logging();
+        let subject = PayableScannerBuilder::new().build();
+        let logger = Logger::new("payables_debug_summary_stays_inert_if_no_qualified_payments");
+
+        subject.payables_debug_summary(&vec![], &logger);
+
+        TestLogHandler::new().exists_no_log_containing(
+            "DEBUG: payables_debug_summary_stays_\
+        inert_if_no_qualified_payments: Paying qualified debts:",
+        );
+    }
+
+    #[test]
+    fn payables_debug_summary_prints_pretty_summary() {
+        init_test_logging();
+        let now = to_time_t(SystemTime::now());
+        let payment_thresholds = PaymentThresholds {
+            threshold_interval_sec: 2_592_000,
+            debt_threshold_gwei: 1_000_000_000,
+            payment_grace_period_sec: 86_400,
+            maturity_threshold_sec: 86_400,
+            permanent_debt_allowed_gwei: 10_000_000,
+            unban_below_gwei: 10_000_000,
+        };
+        let qualified_payables = &[
+            PayableAccount {
+                wallet: make_wallet("wallet0"),
+                balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 2000),
+                last_paid_timestamp: from_time_t(
+                    now - checked_conversion::<u64, i64>(
+                        payment_thresholds.maturity_threshold_sec
+                            + payment_thresholds.threshold_interval_sec,
+                    ),
+                ),
+                pending_payable_opt: None,
+            },
+            PayableAccount {
+                wallet: make_wallet("wallet1"),
+                balance_wei: gwei_to_wei(payment_thresholds.debt_threshold_gwei - 1),
+                last_paid_timestamp: from_time_t(
+                    now - checked_conversion::<u64, i64>(
+                        payment_thresholds.maturity_threshold_sec + 55,
+                    ),
+                ),
+                pending_payable_opt: None,
+            },
+        ];
+        let subject = PayableScannerBuilder::new()
+            .payment_thresholds(payment_thresholds)
+            .build();
+        let logger = Logger::new("test");
+
+        subject.payables_debug_summary(qualified_payables, &logger);
+
+        TestLogHandler::new().exists_log_containing("Paying qualified debts:\n\
+                   10,002,000,000,000,000 wei owed for 2678400 sec exceeds threshold: 10,000,000,001,152,000 wei; creditor: 0x0000000000000000000000000077616c6c657430\n\
+                   999,999,999,000,000,000 wei owed for 86455 sec exceeds threshold: 999,978,993,055,555,580 wei; creditor: 0x0000000000000000000000000077616c6c657431");
+    }
+
+    #[test]
+    fn payable_is_found_innocent_by_age_and_returns() {
+        let is_innocent_age_params_arc = Arc::new(Mutex::new(vec![]));
+        let payable_thresholds_gauge = PayableThresholdsGaugeMock::default()
+            .is_innocent_age_params(&is_innocent_age_params_arc)
+            .is_innocent_age_result(true);
+        let mut subject = PayableScannerBuilder::new().build();
+        subject.payable_threshold_gauge = Box::new(payable_thresholds_gauge);
+        let last_paid_timestamp = SystemTime::now()
+            .checked_sub(Duration::from_secs(123456))
+            .unwrap();
+        let mut payable = make_payable_account(111);
+        payable.last_paid_timestamp = last_paid_timestamp;
+        let before = SystemTime::now();
+
+        let result = subject.payable_exceeded_threshold(&payable);
+
+        let after = SystemTime::now();
+        assert_eq!(result, None);
+        let mut is_innocent_age_params = is_innocent_age_params_arc.lock().unwrap();
+        let (debt_age, threshold_value) = is_innocent_age_params.remove(0);
+        assert!(is_innocent_age_params.is_empty());
+        let time_elapsed_before = before
+            .duration_since(last_paid_timestamp)
+            .unwrap()
+            .as_secs();
+        let time_elapsed_after = after.duration_since(last_paid_timestamp).unwrap().as_secs();
+        assert!(time_elapsed_before <= debt_age && debt_age <= time_elapsed_after);
+        assert_eq!(
+            threshold_value,
+            DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec
+        )
+        //no other method was called (absence of panic) and that means we returned early
+    }
+
+    #[test]
+    fn payable_is_found_innocent_by_balance_and_returns() {
+        let is_innocent_age_params_arc = Arc::new(Mutex::new(vec![]));
+        let is_innocent_balance_params_arc = Arc::new(Mutex::new(vec![]));
+        let payable_thresholds_gauge = PayableThresholdsGaugeMock::default()
+            .is_innocent_age_params(&is_innocent_age_params_arc)
+            .is_innocent_age_result(false)
+            .is_innocent_balance_params(&is_innocent_balance_params_arc)
+            .is_innocent_balance_result(true);
+        let mut subject = PayableScannerBuilder::new().build();
+        subject.payable_threshold_gauge = Box::new(payable_thresholds_gauge);
+        let last_paid_timestamp = SystemTime::now()
+            .checked_sub(Duration::from_secs(111111))
+            .unwrap();
+        let mut payable = make_payable_account(222);
+        payable.last_paid_timestamp = last_paid_timestamp;
+        payable.balance_wei = 123456;
+        let before = SystemTime::now();
+
+        let result = subject.payable_exceeded_threshold(&payable);
+
+        let after = SystemTime::now();
+        assert_eq!(result, None);
+        let mut is_innocent_age_params = is_innocent_age_params_arc.lock().unwrap();
+        let (debt_age, _) = is_innocent_age_params.remove(0);
+        assert!(is_innocent_age_params.is_empty());
+        let time_elapsed_before = before
+            .duration_since(last_paid_timestamp)
+            .unwrap()
+            .as_secs();
+        let time_elapsed_after = after.duration_since(last_paid_timestamp).unwrap().as_secs();
+        assert!(time_elapsed_before <= debt_age && debt_age <= time_elapsed_after);
+        let is_innocent_balance_params = is_innocent_balance_params_arc.lock().unwrap();
+        assert_eq!(
+            *is_innocent_balance_params,
+            vec![(
+                123456_u128,
+                gwei_to_wei(DEFAULT_PAYMENT_THRESHOLDS.permanent_debt_allowed_gwei)
+            )]
+        )
+        //no other method was called (absence of panic) and that means we returned early
+    }
+
+    #[test]
+    fn threshold_calculation_depends_on_user_defined_payment_thresholds() {
+        let is_innocent_age_params_arc = Arc::new(Mutex::new(vec![]));
+        let is_innocent_balance_params_arc = Arc::new(Mutex::new(vec![]));
+        let calculate_payable_threshold_params_arc = Arc::new(Mutex::new(vec![]));
+        let balance = gwei_to_wei(5555_u64);
+        let how_far_in_past = Duration::from_secs(1111 + 1);
+        let last_paid_timestamp = SystemTime::now().sub(how_far_in_past);
+        let payable_account = PayableAccount {
+            wallet: make_wallet("hi"),
+            balance_wei: balance,
+            last_paid_timestamp,
+            pending_payable_opt: None,
+        };
+        let custom_payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 1111,
+            payment_grace_period_sec: 2222,
+            permanent_debt_allowed_gwei: 3333,
+            debt_threshold_gwei: 4444,
+            threshold_interval_sec: 5555,
+            unban_below_gwei: 5555,
+        };
+        let payable_thresholds_gauge = PayableThresholdsGaugeMock::default()
+            .is_innocent_age_params(&is_innocent_age_params_arc)
+            .is_innocent_age_result(
+                how_far_in_past.as_secs()
+                    <= custom_payment_thresholds.maturity_threshold_sec as u64,
+            )
+            .is_innocent_balance_params(&is_innocent_balance_params_arc)
+            .is_innocent_balance_result(
+                balance <= gwei_to_wei(custom_payment_thresholds.permanent_debt_allowed_gwei),
+            )
+            .calculate_payout_threshold_in_gwei_params(&calculate_payable_threshold_params_arc)
+            .calculate_payout_threshold_in_gwei_result(4567898); //made up value
+        let mut subject = PayableScannerBuilder::new()
+            .payment_thresholds(custom_payment_thresholds)
+            .build();
+        subject.payable_threshold_gauge = Box::new(payable_thresholds_gauge);
+        let before = SystemTime::now();
+
+        let result = subject.payable_exceeded_threshold(&payable_account);
+
+        let after = SystemTime::now();
+        assert_eq!(result, Some(4567898));
+        let mut is_innocent_age_params = is_innocent_age_params_arc.lock().unwrap();
+        let (time_elapsed, curve_derived_time) = is_innocent_age_params.remove(0);
+        assert_eq!(*is_innocent_age_params, vec![]);
+        let time_elapsed_before = before
+            .duration_since(last_paid_timestamp)
+            .unwrap()
+            .as_secs();
+        let time_elapsed_after = after.duration_since(last_paid_timestamp).unwrap().as_secs();
+        assert!(time_elapsed_before <= time_elapsed && time_elapsed <= time_elapsed_after);
+        assert_eq!(
+            curve_derived_time,
+            custom_payment_thresholds.maturity_threshold_sec as u64
+        );
+        let is_innocent_balance_params = is_innocent_balance_params_arc.lock().unwrap();
+        assert_eq!(
+            *is_innocent_balance_params,
+            vec![(
+                payable_account.balance_wei,
+                gwei_to_wei(custom_payment_thresholds.permanent_debt_allowed_gwei)
+            )]
+        );
+        let mut calculate_payable_curves_params =
+            calculate_payable_threshold_params_arc.lock().unwrap();
+        let (payment_thresholds, time_elapsed) = calculate_payable_curves_params.remove(0);
+        assert_eq!(*calculate_payable_curves_params, vec![]);
+        assert!(time_elapsed_before <= time_elapsed && time_elapsed <= time_elapsed_after);
+        assert_eq!(payment_thresholds, custom_payment_thresholds)
+    }
+
+    #[test]
+    fn payable_generated_within_maturity_time_limit_is_marked_unqualified() {
+        todo!("isn't this duplication?")
+        // let now = SystemTime::now();
+        // let payment_thresholds = PaymentThresholds::default();
+        // let qualified_debt = gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1);
+        // let unqualified_time = to_time_t(now) - payment_thresholds.maturity_threshold_sec as i64 + 1;
+        // let subject = PayableScannerBuilder::new().payment_thresholds(payment_thresholds).build();
+        // let unqualified_payable_account = PayableAccount {
+        //     wallet: make_wallet("wallet0"),
+        //     balance_wei: qualified_debt,
+        //     last_paid_timestamp: from_time_t(unqualified_time),
+        //     pending_payable_opt: None,
+        // };
+        //
+        // let result = subject.payable_exceeded_threshold(&unqualified_payable_account);
+        //
+        // assert_eq!(result, None);
+    }
+
+    #[test]
+    fn payable_with_debt_under_the_slope_is_marked_unqualified() {
+        todo!("isn't this duplication?")
+        // let now = SystemTime::now();
+        // let payment_thresholds = PaymentThresholds::default();
+        // let unqualified_debt = gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei - 1);
+        // let qualified_time = to_time_t(now) - payment_thresholds.maturity_threshold_sec as i64 - 1;
+        // let subject = PayableScannerBuilder::new().payment_thresholds(payment_thresholds).build();
+        // let unqualified_payable_account = PayableAccount {
+        //     wallet: make_wallet("wallet0"),
+        //     balance_wei: unqualified_debt,
+        //     last_paid_timestamp: from_time_t(qualified_time),
+        //     pending_payable_opt: None,
+        // };
+        //
+        // //TODO what about the badly testable now???????????.......
+        // // supply now from outside and let higher level blow up after you've changed the input in the production code to UNIX_EPOCH
+        // let result = subject.payable_exceeded_threshold(&unqualified_payable_account);
+        //
+        // assert_eq!(result, None);
+    }
+
+    #[test]
+    fn payable_with_low_payout_threshold_is_marked_unqualified() {
+        todo!("isn't this duplication?")
+        // let now = SystemTime::now();
+        // let payment_thresholds = PaymentThresholds::default();
+        // let debt = gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1);
+        // let time = to_time_t(now) - payment_thresholds.maturity_threshold_sec as i64 - 1;
+        // let unqualified_payable_account = PayableAccount {
+        //     wallet: make_wallet("wallet0"),
+        //     balance_wei: debt,
+        //     last_paid_timestamp: from_time_t(time),
+        //     pending_payable_opt: None,
+        // };
+        //
+        // let result = is_payable_qualified(now, &unqualified_payable_account, &payment_thresholds);
+        //
+        // assert_eq!(result, None);
+    }
+
+    #[test]
+    fn payable_with_debt_above_the_slope_is_qualified_and_the_threshold_value_is_returned() {
+        todo!("isn't this duplication?")
+        // let now = SystemTime::now();
+        // let payment_thresholds = PaymentThresholds::default();
+        // let debt = gwei_to_wei(payment_thresholds.debt_threshold_gwei - 1);
+        // let time = (payment_thresholds.maturity_threshold_sec
+        //     + payment_thresholds.threshold_interval_sec
+        //     - 1) as i64;
+        // let payment_thresholds_rc = Rc::new(payment_thresholds);
+        // let qualified_payable = PayableAccount {
+        //     wallet: make_wallet("wallet0"),
+        //     balance_wei: debt,
+        //     last_paid_timestamp: from_time_t(time),
+        //     pending_payable_opt: None,
+        // };
+        // let threshold = calculate_payout_threshold(
+        //     payable_time_diff(now, &qualified_payable),
+        //     &payment_thresholds_rc,
+        // );
+        //
+        // let result = is_payable_qualified(now, &qualified_payable, &payment_thresholds_rc);
+        //
+        // assert_eq!(result, Some(threshold as u64));
+    }
+
+    #[test]
+    fn qualified_payables_can_be_filtered_out_from_non_pending_payables_along_with_their_summary() {
+        todo!("isn't this duplication?")
+        // let now = SystemTime::now();
+        // let payment_thresholds = PaymentThresholds::default();
+        // let (qualified_payable_accounts, _, all_non_pending_payables) =
+        //     make_payables(now, &PaymentThresholds::default());
+        //
+        // let (qualified_payables, summary) =
+        //     qualified_payables_and_summary(now, all_non_pending_payables, &payment_thresholds);
+        //
+        // let mut expected_summary = String::from("Paying qualified debts:\n");
+        // for payable in qualified_payable_accounts.iter() {
+        //     expected_summary.push_str(&exceeded_summary(
+        //         now,
+        //         &payable,
+        //         calculate_payout_threshold(payable_time_diff(now, &payable), &payment_thresholds)
+        //             as u64,
+        //     ))
+        // }
+        // assert_eq!(qualified_payables, qualified_payable_accounts);
+        // assert_eq!(summary, expected_summary);
+    }
+
+    #[test]
+    fn qualified_payables_and_summary_returns_an_empty_vector_if_all_unqualified() {
+        todo!("isn't this duplication?")
+        // let now = SystemTime::now();
+        // let payment_thresholds = PaymentThresholds::default();
+        // let unqualified_payable_accounts = vec![PayableAccount {
+        //     wallet: make_wallet("wallet1"),
+        //     balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1),
+        //     last_paid_timestamp: from_time_t(
+        //         to_time_t(now) - payment_thresholds.maturity_threshold_sec as i64 + 1,
+        //     ),
+        //     pending_payable_opt: None,
+        // }];
+        //
+        // let (qualified_payables, summary) =
+        //     qualified_payables_and_summary(now, unqualified_payable_accounts, &payment_thresholds);
+        //
+        // assert_eq!(qualified_payables, vec![]);
+        // assert_eq!(summary, String::from("No Qualified Payables found."));
     }
 
     #[test]
@@ -1472,7 +1891,7 @@ mod tests {
     }
 
     #[test]
-    fn order_cancel_failed_transaction_works() {
+    fn cancel_tailed_transaction_works() {
         init_test_logging();
         let test_name = "order_cancel_pending_transaction_works";
         let mark_failure_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1489,7 +1908,7 @@ mod tests {
             rowid,
         };
 
-        subject.order_cancel_failed_transaction(transaction_id, &Logger::new(test_name));
+        subject.cancel_tailed_transaction(transaction_id, &Logger::new(test_name));
 
         let mark_failure_params = mark_failure_params_arc.lock().unwrap();
         assert_eq!(*mark_failure_params, vec![rowid]);
@@ -1506,7 +1925,7 @@ mod tests {
         expected = "Unsuccessful attempt for transaction 0x051a…8c19 to mark fatal error at payable \
                 fingerprint due to UpdateFailed(\"no no no\"); database unreliable"
     )]
-    fn order_cancel_failed_transaction_panics_when_it_fails_to_mark_failure() {
+    fn cancel_tailed_transaction_panics_when_it_fails_to_mark_failure() {
         let payable_dao = PayableDaoMock::default().transaction_canceled_result(Ok(()));
         let pending_payable_dao = PendingPayableDaoMock::default().mark_failure_result(Err(
             PendingPayableDaoError::UpdateFailed("no no no".to_string()),
@@ -1519,15 +1938,16 @@ mod tests {
         let hash = H256::from("sometransactionhash".keccak256());
         let transaction_id = PendingPayableId { hash, rowid };
 
-        subject.order_cancel_failed_transaction(transaction_id, &Logger::new("test"));
+        subject.cancel_tailed_transaction(transaction_id, &Logger::new("test"));
     }
 
     #[test]
     #[should_panic(
-        expected = "Was unable to delete payable fingerprint '0x0000…0315' after successful \
-                transaction due to 'RecordDeletion(\"the database is fooling around with us\")'"
+        expected = "Was unable to delete payable fingerprint for successful transaction '0x000000000\
+        0000000000000000000000000000000000000000000000000000315' due to 'RecordDeletion(\"the database \
+        is fooling around with us\")'"
     )]
-    fn order_confirm_transaction_panics_while_deleting_pending_payable_fingerprint() {
+    fn confirm_transaction_panics_while_deleting_pending_payable_fingerprint() {
         let hash = H256::from_uint(&U256::from(789));
         let rowid = 3;
         let payable_dao = PayableDaoMock::new().transaction_confirmed_result(Ok(()));
@@ -1544,13 +1964,13 @@ mod tests {
         pending_payable_fingerprint.rowid_opt = Some(rowid);
         pending_payable_fingerprint.hash = hash;
 
-        subject.order_confirm_transaction(pending_payable_fingerprint, &Logger::new("test"));
+        subject.confirm_transaction(pending_payable_fingerprint, &Logger::new("test"));
     }
 
     #[test]
-    fn order_confirm_transaction_works() {
+    fn confirm_transaction_works() {
         init_test_logging();
-        let test_name = "order_confirm_transaction_works";
+        let test_name = "confirm_transaction_works";
         let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let delete_pending_payable_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
         let payable_dao = PayableDaoMock::default()
@@ -1576,10 +1996,7 @@ mod tests {
             process_error: None,
         };
 
-        subject.order_confirm_transaction(
-            pending_payable_fingerprint.clone(),
-            &Logger::new(test_name),
-        );
+        subject.confirm_transaction(pending_payable_fingerprint.clone(), &Logger::new(test_name));
 
         let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
         let delete_pending_payable_fingerprint_params =
@@ -1605,6 +2022,27 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(
+        expected = "Was unable to uncheck pending payable '0x0000000000000000000000000000000000000000000\
+    000000000000000000315' after confirmation due to 'RusqliteError(\"record change not successful\")'"
+    )]
+    fn confirm_transaction_panics_on_unchecking_payable_table() {
+        let hash = H256::from_uint(&U256::from(789));
+        let rowid = 3;
+        let payable_dao = PayableDaoMock::new().transaction_confirmed_result(Err(
+            PayableDaoError::RusqliteError("record change not successful".to_string()),
+        ));
+        let mut subject = PendingPayableScannerBuilder::new()
+            .payable_dao(payable_dao)
+            .build();
+        let mut fingerprint = make_pending_payable_fingerprint();
+        fingerprint.rowid_opt = Some(rowid);
+        fingerprint.hash = hash;
+
+        subject.confirm_transaction(fingerprint, &Logger::new("test"));
+    }
+
+    #[test]
     fn total_paid_payable_rises_with_each_bill_paid() {
         let test_name = "total_paid_payable_rises_with_each_bill_paid";
         let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1627,36 +2065,15 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let mut financial_statistics = subject.financial_statistics.borrow().clone();
-        financial_statistics.total_paid_payable += 1111;
+        financial_statistics.total_paid_payable_wei += 1111;
         subject.financial_statistics.replace(financial_statistics);
 
-        subject.order_confirm_transaction(fingerprint.clone(), &Logger::new(test_name));
+        subject.confirm_transaction(fingerprint.clone(), &Logger::new(test_name));
 
-        let total_paid_payable = subject.financial_statistics.borrow().total_paid_payable;
+        let total_paid_payable = subject.financial_statistics.borrow().total_paid_payable_wei;
         let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
         assert_eq!(total_paid_payable, 1111 + 5478);
         assert_eq!(*transaction_confirmed_params, vec![fingerprint])
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Was unable to uncheck pending payable '0x0000…0315' after confirmation due to \
-                'RusqliteError(\"record change not successful\")'"
-    )]
-    fn order_confirm_transaction_panics_on_unchecking_payable_table() {
-        let hash = H256::from_uint(&U256::from(789));
-        let rowid = 3;
-        let payable_dao = PayableDaoMock::new().transaction_confirmed_result(Err(
-            PayableDaoError::RusqliteError("record change not successful".to_string()),
-        ));
-        let mut subject = PendingPayableScannerBuilder::new()
-            .payable_dao(payable_dao)
-            .build();
-        let mut fingerprint = make_pending_payable_fingerprint();
-        fingerprint.rowid_opt = Some(rowid);
-        fingerprint.hash = hash;
-
-        subject.order_confirm_transaction(fingerprint, &Logger::new("test"));
     }
 
     #[test]
@@ -1864,19 +2281,19 @@ mod tests {
         let tlh = TestLogHandler::new();
         tlh.exists_log_matching(
             "INFO: DELINQUENCY_TEST: Wallet 0x00000000000000000077616c6c65743132333464 \
-            \\(balance: 1234 MASQ, age: \\d+ sec\\) banned for delinquency",
+            \\(balance: 1,234 gwei, age: \\d+ sec\\) banned for delinquency",
         );
         tlh.exists_log_matching(
             "INFO: DELINQUENCY_TEST: Wallet 0x00000000000000000077616c6c65743233343564 \
-            \\(balance: 2345 MASQ, age: \\d+ sec\\) banned for delinquency",
+            \\(balance: 2,345 gwei, age: \\d+ sec\\) banned for delinquency",
         );
         tlh.exists_log_matching(
             "INFO: DELINQUENCY_TEST: Wallet 0x00000000000000000077616c6c6574333435366e \
-            \\(balance: 3456 MASQ, age: \\d+ sec\\) is no longer delinquent: unbanned",
+            \\(balance: 3,456 gwei, age: \\d+ sec\\) is no longer delinquent: unbanned",
         );
         tlh.exists_log_matching(
             "INFO: DELINQUENCY_TEST: Wallet 0x00000000000000000077616c6c6574343536376e \
-            \\(balance: 4567 MASQ, age: \\d+ sec\\) is no longer delinquent: unbanned",
+            \\(balance: 4,567 gwei, age: \\d+ sec\\) is no longer delinquent: unbanned",
         );
     }
 
@@ -1912,18 +2329,18 @@ mod tests {
             .receivable_dao(receivable_dao)
             .build();
         let mut financial_statistics = subject.financial_statistics.borrow().clone();
-        financial_statistics.total_paid_receivable += 2222;
+        financial_statistics.total_paid_receivable_wei += 2_222_123_123;
         subject.financial_statistics.replace(financial_statistics);
         let receivables = vec![
             BlockchainTransaction {
                 block_number: 4578910,
                 from: make_wallet("wallet_1"),
-                gwei_amount: 45780,
+                wei_amount: 45_780,
             },
             BlockchainTransaction {
                 block_number: 4569898,
                 from: make_wallet("wallet_2"),
-                gwei_amount: 33345,
+                wei_amount: 3_333_345,
             },
         ];
         let msg = ReceivedPayments {
@@ -1935,11 +2352,14 @@ mod tests {
 
         let message_opt = subject.finish_scan(msg, &Logger::new(test_name));
 
-        let total_paid_receivable = subject.financial_statistics.borrow().total_paid_receivable;
+        let total_paid_receivable = subject
+            .financial_statistics
+            .borrow()
+            .total_paid_receivable_wei;
         let more_money_received_params = more_money_received_params_arc.lock().unwrap();
         assert_eq!(message_opt, None);
         assert_eq!(subject.scan_started_at(), None);
-        assert_eq!(total_paid_receivable, 2222 + 45780 + 33345);
+        assert_eq!(total_paid_receivable, 2_222_123_123 + 45_780 + 3_333_345);
         assert_eq!(*more_money_received_params, vec![(now, receivables)]);
         TestLogHandler::new().exists_log_matching(
             "INFO: receivable_scanner_handles_received_payments_message: The Receivables scan ended in \\d+ms.",

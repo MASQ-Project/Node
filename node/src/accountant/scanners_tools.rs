@@ -1,12 +1,14 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 pub mod payable_scanner_tools {
+    use crate::accountant::dao_utils::ThresholdUtils;
     use crate::accountant::payable_dao::{Payable, PayableAccount};
-    use crate::accountant::SentPayable;
+    use crate::accountant::SentPayables;
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::sub_lib::accountant::PaymentThresholds;
     use masq_lib::logger::Logger;
     use masq_lib::utils::plus;
+    use std::any::Any;
     use std::time::SystemTime;
 
     //for debugging only
@@ -19,15 +21,15 @@ pub mod payable_scanner_tools {
         }
         #[derive(Clone, Copy, Default)]
         struct PayableInfo {
-            balance: i64,
+            balance_wei: u128,
             age: u64,
         }
 
         fn bigger(payable_1: PayableInfo, payable_2: PayableInfo) -> PayableInfo {
             #[allow(clippy::comparison_chain)]
-            if payable_1.balance > payable_2.balance {
+            if payable_1.balance_wei > payable_2.balance_wei {
                 payable_1
-            } else if payable_2.balance > payable_1.balance {
+            } else if payable_2.balance_wei > payable_1.balance_wei {
                 payable_2
             } else {
                 if payable_1.age != payable_2.age {
@@ -44,7 +46,7 @@ pub mod payable_scanner_tools {
             } else if payable_2.age > payable_1.age {
                 payable_2
             } else {
-                if payable_1.balance != payable_2.balance {
+                if payable_1.balance_wei != payable_2.balance_wei {
                     return bigger(payable_1, payable_2);
                 }
                 payable_1
@@ -55,7 +57,7 @@ pub mod payable_scanner_tools {
         let (biggest, oldest) = all_non_pending_payables
             .iter()
             .map(|payable| PayableInfo {
-                balance: payable.balance,
+                balance_wei: payable.balance_wei,
                 age: payable_time_diff(timestamp, payable),
             })
             .fold(init, |so_far, payable| {
@@ -67,89 +69,19 @@ pub mod payable_scanner_tools {
                 (biggest, oldest)
             });
         format!("Payable scan found {} debts; the biggest is {} owed for {}sec, the oldest is {} owed for {}sec",
-                all_non_pending_payables.len(), biggest.balance, biggest.age,
-                oldest.balance, oldest.age)
+                all_non_pending_payables.len(), biggest.balance_wei, biggest.age,
+                oldest.balance_wei, oldest.age)
     }
 
-    pub fn is_payable_qualified(
-        time: SystemTime,
-        payable: &PayableAccount,
-        payment_thresholds: &PaymentThresholds,
-    ) -> Option<u64> {
-        // TODO: This calculation should be done in the database, if possible
-        let maturity_time_limit = payment_thresholds.maturity_threshold_sec as u64;
-        let permanent_allowed_debt = payment_thresholds.permanent_debt_allowed_gwei;
-        let time_since_last_paid = payable_time_diff(time, payable);
-        let payable_balance = payable.balance;
-
-        if time_since_last_paid <= maturity_time_limit {
-            return None;
-        }
-
-        if payable_balance <= permanent_allowed_debt {
-            return None;
-        }
-
-        let payout_threshold = calculate_payout_threshold(time_since_last_paid, payment_thresholds);
-        if payable_balance as f64 <= payout_threshold {
-            return None;
-        }
-
-        Some(payout_threshold as u64)
-    }
-
+    //TODO see if wee need this fn
     pub fn payable_time_diff(time: SystemTime, payable: &PayableAccount) -> u64 {
         time.duration_since(payable.last_paid_timestamp)
             .expect("Payable time is corrupt")
             .as_secs()
     }
 
-    pub fn calculate_payout_threshold(x: u64, payment_thresholds: &PaymentThresholds) -> f64 {
-        let m = -((payment_thresholds.debt_threshold_gwei as f64
-            - payment_thresholds.permanent_debt_allowed_gwei as f64)
-            / (payment_thresholds.threshold_interval_sec as f64
-                - payment_thresholds.maturity_threshold_sec as f64));
-        let b = payment_thresholds.debt_threshold_gwei as f64
-            - m * payment_thresholds.maturity_threshold_sec as f64;
-        m * x as f64 + b
-    }
-
-    pub fn exceeded_summary(time: SystemTime, payable: &PayableAccount, threshold: u64) -> String {
-        format!(
-            "{} owed for {}sec exceeds threshold: {}; creditor: {}\n",
-            payable.balance,
-            payable_time_diff(time, payable),
-            threshold,
-            payable.wallet.clone(),
-        )
-    }
-
-    pub fn qualified_payables_and_summary(
-        time: SystemTime,
-        non_pending_payables: Vec<PayableAccount>,
-        payment_thresholds: &PaymentThresholds,
-    ) -> (Vec<PayableAccount>, String) {
-        let mut qualified_summary = String::from("Paying qualified debts:\n");
-        let mut qualified_payables: Vec<PayableAccount> = vec![];
-
-        for payable in non_pending_payables {
-            if let Some(threshold) = is_payable_qualified(time, &payable, payment_thresholds) {
-                let payable_summary = exceeded_summary(time, &payable, threshold);
-                qualified_summary.push_str(&payable_summary);
-                qualified_payables.push(payable);
-            }
-        }
-
-        let summary = match qualified_payables.is_empty() {
-            true => String::from("No Qualified Payables found."),
-            false => qualified_summary,
-        };
-
-        (qualified_payables, summary)
-    }
-
     pub fn separate_early_errors(
-        sent_payments: &SentPayable,
+        sent_payments: &SentPayables,
         logger: &Logger,
     ) -> (Vec<Payable>, Vec<BlockchainError>) {
         sent_payments
@@ -159,14 +91,49 @@ pub mod payable_scanner_tools {
                 match payment {
                     Ok(payment_sent) => (plus(so_far.0, payment_sent.clone()), so_far.1),
                     Err(error) => {
+
                         logger.warning(|| match &error {
                             BlockchainError::TransactionFailed { .. } => format!("Encountered transaction error at this end: '{:?}'", error),
                             x => format!("Outbound transaction failure due to '{:?}'. Please check your blockchain service URL configuration.", x)
                         });
+
                         (so_far.0, plus(so_far.1, error.clone()))
                     }
                 }
             })
+    }
+
+    pub trait PayableThresholdsGauge {
+        fn is_innocent_age(&self, age: u64, limit: u64) -> bool;
+        fn is_innocent_balance(&self, balance: u128, limit: u128) -> bool;
+        fn calculate_payout_threshold_in_gwei(
+            &self,
+            payment_thresholds: &PaymentThresholds,
+            x: u64,
+        ) -> u128;
+        as_any_dcl!();
+    }
+
+    #[derive(Default)]
+    pub struct PayableThresholdsGaugeReal {}
+
+    impl PayableThresholdsGauge for PayableThresholdsGaugeReal {
+        fn is_innocent_age(&self, age: u64, limit: u64) -> bool {
+            age <= limit
+        }
+
+        fn is_innocent_balance(&self, balance: u128, limit: u128) -> bool {
+            balance <= limit
+        }
+
+        fn calculate_payout_threshold_in_gwei(
+            &self,
+            payment_thresholds: &PaymentThresholds,
+            debt_age: u64,
+        ) -> u128 {
+            ThresholdUtils::calculate_finite_debt_limit_by_age(payment_thresholds, debt_age)
+        }
+        as_any_impl!();
     }
 }
 
@@ -255,10 +222,15 @@ pub mod pending_payable_scanner_tools {
 
 pub mod receivable_scanner_tools {
     use crate::accountant::receivable_dao::ReceivableAccount;
+    use crate::accountant::wei_to_gwei;
     use std::time::{Duration, SystemTime};
+    use thousands::Separable;
 
     pub fn balance_and_age(time: SystemTime, account: &ReceivableAccount) -> (String, Duration) {
-        let balance = format!("{}", (account.balance as f64) / 1_000_000_000.0);
+        let balance = format!(
+            "{}",
+            wei_to_gwei::<i64, i128>(account.balance_wei).separate_with_commas()
+        );
         let age = time
             .duration_since(account.last_received_timestamp)
             .unwrap_or_else(|_| Duration::new(0, 0));
@@ -268,146 +240,22 @@ pub mod receivable_scanner_tools {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::dao_utils::{from_time_t, to_time_t};
     use crate::accountant::payable_dao::{Payable, PayableAccount};
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::scanners_tools::payable_scanner_tools::{
-        calculate_payout_threshold, exceeded_summary, investigate_debt_extremes,
-        is_payable_qualified, payable_time_diff, qualified_payables_and_summary,
-        separate_early_errors,
+        investigate_debt_extremes, separate_early_errors, PayableThresholdsGauge,
+        PayableThresholdsGaugeReal,
     };
     use crate::accountant::scanners_tools::receivable_scanner_tools::balance_and_age;
-    use crate::accountant::test_utils::make_payables;
-    use crate::accountant::SentPayable;
+    use crate::accountant::{gwei_to_wei, SentPayables};
     use crate::blockchain::blockchain_interface::BlockchainError;
-    use crate::database::dao_utils::{from_time_t, to_time_t};
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
+    use masq_lib::constants::WEIS_OF_GWEI;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use std::rc::Rc;
     use std::time::SystemTime;
-
-    #[test]
-    fn payable_generated_within_maturity_time_limit_is_marked_unqualified() {
-        let now = SystemTime::now();
-        let payment_thresholds = PaymentThresholds::default();
-        let qualified_debt = payment_thresholds.permanent_debt_allowed_gwei + 1;
-        let unqualified_time = to_time_t(now) - payment_thresholds.maturity_threshold_sec + 1;
-        let unqualified_payable_account = PayableAccount {
-            wallet: make_wallet("wallet0"),
-            balance: qualified_debt,
-            last_paid_timestamp: from_time_t(unqualified_time),
-            pending_payable_opt: None,
-        };
-
-        let result = is_payable_qualified(now, &unqualified_payable_account, &payment_thresholds);
-
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn payable_with_debt_under_the_slope_is_marked_unqualified() {
-        let now = SystemTime::now();
-        let payment_thresholds = PaymentThresholds::default();
-        let unqualified_debt = payment_thresholds.permanent_debt_allowed_gwei - 1;
-        let qualified_time = to_time_t(now) - payment_thresholds.maturity_threshold_sec - 1;
-        let unqualified_payable_account = PayableAccount {
-            wallet: make_wallet("wallet0"),
-            balance: unqualified_debt,
-            last_paid_timestamp: from_time_t(qualified_time),
-            pending_payable_opt: None,
-        };
-
-        let result = is_payable_qualified(now, &unqualified_payable_account, &payment_thresholds);
-
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn payable_with_low_payout_threshold_is_marked_unqualified() {
-        let now = SystemTime::now();
-        let payment_thresholds = PaymentThresholds::default();
-        let debt = payment_thresholds.permanent_debt_allowed_gwei + 1;
-        let time = to_time_t(now) - payment_thresholds.maturity_threshold_sec - 1;
-        let unqualified_payable_account = PayableAccount {
-            wallet: make_wallet("wallet0"),
-            balance: debt,
-            last_paid_timestamp: from_time_t(time),
-            pending_payable_opt: None,
-        };
-
-        let result = is_payable_qualified(now, &unqualified_payable_account, &payment_thresholds);
-
-        assert_eq!(result, None);
-    }
-
-    #[test]
-    fn payable_with_debt_above_the_slope_is_qualified_and_the_threshold_value_is_returned() {
-        let now = SystemTime::now();
-        let payment_thresholds = PaymentThresholds::default();
-        let debt = payment_thresholds.debt_threshold_gwei - 1;
-        let time = payment_thresholds.maturity_threshold_sec
-            + payment_thresholds.threshold_interval_sec
-            - 1;
-        let payment_thresholds_rc = Rc::new(payment_thresholds);
-        let qualified_payable = PayableAccount {
-            wallet: make_wallet("wallet0"),
-            balance: debt,
-            last_paid_timestamp: from_time_t(time),
-            pending_payable_opt: None,
-        };
-        let threshold = calculate_payout_threshold(
-            payable_time_diff(now, &qualified_payable),
-            &payment_thresholds_rc,
-        );
-
-        let result = is_payable_qualified(now, &qualified_payable, &payment_thresholds_rc);
-
-        assert_eq!(result, Some(threshold as u64));
-    }
-
-    #[test]
-    fn qualified_payables_can_be_filtered_out_from_non_pending_payables_along_with_their_summary() {
-        let now = SystemTime::now();
-        let payment_thresholds = PaymentThresholds::default();
-        let (qualified_payable_accounts, _, all_non_pending_payables) =
-            make_payables(now, &PaymentThresholds::default());
-
-        let (qualified_payables, summary) =
-            qualified_payables_and_summary(now, all_non_pending_payables, &payment_thresholds);
-
-        let mut expected_summary = String::from("Paying qualified debts:\n");
-        for payable in qualified_payable_accounts.iter() {
-            expected_summary.push_str(&exceeded_summary(
-                now,
-                &payable,
-                calculate_payout_threshold(payable_time_diff(now, &payable), &payment_thresholds)
-                    as u64,
-            ))
-        }
-        assert_eq!(qualified_payables, qualified_payable_accounts);
-        assert_eq!(summary, expected_summary);
-    }
-
-    #[test]
-    fn returns_an_empty_vector_and_summary_when_no_qualified_payables_are_found() {
-        let now = SystemTime::now();
-        let payment_thresholds = PaymentThresholds::default();
-        let unqualified_payable_accounts = vec![PayableAccount {
-            wallet: make_wallet("wallet1"),
-            balance: payment_thresholds.permanent_debt_allowed_gwei + 1,
-            last_paid_timestamp: from_time_t(
-                to_time_t(now) - payment_thresholds.maturity_threshold_sec + 1,
-            ),
-            pending_payable_opt: None,
-        }];
-
-        let (qualified_payables, summary) =
-            qualified_payables_and_summary(now, unqualified_payable_accounts, &payment_thresholds);
-
-        assert_eq!(qualified_payables, vec![]);
-        assert_eq!(summary, String::from("No Qualified Payables found."));
-    }
 
     #[test]
     fn investigate_debt_extremes_picks_the_most_relevant_records() {
@@ -418,27 +266,27 @@ mod tests {
         let payables = &[
             PayableAccount {
                 wallet: make_wallet("wallet0"),
-                balance: same_amount_significance,
+                balance_wei: same_amount_significance,
                 last_paid_timestamp: from_time_t(now_t - 5000),
                 pending_payable_opt: None,
             },
             //this debt is more significant because beside being high in amount it's also older, so should be prioritized and picked
             PayableAccount {
                 wallet: make_wallet("wallet1"),
-                balance: same_amount_significance,
+                balance_wei: same_amount_significance,
                 last_paid_timestamp: from_time_t(now_t - 10000),
                 pending_payable_opt: None,
             },
             //similarly these two wallets have debts equally old but the second has a bigger balance and should be chosen
             PayableAccount {
                 wallet: make_wallet("wallet3"),
-                balance: 100,
+                balance_wei: 100,
                 last_paid_timestamp: same_age_significance,
                 pending_payable_opt: None,
             },
             PayableAccount {
                 wallet: make_wallet("wallet2"),
-                balance: 330,
+                balance_wei: 330,
                 last_paid_timestamp: same_age_significance,
                 pending_payable_opt: None,
             },
@@ -455,7 +303,7 @@ mod tests {
         let offset = 1000;
         let receivable_account = ReceivableAccount {
             wallet: make_wallet("wallet0"),
-            balance: 10_000_000_000,
+            balance_wei: 10_000_000_000,
             last_received_timestamp: from_time_t(to_time_t(now) - offset),
         };
 
@@ -476,7 +324,7 @@ mod tests {
             tx_hash: Default::default(),
         };
         let error = BlockchainError::SignedValueConversion(666);
-        let sent_payable = SentPayable {
+        let sent_payable = SentPayables {
             timestamp: SystemTime::now(),
             payable: vec![Ok(payable_ok.clone()), Err(error.clone())],
             response_skeleton_opt: None,
@@ -490,5 +338,119 @@ mod tests {
             "WARN: {}: Outbound transaction failure due to '{:?}",
             test_name, error
         ));
+    }
+
+    #[test]
+    fn payout_sloped_segment_in_payment_thresholds_goes_along_proper_line() {
+        let payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 333,
+            payment_grace_period_sec: 444,
+            permanent_debt_allowed_gwei: 4444,
+            debt_threshold_gwei: 8888,
+            threshold_interval_sec: 1111111,
+            unban_below_gwei: 0,
+        };
+        let higher_corner_timestamp = payment_thresholds.maturity_threshold_sec;
+        let middle_point_timestamp = payment_thresholds.maturity_threshold_sec
+            + payment_thresholds.threshold_interval_sec / 2;
+        let lower_corner_timestamp =
+            payment_thresholds.maturity_threshold_sec + payment_thresholds.threshold_interval_sec;
+        let tested_fn = |payment_thresholds: &PaymentThresholds, time| {
+            PayableThresholdsGaugeReal {}
+                .calculate_payout_threshold_in_gwei(payment_thresholds, time) as i128
+        };
+
+        let higher_corner_point = tested_fn(&payment_thresholds, higher_corner_timestamp);
+        let middle_point = tested_fn(&payment_thresholds, middle_point_timestamp);
+        let lower_corner_point = tested_fn(&payment_thresholds, lower_corner_timestamp);
+
+        let allowed_imprecision = WEIS_OF_GWEI;
+        let ideal_template_higher: i128 = gwei_to_wei(payment_thresholds.debt_threshold_gwei);
+        let ideal_template_middle: i128 = gwei_to_wei(
+            (payment_thresholds.debt_threshold_gwei
+                - payment_thresholds.permanent_debt_allowed_gwei)
+                / 2
+                + payment_thresholds.permanent_debt_allowed_gwei,
+        );
+        let ideal_template_lower: i128 =
+            gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei);
+        assert!(
+            higher_corner_point <= ideal_template_higher + allowed_imprecision
+                && ideal_template_higher - allowed_imprecision <= higher_corner_point,
+            "ideal: {}, real: {}",
+            ideal_template_higher,
+            higher_corner_point
+        );
+        assert!(
+            middle_point <= ideal_template_middle + allowed_imprecision
+                && ideal_template_middle - allowed_imprecision <= middle_point,
+            "ideal: {}, real: {}",
+            ideal_template_middle,
+            middle_point
+        );
+        assert!(
+            lower_corner_point <= ideal_template_lower + allowed_imprecision
+                && ideal_template_lower - allowed_imprecision <= lower_corner_point,
+            "ideal: {}, real: {}",
+            ideal_template_lower,
+            lower_corner_point
+        )
+    }
+
+    #[test]
+    fn is_innocent_age_works_for_age_smaller_than_innocent_age() {
+        let payable_age = 999;
+
+        let result = PayableThresholdsGaugeReal::default().is_innocent_age(payable_age, 1000);
+
+        assert_eq!(result, true)
+    }
+
+    #[test]
+    fn is_innocent_age_works_for_age_equal_to_innocent_age() {
+        let payable_age = 1000;
+
+        let result = PayableThresholdsGaugeReal::default().is_innocent_age(payable_age, 1000);
+
+        assert_eq!(result, true)
+    }
+
+    #[test]
+    fn is_innocent_age_works_for_excessive_age() {
+        let payable_age = 1001;
+
+        let result = PayableThresholdsGaugeReal::default().is_innocent_age(payable_age, 1000);
+
+        assert_eq!(result, false)
+    }
+
+    #[test]
+    fn is_innocent_balance_works_for_balance_smaller_than_innocent_balance() {
+        let payable_balance = 999;
+
+        let result =
+            PayableThresholdsGaugeReal::default().is_innocent_balance(payable_balance, 1000);
+
+        assert_eq!(result, true)
+    }
+
+    #[test]
+    fn is_innocent_balance_works_for_balance_equal_to_innocent_balance() {
+        let payable_balance = 1000;
+
+        let result =
+            PayableThresholdsGaugeReal::default().is_innocent_balance(payable_balance, 1000);
+
+        assert_eq!(result, true)
+    }
+
+    #[test]
+    fn is_innocent_balance_works_for_excessive_balance() {
+        let payable_balance = 1001;
+
+        let result =
+            PayableThresholdsGaugeReal::default().is_innocent_balance(payable_balance, 1000);
+
+        assert_eq!(result, false)
     }
 }

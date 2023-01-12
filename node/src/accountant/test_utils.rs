@@ -13,6 +13,7 @@ use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
 use crate::accountant::scanners::{PayableScanner, PendingPayableScanner, ReceivableScanner};
+use crate::accountant::scanners_tools::payable_scanner_tools::PayableThresholdsGauge;
 use crate::accountant::{gwei_to_wei, Accountant, PendingPayableId, DEFAULT_PENDING_TOO_LONG_SEC};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
@@ -338,7 +339,7 @@ pub struct PayableDaoMock {
     custom_query_params: Arc<Mutex<Vec<CustomQuery<u64>>>>,
     custom_query_result: RefCell<Vec<Option<Vec<PayableAccount>>>>,
     total_results: RefCell<Vec<u128>>,
-    pub have_non_pending_payable_shut_down_the_system: bool,
+    pub have_non_pending_payable_shut_down_the_system: bool, //TODO maybe we should get rid of this kind of fields and go the Utkarshe's way
 }
 
 impl PayableDao for PayableDaoMock {
@@ -897,6 +898,11 @@ impl PayableScannerBuilder {
         self
     }
 
+    pub fn payment_thresholds(mut self, payment_thresholds: PaymentThresholds) -> Self {
+        self.payment_thresholds = payment_thresholds;
+        self
+    }
+
     pub fn pending_payable_dao(
         mut self,
         pending_payable_dao: PendingPayableDaoMock,
@@ -1036,26 +1042,30 @@ pub fn make_payables(
 ) {
     let unqualified_payable_accounts = vec![PayableAccount {
         wallet: make_wallet("wallet1"),
-        balance: payment_thresholds.permanent_debt_allowed_gwei + 1,
+        balance_wei: gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei + 1),
         last_paid_timestamp: from_time_t(
-            to_time_t(now) - payment_thresholds.maturity_threshold_sec + 1,
+            to_time_t(now) - payment_thresholds.maturity_threshold_sec as i64 + 1,
         ),
         pending_payable_opt: None,
     }];
     let qualified_payable_accounts = vec![
         PayableAccount {
             wallet: make_wallet("wallet2"),
-            balance: payment_thresholds.permanent_debt_allowed_gwei + 1_000_000_000,
+            balance_wei: gwei_to_wei(
+                payment_thresholds.permanent_debt_allowed_gwei + 1_000_000_000,
+            ),
             last_paid_timestamp: from_time_t(
-                to_time_t(now) - payment_thresholds.maturity_threshold_sec - 1,
+                to_time_t(now) - payment_thresholds.maturity_threshold_sec as i64 - 1,
             ),
             pending_payable_opt: None,
         },
         PayableAccount {
             wallet: make_wallet("wallet3"),
-            balance: payment_thresholds.permanent_debt_allowed_gwei + 1_200_000_000,
+            balance_wei: gwei_to_wei(
+                payment_thresholds.permanent_debt_allowed_gwei + 1_200_000_000,
+            ),
             last_paid_timestamp: from_time_t(
-                to_time_t(now) - payment_thresholds.maturity_threshold_sec - 100,
+                to_time_t(now) - payment_thresholds.maturity_threshold_sec as i64 - 100,
             ),
             pending_payable_opt: None,
         },
@@ -1109,4 +1119,83 @@ where
 
     conn.query_row("select exclamations from whatever", [], tested_fn)
         .unwrap();
+}
+
+#[derive(Default)]
+pub struct PayableThresholdsGaugeMock {
+    is_innocent_age_params: Arc<Mutex<Vec<(u64, u64)>>>,
+    is_innocent_age_results: RefCell<Vec<bool>>,
+    is_innocent_balance_params: Arc<Mutex<Vec<(u128, u128)>>>,
+    is_innocent_balance_results: RefCell<Vec<bool>>,
+    calculate_payout_threshold_in_gwei_params: Arc<Mutex<Vec<(PaymentThresholds, u64)>>>,
+    calculate_payout_threshold_in_gwei_results: RefCell<Vec<u128>>,
+}
+
+impl PayableThresholdsGauge for PayableThresholdsGaugeMock {
+    fn is_innocent_age(&self, age: u64, limit: u64) -> bool {
+        self.is_innocent_age_params
+            .lock()
+            .unwrap()
+            .push((age, limit));
+        self.is_innocent_age_results.borrow_mut().remove(0)
+    }
+
+    fn is_innocent_balance(&self, balance: u128, limit: u128) -> bool {
+        self.is_innocent_balance_params
+            .lock()
+            .unwrap()
+            .push((balance, limit));
+        self.is_innocent_balance_results.borrow_mut().remove(0)
+    }
+
+    fn calculate_payout_threshold_in_gwei(
+        &self,
+        payment_thresholds: &PaymentThresholds,
+        x: u64,
+    ) -> u128 {
+        self.calculate_payout_threshold_in_gwei_params
+            .lock()
+            .unwrap()
+            .push((*payment_thresholds, x));
+        self.calculate_payout_threshold_in_gwei_results
+            .borrow_mut()
+            .remove(0)
+    }
+}
+
+impl PayableThresholdsGaugeMock {
+    pub fn is_innocent_age_params(mut self, params: &Arc<Mutex<Vec<(u64, u64)>>>) -> Self {
+        self.is_innocent_age_params = params.clone();
+        self
+    }
+
+    pub fn is_innocent_age_result(self, result: bool) -> Self {
+        self.is_innocent_age_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn is_innocent_balance_params(mut self, params: &Arc<Mutex<Vec<(u128, u128)>>>) -> Self {
+        self.is_innocent_balance_params = params.clone();
+        self
+    }
+
+    pub fn is_innocent_balance_result(self, result: bool) -> Self {
+        self.is_innocent_balance_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn calculate_payout_threshold_in_gwei_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(PaymentThresholds, u64)>>>,
+    ) -> Self {
+        self.calculate_payout_threshold_in_gwei_params = params.clone();
+        self
+    }
+
+    pub fn calculate_payout_threshold_in_gwei_result(self, result: u128) -> Self {
+        self.calculate_payout_threshold_in_gwei_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
 }
