@@ -94,18 +94,15 @@ pub trait ReceivableDaoFactory {
 
 impl ReceivableDaoFactory for DaoFactoryReal {
     fn make(&self) -> Box<dyn ReceivableDao> {
-        let init_config = self
-            .init_config
-            //TODO can we do better ?
-            .clone()
-            .add_special_conn_setup(
-                BigIntDivider::register_big_int_deconstruction_for_sqlite_connection,
-            );
-        Box::new(ReceivableDaoReal::new(connection_or_panic(
+        let init_config = self.init_config.clone().add_special_conn_setup(
+            BigIntDivider::register_big_int_deconstruction_for_sqlite_connection,
+        );
+        let conn = connection_or_panic(
             &DbInitializerReal::default(),
             self.data_directory.as_path(),
             init_config,
-        )))
+        );
+        Box::new(ReceivableDaoReal::new(conn))
     }
 }
 

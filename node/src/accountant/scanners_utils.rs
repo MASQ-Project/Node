@@ -59,7 +59,10 @@ pub mod payable_scanner_utils {
             .iter()
             .map(|payable| PayableInfo {
                 balance_wei: payable.balance_wei,
-                age: payable_time_diff(timestamp, payable),
+                age: timestamp
+                    .duration_since(payable.last_paid_timestamp)
+                    .expect("Payable time is corrupt")
+                    .as_secs(),
             })
             .fold(
                 Default::default(),
@@ -76,14 +79,7 @@ pub mod payable_scanner_utils {
                 oldest.balance_wei, oldest.age)
     }
 
-    //TODO see if wee need this fn
-    pub fn payable_time_diff(time: SystemTime, payable: &PayableAccount) -> u64 {
-        time.duration_since(payable.last_paid_timestamp)
-            .expect("Payable time is corrupt")
-            .as_secs()
-    }
-
-    pub fn separate_early_errors(
+    pub fn separate_errors(
         sent_payments: &SentPayables,
         logger: &Logger,
     ) -> (Vec<Payable>, Vec<BlockchainError>) {
@@ -271,8 +267,8 @@ mod tests {
     use crate::accountant::payable_dao::{Payable, PayableAccount};
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::scanners_utils::payable_scanner_utils::{
-        investigate_debt_extremes, payables_debug_summary, separate_early_errors,
-        PayableThresholdsGauge, PayableThresholdsGaugeReal,
+        investigate_debt_extremes, payables_debug_summary, separate_errors, PayableThresholdsGauge,
+        PayableThresholdsGaugeReal,
     };
     use crate::accountant::scanners_utils::receivable_scanner_utils::balance_and_age;
     use crate::accountant::{checked_conversion, gwei_to_wei, SentPayables};
@@ -341,9 +337,9 @@ mod tests {
     }
 
     #[test]
-    fn separate_early_errors_works() {
+    fn separate_errors_works() {
         init_test_logging();
-        let test_name = "separate_early_errors_works";
+        let test_name = "separate_errors_works";
         let payable_ok = Payable {
             to: make_wallet("blah"),
             amount: 5555,
@@ -357,7 +353,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let (ok, err) = separate_early_errors(&sent_payable, &Logger::new(test_name));
+        let (ok, err) = separate_errors(&sent_payable, &Logger::new(test_name));
 
         assert_eq!(ok, vec![payable_ok]);
         assert_eq!(err, vec![error.clone()]);

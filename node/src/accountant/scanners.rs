@@ -4,8 +4,8 @@ use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDao};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDao;
 use crate::accountant::scanners_utils::payable_scanner_utils::{
-    investigate_debt_extremes, payables_debug_summary, separate_early_errors,
-    PayableThresholdsGauge, PayableThresholdsGaugeReal,
+    investigate_debt_extremes, payables_debug_summary, separate_errors, PayableThresholdsGauge,
+    PayableThresholdsGaugeReal,
 };
 use crate::accountant::scanners_utils::pending_payable_scanner_utils::{
     elapsed_in_ms, handle_none_status, handle_status_with_failure, handle_status_with_success,
@@ -175,17 +175,21 @@ impl Scanner<ReportAccountsPayable, SentPayables> for PayableScanner {
             investigate_debt_extremes(timestamp, &all_non_pending_payables)
         );
 
-        let qualified = self.qualified_payables(all_non_pending_payables, logger);
+        let qualified_payable = self.sniff_out_alarming_payables(all_non_pending_payables, logger);
 
-        match qualified.is_empty() {
+        match qualified_payable.is_empty() {
             true => {
                 self.mark_as_ended(logger);
                 Err(BeginScanError::NothingToProcess)
             }
             false => {
-                info!(logger, "Chose {} qualified debts to pay", qualified.len());
+                info!(
+                    logger,
+                    "Chose {} qualified debts to pay",
+                    qualified_payable.len()
+                );
                 Ok(ReportAccountsPayable {
-                    accounts: qualified,
+                    accounts: qualified_payable,
                     response_skeleton_opt,
                 })
             }
@@ -193,7 +197,7 @@ impl Scanner<ReportAccountsPayable, SentPayables> for PayableScanner {
     }
 
     fn finish_scan(&mut self, message: SentPayables, logger: &Logger) -> Option<NodeToUiMessage> {
-        let (sent_payables, errors) = separate_early_errors(&message, logger); //TODO rename to separate errors
+        let (sent_payables, errors) = separate_errors(&message, logger);
         debug!(
             logger,
             "We gathered these errors at sending transactions for payable: {:?}, out of the \
@@ -261,7 +265,7 @@ impl PayableScanner {
         }
     }
 
-    fn qualified_payables(
+    fn sniff_out_alarming_payables(
         &self,
         non_pending_payables: Vec<PayableAccount>,
         logger: &Logger,
@@ -1423,7 +1427,7 @@ mod tests {
             "payable_with_debt_above_the_slope_is_qualified_and_the_threshold_value_is_returned";
         let logger = Logger::new(test_name);
 
-        let result = subject.qualified_payables(unqualified_payable_account, &logger);
+        let result = subject.sniff_out_alarming_payables(unqualified_payable_account, &logger);
 
         assert_eq!(result, vec![]);
         TestLogHandler::new()
@@ -1450,7 +1454,7 @@ mod tests {
         let test_name = "payable_with_debt_above_the_slope_is_qualified";
         let logger = Logger::new(test_name);
 
-        let result = subject.qualified_payables(vec![qualified_payable.clone()], &logger);
+        let result = subject.sniff_out_alarming_payables(vec![qualified_payable.clone()], &logger);
 
         assert_eq!(result, vec![qualified_payable]);
         TestLogHandler::new().exists_log_matching(&format!(
@@ -1464,7 +1468,6 @@ mod tests {
     #[test]
     fn accounts_qualified_to_payment_returns_an_empty_vector_if_all_unqualified() {
         init_test_logging();
-        //TODO problem??
         let now = SystemTime::now();
         let payment_thresholds = PaymentThresholds::default();
         let unqualified_payable_account = vec![PayableAccount {
@@ -1481,7 +1484,7 @@ mod tests {
         let test_name = "qualified_payables_and_summary_returns_an_empty_vector_if_all_unqualified";
         let logger = Logger::new(test_name);
 
-        let result = subject.qualified_payables(unqualified_payable_account, &logger);
+        let result = subject.sniff_out_alarming_payables(unqualified_payable_account, &logger);
 
         assert_eq!(result, vec![]);
         TestLogHandler::new()
