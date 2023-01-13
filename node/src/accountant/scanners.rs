@@ -277,7 +277,7 @@ impl PayableScanner {
             non_pending_payables.into_iter().flat_map(|account| {
                 subject
                     .payable_exceeded_threshold(&account, SystemTime::now())
-                    .and_then(|threshold_point| Some((account, threshold_point)))
+                    .map(|threshold_point| Some((account, threshold_point)))
             })
         }
         fn yield_payables_and_drop_points(
@@ -295,7 +295,7 @@ impl PayableScanner {
         }
 
         let payables_and_points =
-            qualified_payables_and_threshold_points(&self, non_pending_payables);
+            qualified_payables_and_threshold_points(self, non_pending_payables);
         match logger.debug_enabled() {
             false => yield_payables_and_drop_points(payables_and_points),
             true => with_logging(payables_and_points, logger),
@@ -413,7 +413,7 @@ impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingP
         message: ReportTransactionReceipts,
         logger: &Logger,
     ) -> Option<NodeToUiMessage> {
-        if message.fingerprints_with_receipts.len() != 0 {
+        if !message.fingerprints_with_receipts.is_empty() {
             debug!(
                 logger,
                 "Processing receipts for {} transactions",
@@ -748,7 +748,7 @@ impl BeginScanError {
                 "{:?} scan was already initiated at {}. \
                  Hence, this scan request will be ignored.",
                 scan_type,
-                BeginScanError::timestamp_as_string(&timestamp)
+                BeginScanError::timestamp_as_string(timestamp)
             )),
             BeginScanError::CalledFromNullScanner => match cfg!(test) {
                 true => None,

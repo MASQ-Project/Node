@@ -756,7 +756,7 @@ impl Accountant {
                 self.report_accounts_payable_sub_opt
                     .as_ref()
                     .expect("BlockchainBridge is unbound")
-                    .try_send(scan_message.clone())
+                    .try_send(scan_message)
                     .expect("BlockchainBridge is dead");
             }
             Err(e) => e.handle_error(
