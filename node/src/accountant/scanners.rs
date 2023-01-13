@@ -24,6 +24,7 @@ use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics, PaymentThres
 use crate::sub_lib::utils::NotifyLaterHandle;
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, System};
+use itertools::Itertools;
 use masq_lib::logger::Logger;
 use masq_lib::logger::TIME_FORMATTING_STRING;
 use masq_lib::messages::{ScanType, ToMessageBody, UiScanResponse};
@@ -175,7 +176,8 @@ impl Scanner<ReportAccountsPayable, SentPayables> for PayableScanner {
             investigate_debt_extremes(timestamp, &all_non_pending_payables)
         );
 
-        let qualified_payable = self.sniff_out_alarming_payables(all_non_pending_payables, logger);
+        let qualified_payable =
+            self.sniff_out_alarming_payables_and_log_them(all_non_pending_payables, logger);
 
         match qualified_payable.is_empty() {
             true => {
@@ -265,40 +267,31 @@ impl PayableScanner {
         }
     }
 
-    fn sniff_out_alarming_payables(
+    fn sniff_out_alarming_payables_and_log_them(
         &self,
         non_pending_payables: Vec<PayableAccount>,
         logger: &Logger,
     ) -> Vec<PayableAccount> {
-        fn qualified_payables_and_threshold_points(
-            subject: &PayableScanner,
-            non_pending_payables: Vec<PayableAccount>,
-        ) -> impl Iterator<Item = (PayableAccount, u128)> + '_ {
-            non_pending_payables.into_iter().flat_map(|account| {
-                subject
-                    .payable_exceeded_threshold(&account, SystemTime::now())
-                    .map(|threshold_point| (account, threshold_point))
-            })
-        }
-        fn yield_payables_and_drop_points(
+        fn pass_payables_and_drop_points(
             qp_tp: impl Iterator<Item = (PayableAccount, u128)>,
         ) -> Vec<PayableAccount> {
-            qp_tp.unzip::<_, _, Vec<PayableAccount>, Vec<_>>().0
-        }
-        fn with_logging(
-            qualified_and_points_iter: impl Iterator<Item = (PayableAccount, u128)>,
-            logger: &Logger,
-        ) -> Vec<PayableAccount> {
-            let qualified_and_points_collected = qualified_and_points_iter.collect::<Vec<(_, _)>>();
-            payables_debug_summary(&qualified_and_points_collected, logger);
-            yield_payables_and_drop_points(qualified_and_points_collected.into_iter())
+            let (payables, _) = qp_tp.unzip::<_, _, Vec<PayableAccount>, Vec<_>>();
+            payables
         }
 
-        let payables_and_points =
-            qualified_payables_and_threshold_points(self, non_pending_payables);
+        let qualified_payables_and_points_uncollected =
+            non_pending_payables.into_iter().flat_map(|account| {
+                self.payable_exceeded_threshold(&account, SystemTime::now())
+                    .map(|threshold_point| (account, threshold_point))
+            });
         match logger.debug_enabled() {
-            false => yield_payables_and_drop_points(payables_and_points),
-            true => with_logging(payables_and_points, logger),
+            false => pass_payables_and_drop_points(qualified_payables_and_points_uncollected),
+            true => {
+                let qualified_and_points_collected =
+                    qualified_payables_and_points_uncollected.collect_vec();
+                payables_debug_summary(&qualified_and_points_collected, logger);
+                pass_payables_and_drop_points(qualified_and_points_collected.into_iter())
+            }
         }
     }
 
@@ -490,14 +483,16 @@ impl PendingPayableScanner {
         logger: &Logger,
     ) -> PendingTransactionStatus {
         match receipt.status {
-                None => handle_none_status(fingerprint, self.when_pending_too_long_sec, logger),
-                Some(status_code) =>
-                    match status_code.as_u64() {
-                        0 => handle_status_with_failure(fingerprint, logger),
-                        1 => handle_status_with_success(fingerprint, logger),
-                        other => unreachable!("tx receipt for pending '{}' - tx status: code other than 0 or 1 shouldn't be possible, but was {}", fingerprint.hash, other)
-                    }
-            }
+            None => handle_none_status(fingerprint, self.when_pending_too_long_sec, logger),
+            Some(status_code) => match status_code.as_u64() {
+                0 => handle_status_with_failure(fingerprint, logger),
+                1 => handle_status_with_success(fingerprint, logger),
+                other => unreachable!(
+                    "tx receipt for pending '{}': status code other than 0 or 1 shouldn't be possible, but was {}",
+                    fingerprint.hash, other
+                ),
+            },
+        }
     }
 
     fn process_transaction_by_status(
@@ -1427,7 +1422,8 @@ mod tests {
             "payable_with_debt_above_the_slope_is_qualified_and_the_threshold_value_is_returned";
         let logger = Logger::new(test_name);
 
-        let result = subject.sniff_out_alarming_payables(unqualified_payable_account, &logger);
+        let result =
+            subject.sniff_out_alarming_payables_and_log_them(unqualified_payable_account, &logger);
 
         assert_eq!(result, vec![]);
         TestLogHandler::new()
@@ -1454,7 +1450,8 @@ mod tests {
         let test_name = "payable_with_debt_above_the_slope_is_qualified";
         let logger = Logger::new(test_name);
 
-        let result = subject.sniff_out_alarming_payables(vec![qualified_payable.clone()], &logger);
+        let result = subject
+            .sniff_out_alarming_payables_and_log_them(vec![qualified_payable.clone()], &logger);
 
         assert_eq!(result, vec![qualified_payable]);
         TestLogHandler::new().exists_log_matching(&format!(
@@ -1484,7 +1481,8 @@ mod tests {
         let test_name = "qualified_payables_and_summary_returns_an_empty_vector_if_all_unqualified";
         let logger = Logger::new(test_name);
 
-        let result = subject.sniff_out_alarming_payables(unqualified_payable_account, &logger);
+        let result =
+            subject.sniff_out_alarming_payables_and_log_them(unqualified_payable_account, &logger);
 
         assert_eq!(result, vec![]);
         TestLogHandler::new()
@@ -1647,7 +1645,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "tx receipt for pending '0x0000…007b' - tx status: code other than 0 or 1 shouldn't be possible, but was 456"
+        expected = "tx receipt for pending '0x0000…007b': status code other than 0 or 1 shouldn't be possible, but was 456"
     )]
     fn interpret_transaction_receipt_panics_at_undefined_status_code() {
         let mut tx_receipt = TransactionReceipt::default();

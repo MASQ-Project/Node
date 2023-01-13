@@ -365,8 +365,8 @@ impl ThresholdUtils {
         on the values before they are accepted.
         */
 
-        (gwei_to_wei::<i128, _>(payment_thresholds.permanent_debt_allowed_gwei)
-            - gwei_to_wei::<i128, _>(payment_thresholds.debt_threshold_gwei))
+        (gwei_to_wei::<i128, u64>(payment_thresholds.permanent_debt_allowed_gwei)
+            - gwei_to_wei::<i128, u64>(payment_thresholds.debt_threshold_gwei))
             / payment_thresholds.threshold_interval_sec as i128
     }
 
@@ -667,15 +667,29 @@ mod tests {
         payment_thresholds: &PaymentThresholds,
         expected_height_change_wei: u64,
     ) {
-        const WE_EXPECT_ALWAYS_JUST_ONE_SECOND_TO_CHANGE_THE_HEIGHT: u64 = 1;
         let (seconds_needed_for_smallest_change_in_height, absolute_height_change_wei) =
             gap_tester(&payment_thresholds);
-        assert_eq!(seconds_needed_for_smallest_change_in_height, WE_EXPECT_ALWAYS_JUST_ONE_SECOND_TO_CHANGE_THE_HEIGHT,
-                   "while testing {} we expected that these thresholds: {:?} will require only {} s until we see the height change but computed {} s instead",
-                   description_of_given_pt, payment_thresholds, WE_EXPECT_ALWAYS_JUST_ONE_SECOND_TO_CHANGE_THE_HEIGHT, seconds_needed_for_smallest_change_in_height);
-        assert_eq!(absolute_height_change_wei, expected_height_change_wei,
-                   "while testing {} we expected that these thresholds: {:?} will cause a height change of {} wei as a result of advancement in time by {} s but the true result is {}",
-                   description_of_given_pt, payment_thresholds, expected_height_change_wei, seconds_needed_for_smallest_change_in_height, absolute_height_change_wei)
+
+        assert_eq!(
+            seconds_needed_for_smallest_change_in_height,
+            1,
+            "while testing {} we expected that these thresholds: {:?} will require only 1 s until \
+             we see the height change but computed {} s instead",
+            description_of_given_pt,
+            payment_thresholds,
+            seconds_needed_for_smallest_change_in_height
+        );
+        assert_eq!(
+            absolute_height_change_wei,
+            expected_height_change_wei,
+            "while testing {} we expected that these thresholds: {:?} will cause a height change \
+             of {} wei as a result of advancement in time by {} s but the true result is {}",
+            description_of_given_pt,
+            payment_thresholds,
+            expected_height_change_wei,
+            seconds_needed_for_smallest_change_in_height,
+            absolute_height_change_wei
+        )
     }
 
     #[test]
