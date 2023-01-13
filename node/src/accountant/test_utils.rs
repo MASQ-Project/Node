@@ -28,7 +28,9 @@ use crate::test_utils::make_wallet;
 use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
 use actix::System;
 use ethereum_types::{BigEndianHash, H256, U256};
+use masq_lib::utils::plus;
 use rusqlite::{Connection, Row};
+use std::any::type_name;
 use std::cell::RefCell;
 use std::fmt::Debug;
 use std::rc::Rc;
@@ -93,53 +95,141 @@ impl Default for AccountantBuilder {
     }
 }
 
+pub enum DaoDestination<T> {
+    AccountantDest(T),
+    PayableScannerDest(T),
+    ReceivableScannerDest(T),
+    PendingPayableScannerDest(T),
+}
+
+impl<T> DaoDestination<T> {
+    fn num_rep(&self) -> u8 {
+        match self {
+            Self::AccountantDest(_) => 0,
+            Self::PayableScannerDest(_) => 1,
+            Self::ReceivableScannerDest(_) => 2,
+            Self::PendingPayableScannerDest(_) => 3,
+        }
+    }
+    fn inner_value(self) -> T {
+        match self {
+            Self::AccountantDest(dao) => dao,
+            Self::PayableScannerDest(dao) => dao,
+            Self::ReceivableScannerDest(dao) => dao,
+            Self::PendingPayableScannerDest(dao) => dao,
+        }
+    }
+}
+
+fn fill_vacancies_with_given_or_default_daos<const N: usize, T: Default>(
+    destination_matrix: [u8; N],
+    mut dao_set: Vec<DaoDestination<T>>,
+) -> Vec<Box<T>> {
+    let input_count = dao_set.len();
+    let (populated_queue, used_input) = destination_matrix.into_iter().fold(
+        (vec![], 0),
+        |(acc, used_input): (Vec<Box<T>>, usize), pos| {
+            if let Some(idx) = dao_set
+                .iter()
+                .position(|dao_std_pos| dao_std_pos.num_rep() == pos)
+            {
+                (
+                    plus(acc, Box::new(dao_set.remove(idx).inner_value())),
+                    used_input + 1,
+                )
+            } else {
+                (plus(acc, Box::new(Default::default())), used_input)
+            }
+        },
+    );
+    if input_count != used_input {
+        panic!(
+            "you supplied DAO for unrealistic destination; look at the destination matrix that \
+             describes all proper usages of {:?} and decode those places by the num_rep() function \
+             pattern",
+            type_name::<T>()
+        )
+    }
+    populated_queue
+}
+
+macro_rules! update_factory {
+    (
+        $dao_set: expr, //Vec<DaoDestination<XxxDaoMock>>
+        $destination_matrix: expr, //[u8;N]
+        $dao_factory_mock: ident, // XxxDaoFactoryMock
+        $factory_field_in_builder: ident, //Option<XxxDaoFactoryMock>
+        $dao_trait: ident,
+        $self: expr //mut AccountantBuilder
+    ) => {{
+        let populated_queue =
+            fill_vacancies_with_given_or_default_daos($destination_matrix, $dao_set);
+        let populated_queue: Vec<Box<dyn $dao_trait>> = populated_queue
+            .into_iter()
+            .map(|elem| elem as Box<dyn $dao_trait>)
+            .collect();
+        let prepared_factory = match $self.$factory_field_in_builder.take() {
+            Some(existing_factory) => {
+                existing_factory.make_results.replace(populated_queue);
+                existing_factory
+            }
+            None => {
+                let mut new_factory = $dao_factory_mock::new();
+                new_factory.make_results = RefCell::new(populated_queue);
+                new_factory
+            }
+        };
+        $self.$factory_field_in_builder = Some(prepared_factory);
+        $self
+    }};
+}
+
 impl AccountantBuilder {
     pub fn bootstrapper_config(mut self, config: BootstrapperConfig) -> Self {
         self.config = Some(config);
         self
     }
 
-    pub fn payable_dao(mut self, payable_dao: PayableDaoMock) -> Self {
-        match self.payable_dao_factory {
-            None => {
-                self.payable_dao_factory =
-                    Some(PayableDaoFactoryMock::new().make_result(payable_dao))
-            }
-            Some(payable_dao_factory) => {
-                self.payable_dao_factory = Some(payable_dao_factory.make_result(payable_dao))
-            }
-        }
-        self
+    pub fn payable_daos(mut self, dao_set: Vec<DaoDestination<PayableDaoMock>>) -> Self {
+        let destination_matrix: [u8; 3] = [0, 1, 3];
+        update_factory!(
+            dao_set,
+            destination_matrix,
+            PayableDaoFactoryMock,
+            payable_dao_factory,
+            PayableDao,
+            self
+        )
     }
 
-    pub fn receivable_dao(mut self, receivable_dao: ReceivableDaoMock) -> Self {
-        match self.receivable_dao_factory {
-            None => {
-                self.receivable_dao_factory =
-                    Some(ReceivableDaoFactoryMock::new().make_result(receivable_dao))
-            }
-            Some(receivable_dao_factory) => {
-                self.receivable_dao_factory =
-                    Some(receivable_dao_factory.make_result(receivable_dao))
-            }
-        }
-        self
+    pub fn receivable_daos(mut self, dao_set: Vec<DaoDestination<ReceivableDaoMock>>) -> Self {
+        let destination_matrix: [u8; 2] = [0, 2];
+        update_factory!(
+            dao_set,
+            destination_matrix,
+            ReceivableDaoFactoryMock,
+            receivable_dao_factory,
+            ReceivableDao,
+            self
+        )
     }
 
-    pub fn pending_payable_dao(mut self, pending_payable_dao: PendingPayableDaoMock) -> Self {
-        match self.pending_payable_dao_factory {
-            None => {
-                self.pending_payable_dao_factory =
-                    Some(PendingPayableDaoFactoryMock::new().make_result(pending_payable_dao))
-            }
-            Some(pending_payable_dao_factory) => {
-                self.pending_payable_dao_factory =
-                    Some(pending_payable_dao_factory.make_result(pending_payable_dao))
-            }
-        }
-        self
+    pub fn pending_payable_daos(
+        mut self,
+        dao_set: Vec<DaoDestination<PendingPayableDaoMock>>,
+    ) -> Self {
+        let destination_matrix: [u8; 3] = [0, 1, 3];
+        update_factory!(
+            dao_set,
+            destination_matrix,
+            PendingPayableDaoFactoryMock,
+            pending_payable_dao_factory,
+            PendingPayableDao,
+            self
+        )
     }
 
+    //TODO interesting, this method seems to be never used
     pub fn banned_dao(mut self, banned_dao: BannedDaoMock) -> Self {
         match self.banned_dao_factory {
             None => {

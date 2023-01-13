@@ -9,6 +9,7 @@ pub mod payable_scanner_utils {
     use itertools::Itertools;
     use masq_lib::logger::Logger;
     use masq_lib::utils::plus;
+    #[cfg(test)]
     use std::any::Any;
     use std::cmp::Ordering;
     use std::time::SystemTime;
@@ -250,9 +251,7 @@ pub mod receivable_scanner_utils {
     use thousands::Separable;
 
     pub fn balance_and_age(time: SystemTime, account: &ReceivableAccount) -> (String, Duration) {
-        let balance = wei_to_gwei::<i64, i128>(account.balance_wei)
-            .separate_with_commas()
-            .to_string();
+        let balance = wei_to_gwei::<i64, i128>(account.balance_wei).separate_with_commas();
         let age = time
             .duration_since(account.last_received_timestamp)
             .unwrap_or_else(|_| Duration::new(0, 0));

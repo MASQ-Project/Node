@@ -277,7 +277,7 @@ impl PayableScanner {
             non_pending_payables.into_iter().flat_map(|account| {
                 subject
                     .payable_exceeded_threshold(&account, SystemTime::now())
-                    .map(|threshold_point| Some((account, threshold_point)))
+                    .map(|threshold_point| (account, threshold_point))
             })
         }
         fn yield_payables_and_drop_points(
