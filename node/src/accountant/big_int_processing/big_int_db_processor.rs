@@ -424,7 +424,7 @@ impl<'a> Param<'a> {
     }
 
     fn as_rusqlite_params(&'a self) -> (&'a str, &'a dyn ToSql) {
-        (&*self.value_pair.0, &self.value_pair.1 as &dyn ToSql)
+        (self.value_pair.0, &self.value_pair.1 as &dyn ToSql)
     }
 }
 
