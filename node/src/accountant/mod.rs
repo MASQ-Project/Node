@@ -261,15 +261,12 @@ impl Handler<ScanError> for Accountant {
         error!(self.logger, "Received ScanError: {:?}", scan_error);
         match scan_error.scan_type {
             ScanType::Payables => {
-                // todo!("payables");
                 self.scanners.payable.mark_as_ended(&self.logger);
             }
             ScanType::PendingPayables => {
-                // todo!("pending payables");
                 self.scanners.pending_payable.mark_as_ended(&self.logger);
             }
             ScanType::Receivables => {
-                // todo!("receivables");
                 self.scanners.receivable.mark_as_ended(&self.logger);
             }
         };
