@@ -28,7 +28,7 @@ impl<'a, T: TableNameDAO> BigIntDbProcessor<T> {
         let mut stm = Self::prepare_statement(conn, main_sql);
         let params = config
             .params
-            .filter_and_merge_pure_and_wei_params(false, (&config.params.wei_change_params).into());
+            .merge_other_and_wei_params((&config.params.wei_change_params).into());
         match stm.execute(params.as_slice()) {
             Ok(_) => Ok(()),
             //SQLITE_CONSTRAINT_DATATYPE (3091),
@@ -119,7 +119,7 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
 
                     let execute_params = config
                         .params
-                        .filter_and_merge_pure_and_wei_params(true, wei_update_array);
+                        .merge_other_and_wei_params_with_conditional_participants(wei_update_array);
 
                     Self::execute_update(conn, &config, &execute_params);
                     Ok(())
@@ -409,21 +409,21 @@ impl StdNumParamFormNamed {
 
 pub struct Param<'a> {
     value_pair: (&'a str, &'a dyn ExtendedParamsMarker),
-    participates_in_overflow_update_clauses: bool,
+    participates_in_overflow_clause: bool,
 }
 
 impl<'a> Param<'a> {
     pub fn new(
         value_pair: (&'a str, &'a (dyn ExtendedParamsMarker + 'a)),
-        participates_in_update_clauses: bool,
+        participates_in_overflow_clause: bool,
     ) -> Self {
         Self {
             value_pair,
-            participates_in_overflow_update_clauses: participates_in_update_clauses,
+            participates_in_overflow_clause,
         }
     }
 
-    fn value_pair(&'a self) -> (&'a str, &'a dyn ToSql) {
+    fn as_rusqlite_params(&'a self) -> (&'a str, &'a dyn ToSql) {
         (&*self.value_pair.0, &self.value_pair.1 as &dyn ToSql)
     }
 }
@@ -438,21 +438,30 @@ impl<'a> From<&'a WeiChangeAsHighAndLowBytes> for [(&'a str, &'a dyn ToSql); 2] 
 }
 
 impl<'a> SQLParams<'a> {
-    fn filter_and_merge_pure_and_wei_params(
+    fn merge_other_and_wei_params(
         &'a self,
-        for_updates_only: bool,
         wei_change_params: [(&'a str, &'a dyn ToSql); 2],
     ) -> Vec<(&'a str, &'a dyn ToSql)> {
-        let param_preselection_key = if !for_updates_only {
-            |_param: &&Param| true
-        } else {
-            |param: &&Param| param.participates_in_overflow_update_clauses
-        };
+        Self::merge_params(self.params_except_wei_change.iter(), wei_change_params)
+    }
 
-        self.params_except_wei_change
+    fn merge_other_and_wei_params_with_conditional_participants(
+        &'a self,
+        wei_change_params: [(&'a str, &'a dyn ToSql); 2],
+    ) -> Vec<(&'a str, &'a dyn ToSql)> {
+        let preselection = self
+            .params_except_wei_change
             .iter()
-            .filter(param_preselection_key)
-            .map(|param| param.value_pair())
+            .filter(|param| param.participates_in_overflow_clause);
+        Self::merge_params(preselection, wei_change_params)
+    }
+
+    fn merge_params(
+        params: impl Iterator<Item = &'a Param<'a>>,
+        wei_change_params: [(&'a str, &'a dyn ToSql); 2],
+    ) -> Vec<(&'a str, &'a dyn ToSql)> {
+        params
+            .map(|param| param.as_rusqlite_params())
             .chain(wei_change_params.into_iter())
             .collect()
     }
@@ -699,7 +708,8 @@ mod tests {
     }
 
     #[test]
-    fn merge_pure_rusqlite_and_wei_params_can_filter_out_just_update_params() {
+    fn merge_other_and_wei_params_with_conditional_participants_can_filter_out_just_update_params()
+    {
         let tuple_matrix = [
             ("blah", &456_i64 as &dyn ExtendedParamsMarker),
             ("super key", &"abcxy"),
@@ -730,10 +740,10 @@ mod tests {
             ],
         };
 
-        let result = subject.filter_and_merge_pure_and_wei_params(
-            true,
-            [("always_present_1", &12), ("always_present_2", &77)],
-        );
+        let result = subject.merge_other_and_wei_params_with_conditional_participants([
+            ("always_present_1", &12),
+            ("always_present_2", &77),
+        ]);
 
         assert_eq!(result[0].0, update_positive_2.0);
         assert_eq!(result[1].0, update_positive_1.0);

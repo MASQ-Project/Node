@@ -113,13 +113,13 @@ pub struct ResponseSkeleton {
 
 #[derive(Debug, Message, PartialEq, Eq)]
 pub struct ReceivedPayments {
-    // TODO discussion: it's almost never true that all received transactions will
-    // be in the same block and we also disregard how far in the past the block was added
-    // to the blockchain since the scan. Time passed between scans can be standardly 10 or more minutes long.
-    // It's technically possible to avoid udjust bans by also quering the blocks timestamps which could be
-    // supllied individually with each transaction. We would just have to read block numbers from the
-    // tx logs that we've already got and then query information about the blocks, getting the timestamp
-    // in return
+    //TODO When we decide whether to delinquency-ban a debtor, we do so based on the age
+    // of his debt. That age is calculated from the last time he made a payment. It would
+    // be most accurate to draw that timestamp from the time the block containing the
+    // payment was placed on the blockchain; however, we're actually drawing the timestamp
+    // from the moment we discovered and accepted the payment, which is less accurate and
+    // detects any upcoming delinquency later than the more accurate version would. Is this
+    // a problem? Do we want to correct the timestamp? Discuss.
     pub timestamp: SystemTime,
     pub payments: Vec<BlockchainTransaction>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,

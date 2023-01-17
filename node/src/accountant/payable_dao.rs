@@ -448,22 +448,22 @@ mod tests {
         //in db (0, 1234)
         let balance_change = 2345;
         //in db (0, 2345)
-        let subject = {
-            let subject = PayableDaoReal::new(boxed_conn);
-            subject
-                .more_money_payable(now, &wallet, initial_value)
-                .unwrap();
-            subject
-        };
+        let subject = PayableDaoReal::new(boxed_conn);
+        subject
+            .more_money_payable(SystemTime::UNIX_EPOCH, &wallet, initial_value)
+            .unwrap();
 
         subject
-            .more_money_payable(SystemTime::UNIX_EPOCH, &wallet, balance_change)
+            .more_money_payable(now, &wallet, balance_change)
             .unwrap();
 
         let status = subject.account_status(&wallet).unwrap();
         assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance_wei, initial_value + balance_change);
-        assert_eq!(to_time_t(status.last_paid_timestamp), to_time_t(now));
+        assert_eq!(
+            to_time_t(status.last_paid_timestamp),
+            to_time_t(SystemTime::UNIX_EPOCH)
+        );
     }
 
     #[test]
@@ -482,22 +482,22 @@ mod tests {
         //in db (0, i64::MAX - 1000)
         let balance_change = 2345;
         //in db (0, 2345)
-        let subject = {
-            let subject = PayableDaoReal::new(boxed_conn);
-            subject
-                .more_money_payable(now, &wallet, initial_value)
-                .unwrap();
-            subject
-        };
+        let subject = PayableDaoReal::new(boxed_conn);
+        subject
+            .more_money_payable(SystemTime::UNIX_EPOCH, &wallet, initial_value)
+            .unwrap();
 
         subject
-            .more_money_payable(SystemTime::UNIX_EPOCH, &wallet, balance_change)
+            .more_money_payable(now, &wallet, balance_change)
             .unwrap();
 
         let status = subject.account_status(&wallet).unwrap();
         assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance_wei, initial_value + balance_change);
-        assert_eq!(to_time_t(status.last_paid_timestamp), to_time_t(now));
+        assert_eq!(
+            to_time_t(status.last_paid_timestamp),
+            to_time_t(SystemTime::UNIX_EPOCH)
+        );
     }
 
     #[test]
@@ -625,7 +625,7 @@ mod tests {
 
     fn transaction_confirmed_works(
         test_name: &str,
-        initial_changing_and_resulting_values: (i128, u128, u128),
+        (initial_amount, balance_change, expected_balance_after): (i128, u128, u128),
     ) {
         let home_dir = ensure_node_home_directory_exists("payable_dao", test_name);
         let boxed_conn = DbInitializerReal::default()
@@ -636,8 +636,6 @@ mod tests {
         let previous_timestamp = from_time_t(190_000_000);
         let payable_timestamp = from_time_t(199_000_000);
         let attempt = 5;
-        let (initial_amount, balance_change, expected_balance_after) =
-            initial_changing_and_resulting_values;
         let wallet = make_wallet("bobble");
         {
             insert_record_fn(

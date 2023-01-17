@@ -409,7 +409,6 @@ mod tests {
     use masq_lib::utils::NeighborhoodModeLight;
     use rusqlite::ToSql;
     use std::path::Path;
-    use std::time::Duration;
 
     #[test]
     fn conversion_from_pce_works() {
@@ -547,11 +546,11 @@ mod tests {
         let payment_time_t = to_time_t(SystemTime::now()) - 2222;
         let payment_time = from_time_t(payment_time_t);
         subject
-            .more_money_receivable(payment_time, &wallet, 1234)
+            .more_money_receivable(SystemTime::UNIX_EPOCH, &wallet, 1234)
             .unwrap();
 
         subject
-            .more_money_receivable(SystemTime::UNIX_EPOCH, &wallet, 2345)
+            .more_money_receivable(payment_time, &wallet, 2345)
             .unwrap();
 
         let status = subject.account_status(&wallet).unwrap();
@@ -559,7 +558,7 @@ mod tests {
         assert_eq!(status.balance_wei, 1234 + 2345);
         assert_eq!(
             to_time_t(status.last_received_timestamp),
-            to_time_t(payment_time)
+            to_time_t(SystemTime::UNIX_EPOCH)
         );
     }
 
@@ -576,20 +575,22 @@ mod tests {
                 .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
-        let payment_time_t = to_time_t(SystemTime::now()) - 2222;
-        let payment_time = from_time_t(payment_time_t);
+        let payment_time = SystemTime::now();
         subject
-            .more_money_receivable(payment_time, &wallet, 1234)
+            .more_money_receivable(SystemTime::UNIX_EPOCH, &wallet, 1234)
             .unwrap();
 
         subject
-            .more_money_receivable(SystemTime::UNIX_EPOCH, &wallet, i64::MAX as u128)
+            .more_money_receivable(payment_time, &wallet, i64::MAX as u128)
             .unwrap();
 
         let status = subject.account_status(&wallet).unwrap();
         assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance_wei, 1234 + i64::MAX as i128);
-        assert_eq!(to_time_t(status.last_received_timestamp), payment_time_t);
+        assert_eq!(
+            to_time_t(status.last_received_timestamp),
+            to_time_t(SystemTime::UNIX_EPOCH)
+        );
     }
 
     #[test]
@@ -643,32 +644,25 @@ mod tests {
 
     fn more_money_received_works_for_existing_addresses(
         test_name: &str,
-        first_account_respective_figures: (u128, u128, i128),
-        second_account_respective_figures: (u128, u128, i128),
+        (first_initial, first_newly_received, first_expected_result): (u128, u128, i128),
+        (second_initial, second_newly_received, second_expected_result): (u128, u128, i128),
     ) {
         let home_dir = ensure_node_home_directory_exists("receivable_dao", test_name);
         let debtor1 = make_wallet("debtor1");
         let debtor2 = make_wallet("debtor2");
         let payment_time = SystemTime::now();
-        let previous_timestamp = payment_time.checked_sub(Duration::from_secs(6000)).unwrap();
-        let (first_initial, first_newly_received, first_expected_result) =
-            first_account_respective_figures;
-        let (second_initial, second_newly_received, second_expected_result) =
-            second_account_respective_figures;
-        let mut subject = {
-            let subject = ReceivableDaoReal::new(
-                DbInitializerReal::default()
-                    .initialize(&home_dir, DbInitializationConfig::test_default())
-                    .unwrap(),
-            );
-            subject
-                .more_money_receivable(previous_timestamp, &debtor1, first_initial)
-                .unwrap();
-            subject
-                .more_money_receivable(previous_timestamp, &debtor2, second_initial)
-                .unwrap();
-            subject
-        };
+        let previous_timestamp = SystemTime::UNIX_EPOCH;
+        let mut subject = ReceivableDaoReal::new(
+            DbInitializerReal::default()
+                .initialize(&home_dir, DbInitializationConfig::test_default())
+                .unwrap(),
+        );
+        subject
+            .more_money_receivable(previous_timestamp, &debtor1, first_initial)
+            .unwrap();
+        subject
+            .more_money_receivable(previous_timestamp, &debtor2, second_initial)
+            .unwrap();
         let transactions = vec![
             BlockchainTransaction {
                 from: debtor1.clone(),
