@@ -5,7 +5,7 @@ use crate::accountant::big_int_processing::big_int_db_processor::WeiChange::{
     Addition, Subtraction,
 };
 use crate::accountant::big_int_processing::big_int_db_processor::{
-    BigIntDbProcessor, BigIntSqlConfig, SQLParamsBuilder, TableNameDAO,
+    BigIntDbProcessor, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO,
 };
 use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
 use crate::accountant::dao_utils::{
@@ -126,11 +126,11 @@ impl ReceivableDao for ReceivableDaoReal {
         Ok(self.big_int_db_processor.execute(Left(self.conn.as_ref()), BigIntSqlConfig::new(
                "insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (:wallet, :balance_high_b, :balance_low_b, :last_received) on conflict (wallet_address) do \
                update set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b",
-            "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, last_received_timestamp = last_received_timestamp + :last_received where wallet_address = :wallet",
+            "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b where wallet_address = :wallet",
             SQLParamsBuilder::default()
                         .key(  WalletAddress(wallet))
                         .wei_change(Addition("balance",amount))
-                        .other(vec![(":last_received",&to_time_t(timestamp))])
+                        .other(vec![Param::new((":last_received",&to_time_t(timestamp)),false)])
                         .build()
         ))?)
     }
@@ -287,7 +287,7 @@ impl ReceivableDaoReal {
                     SQLParamsBuilder::default()
                                 .key( WalletAddress(&transaction.from))
                                 .wei_change(Subtraction("balance",transaction.wei_amount))
-                                .other(vec![(":last_received", &to_time_t(timestamp))])
+                                .other(vec![Param::new((":last_received", &to_time_t(timestamp)),true)])
                                 .build()
                     ))?
             }
@@ -651,7 +651,8 @@ mod tests {
         let debtor2 = make_wallet("debtor2");
         let payment_time = SystemTime::now();
         let previous_timestamp = payment_time.checked_sub(Duration::from_secs(6000)).unwrap();
-        let (first_initial, first_newly_received, first_expected_result) = first_account_respective_figures;
+        let (first_initial, first_newly_received, first_expected_result) =
+            first_account_respective_figures;
         let (second_initial, second_newly_received, second_expected_result) =
             second_account_respective_figures;
         let mut subject = {
@@ -686,11 +687,17 @@ mod tests {
         let status1 = subject.account_status(&debtor1).unwrap();
         assert_eq!(status1.wallet, debtor1);
         assert_eq!(status1.balance_wei, first_expected_result);
-        assert_eq!(to_time_t(status1.last_received_timestamp), to_time_t(payment_time));
+        assert_eq!(
+            to_time_t(status1.last_received_timestamp),
+            to_time_t(payment_time)
+        );
         let status2 = subject.account_status(&debtor2).unwrap();
         assert_eq!(status2.wallet, debtor2);
         assert_eq!(status2.balance_wei, second_expected_result);
-        assert_eq!(to_time_t(status2.last_received_timestamp), to_time_t(payment_time));
+        assert_eq!(
+            to_time_t(status2.last_received_timestamp),
+            to_time_t(payment_time)
+        );
     }
 
     #[test]

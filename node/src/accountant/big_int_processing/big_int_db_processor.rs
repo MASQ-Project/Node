@@ -28,7 +28,7 @@ impl<'a, T: TableNameDAO> BigIntDbProcessor<T> {
         let mut stm = Self::prepare_statement(conn, main_sql);
         let params = config
             .params
-            .merge_pure_rusqlite_and_wei_params((&config.params.wei_change_params).into());
+            .filter_and_merge_pure_and_wei_params(false, (&config.params.wei_change_params).into());
         match stm.execute(params.as_slice()) {
             Ok(_) => Ok(()),
             //SQLITE_CONSTRAINT_DATATYPE (3091),
@@ -119,7 +119,7 @@ impl<T: TableNameDAO> UpdateOverflowHandler<T> for UpdateOverflowHandlerReal<T> 
 
                     let execute_params = config
                         .params
-                        .merge_pure_rusqlite_and_wei_params(wei_update_array);
+                        .filter_and_merge_pure_and_wei_params(true, wei_update_array);
 
                     Self::execute_update(conn, &config, &execute_params);
                     Ok(())
@@ -219,7 +219,7 @@ impl<'a, T: TableNameDAO> BigIntSqlConfig<'a, T> {
     }
 
     fn key_param_value(&self) -> &'a dyn ExtendedParamsMarker {
-        self.params.params_except_wei_change[0].1
+        self.params.params_except_wei_change[0].value_pair.1
     }
 
     fn balance_change(&self) -> i128 {
@@ -267,7 +267,7 @@ impl_of_extended_params_marker!(i64, &str, Wallet);
 pub struct SQLParamsBuilder<'a> {
     key_spec_opt: Option<UniqueKeySpec<'a>>,
     wei_change_spec_opt: Option<WeiChange>,
-    other_params: Vec<(&'a str, &'a dyn ExtendedParamsMarker)>,
+    other_params: Vec<Param<'a>>,
 }
 
 impl<'a> SQLParamsBuilder<'a> {
@@ -286,7 +286,7 @@ impl<'a> SQLParamsBuilder<'a> {
         self
     }
 
-    pub fn other(mut self, params: Vec<(&'a str, &'a (dyn ExtendedParamsMarker + 'a))>) -> Self {
+    pub fn other(mut self, params: Vec<Param<'a>>) -> Self {
         self.other_params = params;
         self
     }
@@ -301,7 +301,7 @@ impl<'a> SQLParamsBuilder<'a> {
         let ((high_bytes_param_name, low_bytes_param_name), (high_bytes_value, low_bytes_value)) =
             Self::expand_wei_params(wei_change_spec);
         let key_as_the_first_param = (key_spec.substitution_name_in_sql, key_spec.value_itself);
-        let params = once(key_as_the_first_param)
+        let params = once(Param::new(key_as_the_first_param, true))
             .chain(self.other_params.into_iter())
             .collect();
         SQLParams {
@@ -386,7 +386,7 @@ impl Display for ByteMagnitude {
 pub struct SQLParams<'a> {
     table_unique_key_name: &'a str,
     wei_change_params: WeiChangeAsHighAndLowBytes,
-    params_except_wei_change: Vec<(&'a str, &'a dyn ExtendedParamsMarker)>,
+    params_except_wei_change: Vec<Param<'a>>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -407,6 +407,27 @@ impl StdNumParamFormNamed {
     }
 }
 
+pub struct Param<'a> {
+    value_pair: (&'a str, &'a dyn ExtendedParamsMarker),
+    participates_in_overflow_update_clauses: bool,
+}
+
+impl<'a> Param<'a> {
+    pub fn new(
+        value_pair: (&'a str, &'a (dyn ExtendedParamsMarker + 'a)),
+        participates_in_update_clauses: bool,
+    ) -> Self {
+        Self {
+            value_pair,
+            participates_in_overflow_update_clauses: participates_in_update_clauses,
+        }
+    }
+
+    fn value_pair(&'a self) -> (&'a str, &'a dyn ToSql) {
+        (&*self.value_pair.0, &self.value_pair.1 as &dyn ToSql)
+    }
+}
+
 impl<'a> From<&'a WeiChangeAsHighAndLowBytes> for [(&'a str, &'a dyn ToSql); 2] {
     fn from(wei_change: &'a WeiChangeAsHighAndLowBytes) -> Self {
         [
@@ -417,22 +438,23 @@ impl<'a> From<&'a WeiChangeAsHighAndLowBytes> for [(&'a str, &'a dyn ToSql); 2] 
 }
 
 impl<'a> SQLParams<'a> {
-    fn merge_pure_rusqlite_and_wei_params(
+    fn filter_and_merge_pure_and_wei_params(
         &'a self,
+        for_updates_only: bool,
         wei_change_params: [(&'a str, &'a dyn ToSql); 2],
     ) -> Vec<(&'a str, &'a dyn ToSql)> {
-        self.pure_rusqlite_params(wei_change_params.into_iter())
-            .collect()
-    }
+        let param_preselection_key = if !for_updates_only {
+            |_param: &&Param| true
+        } else {
+            |param: &&Param| param.participates_in_overflow_update_clauses
+        };
 
-    fn pure_rusqlite_params(
-        &'a self,
-        wei_change_params: impl Iterator<Item = (&'a str, &'a dyn ToSql)>,
-    ) -> impl Iterator<Item = (&'a str, &'a dyn ToSql)> {
         self.params_except_wei_change
             .iter()
-            .map(|(name, value)| (*name, value as &dyn ToSql))
-            .chain(wei_change_params)
+            .filter(param_preselection_key)
+            .map(|param| param.value_pair())
+            .chain(wei_change_params.into_iter())
+            .collect()
     }
 }
 
@@ -546,14 +568,17 @@ mod tests {
                 sub_name: ":some_key",
                 val: &"blah",
             })
-            .other(vec![("other_thing", &46565)]);
+            .other(vec![Param::new(("other_thing", &46565), true)]);
 
         assert_eq!(result.wei_change_spec_opt, Some(Addition("balance", 4546)));
         let key_spec = result.key_spec_opt.unwrap();
         assert_eq!(key_spec.definition_name, "some_key");
         assert_eq!(key_spec.substitution_name_in_sql, ":some_key");
         assert_eq!(key_spec.value_itself.to_string(), "blah".to_string());
-        assert!(matches!(result.other_params[0], ("other_thing", _)));
+        assert!(matches!(
+            result.other_params[0].value_pair,
+            ("other_thing", _)
+        ));
         assert_eq!(result.other_params.len(), 1)
     }
 
@@ -568,7 +593,7 @@ mod tests {
                 sub_name: ":some_key",
                 val: &"blah",
             })
-            .other(vec![(":other_thing", &11111)])
+            .other(vec![Param::new((":other_thing", &11111), true)])
             .build();
 
         assert_eq!(result.table_unique_key_name, "some_key");
@@ -579,14 +604,17 @@ mod tests {
                 low: StdNumParamFormNamed::new(":balance_low_b".to_string(), 115898)
             }
         );
-        assert_eq!(result.params_except_wei_change[0].0, ":some_key");
+        assert_eq!(result.params_except_wei_change[0].value_pair.0, ":some_key");
         assert_eq!(
-            result.params_except_wei_change[0].1.to_string(),
+            result.params_except_wei_change[0].value_pair.1.to_string(),
             "blah".to_string()
         );
-        assert_eq!(result.params_except_wei_change[1].0, ":other_thing");
         assert_eq!(
-            result.params_except_wei_change[1].1.to_string(),
+            result.params_except_wei_change[1].value_pair.0,
+            ":other_thing"
+        );
+        assert_eq!(
+            result.params_except_wei_change[1].value_pair.1.to_string(),
             "11111".to_string()
         );
         assert_eq!(result.params_except_wei_change.len(), 2)
@@ -603,7 +631,7 @@ mod tests {
                 sub_name: ":some_key",
                 val: &"wooow",
             })
-            .other(vec![(":other_thing", &46565)])
+            .other(vec![Param::new((":other_thing", &46565), true)])
             .build();
 
         assert_eq!(result.table_unique_key_name, "some_key");
@@ -614,14 +642,17 @@ mod tests {
                 low: StdNumParamFormNamed::new(":balance_low_b".to_string(), 9223372036854321124)
             }
         );
-        assert_eq!(result.params_except_wei_change[0].0, ":some_key");
+        assert_eq!(result.params_except_wei_change[0].value_pair.0, ":some_key");
         assert_eq!(
-            result.params_except_wei_change[0].1.to_string(),
+            result.params_except_wei_change[0].value_pair.1.to_string(),
             "wooow".to_string()
         );
-        assert_eq!(result.params_except_wei_change[1].0, ":other_thing");
         assert_eq!(
-            result.params_except_wei_change[1].1.to_string(),
+            result.params_except_wei_change[1].value_pair.0,
+            ":other_thing"
+        );
+        assert_eq!(
+            result.params_except_wei_change[1].value_pair.1.to_string(),
             "46565".to_string()
         );
         assert_eq!(result.params_except_wei_change.len(), 2)
@@ -634,7 +665,7 @@ mod tests {
 
         let _ = subject
             .wei_change(Addition("balance", 4546))
-            .other(vec![("laughter", &"hahaha")])
+            .other(vec![Param::new(("laughter", &"hahaha"), true)])
             .build();
     }
 
@@ -649,7 +680,7 @@ mod tests {
                 sub_name: ":wallet",
                 val: &make_wallet("wallet"),
             })
-            .other(vec![("other_thing", &46565)])
+            .other(vec![Param::new(("other_thing", &46565), true)])
             .build();
     }
 
@@ -665,6 +696,49 @@ mod tests {
                 val: &45,
             })
             .build();
+    }
+
+    #[test]
+    fn merge_pure_rusqlite_and_wei_params_can_filter_out_just_update_params() {
+        let tuple_matrix = [
+            ("blah", &456_i64 as &dyn ExtendedParamsMarker),
+            ("super key", &"abcxy"),
+            ("time", &779988),
+            ("error", &"no threat"),
+        ];
+        let update_positive_1 = tuple_matrix[0];
+        let update_positive_2 = tuple_matrix[1];
+        let update_negative_1 = tuple_matrix[2];
+        let update_negative_2 = tuple_matrix[3];
+        let subject = SQLParams {
+            table_unique_key_name: "",
+            wei_change_params: WeiChangeAsHighAndLowBytes {
+                high: StdNumParamFormNamed {
+                    name: "".to_string(),
+                    value: 0,
+                },
+                low: StdNumParamFormNamed {
+                    name: "".to_string(),
+                    value: 0,
+                },
+            },
+            params_except_wei_change: vec![
+                Param::new(update_positive_2, true),
+                Param::new(update_negative_1, false),
+                Param::new(update_positive_1, true),
+                Param::new(update_negative_2, false),
+            ],
+        };
+
+        let result = subject.filter_and_merge_pure_and_wei_params(
+            true,
+            [("always_present_1", &12), ("always_present_2", &77)],
+        );
+
+        assert_eq!(result[0].0, update_positive_2.0);
+        assert_eq!(result[1].0, update_positive_1.0);
+        assert_eq!(result[2].0, "always_present_1");
+        assert_eq!(result[3].0, "always_present_2")
     }
 
     #[test]
