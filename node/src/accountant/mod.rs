@@ -259,6 +259,11 @@ impl Handler<ScanError> for Accountant {
 
     fn handle(&mut self, scan_error: ScanError, _ctx: &mut Self::Context) -> Self::Result {
         error!(self.logger, "Received ScanError: {:?}", scan_error);
+        match scan_error.scan_type {
+            ScanType::Payables => self.scanners.payable.mark_as_ended(&self.logger),
+            ScanType::PendingPayables => self.scanners.pending_payable.mark_as_ended(&self.logger),
+            ScanType::Receivables => self.scanners.receivable.mark_as_ended(&self.logger),
+        };
         if let Some(response_skeleton) = scan_error.response_skeleton_opt {
             let error_msg = NodeToUiMessage {
                 target: ClientId(response_skeleton.client_id),
@@ -995,13 +1000,25 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::unshared_test_utils::{
-        make_bc_with_defaults, prove_that_crash_request_handler_is_hooked_up,
+        make_bc_with_defaults, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
         NotifyLaterHandleMock, SystemKillerActor,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use web3::types::{TransactionReceipt, H256};
+
+    impl Handler<AssertionsMessage<Accountant>> for Accountant {
+        type Result = ();
+
+        fn handle(
+            &mut self,
+            msg: AssertionsMessage<Accountant>,
+            _ctx: &mut Self::Context,
+        ) -> Self::Result {
+            (msg.assertions)(self)
+        }
+    }
 
     #[test]
     fn constants_have_correct_values() {
@@ -3315,6 +3332,7 @@ mod tests {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut subject = AccountantBuilder::default().build();
         subject.logger = Logger::new(test_name);
+        subject.scanners.payable.mark_as_started(SystemTime::now());
         let subject_addr = subject.start();
         let system = System::new("test");
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
@@ -3330,6 +3348,13 @@ mod tests {
 
         subject_addr.try_send(scan_error.clone()).unwrap();
 
+        subject_addr
+            .try_send(AssertionsMessage {
+                assertions: Box::new(move |actor: &mut Accountant| {
+                    assert_eq!(actor.scanners.payable.scan_started_at(), None);
+                }),
+            })
+            .unwrap();
         System::current().stop();
         system.run();
         let expected_message_sent_to_ui = NodeToUiMessage {
@@ -3364,6 +3389,7 @@ mod tests {
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let mut subject = AccountantBuilder::default().build();
         subject.logger = Logger::new(test_name);
+        subject.scanners.payable.mark_as_started(SystemTime::now());
         let subject_addr = subject.start();
         let system = System::new("test");
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
@@ -3376,6 +3402,13 @@ mod tests {
 
         subject_addr.try_send(scan_error.clone()).unwrap();
 
+        subject_addr
+            .try_send(AssertionsMessage {
+                assertions: Box::new(move |actor: &mut Accountant| {
+                    assert_eq!(actor.scanners.payable.scan_started_at(), None);
+                }),
+            })
+            .unwrap();
         System::current().stop();
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
