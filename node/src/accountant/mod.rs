@@ -260,9 +260,18 @@ impl Handler<ScanError> for Accountant {
     fn handle(&mut self, scan_error: ScanError, _ctx: &mut Self::Context) -> Self::Result {
         error!(self.logger, "Received ScanError: {:?}", scan_error);
         match scan_error.scan_type {
-            ScanType::Payables => self.scanners.payable.mark_as_ended(&self.logger),
-            ScanType::PendingPayables => self.scanners.pending_payable.mark_as_ended(&self.logger),
-            ScanType::Receivables => self.scanners.receivable.mark_as_ended(&self.logger),
+            ScanType::Payables => {
+                // todo!("payables");
+                self.scanners.payable.mark_as_ended(&self.logger);
+            }
+            ScanType::PendingPayables => {
+                // todo!("pending payables");
+                self.scanners.pending_payable.mark_as_ended(&self.logger);
+            }
+            ScanType::Receivables => {
+                // todo!("receivables");
+                self.scanners.receivable.mark_as_ended(&self.logger);
+            }
         };
         if let Some(response_skeleton) = scan_error.response_skeleton_opt {
             let error_msg = NodeToUiMessage {
@@ -3326,101 +3335,60 @@ mod tests {
     }
 
     #[test]
-    fn handles_scan_error_for_externally_triggered_scans() {
-        init_test_logging();
-        let test_name = "handles_scan_error_for_externally_triggered_scans";
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let mut subject = AccountantBuilder::default().build();
-        subject.logger = Logger::new(test_name);
-        subject.scanners.payable.mark_as_started(SystemTime::now());
-        let subject_addr = subject.start();
-        let system = System::new("test");
-        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
-        let scan_error = ScanError {
-            scan_type: ScanType::Payables,
-            response_skeleton_opt: Some(ResponseSkeleton {
-                client_id: 1234,
-                context_id: 4321,
-            }),
-            msg: "My tummy hurts".to_string(),
+    fn handles_scan_error() {
+        let response_skeleton = ResponseSkeleton {
+            client_id: 1234,
+            context_id: 4321,
         };
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        subject_addr.try_send(scan_error.clone()).unwrap();
-
-        subject_addr
-            .try_send(AssertionsMessage {
-                assertions: Box::new(move |actor: &mut Accountant| {
-                    assert_eq!(actor.scanners.payable.scan_started_at(), None);
-                }),
-            })
-            .unwrap();
-        System::current().stop();
-        system.run();
-        let expected_message_sent_to_ui = NodeToUiMessage {
-            target: ClientId(1234),
-            body: MessageBody {
-                opcode: "scan".to_string(),
-                path: MessagePath::Conversation(4321),
-                payload: Err((
-                    SCAN_ERROR,
-                    "Payables scan failed: 'My tummy hurts'".to_string(),
-                )),
+        let msg = "My tummy hurts";
+        assert_scan_error_is_handled_properly(
+            "payables_externally_triggered",
+            ScanError {
+                scan_type: ScanType::Payables,
+                response_skeleton_opt: Some(response_skeleton),
+                msg: msg.to_string(),
             },
-        };
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(
-            ui_gateway_recording.get_record::<NodeToUiMessage>(0),
-            &expected_message_sent_to_ui
         );
-        TestLogHandler::new().assert_logs_contain_in_order(vec![
-            &format!("ERROR: {}: Received ScanError: {:?}", test_name, scan_error),
-            &format!(
-                "ERROR: {}: Sending UiScanResponse: {:?}",
-                test_name, expected_message_sent_to_ui
-            ),
-        ]);
-    }
-
-    #[test]
-    fn handles_scan_error_for_internally_triggered_scans() {
-        init_test_logging();
-        let test_name = "handles_scan_error_for_internally_triggered_scans";
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let mut subject = AccountantBuilder::default().build();
-        subject.logger = Logger::new(test_name);
-        subject.scanners.payable.mark_as_started(SystemTime::now());
-        let subject_addr = subject.start();
-        let system = System::new("test");
-        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
-        let scan_error = ScanError {
-            scan_type: ScanType::Payables,
-            response_skeleton_opt: None,
-            msg: "My tummy hurts even with internally triggered scans".to_string(),
-        };
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        subject_addr.try_send(scan_error.clone()).unwrap();
-
-        subject_addr
-            .try_send(AssertionsMessage {
-                assertions: Box::new(move |actor: &mut Accountant| {
-                    assert_eq!(actor.scanners.payable.scan_started_at(), None);
-                }),
-            })
-            .unwrap();
-        System::current().stop();
-        system.run();
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        let message_sent_to_ui_opt = ui_gateway_recording.get_record_opt::<NodeToUiMessage>(0);
-        assert_eq!(message_sent_to_ui_opt, None);
-        assert_eq!(ui_gateway_recording.len(), 0);
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_containing(&format!(
-            "ERROR: {}: Received ScanError: {:?}",
-            test_name, scan_error
-        ));
-        tlh.exists_no_log_containing(&format!("ERROR: {}: Sending UiScanResponse", test_name));
+        assert_scan_error_is_handled_properly(
+            "pending_payables_externally_triggered",
+            ScanError {
+                scan_type: ScanType::PendingPayables,
+                response_skeleton_opt: Some(response_skeleton),
+                msg: msg.to_string(),
+            },
+        );
+        assert_scan_error_is_handled_properly(
+            "receivables_externally_triggered",
+            ScanError {
+                scan_type: ScanType::Receivables,
+                response_skeleton_opt: Some(response_skeleton),
+                msg: msg.to_string(),
+            },
+        );
+        assert_scan_error_is_handled_properly(
+            "payables_internally_triggered",
+            ScanError {
+                scan_type: ScanType::Payables,
+                response_skeleton_opt: None,
+                msg: msg.to_string(),
+            },
+        );
+        assert_scan_error_is_handled_properly(
+            "pending_payables_internally_triggered",
+            ScanError {
+                scan_type: ScanType::PendingPayables,
+                response_skeleton_opt: None,
+                msg: msg.to_string(),
+            },
+        );
+        assert_scan_error_is_handled_properly(
+            "receivables_internally_triggered",
+            ScanError {
+                scan_type: ScanType::Receivables,
+                response_skeleton_opt: None,
+                msg: msg.to_string(),
+            },
+        );
     }
 
     #[test]
@@ -4166,5 +4134,88 @@ mod tests {
     )]
     fn wei_to_gwei_blows_up_on_overflow() {
         let _: u64 = wei_to_gwei(u128::MAX);
+    }
+
+    fn assert_scan_error_is_handled_properly(test_name: &str, message: ScanError) {
+        init_test_logging();
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let mut subject = AccountantBuilder::default().build();
+        subject.logger = Logger::new(test_name);
+        match message.scan_type {
+            ScanType::Payables => subject.scanners.payable.mark_as_started(SystemTime::now()),
+            ScanType::PendingPayables => subject
+                .scanners
+                .pending_payable
+                .mark_as_started(SystemTime::now()),
+            ScanType::Receivables => subject
+                .scanners
+                .receivable
+                .mark_as_started(SystemTime::now()),
+        }
+        let subject_addr = subject.start();
+        let system = System::new("test");
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(message.clone()).unwrap();
+
+        subject_addr
+            .try_send(AssertionsMessage {
+                assertions: Box::new(move |actor: &mut Accountant| {
+                    let is_scan_running = match message.scan_type {
+                        ScanType::Payables => actor.scanners.payable.scan_started_at(),
+                        ScanType::PendingPayables => {
+                            actor.scanners.pending_payable.scan_started_at()
+                        }
+                        ScanType::Receivables => actor.scanners.receivable.scan_started_at(),
+                    };
+                    assert_eq!(is_scan_running, None);
+                }),
+            })
+            .unwrap();
+        System::current().stop();
+        system.run();
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        match message.response_skeleton_opt {
+            Some(response_skeleton) => {
+                let expected_message_sent_to_ui = NodeToUiMessage {
+                    target: ClientId(response_skeleton.client_id),
+                    body: MessageBody {
+                        opcode: "scan".to_string(),
+                        path: MessagePath::Conversation(response_skeleton.context_id),
+                        payload: Err((
+                            SCAN_ERROR,
+                            format!("{:?} scan failed: '{}'", message.scan_type, message.msg),
+                        )),
+                    },
+                };
+                assert_eq!(
+                    ui_gateway_recording.get_record::<NodeToUiMessage>(0),
+                    &expected_message_sent_to_ui
+                );
+                TestLogHandler::new().assert_logs_contain_in_order(vec![
+                    &format!("ERROR: {}: Received ScanError: {:?}", test_name, message),
+                    &format!(
+                        "ERROR: {}: Sending UiScanResponse: {:?}",
+                        test_name, expected_message_sent_to_ui
+                    ),
+                ]);
+            }
+            None => {
+                let message_sent_to_ui_opt =
+                    ui_gateway_recording.get_record_opt::<NodeToUiMessage>(0);
+                assert_eq!(message_sent_to_ui_opt, None);
+                assert_eq!(ui_gateway_recording.len(), 0);
+                let tlh = TestLogHandler::new();
+                tlh.exists_log_containing(&format!(
+                    "ERROR: {}: Received ScanError: {:?}",
+                    test_name, message
+                ));
+                tlh.exists_no_log_containing(&format!(
+                    "ERROR: {}: Sending UiScanResponse",
+                    test_name
+                ));
+            }
+        }
     }
 }
