@@ -360,14 +360,14 @@ impl BlockchainBridge {
             Ok(_r) => (),
             Err(e) => {
                 warning!(self.logger, "{}", e);
-                if let Some(skeleton) = skeleton_opt {
+                if skeleton_opt.is_some() {
                     debug!(self.logger, "Skeleton is populated; sending ScanError");
                     self.scan_error_subs_opt
                         .as_ref()
                         .expect("Accountant not bound")
                         .try_send(ScanError {
                             scan_type,
-                            response_skeleton: skeleton,
+                            response_skeleton_opt: skeleton_opt,
                             msg: e,
                         })
                         .expect("Accountant is dead");
@@ -966,7 +966,7 @@ mod tests {
         let scan_error_msg = accountant_recording.get_record::<ScanError>(1);
         assert_eq!(*scan_error_msg, ScanError {
             scan_type: ScanType::PendingPayables,
-            response_skeleton: ResponseSkeleton { client_id: 1234, context_id: 4321 },
+            response_skeleton_opt: Some(ResponseSkeleton { client_id: 1234, context_id: 4321 }),
             msg: "Aborting scanning; request of a transaction receipt \
          for '0x000000000000000000000000000000000000000000000000000000000001348d' failed due to 'QueryFailed(\"bad bad bad\")'".to_string()
         });
@@ -1373,10 +1373,10 @@ mod tests {
             accountant_recording.get_record::<ScanError>(0),
             &ScanError {
                 scan_type: ScanType::Receivables,
-                response_skeleton: ResponseSkeleton {
+                response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
-                },
+                }),
                 msg: "My tummy hurts".to_string()
             }
         );

@@ -141,7 +141,7 @@ pub struct ScanForPendingPayables {
 #[derive(Debug, Clone, Message, PartialEq, Eq)]
 pub struct ScanError {
     pub scan_type: ScanType,
-    pub response_skeleton: ResponseSkeleton,
+    pub response_skeleton_opt: Option<ResponseSkeleton>,
     pub msg: String,
 }
 
@@ -259,26 +259,28 @@ impl Handler<ScanError> for Accountant {
 
     fn handle(&mut self, scan_error: ScanError, _ctx: &mut Self::Context) -> Self::Result {
         error!(self.logger, "Received ScanError: {:?}", scan_error);
-        let error_msg = NodeToUiMessage {
-            target: ClientId(scan_error.response_skeleton.client_id),
-            body: MessageBody {
-                opcode: "scan".to_string(),
-                path: MessagePath::Conversation(scan_error.response_skeleton.context_id),
-                payload: Err((
-                    SCAN_ERROR,
-                    format!(
-                        "{:?} scan failed: '{}'",
-                        scan_error.scan_type, scan_error.msg
-                    ),
-                )),
-            },
-        };
-        error!(self.logger, "Sending UiScanResponse: {:?}", error_msg);
-        self.ui_message_sub
-            .as_ref()
-            .expect("UIGateway not bound")
-            .try_send(error_msg)
-            .expect("UiGateway is dead");
+        if let Some(response_skeleton) = scan_error.response_skeleton_opt {
+            let error_msg = NodeToUiMessage {
+                target: ClientId(response_skeleton.client_id),
+                body: MessageBody {
+                    opcode: "scan".to_string(),
+                    path: MessagePath::Conversation(response_skeleton.context_id),
+                    payload: Err((
+                        SCAN_ERROR,
+                        format!(
+                            "{:?} scan failed: '{}'",
+                            scan_error.scan_type, scan_error.msg
+                        ),
+                    )),
+                },
+            };
+            error!(self.logger, "Sending UiScanResponse: {:?}", error_msg);
+            self.ui_message_sub
+                .as_ref()
+                .expect("UIGateway not bound")
+                .try_send(error_msg)
+                .expect("UiGateway is dead");
+        }
     }
 }
 
@@ -3307,42 +3309,85 @@ mod tests {
     }
 
     #[test]
-    fn handles_scan_error() {
+    fn handles_scan_error_for_externally_triggered_scans() {
+        init_test_logging();
+        let test_name = "handles_scan_error_for_externally_triggered_scans";
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let subject = AccountantBuilder::default().build();
+        let mut subject = AccountantBuilder::default().build();
+        subject.logger = Logger::new(test_name);
         let subject_addr = subject.start();
         let system = System::new("test");
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        let scan_error = ScanError {
+            scan_type: ScanType::Payables,
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 4321,
+            }),
+            msg: "My tummy hurts".to_string(),
+        };
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
 
-        subject_addr
-            .try_send(ScanError {
-                scan_type: ScanType::Payables,
-                response_skeleton: ResponseSkeleton {
-                    client_id: 1234,
-                    context_id: 4321,
-                },
-                msg: "My tummy hurts".to_string(),
-            })
-            .unwrap();
+        subject_addr.try_send(scan_error.clone()).unwrap();
+
+        System::current().stop();
+        system.run();
+        let expected_message_sent_to_ui = NodeToUiMessage {
+            target: ClientId(1234),
+            body: MessageBody {
+                opcode: "scan".to_string(),
+                path: MessagePath::Conversation(4321),
+                payload: Err((
+                    SCAN_ERROR,
+                    "Payables scan failed: 'My tummy hurts'".to_string(),
+                )),
+            },
+        };
+        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
+        assert_eq!(
+            ui_gateway_recording.get_record::<NodeToUiMessage>(0),
+            &expected_message_sent_to_ui
+        );
+        TestLogHandler::new().assert_logs_contain_in_order(vec![
+            &format!("ERROR: {}: Received ScanError: {:?}", test_name, scan_error),
+            &format!(
+                "ERROR: {}: Sending UiScanResponse: {:?}",
+                test_name, expected_message_sent_to_ui
+            ),
+        ]);
+    }
+
+    #[test]
+    fn handles_scan_error_for_internally_triggered_scans() {
+        init_test_logging();
+        let test_name = "handles_scan_error_for_internally_triggered_scans";
+        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
+        let mut subject = AccountantBuilder::default().build();
+        subject.logger = Logger::new(test_name);
+        let subject_addr = subject.start();
+        let system = System::new("test");
+        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
+        let scan_error = ScanError {
+            scan_type: ScanType::Payables,
+            response_skeleton_opt: None,
+            msg: "My tummy hurts even with internally triggered scans".to_string(),
+        };
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+
+        subject_addr.try_send(scan_error.clone()).unwrap();
 
         System::current().stop();
         system.run();
         let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        assert_eq!(
-            ui_gateway_recording.get_record::<NodeToUiMessage>(0),
-            &NodeToUiMessage {
-                target: ClientId(1234),
-                body: MessageBody {
-                    opcode: "scan".to_string(),
-                    path: MessagePath::Conversation(4321),
-                    payload: Err((
-                        SCAN_ERROR,
-                        "Payables scan failed: 'My tummy hurts'".to_string()
-                    )),
-                },
-            }
-        );
+        let message_sent_to_ui_opt = ui_gateway_recording.get_record_opt::<NodeToUiMessage>(0);
+        assert_eq!(message_sent_to_ui_opt, None);
+        assert_eq!(ui_gateway_recording.len(), 0);
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(&format!(
+            "ERROR: {}: Received ScanError: {:?}",
+            test_name, scan_error
+        ));
+        tlh.exists_no_log_containing(&format!("ERROR: {}: Sending UiScanResponse", test_name));
     }
 
     #[test]
