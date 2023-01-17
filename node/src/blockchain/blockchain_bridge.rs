@@ -360,23 +360,15 @@ impl BlockchainBridge {
             Ok(_r) => (),
             Err(e) => {
                 warning!(self.logger, "{}", e);
-                if skeleton_opt.is_some() {
-                    debug!(self.logger, "Skeleton is populated; sending ScanError");
-                    self.scan_error_subs_opt
-                        .as_ref()
-                        .expect("Accountant not bound")
-                        .try_send(ScanError {
-                            scan_type,
-                            response_skeleton_opt: skeleton_opt,
-                            msg: e,
-                        })
-                        .expect("Accountant is dead");
-                } else {
-                    debug!(
-                        self.logger,
-                        "Skeleton is unpopulated; not sending ScanError"
-                    );
-                }
+                self.scan_error_subs_opt
+                    .as_ref()
+                    .expect("Accountant not bound")
+                    .try_send(ScanError {
+                        scan_type,
+                        response_skeleton_opt: skeleton_opt,
+                        msg: e,
+                    })
+                    .expect("Accountant is dead");
             }
         }
     }
@@ -730,6 +722,8 @@ mod tests {
     #[test]
     fn handle_report_account_payable_manages_gas_price_error() {
         init_test_logging();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let scan_error_recipient: Recipient<ScanError> = accountant.start().recipient();
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_result(Ok(web3::types::U256::from(1)));
         let persistent_configuration_mock = PersistentConfigurationMock::new()
@@ -741,6 +735,7 @@ mod tests {
             false,
             Some(consuming_wallet),
         );
+        subject.scan_error_subs_opt = Some(scan_error_recipient);
         let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
@@ -750,6 +745,7 @@ mod tests {
             }],
             response_skeleton_opt: None,
         };
+        let system = System::new("test");
 
         subject.handle_scan(
             BlockchainBridge::handle_report_accounts_payable,
@@ -757,6 +753,19 @@ mod tests {
             &request,
         );
 
+        System::current().stop();
+        system.run();
+        let recording = accountant_recording_arc.lock().unwrap();
+        let message = recording.get_record::<ScanError>(0);
+        assert_eq!(
+            message,
+            &ScanError {
+                scan_type: ScanType::Payables,
+                response_skeleton_opt: None,
+                msg: "ReportAccountPayable: gas-price: TransactionError".to_string()
+            }
+        );
+        assert_eq!(recording.len(), 1);
         TestLogHandler::new().exists_log_containing(
             "WARN: BlockchainBridge: ReportAccountPayable: gas-price: TransactionError",
         );
@@ -833,6 +842,8 @@ mod tests {
     #[test]
     fn blockchain_bridge_logs_error_from_retrieving_received_payments() {
         init_test_logging();
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let scan_error_recipient: Recipient<ScanError> = accountant.start().recipient();
         let blockchain_interface = BlockchainInterfaceMock::default().retrieve_transactions_result(
             Err(BlockchainError::QueryFailed("we have no luck".to_string())),
         );
@@ -843,10 +854,12 @@ mod tests {
             false,
             None,
         );
+        subject.scan_error_subs_opt = Some(scan_error_recipient);
         let msg = RetrieveTransactions {
             recipient: make_wallet("blah"),
             response_skeleton_opt: None,
         };
+        let system = System::new("test");
 
         subject.handle_scan(
             BlockchainBridge::handle_retrieve_transactions,
@@ -854,6 +867,19 @@ mod tests {
             &msg,
         );
 
+        System::current().stop();
+        system.run();
+        let recording = accountant_recording_arc.lock().unwrap();
+        let message = recording.get_record::<ScanError>(0);
+        assert_eq!(
+            message,
+            &ScanError {
+                scan_type: ScanType::Receivables,
+                response_skeleton_opt: None,
+                msg: "Tried to retrieve received payments but failed: QueryFailed(\"we have no luck\")".to_string() 
+            }
+        );
+        assert_eq!(recording.len(), 1);
         TestLogHandler::new().exists_log_containing(
             "WARN: BlockchainBridge: Tried to retrieve \
          received payments but failed: QueryFailed(\"we have no luck\")",
@@ -1014,7 +1040,10 @@ mod tests {
     ) {
         init_test_logging();
         let (accountant, _, accountant_recording) = make_recorder();
-        let recipient = accountant.start().recipient();
+        let accountant_addr = accountant.start();
+        let scan_error_recipient: Recipient<ScanError> = accountant_addr.clone().recipient();
+        let report_transaction_recipient: Recipient<ReportTransactionReceipts> =
+            accountant_addr.recipient();
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
         let hash_1 = H256::from_uint(&U256::from(111334));
         let fingerprint_1 = PendingPayableFingerprint {
@@ -1045,7 +1074,8 @@ mod tests {
         subject
             .payment_confirmation
             //due to this None we would've panicked if we tried to send a msg
-            .report_transaction_receipts_sub_opt = Some(recipient);
+            .report_transaction_receipts_sub_opt = Some(report_transaction_recipient);
+        subject.scan_error_subs_opt = Some(scan_error_recipient);
         let msg = RequestTransactionReceipts {
             pending_payable: vec![fingerprint_1, fingerprint_2],
             response_skeleton_opt: None,
@@ -1070,6 +1100,15 @@ mod tests {
                 response_skeleton_opt: None
             }
         );
+        assert_eq!(
+            recording.get_record::<ScanError>(1),
+            &ScanError {
+                scan_type: ScanType::PendingPayables,
+                response_skeleton_opt: None,
+                msg: "Aborting scanning; request of a transaction receipt for '0x000000000000000000000000000000000000000000000000000000000001b2e6' failed due to 'QueryFailed(\"booga\")'".to_string()
+            }
+        );
+        assert_eq!(recording.len(), 2);
         TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: Aborting scanning; request of a transaction \
          receipt for '0x000000000000000000000000000000000000000000000000000000000001b2e6' failed due to 'QueryFailed(\"booga\")'");
     }
@@ -1336,7 +1375,16 @@ mod tests {
         System::current().stop();
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        assert_eq!(accountant_recording.len(), 0);
+        let message = accountant_recording.get_record::<ScanError>(0);
+        assert_eq!(
+            message,
+            &ScanError {
+                scan_type: ScanType::Receivables,
+                response_skeleton_opt: None,
+                msg: "My tummy hurts".to_string()
+            }
+        );
+        assert_eq!(accountant_recording.len(), 1);
         TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: My tummy hurts");
     }
 
