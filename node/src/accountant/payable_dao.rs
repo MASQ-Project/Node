@@ -440,6 +440,7 @@ mod tests {
             "more_money_payable_works_for_existing_address_without_overflow",
         );
         let wallet = make_wallet("booga");
+        let wallet_unchanged_account = make_wallet("hurrah");
         let now = SystemTime::now();
         let boxed_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
@@ -449,21 +450,30 @@ mod tests {
         let balance_change = 2345;
         //in db (0, 2345)
         let subject = PayableDaoReal::new(boxed_conn);
-        subject
-            .more_money_payable(SystemTime::UNIX_EPOCH, &wallet, initial_value)
-            .unwrap();
+        let prepare_account = |wallet: &Wallet, initial_value| {
+            subject
+                .more_money_payable(SystemTime::UNIX_EPOCH, wallet, initial_value)
+                .unwrap();
+        };
+        prepare_account(&wallet, initial_value);
+        //making sure the SQL will not affect a different wallet
+        prepare_account(&wallet_unchanged_account, 12345);
 
         subject
             .more_money_payable(now, &wallet, balance_change)
             .unwrap();
 
-        let status = subject.account_status(&wallet).unwrap();
-        assert_eq!(status.wallet, wallet);
-        assert_eq!(status.balance_wei, initial_value + balance_change);
-        assert_eq!(
-            to_time_t(status.last_paid_timestamp),
-            to_time_t(SystemTime::UNIX_EPOCH)
-        );
+        let assert_account = |wallet, expected_balance| {
+            let status = subject.account_status(&wallet).unwrap();
+            assert_eq!(status.wallet, wallet);
+            assert_eq!(status.balance_wei, expected_balance);
+            assert_eq!(
+                to_time_t(status.last_paid_timestamp),
+                to_time_t(SystemTime::UNIX_EPOCH)
+            );
+        };
+        assert_account(wallet, initial_value + balance_change);
+        assert_account(wallet_unchanged_account, 12345);
     }
 
     #[test]

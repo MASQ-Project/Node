@@ -538,28 +538,37 @@ mod tests {
             "more_money_receivable_works_for_existing_address_without_overflow",
         );
         let wallet = make_wallet("booga");
+        let wallet_unchanged_account = make_wallet("hurrah");
+        let payment_time = SystemTime::now();
         let subject = ReceivableDaoReal::new(
             DbInitializerReal::default()
                 .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
-        let payment_time_t = to_time_t(SystemTime::now()) - 2222;
-        let payment_time = from_time_t(payment_time_t);
-        subject
-            .more_money_receivable(SystemTime::UNIX_EPOCH, &wallet, 1234)
-            .unwrap();
+        let prepare_account = |wallet: &Wallet, initial_value| {
+            subject
+                .more_money_receivable(SystemTime::UNIX_EPOCH, wallet, initial_value)
+                .unwrap();
+        };
+        prepare_account(&wallet, 1234);
+        //making sure the SQL will not affect a different wallet
+        prepare_account(&wallet_unchanged_account, 7788);
 
         subject
             .more_money_receivable(payment_time, &wallet, 2345)
             .unwrap();
 
-        let status = subject.account_status(&wallet).unwrap();
-        assert_eq!(status.wallet, wallet);
-        assert_eq!(status.balance_wei, 1234 + 2345);
-        assert_eq!(
-            to_time_t(status.last_received_timestamp),
-            to_time_t(SystemTime::UNIX_EPOCH)
-        );
+        let assert_account = |wallet, expected_balance| {
+            let status = subject.account_status(&wallet).unwrap();
+            assert_eq!(status.wallet, wallet);
+            assert_eq!(status.balance_wei, expected_balance);
+            assert_eq!(
+                to_time_t(status.last_received_timestamp),
+                to_time_t(SystemTime::UNIX_EPOCH)
+            );
+        };
+        assert_account(wallet, 1234 + 2345);
+        assert_account(wallet_unchanged_account, 7788)
     }
 
     #[test]
