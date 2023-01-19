@@ -28,6 +28,7 @@ use crate::test_utils::make_wallet;
 use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
 use actix::System;
 use ethereum_types::{BigEndianHash, H256, U256};
+use masq_lib::logger::Logger;
 use masq_lib::utils::plus;
 use rusqlite::{Connection, Row};
 use std::any::type_name;
@@ -75,6 +76,7 @@ pub fn make_payable_account_with_recipient_and_balance_and_timestamp_opt(
 
 pub struct AccountantBuilder {
     config: Option<BootstrapperConfig>,
+    logger: Option<Logger>,
     payable_dao_factory: Option<PayableDaoFactoryMock>,
     receivable_dao_factory: Option<ReceivableDaoFactoryMock>,
     pending_payable_dao_factory: Option<PendingPayableDaoFactoryMock>,
@@ -86,6 +88,7 @@ impl Default for AccountantBuilder {
     fn default() -> Self {
         Self {
             config: None,
+            logger: None,
             payable_dao_factory: None,
             receivable_dao_factory: None,
             pending_payable_dao_factory: None,
@@ -205,6 +208,11 @@ impl AccountantBuilder {
         self
     }
 
+    pub fn logger(mut self, logger: Logger) -> Self {
+        self.logger = Some(logger);
+        self
+    }
+
     pub fn payable_daos(
         mut self,
         specially_configured_daos: Vec<DaoWithDestination<PayableDaoMock>>,
@@ -301,7 +309,7 @@ impl AccountantBuilder {
         let banned_dao_factory = self
             .banned_dao_factory
             .unwrap_or(BannedDaoFactoryMock::new().make_result(BannedDaoMock::new()));
-        let accountant = Accountant::new(
+        let mut accountant = Accountant::new(
             config,
             DaoFactories {
                 payable_dao_factory: Box::new(payable_dao_factory),
@@ -310,6 +318,10 @@ impl AccountantBuilder {
                 banned_dao_factory: Box::new(banned_dao_factory),
             },
         );
+        if let Some(logger) = self.logger {
+            accountant.logger = logger;
+        }
+
         accountant
     }
 }

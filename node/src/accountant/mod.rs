@@ -1387,11 +1387,11 @@ mod tests {
         };
         let pending_payable_dao =
             PendingPayableDaoMock::default().return_all_fingerprints_result(vec![fingerprint]);
-        let mut subject = AccountantBuilder::default()
+        let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .logger(Logger::new(test_name))
             .pending_payable_daos(vec![PendingPayableScannerDest(pending_payable_dao)])
             .build();
-        subject.logger = Logger::new(test_name);
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let subject_addr = subject.start();
         let system = System::new("test");
@@ -1834,8 +1834,8 @@ mod tests {
         });
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .logger(Logger::new(test_name))
             .build();
-        subject.logger = Logger::new(test_name);
         subject.scanners.payable = Box::new(NullScanner::new()); // Skipping
         subject.scanners.pending_payable = Box::new(NullScanner::new()); // Skipping
         subject.scanners.receivable = Box::new(receivable_scanner);
@@ -1901,8 +1901,8 @@ mod tests {
         });
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .logger(Logger::new(test_name))
             .build();
-        subject.logger = Logger::new(test_name);
         subject.scanners.payable = Box::new(NullScanner::new()); //skipping
         subject.scanners.pending_payable = Box::new(pending_payable_scanner);
         subject.scanners.receivable = Box::new(NullScanner::new()); //skipping
@@ -1969,8 +1969,8 @@ mod tests {
         });
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .logger(Logger::new(test_name))
             .build();
-        subject.logger = Logger::new(test_name);
         subject.scanners.payable = Box::new(payable_scanner);
         subject.scanners.pending_payable = Box::new(NullScanner::new()); //skipping
         subject.scanners.receivable = Box::new(NullScanner::new()); //skipping
@@ -2026,10 +2026,10 @@ mod tests {
         });
         config.suppress_initial_scans = true;
         let peer_actors = peer_actors_builder().build();
-        let mut subject = AccountantBuilder::default()
+        let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
+            .logger(Logger::new(test_name))
             .build();
-        subject.logger = Logger::new(test_name);
         let subject_addr = subject.start();
         let subject_subs = Accountant::make_subs_from(&subject_addr);
         send_bind_message!(subject_subs, peer_actors);
@@ -2213,11 +2213,11 @@ mod tests {
         let config = bc_from_earning_wallet(make_wallet("mine"));
         let system = System::new(test_name);
         let mut subject = AccountantBuilder::default()
+            .logger(Logger::new(test_name))
             .payable_daos(vec![PayableScannerDest(payable_dao)]) // For PendingPayable Scanner
             .bootstrapper_config(config)
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
-        subject.logger = Logger::new(test_name);
         let addr = subject.start();
         addr.try_send(ScanForPayables {
             response_skeleton_opt: None,
@@ -4136,8 +4136,9 @@ mod tests {
     fn assert_scan_error_is_handled_properly(test_name: &str, message: ScanError) {
         init_test_logging();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let mut subject = AccountantBuilder::default().build();
-        subject.logger = Logger::new(test_name);
+        let mut subject = AccountantBuilder::default()
+            .logger(Logger::new(test_name))
+            .build();
         match message.scan_type {
             ScanType::Payables => subject.scanners.payable.mark_as_started(SystemTime::now()),
             ScanType::PendingPayables => subject
