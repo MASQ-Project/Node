@@ -4160,14 +4160,14 @@ mod tests {
         subject_addr
             .try_send(AssertionsMessage {
                 assertions: Box::new(move |actor: &mut Accountant| {
-                    let is_scan_running = match message.scan_type {
+                    let scan_started_at_opt = match message.scan_type {
                         ScanType::Payables => actor.scanners.payable.scan_started_at(),
                         ScanType::PendingPayables => {
                             actor.scanners.pending_payable.scan_started_at()
                         }
                         ScanType::Receivables => actor.scanners.receivable.scan_started_at(),
                     };
-                    assert_eq!(is_scan_running, None);
+                    assert_eq!(scan_started_at_opt, None);
                 }),
             })
             .unwrap();
