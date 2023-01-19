@@ -4200,9 +4200,6 @@ mod tests {
                 ]);
             }
             None => {
-                let message_sent_to_ui_opt =
-                    ui_gateway_recording.get_record_opt::<NodeToUiMessage>(0);
-                assert_eq!(message_sent_to_ui_opt, None);
                 assert_eq!(ui_gateway_recording.len(), 0);
                 let tlh = TestLogHandler::new();
                 tlh.exists_log_containing(&format!(
