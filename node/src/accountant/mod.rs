@@ -113,6 +113,13 @@ pub struct ResponseSkeleton {
 
 #[derive(Debug, Message, PartialEq, Eq)]
 pub struct ReceivedPayments {
+    //TODO When we decide whether to delinquency-ban a debtor, we do so based on the age
+    // of his debt. That age is calculated from the last time he made a payment. It would
+    // be most accurate to draw that timestamp from the time the block containing the
+    // payment was placed on the blockchain; however, we're actually drawing the timestamp
+    // from the moment we discovered and accepted the payment, which is less accurate and
+    // detects any upcoming delinquency later than the more accurate version would. Is this
+    // a problem? Do we want to correct the timestamp? Discuss.
     pub timestamp: SystemTime,
     pub payments: Vec<BlockchainTransaction>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
