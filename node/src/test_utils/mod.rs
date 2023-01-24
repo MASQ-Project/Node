@@ -513,13 +513,12 @@ pub struct TestRawTransaction {
 pub mod unshared_test_utils {
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::apps::app_node;
+    use crate::bootstrapper::BootstrapperConfig;
     use crate::daemon::{ChannelFactory, DaemonBindMessage};
     use crate::db_config::config_dao_null::ConfigDaoNull;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::sub_lib::accountant::{
-        AccountantConfig, DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS,
-    };
+    use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
     use crate::sub_lib::neighborhood::{ConnectionProgressMessage, DEFAULT_RATE_PACK};
     use crate::sub_lib::utils::{
         NLSpawnHandleHolder, NLSpawnHandleHolderReal, NotifyHandle, NotifyLaterHandle,
@@ -598,30 +597,21 @@ pub mod unshared_test_utils {
         persistent_config_mock: PersistentConfigurationMock,
     ) -> PersistentConfigurationMock {
         persistent_config_mock
-            .payment_thresholds_result(Ok(*DEFAULT_PAYMENT_THRESHOLDS))
-            .scan_intervals_result(Ok(*DEFAULT_SCAN_INTERVALS))
+            .payment_thresholds_result(Ok(PaymentThresholds::default()))
+            .scan_intervals_result(Ok(ScanIntervals::default()))
     }
 
     pub fn make_persistent_config_real_with_config_dao_null() -> PersistentConfigurationReal {
         PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()))
     }
 
-    pub fn make_populated_accountant_config_with_defaults() -> AccountantConfig {
-        AccountantConfig {
-            scan_intervals: *DEFAULT_SCAN_INTERVALS,
-            payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
-            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-            suppress_initial_scans: false,
-        }
-    }
-
-    pub fn make_accountant_config_null() -> AccountantConfig {
-        AccountantConfig {
-            scan_intervals: Default::default(),
-            payment_thresholds: Default::default(),
-            when_pending_too_long_sec: Default::default(),
-            suppress_initial_scans: false,
-        }
+    pub fn make_bc_with_defaults() -> BootstrapperConfig {
+        let mut config = BootstrapperConfig::new();
+        config.scan_intervals_opt = Some(ScanIntervals::default());
+        config.suppress_initial_scans = false;
+        config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
+        config.payment_thresholds_opt = Some(PaymentThresholds::default());
+        config
     }
 
     pub fn make_recipient_and_recording_arc<M: 'static>(

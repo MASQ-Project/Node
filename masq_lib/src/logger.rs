@@ -22,7 +22,7 @@ use time::format_description::parse;
 use time::OffsetDateTime;
 
 const UI_MESSAGE_LOG_LEVEL: Level = Level::Info;
-const TIME_FORMATTING_STRING: &str =
+pub const TIME_FORMATTING_STRING: &str =
     "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]";
 
 lazy_static! {

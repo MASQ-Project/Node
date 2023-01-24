@@ -3,6 +3,7 @@
 /results/
 **/*.rs.bk
 .idea/azure/
+.idea/inspectionProfiles/Project_Default.xml
 
 ### Node
 node_modules
