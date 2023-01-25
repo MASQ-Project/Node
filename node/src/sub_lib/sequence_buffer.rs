@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn uses_zero_when_creating_sequenced_packet_from_transmit_data_msg_with_no_sequence_number() {
         let tdm = TransmitDataMsg {
-            endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.3.4:80").unwrap()),
+            endpoint: Endpoint::NeighborSocket(SocketAddr::from_str("1.2.3.4:80").unwrap()),
             last_data: true,
             data: vec![1, 4, 5, 9],
             sequence_number: None,
@@ -264,7 +264,7 @@ mod tests {
     #[test]
     fn can_create_sequenced_packet_from_transmit_data_msg() {
         let tdm = TransmitDataMsg {
-            endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.3.4:80").unwrap()),
+            endpoint: Endpoint::NeighborSocket(SocketAddr::from_str("1.2.3.4:80").unwrap()),
             last_data: true,
             data: vec![1, 4, 5, 9],
             sequence_number: Some(1),
@@ -277,7 +277,7 @@ mod tests {
         assert_eq!(result.last_data, true);
 
         let tdm = TransmitDataMsg {
-            endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.3.4:80").unwrap()),
+            endpoint: Endpoint::NeighborSocket(SocketAddr::from_str("1.2.3.4:80").unwrap()),
             last_data: false,
             data: vec![4, 2, 5, 67],
             sequence_number: Some(4),

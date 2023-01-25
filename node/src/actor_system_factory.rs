@@ -6,8 +6,8 @@ use super::hopper::Hopper;
 use super::neighborhood::Neighborhood;
 use super::proxy_client::ProxyClient;
 use super::proxy_server::ProxyServer;
-use super::stream_handler_pool::StreamHandlerPool;
-use super::stream_handler_pool::StreamHandlerPoolSubs;
+use super::neighbor_stream_handler_pool::NeighborStreamHandlerPool;
+use super::neighbor_stream_handler_pool::NeighborStreamHandlerPoolSubs;
 use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
@@ -56,7 +56,7 @@ pub trait ActorSystemFactory {
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
         persist_config: Box<dyn PersistentConfiguration>,
-    ) -> StreamHandlerPoolSubs;
+    ) -> NeighborStreamHandlerPoolSubs;
 }
 
 pub struct ActorSystemFactoryReal {
@@ -69,7 +69,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
         persist_config: Box<dyn PersistentConfiguration>,
-    ) -> StreamHandlerPoolSubs {
+    ) -> NeighborStreamHandlerPoolSubs {
         self.t.validate_database_chain(
             persist_config.as_ref(),
             config.blockchain_bridge_config.chain,
@@ -92,7 +92,7 @@ pub trait ActorSystemFactoryTools {
         config: BootstrapperConfig,
         persistent_config: Box<dyn PersistentConfiguration>,
         actor_factory: Box<dyn ActorFactory>,
-    ) -> StreamHandlerPoolSubs;
+    ) -> NeighborStreamHandlerPoolSubs;
     fn cryptdes(&self) -> CryptDEPair;
     fn validate_database_chain(
         &self,
@@ -113,7 +113,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         config: BootstrapperConfig,
         persistent_config: Box<dyn PersistentConfiguration>,
         actor_factory: Box<dyn ActorFactory>,
-    ) -> StreamHandlerPoolSubs {
+    ) -> NeighborStreamHandlerPoolSubs {
         let db_initializer = DbInitializerReal::default();
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher(&config);
         let proxy_server_subs = actor_factory.make_and_start_proxy_server(cryptdes, &config);
@@ -368,7 +368,7 @@ pub trait ActorFactory {
     fn make_and_start_stream_handler_pool(
         &self,
         config: &BootstrapperConfig,
-    ) -> StreamHandlerPoolSubs;
+    ) -> NeighborStreamHandlerPoolSubs;
     fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs;
     fn make_and_start_blockchain_bridge(&self, config: &BootstrapperConfig)
         -> BlockchainBridgeSubs;
@@ -479,14 +479,14 @@ impl ActorFactory for ActorFactoryReal {
     fn make_and_start_stream_handler_pool(
         &self,
         config: &BootstrapperConfig,
-    ) -> StreamHandlerPoolSubs {
+    ) -> NeighborStreamHandlerPoolSubs {
         let clandestine_discriminator_factories =
             config.clandestine_discriminator_factories.clone();
         let crashable = is_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
-        let addr: Addr<StreamHandlerPool> = arbiter
-            .start(move |_| StreamHandlerPool::new(clandestine_discriminator_factories, crashable));
-        StreamHandlerPool::make_subs_from(&addr)
+        let addr: Addr<NeighborStreamHandlerPool> = arbiter
+            .start(move |_| NeighborStreamHandlerPool::new(clandestine_discriminator_factories, crashable));
+        NeighborStreamHandlerPool::make_subs_from(&addr)
     }
 
     fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs {
@@ -636,7 +636,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::{ArbitraryIdStamp, SystemKillerActor};
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
-    use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
+    use crate::{hopper, proxy_client, proxy_server, neighbor_stream_handler_pool, ui_gateway};
     use actix::{Actor, Arbiter, System};
     use automap_lib::control_layer::automap_control::AutomapChange;
     #[cfg(all(test, not(feature = "no_test_share")))]
@@ -698,7 +698,7 @@ mod tests {
                 )>,
             >,
         >,
-        prepare_initial_messages_results: RefCell<Vec<StreamHandlerPoolSubs>>,
+        prepare_initial_messages_results: RefCell<Vec<NeighborStreamHandlerPoolSubs>>,
         cryptdes_results: RefCell<Vec<CryptDEPair>>,
         validate_database_chain_params: Arc<Mutex<Vec<(ArbitraryIdStamp, Chain)>>>,
     }
@@ -710,7 +710,7 @@ mod tests {
             config: BootstrapperConfig,
             persistent_config: Box<dyn PersistentConfiguration>,
             actor_factory: Box<dyn ActorFactory>,
-        ) -> StreamHandlerPoolSubs {
+        ) -> NeighborStreamHandlerPoolSubs {
             self.prepare_initial_messages_params.lock().unwrap().push((
                 Box::new(<&CryptDENull>::from(cryptdes.main).clone()),
                 Box::new(<&CryptDENull>::from(cryptdes.alias).clone()),
@@ -769,7 +769,7 @@ mod tests {
             self
         }
 
-        pub fn prepare_initial_messages_result(self, result: StreamHandlerPoolSubs) -> Self {
+        pub fn prepare_initial_messages_result(self, result: NeighborStreamHandlerPoolSubs) -> Self {
             self.prepare_initial_messages_results
                 .borrow_mut()
                 .push(result);
@@ -892,7 +892,7 @@ mod tests {
         fn make_and_start_stream_handler_pool(
             &self,
             _: &BootstrapperConfig,
-        ) -> StreamHandlerPoolSubs {
+        ) -> NeighborStreamHandlerPoolSubs {
             let addr = start_recorder_refcell_opt(&self.stream_handler_pool);
             make_stream_handler_pool_subs_from_recorder(&addr)
         }
@@ -1712,7 +1712,7 @@ mod tests {
             subscribers.node_from_ui_sub
         };
 
-        panic_in_arbiter_thread_versus_system(Box::new(closure), stream_handler_pool::CRASH_KEY)
+        panic_in_arbiter_thread_versus_system(Box::new(closure), neighbor_stream_handler_pool::CRASH_KEY)
     }
 
     fn panic_in_arbiter_thread_versus_system<F>(actor_initialization: Box<F>, actor_crash_key: &str)

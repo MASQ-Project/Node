@@ -9,7 +9,7 @@ use crate::masquerader::Masquerader;
 use crate::node_configurator::DirsWrapper;
 use crate::null_masquerader::NullMasquerader;
 use crate::privilege_drop::IdWrapper;
-use crate::stream_handler_pool::StreamHandlerPoolSubs;
+use crate::neighbor_stream_handler_pool::NeighborStreamHandlerPoolSubs;
 use crate::stream_messages::*;
 use crate::sub_lib::framer::FramedChunk;
 use crate::sub_lib::framer::Framer;
@@ -290,7 +290,7 @@ pub fn start_recorder_refcell_opt(recorder: &RefCell<Option<Recorder>>) -> Addr<
 
 pub fn make_stream_handler_pool_subs_from(
     stream_handler_pool_opt: Option<Recorder>,
-) -> StreamHandlerPoolSubs {
+) -> NeighborStreamHandlerPoolSubs {
     let recorder = match stream_handler_pool_opt {
         Some(recorder) => recorder,
         None => Recorder::new(),
@@ -299,8 +299,8 @@ pub fn make_stream_handler_pool_subs_from(
     make_stream_handler_pool_subs_from_recorder(&addr)
 }
 
-pub fn make_stream_handler_pool_subs_from_recorder(addr: &Addr<Recorder>) -> StreamHandlerPoolSubs {
-    StreamHandlerPoolSubs {
+pub fn make_stream_handler_pool_subs_from_recorder(addr: &Addr<Recorder>) -> NeighborStreamHandlerPoolSubs {
+    NeighborStreamHandlerPoolSubs {
         add_sub: recipient!(addr, AddStreamMsg),
         transmit_sub: recipient!(addr, TransmitDataMsg),
         remove_sub: recipient!(addr, RemoveStreamMsg),

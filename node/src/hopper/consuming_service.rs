@@ -55,7 +55,7 @@ impl ConsumingService {
                 };
                 // This port should eventually be chosen by the Traffic Analyzer somehow.
                 let socket_addrs: Vec<SocketAddr> = target_node_addr.into();
-                self.launch_lcp(encrypted_package, Endpoint::Socket(socket_addrs[0]));
+                self.launch_lcp(encrypted_package, Endpoint::NeighborSocket(socket_addrs[0]));
             }
             Err(e) => {
                 error!(
@@ -85,7 +85,7 @@ impl ConsumingService {
                 if &next_hop.public_key == self.cryptde.public_key() {
                     self.zero_hop(encrypted_package);
                 } else {
-                    self.launch_lcp(encrypted_package, Endpoint::Key(next_hop.public_key));
+                    self.launch_lcp(encrypted_package, Endpoint::NeighborPublicKey(next_hop.public_key));
                 }
             }
             Err(e) => error!(self.logger, "{}", e),
@@ -178,7 +178,7 @@ mod tests {
         let (lcp, _) = LiveCoresPackage::from_no_lookup_incipient(package, main_cryptde()).unwrap();
         assert_eq!(
             &TransmitDataMsg {
-                endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.1.2:1212").unwrap()),
+                endpoint: Endpoint::NeighborSocket(SocketAddr::from_str("1.2.1.2:1212").unwrap()),
                 last_data: false,
                 sequence_number: None,
                 data: encodex(main_cryptde(), &target_key, &lcp).unwrap().into(),
@@ -250,7 +250,7 @@ mod tests {
         let expected_lcp_enc = encodex(cryptde, &destination_key, &expected_lcp).unwrap();
         assert_eq!(
             TransmitDataMsg {
-                endpoint: Endpoint::Key(destination_key.clone()),
+                endpoint: Endpoint::NeighborPublicKey(destination_key.clone()),
                 last_data: false,
                 sequence_number: None,
                 data: expected_lcp_enc.into(),

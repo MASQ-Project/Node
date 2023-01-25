@@ -199,7 +199,7 @@ impl Handler<DispatcherNodeQueryMessage> for Neighborhood {
 
         msg.recipient
             .try_send(response)
-            .expect("Dispatcher's StreamHandlerPool is dead");
+            .expect("Dispatcher's NeighborStreamHandlerPool is dead");
     }
 }
 
@@ -4640,7 +4640,7 @@ mod tests {
             sub.try_send(DispatcherNodeQueryMessage {
                 query: NodeQueryMessage::PublicKey(PublicKey::new(&b"booga"[..])),
                 context: TransmitDataMsg {
-                    endpoint: Endpoint::Key(cryptde.public_key().clone()),
+                    endpoint: Endpoint::NeighborPublicKey(cryptde.public_key().clone()),
                     last_data: false,
                     sequence_number: None,
                     data: Vec::new(),
@@ -4702,7 +4702,7 @@ mod tests {
             sub.try_send(DispatcherNodeQueryMessage {
                 query: NodeQueryMessage::PublicKey(PublicKey::new(&b"blah"[..])),
                 context: TransmitDataMsg {
-                    endpoint: Endpoint::Key(cryptde.public_key().clone()),
+                    endpoint: Endpoint::NeighborPublicKey(cryptde.public_key().clone()),
                     last_data: false,
                     sequence_number: None,
                     data: Vec::new(),
@@ -4731,7 +4731,7 @@ mod tests {
         let another_neighbor = make_node_record(3456, true);
         let another_neighbor_a = another_neighbor.clone();
         let context = TransmitDataMsg {
-            endpoint: Endpoint::Key(cryptde.public_key().clone()),
+            endpoint: Endpoint::NeighborPublicKey(cryptde.public_key().clone()),
             last_data: false,
             sequence_number: None,
             data: Vec::new(),
@@ -4829,7 +4829,7 @@ mod tests {
             sub.try_send(DispatcherNodeQueryMessage {
                 query: NodeQueryMessage::IpAddress(IpAddr::from_str("2.3.4.5").unwrap()),
                 context: TransmitDataMsg {
-                    endpoint: Endpoint::Key(cryptde.public_key().clone()),
+                    endpoint: Endpoint::NeighborPublicKey(cryptde.public_key().clone()),
                     last_data: false,
                     sequence_number: None,
                     data: Vec::new(),
@@ -4857,7 +4857,7 @@ mod tests {
         let another_node_record = make_node_record(2345, true);
         let another_node_record_a = another_node_record.clone();
         let context = TransmitDataMsg {
-            endpoint: Endpoint::Key(cryptde.public_key().clone()),
+            endpoint: Endpoint::NeighborPublicKey(cryptde.public_key().clone()),
             last_data: false,
             sequence_number: None,
             data: Vec::new(),

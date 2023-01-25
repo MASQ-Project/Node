@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::bootstrapper::PortConfiguration;
-use crate::stream_handler_pool::StreamHandlerPoolSubs;
+use crate::neighbor_stream_handler_pool::NeighborStreamHandlerPoolSubs;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::stream_connector::ConnectionInfo;
@@ -64,7 +64,7 @@ impl Debug for RemoveStreamMsg {
 #[derive(Message, Clone)]
 pub struct PoolBindMessage {
     pub dispatcher_subs: DispatcherSubs,
-    pub stream_handler_pool_subs: StreamHandlerPoolSubs,
+    pub stream_handler_pool_subs: NeighborStreamHandlerPoolSubs,
     pub neighborhood_subs: NeighborhoodSubs,
 }
 

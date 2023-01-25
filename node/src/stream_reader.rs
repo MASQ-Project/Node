@@ -140,7 +140,7 @@ impl StreamReaderReal {
                     let sequence_number = if unmasked_chunk.sequenced && !is_connect {
                         Some(self.sequencer.next_sequence_number())
                     } else if is_connect {
-                        // This case needs to explicitly be Some(0) instead of None so that the StreamHandlerPool does
+                        // This case needs to explicitly be Some(0) instead of None so that the NeighborStreamHandlerPool does
                         // not masquerade it.
                         Some(0)
                     } else {
@@ -198,7 +198,7 @@ impl StreamReaderReal {
                 },
                 sub: self.stream_shutdown_sub.clone(),
             })
-            .expect("StreamHandlerPool is dead");
+            .expect("NeighborStreamHandlerPool is dead");
     }
 
     fn stringify(local_addr: SocketAddr, peer_addr: SocketAddr) -> String {
@@ -214,7 +214,7 @@ mod tests {
     use crate::json_masquerader::JsonMasquerader;
     use crate::masquerader::Masquerader;
     use crate::node_test_utils::{check_timestamp, make_stream_handler_pool_subs_from};
-    use crate::stream_handler_pool::StreamHandlerPoolSubs;
+    use crate::neighbor_stream_handler_pool::NeighborStreamHandlerPoolSubs;
     use crate::stream_messages::RemovedStreamType::NonClandestine;
     use crate::sub_lib::dispatcher::DispatcherSubs;
     use crate::test_utils::recorder::make_dispatcher_subs_from;
@@ -236,7 +236,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
 
-    fn stream_handler_pool_stuff() -> (Arc<Mutex<Recording>>, StreamHandlerPoolSubs) {
+    fn stream_handler_pool_stuff() -> (Arc<Mutex<Recording>>, NeighborStreamHandlerPoolSubs) {
         let (shp, _, recording) = make_recorder();
         (recording, make_stream_handler_pool_subs_from(Some(shp)))
     }

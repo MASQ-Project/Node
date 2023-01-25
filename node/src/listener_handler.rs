@@ -83,7 +83,7 @@ impl Future for ListenerHandlerReal {
                         };
                     self.add_stream_sub
                         .as_ref()
-                        .expect("Internal error: StreamHandlerPool unbound")
+                        .expect("Internal error: NeighborStreamHandlerPool unbound")
                         .try_send(AddStreamMsg::new(
                             connection_info,
                             self.port,
@@ -92,7 +92,7 @@ impl Future for ListenerHandlerReal {
                                 .expect("Internal error: port_configuration is None")
                                 .clone(),
                         ))
-                        .expect("Internal error: StreamHandlerPool is dead");
+                        .expect("Internal error: NeighborStreamHandlerPool is dead");
                 }
                 Err(e) => {
                     // TODO FIXME we should kill the entire Node if there is a fatal error in a listener_handler

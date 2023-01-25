@@ -99,15 +99,15 @@ impl Handler<TransmitDataMsg> for Dispatcher {
     fn handle(&mut self, msg: TransmitDataMsg, _ctx: &mut Self::Context) {
         debug!(
             self.logger,
-            "Relaying {} bytes to StreamHandlerPool for {:?}",
+            "Relaying {} bytes to NeighborStreamHandlerPool for {:?}",
             msg.data.len(),
             msg.endpoint
         );
         self.to_stream
             .as_ref()
-            .expect("StreamHandlerPool unbound in Dispatcher")
+            .expect("NeighborStreamHandlerPool unbound in Dispatcher")
             .try_send(msg)
-            .expect("StreamHandlerPool is dead");
+            .expect("NeighborStreamHandlerPool is dead");
     }
 }
 
@@ -385,7 +385,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "StreamHandlerPool unbound in Dispatcher")]
+    #[should_panic(expected = "NeighborStreamHandlerPool unbound in Dispatcher")]
     fn panics_when_stream_handler_pool_is_unbound() {
         let system = System::new("test");
         let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
@@ -394,7 +394,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let data: Vec<u8> = vec![9, 10, 11];
         let obcd = TransmitDataMsg {
-            endpoint: Endpoint::Socket(socket_addr),
+            endpoint: Endpoint::NeighborSocket(socket_addr),
             last_data: false,
             sequence_number: Some(0),
             data: data.clone(),
@@ -418,7 +418,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let data: Vec<u8> = vec![9, 10, 11];
         let obcd = TransmitDataMsg {
-            endpoint: Endpoint::Socket(socket_addr),
+            endpoint: Endpoint::NeighborSocket(socket_addr),
             last_data: false,
             sequence_number: None,
             data: data.clone(),
@@ -448,7 +448,7 @@ mod tests {
         let actual_endpoint = message.endpoint.clone();
         let actual_data = message.data.clone();
 
-        assert_eq!(actual_endpoint, Endpoint::Socket(socket_addr));
+        assert_eq!(actual_endpoint, Endpoint::NeighborSocket(socket_addr));
         assert_eq!(actual_data, data);
         assert_eq!(recording.len(), 1);
     }

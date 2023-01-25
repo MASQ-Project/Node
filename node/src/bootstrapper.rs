@@ -717,7 +717,7 @@ mod tests {
     use crate::node_test_utils::{extract_log, DirsWrapperMock, IdWrapperMock};
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::server_initializer::LoggerInitializerWrapper;
-    use crate::stream_handler_pool::StreamHandlerPoolSubs;
+    use crate::neighbor_stream_handler_pool::NeighborStreamHandlerPoolSubs;
     use crate::stream_messages::AddStreamMsg;
     use crate::sub_lib::accountant::ScanIntervals;
     use crate::sub_lib::cryptde::PublicKey;
@@ -850,7 +850,7 @@ mod tests {
                 let add_stream_msg = add_stream_msgs.remove(0);
                 add_stream_sub
                     .try_send(add_stream_msg)
-                    .expect("StreamHandlerPool is dead");
+                    .expect("NeighborStreamHandlerPool is dead");
             }
             if let Some(desired_number) = self.polling_setting.how_many_attempts_wanted_opt {
                 self.polling_setting.counter += 1;
@@ -2124,7 +2124,7 @@ mod tests {
     struct StreamHandlerPoolCluster {
         recording: Option<Arc<Mutex<Recording>>>,
         awaiter: Option<RecordAwaiter>,
-        subs: StreamHandlerPoolSubs,
+        subs: NeighborStreamHandlerPoolSubs,
     }
 
     struct ActorSystemFactoryActiveMock {
@@ -2146,7 +2146,7 @@ mod tests {
             config: BootstrapperConfig,
             actor_factory: Box<dyn ActorFactory>,
             persist_config: Box<dyn PersistentConfiguration>,
-        ) -> StreamHandlerPoolSubs {
+        ) -> NeighborStreamHandlerPoolSubs {
             let mut parameter_guard = self.make_and_start_actors_params.lock().unwrap();
             parameter_guard.push((config.clone(), actor_factory, persist_config));
 

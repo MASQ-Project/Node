@@ -298,7 +298,7 @@ impl ProxyServer {
                     .expect("Dispatcher unbound in ProxyServer")
                     .dispatcher
                     .try_send(TransmitDataMsg {
-                        endpoint: Endpoint::Socket(socket_addr),
+                        endpoint: Endpoint::NeighborSocket(socket_addr),
                         last_data: true,
                         sequence_number: Some(0), // DNS resolution errors always happen on the first request
                         data: from_protocol(return_route_info.protocol)
@@ -368,7 +368,7 @@ impl ProxyServer {
                     .expect("Dispatcher unbound in ProxyServer")
                     .dispatcher
                     .try_send(TransmitDataMsg {
-                        endpoint: Endpoint::Socket(socket_addr),
+                        endpoint: Endpoint::NeighborSocket(socket_addr),
                         last_data,
                         sequence_number,
                         data: response.sequenced_packet.data,
@@ -410,7 +410,7 @@ impl ProxyServer {
                     .expect("Dispatcher unbound in ProxyServer")
                     .dispatcher
                     .try_send(TransmitDataMsg {
-                        endpoint: Endpoint::Socket(msg.peer_addr),
+                        endpoint: Endpoint::NeighborSocket(msg.peer_addr),
                         last_data: false,
                         sequence_number: msg.sequence_number,
                         data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
@@ -423,7 +423,7 @@ impl ProxyServer {
                     .expect("Dispatcher unbound in ProxyServer")
                     .dispatcher
                     .try_send(TransmitDataMsg {
-                        endpoint: Endpoint::Socket(msg.peer_addr),
+                        endpoint: Endpoint::NeighborSocket(msg.peer_addr),
                         last_data: true,
                         sequence_number: msg.sequence_number,
                         data: b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n".to_vec(),
@@ -740,7 +740,7 @@ impl ProxyServer {
             .server_impersonator()
             .route_query_failure_response(&ProxyServer::hostname(&payload));
         let msg = TransmitDataMsg {
-            endpoint: Endpoint::Socket(source_addr),
+            endpoint: Endpoint::NeighborSocket(source_addr),
             last_data: true,
             sequence_number: Some(0),
             data,
@@ -872,7 +872,7 @@ impl IBCDHelper for IBCDHelperReal {
                 .server_impersonator()
                 .consuming_wallet_absent();
             let msg = TransmitDataMsg {
-                endpoint: Endpoint::Socket(source_addr),
+                endpoint: Endpoint::NeighborSocket(source_addr),
                 last_data: true,
                 sequence_number: Some(0),
                 data,
@@ -1333,7 +1333,7 @@ mod tests {
             data: b"client hello".to_vec(),
         };
         let expected_tdm = TransmitDataMsg {
-            endpoint: Endpoint::Socket(socket_addr.clone()),
+            endpoint: Endpoint::NeighborSocket(socket_addr.clone()),
             last_data: false,
             sequence_number: Some(0),
             data: b"HTTP/1.1 200 OK\r\n\r\n".to_vec(),
@@ -1548,7 +1548,7 @@ mod tests {
         thread::sleep(Duration::from_millis(500));
 
         let expected_transmit_data_msg = TransmitDataMsg {
-            endpoint: Endpoint::Socket(socket_addr),
+            endpoint: Endpoint::NeighborSocket(socket_addr),
             last_data: true,
             sequence_number: Some(0),
             data: b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n".to_vec(),
@@ -1620,7 +1620,7 @@ mod tests {
         thread::sleep(Duration::from_millis(500));
 
         let expected_transmit_data_msg = TransmitDataMsg {
-            endpoint: Endpoint::Socket(socket_addr),
+            endpoint: Endpoint::NeighborSocket(socket_addr),
             last_data: true,
             sequence_number: Some(0),
             data: b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n".to_vec(),
@@ -1681,7 +1681,7 @@ mod tests {
         assert_eq!(
             record,
             &TransmitDataMsg {
-                endpoint: Endpoint::Socket(socket_addr),
+                endpoint: Endpoint::NeighborSocket(socket_addr),
                 last_data: true,
                 sequence_number: Some(0),
                 data: server_impersonator.consuming_wallet_absent(),
@@ -1741,7 +1741,7 @@ mod tests {
         assert_eq!(
             record,
             &TransmitDataMsg {
-                endpoint: Endpoint::Socket(socket_addr),
+                endpoint: Endpoint::NeighborSocket(socket_addr),
                 last_data: true,
                 sequence_number: Some(0),
                 data: server_impersonator.consuming_wallet_absent(),
@@ -2696,7 +2696,7 @@ mod tests {
         let recording = dispatcher_recording_arc.lock().unwrap();
         let record = recording.get_record::<TransmitDataMsg>(0);
         let expected_msg = TransmitDataMsg {
-            endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.3.4:5678").unwrap()),
+            endpoint: Endpoint::NeighborSocket(SocketAddr::from_str("1.2.3.4:5678").unwrap()),
             last_data: true,
             sequence_number: Some(0),
             data: ServerImpersonatorHttp {}.route_query_failure_response("nowhere.com"),
@@ -2868,7 +2868,7 @@ mod tests {
         let recording = dispatcher_recording_arc.lock().unwrap();
         let record = recording.get_record::<TransmitDataMsg>(0);
         let expected_msg = TransmitDataMsg {
-            endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.3.4:5678").unwrap()),
+            endpoint: Endpoint::NeighborSocket(SocketAddr::from_str("1.2.3.4:5678").unwrap()),
             last_data: true,
             sequence_number: Some(0),
             data: ServerImpersonatorHttp {}.route_query_failure_response("nowhere.com"),
@@ -3215,7 +3215,7 @@ mod tests {
         let recording = dispatcher_recording_arc.lock().unwrap();
         let record = recording.get_record::<TransmitDataMsg>(0);
         let expected_msg = TransmitDataMsg {
-            endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.3.4:5678").unwrap()),
+            endpoint: Endpoint::NeighborSocket(SocketAddr::from_str("1.2.3.4:5678").unwrap()),
             last_data: true,
             sequence_number: Some(0),
             data: ServerImpersonatorTls {}.route_query_failure_response("ignored"),
@@ -3282,7 +3282,7 @@ mod tests {
         system.run();
         let dispatcher_recording = dispatcher_recording_arc.lock().unwrap();
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
-        assert_eq!(record.endpoint, Endpoint::Socket(socket_addr));
+        assert_eq!(record.endpoint, Endpoint::NeighborSocket(socket_addr));
         assert_eq!(record.last_data, true);
         assert_eq!(record.data, b"16 bytes of data".to_vec());
         TestLogHandler::new().exists_log_containing(&format!("WARN: ProxyServer: Discarding 16-byte packet 12345678 from an unrecognized stream key: {:?}", stream_key));
@@ -3486,11 +3486,11 @@ mod tests {
         let after = SystemTime::now();
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
-        assert_eq!(record.endpoint, Endpoint::Socket(socket_addr));
+        assert_eq!(record.endpoint, Endpoint::NeighborSocket(socket_addr));
         assert_eq!(record.last_data, false);
         assert_eq!(record.data, b"some data".to_vec());
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(1);
-        assert_eq!(record.endpoint, Endpoint::Socket(socket_addr));
+        assert_eq!(record.endpoint, Endpoint::NeighborSocket(socket_addr));
         assert_eq!(record.last_data, false);
         assert_eq!(record.data, b"other data".to_vec());
         let accountant_recording = accountant_recording_arc.lock().unwrap();
@@ -3711,7 +3711,7 @@ mod tests {
         let record = dispatcher_recording.get_record::<TransmitDataMsg>(0);
         assert_eq!(
             TransmitDataMsg {
-                endpoint: Endpoint::Socket(socket_addr),
+                endpoint: Endpoint::NeighborSocket(socket_addr),
                 last_data: true,
                 sequence_number: Some(0),
                 data: ServerImpersonatorHttp {}.dns_resolution_failure_response(

@@ -39,7 +39,7 @@ pub mod proxy_server;
 pub mod run_modes;
 pub mod run_modes_factories;
 pub mod server_initializer;
-pub mod stream_handler_pool;
+pub mod neighbor_stream_handler_pool;
 mod stream_messages;
 mod stream_reader;
 mod stream_writer_sorted;

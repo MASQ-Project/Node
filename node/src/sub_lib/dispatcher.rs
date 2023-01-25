@@ -79,15 +79,15 @@ impl<'a> Visitor<'a> for ComponentVisitor {
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum Endpoint {
-    Key(PublicKey),
-    Socket(SocketAddr),
+    NeighborPublicKey(PublicKey),
+    NeighborSocket(SocketAddr),
 }
 
 impl fmt::Debug for Endpoint {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Endpoint::Key(ref key) => write!(f, "PublicKey({})", key),
-            Endpoint::Socket(ref socket_addr) => write!(f, "Socket({})", *socket_addr),
+            Endpoint::NeighborPublicKey(ref key) => write!(f, "PublicKey({})", key),
+            Endpoint::NeighborSocket(ref socket_addr) => write!(f, "Socket({})", *socket_addr),
         }
     }
 }
@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn debug_string_for_endpoint_with_utf8_key() {
-        let subject = Endpoint::Key(PublicKey::new(b"blah"));
+        let subject = Endpoint::NeighborPublicKey(PublicKey::new(b"blah"));
 
         let result = format!("{:?}", subject);
 
@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn debug_string_for_endpoint_with_non_utf8_key() {
-        let subject = Endpoint::Key(PublicKey::new(&[192, 193]));
+        let subject = Endpoint::NeighborPublicKey(PublicKey::new(&[192, 193]));
 
         let result = format!("{:?}", subject);
 
@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn debug_string_for_endpoint_with_socket() {
-        let subject = Endpoint::Socket(SocketAddr::from_str("1.2.3.4:5678").unwrap());
+        let subject = Endpoint::NeighborSocket(SocketAddr::from_str("1.2.3.4:5678").unwrap());
 
         let result = format!("{:?}", subject);
 
