@@ -37,7 +37,7 @@ pub mod sequencer;
 pub mod set_consuming_wallet_message;
 pub mod socket_server;
 pub mod stream_connector;
-pub mod stream_handler_pool;
+pub mod neighbor_stream_handler_pool;
 pub mod stream_key;
 pub mod tcp_wrappers;
 pub mod tls_framer;

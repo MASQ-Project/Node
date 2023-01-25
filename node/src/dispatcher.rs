@@ -6,7 +6,7 @@ use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp};
-use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::test_utils::main_cryptde;
 use actix::Actor;
@@ -394,7 +394,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let data: Vec<u8> = vec![9, 10, 11];
         let obcd = TransmitDataMsg {
-            endpoint: Endpoint::NeighborSocket(socket_addr),
+            endpoint: Endpoint::Socket(socket_addr),
             last_data: false,
             sequence_number: Some(0),
             data: data.clone(),
@@ -418,7 +418,7 @@ mod tests {
         let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let data: Vec<u8> = vec![9, 10, 11];
         let obcd = TransmitDataMsg {
-            endpoint: Endpoint::NeighborSocket(socket_addr),
+            endpoint: Endpoint::Socket(socket_addr),
             last_data: false,
             sequence_number: None,
             data: data.clone(),
@@ -448,7 +448,7 @@ mod tests {
         let actual_endpoint = message.endpoint.clone();
         let actual_data = message.data.clone();
 
-        assert_eq!(actual_endpoint, Endpoint::NeighborSocket(socket_addr));
+        assert_eq!(actual_endpoint, Endpoint::Socket(socket_addr));
         assert_eq!(actual_data, data);
         assert_eq!(recording.len(), 1);
     }

@@ -2121,14 +2121,14 @@ mod tests {
         );
     }
 
-    struct StreamHandlerPoolCluster {
+    struct NeighborStreamHandlerPoolCluster {
         recording: Option<Arc<Mutex<Recording>>>,
         awaiter: Option<RecordAwaiter>,
         subs: NeighborStreamHandlerPoolSubs,
     }
 
     struct ActorSystemFactoryActiveMock {
-        stream_handler_pool_cluster: StreamHandlerPoolCluster,
+        stream_handler_pool_cluster: NeighborStreamHandlerPoolCluster,
         make_and_start_actors_params: Arc<
             Mutex<
                 Vec<(
@@ -2162,7 +2162,7 @@ mod tests {
 
                 let stream_handler_pool_cluster = {
                     let (stream_handler_pool, awaiter, recording) = make_recorder();
-                    StreamHandlerPoolCluster {
+                    NeighborStreamHandlerPoolCluster {
                         recording: Some(recording),
                         awaiter: Some(awaiter),
                         subs: make_stream_handler_pool_subs_from(Some(stream_handler_pool)),

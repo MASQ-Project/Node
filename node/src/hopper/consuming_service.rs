@@ -5,7 +5,7 @@ use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::{encodex, CryptDE};
 use crate::sub_lib::dispatcher::{Endpoint, InboundClientData};
 use crate::sub_lib::hopper::{IncipientCoresPackage, NoLookupIncipientCoresPackage};
-use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
 use actix::Recipient;
 use masq_lib::logger::Logger;
 use std::borrow::Borrow;
@@ -55,7 +55,7 @@ impl ConsumingService {
                 };
                 // This port should eventually be chosen by the Traffic Analyzer somehow.
                 let socket_addrs: Vec<SocketAddr> = target_node_addr.into();
-                self.launch_lcp(encrypted_package, Endpoint::NeighborSocket(socket_addrs[0]));
+                self.launch_lcp(encrypted_package, Endpoint::Socket(socket_addrs[0]));
             }
             Err(e) => {
                 error!(
@@ -178,7 +178,7 @@ mod tests {
         let (lcp, _) = LiveCoresPackage::from_no_lookup_incipient(package, main_cryptde()).unwrap();
         assert_eq!(
             &TransmitDataMsg {
-                endpoint: Endpoint::NeighborSocket(SocketAddr::from_str("1.2.1.2:1212").unwrap()),
+                endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.1.2:1212").unwrap()),
                 last_data: false,
                 sequence_number: None,
                 data: encodex(main_cryptde(), &target_key, &lcp).unwrap().into(),

@@ -6,7 +6,7 @@ pub(in crate::proxy_server) mod local {
     use crate::sub_lib::dispatcher::StreamShutdownMsg;
     use crate::sub_lib::hopper::IncipientCoresPackage;
     use crate::sub_lib::proxy_server::{AddReturnRouteMessage, ClientRequestPayload_0v1};
-    use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+    use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
     use actix::Recipient;
     use masq_lib::logger::Logger;
     use masq_lib::utils::ExpectValue;

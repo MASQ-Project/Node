@@ -3,7 +3,7 @@ use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp};
-use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
 use actix::Message;
 use actix::Recipient;
 use masq_lib::ui_gateway::NodeFromUiMessage;
@@ -80,14 +80,14 @@ impl<'a> Visitor<'a> for ComponentVisitor {
 #[derive(Clone, PartialEq, Eq)]
 pub enum Endpoint {
     NeighborPublicKey(PublicKey),
-    NeighborSocket(SocketAddr),
+    Socket(SocketAddr), // This SocketAddr can be either a neighbor Node or a browser stream, but not a server stream.
 }
 
 impl fmt::Debug for Endpoint {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
             Endpoint::NeighborPublicKey(ref key) => write!(f, "PublicKey({})", key),
-            Endpoint::NeighborSocket(ref socket_addr) => write!(f, "Socket({})", *socket_addr),
+            Endpoint::Socket(ref socket_addr) => write!(f, "Socket({})", *socket_addr),
         }
     }
 }
@@ -231,7 +231,7 @@ mod tests {
 
     #[test]
     fn debug_string_for_endpoint_with_socket() {
-        let subject = Endpoint::NeighborSocket(SocketAddr::from_str("1.2.3.4:5678").unwrap());
+        let subject = Endpoint::Socket(SocketAddr::from_str("1.2.3.4:5678").unwrap());
 
         let result = format!("{:?}", subject);
 

@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
 use masq_lib::logger::Logger;
 use masq_lib::utils::index_of;
 use serde::de::Visitor;
@@ -241,7 +241,7 @@ impl SequenceBuffer {
 mod tests {
     use super::*;
     use crate::sub_lib::dispatcher::Endpoint;
-    use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+    use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use std::net::SocketAddr;
@@ -250,7 +250,7 @@ mod tests {
     #[test]
     fn uses_zero_when_creating_sequenced_packet_from_transmit_data_msg_with_no_sequence_number() {
         let tdm = TransmitDataMsg {
-            endpoint: Endpoint::NeighborSocket(SocketAddr::from_str("1.2.3.4:80").unwrap()),
+            endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.3.4:80").unwrap()),
             last_data: true,
             data: vec![1, 4, 5, 9],
             sequence_number: None,
@@ -264,7 +264,7 @@ mod tests {
     #[test]
     fn can_create_sequenced_packet_from_transmit_data_msg() {
         let tdm = TransmitDataMsg {
-            endpoint: Endpoint::NeighborSocket(SocketAddr::from_str("1.2.3.4:80").unwrap()),
+            endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.3.4:80").unwrap()),
             last_data: true,
             data: vec![1, 4, 5, 9],
             sequence_number: Some(1),
@@ -277,7 +277,7 @@ mod tests {
         assert_eq!(result.last_data, true);
 
         let tdm = TransmitDataMsg {
-            endpoint: Endpoint::NeighborSocket(SocketAddr::from_str("1.2.3.4:80").unwrap()),
+            endpoint: Endpoint::Socket(SocketAddr::from_str("1.2.3.4:80").unwrap()),
             last_data: false,
             data: vec![4, 2, 5, 67],
             sequence_number: Some(4),

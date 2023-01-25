@@ -25,8 +25,8 @@ use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_connector::StreamConnector;
 use crate::sub_lib::stream_connector::StreamConnectorReal;
-use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
-use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+use crate::sub_lib::neighbor_stream_handler_pool::DispatcherNodeQueryResponse;
+use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
@@ -304,7 +304,7 @@ impl NeighborStreamHandlerPool {
                     .try_send(request)
                     .expect("Neighborhood is Dead")
             }
-            Endpoint::NeighborSocket(socket_addr) => {
+            Endpoint::Socket(socket_addr) => {
                 debug!(
                     self.logger,
                     "Translating TransmitDataMsg to node query response about {}", socket_addr
@@ -831,7 +831,7 @@ mod tests {
             subject_subs
                 .transmit_sub
                 .try_send(TransmitDataMsg {
-                    endpoint: Endpoint::NeighborSocket(peer_addr),
+                    endpoint: Endpoint::Socket(peer_addr),
                     last_data: true,
                     sequence_number: Some(0),
                     data: b"hello".to_vec(),
@@ -913,7 +913,7 @@ mod tests {
         subject_subs
             .transmit_sub
             .try_send(TransmitDataMsg {
-                endpoint: Endpoint::NeighborSocket(peer_addr),
+                endpoint: Endpoint::Socket(peer_addr),
                 last_data: true,
                 sequence_number: Some(0),
                 data: vec![0x12, 0x34],
@@ -936,7 +936,7 @@ mod tests {
         subject_subs
             .transmit_sub
             .try_send(TransmitDataMsg {
-                endpoint: Endpoint::NeighborSocket(peer_addr),
+                endpoint: Endpoint::Socket(peer_addr),
                 last_data: true,
                 sequence_number: Some(0),
                 data: vec![0x56, 0x78],
@@ -1015,7 +1015,7 @@ mod tests {
             subject_subs
                 .transmit_sub
                 .try_send(TransmitDataMsg {
-                    endpoint: Endpoint::NeighborSocket(peer_addr),
+                    endpoint: Endpoint::Socket(peer_addr),
                     last_data: true,
                     sequence_number: Some(0),
                     data: vec![0x12, 0x34],
@@ -1525,7 +1525,7 @@ mod tests {
         let peer_addr = SocketAddr::from_str("5.4.3.1:8000").unwrap();
         let peer_addr_a = peer_addr.clone();
         let msg = TransmitDataMsg {
-            endpoint: Endpoint::NeighborSocket(peer_addr.clone()),
+            endpoint: Endpoint::Socket(peer_addr.clone()),
             last_data: false,
             sequence_number: Some(0),
             data: b"hello".to_vec(),
@@ -1624,13 +1624,13 @@ mod tests {
         let peer_addr = SocketAddr::from_str("5.4.3.1:8000").unwrap();
         let peer_addr_a = peer_addr.clone();
         let msg = TransmitDataMsg {
-            endpoint: Endpoint::NeighborSocket(peer_addr.clone()),
+            endpoint: Endpoint::Socket(peer_addr.clone()),
             last_data: false,
             sequence_number: None,
             data: b"hello".to_vec(),
         };
         let msg_a = TransmitDataMsg {
-            endpoint: Endpoint::NeighborSocket(peer_addr.clone()),
+            endpoint: Endpoint::Socket(peer_addr.clone()),
             last_data: false,
             sequence_number: None,
             data: b"worlds".to_vec(),
@@ -1750,7 +1750,7 @@ mod tests {
                 rate_pack: ZERO_RATE_PACK.clone(),
             }),
             context: TransmitDataMsg {
-                endpoint: Endpoint::NeighborSocket(peer_addr.clone()),
+                endpoint: Endpoint::Socket(peer_addr.clone()),
                 last_data: true,
                 sequence_number: Some(0),
                 data: b"hello".to_vec(),
@@ -1790,7 +1790,7 @@ mod tests {
 
         let peer_addr = SocketAddr::from_str("5.4.3.1:8000").unwrap();
         let msg = TransmitDataMsg {
-            endpoint: Endpoint::NeighborSocket(peer_addr.clone()),
+            endpoint: Endpoint::Socket(peer_addr.clone()),
             last_data: false,
             sequence_number: None,
             data: b"hello".to_vec(),
@@ -1881,7 +1881,7 @@ mod tests {
             subject_subs
                 .transmit_sub
                 .try_send(TransmitDataMsg {
-                    endpoint: Endpoint::NeighborSocket(peer_addr),
+                    endpoint: Endpoint::Socket(peer_addr),
                     last_data: false,
                     sequence_number: None,
                     data: hello,
@@ -1891,7 +1891,7 @@ mod tests {
             subject_subs
                 .transmit_sub
                 .try_send(TransmitDataMsg {
-                    endpoint: Endpoint::NeighborSocket(peer_addr),
+                    endpoint: Endpoint::Socket(peer_addr),
                     last_data: false,
                     sequence_number: None,
                     data: worlds,
@@ -1955,7 +1955,7 @@ mod tests {
             subject_subs
                 .transmit_sub
                 .try_send(TransmitDataMsg {
-                    endpoint: Endpoint::NeighborSocket(peer_addr),
+                    endpoint: Endpoint::Socket(peer_addr),
                     last_data: false,
                     sequence_number: None,
                     data: b"hello".to_vec(),
@@ -2004,7 +2004,7 @@ mod tests {
         subject_subs
             .transmit_sub
             .try_send(TransmitDataMsg {
-                endpoint: Endpoint::NeighborSocket(local_addr),
+                endpoint: Endpoint::Socket(local_addr),
                 last_data: false,
                 sequence_number: Some(0),
                 data: outgoing_unmasked,
