@@ -3,11 +3,11 @@ use super::accountant::Accountant;
 use super::bootstrapper::BootstrapperConfig;
 use super::dispatcher::Dispatcher;
 use super::hopper::Hopper;
+use super::neighbor_stream_handler_pool::NeighborStreamHandlerPool;
+use super::neighbor_stream_handler_pool::NeighborStreamHandlerPoolSubs;
 use super::neighborhood::Neighborhood;
 use super::proxy_client::ProxyClient;
 use super::proxy_server::ProxyServer;
-use super::neighbor_stream_handler_pool::NeighborStreamHandlerPool;
-use super::neighbor_stream_handler_pool::NeighborStreamHandlerPoolSubs;
 use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
@@ -484,8 +484,9 @@ impl ActorFactory for ActorFactoryReal {
             config.clandestine_discriminator_factories.clone();
         let crashable = is_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
-        let addr: Addr<NeighborStreamHandlerPool> = arbiter
-            .start(move |_| NeighborStreamHandlerPool::new(clandestine_discriminator_factories, crashable));
+        let addr: Addr<NeighborStreamHandlerPool> = arbiter.start(move |_| {
+            NeighborStreamHandlerPool::new(clandestine_discriminator_factories, crashable)
+        });
         NeighborStreamHandlerPool::make_subs_from(&addr)
     }
 
@@ -616,12 +617,12 @@ mod tests {
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
+    use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::neighborhood::NeighborhoodMode;
     use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::peer_actors::StartMessage;
-    use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
     use crate::test_utils::make_wallet;
@@ -636,7 +637,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::{ArbitraryIdStamp, SystemKillerActor};
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
-    use crate::{hopper, proxy_client, proxy_server, neighbor_stream_handler_pool, ui_gateway};
+    use crate::{hopper, neighbor_stream_handler_pool, proxy_client, proxy_server, ui_gateway};
     use actix::{Actor, Arbiter, System};
     use automap_lib::control_layer::automap_control::AutomapChange;
     #[cfg(all(test, not(feature = "no_test_share")))]
@@ -769,7 +770,10 @@ mod tests {
             self
         }
 
-        pub fn prepare_initial_messages_result(self, result: NeighborStreamHandlerPoolSubs) -> Self {
+        pub fn prepare_initial_messages_result(
+            self,
+            result: NeighborStreamHandlerPoolSubs,
+        ) -> Self {
             self.prepare_initial_messages_results
                 .borrow_mut()
                 .push(result);
@@ -1712,7 +1716,10 @@ mod tests {
             subscribers.node_from_ui_sub
         };
 
-        panic_in_arbiter_thread_versus_system(Box::new(closure), neighbor_stream_handler_pool::CRASH_KEY)
+        panic_in_arbiter_thread_versus_system(
+            Box::new(closure),
+            neighbor_stream_handler_pool::CRASH_KEY,
+        )
     }
 
     fn panic_in_arbiter_thread_versus_system<F>(actor_initialization: Box<F>, actor_crash_key: &str)

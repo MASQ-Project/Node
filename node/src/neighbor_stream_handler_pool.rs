@@ -15,6 +15,8 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher;
 use crate::sub_lib::dispatcher::Endpoint;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
+use crate::sub_lib::neighbor_stream_handler_pool::DispatcherNodeQueryResponse;
+use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::{
@@ -25,8 +27,6 @@ use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_connector::StreamConnector;
 use crate::sub_lib::stream_connector::StreamConnectorReal;
-use crate::sub_lib::neighbor_stream_handler_pool::DispatcherNodeQueryResponse;
-use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
@@ -193,7 +193,9 @@ impl NeighborStreamHandlerPool {
         }
     }
 
-    pub fn make_subs_from(pool_addr: &Addr<NeighborStreamHandlerPool>) -> NeighborStreamHandlerPoolSubs {
+    pub fn make_subs_from(
+        pool_addr: &Addr<NeighborStreamHandlerPool>,
+    ) -> NeighborStreamHandlerPoolSubs {
         NeighborStreamHandlerPoolSubs {
             add_sub: recipient!(pool_addr, AddStreamMsg),
             transmit_sub: recipient!(pool_addr, TransmitDataMsg),
@@ -480,7 +482,9 @@ impl NeighborStreamHandlerPool {
                 thread::spawn(move || {
                     // to avoid getting into too-tight a resubmit loop, add a delay; in a separate thread, to avoid delaying other traffic
                     thread::sleep(Duration::from_millis(100));
-                    recipient.try_send(msg).expect("NeighborStreamHandlerPool is dead");
+                    recipient
+                        .try_send(msg)
+                        .expect("NeighborStreamHandlerPool is dead");
                 });
             }
             None => {
@@ -1224,7 +1228,8 @@ mod tests {
                 "stream_handler_pool_creates_nonexistent_stream_for_reading_and_writing",
             );
             let discriminator_factory = JsonDiscriminatorFactory::new();
-            let mut subject = NeighborStreamHandlerPool::new(vec![Box::new(discriminator_factory)], false);
+            let mut subject =
+                NeighborStreamHandlerPool::new(vec![Box::new(discriminator_factory)], false);
             subject.stream_connector = Box::new(
                 StreamConnectorMock::new().connect_pair_result(Ok(ConnectionInfo {
                     reader: Box::new(
@@ -1979,7 +1984,8 @@ mod tests {
                 "stream_handler_pool_creates_nonexistent_stream_for_reading_and_writing",
             );
             let discriminator_factory = JsonDiscriminatorFactory::new();
-            let mut subject = NeighborStreamHandlerPool::new(vec![Box::new(discriminator_factory)], false);
+            let mut subject =
+                NeighborStreamHandlerPool::new(vec![Box::new(discriminator_factory)], false);
             subject.stream_connector = Box::new(StreamConnectorMock::new()); // this will panic if a connection is attempted
             let subject_addr: Addr<NeighborStreamHandlerPool> = subject.start();
             let subject_subs = NeighborStreamHandlerPool::make_subs_from(&subject_addr);

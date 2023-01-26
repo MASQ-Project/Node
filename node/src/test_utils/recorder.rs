@@ -23,6 +23,8 @@ use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{HopperSubs, MessageType};
+use crate::sub_lib::neighbor_stream_handler_pool::DispatcherNodeQueryResponse;
+use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::neighborhood::ConnectionProgressMessage;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
@@ -41,8 +43,6 @@ use crate::sub_lib::proxy_server::{
     AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload_0v1,
 };
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
-use crate::sub_lib::neighbor_stream_handler_pool::DispatcherNodeQueryResponse;
-use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::test_utils::to_millis;
 use crate::test_utils::unshared_test_utils::SystemKillerActor;
