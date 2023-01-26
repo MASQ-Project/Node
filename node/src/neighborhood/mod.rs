@@ -46,6 +46,7 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
+use crate::sub_lib::neighbor_stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
@@ -63,7 +64,6 @@ use crate::sub_lib::proxy_server::DEFAULT_MINIMUM_HOP_COUNT;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
-use crate::sub_lib::neighbor_stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
@@ -1541,13 +1541,13 @@ mod tests {
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
+    use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::neighborhood::RatePack;
     use crate::sub_lib::neighborhood::{
         AskAboutDebutGossipMessage, ExpectedServices, NeighborhoodMode,
     };
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::peer_actors::PeerActors;
-    use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::versioned_data::VersionedData;
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_meaningless_route;

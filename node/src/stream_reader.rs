@@ -213,8 +213,8 @@ mod tests {
     use crate::json_discriminator_factory::JsonDiscriminatorFactory;
     use crate::json_masquerader::JsonMasquerader;
     use crate::masquerader::Masquerader;
-    use crate::node_test_utils::{check_timestamp, make_stream_handler_pool_subs_from};
     use crate::neighbor_stream_handler_pool::NeighborStreamHandlerPoolSubs;
+    use crate::node_test_utils::{check_timestamp, make_stream_handler_pool_subs_from};
     use crate::stream_messages::RemovedStreamType::NonClandestine;
     use crate::sub_lib::dispatcher::DispatcherSubs;
     use crate::test_utils::recorder::make_dispatcher_subs_from;

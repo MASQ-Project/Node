@@ -6,10 +6,10 @@ use crate::discriminator::DiscriminatorFactory;
 use crate::discriminator::UnmaskedChunk;
 use crate::masquerader::MasqueradeError;
 use crate::masquerader::Masquerader;
+use crate::neighbor_stream_handler_pool::NeighborStreamHandlerPoolSubs;
 use crate::node_configurator::DirsWrapper;
 use crate::null_masquerader::NullMasquerader;
 use crate::privilege_drop::IdWrapper;
-use crate::neighbor_stream_handler_pool::NeighborStreamHandlerPoolSubs;
 use crate::stream_messages::*;
 use crate::sub_lib::framer::FramedChunk;
 use crate::sub_lib::framer::Framer;
@@ -299,7 +299,9 @@ pub fn make_stream_handler_pool_subs_from(
     make_stream_handler_pool_subs_from_recorder(&addr)
 }
 
-pub fn make_stream_handler_pool_subs_from_recorder(addr: &Addr<Recorder>) -> NeighborStreamHandlerPoolSubs {
+pub fn make_stream_handler_pool_subs_from_recorder(
+    addr: &Addr<Recorder>,
+) -> NeighborStreamHandlerPoolSubs {
     NeighborStreamHandlerPoolSubs {
         add_sub: recipient!(addr, AddStreamMsg),
         transmit_sub: recipient!(addr, TransmitDataMsg),

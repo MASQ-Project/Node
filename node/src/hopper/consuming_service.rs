@@ -85,7 +85,10 @@ impl ConsumingService {
                 if &next_hop.public_key == self.cryptde.public_key() {
                     self.zero_hop(encrypted_package);
                 } else {
-                    self.launch_lcp(encrypted_package, Endpoint::NeighborPublicKey(next_hop.public_key));
+                    self.launch_lcp(
+                        encrypted_package,
+                        Endpoint::NeighborPublicKey(next_hop.public_key),
+                    );
                 }
             }
             Err(e) => error!(self.logger, "{}", e),

@@ -2,8 +2,8 @@
 use crate::proxy_server::http_protocol_pack::HttpProtocolPack;
 use crate::stream_messages::RemovedStreamType;
 use crate::sub_lib::cryptde::PublicKey;
-use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp};
 use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
+use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp};
 use actix::Message;
 use actix::Recipient;
 use masq_lib::ui_gateway::NodeFromUiMessage;
