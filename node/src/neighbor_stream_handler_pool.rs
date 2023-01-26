@@ -147,7 +147,7 @@ impl Handler<TransmitDataMsg> for NeighborStreamHandlerPool {
 impl Handler<DispatcherNodeQueryResponse> for NeighborStreamHandlerPool {
     type Result = ();
     fn handle(&mut self, msg: DispatcherNodeQueryResponse, _ctx: &mut Self::Context) {
-        self.handle_dispatcher_node_query_response(msg);
+        let _ = self.handle_dispatcher_node_query_response(msg);
     }
 }
 
@@ -366,33 +366,13 @@ impl NeighborStreamHandlerPool {
             .expect("StreamShutdownMsg target is dead");
     }
 
-    // TODO: This method is wayyyy too big
-    fn handle_dispatcher_node_query_response(&mut self, msg: DispatcherNodeQueryResponse) {
+    fn handle_dispatcher_node_query_response(&mut self, msg: DispatcherNodeQueryResponse) -> Result<(), ()> {
         // TODO Can be recombined with TransmitDataMsg after SC-358/GH-96
         debug!(
             self.logger,
             "Handling node query response containing {:?}", msg.result
         );
-        let node_addr = match msg.result.clone() {
-            Some(node_descriptor) => match node_descriptor.node_addr_opt {
-                Some(node_addr) => node_addr,
-                None => {
-                    error!(
-                        self.logger,
-                        "No known IP for neighbor in route with key: {}",
-                        node_descriptor.public_key
-                    );
-                    return;
-                }
-            },
-            None => {
-                error!(
-                    self.logger,
-                    "No neighbor found at endpoint {:?}", msg.context.endpoint
-                );
-                return;
-            }
-        };
+        let node_addr = self.node_addr_from_dispatcher_node_query_response (&msg)?;
 
         if node_addr.ports().is_empty() {
             // If the NodeAddr has no ports, then either we are a 0-hop-only node or something has gone terribly wrong with the Neighborhood's state, so we should blow up.
@@ -403,10 +383,39 @@ impl NeighborStreamHandlerPool {
         let peer_addr = SocketAddr::new(node_addr.ip_addr(), node_addr.ports()[0]);
 
         let sw_key = StreamWriterKey::from(peer_addr);
+        self.big_match_statement(msg, peer_addr, sw_key);
+        return Ok(())
+    }
+
+    fn node_addr_from_dispatcher_node_query_response (&self, msg: &DispatcherNodeQueryResponse) -> Result<NodeAddr, ()> {
+        match msg.result.clone() {
+            Some(node_descriptor) => match node_descriptor.node_addr_opt {
+                Some(node_addr) => Ok(node_addr),
+                None => {
+                    error!(
+                            self.logger,
+                        "No known IP for neighbor in route with key: {}",
+                        node_descriptor.public_key
+                    );
+                    Err(())
+                }
+            },
+            None => {
+                error!(
+                        self.logger,
+                    "No neighbor found at endpoint {:?}", msg.context.endpoint
+                );
+                Err(())
+            }
+        }
+    }
+
+    // TODO: This method is wayyyy too big
+    fn big_match_statement(&mut self, msg: DispatcherNodeQueryResponse, peer_addr: SocketAddr, sw_key: StreamWriterKey) {
         match self.stream_writers.get(&sw_key) {
             Some(Some(tx_box)) => {
                 debug!(
-                    self.logger,
+                        self.logger,
                     "Found already-open stream to {} keyed by {}: using",
                     tx_box.peer_addr(),
                     sw_key
@@ -418,7 +427,7 @@ impl NeighborStreamHandlerPool {
                         Ok(masked_data) => SequencedPacket::new(masked_data, 0, false),
                         Err(e) => {
                             error!(
-                                self.logger,
+                                    self.logger,
                                 "Masking failed for {}: {}. Discarding {} bytes.",
                                 peer_addr,
                                 e,
@@ -435,7 +444,7 @@ impl NeighborStreamHandlerPool {
                 match tx_box.unbounded_send(packet) {
                     Err(e) => {
                         debug!(
-                            self.logger,
+                                self.logger,
                             "Removing channel to disabled StreamWriter {} to {}: {}",
                             sw_key,
                             peer_addr,
@@ -465,7 +474,7 @@ impl NeighborStreamHandlerPool {
                 debug!(self.logger, "Found in-the-process-of-being-opened stream to {} keyed by {}: preparing to use", peer_addr, sw_key);
                 // a connection is already in progress. resubmit this message, to give the connection time to complete
                 info!(
-                    self.logger,
+                        self.logger,
                     "connection for {} in progress, resubmitting {} bytes",
                     peer_addr,
                     msg.context.data.len()
@@ -486,7 +495,7 @@ impl NeighborStreamHandlerPool {
             None => {
                 if peer_addr.ip() == localhost() {
                     error!(
-                        self.logger,
+                            self.logger,
                         "Local connection {:?} not found. Discarding {} bytes.",
                         peer_addr,
                         msg.context.data.len()
@@ -495,7 +504,7 @@ impl NeighborStreamHandlerPool {
                 }
 
                 debug!(
-                    self.logger,
+                        self.logger,
                     "No existing stream keyed by {}: creating one to {}", sw_key, peer_addr
                 );
 
@@ -579,6 +588,8 @@ impl NeighborStreamHandlerPool {
         }
     }
 }
+
+
 
 trait TrafficAnalyzer {
     fn get_masquerader(&self) -> Box<dyn Masquerader>;
@@ -1743,7 +1754,7 @@ mod tests {
             Some(Box::new(sender_wrapper)),
         );
 
-        subject.handle_dispatcher_node_query_response(DispatcherNodeQueryResponse {
+        let _ = subject.handle_dispatcher_node_query_response(DispatcherNodeQueryResponse {
             result: Some(NodeQueryResponseMetadata {
                 public_key: key,
                 node_addr_opt: Some(NodeAddr::new(&peer_addr.ip(), &[peer_addr.port()])),
