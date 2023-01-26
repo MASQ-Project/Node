@@ -25,6 +25,7 @@ use crate::sub_lib::neighborhood::{
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, ZERO_RATE_PACK};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::sequence_buffer::SequencedPacket;
+use crate::sub_lib::stream_connector::ConnectionInfo;
 use crate::sub_lib::stream_connector::StreamConnector;
 use crate::sub_lib::stream_connector::StreamConnectorReal;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
@@ -40,6 +41,7 @@ use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::localhost;
 use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
+use std::io;
 use std::net::SocketAddr;
 use std::thread;
 use std::time::Duration;
@@ -529,80 +531,15 @@ impl NeighborStreamHandlerPool {
 
     // TODO: This method is wayyyy too big
     fn open_new_stream_and_recycle_message(&self, msg: DispatcherNodeQueryResponse, peer_addr: SocketAddr, sw_key: StreamWriterKey) -> Result<(), ()> {
-        debug!(
-                self.logger,
-                    "No existing stream keyed by {}: creating one to {}", sw_key, peer_addr
-                );
-
-        let subs = self
-                    .self_subs_opt
-                    .clone()
-                    .expect("NeighborStreamHandlerPool Unbound");
-        let add_stream_sub = subs.add_sub;
-        let node_query_response_sub = subs.node_query_response;
-        let connection_progress_sub_ok = self
-                    .connection_progress_sub_opt
-                    .clone()
-                    .expect("Neighborhood Unbound");
-        let connection_progress_sub_err = self
-                    .connection_progress_sub_opt
-                    .clone()
-                    .expect("Neighborhood Unbound");
-        let remove_stream_sub = subs.remove_sub;
-        let remove_neighbor_sub = self
-                    .remove_neighbor_sub_opt
-                    .clone()
-                    .expect("Neighborhood Unbound");
-        let logger_m = self.logger.clone();
-        let logger_me = self.logger.clone();
-        let clandestine_discriminator_factories =
-                    self.clandestine_discriminator_factories.clone();
-        let msg_data_len = msg.context.data.len();
-        let peer_addr_e = peer_addr;
-        let key = msg
-                    .result
-                    .clone()
-                    .map(|d| d.public_key)
-                    .expect("Key magically disappeared");
-        let sub = self
-                    .dispatcher_subs_opt
-                    .as_ref()
-                    .expect("Dispatcher is dead")
-                    .stream_shutdown_sub
-                    .clone();
+        debug!(self.logger, "No existing stream keyed by {}: creating one to {}", sw_key, peer_addr);
+        let starter = StreamStarter::new (self, msg, peer_addr);
 
         let connect_future = self.stream_connector.connect(peer_addr, &self.logger)
             .map(move |connection_info| {
-                debug!(logger_m, "Connection attempt to {} succeeded", peer_addr);
-                let origin_port = connection_info.local_addr.port();
-                add_stream_sub.try_send(AddStreamMsg {
-                    connection_info,
-                    origin_port: Some(origin_port),
-                    port_configuration: PortConfiguration::new(clandestine_discriminator_factories, true),
-                }).expect("NeighborStreamHandlerPool is dead");
-                node_query_response_sub.try_send(msg).expect("NeighborStreamHandlerPool is dead");
-                let connection_progress_message = ConnectionProgressMessage {
-                    peer_addr: peer_addr.ip(),
-                    event: ConnectionProgressEvent::TcpConnectionSuccessful
-                };
-                connection_progress_sub_ok.try_send(connection_progress_message).expect("Neighborhood is dead");
+                starter.handle_connect_success(connection_info)
             })
             .map_err(move |err| { // connection was unsuccessful
-                error!(logger_me, "Stream to {} does not exist and could not be connected; discarding {} bytes: {}", peer_addr, msg_data_len, err);
-                remove_stream_sub.try_send(RemoveStreamMsg {
-                    peer_addr: peer_addr_e,
-                    local_addr: SocketAddr::new (localhost(), 0), // irrelevant; stream was never opened
-                    stream_type: RemovedStreamType::Clandestine,
-                    sub,
-                }).expect("NeighborStreamHandlerPool is dead");
-
-                let remove_node_message = RemoveNeighborMessage { public_key: key.clone() };
-                remove_neighbor_sub.try_send(remove_node_message).expect("Neighborhood is Dead");
-                let connection_progress_message = ConnectionProgressMessage {
-                    peer_addr: peer_addr.ip(),
-                    event: ConnectionProgressEvent::TcpConnectionFailed
-                };
-                connection_progress_sub_err.try_send(connection_progress_message).expect("Neighborhood is dead");
+                starter.handle_connect_error(err)
             });
 
         debug!(self.logger, "Beginning connection attempt to {}", peer_addr);
@@ -611,7 +548,96 @@ impl NeighborStreamHandlerPool {
     }
 }
 
+struct StreamStarter {
+    pub msg: DispatcherNodeQueryResponse,
+    pub add_stream_sub: Recipient<AddStreamMsg>,
+    pub remove_sub: Recipient<RemoveStreamMsg>,
+    pub node_query_response_sub: Recipient<DispatcherNodeQueryResponse>,
+    pub connection_progress_sub_ok: Recipient<ConnectionProgressMessage>,
+    pub connection_progress_sub_err: Recipient<ConnectionProgressMessage>,
+    pub remove_neighbor_sub: Recipient<RemoveNeighborMessage>,
+    pub logger_m: Logger,
+    pub logger_me: Logger,
+    pub clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
+    pub peer_addr: SocketAddr,
+    pub sub: Recipient<StreamShutdownMsg>
+}
 
+impl StreamStarter {
+    pub fn new (pool: &NeighborStreamHandlerPool, msg: DispatcherNodeQueryResponse, peer_addr: SocketAddr) -> Self {
+        let subs = pool
+                    .self_subs_opt
+                    .clone()
+                    .expect("NeighborStreamHandlerPool Unbound");
+        Self {
+            msg,
+            add_stream_sub: subs.add_sub,
+            remove_sub: subs.remove_sub,
+            node_query_response_sub: subs.node_query_response,
+            connection_progress_sub_ok: pool
+                    .connection_progress_sub_opt
+                    .clone()
+                    .expect("Neighborhood Unbound"),
+            connection_progress_sub_err: pool
+                    .connection_progress_sub_opt
+                    .clone()
+                    .expect("Neighborhood Unbound"),
+            remove_neighbor_sub: pool
+                    .remove_neighbor_sub_opt
+                    .clone()
+                    .expect("Neighborhood Unbound"),
+            logger_m: pool.logger.clone(),
+            logger_me: pool.logger.clone(),
+            clandestine_discriminator_factories: pool.clandestine_discriminator_factories.clone(),
+            peer_addr,
+            sub: pool
+                    .dispatcher_subs_opt
+                    .as_ref()
+                    .expect("Dispatcher is dead")
+                    .stream_shutdown_sub
+                    .clone(),
+        }
+    }
+
+    pub fn handle_connect_success (self, connection_info: ConnectionInfo) {
+        debug!(self.logger_m, "Connection attempt to {} succeeded", self.peer_addr);
+        let origin_port = connection_info.local_addr.port();
+        self.add_stream_sub.try_send(AddStreamMsg {
+            connection_info,
+            origin_port: Some(origin_port),
+            port_configuration: PortConfiguration::new(self.clandestine_discriminator_factories, true),
+        }).expect("NeighborStreamHandlerPool is dead");
+        self.node_query_response_sub.try_send(self.msg).expect("NeighborStreamHandlerPool is dead");
+        let connection_progress_message = ConnectionProgressMessage {
+            peer_addr: self.peer_addr.ip(),
+            event: ConnectionProgressEvent::TcpConnectionSuccessful
+        };
+        self.connection_progress_sub_ok.try_send(connection_progress_message).expect("Neighborhood is dead");
+    }
+
+    pub fn handle_connect_error (self, err: io::Error) {
+        let msg_data_len = self.msg.context.data.len();
+        error!(self.logger_me, "Stream to {} does not exist and could not be connected; discarding {} bytes: {}", self.peer_addr, msg_data_len, err);
+        self.remove_sub.try_send(RemoveStreamMsg {
+            peer_addr: self.peer_addr,
+            local_addr: SocketAddr::new (localhost(), 0), // irrelevant; stream was never opened
+            stream_type: RemovedStreamType::Clandestine,
+            sub: self.sub,
+        }).expect("NeighborStreamHandlerPool is dead");
+        let key = self.msg
+            .result
+            .clone()
+            .map(|d| d.public_key)
+            .expect("Key magically disappeared");
+        let remove_node_message = RemoveNeighborMessage { public_key: key.clone() };
+        self.remove_neighbor_sub.try_send(remove_node_message).expect("Neighborhood is Dead");
+        let connection_progress_message = ConnectionProgressMessage {
+            peer_addr: self.peer_addr.ip(),
+            event: ConnectionProgressEvent::TcpConnectionFailed
+        };
+        self.connection_progress_sub_err.try_send(connection_progress_message).expect("Neighborhood is dead");
+    }
+}
 
 trait TrafficAnalyzer {
     fn get_masquerader(&self) -> Box<dyn Masquerader>;
