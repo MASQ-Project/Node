@@ -532,7 +532,7 @@ impl NeighborStreamHandlerPool {
     // TODO: This method is wayyyy too big
     fn open_new_stream_and_recycle_message(&self, msg: DispatcherNodeQueryResponse, peer_addr: SocketAddr, sw_key: StreamWriterKey) -> Result<(), ()> {
         debug!(self.logger, "No existing stream keyed by {}: creating one to {}", sw_key, peer_addr);
-        let starter = StreamStarter::new (self, msg, peer_addr);
+        let starter = StreamStartSuccessHandler::new (self, msg, peer_addr);
 
         let connect_future = self.stream_connector.connect(peer_addr, &self.logger)
             .map(move |connection_info| {
@@ -548,7 +548,70 @@ impl NeighborStreamHandlerPool {
     }
 }
 
-struct StreamStarter {
+struct StreamStartFailureHandler {
+    pub msg_data_len: usize,
+    pub key: PublicKey,
+    pub remove_sub: Recipient<RemoveStreamMsg>,
+    pub connection_progress_sub: Recipient<ConnectionProgressMessage>,
+    pub remove_neighbor_sub: Recipient<RemoveNeighborMessage>,
+    pub logger: Logger,
+    pub peer_addr: SocketAddr,
+    pub sub: Recipient<StreamShutdownMsg>
+}
+
+
+impl StreamStartFailureHandler {
+    pub fn new (pool: &NeighborStreamHandlerPool, msg: &DispatcherNodeQueryResponse, peer_addr: SocketAddr) -> Self {
+        let subs = pool
+                    .self_subs_opt
+                    .clone()
+                    .expect("NeighborStreamHandlerPool Unbound");
+        Self {
+            msg_data_len: msg.context.data.len(),
+            key: msg
+                .result
+                .clone()
+                .map(|d| d.public_key)
+                .expect("Key magically disappeared"),
+            remove_sub: subs.remove_sub,
+            connection_progress_sub: pool
+                    .connection_progress_sub_opt
+                    .clone()
+                    .expect("Neighborhood Unbound"),
+            remove_neighbor_sub: pool
+                    .remove_neighbor_sub_opt
+                    .clone()
+                    .expect("Neighborhood Unbound"),
+            logger: pool.logger.clone(),
+            peer_addr,
+            sub: pool
+                    .dispatcher_subs_opt
+                    .as_ref()
+                    .expect("Dispatcher is dead")
+                    .stream_shutdown_sub
+                    .clone(),
+        }
+    }
+
+    pub fn handle (self, err: io::Error) {
+        error!(self.logger, "Stream to {} does not exist and could not be connected; discarding {} bytes: {}", self.peer_addr, self.msg_data_len, err);
+        self.remove_sub.try_send(RemoveStreamMsg {
+            peer_addr: self.peer_addr,
+            local_addr: SocketAddr::new (localhost(), 0), // irrelevant; stream was never opened
+            stream_type: RemovedStreamType::Clandestine,
+            sub: self.sub,
+        }).expect("NeighborStreamHandlerPool is dead");
+        let remove_node_message = RemoveNeighborMessage { public_key: self.key.clone() };
+        self.remove_neighbor_sub.try_send(remove_node_message).expect("Neighborhood is Dead");
+        let connection_progress_message = ConnectionProgressMessage {
+            peer_addr: self.peer_addr.ip(),
+            event: ConnectionProgressEvent::TcpConnectionFailed
+        };
+        self.connection_progress_sub.try_send(connection_progress_message).expect("Neighborhood is dead");
+    }
+}
+
+struct StreamStartSuccessHandler {
     pub msg: DispatcherNodeQueryResponse,
     pub add_stream_sub: Recipient<AddStreamMsg>,
     pub remove_sub: Recipient<RemoveStreamMsg>,
@@ -563,7 +626,7 @@ struct StreamStarter {
     pub sub: Recipient<StreamShutdownMsg>
 }
 
-impl StreamStarter {
+impl StreamStartSuccessHandler {
     pub fn new (pool: &NeighborStreamHandlerPool, msg: DispatcherNodeQueryResponse, peer_addr: SocketAddr) -> Self {
         let subs = pool
                     .self_subs_opt
