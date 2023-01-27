@@ -406,19 +406,15 @@ impl NeighborStreamHandlerPool {
         match msg.result.clone() {
             Some(metadata) => match metadata.node_addr_opt {
                 Some(node_addr) => Ok(node_addr),
-                None => {
-                    Err(format!(
-                        "No known IP for neighbor in route with key: {}",
-                        metadata.public_key
-                    ))
-                }
+                None => Err(format!(
+                    "No known IP for neighbor in route with key: {}",
+                    metadata.public_key
+                )),
             },
-            None => {
-                Err(format!(
-                    "No Node found at endpoint {:?}",
-                    msg.context.endpoint
-                ))
-            }
+            None => Err(format!(
+                "No Node found at endpoint {:?}",
+                msg.context.endpoint
+            )),
         }
     }
 
