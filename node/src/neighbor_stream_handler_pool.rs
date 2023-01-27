@@ -415,7 +415,7 @@ impl NeighborStreamHandlerPool {
             },
             None => {
                 return Err(format!(
-                    "No neighbor found at endpoint {:?}",
+                    "No Node found at endpoint {:?}",
                     msg.context.endpoint
                 ));
             }
@@ -1602,7 +1602,7 @@ mod tests {
 
         TestLogHandler::new().await_log_containing(
             format!(
-                "ERROR: Dispatcher: No neighbor found at endpoint {:?}",
+                "ERROR: Dispatcher: No Node found at endpoint {:?}",
                 Endpoint::NeighborPublicKey(cryptde.public_key().clone())
             )
             .as_str(),
