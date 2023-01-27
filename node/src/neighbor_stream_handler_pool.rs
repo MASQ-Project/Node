@@ -370,16 +370,19 @@ impl NeighborStreamHandlerPool {
             .expect("StreamShutdownMsg target is dead");
     }
 
-    fn handle_dispatcher_node_query_response(
-        &mut self,
-        msg: DispatcherNodeQueryResponse,
-    ) -> Result<(), ()> {
+    fn handle_dispatcher_node_query_response(&mut self, msg: DispatcherNodeQueryResponse) {
         // TODO Can be recombined with TransmitDataMsg after SC-358/GH-96
         debug!(
             self.logger,
             "Handling node query response containing {:?}", msg.result
         );
-        let node_addr = self.node_addr_from_dispatcher_node_query_response(&msg)?;
+        let node_addr = match self.node_addr_from_dispatcher_node_query_response(&msg) {
+            Ok(node_addr) => node_addr,
+            Err(e) => {
+                error!(self.logger, "{e}");
+                return;
+            }
+        };
 
         if node_addr.ports().is_empty() {
             // If the NodeAddr has no ports, then either we are a 0-hop-only node or something has gone terribly wrong with the Neighborhood's state, so we should blow up.
@@ -390,31 +393,31 @@ impl NeighborStreamHandlerPool {
         let peer_addr = SocketAddr::new(node_addr.ip_addr(), node_addr.ports()[0]);
 
         let sw_key = StreamWriterKey::from(peer_addr);
-        self.send_or_queue_packet(msg, peer_addr, sw_key)
+
+        if let Err(e) = self.send_or_queue_packet(msg, peer_addr, sw_key) {
+            error!(self.logger, "{e}");
+        };
     }
 
     fn node_addr_from_dispatcher_node_query_response(
         &self,
         msg: &DispatcherNodeQueryResponse,
-    ) -> Result<NodeAddr, ()> {
+    ) -> Result<NodeAddr, String> {
         match msg.result.clone() {
             Some(node_descriptor) => match node_descriptor.node_addr_opt {
                 Some(node_addr) => Ok(node_addr),
                 None => {
-                    error!(
-                        self.logger,
+                    return Err(format!(
                         "No known IP for neighbor in route with key: {}",
                         node_descriptor.public_key
-                    );
-                    Err(())
+                    ));
                 }
             },
             None => {
-                error!(
-                    self.logger,
-                    "No neighbor found at endpoint {:?}", msg.context.endpoint
-                );
-                Err(())
+                return Err(format!(
+                    "No neighbor found at endpoint {:?}",
+                    msg.context.endpoint
+                ));
             }
         }
     }
@@ -424,7 +427,7 @@ impl NeighborStreamHandlerPool {
         msg: DispatcherNodeQueryResponse,
         peer_addr: SocketAddr,
         sw_key: StreamWriterKey,
-    ) -> Result<(), ()> {
+    ) -> Result<(), String> {
         let tx_box_opt_opt = self.stream_writers.get(&sw_key);
         match tx_box_opt_opt {
             Some(Some(tx_box)) => {
@@ -434,26 +437,25 @@ impl NeighborStreamHandlerPool {
                     self.stream_writers
                         .remove(&StreamWriterKey::from(peer_addr));
                 }
-                Ok(())
             }
             Some(None) => self.delay_packet_for_opening_stream(msg, peer_addr, sw_key),
             None => {
                 if peer_addr.ip() == localhost() {
-                    error!(
-                        self.logger,
+                    return Err(format!(
                         "Local connection {:?} not found. Discarding {} bytes.",
                         peer_addr,
                         msg.context.data.len()
-                    );
-                    return Err(());
-                }
+                    ));
+                };
 
                 self.stream_writers
                     .insert(StreamWriterKey::from(peer_addr), None);
 
-                self.open_new_stream_and_recycle_message(msg, peer_addr, sw_key)
+                self.open_new_stream_and_recycle_message(msg, peer_addr, sw_key);
             }
         }
+
+        Ok(())
     }
 
     fn send_packet_on_open_stream(
@@ -462,7 +464,7 @@ impl NeighborStreamHandlerPool {
         peer_addr: SocketAddr,
         sw_key: StreamWriterKey,
         tx_box: &Box<dyn SenderWrapper<SequencedPacket>>,
-    ) -> Result<bool, ()> {
+    ) -> Result<bool, String> {
         debug!(
             self.logger,
             "Found already-open stream to {} keyed by {}: using",
@@ -475,14 +477,12 @@ impl NeighborStreamHandlerPool {
             match masquerader.mask(msg.context.data.as_slice()) {
                 Ok(masked_data) => SequencedPacket::new(masked_data, 0, false),
                 Err(e) => {
-                    error!(
-                        self.logger,
+                    return Err(format!(
                         "Masking failed for {}: {}. Discarding {} bytes.",
                         peer_addr,
                         e,
                         msg.context.data.len()
-                    );
-                    return Err(());
+                    ));
                 }
             }
         } else {
@@ -524,7 +524,7 @@ impl NeighborStreamHandlerPool {
         msg: DispatcherNodeQueryResponse,
         peer_addr: SocketAddr,
         sw_key: StreamWriterKey,
-    ) -> Result<(), ()> {
+    ) {
         debug!(
             self.logger,
             "Found in-the-process-of-being-opened stream to {} keyed by {}: preparing to use",
@@ -552,7 +552,6 @@ impl NeighborStreamHandlerPool {
                 .try_send(msg)
                 .expect("NeighborStreamHandlerPool is dead");
         });
-        Ok(())
     }
 
     // TODO: This method is wayyyy too big
@@ -561,7 +560,7 @@ impl NeighborStreamHandlerPool {
         msg: DispatcherNodeQueryResponse,
         peer_addr: SocketAddr,
         sw_key: StreamWriterKey,
-    ) -> Result<(), ()> {
+    ) {
         debug!(
             self.logger,
             "No existing stream keyed by {}: creating one to {}", sw_key, peer_addr
@@ -580,7 +579,6 @@ impl NeighborStreamHandlerPool {
 
         debug!(self.logger, "Beginning connection attempt to {}", peer_addr);
         tokio::spawn(connect_future);
-        Ok(())
     }
 }
 
