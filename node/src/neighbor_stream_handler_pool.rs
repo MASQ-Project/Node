@@ -376,7 +376,7 @@ impl NeighborStreamHandlerPool {
             self.logger,
             "Handling node query response containing {:?}", msg.result
         );
-        let node_addr = match self.node_addr_from_dispatcher_node_query_response(&msg) {
+        let node_addr = match self.extract_node_addr(&msg) {
             Ok(node_addr) => node_addr,
             Err(e) => {
                 error!(self.logger, "{e}");
@@ -385,7 +385,10 @@ impl NeighborStreamHandlerPool {
         };
 
         if node_addr.ports().is_empty() {
-            // If the NodeAddr has no ports, then either we are a 0-hop-only node or something has gone terribly wrong with the Neighborhood's state, so we should blow up.
+            // If the NodeAddr has no ports, then either
+            // we are a 0-hop-only node or
+            // something has gone terribly wrong with the Neighborhood's state,
+            // so we should blow up.
             panic!("Neighborhood has returned a NodeDescriptor with no ports. This indicates an unrecoverable error.")
         }
 
@@ -399,17 +402,14 @@ impl NeighborStreamHandlerPool {
         };
     }
 
-    fn node_addr_from_dispatcher_node_query_response(
-        &self,
-        msg: &DispatcherNodeQueryResponse,
-    ) -> Result<NodeAddr, String> {
+    fn extract_node_addr(&self, msg: &DispatcherNodeQueryResponse) -> Result<NodeAddr, String> {
         match msg.result.clone() {
-            Some(node_descriptor) => match node_descriptor.node_addr_opt {
+            Some(metadata) => match metadata.node_addr_opt {
                 Some(node_addr) => Ok(node_addr),
                 None => {
                     return Err(format!(
                         "No known IP for neighbor in route with key: {}",
-                        node_descriptor.public_key
+                        metadata.public_key
                     ));
                 }
             },
