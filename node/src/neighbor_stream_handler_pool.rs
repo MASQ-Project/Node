@@ -149,7 +149,7 @@ impl Handler<TransmitDataMsg> for NeighborStreamHandlerPool {
 impl Handler<DispatcherNodeQueryResponse> for NeighborStreamHandlerPool {
     type Result = ();
     fn handle(&mut self, msg: DispatcherNodeQueryResponse, _ctx: &mut Self::Context) {
-        let _ = self.handle_dispatcher_node_query_response(msg);
+        self.handle_dispatcher_node_query_response(msg)
     }
 }
 
@@ -407,17 +407,17 @@ impl NeighborStreamHandlerPool {
             Some(metadata) => match metadata.node_addr_opt {
                 Some(node_addr) => Ok(node_addr),
                 None => {
-                    return Err(format!(
+                    Err(format!(
                         "No known IP for neighbor in route with key: {}",
                         metadata.public_key
-                    ));
+                    ))
                 }
             },
             None => {
-                return Err(format!(
+                Err(format!(
                     "No Node found at endpoint {:?}",
                     msg.context.endpoint
-                ));
+                ))
             }
         }
     }
@@ -432,7 +432,7 @@ impl NeighborStreamHandlerPool {
         match tx_box_opt_opt {
             Some(Some(tx_box)) => {
                 let remove_stream_writer =
-                    self.send_packet_on_open_stream(msg, peer_addr, sw_key, tx_box)?;
+                    self.send_packet_on_open_stream(msg, peer_addr, sw_key, tx_box.as_ref())?;
                 if remove_stream_writer {
                     self.stream_writers
                         .remove(&StreamWriterKey::from(peer_addr));
@@ -463,7 +463,7 @@ impl NeighborStreamHandlerPool {
         msg: DispatcherNodeQueryResponse,
         peer_addr: SocketAddr,
         sw_key: StreamWriterKey,
-        tx_box: &Box<dyn SenderWrapper<SequencedPacket>>,
+        tx_box: &dyn SenderWrapper<SequencedPacket>,
     ) -> Result<bool, String> {
         debug!(
             self.logger,
