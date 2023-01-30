@@ -1,4 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
 use crate::actor_system_factory::ActorSystemFactory;
 use crate::actor_system_factory::ActorSystemFactoryReal;
 use crate::actor_system_factory::{ActorFactoryReal, ActorSystemFactoryToolsReal};
@@ -21,7 +22,7 @@ use crate::node_configurator::{initialize_database, DirsWrapper, NodeConfigurato
 use crate::privilege_drop::{IdWrapper, IdWrapperReal};
 use crate::server_initializer::LoggerInitializerWrapper;
 use crate::sub_lib::accountant;
-use crate::sub_lib::accountant::AccountantConfig;
+use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_null::CryptDENull;
@@ -325,7 +326,9 @@ pub struct BootstrapperConfig {
     // These fields can be set while privileged without penalty
     pub log_level: LevelFilter,
     pub dns_servers: Vec<SocketAddr>,
-    pub accountant_config_opt: Option<AccountantConfig>,
+    pub scan_intervals_opt: Option<ScanIntervals>,
+    pub suppress_initial_scans: bool,
+    pub when_pending_too_long_sec: u64,
     pub crash_point: CrashPoint,
     pub clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     pub ui_gateway_config: UiGatewayConfig,
@@ -337,6 +340,7 @@ pub struct BootstrapperConfig {
     pub alias_cryptde_null_opt: Option<CryptDENull>,
     pub mapping_protocol_opt: Option<AutomapProtocol>,
     pub real_user: RealUser,
+    pub payment_thresholds_opt: Option<PaymentThresholds>,
 
     // These fields must be set without privilege: otherwise the database will be created as root
     pub db_password_opt: Option<String>,
@@ -358,7 +362,8 @@ impl BootstrapperConfig {
             // These fields can be set while privileged without penalty
             log_level: LevelFilter::Off,
             dns_servers: vec![],
-            accountant_config_opt: Default::default(),
+            scan_intervals_opt: None,
+            suppress_initial_scans: false,
             crash_point: CrashPoint::None,
             clandestine_discriminator_factories: vec![],
             ui_gateway_config: UiGatewayConfig {
@@ -376,6 +381,7 @@ impl BootstrapperConfig {
             alias_cryptde_null_opt: None,
             mapping_protocol_opt: None,
             real_user: RealUser::new(None, None, None),
+            payment_thresholds_opt: Default::default(),
 
             // These fields must be set without privilege: otherwise the database will be created as root
             db_password_opt: None,
@@ -385,6 +391,7 @@ impl BootstrapperConfig {
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop,
             },
+            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
         }
     }
 
@@ -398,7 +405,10 @@ impl BootstrapperConfig {
         self.earning_wallet = unprivileged.earning_wallet;
         self.consuming_wallet_opt = unprivileged.consuming_wallet_opt;
         self.db_password_opt = unprivileged.db_password_opt;
-        self.accountant_config_opt = unprivileged.accountant_config_opt;
+        self.scan_intervals_opt = unprivileged.scan_intervals_opt;
+        self.suppress_initial_scans = unprivileged.suppress_initial_scans;
+        self.payment_thresholds_opt = unprivileged.payment_thresholds_opt;
+        self.when_pending_too_long_sec = unprivileged.when_pending_too_long_sec;
     }
 
     pub fn exit_service_rate(&self) -> u64 {
@@ -687,6 +697,7 @@ impl Bootstrapper {
 
 #[cfg(test)]
 mod tests {
+    use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::actor_system_factory::{ActorFactory, ActorSystemFactory};
     use crate::bootstrapper::{
         main_cryptde_ref, Bootstrapper, BootstrapperConfig, EnvironmentWrapper, PortConfiguration,
@@ -708,6 +719,7 @@ mod tests {
     use crate::server_initializer::LoggerInitializerWrapper;
     use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::AddStreamMsg;
+    use crate::sub_lib::accountant::ScanIntervals;
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
     use crate::sub_lib::cryptde_null::CryptDENull;
@@ -721,9 +733,7 @@ mod tests {
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use crate::test_utils::unshared_test_utils::{
-        make_populated_accountant_config_with_defaults, make_simplified_multi_config,
-    };
+    use crate::test_utils::unshared_test_utils::make_simplified_multi_config;
     use crate::test_utils::{assert_contains, rate_pack};
     use crate::test_utils::{main_cryptde, make_wallet};
     use actix::Recipient;
@@ -1220,8 +1230,9 @@ mod tests {
         unprivileged_config.earning_wallet = earning_wallet.clone();
         unprivileged_config.consuming_wallet_opt = consuming_wallet_opt.clone();
         unprivileged_config.db_password_opt = db_password_opt.clone();
-        unprivileged_config.accountant_config_opt =
-            Some(make_populated_accountant_config_with_defaults());
+        unprivileged_config.scan_intervals_opt = Some(ScanIntervals::default());
+        unprivileged_config.suppress_initial_scans = false;
+        unprivileged_config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
 
         privileged_config.merge_unprivileged(unprivileged_config);
 
@@ -1242,8 +1253,13 @@ mod tests {
         assert_eq!(privileged_config.consuming_wallet_opt, consuming_wallet_opt);
         assert_eq!(privileged_config.db_password_opt, db_password_opt);
         assert_eq!(
-            privileged_config.accountant_config_opt,
-            Some(make_populated_accountant_config_with_defaults())
+            privileged_config.scan_intervals_opt,
+            Some(ScanIntervals::default())
+        );
+        assert_eq!(privileged_config.suppress_initial_scans, false);
+        assert_eq!(
+            privileged_config.when_pending_too_long_sec,
+            DEFAULT_PENDING_TOO_LONG_SEC
         );
         //some values from the privileged config
         assert_eq!(privileged_config.log_level, Off);

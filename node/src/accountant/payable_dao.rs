@@ -7,7 +7,7 @@ use crate::accountant::big_int_processing::big_int_db_processor::WeiChange::{
     Addition, Subtraction,
 };
 use crate::accountant::big_int_processing::big_int_db_processor::{
-    BigIntDbProcessor, BigIntSqlConfig, SQLParamsBuilder, TableNameDAO,
+    BigIntDbProcessor, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO,
 };
 use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
 use crate::accountant::dao_utils;
@@ -117,11 +117,11 @@ impl PayableDao for PayableDaoReal {
             BigIntSqlConfig::new(
                 "insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid) values (:wallet, :balance_high_b, :balance_low_b, :last_paid_timestamp, null) on conflict (wallet_address) do \
                 update set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where wallet_address = :wallet",
-                "update {} set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b where wallet_address = :wallet",
+                "update payable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b where wallet_address = :wallet",
                 SQLParamsBuilder::default()
                           .key(WalletAddress(wallet))
                           .wei_change( Addition("balance",amount))
-                          .other(vec![(":last_paid_timestamp",&to_time_t(timestamp))])
+                          .other(vec![Param::new((":last_paid_timestamp",&to_time_t(timestamp)),false)])
                           .build()
                       ))?
         )
@@ -227,7 +227,7 @@ impl PayableDao for PayableDaoReal {
                     SQLParamsBuilder::default()
                         .key( PendingPayableRowid(&key))
                         .wei_change(Subtraction("balance",fgp.amount))
-                        .other(vec![(":last_paid", &to_time_t(fgp.timestamp))])
+                        .other(vec![Param::new((":last_paid", &to_time_t(fgp.timestamp)),true)])
                         .build()))?)
         })
     }
@@ -476,47 +476,95 @@ mod tests {
         );
         let now = SystemTime::now();
         let wallet = make_wallet("booga");
-        let status = {
-            let boxed_conn = DbInitializerReal::default()
-                .initialize(&home_dir, DbInitializationConfig::test_default())
-                .unwrap();
-            let subject = PayableDaoReal::new(boxed_conn);
+        let boxed_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let subject = PayableDaoReal::new(boxed_conn);
 
-            subject.more_money_payable(now, &wallet, 1234).unwrap();
+        subject.more_money_payable(now, &wallet, 1234).unwrap();
 
-            subject.account_status(&wallet).unwrap()
-        };
-
+        let status = subject.account_status(&wallet).unwrap();
         assert_eq!(status.wallet, wallet);
         assert_eq!(status.balance_wei, 1234);
         assert_eq!(to_time_t(status.last_paid_timestamp), to_time_t(now));
     }
 
     #[test]
-    fn more_money_payable_works_for_existing_address() {
+    fn more_money_payable_works_for_existing_address_without_overflow() {
+        //asserting on correctness of the main sql clause
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "more_money_payable_works_for_existing_address",
+            "more_money_payable_works_for_existing_address_without_overflow",
+        );
+        let wallet = make_wallet("booga");
+        let wallet_unchanged_account = make_wallet("hurrah");
+        let now = SystemTime::now();
+        let boxed_conn = DbInitializerReal::default()
+            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .unwrap();
+        let initial_value = 1234;
+        //in db (0, 1234)
+        let balance_change = 2345;
+        //in db (0, 2345)
+        let subject = PayableDaoReal::new(boxed_conn);
+        let prepare_account = |wallet: &Wallet, initial_value| {
+            subject
+                .more_money_payable(SystemTime::UNIX_EPOCH, wallet, initial_value)
+                .unwrap();
+        };
+        prepare_account(&wallet, initial_value);
+        //making sure the SQL will not affect a different wallet
+        prepare_account(&wallet_unchanged_account, 12345);
+
+        subject
+            .more_money_payable(now, &wallet, balance_change)
+            .unwrap();
+
+        let assert_account = |wallet, expected_balance| {
+            let status = subject.account_status(&wallet).unwrap();
+            assert_eq!(status.wallet, wallet);
+            assert_eq!(status.balance_wei, expected_balance);
+            assert_eq!(
+                to_time_t(status.last_paid_timestamp),
+                to_time_t(SystemTime::UNIX_EPOCH)
+            );
+        };
+        assert_account(wallet, initial_value + balance_change);
+        assert_account(wallet_unchanged_account, 12345);
+    }
+
+    #[test]
+    fn more_money_payable_works_for_existing_address_hitting_overflow() {
+        //asserting on correctness of the overflow update clause
+        let home_dir = ensure_node_home_directory_exists(
+            "payable_dao",
+            "more_money_payable_works_for_existing_address_hitting_overflow",
         );
         let wallet = make_wallet("booga");
         let now = SystemTime::now();
         let boxed_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let subject = {
-            let subject = PayableDaoReal::new(boxed_conn);
-            subject.more_money_payable(now, &wallet, 1234).unwrap();
-            subject
-        };
+        let initial_value = i64::MAX as u128 - 1000;
+        //in db (0, i64::MAX - 1000)
+        let balance_change = 2345;
+        //in db (0, 2345)
+        let subject = PayableDaoReal::new(boxed_conn);
+        subject
+            .more_money_payable(SystemTime::UNIX_EPOCH, &wallet, initial_value)
+            .unwrap();
 
         subject
-            .more_money_payable(SystemTime::UNIX_EPOCH, &wallet, 2345)
+            .more_money_payable(now, &wallet, balance_change)
             .unwrap();
 
         let status = subject.account_status(&wallet).unwrap();
         assert_eq!(status.wallet, wallet);
-        assert_eq!(status.balance_wei, 3579);
-        assert_eq!(to_time_t(status.last_paid_timestamp), to_time_t(now));
+        assert_eq!(status.balance_wei, initial_value + balance_change);
+        assert_eq!(
+            to_time_t(status.last_paid_timestamp),
+            to_time_t(SystemTime::UNIX_EPOCH)
+        );
     }
 
     #[test]
@@ -819,9 +867,36 @@ mod tests {
     }
 
     #[test]
-    fn transaction_confirmed_works() {
-        let home_dir =
-            ensure_node_home_directory_exists("payable_dao", "transaction_confirmed_works");
+    fn transaction_confirmed_works_without_overflow() {
+        //asserting on the main sql
+        let initial = i64::MAX as i128 + 10000;
+        //initial (1, 9999)
+        let initial_changing_end_resulting_values = (initial, 11111, initial as u128 - 11111);
+        //change (-1, abs(i64::MIN) - 11111)
+        transaction_confirmed_works(
+            "transaction_confirmed_works_without_overflow",
+            initial_changing_end_resulting_values,
+        )
+    }
+
+    #[test]
+    fn transaction_confirmed_works_hitting_overflow() {
+        //asserting on the overflow update clause
+        let initial_changing_end_resulting_values = (10000, 111, 10000 - 111);
+        //initial (0, 10000)
+        //change (-1, abs(i64::MIN) - 111)
+        //10000 + (abs(i64::MIN) - 111) > i64::MAX -> overflow
+        transaction_confirmed_works(
+            "transaction_confirmed_works_hitting_overflow",
+            initial_changing_end_resulting_values,
+        )
+    }
+
+    fn transaction_confirmed_works(
+        test_name: &str,
+        (initial_amount, balance_change, expected_balance_after): (i128, u128, u128),
+    ) {
+        let home_dir = ensure_node_home_directory_exists("payable_dao", test_name);
         let boxed_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
@@ -1028,24 +1103,6 @@ mod tests {
                 },
             ]
         );
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Overflow detected with 340282366920938463463374607431768211455: cannot be converted from u128 to i128"
-    )]
-    fn payable_amount_panics_on_insert_with_overflow() {
-        let home_dir = ensure_node_home_directory_exists(
-            "payable_dao",
-            "payable_amount_panics_on_insert_with_overflow",
-        );
-        let subject = PayableDaoReal::new(
-            DbInitializerReal::default()
-                .initialize(&home_dir, DbInitializationConfig::test_default())
-                .unwrap(),
-        );
-
-        let _ = subject.more_money_payable(SystemTime::now(), &make_wallet("foobar"), u128::MAX);
     }
 
     #[test]

@@ -1,8 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+use crate::accountant::payable_dao::PayableDaoFactory;
+use crate::accountant::pending_payable_dao::PendingPayableDaoFactory;
+use crate::accountant::receivable_dao::ReceivableDaoFactory;
 use crate::accountant::{
     checked_conversion, Accountant, ReceivedPayments, ReportTransactionReceipts, ScanError,
     SentPayables,
 };
+use crate::banned_dao::BannedDaoFactory;
 use crate::blockchain::blockchain_bridge::NewPendingPayableFingerprints;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
@@ -39,7 +43,7 @@ lazy_static! {
 }
 
 //please, alphabetical order
-#[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub struct PaymentThresholds {
     pub debt_threshold_gwei: u64,
     pub maturity_threshold_sec: u64,
@@ -49,6 +53,13 @@ pub struct PaymentThresholds {
     pub unban_below_gwei: u64,
 }
 
+impl Default for PaymentThresholds {
+    fn default() -> Self {
+        *DEFAULT_PAYMENT_THRESHOLDS
+    }
+}
+
+//this code is used in tests in Accountant
 impl PaymentThresholds {
     pub fn sugg_and_grace(&self, now: i64) -> i64 {
         now - checked_conversion::<u64, i64>(self.maturity_threshold_sec)
@@ -56,19 +67,24 @@ impl PaymentThresholds {
     }
 }
 
-#[derive(PartialEq, Eq, Debug, Clone, Copy, Default)]
+pub struct DaoFactories {
+    pub payable_dao_factory: Box<dyn PayableDaoFactory>,
+    pub pending_payable_dao_factory: Box<dyn PendingPayableDaoFactory>,
+    pub receivable_dao_factory: Box<dyn ReceivableDaoFactory>,
+    pub banned_dao_factory: Box<dyn BannedDaoFactory>,
+}
+
+#[derive(PartialEq, Eq, Debug, Clone, Copy)]
 pub struct ScanIntervals {
     pub pending_payable_scan_interval: Duration,
     pub payable_scan_interval: Duration,
     pub receivable_scan_interval: Duration,
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct AccountantConfig {
-    pub scan_intervals: ScanIntervals,
-    pub payment_thresholds: PaymentThresholds,
-    pub suppress_initial_scans: bool,
-    pub when_pending_too_long_sec: u64,
+impl Default for ScanIntervals {
+    fn default() -> Self {
+        *DEFAULT_SCAN_INTERVALS
+    }
 }
 
 #[derive(Clone, PartialEq, Eq)]
