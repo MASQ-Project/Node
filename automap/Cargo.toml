@@ -19,7 +19,7 @@ masq_lib = { path = "../masq_lib" }
 port_scanner = "0.1.5"
 pretty-hex = "0.1.0"
 rand = {version = "0.7.0", features = ["getrandom", "small_rng"]}
-socket2 = {version = "0.4.2", features = ["all"]}
+socket2 = {version = "0.4.7", features = ["all"]}
 
 [[bin]]
 name = "automap"

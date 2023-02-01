@@ -2215,6 +2215,7 @@ mod tests {
     #[test]
     fn play_with_multicast() {
         // make three sockets
+        let localhost_v4 = if let IpAddr::V4(addr) = localhost() {addr} else {panic! ("localhost is IPv6!")};
         let multicast_ip = Ipv4Addr::new(224, 0, 0, 122);
         let multicast_port = find_free_port();
         let multicast_address = SocketAddr::new(IpAddr::V4(multicast_ip), multicast_port);
@@ -2227,13 +2228,15 @@ mod tests {
             socket.set_reuse_port(true).unwrap();
             socket.set_reuse_address(true).unwrap();
             socket
-                .join_multicast_v4(&multicast_ip, &Ipv4Addr::UNSPECIFIED)
+                .join_multicast_v4(&multicast_ip, &localhost_v4)
                 .unwrap();
             socket
         };
-        let socket_sender = UdpSocket::bind(SocketAddr::new(localhost(), 0)).unwrap();
+        let socket_sender = UdpSocket::bind(
+            SocketAddr::new(localhost(), 0)
+        ).unwrap();
         socket_sender
-            .join_multicast_v4(&multicast_ip, &Ipv4Addr::UNSPECIFIED)
+            .join_multicast_v4(&multicast_ip, &localhost_v4)
             .unwrap();
         let socket_receiver_1 = make_socket();
         let socket_receiver_2 = make_socket();
@@ -2241,6 +2244,13 @@ mod tests {
         socket_sender.send_to(message, multicast_address).unwrap();
         let mut buf = [MaybeUninit::uninit(); 100];
         let (size, source) = socket_receiver_1.recv_from(&mut buf).unwrap();
+        let bytes = buf
+            .to_vec()
+            .into_iter()
+            .map(|muc| unsafe { muc.assume_init() })
+            .collect::<Vec<u8>>();
+        assert_eq!(bytes, message.to_vec());
+        let (size, source) = socket_receiver_2.recv_from(&mut buf).unwrap();
         let bytes = buf
             .to_vec()
             .into_iter()
