@@ -678,7 +678,7 @@ mod tests {
     use core::ptr::addr_of;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::utils::{find_free_port, localhost};
-    use socket2::{Domain, Socket, Type};
+    use socket2::{Domain, SockAddr, Socket, Type};
     use std::cell::RefCell;
     use std::collections::HashSet;
     use std::io::ErrorKind;
@@ -2215,7 +2215,8 @@ mod tests {
     #[test]
     fn play_with_multicast() {
         // make three sockets
-        let localhost_v4 = if let IpAddr::V4(addr) = localhost() {addr} else {panic! ("localhost is IPv6!")};
+        let multicast_interface = if let IpAddr::V4(addr) = localhost() {addr} else {panic! ("localhost is IPv6!")};
+        // let multicast_interface = Ipv4Addr::UNSPECIFIED;
         let multicast_ip = Ipv4Addr::new(224, 0, 0, 122);
         let multicast_port = find_free_port();
         let multicast_address = SocketAddr::new(IpAddr::V4(multicast_ip), multicast_port);
@@ -2225,37 +2226,30 @@ mod tests {
             socket
                 .set_read_timeout(Some(Duration::from_secs(1)))
                 .unwrap();
+            //linux/macos have reuse_port exposed so we can flag it for non-windows systems
+            #[cfg(not(target_os = "windows"))]
             socket.set_reuse_port(true).unwrap();
+            //windows has reuse_port hidden and implicitly flagged with reuse_address
             socket.set_reuse_address(true).unwrap();
             socket
-                .join_multicast_v4(&multicast_ip, &localhost_v4)
+                .join_multicast_v4(&multicast_ip, &multicast_interface)
                 .unwrap();
-            socket
+            socket.bind(
+                &SockAddr::from(
+                    SocketAddr::new(IpAddr::from(multicast_interface), multicast_port)
+                )
+            ).unwrap();
+            UdpSocket::from(socket)
         };
-        let socket_sender = UdpSocket::bind(
-            SocketAddr::new(localhost(), 0)
-        ).unwrap();
-        socket_sender
-            .join_multicast_v4(&multicast_ip, &localhost_v4)
-            .unwrap();
+        let socket_sender = make_socket();
         let socket_receiver_1 = make_socket();
         let socket_receiver_2 = make_socket();
         let message = b"Taxation is theft!";
         socket_sender.send_to(message, multicast_address).unwrap();
-        let mut buf = [MaybeUninit::uninit(); 100];
+        let mut buf = [0u8; 100];
         let (size, source) = socket_receiver_1.recv_from(&mut buf).unwrap();
-        let bytes = buf
-            .to_vec()
-            .into_iter()
-            .map(|muc| unsafe { muc.assume_init() })
-            .collect::<Vec<u8>>();
-        assert_eq!(bytes, message.to_vec());
+        assert_eq!(&buf[..size], message);
         let (size, source) = socket_receiver_2.recv_from(&mut buf).unwrap();
-        let bytes = buf
-            .to_vec()
-            .into_iter()
-            .map(|muc| unsafe { muc.assume_init() })
-            .collect::<Vec<u8>>();
-        assert_eq!(bytes, message.to_vec());
+        assert_eq!(&buf[..size], message);
     }
 }

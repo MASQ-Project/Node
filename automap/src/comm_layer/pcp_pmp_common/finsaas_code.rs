@@ -100,66 +100,42 @@ fn singlecast_udp_test() {
 
 #[test]
 fn multicast_udp_test() {
-    //creates 3 receiver sockets, probably a more elegant way to do this.
-    let receiver1 = create_socket(MULTICAST_GROUP_ADDRESS_2, MCAST_PORT_2);
-    let receiver2 = create_socket(MULTICAST_GROUP_ADDRESS_2, MCAST_PORT_2);
-    let receiver3 = create_socket(MULTICAST_GROUP_ADDRESS_2, MCAST_PORT_2);
+    //creates 3 receiver sockets and buffers
+    let mut receivers_and_buffers = vec![
+        (create_socket(MULTICAST_GROUP_ADDRESS_2, MCAST_PORT_2), [0; 64]),
+        (create_socket(MULTICAST_GROUP_ADDRESS_2, MCAST_PORT_2), [0; 64]),
+        (create_socket(MULTICAST_GROUP_ADDRESS_2, MCAST_PORT_2), [0; 64]),
+    ];
     //creates socket to send
     let socket = create_socket(MULTICAST_GROUP_ADDRESS_2, MCAST_PORT_2);
-    let mut buffer1 = [0; 64];
-    let mut buffer2 = [0; 64];
-    let mut buffer3 = [0; 64];
     //socket address to use for send_to later on, must be the same multicast group and port we set for the receiver
-    let addr = &SockAddr::from(SocketAddr::new(MULTICAST_GROUP_ADDRESS_2.into(), MCAST_PORT_2));
+    let socket_addr = SocketAddr::new(MULTICAST_GROUP_ADDRESS_2.into(), MCAST_PORT_2);
     //easy way to send/receive 10 messages
     (0..10).for_each(|x| {
         let message = format!("Test message {} for MASQ UDP multicast", x);
         println!("Sending multicast message to group: '{}'", message);
         //sends message as bytes to socket address
         socket
-            .send_to(message.as_bytes(), &addr.as_socket().unwrap())
+            .send_to(message.as_bytes(), socket_addr)
             .expect("could not send_to!");
-        //receives message from socket for receiver1
-        match receiver1.recv_from(&mut buffer1) {
-            Ok((len, _remote_addr)) => {
-                let data = &buffer1[..len];
-                let response = std::str::from_utf8(data).unwrap();
+        receivers_and_buffers
+            .iter_mut()
+            .enumerate()
+            .for_each (|(idx, (receiver, buffer))| {
+            match receiver.recv_from(buffer) {
+                Ok((len, _remote_addr)) => {
+                    let data = &buffer[..len];
+                    let response = std::str::from_utf8(data).unwrap();
 
-                eprintln!("{}: Received on receiver1: '{}' when expecting '{}'", x, response, message);
-                assert_eq!(response, message)
+                    eprintln!("{}: Received on receiver{}: '{}' when expecting '{}'", (idx + 1), x,
+                              response, message);
+                    assert_eq!(response, message)
+                }
+                Err(err) => {
+                    println!("receiver{}: had a problem: {}", (idx + 1), err);
+                    panic!()
+                }
             }
-            Err(err) => {
-                println!("receiver1: had a problem: {}", err);
-                panic!()
-            }
-        }
-        //receives message from socket for receiver2
-        match receiver2.recv_from(&mut buffer2) {
-            Ok((len, _remote_addr)) => {
-                let data = &buffer2[..len];
-                let response = std::str::from_utf8(data).unwrap();
-
-                eprintln!("{}: Received on receiver2: '{}' when expecting '{}'", x, response, message);
-                assert_eq!(response, message)
-            }
-            Err(err) => {
-                println!("receiver2 had a problem: {}", err);
-                panic!();
-            }
-        }
-        //receives message from socket for receiver3
-        match receiver3.recv_from(&mut buffer3) {
-            Ok((len, _remote_addr)) => {
-                let data = &buffer3[..len];
-                let response = std::str::from_utf8(data).unwrap();
-
-                eprintln!("{}: Received on receiver3: '{}' when expecting '{}'", x, response, message);
-                assert_eq!(response, message)
-            }
-            Err(err) => {
-                println!("receiver3: had a problem: {}", err);
-                panic!();
-            }
-        }
+        });
     })
 }
