@@ -276,6 +276,7 @@ impl PcpTransactor {
     }
 
     fn make_announcement_socket(&mut self) -> Result<Box<dyn UdpSocketWrapper>, AutomapError> {
+        todo! ("That last octet should be self.announcement_multicast_group, not 1");
         let multicast = Ipv4Addr::new(224, 0, 0, 1);
         // let socket_addr = SocketAddr::new(ip_addr, self.announcement_multicast_group);
         let socket_result = {
@@ -682,7 +683,6 @@ mod tests {
     use std::cell::RefCell;
     use std::collections::HashSet;
     use std::io::ErrorKind;
-    use std::mem::MaybeUninit;
     use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -2216,10 +2216,10 @@ mod tests {
     fn play_with_multicast() {
         // make three sockets
         let multicast_interface = if let IpAddr::V4(addr) = localhost() {addr} else {panic! ("localhost is IPv6!")};
-        // let multicast_interface = Ipv4Addr::UNSPECIFIED;
-        let multicast_ip = Ipv4Addr::new(224, 0, 0, 122);
-        let multicast_port = find_free_port();
-        let multicast_address = SocketAddr::new(IpAddr::V4(multicast_ip), multicast_port);
+        let multicast_address = SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::new(224, 0, 0, 122)),
+            find_free_port()
+        );
         let make_socket = || {
             let socket =
                 Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP)).unwrap();
@@ -2231,12 +2231,21 @@ mod tests {
             socket.set_reuse_port(true).unwrap();
             //windows has reuse_port hidden and implicitly flagged with reuse_address
             socket.set_reuse_address(true).unwrap();
+            let multicast_ipv4 = match multicast_address.ip() {
+                IpAddr::V4(addr) => addr,
+                IpAddr::V6(addr) => panic! ("Multicast IP is IPv6! {}", addr)
+            };
             socket
-                .join_multicast_v4(&multicast_ip, &multicast_interface)
+                .join_multicast_v4(
+                    &multicast_ipv4,
+                    &multicast_interface)
                 .unwrap();
             socket.bind(
                 &SockAddr::from(
-                    SocketAddr::new(IpAddr::from(multicast_interface), multicast_port)
+                    SocketAddr::new(
+                        IpAddr::from(multicast_interface),
+                        multicast_address.port()
+                    )
                 )
             ).unwrap();
             UdpSocket::from(socket)

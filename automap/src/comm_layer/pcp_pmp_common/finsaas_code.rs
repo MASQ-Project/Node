@@ -100,16 +100,16 @@ fn singlecast_udp_test() {
 
 #[test]
 fn multicast_udp_test() {
-    //creates 3 receiver sockets and buffers
-    let mut receivers_and_buffers = vec![
-        (create_socket(MULTICAST_GROUP_ADDRESS_2, MCAST_PORT_2), [0; 64]),
-        (create_socket(MULTICAST_GROUP_ADDRESS_2, MCAST_PORT_2), [0; 64]),
-        (create_socket(MULTICAST_GROUP_ADDRESS_2, MCAST_PORT_2), [0; 64]),
-    ];
     //creates socket to send
     let socket = create_socket(MULTICAST_GROUP_ADDRESS_2, MCAST_PORT_2);
     //socket address to use for send_to later on, must be the same multicast group and port we set for the receiver
     let socket_addr = SocketAddr::new(MULTICAST_GROUP_ADDRESS_2.into(), MCAST_PORT_2);
+    //creates 3 receiver sockets and buffers
+    let mut receivers = vec![
+        create_socket(MULTICAST_GROUP_ADDRESS_2, MCAST_PORT_2),
+        create_socket(MULTICAST_GROUP_ADDRESS_2, MCAST_PORT_2),
+        create_socket(MULTICAST_GROUP_ADDRESS_2, MCAST_PORT_2),
+    ];
     //easy way to send/receive 10 messages
     (0..10).for_each(|x| {
         let message = format!("Test message {} for MASQ UDP multicast", x);
@@ -118,24 +118,25 @@ fn multicast_udp_test() {
         socket
             .send_to(message.as_bytes(), socket_addr)
             .expect("could not send_to!");
-        receivers_and_buffers
-            .iter_mut()
+        let mut buf = [0u8; 64];
+        receivers
+            .iter()
             .enumerate()
-            .for_each (|(idx, (receiver, buffer))| {
-            match receiver.recv_from(buffer) {
-                Ok((len, _remote_addr)) => {
-                    let data = &buffer[..len];
-                    let response = std::str::from_utf8(data).unwrap();
+            .for_each (|(idx, receiver)| {
+                match receiver.recv_from(&mut buf) {
+                    Ok((len, _remote_addr)) => {
+                        let data = &buf[..len];
+                        let response = std::str::from_utf8(data).unwrap();
 
-                    eprintln!("{}: Received on receiver{}: '{}' when expecting '{}'", (idx + 1), x,
-                              response, message);
-                    assert_eq!(response, message)
+                        eprintln!("{}: Received on receiver{}: '{}' when expecting '{}'", (idx + 1), x,
+                                  response, message);
+                        assert_eq!(response, message)
+                    }
+                    Err(err) => {
+                        println!("receiver{}: had a problem: {}", (idx + 1), err);
+                        panic!()
+                    }
                 }
-                Err(err) => {
-                    println!("receiver{}: had a problem: {}", (idx + 1), err);
-                    panic!()
-                }
-            }
-        });
+            });
     })
 }
