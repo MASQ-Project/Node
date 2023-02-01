@@ -447,8 +447,8 @@ mod tests {
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::types::{ToSqlOutput, Value};
     use rusqlite::{Connection, OpenFlags};
-    use std::option::IntoIter;
     use std::collections::HashMap;
+    use std::option::IntoIter;
     use std::time::UNIX_EPOCH;
 
     #[test]

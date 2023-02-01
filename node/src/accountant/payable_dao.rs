@@ -10,12 +10,12 @@ use crate::accountant::big_int_processing::big_int_db_processor::{
     BigIntDbProcessor, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO,
 };
 use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
-use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
     multi_row_update_rows_changed, sum_i128_values_from_table, to_time_t, AssemblerFeeder,
     CustomQuery, DaoFactoryReal, RangeStmConfig, TopStmConfig, VigilantRusqliteFlatten,
 };
 use crate::accountant::{checked_conversion, sign_conversion, PendingPayableId};
+use crate::accountant::{dao_utils, COMMA_SEPARATOR};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
@@ -131,7 +131,6 @@ impl PayableDao for PayableDaoReal {
         &self,
         wallets_and_rowids: &[(&Wallet, u64)],
     ) -> Result<(), PayableDaoError> {
-        const COMMA_SEPARATOR: &str = ", ";
         fn collect_feedback(row: &Row) -> Result<Option<()>, rusqlite::Error> {
             row.get::<usize, Option<u64>>(0)
                 .map(|id_opt| id_opt.map(|_| ()))

@@ -3,9 +3,17 @@
 pub mod payable_scanner_utils {
     use crate::accountant::dao_utils::ThresholdUtils;
     use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
-    use crate::accountant::{PayableTransactingErrorEnum, SentPayables};
-    use crate::blockchain::blockchain_interface::{BlockchainError, ProcessedPayableFallible};
+    use crate::accountant::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
+        LocallyCausedError, RemotelyCausedErrors,
+    };
+    use crate::accountant::SentPayables;
+    use crate::blockchain::blockchain_interface::BlockchainError::PayableTransactionFailed;
+    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failure};
+    use crate::blockchain::blockchain_interface::{
+        BlockchainError, ProcessedPayableFallible, RpcPayableFailure,
+    };
     use crate::sub_lib::accountant::PaymentThresholds;
+    use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
     use masq_lib::logger::Logger;
     use masq_lib::utils::plus;
@@ -14,8 +22,17 @@ pub mod payable_scanner_utils {
     use std::cmp::Ordering;
     use std::time::SystemTime;
     use thousands::Separable;
-    use crate::accountant::PayableTransactingErrorEnum::{LocallyCausedError, RemotelyCausedErrors};
-    use crate::blockchain::blockchain_interface::BlockchainError::PayableTransactionFailed;
+    use web3::types::H256;
+
+    pub type RefWalletAndRowidOptCoupledWithHash<'a> = ((&'a Wallet, Option<u64>), H256);
+
+    pub type VecOfRowidOptAndHash = Vec<(Option<u64>, H256)>;
+
+    #[derive(Debug, PartialEq)]
+    pub enum PayableTransactingErrorEnum {
+        LocallyCausedError(BlockchainError),
+        RemotelyCausedErrors(Vec<H256>),
+    }
 
     //debugging purposes only
     pub fn investigate_debt_extremes(
@@ -93,8 +110,8 @@ pub mod payable_scanner_utils {
                 }
                 let (oks, err_hashes_opt) =
                     separate_rpc_results(individual_batch_responses, logger);
-                let errs_opt = err_hashes_opt.map(RemotelyCausedErrors);
 
+                let errs_opt = err_hashes_opt.map(RemotelyCausedErrors);
                 (oks, errs_opt)
             }
             Err(e) => {
@@ -134,13 +151,12 @@ pub mod payable_scanner_utils {
             .fold(init,|acc, rpc_result| match rpc_result {
                 Correct(pending_payable) => add_another_correct_transaction(acc, pending_payable),
                 Failure(RpcPayableFailure{rpc_error,recipient_wallet,hash }) => {
-
-                    warning!(logger, "Remote transaction failure: {}, for payment to {} and transaction hash {:?}. Please check your blockchain service URL configuration.", rpc_error, recipient_wallet,hash);
-
+                    warning!(logger,
+                        "Remote transaction failure: {}, for payment to {} and transaction hash {:?}. \
+                      Please check your blockchain service URL configuration.", rpc_error, recipient_wallet,hash);
                     add_another_rpc_failure(acc, *hash)
                 }
-            },
-            );
+            });
 
         let errs_opt = if !errs.is_empty() { Some(errs) } else { None };
 
@@ -184,7 +200,7 @@ pub mod payable_scanner_utils {
         )
     }
 
-    fn count_total_errors(
+    pub(super) fn count_total_errors(
         full_set_of_errors: &Option<PayableTransactingErrorEnum>,
     ) -> Option<usize> {
         match full_set_of_errors {
@@ -237,11 +253,18 @@ pub mod payable_scanner_utils {
 }
 
 pub mod pending_payable_scanner_utils {
-    use crate::accountant::{PendingPayableId};
+    use crate::accountant::PendingPayableId;
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use masq_lib::logger::Logger;
     use masq_lib::utils::ExpectValue;
     use std::time::SystemTime;
+
+    #[derive(Debug, Default, PartialEq, Eq, Clone)]
+    pub struct PendingPayableScanSummary {
+        pub still_pending: Vec<PendingPayableId>,
+        pub failures: Vec<PendingPayableId>,
+        pub confirmed: Vec<PendingPayableFingerprint>,
+    }
 
     pub fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
         timestamp
@@ -250,6 +273,7 @@ pub mod pending_payable_scanner_utils {
             .as_millis()
     }
 
+    //TODO change this to return the summary
     pub fn handle_none_status(
         scan_summary: &mut PendingPayableScanSummary, //TODO let it return a value instead
         fingerprint: &PendingPayableFingerprint,
@@ -261,7 +285,7 @@ pub mod pending_payable_scanner_utils {
             "Pending transaction '{:?}' couldn't be confirmed at attempt \
             {} at {}ms after its sending",
             fingerprint.hash,
-            fingerprint.attempt_opt.expectv("initialized attempt"),
+            fingerprint.attempt,
             elapsed_in_ms(fingerprint.timestamp)
         );
         let elapsed = fingerprint
@@ -270,7 +294,7 @@ pub mod pending_payable_scanner_utils {
             .expect("we should be older now");
         let transaction_id = PendingPayableId {
             hash: fingerprint.hash,
-            rowid: fingerprint.rowid_opt.expectv("initialized rowid"),
+            rowid: fingerprint.rowid,
         };
         if max_pending_interval <= elapsed.as_secs() {
             error!(
@@ -281,7 +305,7 @@ pub mod pending_payable_scanner_utils {
                 user to complete the transaction.",
                 fingerprint.hash,
                 max_pending_interval,
-                fingerprint.attempt_opt.expectv("initialized attempt")
+                fingerprint.attempt
             );
             scan_summary.failures.push(fingerprint.into())
         } else {
@@ -289,6 +313,7 @@ pub mod pending_payable_scanner_utils {
         }
     }
 
+    //TODO change this to return the summary
     pub fn handle_status_with_success(
         scan_summary: &mut PendingPayableScanSummary,
         fingerprint: &PendingPayableFingerprint,
@@ -299,12 +324,13 @@ pub mod pending_payable_scanner_utils {
             "Transaction '{:?}' has been added to the blockchain; detected locally at attempt \
             {} at {}ms after its sending",
             fingerprint.hash,
-            fingerprint.attempt_opt.expectv("initialized attempt"),
+            fingerprint.attempt,
             elapsed_in_ms(fingerprint.timestamp)
         );
         scan_summary.confirmed.push(fingerprint.clone())
     }
 
+    //TODO change this to return the summary
     pub fn handle_status_with_failure(
         scan_summary: &mut PendingPayableScanSummary,
         fingerprint: &PendingPayableFingerprint,
@@ -315,7 +341,7 @@ pub mod pending_payable_scanner_utils {
             "Pending transaction '{}' announced as a failure, interpreting attempt \
             {} after {}ms from the sending",
             fingerprint.hash,
-            fingerprint.attempt_opt.expectv("initialized attempt"),
+            fingerprint.attempt,
             elapsed_in_ms(fingerprint.timestamp)
         );
         scan_summary.failures.push(fingerprint.into())
@@ -340,15 +366,21 @@ pub mod receivable_scanner_utils {
 #[cfg(test)]
 mod tests {
     use crate::accountant::dao_utils::{from_time_t, to_time_t};
-    use crate::accountant::payable_dao::{PayableAccount};
+    use crate::accountant::payable_dao::PayableAccount;
     use crate::accountant::receivable_dao::ReceivableAccount;
+    use crate::accountant::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
+        LocallyCausedError, RemotelyCausedErrors,
+    };
     use crate::accountant::scanners_utils::payable_scanner_utils::{
-        investigate_debt_extremes, payables_debug_summary, separate_errors, PayableThresholdsGauge,
+        count_total_errors, debugging_summary_after_error_separation, investigate_debt_extremes,
+        payables_debug_summary, separate_errors, PayableThresholdsGauge,
         PayableThresholdsGaugeReal,
     };
     use crate::accountant::scanners_utils::receivable_scanner_utils::balance_and_age;
     use crate::accountant::{checked_conversion, gwei_to_wei, SentPayables};
     use crate::blockchain::blockchain_interface::BlockchainError;
+    use crate::blockchain::blockchain_interface::BlockchainError::PayableTransactionFailed;
+    use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
     use masq_lib::constants::WEIS_OF_GWEI;
@@ -685,7 +717,7 @@ mod tests {
     fn count_total_errors_says_unidentifiable_for_very_early_local_error() {
         let sent_payable = Some(LocallyCausedError(BlockchainError::InvalidUrl));
 
-        let result = Accountant::count_total_errors(&sent_payable);
+        let result = count_total_errors(&sent_payable);
 
         assert_eq!(result, None)
     }
@@ -698,7 +730,7 @@ mod tests {
         };
         let sent_payable = Some(LocallyCausedError(error));
 
-        let result = Accountant::count_total_errors(&sent_payable);
+        let result = count_total_errors(&sent_payable);
 
         assert_eq!(result, None)
     }
@@ -711,7 +743,7 @@ mod tests {
         };
         let sent_payable = Some(LocallyCausedError(error));
 
-        let result = Accountant::count_total_errors(&sent_payable);
+        let result = count_total_errors(&sent_payable);
 
         assert_eq!(result, Some(2))
     }
@@ -723,7 +755,7 @@ mod tests {
             make_tx_hash(456),
         ]));
 
-        let result = Accountant::count_total_errors(&sent_payable);
+        let result = count_total_errors(&sent_payable);
 
         assert_eq!(result, Some(2))
     }
@@ -732,7 +764,7 @@ mod tests {
     fn count_total_errors_works_correctly_if_no_errors_found_at_all() {
         let sent_payable = None;
 
-        let result = Accountant::count_total_errors(&sent_payable);
+        let result = count_total_errors(&sent_payable);
 
         assert_eq!(result, Some(0))
     }
@@ -743,7 +775,7 @@ mod tests {
         let error = BlockchainError::InvalidAddress;
         let errs = Some(LocallyCausedError(error));
 
-        let result = Accountant::debugging_summary_after_error_separation(&oks, &errs);
+        let result = debugging_summary_after_error_separation(&oks, &errs);
 
         assert_eq!(
             result,

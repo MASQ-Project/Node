@@ -50,7 +50,7 @@ pub struct BlockchainBridge<T: Transport = Http> {
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
     scan_error_subs_opt: Option<Recipient<ScanError>>,
     crashable: bool,
-    pay_payable_confirmation: TransactionConfirmationTools,
+    paid_payable_confirmation: TransactionConfirmationTools,
 }
 
 struct TransactionConfirmationTools {
@@ -70,9 +70,9 @@ impl Handler<BindMessage> for BlockchainBridge {
             msg.peer_actors.neighborhood.set_consuming_wallet_sub,
             msg.peer_actors.proxy_server.set_consuming_wallet_sub,
         ]);
-        self.pay_payable_confirmation.new_pp_fingerprints_sub_opt =
+        self.paid_payable_confirmation.new_pp_fingerprints_sub_opt =
             Some(msg.peer_actors.accountant.init_pending_payable_fingerprints);
-        self.pay_payable_confirmation
+        self.paid_payable_confirmation
             .report_transaction_receipts_sub_opt =
             Some(msg.peer_actors.accountant.report_transaction_receipts);
         self.sent_payable_subs_opt = Some(msg.peer_actors.accountant.report_sent_payments);
@@ -184,7 +184,7 @@ impl BlockchainBridge {
             scan_error_subs_opt: None,
             crashable,
             logger: Logger::new("BlockchainBridge"),
-            pay_payable_confirmation: TransactionConfirmationTools {
+            paid_payable_confirmation: TransactionConfirmationTools {
                 new_pp_fingerprints_sub_opt: None,
                 report_transaction_receipts_sub_opt: None,
             },
@@ -315,25 +315,26 @@ impl BlockchainBridge {
         let init: (
             Vec<Option<TransactionReceipt>>,
             Option<(BlockchainError, H256)>,
-        ) = msg
-            .pending_payable
-            .iter()
-            .fold((vec![], None), |so_far, current_fingerprint| match so_far {
-                (_, None) => match self
-                    .blockchain_interface
-                    .get_transaction_receipt(current_fingerprint.hash)
-                {
-                    Ok(receipt_opt) => (plus(so_far.0, receipt_opt), None),
-                    Err(e) => (so_far.0, Some((e, current_fingerprint.hash))),
-                },
-                _ => so_far,
-            });
+        ) = (vec![], None);
+        let short_circuit_result =
+            msg.pending_payable
+                .iter()
+                .fold(init, |so_far, current_fingerprint| match so_far {
+                    (_, None) => match self
+                        .blockchain_interface
+                        .get_transaction_receipt(current_fingerprint.hash)
+                    {
+                        Ok(receipt_opt) => (plus(so_far.0, receipt_opt), None),
+                        Err(e) => (so_far.0, Some((e, current_fingerprint.hash))),
+                    },
+                    _ => so_far,
+                });
         let (vector_of_results, error_opt) = short_circuit_result;
         let pairs = vector_of_results
             .into_iter()
             .zip(msg.pending_payable.iter().cloned())
             .collect_vec();
-        self.payment_confirmation
+        self.paid_payable_confirmation
             .report_transaction_receipts_sub_opt
             .as_ref()
             .expect("Accountant is unbound")
@@ -392,7 +393,7 @@ impl BlockchainBridge {
             .get_transaction_count(consuming_wallet)?;
 
         let new_fingerprints_recipient = self
-            .pay_payable_confirmation
+            .paid_payable_confirmation
             .new_pp_fingerprints_sub_opt
             .as_ref()
             .expect("Accountant unbound");
@@ -720,7 +721,7 @@ mod tests {
         let scan_error_msg = accountant_recording.get_record::<ScanError>(1);
         assert_eq!(*scan_error_msg, ScanError{
             scan_type: ScanType::Payables,
-            response_skeleton: ResponseSkeleton { client_id: 1234, context_id: 4321 },
+            response_skeleton_opt: Some(ResponseSkeleton { client_id: 1234, context_id: 4321 }),
             msg: format!("ReportAccountsPayable: Blockchain error: Batch processing: \"{}\". With signed transactions, \
               each registered: 0x00000000000000000000000000000000000000000000000000000000000000de.", expected_error_msg)
         })
@@ -790,7 +791,9 @@ mod tests {
         };
         let (accountant, _, _) = make_recorder();
         let fingerprint_recipient = accountant.start().recipient();
-        subject.pay_payable_confirmation.new_pp_fingerprints_sub_opt = Some(fingerprint_recipient);
+        subject
+            .paid_payable_confirmation
+            .new_pp_fingerprints_sub_opt = Some(fingerprint_recipient);
 
         let result = subject.start_processing_payments(&request);
 
@@ -1028,7 +1031,7 @@ mod tests {
             None,
         );
         subject
-            .pay_payable_confirmation
+            .paid_payable_confirmation
             .report_transaction_receipts_sub_opt = Some(report_transaction_receipt_recipient);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
         let msg = RequestTransactionReceipts {
@@ -1095,7 +1098,7 @@ mod tests {
             Some(Wallet::new("mine")),
         );
         subject
-            .payment_confirmation
+            .paid_payable_confirmation
             .report_transaction_receipts_sub_opt = Some(recipient);
         let msg = RequestTransactionReceipts {
             pending_payable: vec![],
@@ -1156,7 +1159,7 @@ mod tests {
             None,
         );
         subject
-            .pay_payable_confirmation
+            .paid_payable_confirmation
             //due to this None we would've panicked if we tried to send a msg
             .report_transaction_receipts_sub_opt = Some(report_transaction_recipient);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
