@@ -103,7 +103,7 @@ pub mod payable_scanner_utils {
         sent_payables: &'a SentPayables,
         logger: &'b Logger,
     ) -> (Vec<&'a PendingPayable>, Option<PayableTransactingErrorEnum>) {
-        match &sent_payables.payment_outcome {
+        match &sent_payables.payment_result {
             Ok(individual_batch_responses) => {
                 if individual_batch_responses.is_empty() {
                     panic!("Broken code: An empty vector of processed payments claiming to be an Ok value")
@@ -366,7 +366,7 @@ pub mod receivable_scanner_utils {
 #[cfg(test)]
 mod tests {
     use crate::accountant::dao_utils::{from_time_t, to_time_t};
-    use crate::accountant::payable_dao::PayableAccount;
+    use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
@@ -450,7 +450,7 @@ mod tests {
     //         hash: make_tx_hash(123),
     //     };
     //     let sent_payable = SentPayables {
-    //         payment_outcome: Ok(vec![Correct(correct_payment.clone())]),
+    //         payment_result: Ok(vec![Correct(correct_payment.clone())]),
     //         response_skeleton_opt: None,
     //     };
     //
@@ -468,7 +468,7 @@ mod tests {
     //         signed_and_saved_txs_opt: None,
     //     };
     //     let sent_payable = SentPayables {
-    //         payment_outcome: Err(error.clone()),
+    //         payment_result: Err(error.clone()),
     //         response_skeleton_opt: None,
     //     };
     //
@@ -493,7 +493,7 @@ mod tests {
     //         hash: make_tx_hash(789),
     //     };
     //     let sent_payable = SentPayables {
-    //         payment_outcome: Ok(vec![
+    //         payment_result: Ok(vec![
     //             Correct(payable_ok.clone()),
     //             Failure(bad_rpc_call.clone()),
     //         ]),
@@ -513,7 +513,7 @@ mod tests {
     fn separate_errors_works() {
         init_test_logging();
         let test_name = "separate_errors_works";
-        let payable_ok = Payable {
+        let payable_ok = PendingPayable {
             to: make_wallet("blah"),
             amount: 5555,
             timestamp: SystemTime::now(),

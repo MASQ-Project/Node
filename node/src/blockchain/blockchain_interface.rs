@@ -427,6 +427,7 @@ where
 #[derive(Debug, PartialEq, Clone)]
 pub enum ProcessedPayableFallible {
     Correct(PendingPayable),
+    //TODO rename to follow up the word class of the first variant
     Failure(RpcPayableFailure),
 }
 

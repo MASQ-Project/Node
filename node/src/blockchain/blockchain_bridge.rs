@@ -146,6 +146,7 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
 #[derive(Debug, Clone, PartialEq, Eq, Message)]
 pub struct NewPendingPayableFingerprints {
     pub batch_wide_timestamp: SystemTime,
+    // TODO maybe a better name?
     pub init_params: Vec<(H256, u128)>,
 }
 
@@ -154,6 +155,7 @@ pub struct PendingPayableFingerprint {
     pub rowid: u64,
     pub timestamp: SystemTime,
     pub hash: H256,
+    //TODO make sure this starts with 1 and is right at all places
     pub attempt: u16,
     pub amount: u128,
     pub process_error: Option<String>,
@@ -249,7 +251,7 @@ impl BlockchainBridge {
             .as_ref()
             .expect("Accountant is unbound")
             .try_send(SentPayables {
-                payment_outcome: result,
+                payment_result: result,
                 response_skeleton_opt: skeleton,
             })
             .expect("Accountant is dead");
@@ -638,7 +640,7 @@ mod tests {
         assert_eq!(
             *sent_payments_msg,
             SentPayables {
-                payment_outcome: Ok(vec![
+                payment_result: Ok(vec![
                     Correct(PendingPayable {
                         recipient_wallet: wallet_account_1,
                         hash: H256::from("sometransactionhash".keccak256())
@@ -711,7 +713,7 @@ mod tests {
         assert_eq!(
             *sent_payments_msg,
             SentPayables {
-                payment_outcome: expected_error,
+                payment_result: expected_error,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321
