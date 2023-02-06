@@ -142,6 +142,7 @@ impl Default for FreePortFactoryReal {
 pub trait FindRoutersCommand {
     fn execute(&self) -> Result<String, String>;
 
+    // TODO: Consider having the error case be either a String from stderr or an Error object.
     fn execute_command(&self, command: &str) -> Result<String, String> {
         let command_string = command.to_string();
         let words: Vec<&str> = command_string

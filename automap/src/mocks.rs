@@ -306,23 +306,25 @@ impl FreePortFactoryMock {
 }
 
 pub struct FindRoutersCommandMock {
-    execute_result: Result<String, String>,
+    execute_results: RefCell<Vec<Result<String, String>>>,
 }
 
 impl FindRoutersCommand for FindRoutersCommandMock {
     fn execute(&self) -> Result<String, String> {
-        self.execute_result.clone()
+        self.execute_results.borrow_mut().remove(0)
     }
 }
 
 impl FindRoutersCommandMock {
-    pub fn new(result: Result<&str, &str>) -> Self {
+    pub fn new() -> Self {
         Self {
-            execute_result: match result {
-                Ok(s) => Ok(s.to_string()),
-                Err(s) => Err(s.to_string()),
-            },
+            execute_results: RefCell::new (vec![]),
         }
+    }
+
+    pub fn execute_result (self, result: Result<String, String>) -> Self {
+        self.execute_results.borrow_mut().push (result);
+        self
     }
 }
 

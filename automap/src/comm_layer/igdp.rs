@@ -1603,10 +1603,12 @@ mod tests {
     }
 
     #[test]
-    fn thread_guts_iteration_reports_router_error_to_change_handler() {
+    fn thread_guts_iteration_reports_mapping_error_to_change_handler() {
         init_test_logging();
+        let public_ip_addr = Ipv4Addr::from_str("1.2.3.4").unwrap();
         let gateway = GatewayWrapperMock::new()
-            .get_external_ip_result(Err(GetExternalIpError::ActionNotAuthorized));
+            .get_external_ip_result(Ok(public_ip_addr));
+            // .get_external_ip_result(Err(GetExternalIpError::ActionNotAuthorized));
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mapping_adder = MappingAdderMock::new()
             .add_mapping_params(&add_mapping_params_arc)
@@ -1616,9 +1618,9 @@ mod tests {
         let inner_arc = Arc::new(Mutex::new(IgdpTransactorInner {
             gateway_opt: Some(Box::new(gateway)),
             housekeeping_commander_opt: None,
-            public_ip_opt: Some(Ipv4Addr::from_str("1.2.3.4").unwrap()),
+            public_ip_opt: Some(public_ip_addr),
             mapping_adder: Box::new(mapping_adder),
-            logger: Logger::new("thread_guts_iteration_reports_router_error_to_change_handler"),
+            logger: Logger::new("thread_guts_iteration_reports_mapping_error_to_change_handler"),
         }));
         let change_log_arc = Arc::new(Mutex::new(vec![]));
         let change_log_inner = change_log_arc.clone();
@@ -1650,10 +1652,10 @@ mod tests {
         assert_eq!(add_mapping_params_call.2, 1000);
         let tlh = TestLogHandler::new();
         tlh.exists_log_containing(&format!(
-            "ERROR: thread_guts_iteration_reports_router_error_to_change_handler: Remapping failure: TemporaryMappingError(\"Booga\")",
+            "ERROR: thread_guts_iteration_reports_mapping_error_to_change_handler: Remapping failure: TemporaryMappingError(\"Booga\")",
         ));
         tlh.exists_log_containing(&format!(
-            "ERROR: thread_guts_iteration_reports_router_error_to_change_handler: Remapping failure: TemporaryMappingError(\"Booga\")",
+            "ERROR: thread_guts_iteration_reports_mapping_error_to_change_handler: Remapping failure: TemporaryMappingError(\"Booga\")",
         ));
     }
 
