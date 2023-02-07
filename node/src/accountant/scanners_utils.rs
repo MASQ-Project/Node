@@ -273,13 +273,12 @@ pub mod pending_payable_scanner_utils {
             .as_millis()
     }
 
-    //TODO change this to return the summary
     pub fn handle_none_status(
-        scan_summary: &mut PendingPayableScanSummary, //TODO let it return a value instead
-        fingerprint: &PendingPayableFingerprint,
+        mut scan_summary: PendingPayableScanSummary,
+        fingerprint: PendingPayableFingerprint,
         max_pending_interval: u64,
         logger: &Logger,
-    ) -> PendingTransactionStatus {
+    ) -> PendingPayableScanSummary {
         info!(
             logger,
             "Pending transaction '{:?}' couldn't be confirmed at attempt \
@@ -292,10 +291,6 @@ pub mod pending_payable_scanner_utils {
             .timestamp
             .elapsed()
             .expect("we should be older now");
-        let transaction_id = PendingPayableId {
-            hash: fingerprint.hash,
-            rowid: fingerprint.rowid,
-        };
         if max_pending_interval <= elapsed.as_secs() {
             error!(
                 logger,
@@ -311,14 +306,14 @@ pub mod pending_payable_scanner_utils {
         } else {
             scan_summary.still_pending.push(fingerprint.into())
         }
+        scan_summary
     }
 
-    //TODO change this to return the summary
     pub fn handle_status_with_success(
-        scan_summary: &mut PendingPayableScanSummary,
-        fingerprint: &PendingPayableFingerprint,
+        mut scan_summary: PendingPayableScanSummary,
+        fingerprint: PendingPayableFingerprint,
         logger: &Logger,
-    ) -> PendingTransactionStatus {
+    ) -> PendingPayableScanSummary {
         info!(
             logger,
             "Transaction '{:?}' has been added to the blockchain; detected locally at attempt \
@@ -327,15 +322,15 @@ pub mod pending_payable_scanner_utils {
             fingerprint.attempt,
             elapsed_in_ms(fingerprint.timestamp)
         );
-        scan_summary.confirmed.push(fingerprint.clone())
+        scan_summary.confirmed.push(fingerprint.clone());
+        scan_summary
     }
 
-    //TODO change this to return the summary
     pub fn handle_status_with_failure(
-        scan_summary: &mut PendingPayableScanSummary,
-        fingerprint: &PendingPayableFingerprint,
+        mut scan_summary: PendingPayableScanSummary,
+        fingerprint: PendingPayableFingerprint,
         logger: &Logger,
-    ) -> PendingTransactionStatus {
+    ) -> PendingPayableScanSummary {
         error!(
             logger,
             "Pending transaction '{}' announced as a failure, interpreting attempt \
@@ -344,7 +339,8 @@ pub mod pending_payable_scanner_utils {
             fingerprint.attempt,
             elapsed_in_ms(fingerprint.timestamp)
         );
-        scan_summary.failures.push(fingerprint.into())
+        scan_summary.failures.push(fingerprint.into());
+        scan_summary
     }
 }
 
