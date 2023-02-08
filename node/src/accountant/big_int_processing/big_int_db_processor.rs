@@ -475,6 +475,8 @@ pub trait TableNameDAO: Debug + Send {
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub enum WeiChange {
     Addition(&'static str, u128),
+    //This means that the supplied amount is internally converted into a signed number and
+    //so even though the related SQL contains + signs the resulting math operation is subtraction
     Subtraction(&'static str, u128),
 }
 

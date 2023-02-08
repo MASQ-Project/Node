@@ -28,21 +28,16 @@ use crate::accountant::dao_utils::{
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
-use crate::accountant::payable_dao::{
-    PayableAccount, PayableDaoError, PayableDaoFactory, PendingPayable,
-};
-use crate::accountant::pending_payable_dao::{PendingPayableDao, PendingPayableDaoFactory};
-use crate::accountant::receivable_dao::{
-    ReceivableAccount, ReceivableDaoError, ReceivableDaoFactory,
-};
-use crate::accountant::scanners::{NotifyLaterForScanners, Scanners};
+use crate::accountant::payable_dao::{PayableDaoError, PendingPayable};
+use crate::accountant::pending_payable_dao::PendingPayableDao;
+use crate::accountant::receivable_dao::ReceivableDaoError;
+use crate::accountant::scanners::{join_collection_by_commas, NotifyLaterForScanners, Scanners};
 use crate::blockchain::blockchain_bridge::{
     NewPendingPayableFingerprints, PendingPayableFingerprint, RetrieveTransactions,
 };
-use crate::blockchain::blockchain_interface::BlockchainError::PayableTransactionFailed;
-use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failure};
+use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
 use crate::blockchain::blockchain_interface::{
-    BlockchainError, BlockchainTransaction, ProcessedPayableFallible, RpcPayableFailure,
+    BlockchainError, BlockchainTransaction, ProcessedPayableFallible,
 };
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
@@ -866,7 +861,7 @@ impl Accountant {
     }
 
     fn handle_new_pending_payable_fingerprints(&self, msg: NewPendingPayableFingerprints) {
-        fn serialized_hashes(fingerprints_data: &[(H256, u128)]) -> String {
+        fn serialize_hashes(fingerprints_data: &[(H256, u128)]) -> String {
             fingerprints_data
                 .iter()
                 .map(|(hash, _)| format!("{:?}", hash))
@@ -880,14 +875,14 @@ impl Accountant {
             Ok(_) => debug!(
                 self.logger,
                 "Saved new pending payable fingerprints for: {}",
-                serialized_hashes(&msg.init_params)
+                serialize_hashes(&msg.init_params)
             ),
             Err(e) => error!(
                 self.logger,
                 "Failed to process new pending payable fingerprints due to '{:?}', \
                  disabling the automated confirmation for all these transactions: {}",
                 e,
-                serialized_hashes(&msg.init_params)
+                serialize_hashes(&msg.init_params)
             ),
         }
     }
@@ -909,12 +904,12 @@ impl PendingPayableId {
     }
 
     fn hashes_as_single_string(ids: &[Self]) -> String {
-        ids.iter().map(|id| format!("{:?}", id.hash)).join(", ")
+        join_collection_by_commas(ids, |id| format!("{:?}", id.hash))
     }
 }
 
-impl From<&PendingPayableFingerprint> for PendingPayableId {
-    fn from(pending_payable_fingerprint: &PendingPayableFingerprint) -> Self {
+impl From<PendingPayableFingerprint> for PendingPayableId {
+    fn from(pending_payable_fingerprint: PendingPayableFingerprint) -> Self {
         Self {
             hash: pending_payable_fingerprint.hash,
             rowid: pending_payable_fingerprint.rowid,
@@ -978,41 +973,12 @@ pub mod check_sqlite_fns {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::any::TypeId;
-    use std::collections::HashMap;
-    use std::ops::{Add, Sub};
-    use std::panic::{catch_unwind, AssertUnwindSafe};
-    use std::sync::Arc;
-    use std::sync::Mutex;
-    use std::time::Duration;
-    use std::vec;
-
-    use actix::{Arbiter, System};
-    use ethereum_types::U64;
-    use ethsign_crypto::Keccak256;
-    use itertools::Itertools;
-    use log::Level;
-    use masq_lib::constants::{
-        REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, REQUEST_WITH_NO_VALUES, SCAN_ERROR,
-        VALUE_EXCEEDS_ALLOWED_LIMIT,
-    };
-    use web3::Error;
-
-    use masq_lib::messages::{
-        CustomQueries, RangeQuery, ScanType, TopRecordsConfig, UiFinancialStatistics,
-        UiMessageError, UiPayableAccount, UiReceivableAccount, UiScanRequest, UiScanResponse,
-    };
-    use masq_lib::test_utils::logging::init_test_logging;
-    use masq_lib::test_utils::logging::TestLogHandler;
-    use masq_lib::ui_gateway::{MessageBody, MessagePath, NodeFromUiMessage, NodeToUiMessage};
-
     use crate::accountant::dao_utils::from_time_t;
     use crate::accountant::dao_utils::{to_time_t, CustomQuery};
     use crate::accountant::payable_dao::{PayableAccount, PayableDaoError};
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::scanners::{BeginScanError, NullScanner, ScannerMock};
-    use crate::accountant::scanners_utils::pending_payable_scanner_utils::PendingPayableScanSummary;
     use crate::accountant::test_utils::DaoWithDestination::{
         AccountantBodyDest, PayableScannerDest, PendingPayableScannerDest, ReceivableScannerDest,
     };
@@ -1026,7 +992,6 @@ mod tests {
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
     use crate::blockchain::blockchain_interface::BlockchainError;
-    use crate::blockchain::blockchain_interface::BlockchainError::PayableTransactionFailed;
     use crate::blockchain::blockchain_interface::BlockchainTransaction;
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
     use crate::sub_lib::accountant::{
@@ -1044,9 +1009,31 @@ mod tests {
         NotifyLaterHandleMock, SystemKillerActor,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
+    use actix::{Arbiter, System};
+    use ethereum_types::U64;
+    use itertools::Itertools;
+    use log::Level;
+    use masq_lib::constants::{
+        REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, REQUEST_WITH_NO_VALUES, SCAN_ERROR,
+        VALUE_EXCEEDS_ALLOWED_LIMIT,
+    };
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
+    use masq_lib::messages::{
+        CustomQueries, RangeQuery, ScanType, TopRecordsConfig, UiFinancialStatistics,
+        UiMessageError, UiPayableAccount, UiReceivableAccount, UiScanRequest, UiScanResponse,
+    };
+    use masq_lib::test_utils::logging::init_test_logging;
+    use masq_lib::test_utils::logging::TestLogHandler;
     use masq_lib::ui_gateway::MessagePath::Conversation;
-    use web3::types::{TransactionReceipt, H256};
+    use masq_lib::ui_gateway::{MessageBody, MessagePath, NodeFromUiMessage, NodeToUiMessage};
+    use std::any::TypeId;
+    use std::collections::HashMap;
+    use std::ops::{Add, Sub};
+    use std::sync::Arc;
+    use std::sync::Mutex;
+    use std::time::Duration;
+    use std::vec;
+    use web3::types::TransactionReceipt;
 
     impl Handler<AssertionsMessage<Accountant>> for Accountant {
         type Result = ();
@@ -1582,7 +1569,7 @@ mod tests {
     }
 
     #[test]
-    fn accountant_writes_detected_received_payments_using_receivables_dao() {
+    fn accountant_processes_msg_with_received_payments_using_receivables_dao() {
         let now = SystemTime::now();
         let earning_wallet = make_wallet("earner3000");
         let expected_receivable_1 = BlockchainTransaction {
@@ -1604,7 +1591,7 @@ mod tests {
             .receivable_daos(vec![ReceivableScannerDest(receivable_dao)])
             .build();
         let system =
-            System::new("accountant_writes_detected_received_payments_using_receivables_dao");
+            System::new("accountant_processes_msg_with_received_payments_using_receivables_dao");
         let subject = accountant.start();
 
         subject
@@ -2787,11 +2774,11 @@ mod tests {
     fn pending_transaction_is_registered_and_monitored_until_it_gets_confirmed_or_canceled() {
         init_test_logging();
         let mark_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
-        let transaction_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
+        let transactions_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
         let return_all_fingerprints_params_arc = Arc::new(Mutex::new(vec![]));
         let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
-        let insert_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
+        let insert_fingerprints_params_arc = Arc::new(Mutex::new(vec![]));
         let update_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
         let mark_failure_params_arc = Arc::new(Mutex::new(vec![]));
         let delete_record_params_arc = Arc::new(Mutex::new(vec![]));
@@ -2876,10 +2863,9 @@ mod tests {
             .non_pending_payables_result(vec![account_1, account_2])
             .mark_pending_payables_rowids_params(&mark_pending_payable_params_arc)
             .mark_pending_payables_rowids_result(Ok(()));
-        //.mark_pending_payable_rowid_result(Ok(()))
         let payable_dao_for_pending_payable_scanner = PayableDaoMock::new()
-            .transaction_confirmed_params(&transaction_confirmed_params_arc)
-            .transaction_confirmed_result(Ok(()));
+            .transactions_confirmed_params(&transactions_confirmed_params_arc)
+            .transactions_confirmed_result(Ok(()));
         let mut bootstrapper_config = bc_from_earning_wallet(make_wallet("some_wallet_address"));
         bootstrapper_config.scan_intervals_opt = Some(ScanIntervals {
             payable_scan_interval: Duration::from_secs(1_000_000), //we don't care about this scan
@@ -2922,13 +2908,13 @@ mod tests {
             attempt: 4,
             ..fingerprint_2_first_round.clone()
         };
-        let pending_payable_dao_for_accountant = PendingPayableDaoMock::default();
         let pending_payable_dao_for_payable_scanner = PendingPayableDaoMock::default()
-            .fingerprint_rowid_result(Some(rowid_for_account_1))
-            .fingerprint_rowid_result(Some(rowid_for_account_2))
-            .insert_fingerprint_params(&insert_fingerprint_params_arc)
-            .insert_fingerprint_result(Ok(()))
-            .insert_fingerprint_result(Ok(()));
+            .fingerprints_rowids_result(vec![
+                (Some(rowid_for_account_1), pending_tx_hash_1),
+                (Some(rowid_for_account_2), pending_tx_hash_2),
+            ])
+            .insert_fingerprints_params(&insert_fingerprints_params_arc)
+            .insert_fingerprints_result(Ok(()));
         let mut pending_payable_dao_for_pending_payable_scanner = PendingPayableDaoMock::new()
             .return_all_fingerprints_params(&return_all_fingerprints_params_arc)
             .return_all_fingerprints_result(vec![])
@@ -2945,7 +2931,7 @@ mod tests {
                 fingerprint_2_third_round,
             ])
             .return_all_fingerprints_result(vec![fingerprint_2_fourth_round.clone()])
-            .insert_fingerprints_params(&insert_fingerprint_params_arc)
+            .insert_fingerprints_params(&insert_fingerprints_params_arc)
             .insert_fingerprints_result(Ok(()))
             .fingerprints_rowids_result(vec![
                 (Some(rowid_for_account_1), pending_tx_hash_1),
@@ -2969,12 +2955,10 @@ mod tests {
                 let mut subject = AccountantBuilder::default()
                     .bootstrapper_config(bootstrapper_config)
                     .payable_daos(vec![
-                        AccountantBodyDest(payable_dao_for_accountant),
                         PayableScannerDest(payable_dao_for_payable_scanner),
                         PendingPayableScannerDest(payable_dao_for_pending_payable_scanner),
                     ])
                     .pending_payable_daos(vec![
-                        AccountantBodyDest(pending_payable_dao_for_accountant),
                         PayableScannerDest(pending_payable_dao_for_payable_scanner),
                         PendingPayableScannerDest(pending_payable_dao_for_pending_payable_scanner),
                     ])
@@ -3043,7 +3027,7 @@ mod tests {
         assert_eq!(*mark_failure_params, vec![vec![rowid_for_account_1]]);
         let delete_record_params = delete_record_params_arc.lock().unwrap();
         assert_eq!(*delete_record_params, vec![vec![rowid_for_account_2]]);
-        let transaction_confirmed_params = transaction_confirmed_params_arc.lock().unwrap();
+        let transaction_confirmed_params = transactions_confirmed_params_arc.lock().unwrap();
         assert_eq!(
             *transaction_confirmed_params,
             vec![vec![fingerprint_2_fourth_round.clone()]]
@@ -3077,10 +3061,8 @@ mod tests {
             "WARN: Accountant: Broken transactions 0x000000000000000000000000000000000000000000000000000000000000007b marked as an error. \
              You should take over the care of those to make sure your debts are going to be settled properly. At the moment, there is no automated process fixing that without your assistance");
         log_handler.exists_log_matching("INFO: Accountant: Transaction 0x0000000000000000000000000000000000000000000000000000000000000237 has been added to the blockchain; detected locally at attempt 4 at \\d{2,}ms after its sending");
-        log_handler.exists_log_containing("INFO: Accountant: Transactions 0x0000000000000000000000000000000000000000000000000000000000000237 went through the whole confirmation process succeeding");
+        log_handler.exists_log_containing("INFO: Accountant: Transactions 0x0000000000000000000000000000000000000000000000000000000000000237 completed their confirmation process succeeding");
     }
-
-    //TODO this is a start of a critical section....
 
     #[test]
     fn accountant_receives_reported_transaction_receipts_and_processes_them_all() {
@@ -3091,8 +3073,8 @@ mod tests {
         let pending_payable_dao =
             PendingPayableDaoMock::default().delete_fingerprints_result(Ok(()));
         let subject = AccountantBuilder::default()
-            .payable_dao(payable_dao)
-            .pending_payable_dao(pending_payable_dao)
+            .payable_daos(vec![PendingPayableScannerDest(payable_dao)])
+            .pending_payable_daos(vec![PendingPayableScannerDest(pending_payable_dao)])
             .build();
         let subject_addr = subject.start();
         let transaction_hash_1 = make_tx_hash(4545);

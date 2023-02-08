@@ -716,30 +716,30 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        create_payable_account_with_pending_payment(
+        insert_record_fn(
             &*conn,
-            &wallet_1,
+            &wallet_1.to_string(),
             12345,
-            from_time_t(1_000_000_000),
-            0,
+            1_000_000_000,
+            Some(0), //TODO can it really be zero, not 1?
         );
         conn.prepare("update payable set pending_payable_rowid = null where wallet_address = ?")
             .unwrap()
             .execute(&[&wallet_1])
             .unwrap();
-        create_payable_account_with_pending_payment(
+        insert_record_fn(
             &*conn,
-            &wallet_2,
+            &wallet_2.to_string(),
             23456,
-            from_time_t(1_000_000_111),
-            540,
+            1_000_000_111,
+            Some(540),
         );
-        create_payable_account_with_pending_payment(
+        insert_record_fn(
             &*conn,
-            &wallet_3,
+            &wallet_3.to_string(),
             34567,
-            from_time_t(1_000_000_222),
-            541,
+            1_000_000_222,
+            Some(541),
         );
         let subject = PayableDaoReal::new(conn);
 
@@ -772,71 +772,46 @@ mod tests {
         )
     }
 
-    fn create_payable_account_with_pending_payment(
-        conn: &dyn ConnectionWrapper,
-        recipient_wallet: &Wallet,
-        amount: u128,
-        timestamp: SystemTime,
-        rowid: u64,
-    ) {
-        let (high_b, low_b) = BigIntDivider::deconstruct(checked_conversion::<u128, i128>(amount));
-        let mut stm1 = conn
-            .prepare(
-                "insert into payable (wallet_address, balance_high_b, balance_low_b,
-         last_paid_timestamp, pending_payable_rowid) values (?,?,?,?,?)",
-            )
-            .unwrap();
-        let params: &[&dyn ToSql] = &[
-            &recipient_wallet,
-            &high_b,
-            &low_b,
-            &to_time_t(timestamp),
-            &checked_conversion::<u64, i64>(rowid),
-        ];
-        let row_changed = stm1.execute(params).unwrap();
-        assert_eq!(row_changed, 1);
-    }
-
     struct TestSetupValuesHolder {
         fingerprint_1: PendingPayableFingerprint,
         fingerprint_2: PendingPayableFingerprint,
         wallet_1: Wallet,
         wallet_2: Wallet,
-        starting_amount_1: u128,
-        starting_amount_2: u128,
+        previous_timestamp_1: SystemTime,
+        previous_timestamp_2: SystemTime,
     }
 
     fn make_fingerprint_pair_and_insert_initial_payable_records(
         conn: &dyn ConnectionWrapper,
+        initial_amount_1: u128,
+        initial_amount_2: u128,
+        balance_change_1: u128,
+        balance_change_2: u128,
     ) -> TestSetupValuesHolder {
         let hash_1 = make_tx_hash(12345);
         let rowid_1 = 789;
-        let previous_timestamp_1 = from_time_t(190_000_000);
+        let previous_timestamp_1_s = 190_000_000;
         let new_payable_timestamp_1 = from_time_t(199_000_000);
-        let starting_amount_1 = 7_000_000_000;
-        let payment_1 = 6_666_666;
         let wallet_1 = make_wallet("bobble");
         let hash_2 = make_tx_hash(54321);
         let rowid_2 = 792;
-        let previous_timestamp_2 = from_time_t(187_100_000);
+        let previous_timestamp_2_s = 187_100_000;
         let new_payable_timestamp_2 = from_time_t(191_333_000);
-        let starting_amount_2 = 202_000_000;
-        let payment_2 = 200_300_400;
         let wallet_2 = make_wallet("booble bobble");
         {
-            create_payable_account_with_pending_payment(
+            insert_record_fn(
                 conn,
-                &wallet_1,
-                starting_amount_1,
-                previous_timestamp_1,
-                rowid_1,
+                &wallet_1.to_string(),
+                i128::try_from(initial_amount_1).unwrap(),
+                previous_timestamp_1_s,
+                Some(rowid_1 as i64),
             );
-            create_payable_account_with_pending_payment(
+            insert_record_fn(
                 conn,
-                &wallet_2,
-                starting_amount_2,
-                previous_timestamp_2,
-                rowid_2,
+                &wallet_2.to_string(),
+                i128::try_from(initial_amount_2).unwrap(),
+                previous_timestamp_2_s,
+                Some(rowid_2 as i64),
             )
         }
         let fingerprint_1 = PendingPayableFingerprint {
@@ -844,7 +819,7 @@ mod tests {
             timestamp: new_payable_timestamp_1,
             hash: hash_1,
             attempt: 1,
-            amount: payment_1,
+            amount: balance_change_1,
             process_error: None,
         };
         let fingerprint_2 = PendingPayableFingerprint {
@@ -852,23 +827,25 @@ mod tests {
             timestamp: new_payable_timestamp_2,
             hash: hash_2,
             attempt: 1,
-            amount: payment_2,
+            amount: balance_change_2,
             process_error: None,
         };
+        let previous_timestamp_1 = from_time_t(previous_timestamp_1_s);
+        let previous_timestamp_2 = from_time_t(previous_timestamp_2_s);
         TestSetupValuesHolder {
             fingerprint_1,
             fingerprint_2,
             wallet_1,
             wallet_2,
-            starting_amount_1,
-            starting_amount_2,
+            previous_timestamp_1,
+            previous_timestamp_2,
         }
     }
 
     #[test]
     fn transaction_confirmed_works_without_overflow() {
         //asserting on the main sql
-        let initial = i64::MAX as i128 + 10000;
+        let initial = i64::MAX as u128 + 10000;
         //initial (1, 9999)
         let initial_changing_end_resulting_values = (initial, 11111, initial as u128 - 11111);
         //change (-1, abs(i64::MIN) - 11111)
@@ -893,36 +870,68 @@ mod tests {
 
     fn transaction_confirmed_works(
         test_name: &str,
-        (initial_amount, balance_change, expected_balance_after): (i128, u128, u128),
+        (initial_amount_1, balance_change_1, expected_balance_after_1): (u128, u128, u128),
     ) {
         let home_dir = ensure_node_home_directory_exists("payable_dao", test_name);
+        //a hardcoded set that just makes a complement to the crucial, supplied one; this points to the ability of
+        //handling multiple transactions together
+        let initial_amount_2 = 5_678_901;
+        let balance_change_2 = 678_902;
+        let expected_balance_after_2 = 4_999_999;
         let boxed_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let setup_holder =
-            make_fingerprint_pair_and_insert_initial_payable_records(boxed_conn.as_ref());
+        let setup_holder = make_fingerprint_pair_and_insert_initial_payable_records(
+            boxed_conn.as_ref(),
+            initial_amount_1,
+            initial_amount_2,
+            balance_change_1,
+            balance_change_2,
+        );
         let subject = PayableDaoReal::new(boxed_conn);
-        let expected_account_1 = PayableAccount {
+        let expected_status_before_1 = PayableAccount {
             wallet: setup_holder.wallet_1.clone(),
-            balance_wei: setup_holder.starting_amount_1 - setup_holder.fingerprint_1.amount,
+            balance_wei: initial_amount_1,
+            last_paid_timestamp: setup_holder.previous_timestamp_1,
+            pending_payable_opt: Some(PendingPayableId {
+                rowid: setup_holder.fingerprint_1.rowid,
+                hash: H256::from_uint(&U256::from(0)),
+            }), //hash is just garbage
+        };
+        let expected_status_before_2 = PayableAccount {
+            wallet: setup_holder.wallet_2.clone(),
+            balance_wei: initial_amount_2,
+            last_paid_timestamp: setup_holder.previous_timestamp_2,
+            pending_payable_opt: Some(PendingPayableId {
+                rowid: setup_holder.fingerprint_2.rowid,
+                hash: H256::from_uint(&U256::from(0)),
+            }), //hash is just garbage
+        };
+        let expected_resulting_status_1 = PayableAccount {
+            wallet: setup_holder.wallet_1.clone(),
+            balance_wei: expected_balance_after_1,
             last_paid_timestamp: setup_holder.fingerprint_1.timestamp,
             pending_payable_opt: None,
         };
-        let expected_account_2 = PayableAccount {
+        let expected_resulting_status_2 = PayableAccount {
             wallet: setup_holder.wallet_2.clone(),
-            balance_wei: setup_holder.starting_amount_2 - setup_holder.fingerprint_2.amount,
+            balance_wei: expected_balance_after_2,
             last_paid_timestamp: setup_holder.fingerprint_2.timestamp,
             pending_payable_opt: None,
         };
+        let status_1_before_opt = subject.account_status(&setup_holder.wallet_1);
+        let status_2_before_opt = subject.account_status(&setup_holder.wallet_2);
 
         let result = subject
             .transactions_confirmed(&[setup_holder.fingerprint_1, setup_holder.fingerprint_2]);
 
         assert_eq!(result, Ok(()));
-        let account_1_opt = subject.account_status(&setup_holder.wallet_1);
-        assert_eq!(account_1_opt, Some(expected_account_1));
-        let account_2_opt = subject.account_status(&setup_holder.wallet_2);
-        assert_eq!(account_2_opt, Some(expected_account_2))
+        assert_eq!(status_1_before_opt, Some(expected_status_before_1));
+        assert_eq!(status_2_before_opt, Some(expected_status_before_2));
+        let resulting_account_1_opt = subject.account_status(&setup_holder.wallet_1);
+        assert_eq!(resulting_account_1_opt, Some(expected_resulting_status_1));
+        let resulting_account_2_opt = subject.account_status(&setup_holder.wallet_2);
+        assert_eq!(resulting_account_2_opt, Some(expected_resulting_status_2))
     }
 
     #[test]
@@ -987,15 +996,21 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        let setup_holder = make_fingerprint_pair_and_insert_initial_payable_records(conn.as_ref());
+        let setup_holder = make_fingerprint_pair_and_insert_initial_payable_records(
+            conn.as_ref(),
+            1_111_111,
+            2_222_222,
+            111_111,
+            222_222,
+        );
         conn.prepare("delete from payable where wallet_address = ?")
             .unwrap()
             .execute(&[&setup_holder.wallet_2])
             .unwrap();
         let subject = PayableDaoReal::new(conn);
-        let expected_account_1 = PayableAccount {
+        let expected_account = PayableAccount {
             wallet: setup_holder.wallet_1.clone(),
-            balance_wei: setup_holder.starting_amount_1 - setup_holder.fingerprint_1.amount,
+            balance_wei: 1_111_111 - setup_holder.fingerprint_1.amount,
             last_paid_timestamp: setup_holder.fingerprint_1.timestamp,
             pending_payable_opt: None,
         };
@@ -1011,7 +1026,7 @@ mod tests {
             ))
         );
         let account_1_opt = subject.account_status(&setup_holder.wallet_1);
-        assert_eq!(account_1_opt, Some(expected_account_1));
+        assert_eq!(account_1_opt, Some(expected_account));
         let account_2_opt = subject.account_status(&setup_holder.wallet_2);
         assert_eq!(account_2_opt, None);
     }

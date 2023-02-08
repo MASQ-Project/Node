@@ -74,7 +74,6 @@ pub mod payable_scanner_utils {
         if all_non_pending_payables.is_empty() {
             return "Payable scan found no debts".to_string();
         }
-
         let (biggest, oldest) = all_non_pending_payables
             .iter()
             .map(|payable| PayableInfo {
@@ -93,7 +92,6 @@ pub mod payable_scanner_utils {
                     )
                 },
             );
-
         format!("Payable scan found {} debts; the biggest is {} owed for {}sec, the oldest is {} owed for {}sec",
                 all_non_pending_payables.len(), biggest.balance_wei, biggest.age,
                 oldest.balance_wei, oldest.age)
@@ -117,7 +115,7 @@ pub mod payable_scanner_utils {
             Err(e) => {
                 warning!(
                     logger,
-                    "Registered a failed process to be screened for persisted data after: {}",
+                    "Failed process to be screened for persisted data. Cause by: {}",
                     e
                 );
 
@@ -136,7 +134,6 @@ pub mod payable_scanner_utils {
         ) -> (Vec<&'a PendingPayable>, Vec<H256>) {
             (plus(acc.0, pending_payable), acc.1)
         }
-
         fn add_another_rpc_failure(
             acc: (Vec<&PendingPayable>, Vec<H256>),
             hash: H256,
@@ -145,15 +142,14 @@ pub mod payable_scanner_utils {
         }
 
         let init = (vec![], vec![]);
-
         let (oks, errs) = individual_responses_in_the_batch
             .iter()
             .fold(init,|acc, rpc_result| match rpc_result {
                 Correct(pending_payable) => add_another_correct_transaction(acc, pending_payable),
                 Failure(RpcPayableFailure{rpc_error,recipient_wallet,hash }) => {
                     warning!(logger,
-                        "Remote transaction failure: {}, for payment to {} and transaction hash {:?}. \
-                      Please check your blockchain service URL configuration.", rpc_error, recipient_wallet,hash);
+                        "Remote transaction failure: '{}' for payment to {} and transaction hash {:?}. \
+                      Please check your blockchain service URL configuration.", rpc_error, recipient_wallet, hash);
                     add_another_rpc_failure(acc, *hash)
                 }
             });
@@ -256,7 +252,6 @@ pub mod pending_payable_scanner_utils {
     use crate::accountant::PendingPayableId;
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use masq_lib::logger::Logger;
-    use masq_lib::utils::ExpectValue;
     use std::time::SystemTime;
 
     #[derive(Debug, Default, PartialEq, Eq, Clone)]
@@ -281,7 +276,7 @@ pub mod pending_payable_scanner_utils {
     ) -> PendingPayableScanSummary {
         info!(
             logger,
-            "Pending transaction '{:?}' couldn't be confirmed at attempt \
+            "Pending transaction {:?} couldn't be confirmed at attempt \
             {} at {}ms after its sending",
             fingerprint.hash,
             fingerprint.attempt,
@@ -294,7 +289,7 @@ pub mod pending_payable_scanner_utils {
         if max_pending_interval <= elapsed.as_secs() {
             error!(
                 logger,
-                "Pending transaction '{}' has exceeded the maximum pending time \
+                "Pending transaction {:?} has exceeded the maximum pending time \
                 ({}sec) and the confirmation process is going to be aborted now \
                 at the final attempt {}; manual resolution is required from the \
                 user to complete the transaction.",
@@ -316,7 +311,7 @@ pub mod pending_payable_scanner_utils {
     ) -> PendingPayableScanSummary {
         info!(
             logger,
-            "Transaction '{:?}' has been added to the blockchain; detected locally at attempt \
+            "Transaction {:?} has been added to the blockchain; detected locally at attempt \
             {} at {}ms after its sending",
             fingerprint.hash,
             fingerprint.attempt,
@@ -333,7 +328,7 @@ pub mod pending_payable_scanner_utils {
     ) -> PendingPayableScanSummary {
         error!(
             logger,
-            "Pending transaction '{}' announced as a failure, interpreting attempt \
+            "Pending transaction {:?} announced as a failure, interpreting attempt \
             {} after {}ms from the sending",
             fingerprint.hash,
             fingerprint.attempt,
@@ -374,8 +369,9 @@ mod tests {
     };
     use crate::accountant::scanners_utils::receivable_scanner_utils::balance_and_age;
     use crate::accountant::{checked_conversion, gwei_to_wei, SentPayables};
-    use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::blockchain::blockchain_interface::BlockchainError::PayableTransactionFailed;
+    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failure};
+    use crate::blockchain::blockchain_interface::{BlockchainError, RpcPayableFailure};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
@@ -440,96 +436,70 @@ mod tests {
         assert_eq!(age.as_secs(), offset as u64);
     }
 
-    // fn separate_errors_works_for_no_errs_just_oks() {
-    //     let correct_payment = PendingPayable {
-    //         recipient_wallet: make_wallet("blah"),
-    //         hash: make_tx_hash(123),
-    //     };
-    //     let sent_payable = SentPayables {
-    //         payment_result: Ok(vec![Correct(correct_payment.clone())]),
-    //         response_skeleton_opt: None,
-    //     };
-    //
-    //     let (oks, errs) = Accountant::separate_errors(&sent_payable, &Logger::new("test"));
-    //
-    //     assert_eq!(oks, vec![&correct_payment]);
-    //     assert_eq!(errs, None)
-    // }
-    //
-    // #[test]
-    // fn separate_errors_works_for_our_errors() {
-    //     init_test_logging();
-    //     let error = PayableTransactionFailed {
-    //         msg: "bad timing".to_string(),
-    //         signed_and_saved_txs_opt: None,
-    //     };
-    //     let sent_payable = SentPayables {
-    //         payment_result: Err(error.clone()),
-    //         response_skeleton_opt: None,
-    //     };
-    //
-    //     let (oks, errs) = Accountant::separate_errors(&sent_payable, &Logger::new("test_logger"));
-    //
-    //     assert!(oks.is_empty());
-    //     assert_eq!(errs, Some(LocallyCausedError(error)));
-    //     TestLogHandler::new().exists_log_containing("WARN: test_logger: Registered a failed process to be screened for persisted data after: \
-    //      Blockchain error: Batch processing: \"bad timing\". Without prepared transactions, no hashes to report");
-    // }
-    //
-    // #[test]
-    // fn separate_errors_works_for_their_errors() {
-    //     init_test_logging();
-    //     let payable_ok = PendingPayable {
-    //         recipient_wallet: make_wallet("blah"),
-    //         hash: make_tx_hash(123),
-    //     };
-    //     let bad_rpc_call = RpcPayableFailure {
-    //         rpc_error: web3::Error::InvalidResponse("that donkey screwed it up".to_string()),
-    //         recipient_wallet: make_wallet("whooa"),
-    //         hash: make_tx_hash(789),
-    //     };
-    //     let sent_payable = SentPayables {
-    //         payment_result: Ok(vec![
-    //             Correct(payable_ok.clone()),
-    //             Failure(bad_rpc_call.clone()),
-    //         ]),
-    //         response_skeleton_opt: None,
-    //     };
-    //
-    //     let (oks, errs) = Accountant::separate_errors(&sent_payable, &Logger::new("test_logger"));
-    //
-    //     assert_eq!(oks, vec![&payable_ok]);
-    //     assert_eq!(errs, Some(RemotelyCausedErrors(vec![make_tx_hash(789)])));
-    //     TestLogHandler::new().exists_log_containing("WARN: test_logger: Remote transaction failure: Got invalid response: \
-    //      that donkey screwed it up, for payment to 0x00000000000000000000000000000077686f6f61 and transaction hash \
-    //       0x0000000000000000000000000000000000000000000000000000000000000315. Please check your blockchain service URL configuration.");
-    // }
-
     #[test]
-    fn separate_errors_works() {
-        init_test_logging();
-        let test_name = "separate_errors_works";
-        let payable_ok = PendingPayable {
-            to: make_wallet("blah"),
-            amount: 5555,
-            timestamp: SystemTime::now(),
-            tx_hash: Default::default(),
+    fn separate_errors_works_for_no_errs_just_oks() {
+        let correct_payment = PendingPayable {
+            recipient_wallet: make_wallet("blah"),
+            hash: make_tx_hash(123),
         };
-        let error = BlockchainError::SignedValueConversion(666);
         let sent_payable = SentPayables {
-            timestamp: SystemTime::now(),
-            payable: vec![Ok(payable_ok.clone()), Err(error.clone())],
+            payment_result: Ok(vec![Correct(correct_payment.clone())]),
             response_skeleton_opt: None,
         };
 
-        let (ok, err) = separate_errors(&sent_payable, &Logger::new(test_name));
+        let (oks, errs) = separate_errors(&sent_payable, &Logger::new("test"));
 
-        assert_eq!(ok, vec![payable_ok]);
-        assert_eq!(err, vec![error.clone()]);
-        TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {}: Outbound transaction failure due to '{:?}",
-            test_name, error
-        ));
+        assert_eq!(oks, vec![&correct_payment]);
+        assert_eq!(errs, None)
+    }
+
+    #[test]
+    fn separate_errors_works_for_our_errors() {
+        init_test_logging();
+        let error = PayableTransactionFailed {
+            msg: "bad timing".to_string(),
+            signed_and_saved_txs_opt: None,
+        };
+        let sent_payable = SentPayables {
+            payment_result: Err(error.clone()),
+            response_skeleton_opt: None,
+        };
+
+        let (oks, errs) = separate_errors(&sent_payable, &Logger::new("test_logger"));
+
+        assert!(oks.is_empty());
+        assert_eq!(errs, Some(LocallyCausedError(error)));
+        TestLogHandler::new().exists_log_containing("WARN: test_logger: Failed process to be screened for persisted data. Cause by: \
+         Blockchain error: Batch processing: \"bad timing\". Without prepared transactions, no hashes to report");
+    }
+
+    #[test]
+    fn separate_errors_works_for_their_errors() {
+        init_test_logging();
+        let payable_ok = PendingPayable {
+            recipient_wallet: make_wallet("blah"),
+            hash: make_tx_hash(123),
+        };
+        let bad_rpc_call = RpcPayableFailure {
+            rpc_error: web3::Error::InvalidResponse("that donkey screwed it up".to_string()),
+            recipient_wallet: make_wallet("whooa"),
+            hash: make_tx_hash(789),
+        };
+        let sent_payable = SentPayables {
+            payment_result: Ok(vec![
+                Correct(payable_ok.clone()),
+                Failure(bad_rpc_call.clone()),
+            ]),
+            response_skeleton_opt: None,
+        };
+
+        let (oks, errs) = separate_errors(&sent_payable, &Logger::new("test_logger"));
+
+        assert_eq!(oks, vec![&payable_ok]);
+        assert_eq!(errs, Some(RemotelyCausedErrors(vec![make_tx_hash(789)])));
+        TestLogHandler::new().exists_log_containing("WARN: test_logger: Remote transaction failure: 'Got invalid response: \
+         that donkey screwed it up' for payment to 0x00000000000000000000000000000077686f6f61 and transaction hash \
+          0x0000000000000000000000000000000000000000000000000000000000000315. Please check your blockchain service URL configuration.");
     }
 
     #[test]
@@ -591,8 +561,10 @@ mod tests {
         payables_debug_summary(&qualified_payables_and_threshold_points, &logger);
 
         TestLogHandler::new().exists_log_containing("Paying qualified debts:\n\
-                   10,002,000,000,000,000 wei owed for 2678400 sec exceeds threshold: 10,000,000,001,152,000 wei; creditor: 0x0000000000000000000000000077616c6c657430\n\
-                   999,999,999,000,000,000 wei owed for 86455 sec exceeds threshold: 999,978,993,055,555,580 wei; creditor: 0x0000000000000000000000000077616c6c657431");
+                   10,002,000,000,000,000 wei owed for 2678400 sec exceeds threshold: \
+                   10,000,000,001,152,000 wei; creditor: 0x0000000000000000000000000077616c6c657430\n\
+                   999,999,999,000,000,000 wei owed for 86455 sec exceeds threshold: \
+                   999,978,993,055,555,580 wei; creditor: 0x0000000000000000000000000077616c6c657431");
     }
 
     #[test]

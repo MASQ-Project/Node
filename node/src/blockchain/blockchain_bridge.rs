@@ -851,7 +851,7 @@ mod tests {
             &ScanError {
                 scan_type: ScanType::Payables,
                 response_skeleton_opt: None,
-                msg: "ReportAccountPayable: gas-price: TransactionError".to_string()
+                msg: "ReportAccountsPayable: gas-price: TransactionError".to_string()
             }
         );
         assert_eq!(recording.len(), 1);

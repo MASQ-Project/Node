@@ -184,7 +184,7 @@ fn incomplete_node_descriptor_is_refused_integration() {
 }
 
 #[test]
-fn started_without_explicit_chain_parameter_runs_fine() {
+fn started_without_explicit_chain_parameter_runs_fine_integration() {
     //defaulted chain - chosen on the lack of user specified chain - corresponds with descriptors
     //believed to be for the default chain
     let config = CommandConfig::new()
@@ -198,7 +198,7 @@ fn started_without_explicit_chain_parameter_runs_fine() {
         );
 
     let mut node = MASQNode::start_with_blank_config(
-        "started_without_explicit_chain_parameter_runs_fine",
+        "started_without_explicit_chain_parameter_runs_fine_integration",
         Some(config),
         true,
         true,

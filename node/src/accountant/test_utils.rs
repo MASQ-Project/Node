@@ -14,7 +14,7 @@ use crate::accountant::receivable_dao::{
 };
 use crate::accountant::scanners::{PayableScanner, PendingPayableScanner, ReceivableScanner};
 use crate::accountant::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
-use crate::accountant::{gwei_to_wei, Accountant, PendingPayableId, DEFAULT_PENDING_TOO_LONG_SEC};
+use crate::accountant::{gwei_to_wei, Accountant, DEFAULT_PENDING_TOO_LONG_SEC};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
@@ -469,8 +469,6 @@ pub struct PayableDaoMock {
     mark_pending_payables_rowids_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     transactions_confirmed_params: Arc<Mutex<Vec<Vec<PendingPayableFingerprint>>>>,
     transactions_confirmed_results: RefCell<Vec<Result<(), PayableDaoError>>>,
-    transaction_canceled_params: Arc<Mutex<Vec<PendingPayableId>>>,
-    transaction_canceled_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     custom_query_params: Arc<Mutex<Vec<CustomQuery<u64>>>>,
     custom_query_result: RefCell<Vec<Option<Vec<PayableAccount>>>>,
     total_results: RefCell<Vec<u128>>,
@@ -601,19 +599,6 @@ impl PayableDaoMock {
         self.transactions_confirmed_results
             .borrow_mut()
             .push(result);
-        self
-    }
-
-    pub fn transaction_canceled_params(
-        mut self,
-        params: &Arc<Mutex<Vec<PendingPayableId>>>,
-    ) -> Self {
-        self.transaction_canceled_params = params.clone();
-        self
-    }
-
-    pub fn transaction_canceled_result(self, result: Result<(), PayableDaoError>) -> Self {
-        self.transaction_canceled_results.borrow_mut().push(result);
         self
     }
 

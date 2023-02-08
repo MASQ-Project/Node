@@ -13,7 +13,7 @@ use masq_lib::constants::WEIS_OF_GWEI;
 use masq_lib::messages::{
     RangeQuery, TopRecordsConfig, TopRecordsOrdering, UiPayableAccount, UiReceivableAccount,
 };
-use masq_lib::utils::{plus, ExpectValue};
+use masq_lib::utils::plus;
 use rusqlite::{Row, ToSql};
 use std::fmt::{Debug, Display};
 use std::iter::FlatMap;
