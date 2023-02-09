@@ -564,13 +564,9 @@ impl PendingPayableScanner {
                 payable.hash, payable.attempt,elapsed_in_ms(payable.timestamp)
             );
 
-            scan_summary.still_pending.push(
-                //TODO do we want a constructor?
-                PendingPayableId {
-                    hash: payable.hash,
-                    rowid: payable.rowid,
-                },
-            );
+            scan_summary
+                .still_pending
+                .push(PendingPayableId::new(payable.rowid, payable.hash));
             scan_summary
         }
 
@@ -2026,7 +2022,7 @@ mod tests {
             result,
             PendingPayableScanSummary {
                 still_pending: vec![],
-                failures: vec![PendingPayableId { hash, rowid }],
+                failures: vec![PendingPayableId::new(rowid, hash)],
                 confirmed: vec![]
             }
         );
@@ -2065,7 +2061,7 @@ mod tests {
         assert_eq!(
             result,
             PendingPayableScanSummary {
-                still_pending: vec![PendingPayableId { hash, rowid }],
+                still_pending: vec![PendingPayableId::new(rowid, hash)],
                 failures: vec![],
                 confirmed: vec![]
             }
@@ -2120,10 +2116,7 @@ mod tests {
             result,
             PendingPayableScanSummary {
                 still_pending: vec![],
-                failures: vec![PendingPayableId {
-                    hash,
-                    rowid: 777777
-                }],
+                failures: vec![PendingPayableId::new(777777, hash,)],
                 confirmed: vec![]
             }
         );
@@ -2161,7 +2154,7 @@ mod tests {
         assert_eq!(
             result,
             PendingPayableScanSummary {
-                still_pending: vec![PendingPayableId { hash, rowid }],
+                still_pending: vec![PendingPayableId::new(rowid, hash)],
                 failures: vec![],
                 confirmed: vec![]
             }
@@ -2186,14 +2179,8 @@ mod tests {
         let subject = PendingPayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
-        let transaction_id_1 = PendingPayableId {
-            hash: hash_1,
-            rowid: rowid_1,
-        };
-        let transaction_id_2 = PendingPayableId {
-            hash: hash_2,
-            rowid: rowid_2,
-        };
+        let transaction_id_1 = PendingPayableId::new(rowid_1, hash_1);
+        let transaction_id_2 = PendingPayableId::new(rowid_2, hash_2);
 
         let _ = subject.update_remaining_fingerprints(
             vec![transaction_id_1, transaction_id_2],
@@ -2219,7 +2206,7 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let logger = Logger::new("test");
-        let transaction_id = PendingPayableId { hash, rowid };
+        let transaction_id = PendingPayableId::new(rowid, hash);
 
         let _ = subject.update_remaining_fingerprints(vec![transaction_id], &logger);
     }
@@ -2244,14 +2231,8 @@ mod tests {
         let subject = PendingPayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
-        let id_1 = PendingPayableId {
-            hash: make_tx_hash(123),
-            rowid: 2,
-        };
-        let id_2 = PendingPayableId {
-            hash: make_tx_hash(456),
-            rowid: 3,
-        };
+        let id_1 = PendingPayableId::new(2, make_tx_hash(123));
+        let id_2 = PendingPayableId::new(3, make_tx_hash(456));
 
         subject.cancel_failed_transactions(vec![id_1, id_2], &Logger::new(test_name));
 
@@ -2279,14 +2260,8 @@ mod tests {
         let subject = PendingPayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
-        let transaction_id_1 = PendingPayableId {
-            hash: make_tx_hash(333),
-            rowid: 2,
-        };
-        let transaction_id_2 = PendingPayableId {
-            hash: make_tx_hash(444),
-            rowid: 3,
-        };
+        let transaction_id_1 = PendingPayableId::new(2, make_tx_hash(333));
+        let transaction_id_2 = PendingPayableId::new(3, make_tx_hash(444));
         let transaction_ids = vec![transaction_id_1, transaction_id_2];
 
         subject.cancel_failed_transactions(transaction_ids, &Logger::new("test"));

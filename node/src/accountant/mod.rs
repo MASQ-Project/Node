@@ -898,8 +898,8 @@ pub struct PendingPayableId {
 }
 
 impl PendingPayableId {
-    pub fn new(rowid: u64, hash: H256)->Self{
-        Self{ rowid, hash }
+    pub fn new(rowid: u64, hash: H256) -> Self {
+        Self { rowid, hash }
     }
 
     fn rowids(ids: &[Self]) -> Vec<u64> {
