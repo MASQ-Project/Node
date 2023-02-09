@@ -417,13 +417,13 @@ impl PayableScanner {
         fn serialized_hashes(hashes: &[H256]) -> String {
             join_collection_by_commas(hashes, |hash| format!("{:?}", hash))
         }
-        fn log_failed_payments_lacking_fingerprints(ids_of_payments: VecOfRowidOptAndHash) {
+        fn panic_for_failed_payments_lacking_fingerprints(ids_of_payments: VecOfRowidOptAndHash) {
             let hashes_of_nonexistent = ids_of_payments
                 .into_iter()
                 .map(|(_, hash)| hash)
                 .collect::<Vec<H256>>();
             panic!(
-                "Running into failed transactions {} with missing fingerprints; system unreliable",
+                "Running into failed transactions {} with missing fingerprints",
                 serialized_hashes(&hashes_of_nonexistent),
             )
         }
@@ -449,8 +449,7 @@ impl PayableScanner {
             .partition(|(rowid_opt, _hash)| rowid_opt.is_some());
 
         if !nonexistent.is_empty() {
-            //TODO maybe remember it should panic but postpone it until we delete the existing fingerprints? Well...probably no
-            log_failed_payments_lacking_fingerprints(nonexistent)
+            panic_for_failed_payments_lacking_fingerprints(nonexistent)
         }
 
         if !existent.is_empty() {
@@ -1368,54 +1367,6 @@ mod tests {
     }
 
     #[test]
-    fn pending_payable_scanner_logs_and_aborts_when_errors_from_post_hash_time_are_found_and_fingerprint_does_not_exist(
-    ) {
-        init_test_logging();
-        let test_name = "pending_payable_scanner_logs_and_aborts_when_errors_from_post_hash_time_are_found_and_fingerprint_does_not_exist";
-        let system = System::new(test_name);
-        let hash_1 = make_tx_hash(112233);
-        let hash_2 = make_tx_hash(12345);
-        let hash_3 = make_tx_hash(8765);
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(vec![(Some(333), hash_1), (None, hash_2), (None, hash_3)])
-            .delete_fingerprints_result(Ok(()));
-        let mut subject = PayableScannerBuilder::new()
-            .pending_payable_dao(pending_payable_dao)
-            .build();
-        let sent_payable = SentPayables {
-            payment_result: Err(BlockchainError::PayableTransactionFailed {
-                msg: "SQLite migraine".to_string(),
-                signed_and_saved_txs_opt: Some(vec![hash_1, hash_2, hash_3]),
-            }),
-            response_skeleton_opt: None,
-        };
-
-        let caught_panic = catch_unwind(AssertUnwindSafe(|| {
-            subject.finish_scan(sent_payable, &Logger::new(test_name))
-        }))
-        .err()
-        .unwrap();
-
-        System::current().stop();
-        system.run();
-        let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
-        assert_eq!(panic_msg, "Running into failed transactions 0x0000000000000000000000000000000000\
-        000000000000000000000000003039, 0x000000000000000000000000000000000000000000000000000000000000223d \
-        with missing fingerprints; system unreliable");
-        let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing(
-           &format!("WARN: {test_name}: Failed process to be screened for persisted data. Cause by: \
-             Blockchain error: Batch processing: \"SQLite migraine\". With signed transactions, each registered: \
-               0x000000000000000000000000000000000000000000000000000000000001b669, \
-              0x0000000000000000000000000000000000000000000000000000000000003039, \
-               0x000000000000000000000000000000000000000000000000000000000000223d."));
-        log_handler.exists_no_log_containing(&format!(
-            "DEBUG: {test_name}: Deleting an existing backup for a failed transaction {:?}",
-            hash_1
-        ));
-    }
-
-    #[test]
     fn payable_scanner_discovers_failed_transactions_and_pending_payable_fingerprints_been_really_created(
     ) {
         init_test_logging();
@@ -1464,17 +1415,15 @@ mod tests {
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!("WARN: {test_name}: \
-         Registered a failed process to be screened for persisted data after: Blockchain error: Batch processing: \"Attempt failed\". With signed transactions, each registered: \
-           0x00000000000000000000000000000000000000000000000000000000000015b3, 0x0000000000000000000000000000000000000000000000000000000000003039."));
+         Failed process to be screened for persisted data. Caused by: Blockchain error: Batch processing: \"Attempt failed\". \
+         With signed transactions, each registered: 0x00000000000000000000000000000000000000000000000000000000000015b3, \
+         0x0000000000000000000000000000000000000000000000000000000000003039."));
         log_handler.exists_log_containing(
             &format!("WARN: {test_name}: \
             Deleting existing fingerprints for failed transactions 0x00000000000000000000000000000000000000000000000000000000000015b3, \
             0x0000000000000000000000000000000000000000000000000000000000003039",
         ));
-        log_handler.exists_no_log_containing(&format!(
-            "WARN: {test_name}: Throwing out failed transactions"
-        ));
-        //we haven't supplied any result for mark_pending_payable() and so it's proved as uncalled
+        //we haven't supplied any result for mark_pending_payable() and so it's proved uncalled
     }
 
     #[test]
@@ -1531,10 +1480,41 @@ mod tests {
     }
 
     #[test]
-    fn payable_scanner_logs_missing_fingerprint_then_panics_as_another_payment_fails_to_delete_its_fingerprint(
+    #[should_panic(
+        expected = "Database corrupt: payable fingerprint deletion for transactions \
+        0x000000000000000000000000000000000000000000000000000000000000007b, 0x00000000000000000000\
+        00000000000000000000000000000000000000000315 failed due to RecordDeletion(\"Gosh, I overslept \
+        without an alarm set\")"
+    )]
+    fn payable_scanner_panics_at_deletion_of_failed_payments_fingerprints() {
+        let rowid_1 = 4;
+        let hash_1 = make_tx_hash(123);
+        let rowid_2 = 6;
+        let hash_2 = make_tx_hash(789);
+        let sent_payable = SentPayables {
+            payment_result: Err(BlockchainError::PayableTransactionFailed {
+                msg: "blah".to_string(),
+                signed_and_saved_txs_opt: Some(vec![hash_1, hash_2]),
+            }),
+            response_skeleton_opt: None,
+        };
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .fingerprints_rowids_result(vec![(Some(rowid_1), hash_1), (Some(rowid_2), hash_2)])
+            .delete_fingerprints_result(Err(PendingPayableDaoError::RecordDeletion(
+                "Gosh, I overslept without an alarm set".to_string(),
+            )));
+        let mut subject = PayableScannerBuilder::new()
+            .pending_payable_dao(pending_payable_dao)
+            .build();
+
+        let _ = subject.finish_scan(sent_payable, &Logger::new("test"));
+    }
+
+    #[test]
+    fn payable_scanner_finds_missing_fingerprints_before_it_deletes_fingerprints_of_failed_payments(
     ) {
         init_test_logging();
-        let test_name = "payable_scanner_logs_missing_fingerprint_then_panics_as_another_payment_fails_to_delete_its_fingerprint";
+        let test_name = "payable_scanner_finds_missing_fingerprints_before_it_deletes_fingerprints_of_failed_payments";
         let existent_record_hash = make_tx_hash(45678);
         let nonexistent_record_hash = make_tx_hash(1234);
         let pending_payable_dao = PendingPayableDaoMock::default()
@@ -1548,7 +1528,6 @@ mod tests {
         let mut subject = PayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
-        let logger = Logger::new(test_name);
         let failed_payment_1 = Failure(RpcPayableFailure {
             rpc_error: Error::Unreachable,
             recipient_wallet: make_wallet("abc"),
@@ -1565,17 +1544,72 @@ mod tests {
         };
 
         let caught_panic = catch_unwind(AssertUnwindSafe(|| {
-            subject.finish_scan(sent_payable, &logger)
+            subject.finish_scan(sent_payable, &Logger::new(test_name))
         }))
         .err()
         .unwrap();
 
-        let panic_message = caught_panic.downcast_ref::<String>().unwrap();
-        assert_eq!(panic_message, "Database corrupt: payable fingerprint deletion for transactions 0x000000000000000000000000000\
-        000000000000000000000000000000000b26e, 0x00000000000000000000000000000000000000000000000000000000000004d2 failed due to \
-        RecordDeletion(\"Another failure. Really ???\")");
-        TestLogHandler::new().exists_log_containing(&format!("WARN: {test_name}: \
-        Throwing out failed transactions 0x00000000000000000000000000000000000000000000000000000000000004d2 with missing records"));
+        let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
+        assert_eq!(
+            panic_msg,
+            "Running into failed transactions 0x0000000000000000000000000\
+        0000000000000000000000000000000000004d2 with missing fingerprints"
+        );
+        let log_handler = TestLogHandler::new();
+        log_handler.exists_log_containing(&format!("WARN: {test_name}: Remote transaction failure: 'Server is unreachable' \
+         for payment to 0x0000000000000000000000000000000000616263 and transaction hash 0x00000000000000000000000\
+         0000000000000000000000000000000000000b26e. Please check your blockchain service URL configuration."));
+        log_handler.exists_log_containing(&format!("WARN: {test_name}: Remote transaction failure: 'Server is unreachable' \
+        for payment to 0x0000000000000000000000000000000000646566 and transaction hash 0x000000000000000000000000\
+        00000000000000000000000000000000000004d2. Please check your blockchain service URL configuration."));
+        log_handler.exists_log_containing(&format!(
+            "DEBUG: {test_name}: Got 0 properly sent payables of 2 attempts"
+        ));
+    }
+
+    #[test]
+    fn payable_scanner_panics_when_errors_from_post_hash_time_are_found_and_fingerprints_do_not_exist(
+    ) {
+        init_test_logging();
+        let test_name = "payable_scanner_panics_when_errors_from_post_hash_time_are_found_and_fingerprints_do_not_exist";
+        let hash_1 = make_tx_hash(112233);
+        let hash_2 = make_tx_hash(12345);
+        let hash_3 = make_tx_hash(8765);
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .fingerprints_rowids_result(vec![(Some(333), hash_1), (None, hash_2), (None, hash_3)])
+            .delete_fingerprints_result(Ok(()));
+        let mut subject = PayableScannerBuilder::new()
+            .pending_payable_dao(pending_payable_dao)
+            .build();
+        let sent_payable = SentPayables {
+            payment_result: Err(BlockchainError::PayableTransactionFailed {
+                msg: "SQLite migraine".to_string(),
+                signed_and_saved_txs_opt: Some(vec![hash_1, hash_2, hash_3]),
+            }),
+            response_skeleton_opt: None,
+        };
+
+        let caught_panic = catch_unwind(AssertUnwindSafe(|| {
+            subject.finish_scan(sent_payable, &Logger::new(test_name))
+        }))
+        .err()
+        .unwrap();
+
+        let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
+        assert_eq!(panic_msg, "Running into failed transactions 0x0000000000000000000000000000000000\
+        000000000000000000000000003039, 0x000000000000000000000000000000000000000000000000000000000000223d \
+        with missing fingerprints");
+        let log_handler = TestLogHandler::new();
+        log_handler.exists_log_containing(
+            &format!("WARN: {test_name}: Failed process to be screened for persisted data. Caused by: \
+             Blockchain error: Batch processing: \"SQLite migraine\". With signed transactions, each registered: \
+               0x000000000000000000000000000000000000000000000000000000000001b669, \
+              0x0000000000000000000000000000000000000000000000000000000000003039, \
+               0x000000000000000000000000000000000000000000000000000000000000223d."));
+        log_handler.exists_no_log_containing(&format!(
+            "DEBUG: {test_name}: Deleting an existing backup for a failed transaction {:?}",
+            hash_1
+        ));
     }
 
     fn common_body_for_failing_to_mark_rowids_tests(

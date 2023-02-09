@@ -115,7 +115,7 @@ pub mod payable_scanner_utils {
             Err(e) => {
                 warning!(
                     logger,
-                    "Failed process to be screened for persisted data. Cause by: {}",
+                    "Failed process to be screened for persisted data. Caused by: {}",
                     e
                 );
 
@@ -469,7 +469,7 @@ mod tests {
 
         assert!(oks.is_empty());
         assert_eq!(errs, Some(LocallyCausedError(error)));
-        TestLogHandler::new().exists_log_containing("WARN: test_logger: Failed process to be screened for persisted data. Cause by: \
+        TestLogHandler::new().exists_log_containing("WARN: test_logger: Failed process to be screened for persisted data. Caused by: \
          Blockchain error: Batch processing: \"bad timing\". Without prepared transactions, no hashes to report");
     }
 

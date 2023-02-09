@@ -991,7 +991,6 @@ mod tests {
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
-    use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::blockchain::blockchain_interface::BlockchainTransaction;
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
     use crate::sub_lib::accountant::{
@@ -2719,41 +2718,6 @@ mod tests {
             .build();
 
         let _ = subject.record_service_consumed(i64::MAX as u64, 1, SystemTime::now(), 2, &wallet);
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Database corrupt: payable fingerprint deletion for transactions 0x000000000000000000000000000000000000000000000000000000000000007b, \
-        0x0000000000000000000000000000000000000000000000000000000000000315 has stayed undone due to RecordDeletion(\"Gosh, I overslept without an alarm set\")"
-    )]
-    fn accountant_panics_in_case_it_receives_an_error_from_scanner_while_handling_sent_payable_msg()
-    {
-        let rowid_1 = 4;
-        let hash_1 = make_tx_hash(123);
-        let rowid_2 = 6;
-        let hash_2 = make_tx_hash(789);
-        let sent_payable = SentPayables {
-            payment_result: Err(BlockchainError::PayableTransactionFailed {
-                msg: "blah".to_string(),
-                signed_and_saved_txs_opt: Some(vec![hash_1, hash_2]),
-            }),
-            response_skeleton_opt: None,
-        };
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(vec![(Some(rowid_1), hash_1), (Some(rowid_2), hash_2)])
-            .delete_fingerprints_result(Err(PendingPayableDaoError::RecordDeletion(
-                "Gosh, I overslept without an alarm set".to_string(),
-            )));
-        let system = System::new("test");
-        let subject = AccountantBuilder::default()
-            .pending_payable_daos(vec![PayableScannerDest(pending_payable_dao)])
-            .build();
-        let addr = subject.start();
-
-        let _ = addr.try_send(sent_payable);
-
-        System::current().stop();
-        system.run();
     }
 
     #[test]
