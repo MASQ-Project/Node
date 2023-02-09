@@ -2,7 +2,7 @@
 
 use crate::comm_layer::pcp_pmp_common::{
     find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig,
-    UdpSocketFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory, ANNOUNCEMENT_PORT,
+    UdpSocketWrapperFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory, ANNOUNCEMENT_PORT,
     ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT,
 };
 use crate::comm_layer::{AutomapError, AutomapErrorCause, HousekeepingThreadCommand, Transactor};
@@ -35,7 +35,7 @@ struct Factories {
 impl Default for Factories {
     fn default() -> Self {
         Self {
-            socket_factory: Box::new(UdpSocketFactoryReal::new()),
+            socket_factory: Box::new(UdpSocketWrapperFactoryReal::new()),
             free_port_factory: Box::new(FreePortFactoryReal::new()),
         }
     }
@@ -45,7 +45,7 @@ pub struct PmpTransactor {
     mapping_adder_arc: Arc<Mutex<Box<dyn MappingAdder>>>,
     factories_arc: Arc<Mutex<Factories>>,
     router_port: u16,
-    listen_port: u16,
+    announcement_receive_port: u16,
     housekeeper_commander_opt: Option<Sender<HousekeepingThreadCommand>>,
     join_handle_opt: Option<JoinHandle<ChangeHandler>>,
     read_timeout_millis: u64,
@@ -169,7 +169,7 @@ impl Transactor for PmpTransactor {
             return Err(AutomapError::HousekeeperAlreadyRunning);
         }
         let announce_ip_addr = IpAddr::V4(Ipv4Addr::new(224, 0, 0, 1));
-        let announce_socket_addr = SocketAddr::new(announce_ip_addr, self.listen_port);
+        let announce_socket_addr = SocketAddr::new(announce_ip_addr, self.announcement_receive_port);
         let announce_socket_result = {
             let factories = self.factories_arc.lock().expect("Automap is poisoned!");
             factories.socket_factory.make(announce_socket_addr)
@@ -232,7 +232,7 @@ impl Default for PmpTransactor {
             mapping_adder_arc: Arc::new(Mutex::new(Box::<MappingAdderReal>::default())),
             factories_arc: Arc::new(Mutex::new(Factories::default())),
             router_port: ROUTER_PORT,
-            listen_port: ANNOUNCEMENT_PORT,
+            announcement_receive_port: ANNOUNCEMENT_PORT,
             housekeeper_commander_opt: None,
             read_timeout_millis: ANNOUNCEMENT_READ_TIMEOUT_MILLIS,
             join_handle_opt: None,
@@ -1466,7 +1466,7 @@ mod tests {
         let mapping_adder = MappingAdderMock::new().add_mapping_result(Ok(1000));
         let mut subject = PmpTransactor::default();
         subject.router_port = router_port;
-        subject.listen_port = announcement_port;
+        subject.announcement_receive_port = announcement_port;
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
         subject.read_timeout_millis = 10;
         let mapping_config = MappingConfig {
@@ -1550,7 +1550,7 @@ mod tests {
         let mapping_adder = MappingAdderMock::new().add_mapping_result(Ok(1000));
         let mut subject = PmpTransactor::default();
         subject.router_port = router_port;
-        subject.listen_port = announcement_receive_port;
+        subject.announcement_receive_port = announcement_receive_port;
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
         let mapping_config = MappingConfig {
             hole_port: 1234,
@@ -1615,7 +1615,7 @@ mod tests {
         let mapping_adder = MappingAdderMock::new().add_mapping_result(Ok(1000));
         let mut subject = PmpTransactor::default();
         subject.router_port = router_port;
-        subject.listen_port = change_handler_port;
+        subject.announcement_receive_port = change_handler_port;
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
         let mapping_config = MappingConfig {
             hole_port: 1234,
@@ -1675,10 +1675,10 @@ mod tests {
         });
         let mapping_adder = MappingAdderMock::new().add_mapping_result(Ok(1000));
         let mut subject = PmpTransactor::default();
+        subject.announcement_receive_port = find_free_port();
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
         let _ =
-            subject.start_housekeeping_thread(change_handler, IpAddr::from_str("1.2.3.4").unwrap());
-        thread::sleep(Duration::from_secs(1));
+            subject.start_housekeeping_thread(change_handler, IpAddr::from_str("1.2.3.4").unwrap()).unwrap();
 
         let change_handler = subject.stop_housekeeping_thread().unwrap();
 

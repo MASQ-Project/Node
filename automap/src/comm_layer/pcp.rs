@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig, UdpSocketFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory, ANNOUNCEMENT_MULTICAST_GROUP, ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT, ANNOUNCEMENT_PORT};
+use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig, UdpSocketWrapperFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory, ANNOUNCEMENT_MULTICAST_GROUP, ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT, ANNOUNCEMENT_PORT};
 use crate::comm_layer::{
     AutomapError, AutomapErrorCause, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal,
     Transactor,
@@ -56,7 +56,7 @@ struct Factories {
 impl Default for Factories {
     fn default() -> Self {
         Self {
-            socket_factory: Box::new(UdpSocketFactoryReal::new()),
+            socket_factory: Box::new(UdpSocketWrapperFactoryReal::new()),
             local_ip_finder: Box::new(LocalIpFinderReal::new()),
             mapping_nonce_factory: Box::new(MappingNonceFactoryReal::new()),
             free_port_factory: Box::new(FreePortFactoryReal::new()),
@@ -279,7 +279,6 @@ impl PcpTransactor {
             factories.socket_factory.make_multicast(
                 self.announcement_multicast_group,
                 self.announcement_port,
-                Ipv4Addr::UNSPECIFIED,
             )
         };
         let socket = match socket_result {
@@ -813,7 +812,7 @@ mod tests {
         ));
         let make_multicast_params = make_multicast_params_arc.lock().unwrap();
         assert_eq!(*make_multicast_params, vec![
-            (134, 1234, Ipv4Addr::UNSPECIFIED)
+            (134, 1234)
         ]);
     }
 
@@ -1420,7 +1419,7 @@ mod tests {
     #[test]
     fn housekeeping_thread_works() {
         let _ = EnvironmentGuard::new();
-        let change_handler_port = find_free_port();
+        let announcement_port = find_free_port();
         let router_port = find_free_port();
         let router_ip = localhost();
         let announcement_multicast_group = 233u8;
@@ -1449,14 +1448,14 @@ mod tests {
                 mapping_config,
             ))
             .unwrap();
-        let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        let announce_socket_holder = TestMulticastSocketHolder::checkout();
+        let multicast_ip = IpAddr::V4(Ipv4Addr::new (224, 0, 0, announcement_multicast_group));
+        let announce_socket_holder = TestMulticastSocketHolder::checkout(announcement_port);
         let announce_socket = &announce_socket_holder.socket;
         announce_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();
         announce_socket
-            .connect(SocketAddr::new(change_handler_ip, change_handler_port))
+            .connect(SocketAddr::new(multicast_ip, announcement_port))
             .unwrap();
         let mut packet = vanilla_response();
         packet.opcode = Opcode::Announce;

@@ -14,7 +14,7 @@ pub fn linux_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr
     let output = loop {
         match command.execute() {
             Ok(stdout) => break stdout,
-            Err(stderr) if (stderr.contains("Os { code: 2,")) => {
+            Err(stderr) if (stderr.contains("Os { code: 2,")) => { // File not found
                 if retries_left == 0 {
                     return Err (AutomapError::FindRouterError(format!("Retries exhausted: {}",
                         last_stderror_opt.expect("Last error disappeared"))))

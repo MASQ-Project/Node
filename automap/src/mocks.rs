@@ -1,8 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{
-    FindRoutersCommand, FreePortFactory, UdpSocketWrapper, UdpSocketWrapperFactory,
-};
+use crate::comm_layer::pcp_pmp_common::{FindRoutersCommand, FreePortFactory, UdpSocketWrapper, UdpSocketWrapperFactory, UdpSocketWrapperFactoryReal};
 use crate::comm_layer::{AutomapError, HousekeepingThreadCommand, LocalIpFinder, Transactor};
 use crate::control_layer::automap_control::{
     replace_transactor, AutomapControlReal, ChangeHandler,
@@ -13,7 +11,7 @@ use masq_lib::utils::AutomapProtocol;
 use std::any::Any;
 use std::cell::RefCell;
 use std::io::ErrorKind;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -26,7 +24,7 @@ lazy_static! {
 }
 
 pub struct TestMulticastSocketHolder {
-    pub socket: UdpSocket,
+    pub socket: Box<dyn UdpSocketWrapper>,
     pub group: u8,
 }
 
@@ -34,7 +32,8 @@ impl Drop for TestMulticastSocketHolder {
     fn drop(&mut self) {
         let ip = TestMulticastSocketHolder::ip_from_bit(self.group);
         self.socket
-            .leave_multicast_v4(&ip, &Ipv4Addr::new(0, 0, 0, 0))
+            .as_ref()
+            .leave_multicast_v4(&ip, &Ipv4Addr::UNSPECIFIED)
             .unwrap();
         let mut guard = MULTICAST_GROUPS_ACTIVE.lock().unwrap();
         TestMulticastSocketHolder::clear_bit(&mut guard, self.group);
@@ -42,14 +41,11 @@ impl Drop for TestMulticastSocketHolder {
 }
 
 impl TestMulticastSocketHolder {
-    pub fn checkout() -> TestMulticastSocketHolder {
-        let group = Self::allocate_bit();
-        let multicast = Self::ip_from_bit(group);
-        let socket = UdpSocket::bind("0.0.0.0:0").unwrap();
-        socket
-            .join_multicast_v4(&multicast, &Ipv4Addr::new(0, 0, 0, 0))
-            .unwrap();
-        Self { socket, group }
+    pub fn checkout(port: u16) -> TestMulticastSocketHolder {
+        let factory = UdpSocketWrapperFactoryReal::new();
+        let multicast_group = Self::allocate_bit();
+        let socket = factory.make_multicast(multicast_group, port).unwrap();
+        Self { socket, group: multicast_group }
     }
 
     fn allocate_bit() -> u8 {
@@ -122,15 +118,26 @@ impl LocalIpFinderMock {
 
 #[allow(clippy::type_complexity)]
 pub struct UdpSocketWrapperMock {
+    connect_params: Arc<Mutex<Vec<SocketAddr>>>,
+    connect_results: RefCell<Vec<io::Result<()>>>,
     recv_from_params: Arc<Mutex<Vec<()>>>,
     recv_from_results: RefCell<Vec<(io::Result<(usize, SocketAddr)>, Vec<u8>)>>,
     send_to_params: Arc<Mutex<Vec<(Vec<u8>, SocketAddr)>>>,
     send_to_results: RefCell<Vec<io::Result<usize>>>,
+    send_params: Arc<Mutex<Vec<Vec<u8>>>>,
+    send_results: RefCell<Vec<io::Result<usize>>>,
     set_read_timeout_params: Arc<Mutex<Vec<Option<Duration>>>>,
     set_read_timeout_results: RefCell<Vec<io::Result<()>>>,
+    leave_multicast_v4_params: Arc<Mutex<Vec<(Ipv4Addr, Ipv4Addr)>>>,
+    leave_multicast_v4_results: RefCell<Vec<io::Result<()>>>,
 }
 
 impl UdpSocketWrapper for UdpSocketWrapperMock {
+    fn connect(&self, addr: SocketAddr) -> io::Result<()> {
+        self.connect_params.lock().unwrap().push(addr);
+        self.connect_results.borrow_mut().remove(0)
+    }
+
     fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
         self.recv_from_params.lock().unwrap().push(());
         if self.recv_from_results.borrow().is_empty() {
@@ -159,9 +166,19 @@ impl UdpSocketWrapper for UdpSocketWrapperMock {
         self.send_to_results.borrow_mut().remove(0)
     }
 
+    fn send(&self, buf: &[u8]) -> io::Result<usize> {
+        self.send_params.lock().unwrap().push(buf.to_vec());
+        self.send_results.borrow_mut().remove(0)
+    }
+
     fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
         self.set_read_timeout_params.lock().unwrap().push(dur);
         self.set_read_timeout_results.borrow_mut().remove(0)
+    }
+
+    fn leave_multicast_v4(&self, multiaddr: &Ipv4Addr, interface: &Ipv4Addr) -> io::Result<()> {
+        self.leave_multicast_v4_params.lock().unwrap().push((multiaddr.clone(), interface.clone()));
+        self.leave_multicast_v4_results.borrow_mut().remove(0)
     }
 }
 
@@ -169,13 +186,29 @@ impl UdpSocketWrapperMock {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
+            connect_params: Arc::new(Mutex::new(vec![])),
+            connect_results: RefCell::new(vec![]),
             recv_from_params: Arc::new(Mutex::new(vec![])),
             recv_from_results: RefCell::new(vec![]),
             send_to_params: Arc::new(Mutex::new(vec![])),
             send_to_results: RefCell::new(vec![]),
+            send_params: Arc::new(Mutex::new(vec![])),
+            send_results: RefCell::new(vec![]),
             set_read_timeout_params: Arc::new(Mutex::new(vec![])),
             set_read_timeout_results: RefCell::new(vec![]),
+            leave_multicast_v4_params: Arc::new(Mutex::new(vec![])),
+            leave_multicast_v4_results: RefCell::new(vec![]),
         }
+    }
+
+    pub fn connect_params(mut self, params: &Arc<Mutex<Vec<SocketAddr>>>) -> Self {
+        self.connect_params = params.clone();
+        self
+    }
+
+    pub fn connect_result(self, result: io::Result<()>) -> Self {
+        self.connect_results.borrow_mut().push(result);
+        self
     }
 
     pub fn recv_from_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
@@ -199,6 +232,16 @@ impl UdpSocketWrapperMock {
         self
     }
 
+    pub fn send_params(mut self, params: &Arc<Mutex<Vec<Vec<u8>>>>) -> Self {
+        self.send_params = params.clone();
+        self
+    }
+
+    pub fn send_result(self, result: io::Result<usize>) -> Self {
+        self.send_results.borrow_mut().push(result);
+        self
+    }
+
     pub fn set_read_timeout_params(mut self, params: &Arc<Mutex<Vec<Option<Duration>>>>) -> Self {
         self.set_read_timeout_params = params.clone();
         self
@@ -208,12 +251,22 @@ impl UdpSocketWrapperMock {
         self.set_read_timeout_results.borrow_mut().push(result);
         self
     }
+
+    pub fn leave_multicast_v4_params(mut self, params: &Arc<Mutex<Vec<(Ipv4Addr, Ipv4Addr)>>>) -> Self {
+        self.leave_multicast_v4_params = params.clone();
+        self
+    }
+
+    pub fn leave_multicast_v4_result(self, result: io::Result<()>) -> Self {
+        self.leave_multicast_v4_results.borrow_mut().push(result);
+        self
+    }
 }
 
 pub struct UdpSocketWrapperFactoryMock {
     make_params: Arc<Mutex<Vec<SocketAddr>>>,
     make_results: RefCell<Vec<io::Result<Box<dyn UdpSocketWrapper>>>>,
-    make_multicast_params: Arc<Mutex<Vec<(u8, u16, Ipv4Addr)>>>,
+    make_multicast_params: Arc<Mutex<Vec<(u8, u16)>>>,
     make_multicast_results: RefCell<Vec<io::Result<Box<dyn UdpSocketWrapper>>>>,
 }
 
@@ -227,12 +280,11 @@ impl UdpSocketWrapperFactory for UdpSocketWrapperFactoryMock {
         &self,
         multicast_group: u8,
         port: u16,
-        interface: Ipv4Addr,
     ) -> io::Result<Box<dyn UdpSocketWrapper>> {
         self.make_multicast_params
             .lock()
             .unwrap()
-            .push((multicast_group, port, interface));
+            .push((multicast_group, port));
         self.make_multicast_results.borrow_mut().remove(0)
     }
 }
@@ -267,7 +319,7 @@ impl UdpSocketWrapperFactoryMock {
     }
 
     #[allow(clippy::type_complexity)]
-    pub fn make_multicast_params(mut self, params: &Arc<Mutex<Vec<(u8, u16, Ipv4Addr)>>>) -> Self {
+    pub fn make_multicast_params(mut self, params: &Arc<Mutex<Vec<(u8, u16)>>>) -> Self {
         self.make_multicast_params = params.clone();
         self
     }

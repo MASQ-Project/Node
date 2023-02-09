@@ -21,9 +21,10 @@ use crate::comm_layer::AutomapError;
 use masq_lib::utils::find_free_port;
 use std::io;
 pub use std::net::UdpSocket;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
 use std::process::Command;
 use std::time::Duration;
+use socket2::{Domain, SockAddr, Socket, Type};
 
 pub const ROUTER_PORT: u16 = 5351; // from the PCP and PMP RFCs
 pub const ANNOUNCEMENT_PORT: u16 = 5350; // from the PCP and PMP RFCs
@@ -44,9 +45,12 @@ impl MappingConfig {
 }
 
 pub trait UdpSocketWrapper: Send {
+    fn connect(&self, addr: SocketAddr) -> io::Result<()>;
     fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
     fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize>;
+    fn send(&self, buf: &[u8]) -> io::Result<usize>;
     fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()>;
+    fn leave_multicast_v4(&self, multiaddr: &Ipv4Addr, interface: &Ipv4Addr) -> io::Result<()>;
 }
 
 pub struct UdpSocketReal {
@@ -54,6 +58,10 @@ pub struct UdpSocketReal {
 }
 
 impl UdpSocketWrapper for UdpSocketReal {
+    fn connect(&self, addr: SocketAddr) -> io::Result<()> {
+        self.delegate.connect(addr)
+    }
+
     fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)> {
         self.delegate.recv_from(buf)
     }
@@ -62,8 +70,16 @@ impl UdpSocketWrapper for UdpSocketReal {
         self.delegate.send_to(buf, addr)
     }
 
+    fn send(&self, buf: &[u8]) -> io::Result<usize> {
+        self.delegate.send (buf)
+    }
+
     fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
         self.delegate.set_read_timeout(dur)
+    }
+
+    fn leave_multicast_v4(&self, multiaddr: &Ipv4Addr, interface: &Ipv4Addr) -> io::Result<()> {
+        self.delegate.leave_multicast_v4(multiaddr, interface)
     }
 }
 
@@ -79,13 +95,12 @@ pub trait UdpSocketWrapperFactory: Send {
         &self,
         multicast_group: u8,
         port: u16,
-        interface: Ipv4Addr,
     ) -> io::Result<Box<dyn UdpSocketWrapper>>;
 }
 
-pub struct UdpSocketFactoryReal {}
+pub struct UdpSocketWrapperFactoryReal {}
 
-impl UdpSocketWrapperFactory for UdpSocketFactoryReal {
+impl UdpSocketWrapperFactory for UdpSocketWrapperFactoryReal {
     fn make(&self, addr: SocketAddr) -> io::Result<Box<dyn UdpSocketWrapper>> {
         Ok(Box::new(UdpSocketReal::new(UdpSocket::bind(addr)?)))
     }
@@ -94,22 +109,48 @@ impl UdpSocketWrapperFactory for UdpSocketFactoryReal {
         &self,
         multicast_group: u8,
         port: u16,
-        interface: Ipv4Addr,
     ) -> io::Result<Box<dyn UdpSocketWrapper>> {
-        let delegate = UdpSocket::bind(SocketAddr::new(IpAddr::V4(interface), port))?;
-        let multicast = Ipv4Addr::new(224, 0, 0, multicast_group);
-        delegate.join_multicast_v4(&multicast, &interface)?;
+        let multicast_interface = Ipv4Addr::UNSPECIFIED;
+        let multicast_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(224, 0, 0, multicast_group)), port);
+        let socket =
+            Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP)).unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(1)))
+            .unwrap();
+        //Linux/macOS have reuse_port exposed so we can flag it for non-Windows systems
+        #[cfg(not(target_os = "windows"))]
+        socket.set_reuse_port(true).unwrap();
+        //Windows has reuse_port hidden and implicitly flagged with reuse_address
+        socket.set_reuse_address(true).unwrap();
+        let multicast_ipv4 = match multicast_address.ip() {
+            IpAddr::V4(addr) => addr,
+            IpAddr::V6(addr) => panic! ("Multicast IP is IPv6! {}", addr)
+        };
+        socket
+            .join_multicast_v4(
+                &multicast_ipv4,
+                &multicast_interface)
+            .unwrap();
+        socket.bind(
+            &SockAddr::from(
+                SocketAddr::new(
+                    IpAddr::from(multicast_interface),
+                    multicast_address.port()
+                )
+            )
+        ).unwrap();
+        let delegate= UdpSocket::from(socket);
         Ok(Box::new(UdpSocketReal::new(delegate)))
     }
 }
 
-impl UdpSocketFactoryReal {
+impl UdpSocketWrapperFactoryReal {
     pub fn new() -> Self {
         Self {}
     }
 }
 
-impl Default for UdpSocketFactoryReal {
+impl Default for UdpSocketWrapperFactoryReal {
     fn default() -> Self {
         Self::new()
     }
@@ -195,6 +236,7 @@ pub fn make_local_socket_address(is_ipv4: bool, free_port: u16) -> SocketAddr {
 
 #[cfg(test)]
 pub mod tests {
+    use std::net::SocketAddrV4;
     use super::*;
     use masq_lib::utils::localhost;
 
@@ -241,6 +283,30 @@ pub mod tests {
             }
         }
     }
+
+    #[test]
+    fn udp_socket_wrapper_factory_make_multicast_works() {
+        // make three sockets
+        // Note: for some reason, at least on Dan's machine, Ipv4Addr::UNSPECIFIED is the only value
+        // that works here. Anything definite will fail because the receiving socket can't hear
+        // the sending socket. There shouldn't be any security threat in using UNSPECIFIED, because
+        // multicast addresses are not routed out to the Internet; but this is still puzzling.
+        let multicast_port = find_free_port();
+        let multicast_group = 123u8;
+        let subject = UdpSocketWrapperFactoryReal::new();
+        let socket_sender = subject.make_multicast(multicast_group, multicast_port).unwrap();
+        let socket_receiver_1 = subject.make_multicast(multicast_group, multicast_port).unwrap();
+        let socket_receiver_2 = subject.make_multicast(multicast_group, multicast_port).unwrap();
+        let message = b"Taxation is theft!";
+        let multicast_address = SocketAddrV4::new (Ipv4Addr::new(224, 0, 0, multicast_group), multicast_port);
+        socket_sender.send_to(message, SocketAddr::V4(multicast_address)).unwrap();
+        let mut buf = [0u8; 100];
+        let (size, source) = socket_receiver_1.recv_from(&mut buf).unwrap();
+        assert_eq!(&buf[..size], message);
+        let (size, source) = socket_receiver_2.recv_from(&mut buf).unwrap();
+        assert_eq!(&buf[..size], message);
+    }
+
 
     struct TameFindRoutersCommand {}
 
