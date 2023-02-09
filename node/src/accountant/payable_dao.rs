@@ -149,7 +149,7 @@ impl PayableDao for PayableDaoReal {
                 .expect("select failed")
                 .query_map([], |row| row.get::<usize, String>(0))
                 .expect("no args but yet binding failed")
-                .flatten() //TODO use vigilant flatten
+                .vigilant_flatten()
                 .join(COMMA_SEPARATOR);
             if failing_wallets.is_empty() {
                 failing_wallets
@@ -716,13 +716,7 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        insert_record_fn(
-            &*conn,
-            &wallet_1.to_string(),
-            12345,
-            1_000_000_000,
-            Some(0), //TODO can it really be zero, not 1?
-        );
+        insert_record_fn(&*conn, &wallet_1.to_string(), 12345, 1_000_000_000, Some(1));
         conn.prepare("update payable set pending_payable_rowid = null where wallet_address = ?")
             .unwrap()
             .execute(&[&wallet_1])

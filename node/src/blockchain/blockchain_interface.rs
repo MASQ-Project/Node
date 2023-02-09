@@ -427,8 +427,7 @@ where
 #[derive(Debug, PartialEq, Clone)]
 pub enum ProcessedPayableFallible {
     Correct(PendingPayable),
-    //TODO rename to follow up the word class of the first variant
-    Failure(RpcPayableFailure),
+    Failed(RpcPayableFailure),
 }
 
 #[derive(Debug, PartialEq, Clone)]
@@ -540,7 +539,7 @@ where
                     recipient_wallet: account.wallet.clone(),
                     hash,
                 }),
-                Err(rpc_error) => ProcessedPayableFallible::Failure(RpcPayableFailure {
+                Err(rpc_error) => ProcessedPayableFallible::Failed(RpcPayableFailure {
                     rpc_error,
                     recipient_wallet: account.wallet.clone(),
                     hash,
@@ -725,7 +724,7 @@ mod tests {
         make_payable_account, make_payable_account_with_wallet_and_balance_and_timestamp_opt,
     };
     use crate::blockchain::bip32::Bip32ECKeyProvider;
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failure};
+    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::test_utils::{
         make_default_signed_transaction, make_fake_event_loop_handle, make_tx_hash,
         BatchPayableToolsMock, TestTransport,
@@ -1402,7 +1401,7 @@ mod tests {
         let check_expected_successful_request = |expected_hash: H256, idx: usize| {
             let pending_payable = match &result[idx]{
                 Correct(pp) => pp,
-                Failure(RpcPayableFailure{ rpc_error, recipient_wallet: recipient, hash }) => panic!(
+                Failed(RpcPayableFailure{ rpc_error, recipient_wallet: recipient, hash }) => panic!(
                 "we expected correct pending payable but got one with rpc_error: {:?} and hash: {} for recipient: {}",
                 rpc_error, hash, recipient
                 ),
@@ -1422,7 +1421,7 @@ mod tests {
                 "we expected failing pending payable but got a good one: {:?}",
                 pp
             ),
-            Failure(RpcPayableFailure {
+            Failed(RpcPayableFailure {
                 rpc_error,
                 recipient_wallet: recipient,
                 hash,
@@ -2595,7 +2594,7 @@ mod tests {
                     recipient_wallet: make_wallet("4567"),
                     hash: make_tx_hash(444)
                 }),
-                Failure(RpcPayableFailure {
+                Failed(RpcPayableFailure {
                     rpc_error: web3::Error::Rpc(Error {
                         code: ErrorCode::ParseError,
                         message: "I guess we've got a problem".to_string(),

@@ -472,7 +472,6 @@ pub struct PayableDaoMock {
     custom_query_params: Arc<Mutex<Vec<CustomQuery<u64>>>>,
     custom_query_result: RefCell<Vec<Option<Vec<PayableAccount>>>>,
     total_results: RefCell<Vec<u128>>,
-    pub have_non_pending_payable_shut_down_the_system: bool, //TODO maybe we should get rid of this kind of fields and go the Utkarshe's way
 }
 
 impl PayableDao for PayableDaoMock {
@@ -520,12 +519,6 @@ impl PayableDao for PayableDaoMock {
 
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
         self.non_pending_payable_params.lock().unwrap().push(());
-        if self.have_non_pending_payable_shut_down_the_system
-            && self.non_pending_payable_results.borrow().is_empty()
-        {
-            System::current().stop();
-            return vec![];
-        }
         self.non_pending_payable_results.borrow_mut().remove(0)
     }
 
@@ -631,7 +624,6 @@ pub struct ReceivableDaoMock {
     custom_query_params: Arc<Mutex<Vec<CustomQuery<i64>>>>,
     custom_query_result: RefCell<Vec<Option<Vec<ReceivableAccount>>>>,
     total_results: RefCell<Vec<i128>>,
-    pub have_new_delinquencies_shutdown_the_system: bool,
 }
 
 impl ReceivableDao for ReceivableDaoMock {
@@ -664,12 +656,6 @@ impl ReceivableDao for ReceivableDaoMock {
             .lock()
             .unwrap()
             .push((now, payment_thresholds.clone()));
-        if self.new_delinquencies_results.borrow().is_empty()
-            && self.have_new_delinquencies_shutdown_the_system
-        {
-            System::current().stop();
-            return vec![];
-        }
         self.new_delinquencies_results.borrow_mut().remove(0)
     }
 
@@ -1245,40 +1231,12 @@ where
     F: Fn(&Row) -> rusqlite::Result<R>,
 {
     let conn = Connection::open_in_memory().unwrap();
-    conn.execute("create table whatever (exclamations text)", [])
-        .unwrap();
-    conn.execute("insert into whatever (exclamations) values ('Gosh')", [])
-        .unwrap();
+    let execute = |sql: &str| conn.execute(sql, []).unwrap();
+    execute("create table whatever (exclamations text)");
+    execute("insert into whatever (exclamations) values ('Gosh')");
 
     conn.query_row("select exclamations from whatever", [], tested_fn)
         .unwrap();
-    todo!("the below might be a useless fn now")
-    // stmt.query_row(&[&wallet], |row| {
-    //     let balance_result = row.get(0);
-    //     let last_paid_timestamp_result = row.get(1);
-    //     let pending_payable_rowid_result: Result<Option<i64>, Error> = row.get(2);
-    //     match (
-    //         balance_result,
-    //         last_paid_timestamp_result,
-    //         pending_payable_rowid_result,
-    //     ) {
-    //         (Ok(balance), Ok(last_paid_timestamp), Ok(rowid)) => Ok(PayableAccount {
-    //             wallet: wallet.clone(),
-    //             balance,
-    //             last_paid_timestamp: dao_utils::from_time_t(last_paid_timestamp),
-    //             pending_payable_opt: match rowid {
-    //                 Some(rowid) => Some(PendingPayableId {
-    //                     rowid: u64::try_from(rowid).unwrap(),
-    //                     hash: make_tx_hash(0), //no way to get this without a join table
-    //                 }),
-    //                 None => None,
-    //             },
-    //         }),
-    //         _ => panic!("Database is corrupt: PAYABLE table columns and/or types"),
-    //     }
-    // })
-    // .optional()
-    // .unwrap()
 }
 
 #[derive(Default)]

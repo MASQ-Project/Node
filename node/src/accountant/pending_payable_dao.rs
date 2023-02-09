@@ -40,6 +40,14 @@ pub trait PendingPayableDao {
 
 impl PendingPayableDao for PendingPayableDaoReal<'_> {
     fn fingerprints_rowids(&self, hashes: &[H256]) -> Vec<(Option<u64>, H256)> {
+        fn extract_hash_and_rowid(row: &Row) -> rusqlite::Result<(H256, u64)> {
+            let str_hash: String = row.get(0).expectv("hash");
+            let hash = H256::from_str(&str_hash[2..]).expect("inserted hash turned malformed");
+            let sqlite_rowid: i64 = row.get(1).expectv("rowid");
+            let rowid = u64::try_from(sqlite_rowid).expect("SQlite counts from 1 to i64:MAX");
+            Ok((hash, rowid))
+        }
+
         let sql = format!(
             "select transaction_hash, rowid from pending_payable where {}",
             hashes
@@ -51,26 +59,13 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             .conn
             .prepare(&sql)
             .expect("Internal error")
-            .query_map([], |row| {
-                let str_hash: String = row.get(0).expectv("hash");
-                let hash =
-                    H256::from_str(&str_hash[2..]).expect("insert method ensures right results");
-                let rowid: i64 = row.get(1).expectv("rowid");
-                Ok((hash, rowid))
-            })
+            .query_map([], extract_hash_and_rowid)
             .expect("map query failed")
-            .flatten()
-            .collect::<HashMap<H256, i64>>();
+            .vigilant_flatten()
+            .collect::<HashMap<H256, u64>>();
         hashes
             .iter()
-            .map(|hash| {
-                (
-                    all_found_records
-                        .remove(hash)
-                        .map(|rowid| u64::try_from(rowid).expect("SQlite counts up to i64:MAX")),
-                    *hash,
-                )
-            })
+            .map(|hash| (all_found_records.remove(hash), *hash))
             .collect()
     }
 
@@ -123,7 +118,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
                         .iter()
                         .map(|(hash, amount)| {
                             let (high_bytes, low_bytes) =
-                                BigIntDivider::deconstruct(checked_conversion::<u128, i128>(*amount)); //TODO do I have to hand it by reference?
+                                BigIntDivider::deconstruct(checked_conversion::<u128, i128>(*amount));
                             format!("('{:?}', {}, {}, {}, 1, null)", hash, high_bytes, low_bytes, timestamp_as_time_t)
                         }
                          )
@@ -245,6 +240,7 @@ mod tests {
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
+    use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
@@ -331,6 +327,23 @@ mod tests {
                 "attempt to write a readonly database".to_string()
             ))
         )
+    }
+
+    #[test]
+    #[should_panic(expected = "expected 1 of changed rows but got 0")]
+    fn insert_new_fingerprints_number_of_returned_rows_different_than_expected() {
+        let setup_conn = Connection::open_in_memory().unwrap();
+        setup_conn
+            .execute("create table example (id integer)", [])
+            .unwrap();
+        let statement = setup_conn.prepare("select id from example").unwrap();
+        let wrapped_conn = ConnectionWrapperMock::default().prepare_result(Ok(statement));
+        let hash_1 = make_tx_hash(4546);
+        let amount_1 = 55556;
+        let batch_wide_timestamp = from_time_t(200_000_000);
+        let subject = PendingPayableDaoReal::new(Box::new(wrapped_conn));
+
+        let _ = subject.insert_new_fingerprints(&[(hash_1, amount_1)], batch_wide_timestamp);
     }
 
     #[test]

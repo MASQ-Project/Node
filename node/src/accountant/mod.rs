@@ -131,8 +131,7 @@ pub struct ReceivedPayments {
 
 #[derive(Debug, Message, PartialEq)]
 pub struct SentPayables {
-    //TODO you can create a struct holding the vector of the enum for convenience
-    pub payment_result: Result<Vec<ProcessedPayableFallible>, BlockchainError>,
+    pub payment_procedure_result: Result<Vec<ProcessedPayableFallible>, BlockchainError>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
@@ -899,6 +898,10 @@ pub struct PendingPayableId {
 }
 
 impl PendingPayableId {
+    pub fn new(rowid: u64, hash: H256)->Self{
+        Self{ rowid, hash }
+    }
+
     fn rowids(ids: &[Self]) -> Vec<u64> {
         ids.iter().map(|id| id.rowid).collect()
     }
@@ -1314,7 +1317,7 @@ mod tests {
         let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
         subject_addr.try_send(BindMessage { peer_actors }).unwrap();
         let sent_payable = SentPayables {
-            payment_result: Ok(vec![Correct(PendingPayable {
+            payment_procedure_result: Ok(vec![Correct(PendingPayable {
                 recipient_wallet: make_wallet("blah"),
                 hash: Default::default(),
             })]),
@@ -2057,7 +2060,6 @@ mod tests {
         );
     }
 
-    //TODO shouldn't we have three tests like this?
     #[test]
     fn accountant_does_not_initiate_another_scan_in_case_it_receives_the_message_and_the_scanner_is_running(
     ) {

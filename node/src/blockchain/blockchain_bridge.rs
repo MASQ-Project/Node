@@ -251,7 +251,7 @@ impl BlockchainBridge {
             .as_ref()
             .expect("Accountant is unbound")
             .try_send(SentPayables {
-                payment_result: result,
+                payment_procedure_result: result,
                 response_skeleton_opt: skeleton,
             })
             .expect("Accountant is dead");
@@ -640,7 +640,7 @@ mod tests {
         assert_eq!(
             *sent_payments_msg,
             SentPayables {
-                payment_result: Ok(vec![
+                payment_procedure_result: Ok(vec![
                     Correct(PendingPayable {
                         recipient_wallet: wallet_account_1,
                         hash: H256::from("sometransactionhash".keccak256())
@@ -713,7 +713,7 @@ mod tests {
         assert_eq!(
             *sent_payments_msg,
             SentPayables {
-                payment_result: expected_error,
+                payment_procedure_result: expected_error,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
                     context_id: 4321

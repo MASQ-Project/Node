@@ -8,7 +8,7 @@ pub mod payable_scanner_utils {
     };
     use crate::accountant::SentPayables;
     use crate::blockchain::blockchain_interface::BlockchainError::PayableTransactionFailed;
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failure};
+    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{
         BlockchainError, ProcessedPayableFallible, RpcPayableFailure,
     };
@@ -101,7 +101,7 @@ pub mod payable_scanner_utils {
         sent_payables: &'a SentPayables,
         logger: &'b Logger,
     ) -> (Vec<&'a PendingPayable>, Option<PayableTransactingErrorEnum>) {
-        match &sent_payables.payment_result {
+        match &sent_payables.payment_procedure_result {
             Ok(individual_batch_responses) => {
                 if individual_batch_responses.is_empty() {
                     panic!("Broken code: An empty vector of processed payments claiming to be an Ok value")
@@ -146,7 +146,7 @@ pub mod payable_scanner_utils {
             .iter()
             .fold(init,|acc, rpc_result| match rpc_result {
                 Correct(pending_payable) => add_another_correct_transaction(acc, pending_payable),
-                Failure(RpcPayableFailure{rpc_error,recipient_wallet,hash }) => {
+                Failed(RpcPayableFailure{rpc_error,recipient_wallet,hash }) => {
                     warning!(logger,
                         "Remote transaction failure: '{}' for payment to {} and transaction hash {:?}. \
                       Please check your blockchain service URL configuration.", rpc_error, recipient_wallet, hash);
@@ -370,7 +370,7 @@ mod tests {
     use crate::accountant::scanners_utils::receivable_scanner_utils::balance_and_age;
     use crate::accountant::{checked_conversion, gwei_to_wei, SentPayables};
     use crate::blockchain::blockchain_interface::BlockchainError::PayableTransactionFailed;
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failure};
+    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{BlockchainError, RpcPayableFailure};
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::PaymentThresholds;
@@ -443,7 +443,7 @@ mod tests {
             hash: make_tx_hash(123),
         };
         let sent_payable = SentPayables {
-            payment_result: Ok(vec![Correct(correct_payment.clone())]),
+            payment_procedure_result: Ok(vec![Correct(correct_payment.clone())]),
             response_skeleton_opt: None,
         };
 
@@ -461,7 +461,7 @@ mod tests {
             signed_and_saved_txs_opt: None,
         };
         let sent_payable = SentPayables {
-            payment_result: Err(error.clone()),
+            payment_procedure_result: Err(error.clone()),
             response_skeleton_opt: None,
         };
 
@@ -486,9 +486,9 @@ mod tests {
             hash: make_tx_hash(789),
         };
         let sent_payable = SentPayables {
-            payment_result: Ok(vec![
+            payment_procedure_result: Ok(vec![
                 Correct(payable_ok.clone()),
-                Failure(bad_rpc_call.clone()),
+                Failed(bad_rpc_call.clone()),
             ]),
             response_skeleton_opt: None,
         };

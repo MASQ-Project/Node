@@ -1074,7 +1074,7 @@ mod tests {
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::scanners_utils::payable_scanner_utils::PayableThresholdsGaugeReal;
     use crate::accountant::scanners_utils::pending_payable_scanner_utils::PendingPayableScanSummary;
-    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failure};
+    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{
         BlockchainError, BlockchainTransaction, RpcPayableFailure,
     };
@@ -1311,9 +1311,9 @@ mod tests {
             .build();
         let logger = Logger::new(test_name);
         let sent_payable = SentPayables {
-            payment_result: Ok(vec![
+            payment_procedure_result: Ok(vec![
                 Correct(correct_pending_payable_1),
-                Failure(failure_payable_2),
+                Failed(failure_payable_2),
                 Correct(correct_pending_payable_3),
             ]),
             response_skeleton_opt: None,
@@ -1391,7 +1391,7 @@ mod tests {
             .build();
         let logger = Logger::new(test_name);
         let sent_payable = SentPayables {
-            payment_result: Err(BlockchainError::PayableTransactionFailed {
+            payment_procedure_result: Err(BlockchainError::PayableTransactionFailed {
                 msg: "Attempt failed".to_string(),
                 signed_and_saved_txs_opt: Some(vec![hash_tx_1, hash_tx_2]),
             }),
@@ -1431,7 +1431,7 @@ mod tests {
         init_test_logging();
         let test_name = "payable_scanner_handles_error_born_too_early_to_see_transaction_hash";
         let sent_payable = SentPayables {
-            payment_result: Err(BlockchainError::PayableTransactionFailed {
+            payment_procedure_result: Err(BlockchainError::PayableTransactionFailed {
                 msg: "Some error".to_string(),
                 signed_and_saved_txs_opt: None,
             }),
@@ -1472,7 +1472,7 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let sent_payable = SentPayables {
-            payment_result: Ok(vec![Correct(payment_1), Correct(payment_2)]),
+            payment_procedure_result: Ok(vec![Correct(payment_1), Correct(payment_2)]),
             response_skeleton_opt: None,
         };
 
@@ -1492,7 +1492,7 @@ mod tests {
         let rowid_2 = 6;
         let hash_2 = make_tx_hash(789);
         let sent_payable = SentPayables {
-            payment_result: Err(BlockchainError::PayableTransactionFailed {
+            payment_procedure_result: Err(BlockchainError::PayableTransactionFailed {
                 msg: "blah".to_string(),
                 signed_and_saved_txs_opt: Some(vec![hash_1, hash_2]),
             }),
@@ -1528,18 +1528,18 @@ mod tests {
         let mut subject = PayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
-        let failed_payment_1 = Failure(RpcPayableFailure {
+        let failed_payment_1 = Failed(RpcPayableFailure {
             rpc_error: Error::Unreachable,
             recipient_wallet: make_wallet("abc"),
             hash: existent_record_hash,
         });
-        let failed_payment_2 = Failure(RpcPayableFailure {
+        let failed_payment_2 = Failed(RpcPayableFailure {
             rpc_error: Error::Unreachable,
             recipient_wallet: make_wallet("def"),
             hash: nonexistent_record_hash,
         });
         let sent_payable = SentPayables {
-            payment_result: Ok(vec![failed_payment_1, failed_payment_2]),
+            payment_procedure_result: Ok(vec![failed_payment_1, failed_payment_2]),
             response_skeleton_opt: None,
         };
 
@@ -1582,7 +1582,7 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let sent_payable = SentPayables {
-            payment_result: Err(BlockchainError::PayableTransactionFailed {
+            payment_procedure_result: Err(BlockchainError::PayableTransactionFailed {
                 msg: "SQLite migraine".to_string(),
                 signed_and_saved_txs_opt: Some(vec![hash_1, hash_2, hash_3]),
             }),
@@ -1628,7 +1628,7 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let sent_payables = SentPayables {
-            payment_result: Ok(vec![Correct(payable_1), Correct(payable_2)]),
+            payment_procedure_result: Ok(vec![Correct(payable_1), Correct(payable_2)]),
             response_skeleton_opt: None,
         };
 
