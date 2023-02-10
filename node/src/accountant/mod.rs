@@ -28,14 +28,15 @@ use crate::accountant::dao_utils::{
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
-use crate::accountant::payable_dao::{PayableDaoError, PendingPayable};
+use crate::accountant::payable_dao::PayableDaoError;
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDaoError;
-use crate::accountant::scanners::{join_collection_by_commas, NotifyLaterForScanners, Scanners};
+use crate::accountant::scanners::{
+    join_displayable_items_by_commas, NotifyLaterForScanners, Scanners,
+};
 use crate::blockchain::blockchain_bridge::{
     NewPendingPayableFingerprints, PendingPayableFingerprint, RetrieveTransactions,
 };
-use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainTransaction, ProcessedPayableFallible,
 };
@@ -906,8 +907,8 @@ impl PendingPayableId {
         ids.iter().map(|id| id.rowid).collect()
     }
 
-    fn hashes_as_single_string(ids: &[Self]) -> String {
-        join_collection_by_commas(ids, |id| format!("{:?}", id.hash))
+    fn serialized_hashes_to_string(ids: &[Self]) -> String {
+        join_displayable_items_by_commas(ids, |id| format!("{:?}", id.hash))
     }
 }
 
@@ -978,7 +979,7 @@ mod tests {
     use super::*;
     use crate::accountant::dao_utils::from_time_t;
     use crate::accountant::dao_utils::{to_time_t, CustomQuery};
-    use crate::accountant::payable_dao::{PayableAccount, PayableDaoError};
+    use crate::accountant::payable_dao::{PayableAccount, PayableDaoError, PendingPayable};
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::scanners::{BeginScanError, NullScanner, ScannerMock};
@@ -995,6 +996,7 @@ mod tests {
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
     use crate::blockchain::blockchain_interface::BlockchainTransaction;
+    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::Correct;
     use crate::blockchain::test_utils::{make_tx_hash, BlockchainInterfaceMock};
     use crate::sub_lib::accountant::{
         ExitServiceConsumed, PaymentThresholds, RoutingServiceConsumed, ScanIntervals,

@@ -28,7 +28,7 @@ pub mod payable_scanner_utils {
 
     pub type VecOfRowidOptAndHash = Vec<(Option<u64>, H256)>;
 
-    #[derive(Debug, PartialEq)]
+    #[derive(Debug, PartialEq, Eq)]
     pub enum PayableTransactingErrorEnum {
         LocallyCausedError(BlockchainError),
         RemotelyCausedErrors(Vec<H256>),
@@ -255,7 +255,7 @@ pub mod pending_payable_scanner_utils {
     use std::time::SystemTime;
 
     #[derive(Debug, Default, PartialEq, Eq, Clone)]
-    pub struct PendingPayableScanSummary {
+    pub struct PendingPayableScanReport {
         pub still_pending: Vec<PendingPayableId>,
         pub failures: Vec<PendingPayableId>,
         pub confirmed: Vec<PendingPayableFingerprint>,
@@ -269,11 +269,11 @@ pub mod pending_payable_scanner_utils {
     }
 
     pub fn handle_none_status(
-        mut scan_summary: PendingPayableScanSummary,
+        mut scan_report: PendingPayableScanReport,
         fingerprint: PendingPayableFingerprint,
         max_pending_interval: u64,
         logger: &Logger,
-    ) -> PendingPayableScanSummary {
+    ) -> PendingPayableScanReport {
         info!(
             logger,
             "Pending transaction {:?} couldn't be confirmed at attempt \
@@ -297,18 +297,18 @@ pub mod pending_payable_scanner_utils {
                 max_pending_interval,
                 fingerprint.attempt
             );
-            scan_summary.failures.push(fingerprint.into())
+            scan_report.failures.push(fingerprint.into())
         } else {
-            scan_summary.still_pending.push(fingerprint.into())
+            scan_report.still_pending.push(fingerprint.into())
         }
-        scan_summary
+        scan_report
     }
 
     pub fn handle_status_with_success(
-        mut scan_summary: PendingPayableScanSummary,
+        mut scan_report: PendingPayableScanReport,
         fingerprint: PendingPayableFingerprint,
         logger: &Logger,
-    ) -> PendingPayableScanSummary {
+    ) -> PendingPayableScanReport {
         info!(
             logger,
             "Transaction {:?} has been added to the blockchain; detected locally at attempt \
@@ -317,15 +317,15 @@ pub mod pending_payable_scanner_utils {
             fingerprint.attempt,
             elapsed_in_ms(fingerprint.timestamp)
         );
-        scan_summary.confirmed.push(fingerprint.clone());
-        scan_summary
+        scan_report.confirmed.push(fingerprint);
+        scan_report
     }
 
     pub fn handle_status_with_failure(
-        mut scan_summary: PendingPayableScanSummary,
+        mut scan_report: PendingPayableScanReport,
         fingerprint: PendingPayableFingerprint,
         logger: &Logger,
-    ) -> PendingPayableScanSummary {
+    ) -> PendingPayableScanReport {
         error!(
             logger,
             "Pending transaction {:?} announced as a failure, interpreting attempt \
@@ -334,8 +334,8 @@ pub mod pending_payable_scanner_utils {
             fingerprint.attempt,
             elapsed_in_ms(fingerprint.timestamp)
         );
-        scan_summary.failures.push(fingerprint.into());
-        scan_summary
+        scan_report.failures.push(fingerprint.into());
+        scan_report
     }
 }
 
