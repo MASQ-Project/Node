@@ -45,6 +45,7 @@ impl MappingConfig {
 }
 
 pub trait UdpSocketWrapper: Send {
+    fn local_addr(&self) -> io::Result<SocketAddr>;
     fn connect(&self, addr: SocketAddr) -> io::Result<()>;
     fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
     fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize>;
@@ -58,6 +59,10 @@ pub struct UdpSocketReal {
 }
 
 impl UdpSocketWrapper for UdpSocketReal {
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.delegate.local_addr()
+    }
+
     fn connect(&self, addr: SocketAddr) -> io::Result<()> {
         self.delegate.connect(addr)
     }
@@ -111,7 +116,7 @@ impl UdpSocketWrapperFactory for UdpSocketWrapperFactoryReal {
         port: u16,
     ) -> io::Result<Box<dyn UdpSocketWrapper>> {
         let multicast_interface = Ipv4Addr::UNSPECIFIED;
-        let multicast_address = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(224, 0, 0, multicast_group)), port);
+        let multicast_address = IpAddr::V4(Ipv4Addr::new(224, 0, 0, multicast_group));
         let socket =
             Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP)).unwrap();
         socket
@@ -122,7 +127,7 @@ impl UdpSocketWrapperFactory for UdpSocketWrapperFactoryReal {
         socket.set_reuse_port(true).unwrap();
         //Windows has reuse_port hidden and implicitly flagged with reuse_address
         socket.set_reuse_address(true).unwrap();
-        let multicast_ipv4 = match multicast_address.ip() {
+        let multicast_ipv4 = match multicast_address {
             IpAddr::V4(addr) => addr,
             IpAddr::V6(addr) => panic! ("Multicast IP is IPv6! {}", addr)
         };
@@ -135,7 +140,7 @@ impl UdpSocketWrapperFactory for UdpSocketWrapperFactoryReal {
             &SockAddr::from(
                 SocketAddr::new(
                     IpAddr::from(multicast_interface),
-                    multicast_address.port()
+                    port
                 )
             )
         ).unwrap();
@@ -286,13 +291,12 @@ pub mod tests {
 
     #[test]
     fn udp_socket_wrapper_factory_make_multicast_works() {
-        // make three sockets
         // Note: for some reason, at least on Dan's machine, Ipv4Addr::UNSPECIFIED is the only value
         // that works here. Anything definite will fail because the receiving socket can't hear
         // the sending socket. There shouldn't be any security threat in using UNSPECIFIED, because
         // multicast addresses are not routed out to the Internet; but this is still puzzling.
         let multicast_port = find_free_port();
-        let multicast_group = 123u8;
+        let multicast_group = 254u8;
         let subject = UdpSocketWrapperFactoryReal::new();
         let socket_sender = subject.make_multicast(multicast_group, multicast_port).unwrap();
         let socket_receiver_1 = subject.make_multicast(multicast_group, multicast_port).unwrap();

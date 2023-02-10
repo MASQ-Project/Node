@@ -1420,19 +1420,13 @@ mod tests {
     fn housekeeping_thread_works() {
         let _ = EnvironmentGuard::new();
         let announcement_port = find_free_port();
+        let announce_socket_holder = TestMulticastSocketHolder::checkout(announcement_port);
         let router_port = find_free_port();
         let router_ip = localhost();
-        let announcement_multicast_group = 233u8;
-        let announcement_port = find_free_port();
         let mut subject = PcpTransactor::default();
         subject.router_port = router_port;
-        subject.announcement_multicast_group = announcement_multicast_group;
+        subject.announcement_multicast_group = announce_socket_holder.group;
         subject.announcement_port = announcement_port;
-        let mapping_config = MappingConfig {
-            hole_port: 1234,
-            next_lifetime: Duration::from_secs(321),
-            remap_interval: Duration::from_secs(160),
-        };
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
         let change_handler = move |change| {
@@ -1445,28 +1439,33 @@ mod tests {
 
         commander
             .try_send(HousekeepingThreadCommand::InitializeMappingConfig(
-                mapping_config,
+                MappingConfig {
+                    hole_port: 1234,
+                    next_lifetime: Duration::from_secs(321),
+                    remap_interval: Duration::from_secs(160),
+                },
             ))
             .unwrap();
-        let multicast_ip = IpAddr::V4(Ipv4Addr::new (224, 0, 0, announcement_multicast_group));
-        let announce_socket_holder = TestMulticastSocketHolder::checkout(announcement_port);
+        let mut buffer = [0u8; 100];
         let announce_socket = &announce_socket_holder.socket;
         announce_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();
         announce_socket
-            .connect(SocketAddr::new(multicast_ip, announcement_port))
+            .connect(announce_socket.local_addr().unwrap())
             .unwrap();
+        let mapping_socket = UdpSocket::bind(SocketAddr::new(localhost(), router_port)).unwrap();
+        mapping_socket.set_read_timeout(Some (Duration::from_millis (1000))).unwrap();
+        // Router announces to housekeeping thread that the public IP has changed
         let mut packet = vanilla_response();
         packet.opcode = Opcode::Announce;
         packet.lifetime = 0;
         packet.epoch_time_opt = Some(0);
-        let mut buffer = [0u8; 100];
         let len_to_send = packet.marshal(&mut buffer).unwrap();
-        let mapping_socket = UdpSocket::bind(SocketAddr::new(localhost(), router_port)).unwrap();
-        mapping_socket.set_read_timeout(Some (Duration::from_millis (1000))).unwrap();
         let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
         assert_eq!(sent_len, len_to_send);
+        // Router receives mapping request from housekeeping thread to stimulate transmission of
+        // new public IP address
         let (recv_len, remapping_socket_addr) = mapping_socket.recv_from(&mut buffer).unwrap();
         let packet = PcpPacket::try_from(&buffer[0..recv_len]).unwrap();
         assert_eq!(packet.opcode, Opcode::Map);
@@ -1474,6 +1473,7 @@ mod tests {
         let opcode_data: &MapOpcodeData = packet.opcode_data.as_any().downcast_ref().unwrap();
         assert_eq!(opcode_data.external_port, 1234);
         assert_eq!(opcode_data.internal_port, 1234);
+        // Router sends mapping response to housekeeping thread to inform of new public IP address
         let mut packet = vanilla_response();
         packet.opcode = Opcode::Map;
         let mut opcode_data = MapOpcodeData::default();

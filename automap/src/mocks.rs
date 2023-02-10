@@ -51,7 +51,7 @@ impl TestMulticastSocketHolder {
     fn allocate_bit() -> u8 {
         let mut guard = MULTICAST_GROUPS_ACTIVE.lock().unwrap();
         let mut bit_idx = 0u8;
-        while bit_idx <= 254 {
+        while bit_idx <= 253 { // 254 is used by the test for UdpSocketWrapperFactoryReal
             if !Self::bit_at(&guard, bit_idx) {
                 Self::set_bit(&mut guard, bit_idx);
                 return bit_idx;
@@ -118,6 +118,7 @@ impl LocalIpFinderMock {
 
 #[allow(clippy::type_complexity)]
 pub struct UdpSocketWrapperMock {
+    local_addr_results: RefCell<Vec<io::Result<SocketAddr>>>,
     connect_params: Arc<Mutex<Vec<SocketAddr>>>,
     connect_results: RefCell<Vec<io::Result<()>>>,
     recv_from_params: Arc<Mutex<Vec<()>>>,
@@ -133,6 +134,10 @@ pub struct UdpSocketWrapperMock {
 }
 
 impl UdpSocketWrapper for UdpSocketWrapperMock {
+    fn local_addr(&self) -> io::Result<SocketAddr> {
+        self.local_addr_results.borrow_mut().remove(0)
+    }
+
     fn connect(&self, addr: SocketAddr) -> io::Result<()> {
         self.connect_params.lock().unwrap().push(addr);
         self.connect_results.borrow_mut().remove(0)
@@ -186,6 +191,7 @@ impl UdpSocketWrapperMock {
     #[allow(clippy::new_without_default)]
     pub fn new() -> Self {
         Self {
+            local_addr_results: RefCell::new(vec![]),
             connect_params: Arc::new(Mutex::new(vec![])),
             connect_results: RefCell::new(vec![]),
             recv_from_params: Arc::new(Mutex::new(vec![])),
@@ -199,6 +205,11 @@ impl UdpSocketWrapperMock {
             leave_multicast_v4_params: Arc::new(Mutex::new(vec![])),
             leave_multicast_v4_results: RefCell::new(vec![]),
         }
+    }
+
+    pub fn local_addr_result(self, result: io::Result<SocketAddr>) -> Self {
+        self.local_addr_results.borrow_mut().push(result);
+        self
     }
 
     pub fn connect_params(mut self, params: &Arc<Mutex<Vec<SocketAddr>>>) -> Self {
