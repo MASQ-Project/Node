@@ -492,11 +492,10 @@ impl NeighborStreamHandlerPool {
                     self.logger,
                     "Removing channel to disabled StreamWriter {} to {}: {}", sw_key, peer_addr, e
                 );
-                // TODO GH-608: If we get here because we couldn't send a packet to the browser
-                // because it shut down its stream, we should send a last_data: true message
-                // back to the exit Node to shut down the server stream too. This will be a
-                // small message that we have to pay for, but it will prevent paying for
-                // larger messages that the server will send back.
+                // TODO GH-667 It looks like what we should do here is inform our caller somehow
+                // that we can no longer communicate with the Node specified in the route, and
+                // signal that somebody (the Dispatcher?) should remove this neighbor, make another
+                // route, and try again.
                 return Ok(true);
             }
             Ok(_) => {
