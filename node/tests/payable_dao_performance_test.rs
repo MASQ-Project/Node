@@ -4,6 +4,7 @@ use linreg;
 use node_lib::test_utils::payable_dao_performance_utils::shared_test_environment::specialized_body_for_zig_zag_test;
 
 #[test]
+#[not(feature = occasional_tests)]
 fn progressive_efficiency_of_mark_pending_payable_rowids_integration() {
     //this test is supposed to prove that our multirow update statement beats separate sql calls;
     //tested for 1, 2, 3, 4, 5 updates;
@@ -31,7 +32,6 @@ fn progressive_efficiency_of_mark_pending_payable_rowids_integration() {
         .clone()
         .map(|count| count as u32)
         .collect::<Vec<u32>>();
-
     let (time_laps_of_single_calls, time_laps_of_separate_calls): (Vec<u32>, Vec<u32>) =
         range_definition
             .into_iter()

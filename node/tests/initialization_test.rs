@@ -192,10 +192,11 @@ fn started_without_explicit_chain_parameter_runs_fine_integration() {
         .pair(
             "--neighbors",
             &format!(
-                "masq://{}:12345vhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
+                "masq://{}:UJNoZW5p_PDVqEjpr3b-8jZ_93yPG8i5dOAgE1bhK-A@12.23.34.45:5678",
                 DEFAULT_CHAIN.rec().literal_identifier
             ),
-        );
+        )
+        .pair("--log-level", "trace");
 
     let mut node = MASQNode::start_with_blank_config(
         "started_without_explicit_chain_parameter_runs_fine_integration",
