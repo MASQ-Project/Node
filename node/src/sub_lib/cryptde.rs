@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::sub_lib::route::RouteError;
 use ethsign_crypto::Keccak256;
-use masq_lib::utils::to_hex;
 use rustc_hex::{FromHex, ToHex};
 use serde::de::Visitor;
 use serde::Deserialize;
@@ -30,7 +29,11 @@ impl fmt::Display for PrivateKey {
 
 impl fmt::Debug for PrivateKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", to_hex(self.data.as_slice()))
+        write!(
+            f,
+            "0x{}",
+            self.data.as_slice().to_hex::<String>().to_uppercase()
+        )
     }
 }
 
@@ -109,7 +112,11 @@ impl fmt::Display for PublicKey {
 
 impl fmt::Debug for PublicKey {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> Result<(), fmt::Error> {
-        write!(f, "{}", to_hex(self.data.as_slice()))
+        write!(
+            f,
+            "0x{}",
+            self.data.as_slice().to_hex::<String>().to_uppercase()
+        )
     }
 }
 
