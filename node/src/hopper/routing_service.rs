@@ -501,6 +501,7 @@ impl RoutingService {
 mod tests {
     use super::*;
     use crate::banned_dao::BAN_CACHE;
+    use crate::bootstrapper::Bootstrapper;
     use crate::neighborhood::gossip::{GossipBuilder, Gossip_0v1};
     use crate::node_test_utils::check_timestamp;
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
@@ -524,7 +525,6 @@ mod tests {
         route_to_proxy_client, route_to_proxy_server,
     };
     use actix::System;
-    use lazy_static::lazy_static;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -631,18 +631,14 @@ mod tests {
         );
     }
 
-    lazy_static! {
-        static ref REAL_MAIN_CRYPTDE: Box<dyn CryptDE> =
-            Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN));
-        static ref REAL_ALIAS_CRYPTDE: Box<dyn CryptDE> =
-            Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN));
-    }
-
     #[test]
     fn logs_and_ignores_message_that_cannot_be_decrypted() {
         init_test_logging();
-        let main_cryptde = REAL_MAIN_CRYPTDE.as_ref();
-        let alias_cryptde = REAL_ALIAS_CRYPTDE.as_ref();
+        let (main_cryptde, alias_cryptde) = {
+            //initialization to real CryptDEs
+            let pair = Bootstrapper::pub_initialize_cryptdes_for_testing(&None, &None);
+            (pair.main, pair.alias)
+        };
         let rogue_cryptde = CryptDEReal::new(TEST_DEFAULT_CHAIN);
         let route = route_from_proxy_client(main_cryptde.public_key(), main_cryptde);
         let lcp = LiveCoresPackage::new(
