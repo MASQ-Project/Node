@@ -1,15 +1,17 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::accountant::payable_dao::{PayableAccount, PayableDao, PayableDaoError, PendingPayable};
+use crate::accountant::payable_dao::{PayableAccount, PayableDao, PendingPayable};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDao;
 use crate::accountant::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
 };
 use crate::accountant::scanners_utils::payable_scanner_utils::{
-    debugging_summary_after_error_separation, investigate_debt_extremes, payables_debug_summary,
-    separate_errors, PayableThresholdsGauge, PayableThresholdsGaugeReal,
-    PayableTransactingErrorEnum, RefWalletAndRowidOptCoupledWithHash, VecOfRowidOptAndHash,
+    debugging_summary_after_error_separation, fatal_database_mark_pending_payable_error,
+    investigate_debt_extremes, log_failed_payments_having_fingerprints_and_return_ids,
+    panic_for_failed_payments_lacking_fingerprints, payables_debug_summary, separate_errors,
+    PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum,
+    RefWalletAndRowidOptCoupledWithHash, VecOfRowidOptAndHash,
 };
 use crate::accountant::scanners_utils::pending_payable_scanner_utils::{
     elapsed_in_ms, handle_none_status, handle_status_with_failure, handle_status_with_success,
@@ -187,7 +189,7 @@ impl Scanner<ReportAccountsPayable, SentPayables> for PayableScanner {
         );
 
         let qualified_payable =
-            self.sniff_out_alarming_payables_and_log_them(all_non_pending_payables, logger);
+            self.sniff_out_alarming_payables_and_maybe_log_them(all_non_pending_payables, logger);
 
         match qualified_payable.is_empty() {
             true => {
@@ -220,7 +222,7 @@ impl Scanner<ReportAccountsPayable, SentPayables> for PayableScanner {
         if !sent_payables.is_empty() {
             self.mark_pending_payable(&sent_payables, logger);
         }
-        self.handle_errors(err_opt, logger);
+        self.handle_sent_payable_errors(err_opt, logger);
 
         self.mark_as_ended(logger);
         message
@@ -250,7 +252,7 @@ impl PayableScanner {
         }
     }
 
-    fn sniff_out_alarming_payables_and_log_them(
+    fn sniff_out_alarming_payables_and_maybe_log_them(
         &self,
         non_pending_payables: Vec<PayableAccount>,
         logger: &Logger,
@@ -312,7 +314,7 @@ impl PayableScanner {
         }
     }
 
-    fn separate_id_triples_by_existent_and_nonexistent_fingerprints<'a>(
+    fn separate_id_triples_from_existent_and_nonexistent_fingerprints<'a>(
         &'a self,
         sent_payments: &'a [&'a PendingPayable],
     ) -> (
@@ -351,26 +353,9 @@ impl PayableScanner {
                 .map(|((wallet, ever_some_rowid), _)| (*wallet, ever_some_rowid.expectv("rowid")))
                 .collect()
         }
-        fn fatal_database_mark_pending_payable_error(
-            sent_payments: &[&PendingPayable],
-            nonexistent: &[RefWalletAndRowidOptCoupledWithHash],
-            error: PayableDaoError,
-            logger: &Logger,
-        ) {
-            if !nonexistent.is_empty() {
-                error!(logger, "{}", missing_fingerprints_msg(nonexistent))
-            };
-            panic!(
-                "Unable to create a mark in the payable table for wallets {} due to {:?}",
-                join_displayable_items_by_commas(sent_payments, |pending_p| pending_p
-                    .recipient_wallet
-                    .to_string()),
-                error
-            )
-        }
 
         let (existent, nonexistent) =
-            self.separate_id_triples_by_existent_and_nonexistent_fingerprints(sent_payments);
+            self.separate_id_triples_from_existent_and_nonexistent_fingerprints(sent_payments);
         let mark_p_payables_input_data = ready_data_for_supply(&existent);
         if !mark_p_payables_input_data.is_empty() {
             if let Err(e) = self
@@ -378,7 +363,13 @@ impl PayableScanner {
                 .as_ref()
                 .mark_pending_payables_rowids(&mark_p_payables_input_data)
             {
-                fatal_database_mark_pending_payable_error(sent_payments, &nonexistent, e, logger)
+                fatal_database_mark_pending_payable_error(
+                    sent_payments,
+                    &nonexistent,
+                    e,
+                    missing_fingerprints_msg,
+                    logger,
+                )
             }
             debug!(
                 logger,
@@ -394,7 +385,11 @@ impl PayableScanner {
         }
     }
 
-    fn handle_errors(&self, err_opt: Option<PayableTransactingErrorEnum>, logger: &Logger) {
+    fn handle_sent_payable_errors(
+        &self,
+        err_opt: Option<PayableTransactingErrorEnum>,
+        logger: &Logger,
+    ) {
         if let Some(err) = err_opt {
             match err {
                 LocallyCausedError(PayableTransactionFailed {
@@ -419,34 +414,10 @@ impl PayableScanner {
         hashes_of_the_failed: Vec<H256>,
         logger: &Logger,
     ) {
-        fn serialized_hashes(hashes: &[H256]) -> String {
+        fn serialize_hashes(hashes: &[H256]) -> String {
             join_displayable_items_by_commas(hashes, |hash| format!("{:?}", hash))
         }
-        fn panic_for_failed_payments_lacking_fingerprints(ids_of_payments: VecOfRowidOptAndHash) {
-            let hashes_of_nonexistent = ids_of_payments
-                .into_iter()
-                .map(|(_, hash)| hash)
-                .collect::<Vec<H256>>();
-            panic!(
-                "Running into failed transactions {} with missing fingerprints",
-                serialized_hashes(&hashes_of_nonexistent),
-            )
-        }
-        fn log_failed_payments_having_fingerprints_and_return_ids(
-            ids_of_payments: VecOfRowidOptAndHash,
-            logger: &Logger,
-        ) -> Vec<u64> {
-            let (ids, hashes): (Vec<u64>, Vec<H256>) = ids_of_payments
-                .into_iter()
-                .map(|(ever_some_rowid, hash)| (ever_some_rowid.expectv("validated rowid"), hash))
-                .unzip();
-            warning!(
-                logger,
-                "Deleting fingerprints for failed transactions {}",
-                serialized_hashes(&hashes)
-            );
-            ids
-        }
+
         let (existent, nonexistent): (VecOfRowidOptAndHash, VecOfRowidOptAndHash) = self
             .pending_payable_dao
             .fingerprints_rowids(&hashes_of_the_failed)
@@ -454,16 +425,20 @@ impl PayableScanner {
             .partition(|(rowid_opt, _hash)| rowid_opt.is_some());
 
         if !nonexistent.is_empty() {
-            panic_for_failed_payments_lacking_fingerprints(nonexistent)
+            panic_for_failed_payments_lacking_fingerprints(nonexistent, serialize_hashes)
         }
 
         if !existent.is_empty() {
-            let ids = log_failed_payments_having_fingerprints_and_return_ids(existent, logger);
+            let ids = log_failed_payments_having_fingerprints_and_return_ids(
+                existent,
+                serialize_hashes,
+                logger,
+            );
             if let Err(e) = self.pending_payable_dao.delete_fingerprints(&ids) {
                 panic!(
                     "Database corrupt: payable fingerprint deletion for transactions {} failed \
                  due to {:?}",
-                    serialized_hashes(&hashes_of_the_failed),
+                    serialize_hashes(&hashes_of_the_failed),
                     e
                 )
             }
@@ -648,17 +623,21 @@ impl PendingPayableScanner {
         if !ids.is_empty() {
             //TODO this function is imperfect. It waits for GH-663
             let rowids = PendingPayableId::rowids(&ids);
-            match self
-                    .pending_payable_dao
-                    .mark_failures(&rowids)
-                {
-                    Ok(_) => warning!(
-                logger, "Broken transactions {} marked as an error. You should take over the care of those \
-                 to make sure your debts are going to be settled properly. At the moment, there is no automated process fixing that without your assistance",
-                PendingPayableId::serialized_hashes_to_string(&ids)),
-                    Err(e) => panic!("Unsuccessful attempt for transactions {} to mark fatal error \
-                     at payable fingerprint due to {:?}; database unreliable", PendingPayableId::serialized_hashes_to_string(&ids), e),
-                }
+            match self.pending_payable_dao.mark_failures(&rowids) {
+                Ok(_) => warning!(
+                    logger,
+                    "Broken transactions {} marked as an error. You should take over the care \
+                 of those to make sure your debts are going to be settled properly. At the moment, \
+                 there is no automated process fixing that without your assistance",
+                    PendingPayableId::serialized_hashes_to_string(&ids)
+                ),
+                Err(e) => panic!(
+                    "Unsuccessful attempt for transactions {} \
+                    to mark fatal error at payable fingerprint due to {:?}; database unreliable",
+                    PendingPayableId::serialized_hashes_to_string(&ids),
+                    e
+                ),
+            }
         }
     }
 
@@ -1304,7 +1283,7 @@ mod tests {
                 Some(failure_payable_rowid_2),
                 failure_payable_hash_2,
             )])
-            .delete_fingerprint_params(&delete_fingerprint_params_arc)
+            .delete_fingerprints_params(&delete_fingerprint_params_arc)
             .delete_fingerprints_result(Ok(()));
         let payable_dao = PayableDaoMock::new()
             .mark_pending_payables_rowids_params(&mark_pending_payables_params_arc)
@@ -1391,7 +1370,7 @@ mod tests {
                 (Some(first_fingerprint_rowid), hash_tx_1),
                 (Some(second_fingerprint_rowid), hash_tx_2),
             ])
-            .delete_fingerprint_params(&delete_fingerprint_params_arc)
+            .delete_fingerprints_params(&delete_fingerprint_params_arc)
             .delete_fingerprints_result(Ok(()));
         let mut subject = PayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
@@ -1850,8 +1829,8 @@ mod tests {
             "payable_with_debt_above_the_slope_is_qualified_and_the_threshold_value_is_returned";
         let logger = Logger::new(test_name);
 
-        let result =
-            subject.sniff_out_alarming_payables_and_log_them(unqualified_payable_account, &logger);
+        let result = subject
+            .sniff_out_alarming_payables_and_maybe_log_them(unqualified_payable_account, &logger);
 
         assert_eq!(result, vec![]);
         TestLogHandler::new()
@@ -1878,8 +1857,10 @@ mod tests {
         let test_name = "payable_with_debt_above_the_slope_is_qualified";
         let logger = Logger::new(test_name);
 
-        let result = subject
-            .sniff_out_alarming_payables_and_log_them(vec![qualified_payable.clone()], &logger);
+        let result = subject.sniff_out_alarming_payables_and_maybe_log_them(
+            vec![qualified_payable.clone()],
+            &logger,
+        );
 
         assert_eq!(result, vec![qualified_payable]);
         TestLogHandler::new().exists_log_matching(&format!(
@@ -1909,8 +1890,8 @@ mod tests {
             .build();
         let logger = Logger::new(test_name);
 
-        let result =
-            subject.sniff_out_alarming_payables_and_log_them(unqualified_payable_account, &logger);
+        let result = subject
+            .sniff_out_alarming_payables_and_maybe_log_them(unqualified_payable_account, &logger);
 
         assert_eq!(result, vec![]);
         TestLogHandler::new()
@@ -2334,7 +2315,7 @@ mod tests {
             .transactions_confirmed_params(&transaction_confirmed_params_arc)
             .transactions_confirmed_result(Ok(()));
         let pending_payable_dao = PendingPayableDaoMock::default()
-            .delete_fingerprint_params(&delete_pending_payable_fingerprint_params_arc)
+            .delete_fingerprints_params(&delete_pending_payable_fingerprint_params_arc)
             .delete_fingerprints_result(Ok(()));
         let mut subject = PendingPayableScannerBuilder::new()
             .payable_dao(payable_dao)

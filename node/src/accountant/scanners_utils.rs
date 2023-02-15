@@ -2,7 +2,8 @@
 
 pub mod payable_scanner_utils {
     use crate::accountant::dao_utils::ThresholdUtils;
-    use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
+    use crate::accountant::payable_dao::{PayableAccount, PayableDaoError, PendingPayable};
+    use crate::accountant::scanners::join_displayable_items_by_commas;
     use crate::accountant::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
     };
@@ -12,6 +13,7 @@ pub mod payable_scanner_utils {
     use crate::blockchain::blockchain_interface::{
         BlockchainError, ProcessedPayableFallible, RpcPayableFailure,
     };
+    use crate::masq_lib::utils::ExpectValue;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
@@ -194,6 +196,56 @@ pub mod payable_scanner_utils {
                 .map(|err_count| (err_count + oks.len()).to_string())
                 .unwrap_or_else(|| "not determinable number of".to_string())
         )
+    }
+
+    pub fn fatal_database_mark_pending_payable_error(
+        sent_payments: &[&PendingPayable],
+        nonexistent: &[RefWalletAndRowidOptCoupledWithHash],
+        error: PayableDaoError,
+        missing_fingerprints_msg: fn(&[RefWalletAndRowidOptCoupledWithHash]) -> String,
+        logger: &Logger,
+    ) {
+        if !nonexistent.is_empty() {
+            error!(logger, "{}", missing_fingerprints_msg(nonexistent))
+        };
+        panic!(
+            "Unable to create a mark in the payable table for wallets {} due to {:?}",
+            join_displayable_items_by_commas(sent_payments, |pending_p| pending_p
+                .recipient_wallet
+                .to_string()),
+            error
+        )
+    }
+
+    pub fn panic_for_failed_payments_lacking_fingerprints(
+        ids_of_payments: VecOfRowidOptAndHash,
+        serialize_hashes: fn(&[H256]) -> String,
+    ) {
+        let hashes_of_nonexistent = ids_of_payments
+            .into_iter()
+            .map(|(_, hash)| hash)
+            .collect::<Vec<H256>>();
+        panic!(
+            "Running into failed transactions {} with missing fingerprints",
+            serialize_hashes(&hashes_of_nonexistent),
+        )
+    }
+
+    pub fn log_failed_payments_having_fingerprints_and_return_ids(
+        ids_of_payments: VecOfRowidOptAndHash,
+        serialize_hashes: fn(&[H256]) -> String,
+        logger: &Logger,
+    ) -> Vec<u64> {
+        let (ids, hashes): (Vec<u64>, Vec<H256>) = ids_of_payments
+            .into_iter()
+            .map(|(ever_some_rowid, hash)| (ever_some_rowid.expectv("validated rowid"), hash))
+            .unzip();
+        warning!(
+            logger,
+            "Deleting fingerprints for failed transactions {}",
+            serialize_hashes(&hashes)
+        );
+        ids
     }
 
     pub(super) fn count_total_errors(

@@ -9,7 +9,6 @@ pub mod database_utils;
 pub mod little_tcp_server;
 pub mod logfile_name_guard;
 pub mod neighborhood_test_utils;
-pub mod payable_dao_performance_utils;
 pub mod persistent_configuration_mock;
 pub mod recorder;
 pub mod stream_connector_mock;

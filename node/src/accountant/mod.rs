@@ -2912,7 +2912,7 @@ mod tests {
             .mark_failures_params(&mark_failure_params_arc)
             //we don't have a better solution yet, so we mark this down
             .mark_failures_result(Ok(()))
-            .delete_fingerprint_params(&delete_record_params_arc)
+            .delete_fingerprints_params(&delete_record_params_arc)
             //this is used during confirmation of the successful one
             .delete_fingerprints_result(Ok(()));
         pending_payable_dao_for_pending_payable_scanner

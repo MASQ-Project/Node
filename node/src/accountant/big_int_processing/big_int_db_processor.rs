@@ -287,7 +287,7 @@ impl<'a> SQLParamsBuilder<'a> {
         self
     }
 
-    pub fn other(mut self, params: Vec<Param<'a>>) -> Self {
+    pub fn other_params(mut self, params: Vec<Param<'a>>) -> Self {
         self.other_params = params;
         self
     }
@@ -580,7 +580,7 @@ mod tests {
                 sub_name: ":some_key",
                 val: &"blah",
             })
-            .other(vec![Param::new(("other_thing", &46565), true)]);
+            .other_params(vec![Param::new(("other_thing", &46565), true)]);
 
         assert_eq!(result.wei_change_spec_opt, Some(Addition("balance", 4546)));
         let key_spec = result.key_spec_opt.unwrap();
@@ -605,7 +605,7 @@ mod tests {
                 sub_name: ":some_key",
                 val: &"blah",
             })
-            .other(vec![Param::new((":other_thing", &11111), true)])
+            .other_params(vec![Param::new((":other_thing", &11111), true)])
             .build();
 
         assert_eq!(result.table_unique_key_name, "some_key");
@@ -643,7 +643,7 @@ mod tests {
                 sub_name: ":some_key",
                 val: &"wooow",
             })
-            .other(vec![Param::new((":other_thing", &46565), true)])
+            .other_params(vec![Param::new((":other_thing", &46565), true)])
             .build();
 
         assert_eq!(result.table_unique_key_name, "some_key");
@@ -677,7 +677,7 @@ mod tests {
 
         let _ = subject
             .wei_change(Addition("balance", 4546))
-            .other(vec![Param::new(("laughter", &"hahaha"), true)])
+            .other_params(vec![Param::new(("laughter", &"hahaha"), true)])
             .build();
     }
 
@@ -692,7 +692,7 @@ mod tests {
                 sub_name: ":wallet",
                 val: &make_wallet("wallet"),
             })
-            .other(vec![Param::new(("other_thing", &46565), true)])
+            .other_params(vec![Param::new(("other_thing", &46565), true)])
             .build();
     }
 

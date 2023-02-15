@@ -463,8 +463,8 @@ impl ConfigDaoFactoryMock {
 pub struct PayableDaoMock {
     more_money_payable_parameters: Arc<Mutex<Vec<(SystemTime, Wallet, u128)>>>,
     more_money_payable_results: RefCell<Vec<Result<(), PayableDaoError>>>,
-    non_pending_payable_params: Arc<Mutex<Vec<()>>>,
-    non_pending_payable_results: RefCell<Vec<Vec<PayableAccount>>>,
+    non_pending_payables_params: Arc<Mutex<Vec<()>>>,
+    non_pending_payables_results: RefCell<Vec<Vec<PayableAccount>>>,
     mark_pending_payables_rowids_params: Arc<Mutex<Vec<Vec<(Wallet, u64)>>>>,
     mark_pending_payables_rowids_results: RefCell<Vec<Result<(), PayableDaoError>>>,
     transactions_confirmed_params: Arc<Mutex<Vec<Vec<PendingPayableFingerprint>>>>,
@@ -518,8 +518,8 @@ impl PayableDao for PayableDaoMock {
     }
 
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
-        self.non_pending_payable_params.lock().unwrap().push(());
-        self.non_pending_payable_results.borrow_mut().remove(0)
+        self.non_pending_payables_params.lock().unwrap().push(());
+        self.non_pending_payables_results.borrow_mut().remove(0)
     }
 
     fn custom_query(&self, custom_query: CustomQuery<u64>) -> Option<Vec<PayableAccount>> {
@@ -556,12 +556,12 @@ impl PayableDaoMock {
     }
 
     pub fn non_pending_payables_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-        self.non_pending_payable_params = params.clone();
+        self.non_pending_payables_params = params.clone();
         self
     }
 
     pub fn non_pending_payables_result(self, result: Vec<PayableAccount>) -> Self {
-        self.non_pending_payable_results.borrow_mut().push(result);
+        self.non_pending_payables_results.borrow_mut().push(result);
         self
     }
 
@@ -918,7 +918,7 @@ impl PendingPayableDaoMock {
         self
     }
 
-    pub fn delete_fingerprint_params(mut self, params: &Arc<Mutex<Vec<Vec<u64>>>>) -> Self {
+    pub fn delete_fingerprints_params(mut self, params: &Arc<Mutex<Vec<Vec<u64>>>>) -> Self {
         self.delete_fingerprints_params = params.clone();
         self
     }

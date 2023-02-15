@@ -112,19 +112,27 @@ impl PayableDao for PayableDaoReal {
         wallet: &Wallet,
         amount: u128,
     ) -> Result<(), PayableDaoError> {
+        let main_sql = "insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid) \
+                values (:wallet, :balance_high_b, :balance_low_b, :last_paid_timestamp, null) on conflict (wallet_address) do update set \
+                balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where wallet_address = :wallet";
+        let overflow_update_clause = "update payable set \
+                balance_high_b = :balance_high_b, balance_low_b = :balance_low_b where wallet_address = :wallet";
+
         Ok(self.big_int_db_processor.execute(
             Left(self.conn.as_ref()),
             BigIntSqlConfig::new(
-                "insert into payable (wallet_address, balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid) values (:wallet, :balance_high_b, :balance_low_b, :last_paid_timestamp, null) on conflict (wallet_address) do \
-                update set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b where wallet_address = :wallet",
-                "update payable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b where wallet_address = :wallet",
+                main_sql,
+                overflow_update_clause,
                 SQLParamsBuilder::default()
-                          .key(WalletAddress(wallet))
-                          .wei_change( Addition("balance",amount))
-                          .other(vec![Param::new((":last_paid_timestamp",&to_time_t(timestamp)),false)])
-                          .build()
-                      ))?
-        )
+                    .key(WalletAddress(wallet))
+                    .wei_change(Addition("balance", amount))
+                    .other_params(vec![Param::new(
+                        (":last_paid_timestamp", &to_time_t(timestamp)),
+                        false,
+                    )])
+                    .build(),
+            ),
+        )?)
     }
 
     fn mark_pending_payables_rowids(
@@ -216,25 +224,30 @@ impl PayableDao for PayableDaoReal {
         fingerprints: &[PendingPayableFingerprint],
     ) -> Result<(), PayableDaoError> {
         fingerprints.iter().try_for_each(|fgp| {
-            let key =
-                checked_conversion::<u64, i64>(fgp.rowid);
-            Ok(self
-                .big_int_db_processor
-                .execute(Left(self.conn.as_ref()), BigIntSqlConfig::new(
-                    "update payable set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid",
-                    "update payable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid",
-                    SQLParamsBuilder::default()
-                        .key( PendingPayableRowid(&key))
-                        .wei_change(Subtraction("balance",fgp.amount))
-                        .other(vec![Param::new((":last_paid", &to_time_t(fgp.timestamp)),true)])
-                        .build()))?)
+
+            let main_sql = "update payable set \
+                    balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, \
+                    last_paid_timestamp = :last_paid, pending_payable_rowid = null where pending_payable_rowid = :rowid";
+            let overflow_update_clause = "update payable set \
+                    balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, last_paid_timestamp = :last_paid, \
+                    pending_payable_rowid = null where pending_payable_rowid = :rowid";
+
+            let conn = Left(self.conn.as_ref());
+            Ok(self.big_int_db_processor.execute(conn, BigIntSqlConfig::new(
+                main_sql,
+                overflow_update_clause,
+                SQLParamsBuilder::default()
+                    .key( PendingPayableRowid(&checked_conversion::<u64, i64>(fgp.rowid)))
+                    .wei_change(Subtraction("balance",fgp.amount))
+                    .other_params(vec![Param::new((":last_paid", &to_time_t(fgp.timestamp)),true)])
+                    .build()))?)
         })
     }
 
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
-        let mut stmt = self.conn
-            .prepare("select wallet_address, balance_high_b, balance_low_b, last_paid_timestamp from payable where pending_payable_rowid is null")
-            .expect("Internal error");
+        let sql = "select wallet_address, balance_high_b, balance_low_b, last_paid_timestamp from \
+         payable where pending_payable_rowid is null";
+        let mut stmt = self.conn.prepare(sql).expect("Internal error");
         stmt.query_map([], |row| {
             let wallet_result: Result<Wallet, Error> = row.get(0);
             let high_b_result: Result<i64, Error> = row.get(1);
@@ -458,12 +471,10 @@ mod tests {
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
     use crate::test_utils::make_wallet;
-    use crate::test_utils::payable_dao_performance_utils::test_environment::specialized_body_for_long_traverse_test;
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, OpenFlags};
     use rusqlite::{Connection as RusqliteConnection, ToSql};
-    use std::ops::RangeInclusive;
     use std::path::Path;
     use std::str::FromStr;
 
@@ -651,26 +662,6 @@ mod tests {
                     ))
                 }
             ]
-        )
-    }
-
-    #[test]
-    fn performance_test_for_pending_payable_rowids_long_traverse() {
-        //in this test we update a record only at the beginning and at the end of a long list of 100 records
-        let full_range_of_records: RangeInclusive<usize> = 1..=100;
-        let matrix_of_only_updated_records: [usize; 2] = [1, 100];
-        let (single_call_duration, separate_calls_duration) =
-            specialized_body_for_long_traverse_test(
-                "performance_test_for_pending_payable_rowids_long_traverse",
-                full_range_of_records,
-                matrix_of_only_updated_records,
-            );
-
-        assert!(single_call_duration < separate_calls_duration * 18 / 10,
-                "With multi-update machinery: {} μs, with a very simple call: {} μs; where the former is {} μs with 80 % correction",
-                single_call_duration.as_micros(),
-                separate_calls_duration.as_micros(),
-                ((single_call_duration * 18) / 10).as_micros()
         )
     }
 
