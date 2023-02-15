@@ -510,6 +510,7 @@ mod tests {
     use crate::sub_lib::cryptde_real::CryptDEReal;
     use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType, MessageType::ClientRequest};
     use crate::sub_lib::neighborhood::GossipFailure_0v1;
+    use crate::sub_lib::peer_actors::PeerActors;
     use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
     use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol};
     use crate::sub_lib::route::{Route, RouteSegment};
@@ -1398,9 +1399,7 @@ mod tests {
             })
             .collect();
         let route = Route { hops };
-        let icp =
-            IncipientCoresPackage::new(main_cryptde, route, payload, main_cryptde.public_key())
-                .unwrap();
+        let icp = IncipientCoresPackage::new(main_cryptde, route, payload, public_key).unwrap();
         let (lcp, _) = LiveCoresPackage::from_incipient(icp, main_cryptde).unwrap();
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
         let data_enc = main_cryptde
@@ -1856,6 +1855,17 @@ mod tests {
         );
     }
 
+    fn make_routing_service_subs(peer_actors: PeerActors) -> RoutingServiceSubs {
+        RoutingServiceSubs {
+            proxy_client_subs_opt: peer_actors.proxy_client_opt,
+            proxy_server_subs: peer_actors.proxy_server,
+            neighborhood_subs: peer_actors.neighborhood,
+            hopper_subs: peer_actors.hopper,
+            to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+            to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+        }
+    }
+
     fn route_data_to_peripheral_component_uses_proper_key_on_payload_for_component<F>(
         payload_factory: F,
         target_component: Component,
@@ -1865,14 +1875,7 @@ mod tests {
         let peer_actors = peer_actors_builder().build();
         let subject = RoutingService::new(
             make_cryptde_pair(),
-            RoutingServiceSubs {
-                proxy_client_subs_opt: peer_actors.proxy_client_opt,
-                proxy_server_subs: peer_actors.proxy_server,
-                neighborhood_subs: peer_actors.neighborhood,
-                hopper_subs: peer_actors.hopper,
-                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
-                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
-            },
+            make_routing_service_subs(peer_actors),
             100,
             200,
             true,
