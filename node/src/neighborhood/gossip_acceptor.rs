@@ -940,7 +940,7 @@ impl GossipHandler for StandardGossipHandler {
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
 
         let patch = self.compute_patch(&agrs, database.root());
-        let filtered_agrs = self.filter_agrs_from_patch(agrs, patch);
+        let filtered_agrs = self.filter_agrs_by_patch(agrs, patch);
 
         let mut db_changed = self.identify_and_add_non_introductory_new_nodes(
             database,
@@ -1007,26 +1007,26 @@ impl StandardGossipHandler {
     fn compute_patch_recursive(
         &self,
         patch: &mut HashSet<PublicKey>,
-        node: &PublicKey,
+        current_node_key: &PublicKey,
         agrs: &HashMap<&PublicKey, &AccessibleGossipRecord>,
         hops_remaining: usize,
         root_node: &NodeRecord,
     ) {
-        patch.insert(node.clone());
+        patch.insert(current_node_key.clone());
         if hops_remaining == 0 {
             return;
         }
-        let neighbors = if node == root_node.public_key() {
+        let neighbors = if current_node_key == root_node.public_key() {
             &root_node.inner.neighbors
         } else {
-            match agrs.get(node) {
+            match agrs.get(current_node_key) {
                 Some(agr) => &agr.inner.neighbors,
                 None => {
-                    patch.remove(node);
+                    patch.remove(current_node_key);
                     trace!(
                         self.logger,
                         "While computing patch no AGR record found for public key {:?}",
-                        node
+                        current_node_key
                     );
                     return;
                 }
@@ -1040,7 +1040,7 @@ impl StandardGossipHandler {
         }
     }
 
-    fn filter_agrs_from_patch(
+    fn filter_agrs_by_patch(
         &self,
         agrs: Vec<AccessibleGossipRecord>,
         patch: HashSet<PublicKey>,
@@ -2444,7 +2444,6 @@ mod tests {
         node_b_db.add_arbitrary_full_neighbor(node_b.public_key(), node_y.public_key());
         node_b_db.add_arbitrary_full_neighbor(node_b.public_key(), node_c.public_key());
         node_b_db.add_arbitrary_full_neighbor(node_c.public_key(), node_d.public_key());
-
         let gossip = GossipBuilder::new(&node_b_db)
             .node(node_b.public_key(), true)
             .node(node_c.public_key(), false)
