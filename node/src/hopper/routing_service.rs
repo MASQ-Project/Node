@@ -1895,10 +1895,10 @@ mod tests {
     }
 
     #[test]
-    fn route_data_to_peripheral_component_uses_alias_key_on_payload_for_proxy_client() {
+    fn route_data_to_peripheral_component_uses_main_key_on_payload_for_proxy_client() {
         let payload_factory = |cryptdes: &CryptDEPair| {
             encodex(
-                cryptdes.alias,
+                cryptdes.main,
                 cryptdes.main.public_key(),
                 &MessageType::ClientRequest(VersionedData::new(
                     &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
@@ -1963,6 +1963,31 @@ mod tests {
         route_data_to_peripheral_component_uses_proper_key_on_payload_for_component(
             payload_factory,
             Component::Neighborhood,
+        );
+    }
+
+    #[test]
+    fn route_data_to_peripheral_component_uses_main_key_on_payload_for_hopper() {
+        let payload_factory = |cryptdes: &CryptDEPair| {
+            encodex(
+                cryptdes.main,
+                cryptdes.main.public_key(),
+                &MessageType::ClientResponse(VersionedData::new(
+                    &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
+                    &ClientResponsePayload_0v1 {
+                        stream_key: StreamKey::new(
+                            PublicKey::new(b"1234"),
+                            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+                        ),
+                        sequenced_packet: SequencedPacket::new(vec![1, 2, 3, 4], 1234, false),
+                    },
+                )),
+            )
+            .unwrap()
+        };
+        route_data_to_peripheral_component_uses_proper_key_on_payload_for_component(
+            payload_factory,
+            Component::Hopper,
         );
     }
 
