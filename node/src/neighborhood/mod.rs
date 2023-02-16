@@ -1147,23 +1147,23 @@ impl Neighborhood {
 
     fn compute_undesirability(
         node_record: &NodeRecord,
-        payload_size: usize,
+        payload_size: u64,
         undesirability_type: UndesirabilityType,
         logger: &Logger,
     ) -> i64 {
         let mut rate_undesirability = match undesirability_type {
             UndesirabilityType::Relay => {
-                (node_record.inner.rate_pack.routing_byte_rate * payload_size as u64)
+                (node_record.inner.rate_pack.routing_byte_rate * payload_size)
                     + node_record.inner.rate_pack.routing_service_rate
             }
             UndesirabilityType::ExitRequest(_) => {
-                (node_record.inner.rate_pack.exit_byte_rate * payload_size as u64)
+                (node_record.inner.rate_pack.exit_byte_rate * payload_size)
                     + node_record.inner.rate_pack.exit_service_rate
             }
             UndesirabilityType::ExitAndRouteResponse => {
-                (node_record.inner.rate_pack.exit_byte_rate * payload_size as u64)
+                (node_record.inner.rate_pack.exit_byte_rate * payload_size)
                     + node_record.inner.rate_pack.exit_service_rate
-                    + (node_record.inner.rate_pack.routing_byte_rate * payload_size as u64)
+                    + (node_record.inner.rate_pack.routing_byte_rate * payload_size)
                     + node_record.inner.rate_pack.routing_service_rate
             }
         } as i64;
@@ -1182,6 +1182,7 @@ impl Neighborhood {
                 rate_undesirability += UNREACHABLE_HOST_PENALTY;
             }
         }
+
         rate_undesirability
     }
 
@@ -1225,7 +1226,7 @@ impl Neighborhood {
         let result = self
             .routing_engine(
                 vec![source],
-                self.compute_initial_undesirability(source, payload_size, direction),
+                self.compute_initial_undesirability(source, payload_size as u64, direction),
                 target_opt,
                 minimum_hops,
                 payload_size,
@@ -1302,7 +1303,7 @@ impl Neighborhood {
                         undesirability,
                         target_opt,
                         new_hops_remaining,
-                        payload_size,
+                        payload_size as u64,
                         direction,
                         hostname_opt,
                     );
@@ -1344,7 +1345,7 @@ impl Neighborhood {
     fn compute_initial_undesirability(
         &self,
         public_key: &PublicKey,
-        payload_size: usize,
+        payload_size: u64,
         direction: RouteDirection,
     ) -> i64 {
         if direction == RouteDirection::Over {
@@ -1369,7 +1370,7 @@ impl Neighborhood {
         undesirability: i64,
         target_opt: Option<&PublicKey>,
         hops_remaining: usize,
-        payload_size: usize,
+        payload_size: u64,
         direction: RouteDirection,
         hostname_opt: Option<&str>,
     ) -> i64 {
