@@ -533,7 +533,11 @@ impl Neighborhood {
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
         // TODO: Don't do this work unless log level is Debug or Trace
-        let msg_str = format!("{:?}", msg);
+        let msg_str = if self.logger.debug_enabled() {
+            format!("{:?}", msg)
+        } else {
+            "".to_string()
+        };
         let route_result = if msg.minimum_hop_count == 0 {
             Ok(self.zero_hop_route_response())
         } else {
