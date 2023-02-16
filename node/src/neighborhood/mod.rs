@@ -1171,9 +1171,8 @@ impl Neighborhood {
             if node_record.metadata.unreachable_hosts.contains(hostname) {
                 trace!(
                     logger,
-                    "To {:?} ({:?}): unreachable host {}; undesirability {} + {} = {}",
+                    "Node with PubKey {:?} failed to reach host {:?} during ExitRequest; Undesirability: {} + {} = {}",
                     node_record.public_key(),
-                    undesirability_type,
                     hostname,
                     rate_undesirability,
                     UNREACHABLE_HOST_PENALTY,
@@ -3421,6 +3420,7 @@ mod tests {
 
     #[test]
     fn computing_undesirability_works_for_exit_on_over_leg_for_blacklisted_host() {
+        init_test_logging();
         let mut node_record = make_node_record(2345, false);
         node_record
             .metadata
@@ -3444,6 +3444,11 @@ mod tests {
             1_000_000 // existing undesirability
                     + rate_pack.exit_charge (1_000) as i64 // charge to exit request
                     + UNREACHABLE_HOST_PENALTY // because host is blacklisted
+        );
+        TestLogHandler::new().exists_log_containing(
+            "Node with PubKey 0x02030405 failed to reach \
+                      host \"hostname.com\" during ExitRequest; \
+                      Undesirability: 2350745 + 100000000 = 102350745",
         );
     }
 
