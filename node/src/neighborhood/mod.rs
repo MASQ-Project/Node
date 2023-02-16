@@ -1222,10 +1222,12 @@ impl Neighborhood {
         hostname_opt: Option<&str>,
     ) -> Option<Vec<&'a PublicKey>> {
         let mut minimum_undesirability = i64::MAX;
+        let initial_undesirability =
+            self.compute_initial_undesirability(source, payload_size as u64, direction);
         let result = self
             .routing_engine(
                 vec![source],
-                self.compute_initial_undesirability(source, payload_size as u64, direction),
+                initial_undesirability,
                 target_opt,
                 minimum_hops,
                 payload_size,
