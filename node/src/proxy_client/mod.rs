@@ -1068,8 +1068,8 @@ mod tests {
         );
         assert_eq!(accountant_recording.len(), 2);
         let tlh = TestLogHandler::new();
-        tlh.exists_log_containing(format!("ERROR: ProxyClient: Received InboundServerData from 1.2.3.4:5678: stream {}, sequence 1236, length {}; but no such known stream - ignoring", stream_key, data.len()).as_str());
-        tlh.exists_log_containing(format!("ERROR: ProxyClient: Received InboundServerData (last_data) from 1.2.3.4:5678: stream {}, sequence 1237, length {}; but no such known stream - ignoring", stream_key, data.len()).as_str());
+        tlh.exists_log_containing(format!("ERROR: ProxyClient: Received InboundServerData from 1.2.3.4:5678: stream +dKB2Lsh3ET2TS/J/cexaanFQz4, sequence 1236, length {}; but no such known stream - ignoring", data.len()).as_str());
+        tlh.exists_log_containing(format!("ERROR: ProxyClient: Received InboundServerData (last_data) from 1.2.3.4:5678: stream +dKB2Lsh3ET2TS/J/cexaanFQz4, sequence 1237, length {}; but no such known stream - ignoring", data.len()).as_str());
     }
 
     #[test]
