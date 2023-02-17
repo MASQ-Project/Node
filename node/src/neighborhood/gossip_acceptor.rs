@@ -3591,6 +3591,25 @@ mod tests {
 
     #[test]
     fn standard_gossip_containing_unfamiliar_node_addrs_leads_to_them_being_ignored() {
+        /*
+
+        Destination Database (Root) ==>
+
+            Root
+            / \
+           A---B---D
+
+        Source Database (A) ==>
+        - Source has updated version of A and B.
+        - C will not reveal IP, but B, E and F will do.
+
+           Root
+         /  |
+        B---A---E
+        |   |
+        C   F
+         */
+
         let root_node = make_node_record(1234, true);
         let mut dest_db = db_from_node(&root_node);
         let node_a = make_node_record(2345, true);
