@@ -1152,19 +1152,13 @@ impl Neighborhood {
         logger: &Logger,
     ) -> i64 {
         let mut rate_undesirability = match undesirability_type {
-            UndesirabilityType::Relay => {
-                (node_record.inner.rate_pack.routing_byte_rate * payload_size)
-                    + node_record.inner.rate_pack.routing_service_rate
-            }
+            UndesirabilityType::Relay => node_record.inner.rate_pack.routing_charge(payload_size),
             UndesirabilityType::ExitRequest(_) => {
-                (node_record.inner.rate_pack.exit_byte_rate * payload_size)
-                    + node_record.inner.rate_pack.exit_service_rate
+                node_record.inner.rate_pack.exit_charge(payload_size)
             }
             UndesirabilityType::ExitAndRouteResponse => {
-                (node_record.inner.rate_pack.exit_byte_rate * payload_size)
-                    + node_record.inner.rate_pack.exit_service_rate
-                    + (node_record.inner.rate_pack.routing_byte_rate * payload_size)
-                    + node_record.inner.rate_pack.routing_service_rate
+                node_record.inner.rate_pack.exit_charge(payload_size)
+                    + node_record.inner.rate_pack.routing_charge(payload_size)
             }
         } as i64;
         if let UndesirabilityType::ExitRequest(Some(hostname)) = undesirability_type {
