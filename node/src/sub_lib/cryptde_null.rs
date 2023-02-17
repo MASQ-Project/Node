@@ -103,12 +103,12 @@ impl CryptDE for CryptDENull {
         signature: &CryptData,
         public_key: &PublicKey,
     ) -> bool {
-        let key_data = public_key.as_slice();
-        let (k, _) = Self::key_and_data(key_data.len(), signature);
-        if k != key_data {
+        let public_key_data = public_key.as_slice();
+        let (private_key_data, _) = Self::key_and_data(public_key_data.len(), signature);
+        if private_key_data != public_key_data {
             return false;
         }
-        let claimed_hash = match Self::decode_with_key_data(key_data, signature) {
+        let claimed_hash = match Self::decode_with_key_data(public_key_data, signature) {
             Err(_) => return false,
             Ok(hash) => CryptData::new(hash.as_slice()),
         };
