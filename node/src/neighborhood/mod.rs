@@ -1236,8 +1236,10 @@ impl Neighborhood {
                 hostname_opt,
             )
             .into_iter()
-            .filter(|cr| cr.undesirability <= minimum_undesirability)
-            .map(|cr| cr.nodes)
+            .filter_map(|cr| match cr.undesirability <= minimum_undesirability {
+                true => Some(cr.nodes),
+                false => None,
+            })
             .next();
 
         result
