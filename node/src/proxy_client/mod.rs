@@ -757,7 +757,7 @@ mod tests {
         };
         let key1 = make_meaningless_public_key();
         let key2 = make_meaningless_public_key();
-        let route = make_route(vec![&key1, &key2]);
+        let route = make_route_to_proxy_client(vec![&key1, &key2]);
         let package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             Some(make_wallet("consuming")),
