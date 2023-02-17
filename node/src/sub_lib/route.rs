@@ -374,6 +374,19 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "Could not decrypt with ebe5f9a0e2 data beginning with ebe5f9a0e1")]
+    fn id_returns_error_when_the_id_fails_to_decrypt() {
+        let cryptde1 = CryptDENull::from(&PublicKey::new(b"key a"), TEST_DEFAULT_CHAIN);
+        let cryptde2 = CryptDENull::from(&PublicKey::new(b"key b"), TEST_DEFAULT_CHAIN);
+
+        let subject = Route {
+            hops: vec![Route::encrypt_return_route_id(42, &cryptde1)],
+        };
+
+        let _ = subject.id(&cryptde2);
+    }
+
+    #[test]
     fn construct_does_not_like_route_segments_with_too_few_keys() {
         let cryptde = main_cryptde();
         let paying_wallet = make_wallet("wallet");
