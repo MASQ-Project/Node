@@ -957,27 +957,32 @@ impl Neighborhood {
 
     fn make_round_trip_route(
         &mut self,
-        msg: RouteQueryMessage,
+        request_msg: RouteQueryMessage,
     ) -> Result<RouteQueryResponse, String> {
-        let hostname_opt = msg.hostname_opt.as_deref();
+        let hostname_opt = request_msg.hostname_opt.as_deref();
         let over = self.make_route_segment(
             self.cryptde.public_key(),
-            msg.target_key_opt.as_ref(),
-            msg.minimum_hop_count,
-            msg.target_component,
-            msg.payload_size,
+            request_msg.target_key_opt.as_ref(),
+            request_msg.minimum_hop_count,
+            request_msg.target_component,
+            request_msg.payload_size,
             RouteDirection::Over,
             hostname_opt,
         )?;
         debug!(self.logger, "Route over: {:?}", over);
-        // Estimate for routing-undesirability calculations
-        let response_payload_len = msg.payload_size * RESPONSE_UNDESIRABILITY_FACTOR;
+        // Estimate for routing-undesirability calculations.
+        // We don't know what the size of response will be.
+        // So, we estimate the value by multiplying the payload_size of request with a constant value.
+        let anticipated_response_payload_len =
+            request_msg.payload_size * RESPONSE_UNDESIRABILITY_FACTOR;
         let back = self.make_route_segment(
             over.keys.last().expect("Empty segment"),
             Some(self.cryptde.public_key()),
-            msg.minimum_hop_count,
-            msg.return_component_opt.expect("No return component"),
-            response_payload_len,
+            request_msg.minimum_hop_count,
+            request_msg
+                .return_component_opt
+                .expect("No return component"),
+            anticipated_response_payload_len,
             RouteDirection::Back,
             hostname_opt,
         )?;
