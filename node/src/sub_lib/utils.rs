@@ -250,14 +250,6 @@ where
 }
 
 #[cfg(test)]
-pub fn make_new_test_multi_config<'a>(
-    schema: &App<'a, 'a>,
-    vcls: Vec<Box<dyn VirtualCommandLine>>,
-) -> Result<MultiConfig<'a>, ConfiguratorError> {
-    make_new_multi_config(schema, vcls)
-}
-
-#[cfg(test)]
 mod tests {
     use super::*;
     use crate::apps::app_node;

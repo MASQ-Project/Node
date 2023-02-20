@@ -23,7 +23,6 @@ use clap::value_t;
 use heck::MixedCase;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::command::StdStreams;
-use masq_lib::multi_config::make_arg_matches_accesible;
 use masq_lib::multi_config::{CommandLineVcl, EnvironmentVcl, VirtualCommandLine};
 use masq_lib::shared_schema::ConfiguratorError;
 use rustc_hex::ToHex;

@@ -60,7 +60,7 @@ pub trait ActorSystemFactory {
 }
 
 pub struct ActorSystemFactoryReal {
-    t: Box<dyn ActorSystemFactoryTools>,
+    tools: Box<dyn ActorSystemFactoryTools>,
 }
 
 impl ActorSystemFactory for ActorSystemFactoryReal {
@@ -70,18 +70,22 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         actor_factory: Box<dyn ActorFactory>,
         persist_config: Box<dyn PersistentConfiguration>,
     ) -> StreamHandlerPoolSubs {
-        self.t.validate_database_chain(
+        self.tools.validate_database_chain(
             persist_config.as_ref(),
             config.blockchain_bridge_config.chain,
         );
-        self.t
-            .prepare_initial_messages(self.t.cryptdes(), config, persist_config, actor_factory)
+        self.tools.prepare_initial_messages(
+            self.tools.cryptdes(),
+            config,
+            persist_config,
+            actor_factory,
+        )
     }
 }
 
 impl ActorSystemFactoryReal {
     pub fn new(tools: Box<dyn ActorSystemFactoryTools>) -> Self {
-        Self { t: tools }
+        Self { tools }
     }
 }
 

@@ -18,7 +18,6 @@ use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{DEFAULT_CHAIN, MASQ_URL_PREFIX};
 use masq_lib::logger::Logger;
-use masq_lib::multi_config::make_arg_matches_accesible;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -624,7 +623,7 @@ mod tests {
     use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
-    use crate::sub_lib::utils::make_new_test_multi_config;
+    use crate::sub_lib::utils::make_new_multi_config;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::{
@@ -666,7 +665,7 @@ mod tests {
     #[test]
     fn make_neighborhood_config_standard_happy_path() {
         running_test();
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
@@ -714,7 +713,7 @@ mod tests {
     #[test]
     fn make_neighborhood_config_standard_missing_ip() {
         running_test();
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
@@ -748,7 +747,7 @@ mod tests {
     #[test]
     fn make_neighborhood_config_originate_only_doesnt_need_ip() {
         running_test();
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
@@ -803,7 +802,7 @@ mod tests {
     #[test]
     fn make_neighborhood_config_originate_only_does_need_at_least_one_neighbor() {
         running_test();
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
@@ -826,7 +825,7 @@ mod tests {
     #[test]
     fn make_neighborhood_config_consume_only_doesnt_need_ip() {
         running_test();
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
@@ -878,7 +877,7 @@ mod tests {
     #[test]
     fn make_neighborhood_config_consume_only_rejects_dns_servers_and_needs_at_least_one_neighbor() {
         running_test();
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
@@ -913,7 +912,7 @@ mod tests {
     #[test]
     fn make_neighborhood_config_zero_hop_doesnt_need_ip_or_neighbors() {
         running_test();
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
@@ -941,7 +940,7 @@ mod tests {
     #[test]
     fn make_neighborhood_config_zero_hop_cant_tolerate_ip() {
         running_test();
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
@@ -1430,7 +1429,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
 
         subject
             .unprivileged_parse_args(
@@ -1504,7 +1503,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
         let mut persistent_config = configure_default_persistent_config(
             RATE_PACK | ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL,
         )
@@ -1552,7 +1551,7 @@ mod tests {
         config.db_password_opt = Some("password".to_string());
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
         let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_configuration = {
@@ -1612,7 +1611,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
         let mut persistent_configuration = {
             let config = make_persistent_config(None, None, None, None, None, None)
                 .blockchain_service_url_result(Ok(Some("https://infura.io/ID".to_string())));
@@ -1642,7 +1641,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = configure_default_persistent_config(0b0000_1101)
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
@@ -1692,7 +1691,7 @@ mod tests {
             Box::new(faux_environment),
             Box::new(CommandLineVcl::new(args.into())),
         ];
-        let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
@@ -2108,7 +2107,7 @@ mod tests {
             Box::new(CommandLineVcl::new(args.into())),
         ];
 
-        let result = make_new_test_multi_config(&app_node(), vcls).err().unwrap();
+        let result = make_new_multi_config(&app_node(), vcls).err().unwrap();
 
         assert_eq!(
             result,
@@ -2333,7 +2332,7 @@ mod tests {
 
     #[test]
     fn compute_mapping_protocol_returns_saved_value_if_nothing_supplied() {
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(ArgsBuilder::new().into()))],
         )
@@ -2350,7 +2349,7 @@ mod tests {
 
     #[test]
     fn compute_mapping_protocol_saves_computed_value_if_different() {
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
@@ -2442,7 +2441,7 @@ mod tests {
 
     #[test]
     fn get_public_ip_returns_sentinel_if_multiconfig_provides_none() {
-        let multi_config = make_new_test_multi_config(&app_node(), vec![]).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vec![]).unwrap();
 
         let result = get_public_ip(&multi_config);
 
@@ -2453,7 +2452,7 @@ mod tests {
     fn get_public_ip_uses_multi_config() {
         let args = ArgsBuilder::new().param("--ip", "4.3.2.1");
         let vcl = Box::new(CommandLineVcl::new(args.into()));
-        let multi_config = make_new_test_multi_config(&app_node(), vec![vcl]).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vec![vcl]).unwrap();
 
         let result = get_public_ip(&multi_config);
 
