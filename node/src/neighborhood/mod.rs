@@ -1381,9 +1381,7 @@ impl Neighborhood {
                 UndesirabilityType::ExitRequest(hostname_opt)
             }
             (RouteDirection::Over, _) => UndesirabilityType::Relay,
-            (RouteDirection::Back, _) if undesirability == 0 => {
-                UndesirabilityType::ExitAndRouteResponse
-            }
+            // The exit-and-relay undesirability is initial_undesirability
             (RouteDirection::Back, _) => UndesirabilityType::Relay,
         };
         let node_undesirability = Self::compute_undesirability(
