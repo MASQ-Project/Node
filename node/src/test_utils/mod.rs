@@ -238,28 +238,6 @@ pub fn route_to_proxy_server(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
     shift_one_hop(route_from_proxy_client(key, cryptde), cryptde)
 }
 
-// pub fn route_from_proxy_client(main_key: &PublicKey, main_cryptde: &dyn CryptDE) -> Route {
-//     // Happens to be the same
-//     let round_trip = zero_hop_route_response(main_key, main_cryptde).route;
-//     shortened_route(round_trip, 2)
-// }
-//
-// pub fn route_to_proxy_server(main_key: &PublicKey, main_cryptde: &dyn CryptDE) -> Route {
-//     let round_trip = zero_hop_route_response(main_key, main_cryptde).route;
-//     shortened_route(round_trip, 3)
-// }
-
-// fn shortened_route(mut route: Route, hops_to_remove: usize) -> Route {
-//     eprintln!("Route before drain: {:?}", route.hops);
-//     let remaining_hops = route
-//         .hops
-//         .drain(hops_to_remove..)
-//         .collect::<Vec<CryptData>>();
-//     Route {
-//         hops: remaining_hops,
-//     }
-// }
-
 pub fn zero_hop_route_response(
     public_key: &PublicKey,
     cryptde: &dyn CryptDE,
