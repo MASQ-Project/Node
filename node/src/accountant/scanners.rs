@@ -16,11 +16,12 @@ use crate::accountant::{
     RequestTransactionReceipts, ResponseSkeleton, ScanForPayables, ScanForPendingPayables,
     ScanForReceivables, SentPayables,
 };
-use crate::accountant::{PendingPayableId, PendingTransactionStatus, ReportAccountsPayable};
+use crate::accountant::{PendingPayableId, PendingTransactionStatus};
 use crate::banned_dao::BannedDao;
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::BlockchainError;
 use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics, PaymentThresholds};
+use crate::sub_lib::blockchain_bridge::RequestAvailableBalancesForPayables;
 use crate::sub_lib::utils::NotifyLaterHandle;
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, System};
@@ -41,7 +42,7 @@ use time::OffsetDateTime;
 use web3::types::TransactionReceipt;
 
 pub struct Scanners {
-    pub payable: Box<dyn Scanner<ReportAccountsPayable, SentPayables>>,
+    pub payable: Box<dyn Scanner<RequestAvailableBalancesForPayables, SentPayables>>,
     pub pending_payable: Box<dyn Scanner<RequestTransactionReceipts, ReportTransactionReceipts>>,
     pub receivable: Box<dyn Scanner<RetrieveTransactions, ReceivedPayments>>,
 }
@@ -55,7 +56,7 @@ impl Scanners {
         financial_statistics: Rc<RefCell<FinancialStatistics>>,
     ) -> Self {
         Scanners {
-            payable: Box::new(PayableScanner::new(
+            payable: Box::new(PayableDatabaseScanner::new(
                 dao_factories.payable_dao_factory.make(),
                 dao_factories.pending_payable_dao_factory.make(),
                 Rc::clone(&payment_thresholds),
@@ -149,20 +150,20 @@ macro_rules! time_marking_methods {
     };
 }
 
-pub struct PayableScanner {
+pub struct PayableDatabaseScanner {
     pub common: ScannerCommon,
     pub payable_dao: Box<dyn PayableDao>,
     pub pending_payable_dao: Box<dyn PendingPayableDao>,
     pub payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
 }
 
-impl Scanner<ReportAccountsPayable, SentPayables> for PayableScanner {
+impl Scanner<RequestAvailableBalancesForPayables, SentPayables> for PayableDatabaseScanner {
     fn begin_scan(
         &mut self,
         timestamp: SystemTime,
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
-    ) -> Result<ReportAccountsPayable, BeginScanError> {
+    ) -> Result<RequestAvailableBalancesForPayables, BeginScanError> {
         if let Some(timestamp) = self.scan_started_at() {
             return Err(BeginScanError::ScanAlreadyRunning(timestamp));
         }
@@ -190,7 +191,7 @@ impl Scanner<ReportAccountsPayable, SentPayables> for PayableScanner {
                     "Chose {} qualified debts to pay",
                     qualified_payable.len()
                 );
-                Ok(ReportAccountsPayable {
+                Ok(RequestAvailableBalancesForPayables {
                     accounts: qualified_payable,
                     response_skeleton_opt,
                 })
@@ -225,7 +226,7 @@ impl Scanner<ReportAccountsPayable, SentPayables> for PayableScanner {
     as_any_impl!();
 }
 
-impl PayableScanner {
+impl PayableDatabaseScanner {
     pub fn new(
         payable_dao: Box<dyn PayableDao>,
         pending_payable_dao: Box<dyn PendingPayableDao>,
@@ -924,7 +925,7 @@ pub struct NotifyLaterForScanners {
 #[cfg(test)]
 mod tests {
     use crate::accountant::scanners::{
-        BeginScanError, PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner,
+        BeginScanError, PayableDatabaseScanner, PendingPayableScanner, ReceivableScanner, Scanner,
         ScannerCommon, Scanners,
     };
     use crate::accountant::test_utils::{
@@ -952,7 +953,7 @@ mod tests {
     use crate::sub_lib::accountant::{
         DaoFactories, FinancialStatistics, PaymentThresholds, DEFAULT_PAYMENT_THRESHOLDS,
     };
-    use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
+    use crate::sub_lib::blockchain_bridge::RequestAvailableBalancesForPayables;
     use crate::test_utils::make_wallet;
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
@@ -1001,7 +1002,7 @@ mod tests {
         let payable_scanner = scanners
             .payable
             .as_any()
-            .downcast_ref::<PayableScanner>()
+            .downcast_ref::<PayableDatabaseScanner>()
             .unwrap();
         let pending_payable_scanner = scanners
             .pending_payable
@@ -1077,7 +1078,7 @@ mod tests {
         assert_eq!(timestamp, Some(now));
         assert_eq!(
             result,
-            Ok(ReportAccountsPayable {
+            Ok(RequestAvailableBalancesForPayables {
                 accounts: qualified_payable_accounts.clone(),
                 response_skeleton_opt: None,
             })

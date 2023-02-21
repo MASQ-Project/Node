@@ -43,7 +43,9 @@ use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::accountant::{AccountantSubs, ScanIntervals};
 use crate::sub_lib::accountant::{MessageIdGenerator, MessageIdGeneratorReal};
-use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
+use crate::sub_lib::blockchain_bridge::{
+    ReportAccountsPayable, RequestAvailableBalancesForPayables,
+};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
@@ -90,9 +92,10 @@ pub struct Accountant {
     notify_later: NotifyLaterForScanners,
     financial_statistics: Rc<RefCell<FinancialStatistics>>,
     report_accounts_payable_sub_opt: Option<Recipient<ReportAccountsPayable>>,
+    request_balances_for_payables_opt: Option<Recipient<RequestAvailableBalancesForPayables>>,
     retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
     request_transaction_receipts_subs_opt: Option<Recipient<RequestTransactionReceipts>>,
-    report_new_payments_sub: Option<Recipient<ReceivedPayments>>,
+    report_inbound_payments_sub: Option<Recipient<ReceivedPayments>>,
     report_sent_payments_sub: Option<Recipient<SentPayables>>,
     ui_message_sub: Option<Recipient<NodeToUiMessage>>,
     message_id_generator: Box<dyn MessageIdGenerator>,
@@ -433,9 +436,10 @@ impl Accountant {
             notify_later: NotifyLaterForScanners::default(),
             financial_statistics: Rc::clone(&financial_statistics),
             report_accounts_payable_sub_opt: None,
+            request_balances_for_payables_opt: None,
             retrieve_transactions_sub: None,
             request_transaction_receipts_subs_opt: None,
-            report_new_payments_sub: None,
+            report_inbound_payments_sub: None,
             report_sent_payments_sub: None,
             ui_message_sub: None,
             message_id_generator: Box::new(MessageIdGeneratorReal::default()),
@@ -450,7 +454,7 @@ impl Accountant {
             report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
             report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
             report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
-            report_new_payments: recipient!(addr, ReceivedPayments),
+            report_inbound_payments: recipient!(addr, ReceivedPayments),
             pending_payable_fingerprint: recipient!(addr, PendingPayableFingerprint),
             report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
             report_sent_payments: recipient!(addr, SentPayables),
@@ -544,7 +548,12 @@ impl Accountant {
             Some(msg.peer_actors.blockchain_bridge.report_accounts_payable);
         self.retrieve_transactions_sub =
             Some(msg.peer_actors.blockchain_bridge.retrieve_transactions);
-        self.report_new_payments_sub = Some(msg.peer_actors.accountant.report_new_payments);
+        self.report_inbound_payments_sub = Some(msg.peer_actors.accountant.report_inbound_payments);
+        self.request_balances_for_payables_opt = Some(
+            msg.peer_actors
+                .blockchain_bridge
+                .request_balances_for_payables,
+        );
         self.report_sent_payments_sub = Some(msg.peer_actors.accountant.report_sent_payments);
         self.ui_message_sub = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
         self.request_transaction_receipts_subs_opt = Some(
@@ -773,7 +782,7 @@ impl Accountant {
             &self.logger,
         ) {
             Ok(scan_message) => {
-                self.report_accounts_payable_sub_opt
+                self.request_balances_for_payables_opt
                     .as_ref()
                     .expect("BlockchainBridge is unbound")
                     .try_send(scan_message)
@@ -1012,9 +1021,13 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
+    use crate::test_utils::unshared_test_utils::secondarily_sequenced_messages_encourager::SecondarilySequencedMessagesEncourager;
+    use crate::test_utils::unshared_test_utils::system_killer_actor::{
+        CleanUpMessage, SystemKillerActor,
+    };
     use crate::test_utils::unshared_test_utils::{
         make_bc_with_defaults, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
-        NotifyLaterHandleMock, SystemKillerActor,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
@@ -1273,8 +1286,8 @@ mod tests {
         system.run();
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         assert_eq!(
-            blockchain_bridge_recording.get_record::<ReportAccountsPayable>(0),
-            &ReportAccountsPayable {
+            blockchain_bridge_recording.get_record::<RequestAvailableBalancesForPayables>(0),
+            &RequestAvailableBalancesForPayables {
                 accounts: vec![payable_account],
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 1234,
@@ -1659,10 +1672,11 @@ mod tests {
         system.run();
         let blockchain_bridge_recorder = blockchain_bridge_recording_arc.lock().unwrap();
         assert_eq!(blockchain_bridge_recorder.len(), 1);
-        let message = blockchain_bridge_recorder.get_record::<ReportAccountsPayable>(0);
+        let message =
+            blockchain_bridge_recorder.get_record::<RequestAvailableBalancesForPayables>(0);
         assert_eq!(
             message,
-            &ReportAccountsPayable {
+            &RequestAvailableBalancesForPayables {
                 accounts: qualified_payables,
                 response_skeleton_opt: None,
             }
@@ -1963,7 +1977,7 @@ mod tests {
         let payable_scanner = ScannerMock::new()
             .begin_scan_params(&begin_scan_params_arc)
             .begin_scan_result(Err(BeginScanError::NothingToProcess))
-            .begin_scan_result(Ok(ReportAccountsPayable {
+            .begin_scan_result(Ok(RequestAvailableBalancesForPayables {
                 accounts: vec![],
                 response_skeleton_opt: None,
             }))
@@ -2189,10 +2203,11 @@ mod tests {
 
         system.run();
         let blockchain_bridge_recordings = blockchain_bridge_recordings_arc.lock().unwrap();
-        let message = blockchain_bridge_recordings.get_record::<ReportAccountsPayable>(0);
+        let message =
+            blockchain_bridge_recordings.get_record::<RequestAvailableBalancesForPayables>(0);
         assert_eq!(
             message,
-            &ReportAccountsPayable {
+            &RequestAvailableBalancesForPayables {
                 accounts,
                 response_skeleton_opt: None,
             }
@@ -2205,8 +2220,12 @@ mod tests {
         init_test_logging();
         let test_name = "accountant_does_not_initiate_another_scan_in_case_it_receives_the_message_and_the_scanner_is_running";
         let payable_dao = PayableDaoMock::default();
+        let (system_killing_actor, _, system_killing_actor_recording) = make_recorder();
+        let system_killing_actor =
+            system_killing_actor.stop_condition(TypeId::of::<CleanUpMessage>());
+        let system_killing_actor_recipient = system_killing_actor.start().recipient();
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
-        let report_accounts_payable_sub = blockchain_bridge.start().recipient();
+        let request_available_balances_for_payables_sub = blockchain_bridge.start().recipient();
         let last_paid_timestamp = to_time_t(SystemTime::now())
             - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec as i64
             - 1;
@@ -2224,7 +2243,8 @@ mod tests {
             .payable_daos(vec![PayableScannerDest(payable_dao)]) // For PendingPayable Scanner
             .bootstrapper_config(config)
             .build();
-        subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
+        subject.request_balances_for_payables_opt =
+            Some(request_available_balances_for_payables_sub.clone());
         let addr = subject.start();
         addr.try_send(ScanForPayables {
             response_skeleton_opt: None,
@@ -2236,11 +2256,15 @@ mod tests {
         })
         .unwrap();
 
-        System::current().stop();
+        SecondarilySequencedMessagesEncourager::recipient_and_sequences_until_shutdown(
+            system_killing_actor_recipient,
+            1,
+        );
         system.run();
         let recording = blockchain_bridge_recording.lock().unwrap();
         let messages_received = recording.len();
-        assert_eq!(messages_received, 0);
+        //correct, only one message received from those two attempts
+        assert_eq!(messages_received, 1);
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {}: Payables scan was already initiated",
             test_name

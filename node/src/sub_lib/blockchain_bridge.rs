@@ -21,6 +21,7 @@ pub struct BlockchainBridgeConfig {
 #[derive(Clone)]
 pub struct BlockchainBridgeSubs {
     pub bind: Recipient<BindMessage>,
+    pub request_balances_for_payables: Recipient<RequestAvailableBalancesForPayables>,
     pub report_accounts_payable: Recipient<ReportAccountsPayable>,
     pub retrieve_transactions: Recipient<RetrieveTransactions>,
     pub ui_sub: Recipient<NodeFromUiMessage>,
@@ -34,6 +35,19 @@ impl Debug for BlockchainBridgeSubs {
 }
 
 #[derive(Clone, PartialEq, Eq, Debug, Message)]
+pub struct RequestAvailableBalancesForPayables {
+    pub accounts: Vec<PayableAccount>,
+    pub response_skeleton_opt: Option<ResponseSkeleton>,
+}
+
+impl SkeletonOptHolder for RequestAvailableBalancesForPayables {
+    fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
+        todo!("is needed?");
+        self.response_skeleton_opt
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Message)]
 pub struct ReportAccountsPayable {
     pub accounts: Vec<PayableAccount>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
@@ -43,18 +57,6 @@ impl SkeletonOptHolder for ReportAccountsPayable {
     fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
         self.response_skeleton_opt
     }
-}
-
-#[derive(Clone, PartialEq, Eq, Debug, Message)]
-pub struct SetDbPasswordMsg {
-    pub client_id: u64,
-    pub password: String,
-}
-
-#[derive(Clone, PartialEq, Eq, Debug, Message)]
-pub struct SetGasPriceMsg {
-    pub client_id: u64,
-    pub gas_price: String,
 }
 
 #[cfg(test)]

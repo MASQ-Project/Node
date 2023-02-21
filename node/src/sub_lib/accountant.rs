@@ -94,7 +94,7 @@ pub struct AccountantSubs {
     pub report_routing_service_provided: Recipient<ReportRoutingServiceProvidedMessage>,
     pub report_exit_service_provided: Recipient<ReportExitServiceProvidedMessage>,
     pub report_services_consumed: Recipient<ReportServicesConsumedMessage>,
-    pub report_new_payments: Recipient<ReceivedPayments>,
+    pub report_inbound_payments: Recipient<ReceivedPayments>,
     pub pending_payable_fingerprint: Recipient<PendingPayableFingerprint>,
     pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,
     pub report_sent_payments: Recipient<SentPayables>,

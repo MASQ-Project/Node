@@ -12,7 +12,9 @@ use crate::accountant::pending_payable_dao::{
 use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
-use crate::accountant::scanners::{PayableScanner, PendingPayableScanner, ReceivableScanner};
+use crate::accountant::scanners::{
+    PayableDatabaseScanner, PendingPayableScanner, ReceivableScanner,
+};
 use crate::accountant::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
 use crate::accountant::{gwei_to_wei, Accountant, PendingPayableId, DEFAULT_PENDING_TOO_LONG_SEC};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
@@ -107,7 +109,8 @@ pub enum DaoWithDestination<T> {
 
 enum DestinationMarker {
     AccountantBody,
-    PayableScanner,
+    //TODO look closer at this later, it needs to fit the split of functionality with the new scanner
+    PayableDatabaseScanner,
     ReceivableScanner,
     PendingPayableScanner,
 }
@@ -117,7 +120,7 @@ impl<T> DaoWithDestination<T> {
         match self {
             Self::AccountantBodyDest(_) => matches!(dest_marker, DestinationMarker::AccountantBody),
             Self::PayableScannerDest(_) => {
-                matches!(dest_marker, DestinationMarker::PayableScanner)
+                matches!(dest_marker, DestinationMarker::PayableDatabaseScanner)
             }
             Self::ReceivableScannerDest(_) => {
                 matches!(dest_marker, DestinationMarker::ReceivableScanner)
@@ -219,7 +222,7 @@ impl AccountantBuilder {
     ) -> Self {
         let initialization_order_in_accountant = [
             DestinationMarker::AccountantBody,
-            DestinationMarker::PayableScanner,
+            DestinationMarker::PayableDatabaseScanner,
             DestinationMarker::PendingPayableScanner,
         ];
         init_or_update_factory!(
@@ -256,7 +259,7 @@ impl AccountantBuilder {
     ) -> Self {
         let initialization_order_in_accountant = [
             DestinationMarker::AccountantBody,
-            DestinationMarker::PayableScanner,
+            DestinationMarker::PayableDatabaseScanner,
             DestinationMarker::PendingPayableScanner,
         ];
         init_or_update_factory!(
@@ -1045,8 +1048,8 @@ impl PayableScannerBuilder {
         self
     }
 
-    pub fn build(self) -> PayableScanner {
-        PayableScanner::new(
+    pub fn build(self) -> PayableDatabaseScanner {
+        PayableDatabaseScanner::new(
             Box::new(self.payable_dao),
             Box::new(self.pending_payable_dao),
             Rc::new(self.payment_thresholds),
