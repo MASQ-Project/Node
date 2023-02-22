@@ -136,8 +136,13 @@ impl Handler<RequestAvailableBalancesForPayables> for BlockchainBridge {
     type Result = ();
 
     fn handle(&mut self, msg: RequestAvailableBalancesForPayables, _ctx: &mut Self::Context) {
-        todo!("expand on me")
-    }
+        todo!()
+//         self.handle_scan(
+//
+//         Self::handle_inspect_consuming_wallet_balances,
+// Sca
+        }
+
 }
 
 impl Handler<ReportAccountsPayable> for BlockchainBridge {
@@ -242,6 +247,10 @@ impl BlockchainBridge {
             ui_sub: recipient!(addr, NodeFromUiMessage),
             request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
         }
+    }
+
+    fn handle_inspect_consuming_wallet_balances(&self, msg: RequestAvailableBalancesForPayables) -> Result<(), String>{
+        todo!()
     }
 
     fn handle_report_accounts_payable(
@@ -609,6 +618,127 @@ mod tests {
         let result = subject.preprocess_payments(&request);
 
         assert_eq!(result, Err("No consuming wallet specified".to_string()));
+    }
+
+
+    #[test]
+    fn handle_inspect_consuming_wallet_balances_reports_balances_back_to_accountant() {
+        let system =
+            System::new("handle_inspect_consuming_wallet_balances_reports_balances_back_to_accountant");
+        todo!("complete me later; just sketched")
+        // let get_transaction_count_params_arc = Arc::new(Mutex::new(vec![]));
+        // let send_transaction_params_arc = Arc::new(Mutex::new(vec![]));
+        // let (accountant, _, accountant_recording_arc) = make_recorder();
+        // let blockchain_interface_mock = BlockchainInterfaceMock::default()
+        //     .get_transaction_count_params(&get_transaction_count_params_arc)
+        //     .get_transaction_count_result(Ok(U256::from(1u64)))
+        //     .get_transaction_count_result(Ok(U256::from(2u64)))
+        //     .send_transaction_tools_result(Box::new(SendTransactionToolsWrapperNull))
+        //     .send_transaction_tools_result(Box::new(SendTransactionToolsWrapperNull))
+        //     .send_transaction_params(&send_transaction_params_arc)
+        //     .send_transaction_result(Ok((
+        //         H256::from("sometransactionhash".keccak256()),
+        //         from_time_t(150_000_000),
+        //     )))
+        //     .send_transaction_result(Ok((
+        //         H256::from("someothertransactionhash".keccak256()),
+        //         from_time_t(160_000_000),
+        //     )));
+        // let expected_gas_price = 5u64;
+        // let persistent_configuration_mock =
+        //     PersistentConfigurationMock::default().gas_price_result(Ok(expected_gas_price));
+        // let consuming_wallet = make_paying_wallet(b"somewallet");
+        // let subject = BlockchainBridge::new(
+        //     Box::new(blockchain_interface_mock),
+        //     Box::new(persistent_configuration_mock),
+        //     false,
+        //     Some(consuming_wallet.clone()),
+        // );
+        // let addr = subject.start();
+        // let subject_subs = BlockchainBridge::make_subs_from(&addr);
+        // let peer_actors = peer_actors_builder().accountant(accountant).build();
+        // send_bind_message!(subject_subs, peer_actors);
+        // let before = SystemTime::now();
+        //
+        // let _ = addr
+        //     .try_send(ReportAccountsPayable {
+        //         accounts: vec![
+        //             PayableAccount {
+        //                 wallet: make_wallet("blah"),
+        //                 balance_wei: 420,
+        //                 last_paid_timestamp: from_time_t(150_000_000),
+        //                 pending_payable_opt: None,
+        //             },
+        //             PayableAccount {
+        //                 wallet: make_wallet("foo"),
+        //                 balance_wei: 210,
+        //                 last_paid_timestamp: from_time_t(160_000_000),
+        //                 pending_payable_opt: None,
+        //             },
+        //         ],
+        //         response_skeleton_opt: Some(ResponseSkeleton {
+        //             client_id: 1234,
+        //             context_id: 4321,
+        //         }),
+        //     })
+        //     .unwrap();
+        //
+        // System::current().stop();
+        // system.run();
+        // let after = SystemTime::now();
+        // let send_transaction_params = send_transaction_params_arc.lock().unwrap();
+        // assert_eq!(
+        //     *send_transaction_params,
+        //     vec![
+        //         (
+        //             consuming_wallet.clone(),
+        //             make_wallet("blah"),
+        //             420,
+        //             U256::from(1u64),
+        //             expected_gas_price
+        //         ),
+        //         (
+        //             consuming_wallet.clone(),
+        //             make_wallet("foo"),
+        //             210,
+        //             U256::from(2u64),
+        //             expected_gas_price
+        //         )
+        //     ]
+        // );
+        // let get_transaction_count_params = get_transaction_count_params_arc.lock().unwrap();
+        // assert_eq!(
+        //     *get_transaction_count_params,
+        //     vec![consuming_wallet.clone(), consuming_wallet.clone()]
+        // );
+        // let accountant_received_payment = accountant_recording_arc.lock().unwrap();
+        // assert_eq!(accountant_received_payment.len(), 1);
+        // let sent_payments_msg = accountant_received_payment.get_record::<SentPayables>(0);
+        // check_timestamp(before, sent_payments_msg.timestamp, after);
+        // assert_eq!(
+        //     *sent_payments_msg,
+        //     SentPayables {
+        //         timestamp: sent_payments_msg.timestamp,
+        //         payable: vec![
+        //             Ok(Payable {
+        //                 to: make_wallet("blah"),
+        //                 amount: 420,
+        //                 timestamp: from_time_t(150_000_000),
+        //                 tx_hash: H256::from("sometransactionhash".keccak256())
+        //             }),
+        //             Ok(Payable {
+        //                 to: make_wallet("foo"),
+        //                 amount: 210,
+        //                 timestamp: from_time_t(160_000_000),
+        //                 tx_hash: H256::from("someothertransactionhash".keccak256())
+        //             })
+        //         ],
+        //         response_skeleton_opt: Some(ResponseSkeleton {
+        //             client_id: 1234,
+        //             context_id: 4321
+        //         })
+        //     }
+        // );
     }
 
     #[test]

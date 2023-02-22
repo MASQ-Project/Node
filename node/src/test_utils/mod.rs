@@ -814,13 +814,10 @@ pub mod unshared_test_utils {
                 ctx: &mut Self::Context,
             ) -> Self::Result {
                 if msg.iterations_remaining != 0 {
-                    ctx.address()
-                        .recipient()
-                        .try_send(SecondarySequenceStarter {
+                    ctx.notify(SecondarySequenceStarter {
                             chosen_recorder_recipient: msg.chosen_recorder_recipient,
                             iterations_remaining: msg.iterations_remaining - 1,
                         })
-                        .unwrap()
                 } else {
                     msg.chosen_recorder_recipient
                         .try_send(CleanUpMessage { sleep_ms: 0 })
@@ -834,20 +831,20 @@ pub mod unshared_test_utils {
                 chosen_recorder_recipient: Recipient<CleanUpMessage>,
                 sequences_count: usize,
             ) {
-                match sequences_count {
-                    1..=6 => (),
+                let iterations_remaining = match sequences_count {
+                    2..=6 => sequences_count - 1,
                     _ => panic!(
                         "Nonsensical or too loose number of required handled \
-                         sequenced messages. Pick one from this range 1..6, \
+                         sequenced messages. Pick one from this range 2..6, \
                          bounds included"
                     ),
-                }
+                };
                 SecondarilySequencedMessagesEncourager {}
                     .start()
                     .recipient()
                     .try_send(SecondarySequenceStarter {
                         chosen_recorder_recipient,
-                        iterations_remaining: sequences_count,
+                        iterations_remaining,
                     })
                     .unwrap();
             }

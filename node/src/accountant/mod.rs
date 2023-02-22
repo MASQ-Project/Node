@@ -2220,7 +2220,7 @@ mod tests {
         init_test_logging();
         let test_name = "accountant_does_not_initiate_another_scan_in_case_it_receives_the_message_and_the_scanner_is_running";
         let payable_dao = PayableDaoMock::default();
-        let (system_killing_actor, _, system_killing_actor_recording) = make_recorder();
+        let (system_killing_actor, _,_) = make_recorder();
         let system_killing_actor =
             system_killing_actor.stop_condition(TypeId::of::<CleanUpMessage>());
         let system_killing_actor_recipient = system_killing_actor.start().recipient();
@@ -2258,7 +2258,7 @@ mod tests {
 
         SecondarilySequencedMessagesEncourager::recipient_and_sequences_until_shutdown(
             system_killing_actor_recipient,
-            1,
+            2,
         );
         system.run();
         let recording = blockchain_bridge_recording.lock().unwrap();
