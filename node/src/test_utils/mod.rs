@@ -525,6 +525,9 @@ pub mod unshared_test_utils {
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, Recorder, Recording};
+    use crate::test_utils::unshared_test_utils::system_killer_actor::{
+        CleanUpMessage, SystemKillerActor,
+    };
     use actix::{Actor, Addr, AsyncContext, Context, Handler, Recipient, System};
     use actix::{Message, SpawnHandle};
     use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -720,11 +723,6 @@ pub mod unshared_test_utils {
             )))
     }
 
-    #[derive(Debug, Message, Clone)]
-    pub struct CleanUpMessage {
-        pub sleep_ms: u64,
-    }
-
     pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
         (0..s.len())
             .step_by(2)
@@ -732,134 +730,224 @@ pub mod unshared_test_utils {
             .collect()
     }
 
-    pub struct SystemKillerActor {
-        after: Duration,
-        tx: Sender<()>,
-        rx: Receiver<()>,
-    }
+    pub mod system_killer_actor {
+        use super::*;
 
-    impl Actor for SystemKillerActor {
-        type Context = Context<Self>;
-
-        fn started(&mut self, ctx: &mut Self::Context) {
-            ctx.notify_later(CleanUpMessage { sleep_ms: 0 }, self.after.clone());
-        }
-    }
-
-    // Note: the sleep_ms field of the CleanUpMessage is unused; all we need is a time strobe.
-    impl Handler<CleanUpMessage> for SystemKillerActor {
-        type Result = ();
-
-        fn handle(&mut self, _msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
-            System::current().stop();
-            self.tx.try_send(()).expect("Receiver is dead");
-        }
-    }
-
-    impl SystemKillerActor {
-        pub fn new(after: Duration) -> Self {
-            let (tx, rx) = unbounded();
-            Self { after, tx, rx }
+        #[derive(Debug, Message, Clone)]
+        pub struct CleanUpMessage {
+            pub sleep_ms: u64,
         }
 
-        pub fn receiver(&self) -> Receiver<()> {
-            self.rx.clone()
+        pub struct SystemKillerActor {
+            after: Duration,
+            tx: Sender<()>,
+            rx: Receiver<()>,
         }
-    }
 
-    pub struct NotifyLaterHandleMock<M> {
-        notify_later_params: Arc<Mutex<Vec<(M, Duration)>>>,
-        send_message_out: bool,
-    }
+        impl Actor for SystemKillerActor {
+            type Context = Context<Self>;
 
-    impl<M: Message> Default for NotifyLaterHandleMock<M> {
-        fn default() -> Self {
-            Self {
-                notify_later_params: Arc::new(Mutex::new(vec![])),
-                send_message_out: false,
+            fn started(&mut self, ctx: &mut Self::Context) {
+                ctx.notify_later(CleanUpMessage { sleep_ms: 0 }, self.after.clone());
+            }
+        }
+
+        // Note: the sleep_ms field of the CleanUpMessage is unused; all we need is a time strobe.
+        impl Handler<CleanUpMessage> for SystemKillerActor {
+            type Result = ();
+
+            fn handle(&mut self, _msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
+                System::current().stop();
+                self.tx.try_send(()).expect("Receiver is dead");
+            }
+        }
+
+        impl SystemKillerActor {
+            pub fn new(after: Duration) -> Self {
+                let (tx, rx) = unbounded();
+                Self { after, tx, rx }
+            }
+
+            pub fn receiver(&self) -> Receiver<()> {
+                self.rx.clone()
             }
         }
     }
 
-    impl<M: Message> NotifyLaterHandleMock<M> {
-        pub fn notify_later_params(mut self, params: &Arc<Mutex<Vec<(M, Duration)>>>) -> Self {
-            self.notify_later_params = params.clone();
-            self
+    pub mod secondarily_sequenced_messages_encourager {
+        use super::*;
+
+        // the idea is: we know only those actor messages that send from the thread of the test
+        // itself will be handled if we use System::current().stop() to get out of the System's runtime loop.
+        // We use various tricks to let the System run longer but still converging to the end where we stop it dead.
+        //
+        // Here we have another trick that allows keeping up until messages emitted from the first sequence,
+        // on the thread of the test, proceed in their Handlers to sending another sequence of messages,
+        // the second sequence. The important difference from other methods is that here we can be specific about
+        // how many items from the message queue we want to consume before the System goes down.
+        //
+        // Unlike to the common routine, we provide a recipient to (probably) a special Recorder. We have to
+        // set up the recorder properly too, though. We need to tell it that it is supposed to shut the System
+        // down once it receives the CleanUPMessage which can be done conveniently by calling stop_condition(&self, ...)
+        // on it
+        // SecondarilySequencedMessagesEncourager::recipient_and_sequences_until_shutdown(...) is recommended to be
+        // placed right before system.run().
+
+        #[derive(Message, Clone)]
+        pub struct SecondarySequenceStarter {
+            chosen_recorder_recipient: Recipient<CleanUpMessage>,
+            iterations_remaining: usize,
         }
 
-        pub fn permit_to_send_out(mut self) -> Self {
-            self.send_message_out = true;
-            self
-        }
-    }
+        pub struct SecondarilySequencedMessagesEncourager {}
 
-    impl<M, A> NotifyLaterHandle<M, A> for NotifyLaterHandleMock<M>
-    where
-        M: Message + 'static + Clone,
-        A: Actor<Context = Context<A>> + Handler<M>,
-    {
-        fn notify_later<'a>(
-            &'a self,
-            msg: M,
-            interval: Duration,
-            ctx: &'a mut Context<A>,
-        ) -> Box<dyn NLSpawnHandleHolder> {
-            self.notify_later_params
-                .lock()
-                .unwrap()
-                .push((msg.clone(), interval));
-            if self.send_message_out {
-                let handle = ctx.notify_later(msg, interval);
-                Box::new(NLSpawnHandleHolderReal::new(handle))
-            } else {
-                Box::new(NLSpawnHandleHolderNull {})
+        impl Actor for SecondarilySequencedMessagesEncourager {
+            type Context = Context<Self>;
+        }
+
+        impl Handler<SecondarySequenceStarter> for SecondarilySequencedMessagesEncourager {
+            type Result = ();
+
+            fn handle(
+                &mut self,
+                msg: SecondarySequenceStarter,
+                ctx: &mut Self::Context,
+            ) -> Self::Result {
+                if msg.iterations_remaining != 0 {
+                    ctx.notify(SecondarySequenceStarter {
+                            chosen_recorder_recipient: msg.chosen_recorder_recipient,
+                            iterations_remaining: msg.iterations_remaining - 1,
+                        })
+                } else {
+                    msg.chosen_recorder_recipient
+                        .try_send(CleanUpMessage { sleep_ms: 0 })
+                        .unwrap()
+                }
+            }
+        }
+
+        impl SecondarilySequencedMessagesEncourager {
+            pub fn recipient_and_sequences_until_shutdown(
+                chosen_recorder_recipient: Recipient<CleanUpMessage>,
+                sequences_count: usize,
+            ) {
+                let iterations_remaining = match sequences_count {
+                    2..=6 => sequences_count - 1,
+                    _ => panic!(
+                        "Nonsensical or too loose number of required handled \
+                         sequenced messages. Pick one from this range 2..6, \
+                         bounds included"
+                    ),
+                };
+                SecondarilySequencedMessagesEncourager {}
+                    .start()
+                    .recipient()
+                    .try_send(SecondarySequenceStarter {
+                        chosen_recorder_recipient,
+                        iterations_remaining,
+                    })
+                    .unwrap();
             }
         }
     }
 
-    pub struct NLSpawnHandleHolderNull {}
+    pub mod notify_handlers {
+        use super::*;
 
-    impl NLSpawnHandleHolder for NLSpawnHandleHolderNull {
-        fn handle(self) -> SpawnHandle {
-            intentionally_blank!()
+        pub struct NotifyLaterHandleMock<M> {
+            notify_later_params: Arc<Mutex<Vec<(M, Duration)>>>,
+            send_message_out: bool,
         }
-    }
 
-    pub struct NotifyHandleMock<M> {
-        notify_params: Arc<Mutex<Vec<M>>>,
-        send_message_out: bool,
-    }
-
-    impl<M: Message> Default for NotifyHandleMock<M> {
-        fn default() -> Self {
-            Self {
-                notify_params: Arc::new(Mutex::new(vec![])),
-                send_message_out: false,
+        impl<M: Message> Default for NotifyLaterHandleMock<M> {
+            fn default() -> Self {
+                Self {
+                    notify_later_params: Arc::new(Mutex::new(vec![])),
+                    send_message_out: false,
+                }
             }
         }
-    }
 
-    impl<M: Message> NotifyHandleMock<M> {
-        pub fn notify_params(mut self, params: &Arc<Mutex<Vec<M>>>) -> Self {
-            self.notify_params = params.clone();
-            self
+        impl<M: Message> NotifyLaterHandleMock<M> {
+            pub fn notify_later_params(mut self, params: &Arc<Mutex<Vec<(M, Duration)>>>) -> Self {
+                self.notify_later_params = params.clone();
+                self
+            }
+
+            pub fn permit_to_send_out(mut self) -> Self {
+                self.send_message_out = true;
+                self
+            }
         }
 
-        pub fn permit_to_send_out(mut self) -> Self {
-            self.send_message_out = true;
-            self
+        impl<M, A> NotifyLaterHandle<M, A> for NotifyLaterHandleMock<M>
+        where
+            M: Message + 'static + Clone,
+            A: Actor<Context = Context<A>> + Handler<M>,
+        {
+            fn notify_later<'a>(
+                &'a self,
+                msg: M,
+                interval: Duration,
+                ctx: &'a mut Context<A>,
+            ) -> Box<dyn NLSpawnHandleHolder> {
+                self.notify_later_params
+                    .lock()
+                    .unwrap()
+                    .push((msg.clone(), interval));
+                if self.send_message_out {
+                    let handle = ctx.notify_later(msg, interval);
+                    Box::new(NLSpawnHandleHolderReal::new(handle))
+                } else {
+                    Box::new(NLSpawnHandleHolderNull {})
+                }
+            }
         }
-    }
 
-    impl<M, A> NotifyHandle<M, A> for NotifyHandleMock<M>
-    where
-        M: Message + 'static + Clone,
-        A: Actor<Context = Context<A>> + Handler<M>,
-    {
-        fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>) {
-            self.notify_params.lock().unwrap().push(msg.clone());
-            if self.send_message_out {
-                ctx.notify(msg)
+        pub struct NLSpawnHandleHolderNull {}
+
+        impl NLSpawnHandleHolder for NLSpawnHandleHolderNull {
+            fn handle(self) -> SpawnHandle {
+                intentionally_blank!()
+            }
+        }
+
+        pub struct NotifyHandleMock<M> {
+            notify_params: Arc<Mutex<Vec<M>>>,
+            send_message_out: bool,
+        }
+
+        impl<M: Message> Default for NotifyHandleMock<M> {
+            fn default() -> Self {
+                Self {
+                    notify_params: Arc::new(Mutex::new(vec![])),
+                    send_message_out: false,
+                }
+            }
+        }
+
+        impl<M: Message> NotifyHandleMock<M> {
+            pub fn notify_params(mut self, params: &Arc<Mutex<Vec<M>>>) -> Self {
+                self.notify_params = params.clone();
+                self
+            }
+
+            pub fn permit_to_send_out(mut self) -> Self {
+                self.send_message_out = true;
+                self
+            }
+        }
+
+        impl<M, A> NotifyHandle<M, A> for NotifyHandleMock<M>
+        where
+            M: Message + 'static + Clone,
+            A: Actor<Context = Context<A>> + Handler<M>,
+        {
+            fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>) {
+                self.notify_params.lock().unwrap().push(msg.clone());
+                if self.send_message_out {
+                    ctx.notify(msg)
+                }
             }
         }
     }

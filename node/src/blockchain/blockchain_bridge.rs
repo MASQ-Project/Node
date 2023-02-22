@@ -75,7 +75,7 @@ impl Handler<BindMessage> for BlockchainBridge {
             .report_transaction_receipts_sub_opt =
             Some(msg.peer_actors.accountant.report_transaction_receipts);
         self.sent_payable_subs_opt = Some(msg.peer_actors.accountant.report_sent_payments);
-        self.received_payments_subs_opt = Some(msg.peer_actors.accountant.report_new_payments);
+        self.received_payments_subs_opt = Some(msg.peer_actors.accountant.report_inbound_payments);
         self.scan_error_subs_opt = Some(msg.peer_actors.accountant.scan_errors);
         match self.consuming_wallet_opt.as_ref() {
             Some(wallet) => debug!(

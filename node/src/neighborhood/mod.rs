@@ -1564,7 +1564,7 @@ mod tests {
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::unshared_test_utils::{
         make_node_to_ui_recipient, make_recipient_and_recording_arc,
-        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, NotifyLaterHandleMock,
+        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::vec_to_set;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
@@ -1577,6 +1577,7 @@ mod tests {
         ConnectionProgress, ConnectionStage, OverallConnectionStage,
     };
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
+    use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
 
     impl Handler<AssertionsMessage<Neighborhood>> for Neighborhood {
         type Result = ();

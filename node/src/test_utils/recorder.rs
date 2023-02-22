@@ -15,8 +15,9 @@ use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
-use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, SetDbPasswordMsg};
-use crate::sub_lib::blockchain_bridge::{ReportAccountsPayable, SetGasPriceMsg};
+use crate::sub_lib::blockchain_bridge::{
+    BlockchainBridgeSubs, ReportAccountsPayable,
+};
 use crate::sub_lib::configurator::{ConfiguratorSubs, NewPasswordMessage};
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
@@ -45,7 +46,9 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::test_utils::to_millis;
-use crate::test_utils::unshared_test_utils::SystemKillerActor;
+use crate::test_utils::unshared_test_utils::system_killer_actor::{
+    CleanUpMessage, SystemKillerActor,
+};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
@@ -142,8 +145,6 @@ recorder_message_handler!(ReportRoutingServiceProvidedMessage);
 recorder_message_handler!(ScanError);
 recorder_message_handler!(SentPayables);
 recorder_message_handler!(SetConsumingWalletMessage);
-recorder_message_handler!(SetDbPasswordMsg);
-recorder_message_handler!(SetGasPriceMsg);
 recorder_message_handler!(StartMessage);
 recorder_message_handler!(StreamShutdownMsg);
 recorder_message_handler!(TransmitDataMsg);
@@ -156,6 +157,8 @@ recorder_message_handler!(ScanForReceivables);
 recorder_message_handler!(ScanForPayables);
 recorder_message_handler!(ConnectionProgressMessage);
 recorder_message_handler!(ScanForPendingPayables);
+//this message doesn't take place in the production code but helps us in tests
+recorder_message_handler!(CleanUpMessage);
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
@@ -413,7 +416,7 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
         report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
         report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
-        report_new_payments: recipient!(addr, ReceivedPayments),
+        report_inbound_payments: recipient!(addr, ReceivedPayments),
         pending_payable_fingerprint: recipient!(addr, PendingPayableFingerprint),
         report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
         report_sent_payments: recipient!(addr, SentPayables),
