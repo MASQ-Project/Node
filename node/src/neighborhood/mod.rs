@@ -1576,8 +1576,8 @@ mod tests {
     use crate::neighborhood::overall_connection_status::{
         ConnectionProgress, ConnectionStage, OverallConnectionStage,
     };
-    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
+    use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     impl Handler<AssertionsMessage<Neighborhood>> for Neighborhood {
         type Result = ();

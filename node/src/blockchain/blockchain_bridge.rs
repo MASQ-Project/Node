@@ -435,6 +435,7 @@ mod tests {
     use crate::node_test_utils::check_timestamp;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
+    use crate::test_utils::unshared_test_utils::sequenced_messages_stimulator::SequencedMessagesStimulator;
     use crate::test_utils::unshared_test_utils::{
         configure_default_persistent_config, prove_that_crash_request_handler_is_hooked_up, ZERO,
     };
@@ -745,15 +746,12 @@ mod tests {
             }],
             response_skeleton_opt: None,
         };
+        let subject_addr = subject.start();
         let system = System::new("test");
 
-        subject.handle_scan(
-            BlockchainBridge::handle_report_accounts_payable,
-            ScanType::Payables,
-            &request,
-        );
+        subject_addr.try_send(request).unwrap();
 
-        System::current().stop();
+        SequencedMessagesStimulator::sequences_until_shutdown(2);
         system.run();
         let recording = accountant_recording_arc.lock().unwrap();
         let message = recording.get_record::<ScanError>(0);
@@ -859,15 +857,12 @@ mod tests {
             recipient: make_wallet("blah"),
             response_skeleton_opt: None,
         };
+        let subject_addr = subject.start();
         let system = System::new("test");
 
-        subject.handle_scan(
-            BlockchainBridge::handle_retrieve_transactions,
-            ScanType::Receivables,
-            &msg,
-        );
+        subject_addr.try_send(msg).unwrap();
 
-        System::current().stop();
+        SequencedMessagesStimulator::sequences_until_shutdown(2);
         system.run();
         let recording = accountant_recording_arc.lock().unwrap();
         let message = recording.get_record::<ScanError>(0);
@@ -959,14 +954,11 @@ mod tests {
                 context_id: 4321,
             }),
         };
+        let subject_addr = subject.start();
 
-        let _ = subject.handle_scan(
-            BlockchainBridge::handle_request_transaction_receipts,
-            ScanType::PendingPayables,
-            &msg,
-        );
+        subject_addr.try_send(msg).unwrap();
 
-        System::current().stop();
+        SequencedMessagesStimulator::sequences_until_shutdown(2);
         assert_eq!(system.run(), 0);
         let get_transaction_receipts_params = get_transaction_receipt_params_arc.lock().unwrap();
         assert_eq!(

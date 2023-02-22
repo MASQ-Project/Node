@@ -15,9 +15,7 @@ use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
-use crate::sub_lib::blockchain_bridge::{
-    BlockchainBridgeSubs, ReportAccountsPayable,
-};
+use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, ReportAccountsPayable};
 use crate::sub_lib::configurator::{ConfiguratorSubs, NewPasswordMessage};
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
