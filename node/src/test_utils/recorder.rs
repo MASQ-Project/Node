@@ -43,6 +43,7 @@ use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
+use crate::test_utils::recorder_stop_conditions::StopConditions;
 use crate::test_utils::to_millis;
 use crate::test_utils::unshared_test_utils::system_killer_actor::{
     CleanUpMessage, SystemKillerActor,
@@ -53,6 +54,7 @@ use actix::Handler;
 use actix::MessageResult;
 use actix::System;
 use actix::{Actor, Message};
+use itertools::Either;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use std::any::TypeId;
 use std::any::{type_name, Any};
@@ -69,6 +71,7 @@ pub struct Recorder {
     node_query_responses: Vec<Option<NodeQueryResponseMetadata>>,
     route_query_responses: Vec<Option<RouteQueryResponse>>,
     expected_count_by_msg_type_opt: Option<HashMap<TypeId, usize>>,
+    stop_conditions_opt: Option<StopConditions<Box<dyn Any + Send>>>,
     system_killer_was_set: bool,
 }
 
@@ -91,12 +94,7 @@ macro_rules! recorder_message_handler {
             type Result = ();
 
             fn handle(&mut self, msg: $message_type, _ctx: &mut Self::Context) {
-                self.record(msg);
-                if let Some(expected_count_by_msg_type) = &mut self.expected_count_by_msg_type_opt {
-                    Self::evaluate_stop_condition_on_received_msg::<$message_type>(
-                        expected_count_by_msg_type,
-                    )
-                }
+                self.handle_msg(msg)
             }
         }
     };
@@ -272,24 +270,17 @@ impl Recorder {
         self.system_killer_was_set = true
     }
 
-    fn evaluate_stop_condition_on_received_msg<T: 'static>(
-        expected_count_by_msg_type: &mut HashMap<TypeId, usize>,
-    ) {
-        fn uncheck_message<T: 'static>(count: usize) -> usize {
-            match count {
-                0 => panic!(
-                    "Received a message {}, which we were not supposed to receive.",
-                    type_name::<T>()
-                ),
-                _ => count - 1,
-            }
-        }
+    fn handle_msg<T: Any + Send>(&mut self, msg: T) {
+        let kill_system = if let Some(stop_condition) = &mut self.stop_conditions_opt {
+            stop_condition.resolve_stop_conditions(&msg)
+        } else {
+            false
+        };
 
-        let type_id = TypeId::of::<T>();
-        let count = expected_count_by_msg_type.entry(type_id).or_insert(0);
-        *count = uncheck_message::<T>(*count);
-        if expected_count_by_msg_type.values().all(|&x| x == 0) {
-            System::current().stop();
+        self.record(msg);
+
+        if kill_system {
+            System::current().stop()
         }
     }
 }
