@@ -14,6 +14,7 @@ pub mod recorder;
 pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
+pub mod recorder_stop_conditions;
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::blockchain::payer::Payer;
 use crate::bootstrapper::CryptDEPair;
@@ -770,88 +771,6 @@ pub mod unshared_test_utils {
 
             pub fn receiver(&self) -> Receiver<()> {
                 self.rx.clone()
-            }
-        }
-    }
-
-    pub mod sequenced_messages_stimulator {
-        use super::*;
-
-        // the idea is: we know those actor messages that send from the foreground thread of the test
-        // itself will be handled alone, not being able to get any farther, that's if we use System::current().stop()
-        // to get out of the trap of the System's runtime infinite loop.
-        // We use various tricks to allow the System to run longer, yet converging to the end where we need to stop it
-        // dead.
-        //
-        // Here we have another trick that will keep the critical part up until messages emitted within the first sequence,
-        // on the foreground thread of the test, will enter their Handlers and finally lead to sending another sequence
-        // of messages, the second, third (and so on...) sequences. The important difference from other available methods
-        // is that this way lets us control closely how many items from the abstract message queue of an Actor (all time
-        // changing in its volume) we want to consume before the System definitely shuts down.
-        //
-        // SequencedMessagesStimulator::sequences_until_shutdown(...) is recommended to be
-        // placed just a line before system.run().
-
-        #[derive(Message)]
-        pub struct SequenceStimulationStarter {
-            recorder_recipient: Recipient<CleanUpMessage>,
-            iterations_remaining: usize,
-        }
-
-        pub struct SequencedMessagesStimulator {}
-
-        impl Actor for SequencedMessagesStimulator {
-            type Context = Context<Self>;
-        }
-
-        impl Handler<SequenceStimulationStarter> for SequencedMessagesStimulator {
-            type Result = ();
-
-            fn handle(
-                &mut self,
-                msg: SequenceStimulationStarter,
-                ctx: &mut Self::Context,
-            ) -> Self::Result {
-                if msg.iterations_remaining != 0 {
-                    ctx.notify(SequenceStimulationStarter {
-                        recorder_recipient: msg.recorder_recipient,
-                        iterations_remaining: msg.iterations_remaining - 1,
-                    })
-                } else {
-                    msg.recorder_recipient
-                        .try_send(CleanUpMessage { sleep_ms: 0 })
-                        .unwrap()
-                }
-            }
-        }
-
-        impl SequencedMessagesStimulator {
-            pub fn sequences_until_shutdown(sequences_count: usize) {
-                let iterations_remaining = {
-                    let sequence_count_checked = match sequences_count {
-                        2..=6 => sequences_count,
-                        _ => panic!(
-                            "Nonsensical or excessive number of requested sequences of handled \
-                          messages. Next time pick one from this range 2..6, bounds included"
-                        ),
-                    };
-                    //number of sequences is supplied, which takes more than we need, by one
-                    sequence_count_checked - 1
-                };
-
-                let (system_killing_actor, _, _) = make_recorder();
-                let system_killing_actor =
-                    system_killing_actor.stop_condition(TypeId::of::<CleanUpMessage>());
-                let recorder_recipient = system_killing_actor.start().recipient();
-
-                SequencedMessagesStimulator {}
-                    .start()
-                    .recipient()
-                    .try_send(SequenceStimulationStarter {
-                        recorder_recipient,
-                        iterations_remaining,
-                    })
-                    .unwrap();
             }
         }
     }

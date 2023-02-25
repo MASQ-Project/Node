@@ -432,10 +432,10 @@ mod tests {
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
     use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
+    use crate::stop_condition_messages;
     use crate::node_test_utils::check_timestamp;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
-    use crate::test_utils::unshared_test_utils::sequenced_messages_stimulator::SequencedMessagesStimulator;
     use crate::test_utils::unshared_test_utils::{
         configure_default_persistent_config, prove_that_crash_request_handler_is_hooked_up, ZERO,
     };
@@ -448,6 +448,7 @@ mod tests {
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use rustc_hex::FromHex;
+    use std::any::TypeId;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
     use web3::types::{TransactionReceipt, H160, H256, U256};
@@ -723,8 +724,11 @@ mod tests {
     #[test]
     fn handle_report_account_payable_manages_gas_price_error() {
         init_test_logging();
-        let (accountant, _, accountant_recording_arc) = make_recorder();
-        let scan_error_recipient: Recipient<ScanError> = accountant.start().recipient();
+        let (accountant, accountant_awaiter, accountant_recording_arc) = make_recorder();
+        let scan_error_recipient: Recipient<ScanError> = accountant
+            .stop_condition(TypeId::of::<ScanError>())
+            .start()
+            .recipient();
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_result(Ok(web3::types::U256::from(1)));
         let persistent_configuration_mock = PersistentConfigurationMock::new()
@@ -751,7 +755,6 @@ mod tests {
 
         subject_addr.try_send(request).unwrap();
 
-        SequencedMessagesStimulator::sequences_until_shutdown(2);
         system.run();
         let recording = accountant_recording_arc.lock().unwrap();
         let message = recording.get_record::<ScanError>(0);
@@ -841,7 +844,10 @@ mod tests {
     fn blockchain_bridge_logs_error_from_retrieving_received_payments() {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let scan_error_recipient: Recipient<ScanError> = accountant.start().recipient();
+        let scan_error_recipient: Recipient<ScanError> = accountant
+            .stop_condition(TypeId::of::<ScanError>())
+            .start()
+            .recipient();
         let blockchain_interface = BlockchainInterfaceMock::default().retrieve_transactions_result(
             Err(BlockchainError::QueryFailed("we have no luck".to_string())),
         );
@@ -862,7 +868,6 @@ mod tests {
 
         subject_addr.try_send(msg).unwrap();
 
-        SequencedMessagesStimulator::sequences_until_shutdown(2);
         system.run();
         let recording = accountant_recording_arc.lock().unwrap();
         let message = recording.get_record::<ScanError>(0);
@@ -887,7 +892,8 @@ mod tests {
         init_test_logging();
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let accountant_addr = accountant.start();
+        let accountant_addr =
+            stop_condition_messages!(accountant, ReportTransactionReceipts, ScanError).start();
         let report_transaction_receipt_recipient: Recipient<ReportTransactionReceipts> =
             accountant_addr.clone().recipient();
         let scan_error_recipient: Recipient<ScanError> = accountant_addr.recipient();
@@ -958,7 +964,6 @@ mod tests {
 
         subject_addr.try_send(msg).unwrap();
 
-        SequencedMessagesStimulator::sequences_until_shutdown(2);
         assert_eq!(system.run(), 0);
         let get_transaction_receipts_params = get_transaction_receipt_params_arc.lock().unwrap();
         assert_eq!(

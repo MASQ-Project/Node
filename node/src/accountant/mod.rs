@@ -1013,7 +1013,6 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
-    use crate::test_utils::unshared_test_utils::sequenced_messages_stimulator::SequencedMessagesStimulator;
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use crate::test_utils::unshared_test_utils::{
         make_bc_with_defaults, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
@@ -2208,7 +2207,8 @@ mod tests {
         let test_name = "accountant_does_not_initiate_another_scan_in_case_it_receives_the_message_and_the_scanner_is_running";
         let payable_dao = PayableDaoMock::default();
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
-        let report_accounts_payable_sub = blockchain_bridge.start().recipient();
+        let blockchain_bridge_addr = blockchain_bridge.start();
+        let report_accounts_payable_sub = blockchain_bridge_addr.clone().recipient();
         let last_paid_timestamp = to_time_t(SystemTime::now())
             - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec as i64
             - 1;
@@ -2238,7 +2238,7 @@ mod tests {
         })
         .unwrap();
 
-        SequencedMessagesStimulator::sequences_until_shutdown(2);
+        System::current().stop();
         system.run();
         let recording = blockchain_bridge_recording.lock().unwrap();
         let messages_received = recording.len();

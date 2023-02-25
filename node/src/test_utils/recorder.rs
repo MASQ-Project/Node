@@ -54,13 +54,14 @@ use actix::MessageResult;
 use actix::System;
 use actix::{Actor, Message};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use std::any::Any;
 use std::any::TypeId;
+use std::any::{type_name, Any};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use std::time::SystemTime;
 
 #[derive(Default)]
 pub struct Recorder {
@@ -68,6 +69,7 @@ pub struct Recorder {
     node_query_responses: Vec<Option<NodeQueryResponseMetadata>>,
     route_query_responses: Vec<Option<RouteQueryResponse>>,
     expected_count_by_msg_type_opt: Option<HashMap<TypeId, usize>>,
+    system_killer_was_set: bool,
 }
 
 #[derive(Default)]
@@ -91,18 +93,9 @@ macro_rules! recorder_message_handler {
             fn handle(&mut self, msg: $message_type, _ctx: &mut Self::Context) {
                 self.record(msg);
                 if let Some(expected_count_by_msg_type) = &mut self.expected_count_by_msg_type_opt {
-                    let type_id = TypeId::of::<$message_type>();
-                    let count = expected_count_by_msg_type.entry(type_id).or_insert(0);
-                    if *count == 0 {
-                        panic!(
-                            "Received a message, which we were not supposed to receive. {:?}",
-                            stringify!($message_type)
-                        );
-                    };
-                    *count -= 1;
-                    if !expected_count_by_msg_type.values().any(|&x| x > 0) {
-                        System::current().stop();
-                    }
+                    Self::evaluate_stop_condition_on_received_msg::<$message_type>(
+                        expected_count_by_msg_type,
+                    )
                 }
             }
         }
@@ -155,8 +148,6 @@ recorder_message_handler!(ScanForReceivables);
 recorder_message_handler!(ScanForPayables);
 recorder_message_handler!(ConnectionProgressMessage);
 recorder_message_handler!(ScanForPendingPayables);
-//this message doesn't take place in the production code but helps us in tests
-recorder_message_handler!(CleanUpMessage);
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
@@ -201,6 +192,13 @@ where
     }
 }
 
+#[macro_export]
+macro_rules! stop_condition_messages{
+    ($recorder: expr, $($single_message: ident),+) => {
+         $recorder$(.stop_condition(TypeId::of::<$single_message>()))+
+    }
+}
+
 impl Recorder {
     pub fn new() -> Recorder {
         Self::default()
@@ -236,20 +234,63 @@ impl Recorder {
         self
     }
 
-    pub fn stop_condition(self, message_type_id: TypeId) -> Recorder {
-        let mut expected_count_by_messages: HashMap<TypeId, usize> = HashMap::new();
-        expected_count_by_messages.insert(message_type_id, 1);
-        self.stop_after_messages_and_start_system_killer(expected_count_by_messages)
+    // TODO if there is ever a situation that you use more than one Recorder together with "stop_condition()" for each
+    // you should invent a method that would allow you to decide that you don't want to create a new system killer always,
+    // doubling them unnecessarily
+    pub fn stop_condition(mut self, message_type_id: TypeId) -> Recorder {
+        if self.expected_count_by_msg_type_opt.is_some() {
+            if !self.system_killer_was_set {
+                self.set_up_system_killer()
+            }
+            let expected_msgs_with_counts_ref_mut =
+                self.expected_count_by_msg_type_opt.as_mut().unwrap();
+            *expected_msgs_with_counts_ref_mut
+                .entry(message_type_id)
+                .or_insert(0) += 1;
+            self
+        } else {
+            let mut expected_count_by_messages: HashMap<TypeId, usize> = HashMap::new();
+            expected_count_by_messages.insert(message_type_id, 1);
+            self.stop_after_messages_and_start_system_killer(expected_count_by_messages)
+        }
     }
 
     pub fn stop_after_messages_and_start_system_killer(
         mut self,
         expected_count_by_messages: HashMap<TypeId, usize>,
     ) -> Recorder {
-        let system_killer = SystemKillerActor::new(Duration::from_secs(15));
-        system_killer.start();
+        if !self.system_killer_was_set {
+            self.set_up_system_killer()
+        };
         self.expected_count_by_msg_type_opt = Some(expected_count_by_messages);
         self
+    }
+
+    fn set_up_system_killer(&mut self) {
+        let system_killer = SystemKillerActor::new(Duration::from_secs(15));
+        system_killer.start();
+        self.system_killer_was_set = true
+    }
+
+    fn evaluate_stop_condition_on_received_msg<T: 'static>(
+        expected_count_by_msg_type: &mut HashMap<TypeId, usize>,
+    ) {
+        fn uncheck_message<T: 'static>(count: usize) -> usize {
+            match count {
+                0 => panic!(
+                    "Received a message {}, which we were not supposed to receive.",
+                    type_name::<T>()
+                ),
+                _ => count - 1,
+            }
+        }
+
+        let type_id = TypeId::of::<T>();
+        let count = expected_count_by_msg_type.entry(type_id).or_insert(0);
+        *count = uncheck_message::<T>(*count);
+        if expected_count_by_msg_type.values().all(|&x| x == 0) {
+            System::current().stop();
+        }
     }
 }
 
