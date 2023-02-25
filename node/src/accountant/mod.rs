@@ -954,7 +954,6 @@ pub mod check_sqlite_fns {
 mod tests {
     use super::*;
     use std::any::TypeId;
-    use std::collections::HashMap;
     use std::ops::{Add, Sub};
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -1002,6 +1001,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::BlockchainTransaction;
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
+    use crate::multiple_type_ids;
     use crate::sub_lib::accountant::{
         ExitServiceConsumed, PaymentThresholds, RoutingServiceConsumed, ScanIntervals,
         DEFAULT_PAYMENT_THRESHOLDS,
@@ -1012,6 +1012,7 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use crate::test_utils::unshared_test_utils::{
@@ -2167,10 +2168,9 @@ mod tests {
         ];
         let payable_dao = PayableDaoMock::default().non_pending_payables_result(accounts.clone());
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
-        let mut expected_messages_by_type = HashMap::new();
-        expected_messages_by_type.insert(TypeId::of::<ReportAccountsPayable>(), 1);
-        let blockchain_bridge = blockchain_bridge
-            .stop_after_messages_and_start_system_killer(expected_messages_by_type);
+        let blockchain_bridge = blockchain_bridge.stop_conditions(StopConditions::Single(
+            StopCondition::StopOnType(TypeId::of::<ReportAccountsPayable>()),
+        ));
         let system =
             System::new("scan_for_payable_message_triggers_payment_for_balances_over_the_curve");
         let peer_actors = peer_actors_builder()
@@ -2207,7 +2207,12 @@ mod tests {
         let test_name = "accountant_does_not_initiate_another_scan_in_case_it_receives_the_message_and_the_scanner_is_running";
         let payable_dao = PayableDaoMock::default();
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
-        let blockchain_bridge_addr = blockchain_bridge.start();
+        let blockchain_bridge_addr = blockchain_bridge
+            .stop_conditions(multiple_type_ids!(
+                ReportAccountsPayable,
+                ReportAccountsPayable
+            ))
+            .start();
         let report_accounts_payable_sub = blockchain_bridge_addr.clone().recipient();
         let last_paid_timestamp = to_time_t(SystemTime::now())
             - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec as i64
@@ -2218,7 +2223,9 @@ mod tests {
             last_paid_timestamp: from_time_t(last_paid_timestamp),
             pending_payable_opt: None,
         };
-        let payable_dao = payable_dao.non_pending_payables_result(vec![payable_account.clone()]);
+        let payable_dao = payable_dao
+            .non_pending_payables_result(vec![payable_account.clone()])
+            .non_pending_payables_result(vec![payable_account]);
         let config = bc_from_earning_wallet(make_wallet("mine"));
         let system = System::new(test_name);
         let mut subject = AccountantBuilder::default()
@@ -2226,24 +2233,52 @@ mod tests {
             .payable_daos(vec![PayableScannerDest(payable_dao)]) // For PendingPayable Scanner
             .bootstrapper_config(config)
             .build();
+        let message_before = ScanForPayables {
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 111,
+                context_id: 222,
+            }),
+        };
+        let message_after = ScanForPayables {
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 333,
+                context_id: 444,
+            }),
+        };
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
         let addr = subject.start();
-        addr.try_send(ScanForPayables {
-            response_skeleton_opt: None,
-        })
-        .unwrap();
+        addr.try_send(message_before.clone()).unwrap();
 
         addr.try_send(ScanForPayables {
             response_skeleton_opt: None,
         })
         .unwrap();
 
-        System::current().stop();
+        //let's use this assertion message for changing the Accountant's state
+        addr.try_send(AssertionsMessage {
+            assertions: Box::new(|accountant: &mut Accountant| {
+                accountant
+                    .scanners
+                    .payable
+                    .mark_as_ended(&Logger::new("irrelevant"))
+            }),
+        })
+        .unwrap();
+        addr.try_send(message_after.clone()).unwrap();
         system.run();
         let recording = blockchain_bridge_recording.lock().unwrap();
         let messages_received = recording.len();
-        //correct, only one message received from those two attempts
-        assert_eq!(messages_received, 1);
+        assert_eq!(messages_received, 2);
+        let first_message: &ReportAccountsPayable = recording.get_record(0);
+        assert_eq!(
+            first_message.response_skeleton_opt,
+            message_before.response_skeleton_opt
+        );
+        let second_message: &ReportAccountsPayable = recording.get_record(1);
+        assert_eq!(
+            second_message.response_skeleton_opt,
+            message_after.response_skeleton_opt
+        );
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {}: Payables scan was already initiated",
             test_name

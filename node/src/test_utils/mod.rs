@@ -526,9 +526,8 @@ pub mod unshared_test_utils {
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, Recorder, Recording};
-    use crate::test_utils::unshared_test_utils::system_killer_actor::{
-        CleanUpMessage, SystemKillerActor,
-    };
+    use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
+    use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use actix::{Actor, Addr, AsyncContext, Context, Handler, Recipient, System};
     use actix::{Message, SpawnHandle};
     use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -628,7 +627,9 @@ pub mod unshared_test_utils {
     {
         let (recorder, _, recording_arc) = make_recorder();
         let recorder = match stopping_message {
-            Some(type_id) => recorder.stop_condition(type_id), // No need to write stop message after this
+            Some(type_id) => {
+                recorder.stop_conditions(StopConditions::Single(StopCondition::StopOnType(type_id)))
+            } // No need to write stop message after this
             None => recorder,
         };
         let addr = recorder.start();

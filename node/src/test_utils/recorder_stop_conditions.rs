@@ -1,65 +1,54 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use itertools::Either;
-use log::log_enabled;
+use crate::test_utils::recorder::{MsgRecord, MsgRecordRef};
 use std::any::TypeId;
 
-pub enum StopConditions<T> {
-    StopOnType(TypeId),
-    StopOnMatch {
-        exemplar: T,
-    },
-    StopOnPredicate {
-        predicate: Box<dyn Fn(T) -> (bool, T) + Send>,
-    },
-    StopOnAny(Vec<StopConditions<T>>),
-    StopOnAll(Vec<StopConditions<T>>),
+pub enum StopConditions {
+    Single(StopCondition),
+    Any(Vec<StopCondition>),
+    All(Vec<StopCondition>),
 }
 
-impl<T: PartialEq> StopConditions<T> {
-    pub fn resolve_stop_conditions(&mut self, msg: &T) -> bool {
-        if let Some(matched) =
-            self.resolve_immutable(msg, |conditions, msg| Self::resolve_any(conditions, msg))
-        {
+pub enum StopCondition {
+    StopOnType(TypeId),
+    StopOnMatch {
+        exemplar: MsgRecord,
+    },
+    StopOnPredicate {
+        predicate: Box<dyn Fn(MsgRecordRef) -> bool + Send>,
+    },
+}
+
+impl StopConditions {
+    pub fn resolve_stop_conditions<T: PartialEq + Send + 'static>(&mut self, msg: &T) -> bool {
+        if let Some(matched) = self.inspect_immutable::<T>(msg) {
             matched
         } else {
-            self.resolve_mutable(msg)
+            self.inspect_mutable::<T>(msg)
         }
     }
 
-    fn resolve_immutable(
-        &self,
-        msg: &T,
-        anny_fn: fn(&Vec<StopConditions<T>>, &T) -> bool,
-    ) -> Option<bool> {
+    fn inspect_immutable<T: PartialEq + Send + 'static>(&self, msg: &T) -> Option<bool> {
         match self {
-            StopConditions::StopOnType(type_id) => Some(Self::matches_stop_on_type(*type_id)),
-            StopConditions::StopOnMatch { exemplar } => {
-                Some(Self::matches_stop_on_match(exemplar, msg))
+            StopConditions::Single(stop_condition) => {
+                Some(stop_condition.resolve_condition::<T>(msg))
             }
-            StopConditions::StopOnPredicate { predicate } => {
-                Some(Self::matches_stop_on_predicate(&*predicate, msg))
+            StopConditions::Any(stop_conditions) => {
+                Some(Self::resolve_any::<T>(stop_conditions, msg))
             }
-            StopConditions::StopOnAny(stop_conditions) => Some(anny_fn(stop_conditions, msg)),
-            StopConditions::StopOnAll(stop_conditions) => None,
+            StopConditions::All(_) => None,
         }
     }
 
-    fn resolve_mutable(&mut self, msg: &T) -> bool {
+    fn inspect_mutable<T: PartialEq + Send + 'static>(&mut self, msg: &T) -> bool {
         match self {
-            StopConditions::StopOnAll(conditions) => {
+            StopConditions::All(conditions) => {
                 let indexes_to_remove =
                     conditions
                         .iter()
                         .enumerate()
                         .fold(vec![], |mut acc, (idx, condition)| {
-                            let matches = if let Some(bool) = condition
-                                .resolve_immutable(msg, |_, _| Self::nested_any_or_all_panic())
-                            {
-                                bool
-                            } else {
-                                Self::nested_any_or_all_panic()
-                            };
+                            let matches = condition.resolve_condition::<T>(msg);
                             if matches {
                                 acc.push(idx)
                             }
@@ -78,32 +67,62 @@ impl<T: PartialEq> StopConditions<T> {
                 conditions.is_empty()
             }
             _ => unreachable!("something is wrong"),
-        };
-        todo!()
+        }
     }
 
-    fn resolve_any(conditions: &Vec<StopConditions<T>>, msg: &T) -> bool {
-        conditions.iter().any(|condition| {
-            condition
-                .resolve_immutable(msg, |_, _| Self::nested_any_or_all_panic())
-                .unwrap()
-        })
+    fn resolve_any<T: PartialEq + Send + 'static>(
+        conditions: &Vec<StopCondition>,
+        msg: &T,
+    ) -> bool {
+        conditions
+            .iter()
+            .any(|condition| condition.resolve_condition::<T>(msg))
+    }
+}
+
+impl StopCondition {
+    fn resolve_condition<T: PartialEq + Send + 'static>(&self, msg: &T) -> bool {
+        match self {
+            StopCondition::StopOnType(type_id) => Self::matches_stop_on_type::<T>(*type_id),
+            StopCondition::StopOnMatch { exemplar } => {
+                Self::matches_stop_on_match::<T>(exemplar, msg)
+            }
+            StopCondition::StopOnPredicate { predicate } => {
+                Self::matches_stop_on_predicate(predicate.as_ref(), msg)
+            }
+        }
     }
 
-    fn matches_stop_on_type(expected_type_id: TypeId) -> bool {
+    fn matches_stop_on_type<T: 'static>(expected_type_id: TypeId) -> bool {
         let msg_type_id = TypeId::of::<T>();
         msg_type_id == expected_type_id
     }
 
-    fn matches_stop_on_match(exemplar: &T, msg: &T) -> bool {
-        exemplar == msg
+    fn matches_stop_on_match<T: PartialEq + 'static>(exemplar: MsgRecordRef, msg: &T) -> bool {
+        if let Some(downcast_exemplar) = exemplar.downcast_ref::<T>() {
+            return downcast_exemplar == msg;
+        }
+        false
     }
 
-    fn matches_stop_on_predicate(predicate: &dyn Fn(&T) -> bool, msg: &T) -> bool {
-        predicate(msg)
+    fn matches_stop_on_predicate<T: Send + 'static>(
+        predicate: &dyn Fn(MsgRecordRef) -> bool,
+        msg: &T,
+    ) -> bool {
+        predicate(msg as MsgRecordRef)
     }
+}
 
-    fn nested_any_or_all_panic() -> ! {
-        panic!("Do not use nested StopOnAny or StopOnAll! The same idea can be expressed within just a single layer")
+#[macro_export]
+macro_rules! single_type_id {
+    ($single_message: ident) => {
+        StopConditions::Single(StopCondition::StopOnType(TypeId::of::<$single_message>()))
+    };
+}
+
+#[macro_export]
+macro_rules! multiple_type_ids{
+    ($($single_message: ident),+) => {
+         StopConditions::All(vec![$(StopCondition::StopOnType(TypeId::of::<$single_message>())),+])
     }
 }

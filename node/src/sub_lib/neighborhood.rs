@@ -422,7 +422,7 @@ impl Message for NodeQueryMessage {
     type Result = Option<NodeQueryResponseMetadata>;
 }
 
-#[derive(Message, Clone)]
+#[derive(Message, Clone, PartialEq)]
 pub struct DispatcherNodeQueryMessage {
     pub query: NodeQueryMessage,
     pub context: TransmitDataMsg,

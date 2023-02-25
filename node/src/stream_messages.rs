@@ -17,6 +17,12 @@ pub struct AddStreamMsg {
     pub port_configuration: PortConfiguration,
 }
 
+impl PartialEq for AddStreamMsg {
+    fn eq(&self, _other: &Self) -> bool {
+        todo!("should be implemented for test purposes")
+    }
+}
+
 impl AddStreamMsg {
     pub fn new(
         connection_info: ConnectionInfo,
@@ -66,6 +72,12 @@ pub struct PoolBindMessage {
     pub dispatcher_subs: DispatcherSubs,
     pub stream_handler_pool_subs: StreamHandlerPoolSubs,
     pub neighborhood_subs: NeighborhoodSubs,
+}
+
+impl PartialEq for PoolBindMessage {
+    fn eq(&self, _other: &Self) -> bool {
+        todo!("should be implemented for test purposes")
+    }
 }
 
 impl Debug for PoolBindMessage {

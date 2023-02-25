@@ -45,35 +45,30 @@ use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::test_utils::recorder_stop_conditions::StopConditions;
 use crate::test_utils::to_millis;
-use crate::test_utils::unshared_test_utils::system_killer_actor::{
-    CleanUpMessage, SystemKillerActor,
-};
+use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
 use actix::System;
 use actix::{Actor, Message};
-use itertools::Either;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
-use std::any::TypeId;
-use std::any::{type_name, Any};
-use std::collections::HashMap;
+use std::any::Any;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use std::time::SystemTime;
 
 #[derive(Default)]
 pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
     node_query_responses: Vec<Option<NodeQueryResponseMetadata>>,
     route_query_responses: Vec<Option<RouteQueryResponse>>,
-    expected_count_by_msg_type_opt: Option<HashMap<TypeId, usize>>,
-    stop_conditions_opt: Option<StopConditions<Box<dyn Any + Send>>>,
-    system_killer_was_set: bool,
+    stop_conditions_opt: Option<StopConditions>,
 }
+
+pub type MsgRecord = Box<dyn Any + Send>;
+pub type MsgRecordRef<'a> = &'a (dyn Any + Send);
 
 #[derive(Default)]
 pub struct Recording {
@@ -190,13 +185,6 @@ where
     }
 }
 
-#[macro_export]
-macro_rules! stop_condition_messages{
-    ($recorder: expr, $($single_message: ident),+) => {
-         $recorder$(.stop_condition(TypeId::of::<$single_message>()))+
-    }
-}
-
 impl Recorder {
     pub fn new() -> Recorder {
         Self::default()
@@ -232,47 +220,24 @@ impl Recorder {
         self
     }
 
-    // TODO if there is ever a situation that you use more than one Recorder together with "stop_condition()" for each
-    // you should invent a method that would allow you to decide that you don't want to create a new system killer always,
-    // doubling them unnecessarily
-    pub fn stop_condition(mut self, message_type_id: TypeId) -> Recorder {
-        if self.expected_count_by_msg_type_opt.is_some() {
-            if !self.system_killer_was_set {
-                self.set_up_system_killer()
-            }
-            let expected_msgs_with_counts_ref_mut =
-                self.expected_count_by_msg_type_opt.as_mut().unwrap();
-            *expected_msgs_with_counts_ref_mut
-                .entry(message_type_id)
-                .or_insert(0) += 1;
-            self
+    pub fn stop_conditions(mut self, stop_conditions: StopConditions) -> Recorder {
+        if self.stop_conditions_opt.is_none() {
+            self.start_system_killer();
+            self.stop_conditions_opt = Some(stop_conditions)
         } else {
-            let mut expected_count_by_messages: HashMap<TypeId, usize> = HashMap::new();
-            expected_count_by_messages.insert(message_type_id, 1);
-            self.stop_after_messages_and_start_system_killer(expected_count_by_messages)
-        }
-    }
-
-    pub fn stop_after_messages_and_start_system_killer(
-        mut self,
-        expected_count_by_messages: HashMap<TypeId, usize>,
-    ) -> Recorder {
-        if !self.system_killer_was_set {
-            self.set_up_system_killer()
+            panic!("Stop conditions must be set by a single method call. Consider to use StopConditions::All")
         };
-        self.expected_count_by_msg_type_opt = Some(expected_count_by_messages);
         self
     }
 
-    fn set_up_system_killer(&mut self) {
+    fn start_system_killer(&mut self) {
         let system_killer = SystemKillerActor::new(Duration::from_secs(15));
         system_killer.start();
-        self.system_killer_was_set = true
     }
 
-    fn handle_msg<T: Any + Send>(&mut self, msg: T) {
+    fn handle_msg<T: 'static + PartialEq + Send>(&mut self, msg: T) {
         let kill_system = if let Some(stop_condition) = &mut self.stop_conditions_opt {
-            stop_condition.resolve_stop_conditions(&msg)
+            stop_condition.resolve_stop_conditions::<T>(&msg)
         } else {
             false
         };

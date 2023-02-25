@@ -38,6 +38,12 @@ pub struct BindMessage {
     pub peer_actors: PeerActors,
 }
 
+impl PartialEq for BindMessage {
+    fn eq(&self, _other: &Self) -> bool {
+        todo!("should be implemented for test purposes")
+    }
+}
+
 // This message is used for two unrelated purposes.
 // First, after the ActorSystemFactory has finished binding all the Actors with BindMessages,
 // it sends a StartMessage to the Neighborhood so that it can start trying to connect the new Node
@@ -45,7 +51,7 @@ pub struct BindMessage {
 // Second, after the Neighborhood is successfully connected to the Network well enough to begin
 // routing messages, the Neighborhood sends another StartMessage to the Accountant, which uses
 // the StartMessage as a signal to begin running its regular scans.
-#[derive(Debug, Message, Clone)]
+#[derive(Debug, Message, Clone, PartialEq)]
 pub struct StartMessage {}
 
 #[derive(Message, Clone, PartialEq, Eq, Debug)]
