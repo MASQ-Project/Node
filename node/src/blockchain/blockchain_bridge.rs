@@ -432,6 +432,7 @@ mod tests {
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
     use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
+    use crate::match_every_type_id;
     use crate::node_test_utils::check_timestamp;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
@@ -441,7 +442,6 @@ mod tests {
         configure_default_persistent_config, prove_that_crash_request_handler_is_hooked_up, ZERO,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
-    use crate::{match_every_type_id, single_type_id};
     use actix::System;
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
@@ -728,7 +728,7 @@ mod tests {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let scan_error_recipient: Recipient<ScanError> = accountant
-            .stop_conditions(single_type_id!(ScanError))
+            .system_stop_conditions(match_every_type_id!(ScanError))
             .start()
             .recipient();
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
@@ -847,7 +847,7 @@ mod tests {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let scan_error_recipient: Recipient<ScanError> = accountant
-            .stop_conditions(single_type_id!(ScanError))
+            .system_stop_conditions(match_every_type_id!(ScanError))
             .start()
             .recipient();
         let blockchain_interface = BlockchainInterfaceMock::default().retrieve_transactions_result(
@@ -895,7 +895,7 @@ mod tests {
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant_addr = accountant
-            .stop_conditions(match_every_type_id!(ReportTransactionReceipts, ScanError))
+            .system_stop_conditions(match_every_type_id!(ReportTransactionReceipts, ScanError))
             .start();
         let report_transaction_receipt_recipient: Recipient<ReportTransactionReceipts> =
             accountant_addr.clone().recipient();

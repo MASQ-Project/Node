@@ -545,6 +545,7 @@ pub mod unshared_test_utils {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use std::vec;
 
     #[derive(Message)]
     pub struct AssertionsMessage<A: Actor> {
@@ -627,9 +628,9 @@ pub mod unshared_test_utils {
     {
         let (recorder, _, recording_arc) = make_recorder();
         let recorder = match stopping_message {
-            Some(type_id) => {
-                recorder.stop_conditions(StopConditions::Single(StopCondition::StopOnType(type_id)))
-            } // No need to write stop message after this
+            Some(type_id) => recorder.system_stop_conditions(StopConditions::All(vec![
+                StopCondition::StopOnType(type_id),
+            ])), // No need to write stop message after this
             None => recorder,
         };
         let addr = recorder.start();

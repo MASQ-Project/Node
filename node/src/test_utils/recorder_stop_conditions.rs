@@ -6,7 +6,6 @@ use itertools::Itertools;
 use std::any::{Any, TypeId};
 
 pub enum StopConditions {
-    Single(StopCondition),
     Any(Vec<StopCondition>),
     All(Vec<StopCondition>),
 }
@@ -35,9 +34,6 @@ impl StopConditions {
 
     fn inspect_immutable<T: PartialEq + Send + 'static>(&self, msg: &T) -> Option<bool> {
         match self {
-            StopConditions::Single(stop_condition) => {
-                Some(stop_condition.resolve_condition::<T>(msg))
-            }
             StopConditions::Any(stop_conditions) => {
                 Some(Self::resolve_any::<T>(stop_conditions, msg))
             }
@@ -134,13 +130,6 @@ impl StopCondition {
 }
 
 #[macro_export]
-macro_rules! single_type_id {
-    ($single_message: ident) => {
-        StopConditions::Single(StopCondition::StopOnType(TypeId::of::<$single_message>()))
-    };
-}
-
-#[macro_export]
 macro_rules! match_every_type_id{
     ($($single_message: ident),+) => {
          StopConditions::All(vec![$(StopCondition::StopOnType(TypeId::of::<$single_message>())),+])
@@ -179,19 +168,19 @@ mod tests {
 
     #[test]
     fn stop_on_match_works() {
-        let mut cond1 = StopConditions::Single(StopCondition::StopOnMatch {
+        let mut cond1 = StopConditions::All(vec![StopCondition::StopOnMatch {
             exemplar: Box::new(StartMessage {}),
-        });
-        let mut cond2 = StopConditions::Single(StopCondition::StopOnMatch {
+        }]);
+        let mut cond2 = StopConditions::All(vec![StopCondition::StopOnMatch {
             exemplar: Box::new(NewPublicIp {
                 new_ip: IpAddr::V4(Ipv4Addr::new(1, 8, 6, 4)),
             }),
-        });
-        let mut cond3 = StopConditions::Single(StopCondition::StopOnMatch {
+        }]);
+        let mut cond3 = StopConditions::All(vec![StopCondition::StopOnMatch {
             exemplar: Box::new(NewPublicIp {
                 new_ip: IpAddr::V4(Ipv4Addr::new(44, 2, 3, 1)),
             }),
-        });
+        }]);
         let tested_msg = NewPublicIp {
             new_ip: IpAddr::V4(Ipv4Addr::new(44, 2, 3, 1)),
         };
@@ -212,12 +201,12 @@ mod tests {
 
     #[test]
     fn stop_on_predicate_works() {
-        let mut cond_set = StopConditions::Single(StopCondition::StopOnPredicate {
+        let mut cond_set = StopConditions::All(vec![StopCondition::StopOnPredicate {
             predicate: Box::new(|msg| {
                 let scan_err_msg: &ScanError = msg.downcast_ref().unwrap();
                 scan_err_msg.scan_type == ScanType::PendingPayables
             }),
-        });
+        }]);
         let wrong_msg = ScanError {
             scan_type: ScanType::Payables,
             response_skeleton_opt: None,
@@ -258,9 +247,6 @@ mod tests {
         };
         let inspect_len_of_any = |cond_set: &StopConditions, msg_number: usize| match cond_set {
             StopConditions::Any(conditions) => conditions.len(),
-            StopConditions::Single(_) => {
-                panic!("stage {}: expected Any but got Single", msg_number)
-            }
             StopConditions::All(_) => panic!("stage {}: expected Any but got All", msg_number),
         };
 
@@ -323,9 +309,6 @@ mod tests {
                 assert!(matches!(conds[1], StopCondition::StopOnType(_)));
             }
             StopConditions::Any(_) => panic!("Stage 1: expected StopConditions::All, not ...Any"),
-            StopConditions::Single(_) => {
-                panic!("Stage 1: expected StopConditions::All, not ...Single")
-            }
         }
         let tested_msg_2 = NewPublicIp {
             new_ip: IpAddr::V4(Ipv4Addr::new(1, 2, 4, 1)),
@@ -339,9 +322,6 @@ mod tests {
                 assert!(conds.is_empty())
             }
             StopConditions::Any(_) => panic!("Stage 2: expected StopConditions::All, not ...Any"),
-            StopConditions::Single(_) => {
-                panic!("Stage 2: expected StopConditions::All, not ...Single")
-            }
         }
     }
 }

@@ -217,7 +217,7 @@ impl Recorder {
         self
     }
 
-    pub fn stop_conditions(mut self, stop_conditions: StopConditions) -> Recorder {
+    pub fn system_stop_conditions(mut self, stop_conditions: StopConditions) -> Recorder {
         if self.stop_conditions_opt.is_none() {
             self.start_system_killer();
             self.stop_conditions_opt = Some(stop_conditions)

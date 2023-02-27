@@ -78,12 +78,8 @@ impl Debug for PoolBindMessage {
 mod tests {
     use super::*;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
-    use crate::sub_lib::tokio_wrappers::{ReadHalfWrapperReal, WriteHalfWrapperReal};
     use crate::test_utils::recorder::peer_actors_builder;
-    use crate::test_utils::tokio_wrapper_mocks::{ReadHalfWrapperMock, WriteHalfWrapperMock};
     use actix::System;
-    use masq_lib::utils::find_free_port;
-    use std::net::{IpAddr, Ipv4Addr, SocketAddrV4, TcpStream};
 
     impl PartialEq for AddStreamMsg {
         fn eq(&self, _other: &Self) -> bool {

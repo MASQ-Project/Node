@@ -223,7 +223,7 @@ impl Handler<ScanForPayables> for Accountant {
         self.handle_request_of_scan_for_payable(msg.response_skeleton_opt);
         let _ = self.notify_later.scan_for_payable.notify_later(
             ScanForPayables {
-                response_skeleton_opt: None,
+                response_skeleton_opt: None, // because scheduled scans don't respond
             },
             self.scan_intervals.payable_scan_interval,
             ctx,
@@ -1001,6 +1001,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::BlockchainTransaction;
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
+    use crate::match_every_type_id;
     use crate::sub_lib::accountant::{
         ExitServiceConsumed, PaymentThresholds, RoutingServiceConsumed, ScanIntervals,
         DEFAULT_PAYMENT_THRESHOLDS,
@@ -1018,7 +1019,6 @@ mod tests {
         make_bc_with_defaults, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
-    use crate::{match_every_type_id, single_type_id};
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use web3::types::{TransactionReceipt, H256};
@@ -2169,7 +2169,7 @@ mod tests {
         let payable_dao = PayableDaoMock::default().non_pending_payables_result(accounts.clone());
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
         let blockchain_bridge =
-            blockchain_bridge.stop_conditions(single_type_id!(ReportAccountsPayable));
+            blockchain_bridge.system_stop_conditions(match_every_type_id!(ReportAccountsPayable));
         let system =
             System::new("scan_for_payable_message_triggers_payment_for_balances_over_the_curve");
         let peer_actors = peer_actors_builder()
@@ -2207,7 +2207,7 @@ mod tests {
         let payable_dao = PayableDaoMock::default();
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
         let blockchain_bridge_addr = blockchain_bridge
-            .stop_conditions(match_every_type_id!(
+            .system_stop_conditions(match_every_type_id!(
                 ReportAccountsPayable,
                 ReportAccountsPayable
             ))
