@@ -17,13 +17,9 @@ pub trait TokioListenerWrapper: Send {
     fn poll_accept(&mut self) -> Result<Async<(TcpStream, SocketAddr)>, io::Error>;
 }
 
-pub trait ReadHalfWrapper: Send + AsyncRead {
-    as_any_dcl!();
-}
+pub trait ReadHalfWrapper: Send + AsyncRead {}
 
-pub trait WriteHalfWrapper: Send + AsyncWrite {
-    as_any_dcl!();
-}
+pub trait WriteHalfWrapper: Send + AsyncWrite {}
 
 pub trait TokioListenerWrapperFactory {
     fn make(&self) -> Box<dyn TokioListenerWrapper>;
@@ -72,9 +68,7 @@ impl AsyncRead for ReadHalfWrapperReal {
     }
 }
 
-impl ReadHalfWrapper for ReadHalfWrapperReal {
-    as_any_impl!();
-}
+impl ReadHalfWrapper for ReadHalfWrapperReal {}
 
 impl ReadHalfWrapperReal {
     pub fn new(reader: ReadHalf<TcpStream>) -> ReadHalfWrapperReal {
@@ -102,9 +96,7 @@ impl AsyncWrite for WriteHalfWrapperReal {
     }
 }
 
-impl WriteHalfWrapper for WriteHalfWrapperReal {
-    as_any_impl!();
-}
+impl WriteHalfWrapper for WriteHalfWrapperReal {}
 
 impl WriteHalfWrapperReal {
     pub fn new(writer: WriteHalf<TcpStream>) -> WriteHalfWrapperReal {

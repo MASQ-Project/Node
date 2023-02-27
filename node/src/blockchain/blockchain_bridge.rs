@@ -441,7 +441,7 @@ mod tests {
         configure_default_persistent_config, prove_that_crash_request_handler_is_hooked_up, ZERO,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
-    use crate::{multiple_type_ids, single_type_id};
+    use crate::{match_every_type_id, single_type_id};
     use actix::System;
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
@@ -895,7 +895,7 @@ mod tests {
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let accountant_addr = accountant
-            .stop_conditions(multiple_type_ids!(ReportTransactionReceipts, ScanError))
+            .stop_conditions(match_every_type_id!(ReportTransactionReceipts, ScanError))
             .start();
         let report_transaction_receipt_recipient: Recipient<ReportTransactionReceipts> =
             accountant_addr.clone().recipient();

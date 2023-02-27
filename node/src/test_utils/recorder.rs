@@ -233,8 +233,8 @@ impl Recorder {
     }
 
     fn handle_msg<T: 'static + PartialEq + Send>(&mut self, msg: T) {
-        let kill_system = if let Some(stop_condition) = &mut self.stop_conditions_opt {
-            stop_condition.resolve_stop_conditions::<T>(&msg)
+        let kill_system = if let Some(stop_conditions) = &mut self.stop_conditions_opt {
+            stop_conditions.resolve_stop_conditions::<T>(&msg)
         } else {
             false
         };

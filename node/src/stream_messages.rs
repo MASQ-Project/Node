@@ -87,8 +87,12 @@ mod tests {
 
     impl PartialEq for AddStreamMsg {
         fn eq(&self, _other: &Self) -> bool {
-            // this trait cannot be implemented really, it's just a requirement from code
-            // written for Recorder; this should stay with #[cfg(test)] for safeness
+            // We need to implement PartialEq so that AddStreamMsg can be received by the Recorder;
+            // but AddStreamMsg breaks the rules for an actor message by containing references to
+            // outside resources (namely, an I/O stream) and therefore cannot have a real implementation
+            // of PartialEq. So here we break the rules again to patch up the problems created by
+            // the first breach of the rules. Don't move this into the production tree; it only needs
+            // to be here for the Recorder, and the Recorder is only in the test tree.
             intentionally_blank!()
         }
     }

@@ -2,6 +2,7 @@
 
 #![cfg(test)]
 
+use itertools::Itertools;
 use std::any::{Any, TypeId};
 
 pub enum StopConditions {
@@ -60,7 +61,7 @@ impl StopConditions {
                 Self::remove_matched_conditions(conditions, indexes_to_remove);
                 conditions.is_empty()
             }
-            _ => unreachable!("something is wrong"),
+            _ => unreachable!("we had excluded 'Any' but yet we are not meeting 'All' here"),
         }
     }
 
@@ -85,11 +86,12 @@ impl StopConditions {
         indexes_to_remove: Vec<usize>,
     ) {
         if !indexes_to_remove.is_empty() {
-            let _ = indexes_to_remove
+            indexes_to_remove
                 .into_iter()
-                .fold(0, |removed_counter: usize, idx| {
-                    conditions.remove(idx - removed_counter);
-                    removed_counter + 1
+                .sorted()
+                .rev()
+                .for_each(|idx| {
+                    conditions.remove(idx);
                 });
         }
     }
@@ -139,7 +141,7 @@ macro_rules! single_type_id {
 }
 
 #[macro_export]
-macro_rules! multiple_type_ids{
+macro_rules! match_every_type_id{
     ($($single_message: ident),+) => {
          StopConditions::All(vec![$(StopCondition::StopOnType(TypeId::of::<$single_message>())),+])
     }
@@ -154,6 +156,26 @@ mod tests {
     use std::any::TypeId;
     use std::net::{IpAddr, Ipv4Addr};
     use std::vec;
+
+    #[test]
+    fn remove_matched_conditions_works_with_unsorted_indexes() {
+        let mut conditions = vec![
+            StopCondition::StopOnType(TypeId::of::<StartMessage>()),
+            StopCondition::StopOnType(TypeId::of::<ScanForPayables>()),
+            StopCondition::StopOnType(TypeId::of::<ScanError>()),
+        ];
+        let indexes = vec![2, 0];
+
+        StopConditions::remove_matched_conditions(&mut conditions, indexes);
+
+        assert_eq!(conditions.len(), 1);
+        let type_id = if let StopCondition::StopOnType(type_id) = conditions[0] {
+            type_id
+        } else {
+            panic!("expected StopOnType but got a different variant")
+        };
+        assert_eq!(type_id, TypeId::of::<ScanForPayables>())
+    }
 
     #[test]
     fn stop_on_match_works() {
@@ -218,7 +240,7 @@ mod tests {
     }
 
     #[test]
-    fn match_any_works() {
+    fn match_any_works_with_every_matching_condition_and_no_need_to_take_elements_out() {
         let mut cond_set = StopConditions::Any(vec![
             StopCondition::StopOnType(TypeId::of::<CrashNotification>()),
             StopCondition::StopOnMatch {
@@ -263,7 +285,7 @@ mod tests {
     }
 
     #[test]
-    fn match_all_partial_conditions_sequentially_eliminated_until_full_matching() {
+    fn match_all_with_conditions_gradually_eliminated_until_vector_is_emptied_and_it_is_match() {
         let mut cond_set = StopConditions::All(vec![
             StopCondition::StopOnPredicate {
                 predicate: Box::new(|msg| {

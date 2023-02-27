@@ -93,7 +93,7 @@ where
     fn scan_started_at(&self) -> Option<SystemTime>;
     fn mark_as_started(&mut self, timestamp: SystemTime);
     fn mark_as_ended(&mut self, logger: &Logger);
-    as_any_dcl!();
+    declare_as_any!();
 }
 
 pub struct ScannerCommon {
@@ -222,7 +222,7 @@ impl Scanner<ReportAccountsPayable, SentPayables> for PayableScanner {
 
     time_marking_methods!(Payables);
 
-    as_any_impl!();
+    implement_as_any!();
 }
 
 impl PayableScanner {
@@ -429,7 +429,7 @@ impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingP
 
     time_marking_methods!(PendingPayables);
 
-    as_any_impl!();
+    implement_as_any!();
 }
 
 impl PendingPayableScanner {
@@ -659,7 +659,7 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
 
     time_marking_methods!(Receivables);
 
-    as_any_impl!();
+    implement_as_any!();
 }
 
 impl ReceivableScanner {
@@ -802,7 +802,7 @@ where
         panic!("Called mark_as_ended() from NullScanner");
     }
 
-    as_any_impl!();
+    implement_as_any!();
 }
 
 impl Default for NullScanner {
