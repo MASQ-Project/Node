@@ -17,12 +17,6 @@ pub struct AddStreamMsg {
     pub port_configuration: PortConfiguration,
 }
 
-impl PartialEq for AddStreamMsg {
-    fn eq(&self, _other: &Self) -> bool {
-        todo!("should be implemented for test purposes")
-    }
-}
-
 impl AddStreamMsg {
     pub fn new(
         connection_info: ConnectionInfo,
@@ -67,17 +61,11 @@ impl Debug for RemoveStreamMsg {
     }
 }
 
-#[derive(Message, Clone)]
+#[derive(Message, Clone, PartialEq, Eq)]
 pub struct PoolBindMessage {
     pub dispatcher_subs: DispatcherSubs,
     pub stream_handler_pool_subs: StreamHandlerPoolSubs,
     pub neighborhood_subs: NeighborhoodSubs,
-}
-
-impl PartialEq for PoolBindMessage {
-    fn eq(&self, _other: &Self) -> bool {
-        todo!("should be implemented for test purposes")
-    }
 }
 
 impl Debug for PoolBindMessage {
@@ -90,8 +78,20 @@ impl Debug for PoolBindMessage {
 mod tests {
     use super::*;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
+    use crate::sub_lib::tokio_wrappers::{ReadHalfWrapperReal, WriteHalfWrapperReal};
     use crate::test_utils::recorder::peer_actors_builder;
+    use crate::test_utils::tokio_wrapper_mocks::{ReadHalfWrapperMock, WriteHalfWrapperMock};
     use actix::System;
+    use masq_lib::utils::find_free_port;
+    use std::net::{IpAddr, Ipv4Addr, SocketAddrV4, TcpStream};
+
+    impl PartialEq for AddStreamMsg {
+        fn eq(&self, _other: &Self) -> bool {
+            // this trait cannot be implemented really, it's just a requirement from code
+            // written for Recorder; this should stay with #[cfg(test)] for safeness
+            intentionally_blank!()
+        }
+    }
 
     #[test]
     fn pool_bind_message_is_debug() {

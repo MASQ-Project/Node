@@ -67,9 +67,6 @@ pub struct Recorder {
     stop_conditions_opt: Option<StopConditions>,
 }
 
-pub type MsgRecordBoxed = Box<dyn Any + Send>;
-pub type MsgRecordRef<'a> = &'a (dyn Any + Send);
-
 #[derive(Default)]
 pub struct Recording {
     messages: Vec<Box<dyn Any + Send>>,
