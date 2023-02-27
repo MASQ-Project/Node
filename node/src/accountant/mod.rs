@@ -31,17 +31,17 @@ use crate::accountant::financials::visibility_restricted_module::{
 use crate::accountant::payable_dao::{Payable, PayableDaoError};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDaoError;
-use crate::accountant::scanners::{NotifyLaterForScanners, Scanners};
+use crate::accountant::scanners::{ScanTimings, Scanners};
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
+use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::DaoFactories;
 use crate::sub_lib::accountant::FinancialStatistics;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
-use crate::sub_lib::accountant::{AccountantSubs, ScanIntervals};
 use crate::sub_lib::accountant::{MessageIdGenerator, MessageIdGeneratorReal};
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
@@ -78,7 +78,6 @@ pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
 
 pub struct Accountant {
-    scan_intervals: ScanIntervals,
     suppress_initial_scans: bool,
     consuming_wallet: Option<Wallet>,
     earning_wallet: Rc<Wallet>,
@@ -87,7 +86,7 @@ pub struct Accountant {
     pending_payable_dao: Box<dyn PendingPayableDao>,
     crashable: bool,
     scanners: Scanners,
-    notify_later: NotifyLaterForScanners,
+    scan_timings: ScanTimings,
     financial_statistics: Rc<RefCell<FinancialStatistics>>,
     report_accounts_payable_sub_opt: Option<Recipient<ReportAccountsPayable>>,
     retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
@@ -130,17 +129,17 @@ pub struct SentPayables {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-#[derive(Debug, Eq, Message, PartialEq, Clone, Copy)]
+#[derive(Debug, Message, Default, PartialEq, Eq, Clone, Copy)]
 pub struct ScanForPayables {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-#[derive(Debug, Message, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Message, Default, PartialEq, Eq, Clone, Copy)]
 pub struct ScanForReceivables {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-#[derive(Debug, Clone, Copy, Message, PartialEq, Eq)]
+#[derive(Debug, Message, Default, PartialEq, Eq, Clone, Copy)]
 pub struct ScanForPendingPayables {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
@@ -221,13 +220,9 @@ impl Handler<ScanForPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_request_of_scan_for_payable(msg.response_skeleton_opt);
-        let _ = self.notify_later.scan_for_payable.notify_later(
-            ScanForPayables {
-                response_skeleton_opt: None, // because scheduled scans don't respond
-            },
-            self.scan_intervals.payable_scan_interval,
-            ctx,
-        );
+        self.scan_timings
+            .payable
+            .schedule_another_periodic_scan(ctx);
     }
 }
 
@@ -236,13 +231,9 @@ impl Handler<ScanForPendingPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_request_of_scan_for_pending_payable(msg.response_skeleton_opt);
-        let _ = self.notify_later.scan_for_pending_payable.notify_later(
-            ScanForPendingPayables {
-                response_skeleton_opt: None, // because scheduled scans don't respond
-            },
-            self.scan_intervals.pending_payable_scan_interval,
-            ctx,
-        );
+        self.scan_timings
+            .pending_payable
+            .schedule_another_periodic_scan(ctx);
     }
 }
 
@@ -251,13 +242,9 @@ impl Handler<ScanForReceivables> for Accountant {
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_request_of_scan_for_receivable(msg.response_skeleton_opt);
-        let _ = self.notify_later.scan_for_receivable.notify_later(
-            ScanForReceivables {
-                response_skeleton_opt: None, // because scheduled scans don't respond
-            },
-            self.scan_intervals.receivable_scan_interval,
-            ctx,
-        );
+        self.scan_timings
+            .receivable
+            .schedule_another_periodic_scan(ctx);
     }
 }
 
@@ -421,7 +408,6 @@ impl Accountant {
         );
 
         Accountant {
-            scan_intervals,
             suppress_initial_scans: config.suppress_initial_scans,
             consuming_wallet: config.consuming_wallet_opt.clone(),
             earning_wallet: Rc::clone(&earning_wallet),
@@ -430,7 +416,7 @@ impl Accountant {
             pending_payable_dao,
             scanners,
             crashable: config.crash_point == CrashPoint::Message,
-            notify_later: NotifyLaterForScanners::default(),
+            scan_timings: ScanTimings::new(scan_intervals),
             financial_statistics: Rc::clone(&financial_statistics),
             report_accounts_payable_sub_opt: None,
             retrieve_transactions_sub: None,
@@ -1125,19 +1111,22 @@ mod tests {
         );
 
         let financial_statistics = result.financial_statistics().clone();
-        let notify_later = result.notify_later;
+        let notify_later = result.scan_timings;
         notify_later
-            .scan_for_pending_payable
+            .pending_payable
+            .handle
             .as_any()
             .downcast_ref::<NotifyLaterHandleReal<ScanForPendingPayables>>()
             .unwrap();
         notify_later
-            .scan_for_payable
+            .payable
+            .handle
             .as_any()
             .downcast_ref::<NotifyLaterHandleReal<ScanForPayables>>()
             .unwrap();
         notify_later
-            .scan_for_receivable
+            .receivable
+            .handle
             .as_any()
             .downcast_ref::<NotifyLaterHandleReal<ScanForReceivables>>();
         result
@@ -1848,7 +1837,7 @@ mod tests {
         subject.scanners.payable = Box::new(NullScanner::new()); // Skipping
         subject.scanners.pending_payable = Box::new(NullScanner::new()); // Skipping
         subject.scanners.receivable = Box::new(receivable_scanner);
-        subject.notify_later.scan_for_receivable = Box::new(
+        subject.scan_timings.receivable.handle = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_receivable_params_arc)
                 .permit_to_send_out(),
@@ -1915,7 +1904,7 @@ mod tests {
         subject.scanners.payable = Box::new(NullScanner::new()); //skipping
         subject.scanners.pending_payable = Box::new(pending_payable_scanner);
         subject.scanners.receivable = Box::new(NullScanner::new()); //skipping
-        subject.notify_later.scan_for_pending_payable = Box::new(
+        subject.scan_timings.pending_payable.handle = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_pending_payable_params_arc)
                 .permit_to_send_out(),
@@ -1983,7 +1972,7 @@ mod tests {
         subject.scanners.payable = Box::new(payable_scanner);
         subject.scanners.pending_payable = Box::new(NullScanner::new()); //skipping
         subject.scanners.receivable = Box::new(NullScanner::new()); //skipping
-        subject.notify_later.scan_for_payable = Box::new(
+        subject.scan_timings.payable.handle = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_payables_params_arc)
                 .permit_to_send_out(),
@@ -3199,7 +3188,7 @@ mod tests {
                 let notify_later_half_mock = NotifyLaterHandleMock::default()
                     .notify_later_params(&notify_later_scan_for_pending_payable_arc_cloned)
                     .permit_to_send_out();
-                subject.notify_later.scan_for_pending_payable = Box::new(notify_later_half_mock);
+                subject.scan_timings.pending_payable.handle = Box::new(notify_later_half_mock);
                 subject
             });
         let mut peer_actors = peer_actors_builder().build();
