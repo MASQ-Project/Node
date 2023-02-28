@@ -23,7 +23,7 @@ use crate::blockchain::blockchain_interface::BlockchainError;
 use crate::sub_lib::accountant::{
     DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
 };
-use crate::sub_lib::utils::NotifyLaterHandle;
+use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
 use crate::sub_lib::wallet::Wallet;
 use actix::{Context, Message, System};
 use itertools::Itertools;
@@ -926,15 +926,15 @@ impl ScanTimings {
     pub fn new(scan_intervals: ScanIntervals) -> Self {
         ScanTimings {
             pending_payable: PeriodicalScanConfig {
-                handle: Default::default(),
+                handle: Box::new(NotifyLaterHandleReal::default()),
                 interval: scan_intervals.pending_payable_scan_interval,
             },
             payable: PeriodicalScanConfig {
-                handle: Default::default(),
+                handle: Box::new(NotifyLaterHandleReal::default()),
                 interval: scan_intervals.payable_scan_interval,
             },
             receivable: PeriodicalScanConfig {
-                handle: Default::default(),
+                handle: Box::new(NotifyLaterHandleReal::default()),
                 interval: scan_intervals.receivable_scan_interval,
             },
         }

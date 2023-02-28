@@ -165,18 +165,6 @@ impl<T> NotifyLaterHandleReal<T> {
     }
 }
 
-impl<M, A> Default for Box<dyn NotifyLaterHandle<M, A>>
-where
-    M: Message + 'static,
-    A: Actor<Context = Context<A>> + Handler<M>,
-{
-    fn default() -> Self {
-        Box::new(NotifyLaterHandleReal {
-            phantom: PhantomData::default(),
-        })
-    }
-}
-
 impl<M, A> NotifyLaterHandle<M, A> for NotifyLaterHandleReal<M>
 where
     M: Message + 'static,
