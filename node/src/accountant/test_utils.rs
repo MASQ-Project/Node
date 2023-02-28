@@ -99,108 +99,142 @@ impl Default for AccountantBuilder {
 }
 
 pub enum DaoWithDestination<T> {
-    ToAccountantBody(T),
-    ToPayableScanner(T),
-    ToReceivableScanner(T),
-    ToPendingPayableScanner(T),
+    ForAccountantBody(T),
+    ForPendingPayableScanner(T),
+    ForPayableScanner(T),
+    ForReceivableScanner(T),
 }
 
 enum DestinationMarker {
     AccountantBody,
+    PendingPayableScanner,
     PayableScanner,
     ReceivableScanner,
-    PendingPayableScanner,
 }
 
 impl<T> DaoWithDestination<T> {
     fn matches(&self, dest_marker: &DestinationMarker) -> bool {
         match self {
-            Self::ToAccountantBody(_) => matches!(dest_marker, DestinationMarker::AccountantBody),
-            Self::ToPayableScanner(_) => {
+            Self::ForAccountantBody(_) => matches!(dest_marker, DestinationMarker::AccountantBody),
+            Self::ForPendingPayableScanner(_) => {
+                matches!(dest_marker, DestinationMarker::PendingPayableScanner)
+            }
+            Self::ForPayableScanner(_) => {
                 matches!(dest_marker, DestinationMarker::PayableScanner)
             }
-            Self::ToReceivableScanner(_) => {
+            Self::ForReceivableScanner(_) => {
                 matches!(dest_marker, DestinationMarker::ReceivableScanner)
-            }
-            Self::ToPendingPayableScanner(_) => {
-                matches!(dest_marker, DestinationMarker::PendingPayableScanner)
             }
         }
     }
-    fn inner_value(self) -> T {
+    fn into_inner(self) -> T {
         match self {
-            Self::ToAccountantBody(dao) => dao,
-            Self::ToPayableScanner(dao) => dao,
-            Self::ToReceivableScanner(dao) => dao,
-            Self::ToPendingPayableScanner(dao) => dao,
+            Self::ForAccountantBody(dao) => dao,
+            Self::ForPendingPayableScanner(dao) => dao,
+            Self::ForPayableScanner(dao) => dao,
+            Self::ForReceivableScanner(dao) => dao,
         }
+    }
+}
+
+fn guts_for_dao_factory_queue_initialization<T: Default>(
+    customized_supplied_daos: &mut Vec<DaoWithDestination<T>>,
+    acc: Vec<Box<T>>,
+    used_input: usize,
+    position: DestinationMarker,
+) -> (Vec<Box<T>>, usize) {
+    match customized_supplied_daos
+        .iter()
+        .position(|customized_dao| customized_dao.matches(&position))
+    {
+        Some(idx) => {
+            let customized_dao = customized_supplied_daos.remove(idx).into_inner();
+            let used_input_updated = used_input + 1;
+            (plus(acc, Box::new(customized_dao)), used_input_updated)
+        }
+        None => (plus(acc, Box::new(Default::default())), used_input),
     }
 }
 
 fn fill_vacancies_with_given_or_default_daos<const N: usize, T: Default>(
-    std_dao_initialization_order: [DestinationMarker; N],
-    mut customized_dao_set: Vec<DaoWithDestination<T>>,
+    correct_daos_initialization_order: [DestinationMarker; N],
+    mut customized_supplied_daos: Vec<DaoWithDestination<T>>,
 ) -> Vec<Box<T>> {
-    let input_count = customized_dao_set.len();
+    let initial_input_count = customized_supplied_daos.len();
 
-    let fold_init: (Vec<Box<T>>, usize) = (vec![], 0);
-    let (factory_make_queue, used_input) = std_dao_initialization_order.into_iter().fold(
-        fold_init,
-        |(acc, used_input), std_position: DestinationMarker| {
-            if let Some(idx) = customized_dao_set
-                .iter()
-                .position(|customized_dao| customized_dao.matches(&std_position))
-            {
-                let customized_dao = customized_dao_set.remove(idx).inner_value();
-                (plus(acc, Box::new(customized_dao)), used_input + 1)
-            } else {
-                (plus(acc, Box::new(Default::default())), used_input)
-            }
-        },
-    );
-    if input_count != used_input {
+    let fold_init_values: (Vec<Box<T>>, usize) = (vec![], 0);
+    let (make_queue_for_factory, used_input_count) = correct_daos_initialization_order
+        .into_iter()
+        .fold(fold_init_values, |(acc, used_input), position| {
+            guts_for_dao_factory_queue_initialization(
+                &mut customized_supplied_daos,
+                acc,
+                used_input,
+                position,
+            )
+        });
+    if initial_input_count != used_input_count {
         panic!(
-            "you supplied DAO for unrealistic destination; look at the destination matrix that \
-             describes all proper usages of {:?} and decode those places by the num_rep() function \
-             pattern",
+            "you supplied DAO for incorrect destination; look at the initialization order for \
+             the given scanner shown within those XXX_daos() methods of AccountantBuilder; it hints \
+             possible usages of {:?}",
             type_name::<T>()
         )
     }
-    factory_make_queue
+    make_queue_for_factory
 }
 
-macro_rules! init_or_update_factory {
+macro_rules! create_or_update_factory {
     (
         $dao_set: expr, //Vec<DaoWithDestination<XxxDaoMock>>
-        $dao_initialization_order_in_accountant: expr, //[DestinationMarker;N]
-        $dao_factory_mock: ident, // XxxDaoFactoryMock
+        $dao_initialization_order_in_regard_to_accountant: expr, //[DestinationMarker;N]
         $factory_field_in_builder: ident, //Option<XxxDaoFactoryMock>
+        $dao_factory_mock: ident, // XxxDaoFactoryMock
         $dao_trait: ident,
         $self: expr //mut AccountantBuilder
     ) => {{
-        let populated_queue = fill_vacancies_with_given_or_default_daos(
-            $dao_initialization_order_in_accountant,
+        let make_queue_uncast = fill_vacancies_with_given_or_default_daos(
+            $dao_initialization_order_in_regard_to_accountant,
             $dao_set,
         );
-        let populated_queue: Vec<Box<dyn $dao_trait>> = populated_queue
+
+        let finished_make_queue: Vec<Box<dyn $dao_trait>> = make_queue_uncast
             .into_iter()
             .map(|elem| elem as Box<dyn $dao_trait>)
             .collect();
-        let prepared_factory = match $self.$factory_field_in_builder.take() {
+
+        let ready_factory = match $self.$factory_field_in_builder.take() {
             Some(existing_factory) => {
-                existing_factory.make_results.replace(populated_queue);
+                existing_factory.make_results.replace(finished_make_queue);
                 existing_factory
             }
             None => {
                 let mut new_factory = $dao_factory_mock::new();
-                new_factory.make_results = RefCell::new(populated_queue);
+                new_factory.make_results = RefCell::new(finished_make_queue);
                 new_factory
             }
         };
-        $self.$factory_field_in_builder = Some(prepared_factory);
+        $self.$factory_field_in_builder = Some(ready_factory);
         $self
     }};
 }
+
+const PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 3] = [
+    DestinationMarker::AccountantBody,
+    DestinationMarker::PayableScanner,
+    DestinationMarker::PendingPayableScanner,
+];
+
+const PENDING_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 3] = [
+    DestinationMarker::AccountantBody,
+    DestinationMarker::PayableScanner,
+    DestinationMarker::PendingPayableScanner,
+];
+
+const RECEIVABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER: [DestinationMarker; 2] = [
+    DestinationMarker::AccountantBody,
+    DestinationMarker::ReceivableScanner,
+];
 
 impl AccountantBuilder {
     pub fn bootstrapper_config(mut self, config: BootstrapperConfig) -> Self {
@@ -213,20 +247,29 @@ impl AccountantBuilder {
         self
     }
 
+    pub fn pending_payable_daos(
+        mut self,
+        specially_configured_daos: Vec<DaoWithDestination<PendingPayableDaoMock>>,
+    ) -> Self {
+        create_or_update_factory!(
+            specially_configured_daos,
+            PENDING_PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
+            pending_payable_dao_factory,
+            PendingPayableDaoFactoryMock,
+            PendingPayableDao,
+            self
+        )
+    }
+
     pub fn payable_daos(
         mut self,
         specially_configured_daos: Vec<DaoWithDestination<PayableDaoMock>>,
     ) -> Self {
-        let initialization_order_in_accountant = [
-            DestinationMarker::AccountantBody,
-            DestinationMarker::PayableScanner,
-            DestinationMarker::PendingPayableScanner,
-        ];
-        init_or_update_factory!(
+        create_or_update_factory!(
             specially_configured_daos,
-            initialization_order_in_accountant,
-            PayableDaoFactoryMock,
+            PAYABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
             payable_dao_factory,
+            PayableDaoFactoryMock,
             PayableDao,
             self
         )
@@ -236,35 +279,12 @@ impl AccountantBuilder {
         mut self,
         specially_configured_daos: Vec<DaoWithDestination<ReceivableDaoMock>>,
     ) -> Self {
-        let initialization_order_in_accountant = [
-            DestinationMarker::AccountantBody,
-            DestinationMarker::ReceivableScanner,
-        ];
-        init_or_update_factory!(
+        create_or_update_factory!(
             specially_configured_daos,
-            initialization_order_in_accountant,
-            ReceivableDaoFactoryMock,
+            RECEIVABLE_DAOS_ACCOUNTANT_INITIALIZATION_ORDER,
             receivable_dao_factory,
+            ReceivableDaoFactoryMock,
             ReceivableDao,
-            self
-        )
-    }
-
-    pub fn pending_payable_daos(
-        mut self,
-        specially_configured_daos: Vec<DaoWithDestination<PendingPayableDaoMock>>,
-    ) -> Self {
-        let initialization_order_in_accountant = [
-            DestinationMarker::AccountantBody,
-            DestinationMarker::PayableScanner,
-            DestinationMarker::PendingPayableScanner,
-        ];
-        init_or_update_factory!(
-            specially_configured_daos,
-            initialization_order_in_accountant,
-            PendingPayableDaoFactoryMock,
-            pending_payable_dao_factory,
-            PendingPayableDao,
             self
         )
     }
