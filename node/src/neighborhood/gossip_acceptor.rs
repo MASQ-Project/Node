@@ -949,7 +949,7 @@ impl GossipHandler for StandardGossipHandler {
         );
         db_changed = self.identify_and_update_obsolete_nodes(database, filtered_agrs) || db_changed;
         db_changed =
-            self.add_gossip_node_as_half_neighbor(cryptde, database, gossip_source) || db_changed;
+            self.add_src_node_as_half_neighbor(cryptde, database, gossip_source) || db_changed;
         let final_neighborship_status =
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
         // If no Nodes need updating, return ::Ignored and don't change the database.
@@ -1108,7 +1108,7 @@ impl StandardGossipHandler {
         })
     }
 
-    fn add_gossip_node_as_half_neighbor(
+    fn add_src_node_as_half_neighbor(
         &self,
         cryptde: &dyn CryptDE,
         database: &mut NeighborhoodDatabase,
