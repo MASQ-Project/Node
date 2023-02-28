@@ -130,7 +130,7 @@ pub struct HopperConfig {
     pub crashable: bool,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct HopperSubs {
     pub bind: Recipient<BindMessage>,
     pub from_hopper_client: Recipient<IncipientCoresPackage>,

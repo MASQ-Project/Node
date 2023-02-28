@@ -20,11 +20,13 @@ use crate::accountant::{PendingPayableId, PendingTransactionStatus};
 use crate::banned_dao::BannedDao;
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::BlockchainError;
-use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics, PaymentThresholds};
+use crate::sub_lib::accountant::{
+    DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
+};
 use crate::sub_lib::blockchain_bridge::RequestAvailableBalancesForPayables;
-use crate::sub_lib::utils::NotifyLaterHandle;
+use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
 use crate::sub_lib::wallet::Wallet;
-use actix::{Message, System};
+use actix::{Context, Message, System};
 use itertools::Itertools;
 use masq_lib::logger::Logger;
 use masq_lib::logger::TIME_FORMATTING_STRING;
@@ -36,7 +38,7 @@ use std::any::Any;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::time::SystemTime;
+use std::time::{Duration, SystemTime};
 use time::format_description::parse;
 use time::OffsetDateTime;
 use web3::types::TransactionReceipt;
@@ -94,7 +96,7 @@ where
     fn scan_started_at(&self) -> Option<SystemTime>;
     fn mark_as_started(&mut self, timestamp: SystemTime);
     fn mark_as_ended(&mut self, logger: &Logger);
-    as_any_dcl!();
+    declare_as_any!();
 }
 
 pub struct ScannerCommon {
@@ -223,7 +225,7 @@ impl Scanner<RequestAvailableBalancesForPayables, SentPayables> for PayableDatab
 
     time_marking_methods!(Payables);
 
-    as_any_impl!();
+    implement_as_any!();
 }
 
 impl PayableDatabaseScanner {
@@ -430,7 +432,7 @@ impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingP
 
     time_marking_methods!(PendingPayables);
 
-    as_any_impl!();
+    implement_as_any!();
 }
 
 impl PendingPayableScanner {
@@ -660,7 +662,7 @@ impl Scanner<RetrieveTransactions, ReceivedPayments> for ReceivableScanner {
 
     time_marking_methods!(Receivables);
 
-    as_any_impl!();
+    implement_as_any!();
 }
 
 impl ReceivableScanner {
@@ -803,7 +805,7 @@ where
         panic!("Called mark_as_ended() from NullScanner");
     }
 
-    as_any_impl!();
+    implement_as_any!();
 }
 
 impl Default for NullScanner {
@@ -915,11 +917,42 @@ impl<BeginMessage, EndMessage> ScannerMock<BeginMessage, EndMessage> {
     }
 }
 
-#[derive(Default)]
-pub struct NotifyLaterForScanners {
-    pub scan_for_pending_payable: Box<dyn NotifyLaterHandle<ScanForPendingPayables, Accountant>>,
-    pub scan_for_payable: Box<dyn NotifyLaterHandle<ScanForPayables, Accountant>>,
-    pub scan_for_receivable: Box<dyn NotifyLaterHandle<ScanForReceivables, Accountant>>,
+pub struct ScanTimings {
+    pub pending_payable: PeriodicalScanConfig<ScanForPendingPayables>,
+    pub payable: PeriodicalScanConfig<ScanForPayables>,
+    pub receivable: PeriodicalScanConfig<ScanForReceivables>,
+}
+
+impl ScanTimings {
+    pub fn new(scan_intervals: ScanIntervals) -> Self {
+        ScanTimings {
+            pending_payable: PeriodicalScanConfig {
+                handle: Box::new(NotifyLaterHandleReal::default()),
+                interval: scan_intervals.pending_payable_scan_interval,
+            },
+            payable: PeriodicalScanConfig {
+                handle: Box::new(NotifyLaterHandleReal::default()),
+                interval: scan_intervals.payable_scan_interval,
+            },
+            receivable: PeriodicalScanConfig {
+                handle: Box::new(NotifyLaterHandleReal::default()),
+                interval: scan_intervals.receivable_scan_interval,
+            },
+        }
+    }
+}
+
+pub struct PeriodicalScanConfig<T: Default> {
+    pub handle: Box<dyn NotifyLaterHandle<T, Accountant>>,
+    pub interval: Duration,
+}
+
+impl<T: Default> PeriodicalScanConfig<T> {
+    pub fn schedule_another_periodic_scan(&self, ctx: &mut Context<Accountant>) {
+        // the default of the message implies response_skeleton_opt to be None
+        // because scheduled scans don't respond
+        let _ = self.handle.notify_later(T::default(), self.interval, ctx);
+    }
 }
 
 #[cfg(test)]

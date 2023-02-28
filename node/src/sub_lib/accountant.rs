@@ -177,7 +177,7 @@ pub enum SignConversionError {
 
 pub trait MessageIdGenerator {
     fn id(&self) -> u32;
-    as_any_dcl!();
+    declare_as_any!();
 }
 
 #[derive(Default)]
@@ -187,7 +187,7 @@ impl MessageIdGenerator for MessageIdGeneratorReal {
     fn id(&self) -> u32 {
         MSG_ID_INCREMENTER.fetch_add(1, Ordering::Relaxed)
     }
-    as_any_impl!();
+    implement_as_any!();
 }
 
 #[cfg(test)]

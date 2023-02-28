@@ -11,6 +11,7 @@ pub mod logfile_name_guard;
 pub mod neighborhood_test_utils;
 pub mod persistent_configuration_mock;
 pub mod recorder;
+pub mod recorder_stop_conditions;
 pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
@@ -525,9 +526,8 @@ pub mod unshared_test_utils {
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, Recorder, Recording};
-    use crate::test_utils::unshared_test_utils::system_killer_actor::{
-        CleanUpMessage, SystemKillerActor,
-    };
+    use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
+    use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use actix::{Actor, Addr, AsyncContext, Context, Handler, Recipient, System};
     use actix::{Message, SpawnHandle};
     use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -545,6 +545,7 @@ pub mod unshared_test_utils {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use std::vec;
 
     #[derive(Message)]
     pub struct AssertionsMessage<A: Actor> {
@@ -627,7 +628,9 @@ pub mod unshared_test_utils {
     {
         let (recorder, _, recording_arc) = make_recorder();
         let recorder = match stopping_message {
-            Some(type_id) => recorder.stop_condition(type_id), // No need to write stop message after this
+            Some(type_id) => recorder.system_stop_conditions(StopConditions::All(vec![
+                StopCondition::StopOnType(type_id),
+            ])), // No need to write stop message after this
             None => recorder,
         };
         let addr = recorder.start();
@@ -774,83 +777,6 @@ pub mod unshared_test_utils {
         }
     }
 
-    pub mod secondarily_sequenced_messages_encourager {
-        use super::*;
-
-        // the idea is: we know only those actor messages that send from the thread of the test
-        // itself will be handled if we use System::current().stop() to get out of the System's runtime loop.
-        // We use various tricks to let the System run longer but still converging to the end where we stop it dead.
-        //
-        // Here we have another trick that allows keeping up until messages emitted from the first sequence,
-        // on the thread of the test, proceed in their Handlers to sending another sequence of messages,
-        // the second sequence. The important difference from other methods is that here we can be specific about
-        // how many items from the message queue we want to consume before the System goes down.
-        //
-        // Unlike to the common routine, we provide a recipient to (probably) a special Recorder. We have to
-        // set up the recorder properly too, though. We need to tell it that it is supposed to shut the System
-        // down once it receives the CleanUPMessage which can be done conveniently by calling stop_condition(&self, ...)
-        // on it
-        // SecondarilySequencedMessagesEncourager::recipient_and_sequences_until_shutdown(...) is recommended to be
-        // placed right before system.run().
-
-        #[derive(Message, Clone)]
-        pub struct SecondarySequenceStarter {
-            chosen_recorder_recipient: Recipient<CleanUpMessage>,
-            iterations_remaining: usize,
-        }
-
-        pub struct SecondarilySequencedMessagesEncourager {}
-
-        impl Actor for SecondarilySequencedMessagesEncourager {
-            type Context = Context<Self>;
-        }
-
-        impl Handler<SecondarySequenceStarter> for SecondarilySequencedMessagesEncourager {
-            type Result = ();
-
-            fn handle(
-                &mut self,
-                msg: SecondarySequenceStarter,
-                ctx: &mut Self::Context,
-            ) -> Self::Result {
-                if msg.iterations_remaining != 0 {
-                    ctx.notify(SecondarySequenceStarter {
-                            chosen_recorder_recipient: msg.chosen_recorder_recipient,
-                            iterations_remaining: msg.iterations_remaining - 1,
-                        })
-                } else {
-                    msg.chosen_recorder_recipient
-                        .try_send(CleanUpMessage { sleep_ms: 0 })
-                        .unwrap()
-                }
-            }
-        }
-
-        impl SecondarilySequencedMessagesEncourager {
-            pub fn recipient_and_sequences_until_shutdown(
-                chosen_recorder_recipient: Recipient<CleanUpMessage>,
-                sequences_count: usize,
-            ) {
-                let iterations_remaining = match sequences_count {
-                    2..=6 => sequences_count - 1,
-                    _ => panic!(
-                        "Nonsensical or too loose number of required handled \
-                         sequenced messages. Pick one from this range 2..6, \
-                         bounds included"
-                    ),
-                };
-                SecondarilySequencedMessagesEncourager {}
-                    .start()
-                    .recipient()
-                    .try_send(SecondarySequenceStarter {
-                        chosen_recorder_recipient,
-                        iterations_remaining,
-                    })
-                    .unwrap();
-            }
-        }
-    }
-
     pub mod notify_handlers {
         use super::*;
 
@@ -952,78 +878,82 @@ pub mod unshared_test_utils {
         }
     }
 
-    //This is intended as an aid when standard constructs (e.g. downcasting,
-    //raw pointers) fail to help us make an assertion on a parameter use of a particular trait object.
-    //It is actually handy for very specific scenarios:
-    //
-    //Consider writing a test. We initiate a mocked trait object "O" encapsulated in a Box (so we will be
-    //moving ownership) and we plan to paste it in a function A. The function contains other functions like
-    //B, C, D. Let's say C takes our trait object as downgraded (with a plain reference) because D later takes
-    //"O" wholly as within the box. That means we couldn't easily call it in C.
-    //We need to assert from outside of fn A that "O" was pasted in C properly. However for capturing a param
-    //we need an owned or a clonable object, neither of those is usually acceptable. A possible raw pointer of "O"
-    //that we create outside of fn A will be always different than what we have in C, because a move occurred
-    //in between, by moving the Box around.
-    //Downcasting is also a pain and not proving anything alone.
-    //
-    //That's why we can add a test-only method to our arbitrary trait by this macro. It allows to implement
-    //a method fetching a made up id which is internally generated and dedicated to the object before the test begins.
-    //Then, at any stage, there is a chance to ask for that id from within any mocked function
-    //where we want to precisely identify what we get with the arguments that come in. The captured id represents the
-    //supplied instance, one of the function's parameters, and can be later asserted by comparing it with a copy of
-    //the same artificial id generated in the setup part of the test.
+    pub mod arbitrary_id_stamp {
+        use super::*;
 
-    lazy_static! {
-        pub static ref ARBITRARY_ID_STAMP_SEQUENCER: Mutex<MutexIncrementInset> =
-            Mutex::new(MutexIncrementInset(0));
-    }
+        //This is intended as an aid when standard constructs (e.g. downcasting,
+        //raw pointers) fail to help us make an assertion on a parameter use of a particular trait object.
+        //It is actually handy for very specific scenarios:
+        //
+        //Consider writing a test. We initiate a mocked trait object "O" encapsulated in a Box (so we will be
+        //moving ownership) and we plan to paste it in a function A. The function contains other functions like
+        //B, C, D. Let's say C takes our trait object as downgraded (with a plain reference) because D later takes
+        //"O" wholly as within the box. That means we couldn't easily call it in C.
+        //We need to assert from outside of fn A that "O" was pasted in C properly. However for capturing a param
+        //we need an owned or a clonable object, neither of those is usually acceptable. A possible raw pointer of "O"
+        //that we create outside of fn A will be always different than what we have in C, because a move occurred
+        //in between, by moving the Box around.
+        //Downcasting is also a pain and not proving anything alone.
+        //
+        //That's why we can add a test-only method to our arbitrary trait by this macro. It allows to implement
+        //a method fetching a made up id which is internally generated and dedicated to the object before the test begins.
+        //Then, at any stage, there is a chance to ask for that id from within any mocked function
+        //where we want to precisely identify what we get with the arguments that come in. The captured id represents the
+        //supplied instance, one of the function's parameters, and can be later asserted by comparing it with a copy of
+        //the same artificial id generated in the setup part of the test.
 
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub struct ArbitraryIdStamp(usize);
-
-    impl ArbitraryIdStamp {
-        pub fn new() -> Self {
-            ArbitraryIdStamp({
-                let mut access = ARBITRARY_ID_STAMP_SEQUENCER.lock().unwrap();
-                access.0 += 1;
-                access.0
-            })
+        lazy_static! {
+            pub static ref ARBITRARY_ID_STAMP_SEQUENCER: Mutex<MutexIncrementInset> =
+                Mutex::new(MutexIncrementInset(0));
         }
-    }
 
-    //to be put among the methods in your trait
-    #[macro_export]
-    macro_rules! arbitrary_id_stamp_in_trait {
-        () => {
-            #[cfg(test)]
-            fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-                //no necessity to implement it for all impls of the trait this is to be a member of
-                intentionally_blank!()
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub struct ArbitraryIdStamp(usize);
+
+        impl ArbitraryIdStamp {
+            pub fn new() -> Self {
+                ArbitraryIdStamp({
+                    let mut access = ARBITRARY_ID_STAMP_SEQUENCER.lock().unwrap();
+                    access.0 += 1;
+                    access.0
+                })
             }
-        };
-    }
+        }
 
-    //the following macros might be handy but your object must contain exactly this field:
-    //arbitrary_id_stamp_opt: RefCell<Option<ArbitraryIdStamp>>
+        //to be put among the methods in your trait
+        #[macro_export]
+        macro_rules! arbitrary_id_stamp_in_trait {
+            () => {
+                #[cfg(test)]
+                fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
+                    //no necessity to implement it for all impls of the trait this is to be a member of
+                    intentionally_blank!()
+                }
+            };
+        }
 
-    #[macro_export]
-    macro_rules! arbitrary_id_stamp {
-        () => {
-            fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-                *self.arbitrary_id_stamp_opt.borrow().as_ref().unwrap()
-            }
-        };
-    }
+        //the following macros might be handy but your object must contain exactly this field:
+        //arbitrary_id_stamp_opt: RefCell<Option<ArbitraryIdStamp>>
 
-    #[macro_export]
-    macro_rules! set_arbitrary_id_stamp {
-        () => {
-            pub fn set_arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-                let id_stamp = ArbitraryIdStamp::new();
-                self.arbitrary_id_stamp_opt.borrow_mut().replace(id_stamp);
-                id_stamp
-            }
-        };
+        #[macro_export]
+        macro_rules! arbitrary_id_stamp {
+            () => {
+                fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
+                    *self.arbitrary_id_stamp_opt.borrow().as_ref().unwrap()
+                }
+            };
+        }
+
+        #[macro_export]
+        macro_rules! set_arbitrary_id_stamp {
+            () => {
+                pub fn set_arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
+                    let id_stamp = ArbitraryIdStamp::new();
+                    self.arbitrary_id_stamp_opt.borrow_mut().replace(id_stamp);
+                    id_stamp
+                }
+            };
+        }
     }
 }
 

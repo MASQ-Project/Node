@@ -18,7 +18,7 @@ pub struct BlockchainBridgeConfig {
     pub gas_price: u64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct BlockchainBridgeSubs {
     pub bind: Recipient<BindMessage>,
     pub request_balances_for_payables: Recipient<RequestAvailableBalancesForPayables>,

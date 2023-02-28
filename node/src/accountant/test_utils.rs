@@ -101,10 +101,10 @@ impl Default for AccountantBuilder {
 }
 
 pub enum DaoWithDestination<T> {
-    AccountantBodyDest(T),
-    PayableScannerDest(T),
-    ReceivableScannerDest(T),
-    PendingPayableScannerDest(T),
+    ToAccountantBody(T),
+    ToPayableScanner(T),
+    ToReceivableScanner(T),
+    ToPendingPayableScanner(T),
 }
 
 enum DestinationMarker {
@@ -118,24 +118,24 @@ enum DestinationMarker {
 impl<T> DaoWithDestination<T> {
     fn matches(&self, dest_marker: &DestinationMarker) -> bool {
         match self {
-            Self::AccountantBodyDest(_) => matches!(dest_marker, DestinationMarker::AccountantBody),
-            Self::PayableScannerDest(_) => {
+            Self::ToAccountantBody(_) => matches!(dest_marker, DestinationMarker::AccountantBody),
+            Self::ToPayableScanner(_) => {
                 matches!(dest_marker, DestinationMarker::PayableDatabaseScanner)
             }
-            Self::ReceivableScannerDest(_) => {
+            Self::ToReceivableScanner(_) => {
                 matches!(dest_marker, DestinationMarker::ReceivableScanner)
             }
-            Self::PendingPayableScannerDest(_) => {
+            Self::ToPendingPayableScanner(_) => {
                 matches!(dest_marker, DestinationMarker::PendingPayableScanner)
             }
         }
     }
     fn inner_value(self) -> T {
         match self {
-            Self::AccountantBodyDest(dao) => dao,
-            Self::PayableScannerDest(dao) => dao,
-            Self::ReceivableScannerDest(dao) => dao,
-            Self::PendingPayableScannerDest(dao) => dao,
+            Self::ToAccountantBody(dao) => dao,
+            Self::ToPayableScanner(dao) => dao,
+            Self::ToReceivableScanner(dao) => dao,
+            Self::ToPendingPayableScanner(dao) => dao,
         }
     }
 }

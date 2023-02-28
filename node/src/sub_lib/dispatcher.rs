@@ -159,6 +159,7 @@ pub struct StreamShutdownMsg {
     pub report_to_counterpart: bool,
 }
 
+#[derive(PartialEq, Eq)]
 pub struct DispatcherSubs {
     pub ibcd_sub: Recipient<InboundClientData>,
     pub bind: Recipient<BindMessage>,

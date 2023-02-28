@@ -31,17 +31,17 @@ use crate::accountant::financials::visibility_restricted_module::{
 use crate::accountant::payable_dao::{Payable, PayableDaoError};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDaoError;
-use crate::accountant::scanners::{NotifyLaterForScanners, Scanners};
+use crate::accountant::scanners::{ScanTimings, Scanners};
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
 use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
+use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::DaoFactories;
 use crate::sub_lib::accountant::FinancialStatistics;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
-use crate::sub_lib::accountant::{AccountantSubs, ScanIntervals};
 use crate::sub_lib::accountant::{MessageIdGenerator, MessageIdGeneratorReal};
 use crate::sub_lib::blockchain_bridge::{
     ReportAccountsPayable, RequestAvailableBalancesForPayables,
@@ -80,7 +80,6 @@ pub const CRASH_KEY: &str = "ACCOUNTANT";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
 
 pub struct Accountant {
-    scan_intervals: ScanIntervals,
     suppress_initial_scans: bool,
     consuming_wallet: Option<Wallet>,
     earning_wallet: Rc<Wallet>,
@@ -89,7 +88,7 @@ pub struct Accountant {
     pending_payable_dao: Box<dyn PendingPayableDao>,
     crashable: bool,
     scanners: Scanners,
-    notify_later: NotifyLaterForScanners,
+    scan_timings: ScanTimings,
     financial_statistics: Rc<RefCell<FinancialStatistics>>,
     report_accounts_payable_sub_opt: Option<Recipient<ReportAccountsPayable>>,
     request_balances_for_payables_opt: Option<Recipient<RequestAvailableBalancesForPayables>>,
@@ -133,17 +132,17 @@ pub struct SentPayables {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-#[derive(Debug, Eq, Message, PartialEq, Clone, Copy)]
+#[derive(Debug, Message, Default, PartialEq, Eq, Clone, Copy)]
 pub struct ScanForPayables {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-#[derive(Debug, Message, PartialEq, Eq, Clone, Copy)]
+#[derive(Debug, Message, Default, PartialEq, Eq, Clone, Copy)]
 pub struct ScanForReceivables {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
-#[derive(Debug, Clone, Copy, Message, PartialEq, Eq)]
+#[derive(Debug, Message, Default, PartialEq, Eq, Clone, Copy)]
 pub struct ScanForPendingPayables {
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
@@ -224,13 +223,9 @@ impl Handler<ScanForPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForPayables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_request_of_scan_for_payable(msg.response_skeleton_opt);
-        let _ = self.notify_later.scan_for_payable.notify_later(
-            ScanForPayables {
-                response_skeleton_opt: None,
-            },
-            self.scan_intervals.payable_scan_interval,
-            ctx,
-        );
+        self.scan_timings
+            .payable
+            .schedule_another_periodic_scan(ctx);
     }
 }
 
@@ -239,13 +234,9 @@ impl Handler<ScanForPendingPayables> for Accountant {
 
     fn handle(&mut self, msg: ScanForPendingPayables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_request_of_scan_for_pending_payable(msg.response_skeleton_opt);
-        let _ = self.notify_later.scan_for_pending_payable.notify_later(
-            ScanForPendingPayables {
-                response_skeleton_opt: None, // because scheduled scans don't respond
-            },
-            self.scan_intervals.pending_payable_scan_interval,
-            ctx,
-        );
+        self.scan_timings
+            .pending_payable
+            .schedule_another_periodic_scan(ctx);
     }
 }
 
@@ -254,13 +245,9 @@ impl Handler<ScanForReceivables> for Accountant {
 
     fn handle(&mut self, msg: ScanForReceivables, ctx: &mut Self::Context) -> Self::Result {
         self.handle_request_of_scan_for_receivable(msg.response_skeleton_opt);
-        let _ = self.notify_later.scan_for_receivable.notify_later(
-            ScanForReceivables {
-                response_skeleton_opt: None, // because scheduled scans don't respond
-            },
-            self.scan_intervals.receivable_scan_interval,
-            ctx,
-        );
+        self.scan_timings
+            .receivable
+            .schedule_another_periodic_scan(ctx);
     }
 }
 
@@ -424,7 +411,6 @@ impl Accountant {
         );
 
         Accountant {
-            scan_intervals,
             suppress_initial_scans: config.suppress_initial_scans,
             consuming_wallet: config.consuming_wallet_opt.clone(),
             earning_wallet: Rc::clone(&earning_wallet),
@@ -433,7 +419,7 @@ impl Accountant {
             pending_payable_dao,
             scanners,
             crashable: config.crash_point == CrashPoint::Message,
-            notify_later: NotifyLaterForScanners::default(),
+            scan_timings: ScanTimings::new(scan_intervals),
             financial_statistics: Rc::clone(&financial_statistics),
             report_accounts_payable_sub_opt: None,
             request_balances_for_payables_opt: None,
@@ -549,11 +535,6 @@ impl Accountant {
         self.retrieve_transactions_sub =
             Some(msg.peer_actors.blockchain_bridge.retrieve_transactions);
         self.report_inbound_payments_sub = Some(msg.peer_actors.accountant.report_inbound_payments);
-        self.request_balances_for_payables_opt = Some(
-            msg.peer_actors
-                .blockchain_bridge
-                .request_balances_for_payables,
-        );
         self.report_sent_payments_sub = Some(msg.peer_actors.accountant.report_sent_payments);
         self.ui_message_sub = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
         self.request_transaction_receipts_subs_opt = Some(
@@ -963,7 +944,6 @@ pub mod check_sqlite_fns {
 mod tests {
     use super::*;
     use std::any::TypeId;
-    use std::collections::HashMap;
     use std::ops::{Add, Sub};
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -996,7 +976,7 @@ mod tests {
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::scanners::{BeginScanError, NullScanner, ScannerMock};
     use crate::accountant::test_utils::DaoWithDestination::{
-        AccountantBodyDest, PayableScannerDest, PendingPayableScannerDest, ReceivableScannerDest,
+        ToAccountantBody, ToPayableScanner, ToPendingPayableScanner, ToReceivableScanner,
     };
     use crate::accountant::test_utils::{
         bc_from_earning_wallet, bc_from_wallets, make_payables, BannedDaoFactoryMock,
@@ -1011,6 +991,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::BlockchainTransaction;
     use crate::blockchain::test_utils::BlockchainInterfaceMock;
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
+    use crate::match_every_type_id;
     use crate::sub_lib::accountant::{
         ExitServiceConsumed, PaymentThresholds, RoutingServiceConsumed, ScanIntervals,
         DEFAULT_PAYMENT_THRESHOLDS,
@@ -1021,11 +1002,9 @@ mod tests {
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
+    use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
-    use crate::test_utils::unshared_test_utils::secondarily_sequenced_messages_encourager::SecondarilySequencedMessagesEncourager;
-    use crate::test_utils::unshared_test_utils::system_killer_actor::{
-        CleanUpMessage, SystemKillerActor,
-    };
+    use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use crate::test_utils::unshared_test_utils::{
         make_bc_with_defaults, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
@@ -1136,19 +1115,22 @@ mod tests {
         );
 
         let financial_statistics = result.financial_statistics().clone();
-        let notify_later = result.notify_later;
+        let notify_later = result.scan_timings;
         notify_later
-            .scan_for_pending_payable
+            .pending_payable
+            .handle
             .as_any()
             .downcast_ref::<NotifyLaterHandleReal<ScanForPendingPayables>>()
             .unwrap();
         notify_later
-            .scan_for_payable
+            .payable
+            .handle
             .as_any()
             .downcast_ref::<NotifyLaterHandleReal<ScanForPayables>>()
             .unwrap();
         notify_later
-            .scan_for_receivable
+            .receivable
+            .handle
             .as_any()
             .downcast_ref::<NotifyLaterHandleReal<ScanForReceivables>>();
         result
@@ -1174,7 +1156,7 @@ mod tests {
             .paid_delinquencies_result(vec![]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .receivable_daos(vec![ReceivableScannerDest(receivable_dao)])
+            .receivable_daos(vec![ToReceivableScanner(receivable_dao)])
             .build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -1263,7 +1245,7 @@ mod tests {
             PayableDaoMock::new().non_pending_payables_result(vec![payable_account.clone()]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![PayableScannerDest(payable_dao)])
+            .payable_daos(vec![ToPayableScanner(payable_dao)])
             .build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -1352,7 +1334,7 @@ mod tests {
             .return_all_fingerprints_result(vec![fingerprint.clone()]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .pending_payable_daos(vec![PendingPayableScannerDest(pending_payable_dao)])
+            .pending_payable_daos(vec![ToPendingPayableScanner(pending_payable_dao)])
             .build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -1410,7 +1392,7 @@ mod tests {
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .logger(Logger::new(test_name))
-            .pending_payable_daos(vec![PendingPayableScannerDest(pending_payable_dao)])
+            .pending_payable_daos(vec![ToPendingPayableScanner(pending_payable_dao)])
             .build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -1497,8 +1479,8 @@ mod tests {
         let system = System::new("accountant_calls_payable_dao_to_mark_pending_payable");
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
-            .payable_daos(vec![PayableScannerDest(payable_dao)])
-            .pending_payable_daos(vec![PayableScannerDest(pending_payable_dao)])
+            .payable_daos(vec![ToPayableScanner(payable_dao)])
+            .pending_payable_daos(vec![ToPayableScanner(pending_payable_dao)])
             .build();
         let expected_payable = Payable::new(
             expected_wallet.clone(),
@@ -1534,7 +1516,7 @@ mod tests {
         let system = System::new("sent payable failure without backup");
         let pending_payable_dao = PendingPayableDaoMock::default().fingerprint_rowid_result(None);
         let accountant = AccountantBuilder::default()
-            .pending_payable_daos(vec![PayableScannerDest(pending_payable_dao)])
+            .pending_payable_daos(vec![ToPayableScanner(pending_payable_dao)])
             .build();
         let hash = H256::from_uint(&U256::from(12345));
         let sent_payable = SentPayables {
@@ -1588,8 +1570,8 @@ mod tests {
             .delete_fingerprint_params(&delete_fingerprint_params_arc)
             .delete_fingerprint_result(Ok(()));
         let subject = AccountantBuilder::default()
-            .payable_daos(vec![PayableScannerDest(payable_dao)])
-            .pending_payable_daos(vec![PayableScannerDest(pending_payable_dao)]) // For Scanner
+            .payable_daos(vec![ToPayableScanner(payable_dao)])
+            .pending_payable_daos(vec![ToPayableScanner(pending_payable_dao)]) // For Scanner
             .build();
         let wallet = make_wallet("blah");
         let hash_tx_1 = H256::from_uint(&U256::from(5555));
@@ -1655,7 +1637,7 @@ mod tests {
         let system = System::new("report_accounts_payable forwarded to blockchain_bridge");
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
-            .payable_daos(vec![PayableScannerDest(payable_dao)])
+            .payable_daos(vec![ToPayableScanner(payable_dao)])
             .build();
         subject.scanners.pending_payable = Box::new(NullScanner::new());
         subject.scanners.receivable = Box::new(NullScanner::new());
@@ -1696,7 +1678,7 @@ mod tests {
             .paid_delinquencies_result(vec![]);
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(earning_wallet.clone()))
-            .receivable_daos(vec![ReceivableScannerDest(receivable_dao)])
+            .receivable_daos(vec![ToReceivableScanner(receivable_dao)])
             .build();
         subject.scanners.pending_payable = Box::new(NullScanner::new());
         subject.scanners.payable = Box::new(NullScanner::new());
@@ -1744,7 +1726,7 @@ mod tests {
             .more_money_received_result(Ok(()));
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(earning_wallet.clone()))
-            .receivable_daos(vec![ReceivableScannerDest(receivable_dao)])
+            .receivable_daos(vec![ToReceivableScanner(receivable_dao)])
             .build();
         let system = System::new("accountant_receives_new_payments_to_the_receivables_dao");
         let subject = accountant.start();
@@ -1790,9 +1772,9 @@ mod tests {
             .paid_delinquencies_result(vec![]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![PayableScannerDest(payable_dao)])
-            .pending_payable_daos(vec![PendingPayableScannerDest(pending_payable_dao)])
-            .receivable_daos(vec![ReceivableScannerDest(receivable_dao)])
+            .payable_daos(vec![ToPayableScanner(payable_dao)])
+            .pending_payable_daos(vec![ToPendingPayableScanner(pending_payable_dao)])
+            .receivable_daos(vec![ToReceivableScanner(receivable_dao)])
             .build();
         let peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
@@ -1860,7 +1842,7 @@ mod tests {
         subject.scanners.payable = Box::new(NullScanner::new()); // Skipping
         subject.scanners.pending_payable = Box::new(NullScanner::new()); // Skipping
         subject.scanners.receivable = Box::new(receivable_scanner);
-        subject.notify_later.scan_for_receivable = Box::new(
+        subject.scan_timings.receivable.handle = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_receivable_params_arc)
                 .permit_to_send_out(),
@@ -1927,7 +1909,7 @@ mod tests {
         subject.scanners.payable = Box::new(NullScanner::new()); //skipping
         subject.scanners.pending_payable = Box::new(pending_payable_scanner);
         subject.scanners.receivable = Box::new(NullScanner::new()); //skipping
-        subject.notify_later.scan_for_pending_payable = Box::new(
+        subject.scan_timings.pending_payable.handle = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_pending_payable_params_arc)
                 .permit_to_send_out(),
@@ -1995,7 +1977,7 @@ mod tests {
         subject.scanners.payable = Box::new(payable_scanner);
         subject.scanners.pending_payable = Box::new(NullScanner::new()); //skipping
         subject.scanners.receivable = Box::new(NullScanner::new()); //skipping
-        subject.notify_later.scan_for_payable = Box::new(
+        subject.scan_timings.payable.handle = Box::new(
             NotifyLaterHandleMock::default()
                 .notify_later_params(&notify_later_payables_params_arc)
                 .permit_to_send_out(),
@@ -2125,7 +2107,7 @@ mod tests {
             blockchain_bridge_addr.recipient::<ReportAccountsPayable>();
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![PayableScannerDest(payable_dao)])
+            .payable_daos(vec![ToPayableScanner(payable_dao)])
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
 
@@ -2180,10 +2162,8 @@ mod tests {
         ];
         let payable_dao = PayableDaoMock::default().non_pending_payables_result(accounts.clone());
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
-        let mut expected_messages_by_type = HashMap::new();
-        expected_messages_by_type.insert(TypeId::of::<ReportAccountsPayable>(), 1);
-        let blockchain_bridge = blockchain_bridge
-            .stop_after_messages_and_start_system_killer(expected_messages_by_type);
+        let blockchain_bridge =
+            blockchain_bridge.system_stop_conditions(match_every_type_id!(ReportAccountsPayable));
         let system =
             System::new("scan_for_payable_message_triggers_payment_for_balances_over_the_curve");
         let peer_actors = peer_actors_builder()
@@ -2191,7 +2171,7 @@ mod tests {
             .build();
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![PayableScannerDest(payable_dao)]) // For PendingPayable Scanner
+            .payable_daos(vec![ToPayableScanner(payable_dao)])
             .build();
         subject.scanners.pending_payable = Box::new(NullScanner::new());
         subject.scanners.receivable = Box::new(NullScanner::new());
@@ -2220,12 +2200,14 @@ mod tests {
         init_test_logging();
         let test_name = "accountant_does_not_initiate_another_scan_in_case_it_receives_the_message_and_the_scanner_is_running";
         let payable_dao = PayableDaoMock::default();
-        let (system_killing_actor, _,_) = make_recorder();
-        let system_killing_actor =
-            system_killing_actor.stop_condition(TypeId::of::<CleanUpMessage>());
-        let system_killing_actor_recipient = system_killing_actor.start().recipient();
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
-        let request_available_balances_for_payables_sub = blockchain_bridge.start().recipient();
+        let blockchain_bridge_addr = blockchain_bridge
+            .system_stop_conditions(match_every_type_id!(
+                ReportAccountsPayable,
+                ReportAccountsPayable
+            ))
+            .start();
+        let report_accounts_payable_sub = blockchain_bridge_addr.clone().recipient();
         let last_paid_timestamp = to_time_t(SystemTime::now())
             - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec as i64
             - 1;
@@ -2235,36 +2217,65 @@ mod tests {
             last_paid_timestamp: from_time_t(last_paid_timestamp),
             pending_payable_opt: None,
         };
-        let payable_dao = payable_dao.non_pending_payables_result(vec![payable_account.clone()]);
+        let payable_dao = payable_dao
+            .non_pending_payables_result(vec![payable_account.clone()])
+            .non_pending_payables_result(vec![payable_account]);
         let config = bc_from_earning_wallet(make_wallet("mine"));
         let system = System::new(test_name);
         let mut subject = AccountantBuilder::default()
             .logger(Logger::new(test_name))
-            .payable_daos(vec![PayableScannerDest(payable_dao)]) // For PendingPayable Scanner
+            .payable_daos(vec![ToPayableScanner(payable_dao)])
             .bootstrapper_config(config)
             .build();
+        let message_before = ScanForPayables {
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 111,
+                context_id: 222,
+            }),
+        };
+        let message_after = ScanForPayables {
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 333,
+                context_id: 444,
+            }),
+        };
         subject.request_balances_for_payables_opt =
             Some(request_available_balances_for_payables_sub.clone());
         let addr = subject.start();
-        addr.try_send(ScanForPayables {
-            response_skeleton_opt: None,
-        })
-        .unwrap();
+        addr.try_send(message_before.clone()).unwrap();
 
         addr.try_send(ScanForPayables {
             response_skeleton_opt: None,
         })
         .unwrap();
 
-        SecondarilySequencedMessagesEncourager::recipient_and_sequences_until_shutdown(
-            system_killing_actor_recipient,
-            2,
-        );
+        // We ignored the second ScanForPayables message because the first message meant a scan
+        // was already in progress; now let's make it look like that scan has ended so that we
+        // can prove the next message will start another one.
+        addr.try_send(AssertionsMessage {
+            assertions: Box::new(|accountant: &mut Accountant| {
+                accountant
+                    .scanners
+                    .payable
+                    .mark_as_ended(&Logger::new("irrelevant"))
+            }),
+        })
+        .unwrap();
+        addr.try_send(message_after.clone()).unwrap();
         system.run();
         let recording = blockchain_bridge_recording.lock().unwrap();
         let messages_received = recording.len();
-        //correct, only one message received from those two attempts
-        assert_eq!(messages_received, 1);
+        assert_eq!(messages_received, 2);
+        let first_message: &ReportAccountsPayable = recording.get_record(0);
+        assert_eq!(
+            first_message.response_skeleton_opt,
+            message_before.response_skeleton_opt
+        );
+        let second_message: &ReportAccountsPayable = recording.get_record(1);
+        assert_eq!(
+            second_message.response_skeleton_opt,
+            message_after.response_skeleton_opt
+        );
         TestLogHandler::new().exists_log_containing(&format!(
             "DEBUG: {}: Payables scan was already initiated",
             test_name
@@ -2299,7 +2310,7 @@ mod tests {
         let config = bc_from_earning_wallet(make_wallet("mine"));
         let system = System::new("pending payable scan");
         let mut subject = AccountantBuilder::default()
-            .pending_payable_daos(vec![PendingPayableScannerDest(pending_payable_dao)])
+            .pending_payable_daos(vec![ToPendingPayableScanner(pending_payable_dao)])
             .bootstrapper_config(config)
             .build();
         let blockchain_bridge_addr = blockchain_bridge.start();
@@ -2341,8 +2352,8 @@ mod tests {
             .more_money_receivable_result(Ok(()));
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bootstrapper_config)
-            .payable_daos(vec![AccountantBodyDest(payable_dao_mock)])
-            .receivable_daos(vec![AccountantBodyDest(receivable_dao_mock)])
+            .payable_daos(vec![ToAccountantBody(payable_dao_mock)])
+            .receivable_daos(vec![ToAccountantBody(receivable_dao_mock)])
             .build();
         let system = System::new("report_routing_service_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
@@ -2387,8 +2398,8 @@ mod tests {
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![AccountantBodyDest(payable_dao_mock)])
-            .receivable_daos(vec![AccountantBodyDest(receivable_dao_mock)])
+            .payable_daos(vec![ToAccountantBody(payable_dao_mock)])
+            .receivable_daos(vec![ToAccountantBody(receivable_dao_mock)])
             .build();
         let system = System::new("report_routing_service_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
@@ -2432,8 +2443,8 @@ mod tests {
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![AccountantBodyDest(payable_dao_mock)])
-            .receivable_daos(vec![AccountantBodyDest(receivable_dao_mock)])
+            .payable_daos(vec![ToAccountantBody(payable_dao_mock)])
+            .receivable_daos(vec![ToAccountantBody(receivable_dao_mock)])
             .build();
         let system = System::new("report_routing_service_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
@@ -2478,8 +2489,8 @@ mod tests {
             .more_money_receivable_result(Ok(()));
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![AccountantBodyDest(payable_dao_mock)])
-            .receivable_daos(vec![AccountantBodyDest(receivable_dao_mock)])
+            .payable_daos(vec![ToAccountantBody(payable_dao_mock)])
+            .receivable_daos(vec![ToAccountantBody(receivable_dao_mock)])
             .build();
         let system = System::new("report_exit_service_provided_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
@@ -2524,8 +2535,8 @@ mod tests {
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![AccountantBodyDest(payable_dao_mock)])
-            .receivable_daos(vec![AccountantBodyDest(receivable_dao_mock)])
+            .payable_daos(vec![ToAccountantBody(payable_dao_mock)])
+            .receivable_daos(vec![ToAccountantBody(receivable_dao_mock)])
             .build();
         let system = System::new("report_exit_service_provided_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
@@ -2569,8 +2580,8 @@ mod tests {
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![AccountantBodyDest(payable_dao_mock)])
-            .receivable_daos(vec![AccountantBodyDest(receivable_dao_mock)])
+            .payable_daos(vec![ToAccountantBody(payable_dao_mock)])
+            .receivable_daos(vec![ToAccountantBody(receivable_dao_mock)])
             .build();
         let system = System::new("report_exit_service_provided_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
@@ -2615,7 +2626,7 @@ mod tests {
             .more_money_payable_result(Ok(()));
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![AccountantBodyDest(payable_dao_mock)])
+            .payable_daos(vec![ToAccountantBody(payable_dao_mock)])
             .build();
         subject.message_id_generator = Box::new(MessageIdGeneratorMock::default().id_result(123));
         let system = System::new("report_services_consumed_message_is_received");
@@ -2704,7 +2715,7 @@ mod tests {
             .more_money_payable_params(more_money_payable_parameters_arc.clone());
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![AccountantBodyDest(payable_dao_mock)])
+            .payable_daos(vec![ToAccountantBody(payable_dao_mock)])
             .build();
         let system = System::new("test");
         let subject_addr: Addr<Accountant> = subject.start();
@@ -2879,7 +2890,7 @@ mod tests {
             ),
         ));
         let subject = AccountantBuilder::default()
-            .receivable_daos(vec![AccountantBodyDest(receivable_dao)])
+            .receivable_daos(vec![ToAccountantBody(receivable_dao)])
             .build();
 
         let _ = subject.record_service_provided(i64::MAX as u64, 1, SystemTime::now(), 2, &wallet);
@@ -2892,7 +2903,7 @@ mod tests {
         let receivable_dao = ReceivableDaoMock::new()
             .more_money_receivable_result(Err(ReceivableDaoError::SignConversion(1234)));
         let subject = AccountantBuilder::default()
-            .receivable_daos(vec![AccountantBodyDest(receivable_dao)])
+            .receivable_daos(vec![ToAccountantBody(receivable_dao)])
             .build();
 
         subject.record_service_provided(i64::MAX as u64, 1, SystemTime::now(), 2, &wallet);
@@ -2911,7 +2922,7 @@ mod tests {
         let payable_dao = PayableDaoMock::new()
             .more_money_payable_result(Err(PayableDaoError::SignConversion(1234)));
         let subject = AccountantBuilder::default()
-            .payable_daos(vec![AccountantBodyDest(payable_dao)])
+            .payable_daos(vec![ToAccountantBody(payable_dao)])
             .build();
         let service_rate = i64::MAX as u64;
 
@@ -2937,7 +2948,7 @@ mod tests {
             PayableDaoError::RusqliteError("we cannot help ourselves; this is baaad".to_string()),
         ));
         let subject = AccountantBuilder::default()
-            .payable_daos(vec![AccountantBodyDest(payable_dao)])
+            .payable_daos(vec![ToAccountantBody(payable_dao)])
             .build();
 
         let _ = subject.record_service_consumed(i64::MAX as u64, 1, SystemTime::now(), 2, &wallet);
@@ -2967,7 +2978,7 @@ mod tests {
             )));
         let system = System::new("test");
         let subject = AccountantBuilder::default()
-            .pending_payable_daos(vec![PayableScannerDest(pending_payable_dao)])
+            .pending_payable_daos(vec![ToPayableScanner(pending_payable_dao)])
             .build();
         let addr = subject.start();
 
@@ -3170,21 +3181,21 @@ mod tests {
                 let mut subject = AccountantBuilder::default()
                     .bootstrapper_config(bootstrapper_config)
                     .payable_daos(vec![
-                        AccountantBodyDest(payable_dao_for_accountant),
-                        PayableScannerDest(payable_dao_for_payable_scanner),
-                        PendingPayableScannerDest(payable_dao_for_pending_payable_scanner),
+                        ToAccountantBody(payable_dao_for_accountant),
+                        ToPayableScanner(payable_dao_for_payable_scanner),
+                        ToPendingPayableScanner(payable_dao_for_pending_payable_scanner),
                     ])
                     .pending_payable_daos(vec![
-                        AccountantBodyDest(pending_payable_dao_for_accountant),
-                        PayableScannerDest(pending_payable_dao_for_payable_scanner),
-                        PendingPayableScannerDest(pending_payable_dao_for_pending_payable_scanner),
+                        ToAccountantBody(pending_payable_dao_for_accountant),
+                        ToPayableScanner(pending_payable_dao_for_payable_scanner),
+                        ToPendingPayableScanner(pending_payable_dao_for_pending_payable_scanner),
                     ])
                     .build();
                 subject.scanners.receivable = Box::new(NullScanner::new());
                 let notify_later_half_mock = NotifyLaterHandleMock::default()
                     .notify_later_params(&notify_later_scan_for_pending_payable_arc_cloned)
                     .permit_to_send_out();
-                subject.notify_later.scan_for_pending_payable = Box::new(notify_later_half_mock);
+                subject.scan_timings.pending_payable.handle = Box::new(notify_later_half_mock);
                 subject
             });
         let mut peer_actors = peer_actors_builder().build();
@@ -3289,7 +3300,7 @@ mod tests {
             .insert_fingerprint_params(&insert_fingerprint_params_arc)
             .insert_fingerprint_result(Ok(()));
         let subject = AccountantBuilder::default()
-            .pending_payable_daos(vec![AccountantBodyDest(pending_payable_dao)])
+            .pending_payable_daos(vec![ToAccountantBody(pending_payable_dao)])
             .build();
         let accountant_addr = subject.start();
         let tx_hash = H256::from_uint(&U256::from(55));
@@ -3336,7 +3347,7 @@ mod tests {
         let amount = 2345;
         let transaction_hash = H256::from_uint(&U256::from(456));
         let subject = AccountantBuilder::default()
-            .pending_payable_daos(vec![AccountantBodyDest(pending_payable_dao)])
+            .pending_payable_daos(vec![ToAccountantBody(pending_payable_dao)])
             .build();
         let timestamp_secs = 150_000_000;
         let fingerprint = PendingPayableFingerprint {
@@ -3506,8 +3517,8 @@ mod tests {
         let system = System::new("test");
         let subject = AccountantBuilder::default()
             .bootstrapper_config(make_bc_with_defaults())
-            .payable_daos(vec![AccountantBodyDest(payable_dao)])
-            .receivable_daos(vec![AccountantBodyDest(receivable_dao)])
+            .payable_daos(vec![ToAccountantBody(payable_dao)])
+            .receivable_daos(vec![ToAccountantBody(receivable_dao)])
             .build();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -3552,8 +3563,8 @@ mod tests {
         let receivable_dao = ReceivableDaoMock::new().total_result((i64::MAX as i128) * 3);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
-            .payable_daos(vec![AccountantBodyDest(payable_dao)])
-            .receivable_daos(vec![AccountantBodyDest(receivable_dao)])
+            .payable_daos(vec![ToAccountantBody(payable_dao)])
+            .receivable_daos(vec![ToAccountantBody(receivable_dao)])
             .build();
         subject
             .financial_statistics
@@ -3628,8 +3639,8 @@ mod tests {
             .custom_query_result(Some(receivable_accounts_retrieved));
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
-            .payable_daos(vec![AccountantBodyDest(payable_dao)]) // For PendingPayable Scanner
-            .receivable_daos(vec![AccountantBodyDest(receivable_dao)])
+            .payable_daos(vec![ToAccountantBody(payable_dao)])
+            .receivable_daos(vec![ToAccountantBody(receivable_dao)])
             .build();
         let context_id_expected = 1234;
         let request = UiFinancialsRequest {
@@ -3709,8 +3720,8 @@ mod tests {
             .custom_query_result(None);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
-            .payable_daos(vec![AccountantBodyDest(payable_dao)])
-            .receivable_daos(vec![AccountantBodyDest(receivable_dao)])
+            .payable_daos(vec![ToAccountantBody(payable_dao)])
+            .receivable_daos(vec![ToAccountantBody(receivable_dao)])
             .build();
         let context_id_expected = 1234;
         let request = UiFinancialsRequest {
@@ -3784,8 +3795,8 @@ mod tests {
             .custom_query_result(Some(receivable_accounts_retrieved));
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
-            .payable_daos(vec![AccountantBodyDest(payable_dao)])
-            .receivable_daos(vec![AccountantBodyDest(receivable_dao)])
+            .payable_daos(vec![ToAccountantBody(payable_dao)])
+            .receivable_daos(vec![ToAccountantBody(receivable_dao)])
             .build();
         let context_id_expected = 1234;
         let request = UiFinancialsRequest {
@@ -3917,8 +3928,8 @@ mod tests {
             .custom_query_params(&receivable_custom_query_params_arc)
             .custom_query_result(Some(receivable_accounts_retrieved));
         let subject = AccountantBuilder::default()
-            .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address"))) // For PendingPayable Scanner
-            .receivable_daos(vec![AccountantBodyDest(receivable_dao)])
+            .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
+            .receivable_daos(vec![ToAccountantBody(receivable_dao)])
             .build();
         let context_id_expected = 1234;
         let request = UiFinancialsRequest {
@@ -4027,7 +4038,7 @@ mod tests {
             PayableDaoMock::new().custom_query_result(Some(payable_accounts_retrieved));
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
-            .payable_daos(vec![AccountantBodyDest(payable_dao)])
+            .payable_daos(vec![ToAccountantBody(payable_dao)])
             .build();
         let context_id_expected = 1234;
         let request = UiFinancialsRequest {
@@ -4063,7 +4074,7 @@ mod tests {
             ReceivableDaoMock::new().custom_query_result(Some(receivable_accounts_retrieved));
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
-            .receivable_daos(vec![AccountantBodyDest(receivable_dao)])
+            .receivable_daos(vec![ToAccountantBody(receivable_dao)])
             .build();
         let context_id_expected = 1234;
         let request = UiFinancialsRequest {
