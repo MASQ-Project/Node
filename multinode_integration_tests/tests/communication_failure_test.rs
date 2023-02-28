@@ -163,6 +163,7 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
     let relay1_cryptde =
         CryptDENull::from(&relay1_mock.main_public_key(), TEST_DEFAULT_MULTINODE_CHAIN);
     let cheap_exit_cryptde = CryptDENull::from(&cheap_exit_key, TEST_DEFAULT_MULTINODE_CHAIN);
+    let key_length = normal_exit_key.len();
 
     // This request should be routed through cheap_exit because it's cheaper
     client.send_chunk("GET / HTTP/1.1\r\nHost: nonexistent.com\r\n\r\n".as_bytes());
@@ -170,7 +171,7 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         .wait_for_package(&masquerader, Duration::from_secs(2))
         .unwrap();
     let (_, intended_exit_public_key) =
-        CryptDENull::extract_key_pair(cheap_exit_key.len(), &live_cores_package.payload);
+        CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
     assert_eq!(intended_exit_public_key, cheap_exit_key);
     let expired_cores_package: ExpiredCoresPackage<MessageType> = live_cores_package
         .to_expired(
@@ -220,14 +221,20 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         .wait_for_package(&masquerader, Duration::from_secs(2))
         .unwrap();
     let (_, intended_exit_public_key) =
-        CryptDENull::extract_key_pair(normal_exit_key.len(), &live_cores_package.payload);
+        CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
     assert_eq!(intended_exit_public_key, normal_exit_key);
 
-    // // Now request a different host; it should be routed through cheap_exit because it's cheaper
-    // client.send_chunk("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes());
-    // let (_, _, live_cores_package) = relay1_mock.wait_for_package(&masquerader, Duration::from_secs(2)).unwrap();
-    // let (_, intended_exit_public_key) = CryptDENull::extract_key_pair(cheap_exit_key.len(), &live_cores_package.payload);
-    // assert_eq! (intended_exit_public_key, cheap_exit_key);
+    // TODO GH-674: Once the new exit node is picked, the Node will continue using that exit node
+    // for all its route unless the current exit node faces an extreme penalty. Maybe it's not the
+    // most economical solution. For example, in the assertion below, we may prefer to use
+    // cheaper_exit_node instead.
+    client.send_chunk("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes());
+    let (_, _, live_cores_package) = relay1_mock
+        .wait_for_package(&masquerader, Duration::from_secs(2))
+        .unwrap();
+    let (_, intended_exit_public_key) =
+        CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
+    assert_eq!(intended_exit_public_key, normal_exit_key);
 }
 
 fn cheaper_rate_pack(base_rate_pack: &RatePack, decrement: u64) -> RatePack {
