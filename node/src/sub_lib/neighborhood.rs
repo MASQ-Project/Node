@@ -524,7 +524,7 @@ pub struct NodeRecordMetadataMessage {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NRMetadataChange {
-    AddUnreachableHost { host_name: String },
+    AddUnreachableHost { hostname: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

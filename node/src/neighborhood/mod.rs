@@ -342,7 +342,7 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
 
     fn handle(&mut self, msg: NodeRecordMetadataMessage, _ctx: &mut Self::Context) -> Self::Result {
         match msg.metadata_change {
-            NRMetadataChange::AddUnreachableHost { host_name } => {
+            NRMetadataChange::AddUnreachableHost { hostname } => {
                 let public_key = msg.public_key;
                 let node_record = self
                     .neighborhood_database
@@ -352,10 +352,10 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
                     });
                 debug!(
                     self.logger,
-                    "Marking host {host_name} unreachable for the Node with public key {:?}",
+                    "Marking host {hostname} unreachable for the Node with public key {:?}",
                     public_key
                 );
-                node_record.metadata.unreachable_hosts.insert(host_name);
+                node_record.metadata.unreachable_hosts.insert(hostname);
             }
         }
     }
@@ -5312,7 +5312,7 @@ mod tests {
         let _ = addr.try_send(NodeRecordMetadataMessage {
             public_key: public_key.clone(),
             metadata_change: NRMetadataChange::AddUnreachableHost {
-                host_name: unreachable_host.clone(),
+                hostname: unreachable_host.clone(),
             },
         });
 
