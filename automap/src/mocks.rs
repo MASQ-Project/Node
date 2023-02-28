@@ -51,7 +51,7 @@ impl TestMulticastSocketHolder {
     fn allocate_bit() -> u8 {
         let mut guard = MULTICAST_GROUPS_ACTIVE.lock().unwrap();
         let mut bit_idx = 0u8;
-        while bit_idx <= 253 { // 254 is used by the test for UdpSocketWrapperFactoryReal
+        while bit_idx <= 250 { // 251-254 are reserved for special-purpose tests
             if !Self::bit_at(&guard, bit_idx) {
                 Self::set_bit(&mut guard, bit_idx);
                 return bit_idx;

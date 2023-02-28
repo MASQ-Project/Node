@@ -118,15 +118,13 @@ impl UdpSocketWrapperFactory for UdpSocketWrapperFactoryReal {
         let multicast_interface = Ipv4Addr::UNSPECIFIED;
         let multicast_address = IpAddr::V4(Ipv4Addr::new(224, 0, 0, multicast_group));
         let socket =
-            Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP)).unwrap();
-        socket
-            .set_read_timeout(Some(Duration::from_secs(1)))
-            .unwrap();
+            Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP))?;
+        socket.set_read_timeout(Some(Duration::from_secs(1)))?;
         //Linux/macOS have reuse_port exposed so we can flag it for non-Windows systems
         #[cfg(not(target_os = "windows"))]
-        socket.set_reuse_port(true).unwrap();
+        socket.set_reuse_port(true)?;
         //Windows has reuse_port hidden and implicitly flagged with reuse_address
-        socket.set_reuse_address(true).unwrap();
+        socket.set_reuse_address(true)?;
         let multicast_ipv4 = match multicast_address {
             IpAddr::V4(addr) => addr,
             IpAddr::V6(addr) => panic! ("Multicast IP is IPv6! {}", addr)
@@ -134,8 +132,7 @@ impl UdpSocketWrapperFactory for UdpSocketWrapperFactoryReal {
         socket
             .join_multicast_v4(
                 &multicast_ipv4,
-                &multicast_interface)
-            .unwrap();
+                &multicast_interface)?;
         socket.bind(
             &SockAddr::from(
                 SocketAddr::new(
@@ -143,8 +140,11 @@ impl UdpSocketWrapperFactory for UdpSocketWrapperFactoryReal {
                     port
                 )
             )
-        ).unwrap();
+        )?;
         let delegate= UdpSocket::from(socket);
+        // delegate.connect(
+        //     delegate.local_addr().expect ("Local address suddenly disappeared")
+        // )?;
         Ok(Box::new(UdpSocketReal::new(delegate)))
     }
 }
@@ -241,6 +241,7 @@ pub fn make_local_socket_address(is_ipv4: bool, free_port: u16) -> SocketAddr {
 
 #[cfg(test)]
 pub mod tests {
+    use std::io::ErrorKind;
     use std::net::SocketAddrV4;
     use super::*;
     use masq_lib::utils::localhost;
@@ -296,7 +297,7 @@ pub mod tests {
         // the sending socket. There shouldn't be any security threat in using UNSPECIFIED, because
         // multicast addresses are not routed out to the Internet; but this is still puzzling.
         let multicast_port = find_free_port();
-        let multicast_group = 254u8;
+        let multicast_group = 253u8;
         let subject = UdpSocketWrapperFactoryReal::new();
         let socket_sender = subject.make_multicast(multicast_group, multicast_port).unwrap();
         let socket_receiver_1 = subject.make_multicast(multicast_group, multicast_port).unwrap();
@@ -311,6 +312,17 @@ pub mod tests {
         assert_eq!(&buf[..size], message);
     }
 
+    #[test]
+    fn udp_socket_wrapper_factory_make_multicast_fails_when_socket_is_already_connected() {
+        let multicast_port = find_free_port();
+        let multicast_group = 254u8;
+        let subject = UdpSocketWrapperFactoryReal::new();
+        let blocker_socket = subject.make (SocketAddr::new (IpAddr::V4(Ipv4Addr::UNSPECIFIED), multicast_port));
+
+        let result = subject.make_multicast (multicast_group, multicast_port);
+
+        assert_eq! (result.err().unwrap().kind(), ErrorKind::AddrInUse);
+    }
 
     struct TameFindRoutersCommand {}
 

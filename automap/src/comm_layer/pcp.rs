@@ -310,9 +310,7 @@ impl PcpTransactor {
         announcement_socket
             .set_read_timeout(Some(Duration::from_millis(read_timeout_millis)))
             .expect("Can't set read timeout");
-eprintln! ("Housekeeping thread announcement socket address: {}", announcement_socket.local_addr().unwrap());
         loop {
-eprintln! ("Checking for command from commander");
             match rx.try_recv() {
                 Ok(HousekeepingThreadCommand::Stop) => {
                     break;
@@ -341,20 +339,15 @@ eprintln! ("Checking for command from commander");
                 }
                 Err(_) => (),
             }
-eprintln! ("Checking for announcement from router");
             // This will block for read_timeout_millis, conserving CPU cycles
             match announcement_socket.recv_from(&mut buffer) {
                 Ok((len, sender_address)) => {
-eprintln! ("{}-byte announcement received", len);
                     if sender_address.ip() != router_addr.ip() {
-eprintln! ("...from the wrong address: ignoring");
                         continue;
                     }
                     match PcpPacket::try_from(&buffer[0..len]) {
                         Ok(packet) => {
-eprintln! ("PCP packet parsed");
                             if packet.opcode == Opcode::Announce {
-eprintln! ("It was an Announce, as expected");
                                 debug!(logger, "Received IP-change announcement");
                                 let inner = inner_arc.lock().expect("PcpTransactor is dead");
                                 Self::handle_announcement(
@@ -366,11 +359,9 @@ eprintln! ("It was an Announce, as expected");
                                 );
                             }
                             else {
-eprintln! ("It was a {:?}; ignoring", packet.opcode)
                             }
                         }
                         Err(e) => {
-eprintln! ("Could not parse packet: {:?}", e);
                             error!(
                                 logger,
                                 "Unparseable PCP packet:\n{}",
@@ -383,15 +374,12 @@ eprintln! ("Could not parse packet: {:?}", e);
                 Err(e)
                     if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) =>
                 {
-eprintln! ("WouldBlock error: ignoring");
                     ()
                 }
                 Err(e) => {
-eprintln! ("Important error: {:?}", e);
                     error!(logger, "Error receiving PCP packet from router: {:?}", e)
                 },
             }
-eprintln! ("Checking to see if remap interval has expired");
             let since_last_remapped = last_remapped.elapsed();
             match &mut mapping_config_opt {
                 None => (),
@@ -1439,6 +1427,7 @@ mod tests {
         let _ = EnvironmentGuard::new();
         let announcement_port = find_free_port();
         let announce_socket_holder = TestMulticastSocketHolder::checkout(announcement_port);
+eprintln! ("After checkout in test: {:?}", announce_socket_holder.socket.local_addr().unwrap());
         let router_port = find_free_port();
         let router_ip = localhost();
         let mut subject = PcpTransactor::default();
@@ -1469,10 +1458,6 @@ mod tests {
         announce_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();
-        announce_socket
-            .connect(announce_socket.local_addr().unwrap())
-            .unwrap();
-eprintln! ("Test announce socket address: {}", announce_socket.local_addr().unwrap());
         let mapping_socket = UdpSocket::bind(SocketAddr::new(localhost(), router_port)).unwrap();
         mapping_socket.set_read_timeout(Some (Duration::from_millis (1000))).unwrap();
         // Router announces to housekeeping thread that the public IP has changed
