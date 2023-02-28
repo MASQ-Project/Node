@@ -18,12 +18,12 @@ use node_lib::sub_lib::neighborhood::RatePack;
 use node_lib::sub_lib::proxy_client::DnsResolveFailure_0v1;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::versioned_data::VersionedData;
+use node_lib::test_utils::assert_string_contains;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use std::convert::TryInto;
 use std::net::SocketAddr;
 use std::str::FromStr;
 use std::time::Duration;
-use node_lib::test_utils::assert_string_contains;
 
 #[test]
 #[ignore] // Should be removed by SC-811/GH-158
@@ -195,14 +195,24 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
     let dns_error_response: Vec<u8> = client.wait_for_chunk();
     let dns_error_response_str = String::from_utf8(dns_error_response).unwrap();
     assert_string_contains(&dns_error_response_str, "<h1>Error 503</h1>");
-    assert_string_contains(&dns_error_response_str, "<h2>Title: DNS Resolution Problem</h2>");
-    assert_string_contains(&dns_error_response_str, "<h3>Subtitle: Exit Node couldn't resolve \"nonexistent.com\"</h3>");
-    assert_string_contains(&dns_error_response_str, &format!(
-        "<p>We chose the exit Node {cheap_exit_key} for your request to nonexistent.com; \
+    assert_string_contains(
+        &dns_error_response_str,
+        "<h2>Title: DNS Resolution Problem</h2>",
+    );
+    assert_string_contains(
+        &dns_error_response_str,
+        "<h3>Subtitle: Exit Node couldn't resolve \"nonexistent.com\"</h3>",
+    );
+    assert_string_contains(
+        &dns_error_response_str,
+        &format!(
+            "<p>We chose the exit Node {cheap_exit_key} for your request to nonexistent.com; \
         but when it asked its DNS server to look up the IP address for nonexistent.com, \
         it wasn't found. If nonexistent.com exists, it will need to be looked up by a \
         different exit Node. We've deprioritized this exit Node. Reload the page, \
-        and we'll try to find another.</p>"));
+        and we'll try to find another.</p>"
+        ),
+    );
 
     // This request should be routed through normal_exit because it's unreachable through cheap_exit
     client.send_chunk("GET / HTTP/1.1\r\nHost: nonexistent.com\r\n\r\n".as_bytes());
