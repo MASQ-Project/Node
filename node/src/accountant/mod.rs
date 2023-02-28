@@ -91,12 +91,13 @@ pub struct Accountant {
     scan_timings: ScanTimings,
     financial_statistics: Rc<RefCell<FinancialStatistics>>,
     report_accounts_payable_sub_opt: Option<Recipient<ReportAccountsPayable>>,
-    request_balances_for_payables_opt: Option<Recipient<RequestAvailableBalancesForPayables>>,
-    retrieve_transactions_sub: Option<Recipient<RetrieveTransactions>>,
+    request_available_balances_for_payables_sub_opt:
+        Option<Recipient<RequestAvailableBalancesForPayables>>,
+    retrieve_transactions_sub_opt: Option<Recipient<RetrieveTransactions>>,
     request_transaction_receipts_subs_opt: Option<Recipient<RequestTransactionReceipts>>,
-    report_inbound_payments_sub: Option<Recipient<ReceivedPayments>>,
-    report_sent_payments_sub: Option<Recipient<SentPayables>>,
-    ui_message_sub: Option<Recipient<NodeToUiMessage>>,
+    report_inbound_payments_sub_opt: Option<Recipient<ReceivedPayments>>,
+    report_sent_payments_sub_opt: Option<Recipient<SentPayables>>,
+    ui_message_sub_opt: Option<Recipient<NodeToUiMessage>>,
     message_id_generator: Box<dyn MessageIdGenerator>,
     logger: Logger,
 }
@@ -195,7 +196,7 @@ impl Handler<ReceivedPayments> for Accountant {
 
     fn handle(&mut self, msg: ReceivedPayments, _ctx: &mut Self::Context) -> Self::Result {
         if let Some(node_to_ui_msg) = self.scanners.receivable.finish_scan(msg, &self.logger) {
-            self.ui_message_sub
+            self.ui_message_sub_opt
                 .as_ref()
                 .expect("UIGateway is not bound")
                 .try_send(node_to_ui_msg)
@@ -209,7 +210,7 @@ impl Handler<SentPayables> for Accountant {
 
     fn handle(&mut self, msg: SentPayables, _ctx: &mut Self::Context) -> Self::Result {
         if let Some(node_to_ui_msg) = self.scanners.payable.finish_scan(msg, &self.logger) {
-            self.ui_message_sub
+            self.ui_message_sub_opt
                 .as_ref()
                 .expect("UIGateway is not bound")
                 .try_send(node_to_ui_msg)
@@ -283,7 +284,7 @@ impl Handler<ScanError> for Accountant {
                 },
             };
             error!(self.logger, "Sending UiScanResponse: {:?}", error_msg);
-            self.ui_message_sub
+            self.ui_message_sub_opt
                 .as_ref()
                 .expect("UIGateway not bound")
                 .try_send(error_msg)
@@ -355,7 +356,7 @@ impl Handler<ReportTransactionReceipts> for Accountant {
 
     fn handle(&mut self, msg: ReportTransactionReceipts, _ctx: &mut Self::Context) -> Self::Result {
         if let Some(node_to_ui_msg) = self.scanners.pending_payable.finish_scan(msg, &self.logger) {
-            self.ui_message_sub
+            self.ui_message_sub_opt
                 .as_ref()
                 .expect("UIGateway is not bound")
                 .try_send(node_to_ui_msg)
@@ -422,12 +423,12 @@ impl Accountant {
             scan_timings: ScanTimings::new(scan_intervals),
             financial_statistics: Rc::clone(&financial_statistics),
             report_accounts_payable_sub_opt: None,
-            request_balances_for_payables_opt: None,
-            retrieve_transactions_sub: None,
+            request_available_balances_for_payables_sub_opt: None,
+            retrieve_transactions_sub_opt: None,
             request_transaction_receipts_subs_opt: None,
-            report_inbound_payments_sub: None,
-            report_sent_payments_sub: None,
-            ui_message_sub: None,
+            report_inbound_payments_sub_opt: None,
+            report_sent_payments_sub_opt: None,
+            ui_message_sub_opt: None,
             message_id_generator: Box::new(MessageIdGeneratorReal::default()),
             logger: Logger::new("Accountant"),
         }
@@ -532,11 +533,17 @@ impl Accountant {
     fn handle_bind_message(&mut self, msg: BindMessage) {
         self.report_accounts_payable_sub_opt =
             Some(msg.peer_actors.blockchain_bridge.report_accounts_payable);
-        self.retrieve_transactions_sub =
+        self.retrieve_transactions_sub_opt =
             Some(msg.peer_actors.blockchain_bridge.retrieve_transactions);
-        self.report_inbound_payments_sub = Some(msg.peer_actors.accountant.report_inbound_payments);
-        self.report_sent_payments_sub = Some(msg.peer_actors.accountant.report_sent_payments);
-        self.ui_message_sub = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
+        self.report_inbound_payments_sub_opt =
+            Some(msg.peer_actors.accountant.report_inbound_payments);
+        self.request_available_balances_for_payables_sub_opt = Some(
+            msg.peer_actors
+                .blockchain_bridge
+                .request_available_balances_for_payables,
+        );
+        self.report_sent_payments_sub_opt = Some(msg.peer_actors.accountant.report_sent_payments);
+        self.ui_message_sub_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
         self.request_transaction_receipts_subs_opt = Some(
             msg.peer_actors
                 .blockchain_bridge
@@ -627,7 +634,7 @@ impl Accountant {
 
     fn handle_financials(&self, msg: &UiFinancialsRequest, client_id: u64, context_id: u64) {
         let body: MessageBody = self.compute_financials(msg, context_id);
-        self.ui_message_sub
+        self.ui_message_sub_opt
             .as_ref()
             .expect("UiGateway not bound")
             .try_send(NodeToUiMessage {
@@ -763,7 +770,7 @@ impl Accountant {
             &self.logger,
         ) {
             Ok(scan_message) => {
-                self.request_balances_for_payables_opt
+                self.request_available_balances_for_payables_sub_opt
                     .as_ref()
                     .expect("BlockchainBridge is unbound")
                     .try_send(scan_message)
@@ -810,7 +817,7 @@ impl Accountant {
             &self.logger,
         ) {
             Ok(scan_message) => self
-                .retrieve_transactions_sub
+                .retrieve_transactions_sub_opt
                 .as_ref()
                 .expect("BlockchainBridge is unbound")
                 .try_send(scan_message)
@@ -1625,8 +1632,8 @@ mod tests {
     }
 
     #[test]
-    fn accountant_sends_report_accounts_payable_to_blockchain_bridge_when_qualified_payable_found()
-    {
+    fn accountant_sends_asks_blockchain_bridge_about_consuming_wallet_balances_when_qualified_payable_found(
+    ) {
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let now = SystemTime::now();
         let payment_thresholds = PaymentThresholds::default();
@@ -1634,7 +1641,7 @@ mod tests {
             make_payables(now, &payment_thresholds);
         let payable_dao =
             PayableDaoMock::new().non_pending_payables_result(all_non_pending_payables);
-        let system = System::new("report_accounts_payable forwarded to blockchain_bridge");
+        let system = System::new("request for balances forwarded to blockchain_bridge");
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
             .payable_daos(vec![ToPayableScanner(payable_dao)])
@@ -2203,11 +2210,12 @@ mod tests {
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
         let blockchain_bridge_addr = blockchain_bridge
             .system_stop_conditions(match_every_type_id!(
-                ReportAccountsPayable,
-                ReportAccountsPayable
+                RequestAvailableBalancesForPayables,
+                RequestAvailableBalancesForPayables
             ))
             .start();
-        let report_accounts_payable_sub = blockchain_bridge_addr.clone().recipient();
+        let request_available_balances_for_payables_sub =
+            blockchain_bridge_addr.clone().recipient();
         let last_paid_timestamp = to_time_t(SystemTime::now())
             - DEFAULT_PAYMENT_THRESHOLDS.maturity_threshold_sec as i64
             - 1;
@@ -2239,8 +2247,8 @@ mod tests {
                 context_id: 444,
             }),
         };
-        subject.request_balances_for_payables_opt =
-            Some(request_available_balances_for_payables_sub.clone());
+        subject.request_available_balances_for_payables_sub_opt =
+            Some(request_available_balances_for_payables_sub);
         let addr = subject.start();
         addr.try_send(message_before.clone()).unwrap();
 
@@ -2266,12 +2274,12 @@ mod tests {
         let recording = blockchain_bridge_recording.lock().unwrap();
         let messages_received = recording.len();
         assert_eq!(messages_received, 2);
-        let first_message: &ReportAccountsPayable = recording.get_record(0);
+        let first_message: &RequestAvailableBalancesForPayables = recording.get_record(0);
         assert_eq!(
             first_message.response_skeleton_opt,
             message_before.response_skeleton_opt
         );
-        let second_message: &ReportAccountsPayable = recording.get_record(1);
+        let second_message: &RequestAvailableBalancesForPayables = recording.get_record(1);
         assert_eq!(
             second_message.response_skeleton_opt,
             message_after.response_skeleton_opt

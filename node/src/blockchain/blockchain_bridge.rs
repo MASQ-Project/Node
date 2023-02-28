@@ -137,12 +137,11 @@ impl Handler<RequestAvailableBalancesForPayables> for BlockchainBridge {
 
     fn handle(&mut self, msg: RequestAvailableBalancesForPayables, _ctx: &mut Self::Context) {
         todo!()
-//         self.handle_scan(
-//
-//         Self::handle_inspect_consuming_wallet_balances,
-// Sca
-        }
-
+        //         self.handle_scan(
+        //
+        //         Self::handle_inspect_consuming_wallet_balances,
+        // Sca
+    }
 }
 
 impl Handler<ReportAccountsPayable> for BlockchainBridge {
@@ -241,15 +240,21 @@ impl BlockchainBridge {
     pub fn make_subs_from(addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
         BlockchainBridgeSubs {
             bind: recipient!(addr, BindMessage),
-            request_balances_for_payables: recipient!(addr, RequestAvailableBalancesForPayables),
             report_accounts_payable: recipient!(addr, ReportAccountsPayable),
+            request_available_balances_for_payables: recipient!(
+                addr,
+                RequestAvailableBalancesForPayables
+            ),
             retrieve_transactions: recipient!(addr, RetrieveTransactions),
             ui_sub: recipient!(addr, NodeFromUiMessage),
             request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
         }
     }
 
-    fn handle_inspect_consuming_wallet_balances(&self, msg: RequestAvailableBalancesForPayables) -> Result<(), String>{
+    fn handle_inspect_consuming_wallet_balances(
+        &self,
+        msg: RequestAvailableBalancesForPayables,
+    ) -> Result<(), String> {
         todo!()
     }
 
@@ -624,11 +629,11 @@ mod tests {
         assert_eq!(result, Err("No consuming wallet specified".to_string()));
     }
 
-
     #[test]
     fn handle_inspect_consuming_wallet_balances_reports_balances_back_to_accountant() {
-        let system =
-            System::new("handle_inspect_consuming_wallet_balances_reports_balances_back_to_accountant");
+        let system = System::new(
+            "handle_inspect_consuming_wallet_balances_reports_balances_back_to_accountant",
+        );
         todo!("complete me later; just sketched")
         // let get_transaction_count_params_arc = Arc::new(Mutex::new(vec![]));
         // let send_transaction_params_arc = Arc::new(Mutex::new(vec![]));

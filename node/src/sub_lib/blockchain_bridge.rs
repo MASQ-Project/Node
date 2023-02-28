@@ -21,8 +21,8 @@ pub struct BlockchainBridgeConfig {
 #[derive(Clone, PartialEq, Eq)]
 pub struct BlockchainBridgeSubs {
     pub bind: Recipient<BindMessage>,
-    pub request_balances_for_payables: Recipient<RequestAvailableBalancesForPayables>,
     pub report_accounts_payable: Recipient<ReportAccountsPayable>,
+    pub request_available_balances_for_payables: Recipient<RequestAvailableBalancesForPayables>,
     pub retrieve_transactions: Recipient<RetrieveTransactions>,
     pub ui_sub: Recipient<NodeFromUiMessage>,
     pub request_transaction_receipts: Recipient<RequestTransactionReceipts>,

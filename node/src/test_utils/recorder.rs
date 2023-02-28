@@ -141,8 +141,6 @@ recorder_message_handler!(ScanForReceivables);
 recorder_message_handler!(ScanForPayables);
 recorder_message_handler!(ConnectionProgressMessage);
 recorder_message_handler!(ScanForPendingPayables);
-//this message doesn't take place in the production code but helps us in tests
-recorder_message_handler!(CleanUpMessage);
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
@@ -433,8 +431,11 @@ pub fn make_ui_gateway_subs_from_recorder(addr: &Addr<Recorder>) -> UiGatewaySub
 pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBridgeSubs {
     BlockchainBridgeSubs {
         bind: recipient!(addr, BindMessage),
-        request_balances_for_payables: recipient!(addr, RequestAvailableBalancesForPayables),
         report_accounts_payable: recipient!(addr, ReportAccountsPayable),
+        request_available_balances_for_payables: recipient!(
+            addr,
+            RequestAvailableBalancesForPayables
+        ),
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
         ui_sub: recipient!(addr, NodeFromUiMessage),
         request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
