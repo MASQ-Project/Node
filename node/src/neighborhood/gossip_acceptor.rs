@@ -3593,21 +3593,30 @@ mod tests {
     fn standard_gossip_containing_unfamiliar_node_addrs_leads_to_them_being_ignored() {
         /*
 
+        <---- Databases before the gossip ---->
+
         Destination Database (Root) ==>
 
-            Root
-            / \
-           A---B---D
+          Root
+         /  |
+        B---A
+        |
+        D
 
         Source Database (A) ==>
-        - Source has updated version of A and B.
-        - C will not reveal IP, but B, E and F will do.
 
-           Root
+          Root
          /  |
         B---A---E
         |   |
         C   F
+
+        <------------------------------------->
+
+        Source Node will send a gossip to the destination Node with
+        an updated version of Node A and B. The IP of Node C won't
+        be revealed but for Nodes B, E and F, it will be revealed.
+
          */
 
         let root_node = make_node_record(1234, true);
