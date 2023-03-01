@@ -28,7 +28,7 @@ use crate::accountant::dao_utils::{
 use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
-use crate::accountant::payable_dao::{Payable, PayableDaoError};
+use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDaoError;
 use crate::accountant::scanners::{ScanTimings, Scanners};
@@ -43,9 +43,7 @@ use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::accountant::{MessageIdGenerator, MessageIdGeneratorReal};
-use crate::sub_lib::blockchain_bridge::{
-    ReportAccountsPayable, RequestAvailableBalancesForPayables,
-};
+use crate::sub_lib::blockchain_bridge::{ReportAccountsPayable, RequestAvailableBalancesForPayables, WalletBalances};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
@@ -131,6 +129,13 @@ pub struct SentPayables {
     pub timestamp: SystemTime,
     pub payable: Vec<Result<Payable, BlockchainError>>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
+}
+
+#[derive(Debug, Message, PartialEq, Eq)]
+pub struct AvailableBalancesAndQualifiedPayables{
+    pub accounts: Vec<PayableAccount>,
+    pub consuming_wallet_balances: WalletBalances,
+    pub response_skeleton_opt: Option<ResponseSkeleton>
 }
 
 #[derive(Debug, Message, Default, PartialEq, Eq, Clone, Copy)]

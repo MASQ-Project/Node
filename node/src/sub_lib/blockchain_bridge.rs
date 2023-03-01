@@ -10,6 +10,7 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
+use web3::types::U256;
 
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct BlockchainBridgeConfig {
@@ -57,6 +58,12 @@ impl SkeletonOptHolder for ReportAccountsPayable {
     fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
         self.response_skeleton_opt
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct WalletBalances{
+    pub for_gas: U256,
+    pub exchange_currency: U256
 }
 
 #[cfg(test)]

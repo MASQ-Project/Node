@@ -3,10 +3,7 @@
 #![cfg(test)]
 
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-use crate::blockchain::blockchain_interface::{
-    Balance, BlockchainError, BlockchainInterface, BlockchainResult, BlockchainTransactionError,
-    BlockchainTxnInputs, Nonce, Receipt, REQUESTS_IN_PARALLEL,
-};
+use crate::blockchain::blockchain_interface::{ResultForBalance, BlockchainError, BlockchainInterface, BlockchainResult, BlockchainTransactionError, BlockchainTxnInputs, ResultForNonce, ResultForReceipt, REQUESTS_IN_PARALLEL, ResultForWalletBalances};
 use crate::blockchain::tool_wrappers::SendTransactionToolsWrapper;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -58,8 +55,10 @@ pub struct BlockchainInterfaceMock {
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
     send_transaction_parameters: Arc<Mutex<Vec<(Wallet, Wallet, u128, U256, u64)>>>,
     send_transaction_results: RefCell<Vec<Result<(H256, SystemTime), BlockchainTransactionError>>>,
+    get_both_balances_params: Arc<Mutex<Vec<Wallet>>>,
+    get_both_balances_results: RefCell<Vec<ResultForWalletBalances>>,
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
-    get_transaction_receipt_results: RefCell<Vec<Receipt>>,
+    get_transaction_receipt_results: RefCell<Vec<ResultForReceipt>>,
     send_transaction_tools_results: RefCell<Vec<Box<dyn SendTransactionToolsWrapper>>>,
     contract_address_results: RefCell<Vec<Address>>,
     get_transaction_count_parameters: Arc<Mutex<Vec<Wallet>>>,
@@ -96,6 +95,22 @@ impl BlockchainInterfaceMock {
         self
     }
 
+    pub fn get_both_balances_params(
+        mut self,
+        params: &Arc<Mutex<Vec<Wallet>>>,
+    ) -> Self {
+        self.get_both_balances_params = params.clone();
+        self
+    }
+
+    pub fn get_both_balances_result(
+        self,
+        result: ResultForWalletBalances,
+    ) -> Self {
+        self.get_both_balances_results.borrow_mut().push(result);
+        self
+    }
+
     pub fn contract_address_result(self, address: Address) -> Self {
         self.contract_address_results.borrow_mut().push(address);
         self
@@ -116,7 +131,7 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn get_transaction_receipt_result(self, result: Receipt) -> Self {
+    pub fn get_transaction_receipt_result(self, result: ResultForReceipt) -> Self {
         self.get_transaction_receipt_results
             .borrow_mut()
             .push(result);
@@ -162,15 +177,20 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.send_transaction_results.borrow_mut().remove(0)
     }
 
-    fn get_eth_balance(&self, _address: &Wallet) -> Balance {
+    fn get_eth_balance(&self, _address: &Wallet) -> ResultForBalance {
         unimplemented!()
     }
 
-    fn get_token_balance(&self, _address: &Wallet) -> Balance {
+    fn get_token_balance(&self, _address: &Wallet) -> ResultForBalance {
         unimplemented!()
     }
 
-    fn get_transaction_count(&self, wallet: &Wallet) -> Nonce {
+    fn get_both_balances(&self, address: &Wallet) -> ResultForWalletBalances {
+        self.get_both_balances_params.lock().unwrap().push(address.clone());
+        self.get_both_balances_results.borrow_mut().remove(0)
+    }
+
+    fn get_transaction_count(&self, wallet: &Wallet) -> ResultForNonce {
         self.get_transaction_count_parameters
             .lock()
             .unwrap()
@@ -178,7 +198,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         self.get_transaction_count_results.borrow_mut().remove(0)
     }
 
-    fn get_transaction_receipt(&self, hash: H256) -> Receipt {
+    fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt {
         self.get_transaction_receipt_params
             .lock()
             .unwrap()

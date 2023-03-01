@@ -23,6 +23,7 @@ use web3::types::{
     TransactionReceipt, H160, H256, U256,
 };
 use web3::{Transport, Web3};
+use crate::sub_lib::blockchain_bridge::WalletBalances;
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
 
@@ -76,9 +77,10 @@ impl Display for BlockchainError {
 }
 
 pub type BlockchainResult<T> = Result<T, BlockchainError>;
-pub type Balance = BlockchainResult<web3::types::U256>;
-pub type Nonce = BlockchainResult<web3::types::U256>;
-pub type Receipt = BlockchainResult<Option<TransactionReceipt>>;
+pub type ResultForBalance = BlockchainResult<web3::types::U256>;
+pub type ResultForWalletBalances = BlockchainResult<WalletBalances>;
+pub type ResultForNonce = BlockchainResult<web3::types::U256>;
+pub type ResultForReceipt = BlockchainResult<Option<TransactionReceipt>>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RetrievedBlockchainTransactions {
@@ -100,20 +102,15 @@ pub trait BlockchainInterface {
         inputs: BlockchainTxnInputs,
     ) -> Result<(H256, SystemTime), BlockchainTransactionError>;
 
-    fn get_eth_balance(&self, address: &Wallet) -> Balance;
+    fn get_eth_balance(&self, address: &Wallet) -> ResultForBalance ;
 
-    fn get_token_balance(&self, address: &Wallet) -> Balance;
+    fn get_token_balance(&self, address: &Wallet) -> ResultForBalance ;
 
-    fn get_balances(&self, address: &Wallet) -> (Balance, Balance) {
-        (
-            self.get_eth_balance(address),
-            self.get_token_balance(address),
-        )
-    }
+    fn get_both_balances(&self, address: &Wallet) -> ResultForWalletBalances;
 
-    fn get_transaction_count(&self, address: &Wallet) -> Nonce;
+    fn get_transaction_count(&self, address: &Wallet) -> ResultForNonce;
 
-    fn get_transaction_receipt(&self, hash: H256) -> Receipt;
+    fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt;
 
     fn send_transaction_tools<'a>(
         &'a self,
@@ -166,22 +163,28 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         Err(BlockchainTransactionError::Sending(msg, H256::default()))
     }
 
-    fn get_eth_balance(&self, _address: &Wallet) -> Balance {
+    fn get_eth_balance(&self, _address: &Wallet) -> ResultForBalance {
         error!(self.logger, "Can't get eth balance clandestinely yet",);
         Ok(0.into())
     }
 
-    fn get_token_balance(&self, _address: &Wallet) -> Balance {
+    fn get_token_balance(&self, _address: &Wallet) -> ResultForBalance {
         error!(self.logger, "Can't get token balance clandestinely yet",);
         Ok(0.into())
     }
 
-    fn get_transaction_count(&self, _address: &Wallet) -> Nonce {
+    fn get_both_balances(&self, _address: &Wallet) -> ResultForWalletBalances {
+        let msg = "Can't get wallet balances clandestinely yet".to_string();
+        error!(self.logger, "{}",msg);
+        Err(BlockchainError::QueryFailed(msg))
+    }
+
+    fn get_transaction_count(&self, _address: &Wallet) -> ResultForNonce {
         error!(self.logger, "Can't get transaction count clandestinely yet",);
         Ok(0.into())
     }
 
-    fn get_transaction_receipt(&self, _hash: H256) -> Receipt {
+    fn get_transaction_receipt(&self, _hash: H256) -> ResultForReceipt {
         error!(
             self.logger,
             "Can't get transaction receipt clandestinely yet",
@@ -333,7 +336,7 @@ where
         }
     }
 
-    fn get_eth_balance(&self, wallet: &Wallet) -> Balance {
+    fn get_eth_balance(&self, wallet: &Wallet) -> ResultForBalance {
         self.web3
             .eth()
             .balance(wallet.address(), None)
@@ -341,7 +344,7 @@ where
             .wait()
     }
 
-    fn get_token_balance(&self, wallet: &Wallet) -> Balance {
+    fn get_token_balance(&self, wallet: &Wallet) -> ResultForBalance {
         self.contract
             .query(
                 "balanceOf",
@@ -354,7 +357,11 @@ where
             .wait()
     }
 
-    fn get_transaction_count(&self, wallet: &Wallet) -> Nonce {
+    fn get_both_balances(&self, address: &Wallet) -> ResultForWalletBalances {
+        todo!()
+    }
+
+    fn get_transaction_count(&self, wallet: &Wallet) -> ResultForNonce {
         self.web3
             .eth()
             .transaction_count(wallet.address(), Some(BlockNumber::Pending))
@@ -362,7 +369,7 @@ where
             .wait()
     }
 
-    fn get_transaction_receipt(&self, hash: H256) -> Receipt {
+    fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt {
         self.web3
             .eth()
             .transaction_receipt(hash)
@@ -1121,20 +1128,17 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
-        let results: (Balance, Balance) = await_value(None, || {
-            match subject.get_balances(
+        let result = await_value(None, || {
+            match subject.get_both_balances(
                 &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
             ) {
-                (Ok(a), Ok(b)) => Ok((Ok(a), Ok(b))),
-                (Err(a), _) => Err(a),
-                (_, Err(b)) => Err(b),
+                Ok(wallet_balances) => Ok::<WalletBalances, BlockchainError>(wallet_balances),
+                Err(e) => panic!("we expected Ok() result with wallet balances but got: {:?}", e)
             }
-        })
-        .unwrap();
+        }).unwrap();
 
-        let eth_balance = results.0.unwrap();
-        let token_balance = results.1.unwrap();
-
+        let eth_balance = result.for_gas;
+        let token_balance = result.exchange_currency;
         assert_eq!(eth_balance, U256::from(1),);
         assert_eq!(token_balance, U256::from(1))
     }
