@@ -3,7 +3,11 @@
 #![cfg(test)]
 
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
-use crate::blockchain::blockchain_interface::{ResultForBalance, BlockchainError, BlockchainInterface, BlockchainResult, BlockchainTransactionError, BlockchainTxnInputs, ResultForNonce, ResultForReceipt, REQUESTS_IN_PARALLEL, ResultForWalletBalances};
+use crate::blockchain::blockchain_interface::{
+    BlockchainError, BlockchainInterface, BlockchainResult, BlockchainTransactionError,
+    BlockchainTxnInputs, ResultForBalance, ResultForNonce, ResultForReceipt,
+    ResultForWalletBalances, REQUESTS_IN_PARALLEL,
+};
 use crate::blockchain::tool_wrappers::SendTransactionToolsWrapper;
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -95,18 +99,12 @@ impl BlockchainInterfaceMock {
         self
     }
 
-    pub fn get_both_balances_params(
-        mut self,
-        params: &Arc<Mutex<Vec<Wallet>>>,
-    ) -> Self {
+    pub fn get_both_balances_params(mut self, params: &Arc<Mutex<Vec<Wallet>>>) -> Self {
         self.get_both_balances_params = params.clone();
         self
     }
 
-    pub fn get_both_balances_result(
-        self,
-        result: ResultForWalletBalances,
-    ) -> Self {
+    pub fn get_both_balances_result(self, result: ResultForWalletBalances) -> Self {
         self.get_both_balances_results.borrow_mut().push(result);
         self
     }
@@ -186,7 +184,10 @@ impl BlockchainInterface for BlockchainInterfaceMock {
     }
 
     fn get_both_balances(&self, address: &Wallet) -> ResultForWalletBalances {
-        self.get_both_balances_params.lock().unwrap().push(address.clone());
+        self.get_both_balances_params
+            .lock()
+            .unwrap()
+            .push(address.clone());
         self.get_both_balances_results.borrow_mut().remove(0)
     }
 

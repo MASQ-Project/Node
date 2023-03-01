@@ -5,6 +5,7 @@ use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::tool_wrappers::{
     SendTransactionToolWrapperReal, SendTransactionToolsWrapper, SendTransactionToolsWrapperNull,
 };
+use crate::sub_lib::blockchain_bridge::WalletBalances;
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, Recipient};
 use futures::{future, Future};
@@ -23,7 +24,6 @@ use web3::types::{
     TransactionReceipt, H160, H256, U256,
 };
 use web3::{Transport, Web3};
-use crate::sub_lib::blockchain_bridge::WalletBalances;
 
 pub const REQUESTS_IN_PARALLEL: usize = 1;
 
@@ -102,9 +102,9 @@ pub trait BlockchainInterface {
         inputs: BlockchainTxnInputs,
     ) -> Result<(H256, SystemTime), BlockchainTransactionError>;
 
-    fn get_eth_balance(&self, address: &Wallet) -> ResultForBalance ;
+    fn get_eth_balance(&self, address: &Wallet) -> ResultForBalance;
 
-    fn get_token_balance(&self, address: &Wallet) -> ResultForBalance ;
+    fn get_token_balance(&self, address: &Wallet) -> ResultForBalance;
 
     fn get_both_balances(&self, address: &Wallet) -> ResultForWalletBalances;
 
@@ -175,7 +175,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
 
     fn get_both_balances(&self, _address: &Wallet) -> ResultForWalletBalances {
         let msg = "Can't get wallet balances clandestinely yet".to_string();
-        error!(self.logger, "{}",msg);
+        error!(self.logger, "{}", msg);
         Err(BlockchainError::QueryFailed(msg))
     }
 
@@ -1133,9 +1133,13 @@ mod tests {
                 &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
             ) {
                 Ok(wallet_balances) => Ok::<WalletBalances, BlockchainError>(wallet_balances),
-                Err(e) => panic!("we expected Ok() result with wallet balances but got: {:?}", e)
+                Err(e) => panic!(
+                    "we expected Ok() result with wallet balances but got: {:?}",
+                    e
+                ),
             }
-        }).unwrap();
+        })
+        .unwrap();
 
         let eth_balance = result.for_gas;
         let token_balance = result.exchange_currency;

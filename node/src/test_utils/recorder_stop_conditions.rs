@@ -25,19 +25,9 @@ pub type RefMsgExpected<'a> = &'a (dyn Any + Send);
 
 impl StopConditions {
     pub fn resolve_stop_conditions<T: PartialEq + Send + 'static>(&mut self, msg: &T) -> bool {
-        if let Some(matched) = self.inspect_immutable::<T>(msg) {
-            matched
-        } else {
-            self.inspect_mutable::<T>(msg)
-        }
-    }
-
-    fn inspect_immutable<T: PartialEq + Send + 'static>(&self, msg: &T) -> Option<bool> {
         match self {
-            StopConditions::Any(stop_conditions) => {
-                Some(Self::resolve_any::<T>(stop_conditions, msg))
-            }
-            StopConditions::All(_) => None,
+            StopConditions::Any(conditions) => Self::resolve_any::<T>(conditions, msg),
+            StopConditions::All(conditions) => Self::resolve_all::<T>(conditions, msg),
         }
     }
 
@@ -50,15 +40,13 @@ impl StopConditions {
             .any(|condition| condition.resolve_condition::<T>(msg))
     }
 
-    fn inspect_mutable<T: PartialEq + Send + 'static>(&mut self, msg: &T) -> bool {
-        match self {
-            StopConditions::All(conditions) => {
-                let indexes_to_remove = Self::indexes_of_matched_conditions(conditions, msg);
-                Self::remove_matched_conditions(conditions, indexes_to_remove);
-                conditions.is_empty()
-            }
-            _ => unreachable!("we had excluded 'Any' but yet we are not meeting 'All' here"),
-        }
+    fn resolve_all<T: PartialEq + Send + 'static>(
+        conditions: &mut Vec<StopCondition>,
+        msg: &T,
+    ) -> bool {
+        let indexes_to_remove = Self::indexes_of_matched_conditions(conditions, msg);
+        Self::remove_matched_conditions(conditions, indexes_to_remove);
+        conditions.is_empty()
     }
 
     fn indexes_of_matched_conditions<T: PartialEq + Send + 'static>(

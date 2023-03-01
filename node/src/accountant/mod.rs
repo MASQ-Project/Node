@@ -43,7 +43,9 @@ use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
 use crate::sub_lib::accountant::{MessageIdGenerator, MessageIdGeneratorReal};
-use crate::sub_lib::blockchain_bridge::{ReportAccountsPayable, RequestAvailableBalancesForPayables, WalletBalances};
+use crate::sub_lib::blockchain_bridge::{
+    ReportAccountsPayable, RequestAvailableBalancesForPayables, WalletBalances,
+};
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
 use crate::sub_lib::wallet::Wallet;
@@ -94,7 +96,7 @@ pub struct Accountant {
     retrieve_transactions_sub_opt: Option<Recipient<RetrieveTransactions>>,
     request_transaction_receipts_subs_opt: Option<Recipient<RequestTransactionReceipts>>,
     report_inbound_payments_sub_opt: Option<Recipient<ReceivedPayments>>,
-    report_sent_payments_sub_opt: Option<Recipient<SentPayables>>,
+    report_sent_payables_sub_opt: Option<Recipient<SentPayables>>,
     ui_message_sub_opt: Option<Recipient<NodeToUiMessage>>,
     message_id_generator: Box<dyn MessageIdGenerator>,
     logger: Logger,
@@ -132,10 +134,10 @@ pub struct SentPayables {
 }
 
 #[derive(Debug, Message, PartialEq, Eq)]
-pub struct AvailableBalancesAndQualifiedPayables{
+pub struct AvailableBalancesAndQualifiedPayables {
     pub accounts: Vec<PayableAccount>,
     pub consuming_wallet_balances: WalletBalances,
-    pub response_skeleton_opt: Option<ResponseSkeleton>
+    pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 
 #[derive(Debug, Message, Default, PartialEq, Eq, Clone, Copy)]
@@ -429,10 +431,10 @@ impl Accountant {
             financial_statistics: Rc::clone(&financial_statistics),
             report_accounts_payable_sub_opt: None,
             request_available_balances_for_payables_sub_opt: None,
+            report_sent_payables_sub_opt: None,
             retrieve_transactions_sub_opt: None,
-            request_transaction_receipts_subs_opt: None,
             report_inbound_payments_sub_opt: None,
-            report_sent_payments_sub_opt: None,
+            request_transaction_receipts_subs_opt: None,
             ui_message_sub_opt: None,
             message_id_generator: Box::new(MessageIdGeneratorReal::default()),
             logger: Logger::new("Accountant"),
@@ -547,7 +549,7 @@ impl Accountant {
                 .blockchain_bridge
                 .request_available_balances_for_payables,
         );
-        self.report_sent_payments_sub_opt = Some(msg.peer_actors.accountant.report_sent_payments);
+        self.report_sent_payables_sub_opt = Some(msg.peer_actors.accountant.report_sent_payments);
         self.ui_message_sub_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);
         self.request_transaction_receipts_subs_opt = Some(
             msg.peer_actors
@@ -988,7 +990,7 @@ mod tests {
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::scanners::{BeginScanError, NullScanner, ScannerMock};
     use crate::accountant::test_utils::DaoWithDestination::{
-        ToAccountantBody, ToPayableScanner, ToPendingPayableScanner, ToReceivableScanner,
+        ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
     use crate::accountant::test_utils::{
         bc_from_earning_wallet, bc_from_wallets, make_payables, BannedDaoFactoryMock,
@@ -1127,20 +1129,20 @@ mod tests {
         );
 
         let financial_statistics = result.financial_statistics().clone();
-        let notify_later = result.scan_timings;
-        notify_later
+        let scan_timings = result.scan_timings;
+        scan_timings
             .pending_payable
             .handle
             .as_any()
             .downcast_ref::<NotifyLaterHandleReal<ScanForPendingPayables>>()
             .unwrap();
-        notify_later
+        scan_timings
             .payable
             .handle
             .as_any()
             .downcast_ref::<NotifyLaterHandleReal<ScanForPayables>>()
             .unwrap();
-        notify_later
+        scan_timings
             .receivable
             .handle
             .as_any()
@@ -1168,7 +1170,7 @@ mod tests {
             .paid_delinquencies_result(vec![]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .receivable_daos(vec![ToReceivableScanner(receivable_dao)])
+            .receivable_daos(vec![ForReceivableScanner(receivable_dao)])
             .build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -1257,7 +1259,7 @@ mod tests {
             PayableDaoMock::new().non_pending_payables_result(vec![payable_account.clone()]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![ToPayableScanner(payable_dao)])
+            .payable_daos(vec![ForPayableScanner(payable_dao)])
             .build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -1346,7 +1348,7 @@ mod tests {
             .return_all_fingerprints_result(vec![fingerprint.clone()]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .pending_payable_daos(vec![ToPendingPayableScanner(pending_payable_dao)])
+            .pending_payable_daos(vec![ForPendingPayableScanner(pending_payable_dao)])
             .build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -1404,7 +1406,7 @@ mod tests {
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .logger(Logger::new(test_name))
-            .pending_payable_daos(vec![ToPendingPayableScanner(pending_payable_dao)])
+            .pending_payable_daos(vec![ForPendingPayableScanner(pending_payable_dao)])
             .build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -1491,8 +1493,8 @@ mod tests {
         let system = System::new("accountant_calls_payable_dao_to_mark_pending_payable");
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
-            .payable_daos(vec![ToPayableScanner(payable_dao)])
-            .pending_payable_daos(vec![ToPayableScanner(pending_payable_dao)])
+            .payable_daos(vec![ForPayableScanner(payable_dao)])
+            .pending_payable_daos(vec![ForPayableScanner(pending_payable_dao)])
             .build();
         let expected_payable = Payable::new(
             expected_wallet.clone(),
@@ -1528,7 +1530,7 @@ mod tests {
         let system = System::new("sent payable failure without backup");
         let pending_payable_dao = PendingPayableDaoMock::default().fingerprint_rowid_result(None);
         let accountant = AccountantBuilder::default()
-            .pending_payable_daos(vec![ToPayableScanner(pending_payable_dao)])
+            .pending_payable_daos(vec![ForPayableScanner(pending_payable_dao)])
             .build();
         let hash = H256::from_uint(&U256::from(12345));
         let sent_payable = SentPayables {
@@ -1582,8 +1584,8 @@ mod tests {
             .delete_fingerprint_params(&delete_fingerprint_params_arc)
             .delete_fingerprint_result(Ok(()));
         let subject = AccountantBuilder::default()
-            .payable_daos(vec![ToPayableScanner(payable_dao)])
-            .pending_payable_daos(vec![ToPayableScanner(pending_payable_dao)]) // For Scanner
+            .payable_daos(vec![ForPayableScanner(payable_dao)])
+            .pending_payable_daos(vec![ForPayableScanner(pending_payable_dao)]) // For Scanner
             .build();
         let wallet = make_wallet("blah");
         let hash_tx_1 = H256::from_uint(&U256::from(5555));
@@ -1649,7 +1651,7 @@ mod tests {
         let system = System::new("request for balances forwarded to blockchain_bridge");
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
-            .payable_daos(vec![ToPayableScanner(payable_dao)])
+            .payable_daos(vec![ForPayableScanner(payable_dao)])
             .build();
         subject.scanners.pending_payable = Box::new(NullScanner::new());
         subject.scanners.receivable = Box::new(NullScanner::new());
@@ -1690,7 +1692,7 @@ mod tests {
             .paid_delinquencies_result(vec![]);
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(earning_wallet.clone()))
-            .receivable_daos(vec![ToReceivableScanner(receivable_dao)])
+            .receivable_daos(vec![ForReceivableScanner(receivable_dao)])
             .build();
         subject.scanners.pending_payable = Box::new(NullScanner::new());
         subject.scanners.payable = Box::new(NullScanner::new());
@@ -1738,7 +1740,7 @@ mod tests {
             .more_money_received_result(Ok(()));
         let accountant = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(earning_wallet.clone()))
-            .receivable_daos(vec![ToReceivableScanner(receivable_dao)])
+            .receivable_daos(vec![ForReceivableScanner(receivable_dao)])
             .build();
         let system = System::new("accountant_receives_new_payments_to_the_receivables_dao");
         let subject = accountant.start();
@@ -1784,9 +1786,9 @@ mod tests {
             .paid_delinquencies_result(vec![]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![ToPayableScanner(payable_dao)])
-            .pending_payable_daos(vec![ToPendingPayableScanner(pending_payable_dao)])
-            .receivable_daos(vec![ToReceivableScanner(receivable_dao)])
+            .payable_daos(vec![ForPayableScanner(payable_dao)])
+            .pending_payable_daos(vec![ForPendingPayableScanner(pending_payable_dao)])
+            .receivable_daos(vec![ForReceivableScanner(receivable_dao)])
             .build();
         let peer_actors = peer_actors_builder()
             .blockchain_bridge(blockchain_bridge)
@@ -2119,7 +2121,7 @@ mod tests {
             blockchain_bridge_addr.recipient::<ReportAccountsPayable>();
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![ToPayableScanner(payable_dao)])
+            .payable_daos(vec![ForPayableScanner(payable_dao)])
             .build();
         subject.report_accounts_payable_sub_opt = Some(report_accounts_payable_sub);
 
@@ -2183,7 +2185,7 @@ mod tests {
             .build();
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![ToPayableScanner(payable_dao)])
+            .payable_daos(vec![ForPayableScanner(payable_dao)])
             .build();
         subject.scanners.pending_payable = Box::new(NullScanner::new());
         subject.scanners.receivable = Box::new(NullScanner::new());
@@ -2215,8 +2217,8 @@ mod tests {
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
         let blockchain_bridge_addr = blockchain_bridge
             .system_stop_conditions(match_every_type_id!(
-                RequestAvailableBalancesForPayables,
-                RequestAvailableBalancesForPayables
+                ReportAccountsPayable,
+                ReportAccountsPayable
             ))
             .start();
         let request_available_balances_for_payables_sub =
@@ -2237,7 +2239,7 @@ mod tests {
         let system = System::new(test_name);
         let mut subject = AccountantBuilder::default()
             .logger(Logger::new(test_name))
-            .payable_daos(vec![ToPayableScanner(payable_dao)])
+            .payable_daos(vec![ForPayableScanner(payable_dao)])
             .bootstrapper_config(config)
             .build();
         let message_before = ScanForPayables {
@@ -2323,7 +2325,7 @@ mod tests {
         let config = bc_from_earning_wallet(make_wallet("mine"));
         let system = System::new("pending payable scan");
         let mut subject = AccountantBuilder::default()
-            .pending_payable_daos(vec![ToPendingPayableScanner(pending_payable_dao)])
+            .pending_payable_daos(vec![ForPendingPayableScanner(pending_payable_dao)])
             .bootstrapper_config(config)
             .build();
         let blockchain_bridge_addr = blockchain_bridge.start();
@@ -2365,8 +2367,8 @@ mod tests {
             .more_money_receivable_result(Ok(()));
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bootstrapper_config)
-            .payable_daos(vec![ToAccountantBody(payable_dao_mock)])
-            .receivable_daos(vec![ToAccountantBody(receivable_dao_mock)])
+            .payable_daos(vec![ForAccountantBody(payable_dao_mock)])
+            .receivable_daos(vec![ForAccountantBody(receivable_dao_mock)])
             .build();
         let system = System::new("report_routing_service_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
@@ -2411,8 +2413,8 @@ mod tests {
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![ToAccountantBody(payable_dao_mock)])
-            .receivable_daos(vec![ToAccountantBody(receivable_dao_mock)])
+            .payable_daos(vec![ForAccountantBody(payable_dao_mock)])
+            .receivable_daos(vec![ForAccountantBody(receivable_dao_mock)])
             .build();
         let system = System::new("report_routing_service_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
@@ -2456,8 +2458,8 @@ mod tests {
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![ToAccountantBody(payable_dao_mock)])
-            .receivable_daos(vec![ToAccountantBody(receivable_dao_mock)])
+            .payable_daos(vec![ForAccountantBody(payable_dao_mock)])
+            .receivable_daos(vec![ForAccountantBody(receivable_dao_mock)])
             .build();
         let system = System::new("report_routing_service_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
@@ -2502,8 +2504,8 @@ mod tests {
             .more_money_receivable_result(Ok(()));
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![ToAccountantBody(payable_dao_mock)])
-            .receivable_daos(vec![ToAccountantBody(receivable_dao_mock)])
+            .payable_daos(vec![ForAccountantBody(payable_dao_mock)])
+            .receivable_daos(vec![ForAccountantBody(receivable_dao_mock)])
             .build();
         let system = System::new("report_exit_service_provided_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
@@ -2548,8 +2550,8 @@ mod tests {
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![ToAccountantBody(payable_dao_mock)])
-            .receivable_daos(vec![ToAccountantBody(receivable_dao_mock)])
+            .payable_daos(vec![ForAccountantBody(payable_dao_mock)])
+            .receivable_daos(vec![ForAccountantBody(receivable_dao_mock)])
             .build();
         let system = System::new("report_exit_service_provided_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
@@ -2593,8 +2595,8 @@ mod tests {
             .more_money_receivable_parameters(&more_money_receivable_parameters_arc);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![ToAccountantBody(payable_dao_mock)])
-            .receivable_daos(vec![ToAccountantBody(receivable_dao_mock)])
+            .payable_daos(vec![ForAccountantBody(payable_dao_mock)])
+            .receivable_daos(vec![ForAccountantBody(receivable_dao_mock)])
             .build();
         let system = System::new("report_exit_service_provided_message_is_received");
         let subject_addr: Addr<Accountant> = subject.start();
@@ -2639,7 +2641,7 @@ mod tests {
             .more_money_payable_result(Ok(()));
         let mut subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![ToAccountantBody(payable_dao_mock)])
+            .payable_daos(vec![ForAccountantBody(payable_dao_mock)])
             .build();
         subject.message_id_generator = Box::new(MessageIdGeneratorMock::default().id_result(123));
         let system = System::new("report_services_consumed_message_is_received");
@@ -2728,7 +2730,7 @@ mod tests {
             .more_money_payable_params(more_money_payable_parameters_arc.clone());
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
-            .payable_daos(vec![ToAccountantBody(payable_dao_mock)])
+            .payable_daos(vec![ForAccountantBody(payable_dao_mock)])
             .build();
         let system = System::new("test");
         let subject_addr: Addr<Accountant> = subject.start();
@@ -2903,7 +2905,7 @@ mod tests {
             ),
         ));
         let subject = AccountantBuilder::default()
-            .receivable_daos(vec![ToAccountantBody(receivable_dao)])
+            .receivable_daos(vec![ForAccountantBody(receivable_dao)])
             .build();
 
         let _ = subject.record_service_provided(i64::MAX as u64, 1, SystemTime::now(), 2, &wallet);
@@ -2916,7 +2918,7 @@ mod tests {
         let receivable_dao = ReceivableDaoMock::new()
             .more_money_receivable_result(Err(ReceivableDaoError::SignConversion(1234)));
         let subject = AccountantBuilder::default()
-            .receivable_daos(vec![ToAccountantBody(receivable_dao)])
+            .receivable_daos(vec![ForAccountantBody(receivable_dao)])
             .build();
 
         subject.record_service_provided(i64::MAX as u64, 1, SystemTime::now(), 2, &wallet);
@@ -2935,7 +2937,7 @@ mod tests {
         let payable_dao = PayableDaoMock::new()
             .more_money_payable_result(Err(PayableDaoError::SignConversion(1234)));
         let subject = AccountantBuilder::default()
-            .payable_daos(vec![ToAccountantBody(payable_dao)])
+            .payable_daos(vec![ForAccountantBody(payable_dao)])
             .build();
         let service_rate = i64::MAX as u64;
 
@@ -2961,7 +2963,7 @@ mod tests {
             PayableDaoError::RusqliteError("we cannot help ourselves; this is baaad".to_string()),
         ));
         let subject = AccountantBuilder::default()
-            .payable_daos(vec![ToAccountantBody(payable_dao)])
+            .payable_daos(vec![ForAccountantBody(payable_dao)])
             .build();
 
         let _ = subject.record_service_consumed(i64::MAX as u64, 1, SystemTime::now(), 2, &wallet);
@@ -2991,7 +2993,7 @@ mod tests {
             )));
         let system = System::new("test");
         let subject = AccountantBuilder::default()
-            .pending_payable_daos(vec![ToPayableScanner(pending_payable_dao)])
+            .pending_payable_daos(vec![ForPayableScanner(pending_payable_dao)])
             .build();
         let addr = subject.start();
 
@@ -3194,14 +3196,14 @@ mod tests {
                 let mut subject = AccountantBuilder::default()
                     .bootstrapper_config(bootstrapper_config)
                     .payable_daos(vec![
-                        ToAccountantBody(payable_dao_for_accountant),
-                        ToPayableScanner(payable_dao_for_payable_scanner),
-                        ToPendingPayableScanner(payable_dao_for_pending_payable_scanner),
+                        ForAccountantBody(payable_dao_for_accountant),
+                        ForPayableScanner(payable_dao_for_payable_scanner),
+                        ForPendingPayableScanner(payable_dao_for_pending_payable_scanner),
                     ])
                     .pending_payable_daos(vec![
-                        ToAccountantBody(pending_payable_dao_for_accountant),
-                        ToPayableScanner(pending_payable_dao_for_payable_scanner),
-                        ToPendingPayableScanner(pending_payable_dao_for_pending_payable_scanner),
+                        ForAccountantBody(pending_payable_dao_for_accountant),
+                        ForPayableScanner(pending_payable_dao_for_payable_scanner),
+                        ForPendingPayableScanner(pending_payable_dao_for_pending_payable_scanner),
                     ])
                     .build();
                 subject.scanners.receivable = Box::new(NullScanner::new());
@@ -3313,7 +3315,7 @@ mod tests {
             .insert_fingerprint_params(&insert_fingerprint_params_arc)
             .insert_fingerprint_result(Ok(()));
         let subject = AccountantBuilder::default()
-            .pending_payable_daos(vec![ToAccountantBody(pending_payable_dao)])
+            .pending_payable_daos(vec![ForAccountantBody(pending_payable_dao)])
             .build();
         let accountant_addr = subject.start();
         let tx_hash = H256::from_uint(&U256::from(55));
@@ -3360,7 +3362,7 @@ mod tests {
         let amount = 2345;
         let transaction_hash = H256::from_uint(&U256::from(456));
         let subject = AccountantBuilder::default()
-            .pending_payable_daos(vec![ToAccountantBody(pending_payable_dao)])
+            .pending_payable_daos(vec![ForAccountantBody(pending_payable_dao)])
             .build();
         let timestamp_secs = 150_000_000;
         let fingerprint = PendingPayableFingerprint {
@@ -3530,8 +3532,8 @@ mod tests {
         let system = System::new("test");
         let subject = AccountantBuilder::default()
             .bootstrapper_config(make_bc_with_defaults())
-            .payable_daos(vec![ToAccountantBody(payable_dao)])
-            .receivable_daos(vec![ToAccountantBody(receivable_dao)])
+            .payable_daos(vec![ForAccountantBody(payable_dao)])
+            .receivable_daos(vec![ForAccountantBody(receivable_dao)])
             .build();
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let subject_addr = subject.start();
@@ -3576,8 +3578,8 @@ mod tests {
         let receivable_dao = ReceivableDaoMock::new().total_result((i64::MAX as i128) * 3);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
-            .payable_daos(vec![ToAccountantBody(payable_dao)])
-            .receivable_daos(vec![ToAccountantBody(receivable_dao)])
+            .payable_daos(vec![ForAccountantBody(payable_dao)])
+            .receivable_daos(vec![ForAccountantBody(receivable_dao)])
             .build();
         subject
             .financial_statistics
@@ -3652,8 +3654,8 @@ mod tests {
             .custom_query_result(Some(receivable_accounts_retrieved));
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
-            .payable_daos(vec![ToAccountantBody(payable_dao)])
-            .receivable_daos(vec![ToAccountantBody(receivable_dao)])
+            .payable_daos(vec![ForAccountantBody(payable_dao)])
+            .receivable_daos(vec![ForAccountantBody(receivable_dao)])
             .build();
         let context_id_expected = 1234;
         let request = UiFinancialsRequest {
@@ -3733,8 +3735,8 @@ mod tests {
             .custom_query_result(None);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
-            .payable_daos(vec![ToAccountantBody(payable_dao)])
-            .receivable_daos(vec![ToAccountantBody(receivable_dao)])
+            .payable_daos(vec![ForAccountantBody(payable_dao)])
+            .receivable_daos(vec![ForAccountantBody(receivable_dao)])
             .build();
         let context_id_expected = 1234;
         let request = UiFinancialsRequest {
@@ -3808,8 +3810,8 @@ mod tests {
             .custom_query_result(Some(receivable_accounts_retrieved));
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
-            .payable_daos(vec![ToAccountantBody(payable_dao)])
-            .receivable_daos(vec![ToAccountantBody(receivable_dao)])
+            .payable_daos(vec![ForAccountantBody(payable_dao)])
+            .receivable_daos(vec![ForAccountantBody(receivable_dao)])
             .build();
         let context_id_expected = 1234;
         let request = UiFinancialsRequest {
@@ -3942,7 +3944,7 @@ mod tests {
             .custom_query_result(Some(receivable_accounts_retrieved));
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
-            .receivable_daos(vec![ToAccountantBody(receivable_dao)])
+            .receivable_daos(vec![ForAccountantBody(receivable_dao)])
             .build();
         let context_id_expected = 1234;
         let request = UiFinancialsRequest {
@@ -4051,7 +4053,7 @@ mod tests {
             PayableDaoMock::new().custom_query_result(Some(payable_accounts_retrieved));
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
-            .payable_daos(vec![ToAccountantBody(payable_dao)])
+            .payable_daos(vec![ForAccountantBody(payable_dao)])
             .build();
         let context_id_expected = 1234;
         let request = UiFinancialsRequest {
@@ -4087,7 +4089,7 @@ mod tests {
             ReceivableDaoMock::new().custom_query_result(Some(receivable_accounts_retrieved));
         let subject = AccountantBuilder::default()
             .bootstrapper_config(bc_from_earning_wallet(make_wallet("some_wallet_address")))
-            .receivable_daos(vec![ToAccountantBody(receivable_dao)])
+            .receivable_daos(vec![ForAccountantBody(receivable_dao)])
             .build();
         let context_id_expected = 1234;
         let request = UiFinancialsRequest {

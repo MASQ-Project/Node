@@ -61,9 +61,9 @@ impl SkeletonOptHolder for ReportAccountsPayable {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct WalletBalances{
+pub struct WalletBalances {
     pub for_gas: U256,
-    pub exchange_currency: U256
+    pub exchange_currency: U256,
 }
 
 #[cfg(test)]

@@ -257,7 +257,9 @@ impl BlockchainBridge {
         msg: RequestAvailableBalancesForPayables,
     ) -> Result<(), String> {
         let consuming_wallet = self.consuming_wallet_opt;
-        let consuming_wallet_balances = self.blockchain_interface.get_both_balances(consuming_wallet);
+        let consuming_wallet_balances = self
+            .blockchain_interface
+            .get_both_balances(consuming_wallet);
     }
 
     fn handle_report_accounts_payable(
@@ -449,6 +451,7 @@ mod tests {
     use crate::accountant::dao_utils::from_time_t;
     use crate::accountant::payable_dao::PayableAccount;
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
+    use crate::accountant::AvailableBalancesAndQualifiedPayables;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_bridge::Payable;
     use crate::blockchain::blockchain_interface::{
@@ -461,6 +464,7 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_every_type_id;
     use crate::node_test_utils::check_timestamp;
+    use crate::sub_lib::blockchain_bridge::WalletBalances;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::recorder_stop_conditions::StopCondition;
@@ -481,8 +485,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
     use web3::types::{TransactionReceipt, H160, H256, U256};
-    use crate::accountant::AvailableBalancesAndQualifiedPayables;
-    use crate::sub_lib::blockchain_bridge::WalletBalances;
 
     #[test]
     fn constants_have_correct_values() {
@@ -640,16 +642,21 @@ mod tests {
         );
         let get_balances_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let wallet_balances_found = WalletBalances{ for_gas: U256::from(4455), exchange_currency: U256::from(112233)};
+        let wallet_balances_found = WalletBalances {
+            for_gas: U256::from(4455),
+            exchange_currency: U256::from(112233),
+        };
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_both_balances_params(&get_balances_params_arc)
             .get_both_balances_result(Ok(wallet_balances_found.clone()));
         let consuming_wallet = make_paying_wallet(b"somewallet");
         let persistent_configuration = PersistentConfigurationMock::default();
-        let qualified_accounts = vec![PayableAccount{
+        let qualified_accounts = vec![PayableAccount {
             wallet: make_wallet("booga"),
             balance_wei: 78_654_321,
-            last_paid_timestamp: SystemTime::now().checked_sub(Duration::from_secs(1000)).unwrap(),
+            last_paid_timestamp: SystemTime::now()
+                .checked_sub(Duration::from_secs(1000))
+                .unwrap(),
             pending_payable_opt: None,
         }];
         let subject = BlockchainBridge::new(
@@ -664,30 +671,27 @@ mod tests {
         send_bind_message!(subject_subs, peer_actors);
         let before = SystemTime::now();
 
-        addr
-            .try_send(RequestAvailableBalancesForPayables{ accounts: qualified_accounts.clone(), response_skeleton_opt: Some(ResponseSkeleton {
-                    client_id: 11122,
-                    context_id: 444,
-                }),
-            })
-            .unwrap();
+        addr.try_send(RequestAvailableBalancesForPayables {
+            accounts: qualified_accounts.clone(),
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 11122,
+                context_id: 444,
+            }),
+        })
+        .unwrap();
 
         System::current().stop();
         system.run();
         let after = SystemTime::now();
         let get_balances_params = get_balances_params_arc.lock().unwrap();
-        assert_eq!(
-            *get_balances_params,
-            vec![
-                consuming_wallet
-            ]
-        );
+        assert_eq!(*get_balances_params, vec![consuming_wallet]);
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_received_payment.len(), 1);
-        let reported_balances_and_qualified_accounts: &AvailableBalancesAndQualifiedPayables = accountant_received_payment.get_record(0);
+        let reported_balances_and_qualified_accounts: &AvailableBalancesAndQualifiedPayables =
+            accountant_received_payment.get_record(0);
         assert_eq!(
             reported_balances_and_qualified_accounts,
-            &AvailableBalancesAndQualifiedPayables{
+            &AvailableBalancesAndQualifiedPayables {
                 accounts: qualified_accounts,
                 consuming_wallet_balances: wallet_balances_found,
                 response_skeleton_opt: Some(ResponseSkeleton {
@@ -706,8 +710,11 @@ mod tests {
             .system_stop_conditions(match_every_type_id!(ScanError))
             .start()
             .recipient();
-        let blockchain_interface = BlockchainInterfaceMock::default()
-            .get_both_balances_result(Err(BlockchainError::QueryFailed("You're so lazy and yet you're asking for balances?".to_string())));
+        let blockchain_interface = BlockchainInterfaceMock::default().get_both_balances_result(
+            Err(BlockchainError::QueryFailed(
+                "You're so lazy and yet you're asking for balances?".to_string(),
+            )),
+        );
         let persistent_configuration = PersistentConfigurationMock::default();
         let consuming_wallet = make_wallet("somewallet");
         let mut subject = BlockchainBridge::new(
@@ -724,7 +731,10 @@ mod tests {
                 last_paid_timestamp: SystemTime::now(),
                 pending_payable_opt: None,
             }],
-            response_skeleton_opt: Some(ResponseSkeleton{ client_id: 11, context_id: 2323 }),
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 11,
+                context_id: 2323,
+            }),
         };
         let subject_addr = subject.start();
         let system = System::new("test");
@@ -739,13 +749,15 @@ mod tests {
             message,
             &ScanError {
                 scan_type: ScanType::Payables,
-                response_skeleton_opt: Some(ResponseSkeleton{ client_id: 11, context_id: 2323 }),
+                response_skeleton_opt: Some(ResponseSkeleton {
+                    client_id: 11,
+                    context_id: 2323
+                }),
                 msg: "You're so lazy and yet you're asking for balances?".to_string()
             }
         );
-        TestLogHandler::new().exists_log_containing(
-            "WARN: BlockchainBridge: blaaaaaaaaaaaaaaaaaaaaah",
-        );
+        TestLogHandler::new()
+            .exists_log_containing("WARN: BlockchainBridge: blaaaaaaaaaaaaaaaaaaaaah");
     }
 
     #[test]
