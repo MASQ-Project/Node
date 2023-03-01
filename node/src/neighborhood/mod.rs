@@ -532,7 +532,7 @@ impl Neighborhood {
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
-        let debug_msg_opt = self.logger.debug_enabled().then(||format!("{:?}", msg));
+        let debug_msg_opt = self.logger.debug_enabled().then(|| format!("{:?}", msg));
 
         let route_result = if msg.minimum_hop_count == 0 {
             Ok(self.zero_hop_route_response())
