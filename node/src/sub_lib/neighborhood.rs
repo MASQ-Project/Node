@@ -366,7 +366,7 @@ lazy_static! {
     static ref EMPTY_CONFIGS: Vec<NodeDescriptor> = vec![];
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct NeighborhoodSubs {
     pub bind: Recipient<BindMessage>,
     pub start: Recipient<StartMessage>,
@@ -422,7 +422,7 @@ impl Message for NodeQueryMessage {
     type Result = Option<NodeQueryResponseMetadata>;
 }
 
-#[derive(Message, Clone)]
+#[derive(Message, Clone, PartialEq, Eq)]
 pub struct DispatcherNodeQueryMessage {
     pub query: NodeQueryMessage,
     pub context: TransmitDataMsg,

@@ -624,7 +624,7 @@ pub mod test_utils {
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, InitializationError};
-    use crate::test_utils::unshared_test_utils::ArbitraryIdStamp;
+    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use crate::{arbitrary_id_stamp, set_arbitrary_id_stamp};
     use rusqlite::Transaction;
     use rusqlite::{Error, Statement};

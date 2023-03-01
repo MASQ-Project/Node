@@ -637,7 +637,8 @@ mod tests {
         make_ui_gateway_subs_from_recorder, Recording,
     };
     use crate::test_utils::recorder::{make_recorder, Recorder};
-    use crate::test_utils::unshared_test_utils::{ArbitraryIdStamp, SystemKillerActor};
+    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
+    use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
