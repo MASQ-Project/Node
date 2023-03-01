@@ -3444,8 +3444,8 @@ mod tests {
                     + UNREACHABLE_HOST_PENALTY // because host is blacklisted
         );
         TestLogHandler::new().exists_log_containing(
-            "Node with PubKey 0x02030405 failed to reach \
-                      host \"hostname.com\" during ExitRequest; \
+            "TRACE: Neighborhood: Node with PubKey 0x02030405 \
+                      failed to reach host \"hostname.com\" during ExitRequest; \
                       Undesirability: 2350745 + 100000000 = 102350745",
         );
     }
