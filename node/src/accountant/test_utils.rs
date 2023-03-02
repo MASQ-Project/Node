@@ -12,9 +12,7 @@ use crate::accountant::pending_payable_dao::{
 use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
-use crate::accountant::scanners::{
-    PayableScanner, PendingPayableScanner, ReceivableScanner,
-};
+use crate::accountant::scanners::{PayableScanner, PendingPayableScanner, ReceivableScanner};
 use crate::accountant::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
 use crate::accountant::{gwei_to_wei, Accountant, PendingPayableId, DEFAULT_PENDING_TOO_LONG_SEC};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
