@@ -78,7 +78,7 @@ impl Display for BlockchainError {
 
 pub type BlockchainResult<T> = Result<T, BlockchainError>;
 pub type ResultForBalance = BlockchainResult<web3::types::U256>;
-pub type ResultForWalletBalances = BlockchainResult<WalletBalances>;
+pub type ResultForBothBalances = BlockchainResult<(web3::types::U256, web3::types::U256)>;
 pub type ResultForNonce = BlockchainResult<web3::types::U256>;
 pub type ResultForReceipt = BlockchainResult<Option<TransactionReceipt>>;
 
@@ -102,11 +102,9 @@ pub trait BlockchainInterface {
         inputs: BlockchainTxnInputs,
     ) -> Result<(H256, SystemTime), BlockchainTransactionError>;
 
-    fn get_eth_balance(&self, address: &Wallet) -> ResultForBalance;
+    fn get_gas_balance(&self, address: &Wallet) -> ResultForBalance;
 
     fn get_token_balance(&self, address: &Wallet) -> ResultForBalance;
-
-    fn get_both_balances(&self, address: &Wallet) -> ResultForWalletBalances;
 
     fn get_transaction_count(&self, address: &Wallet) -> ResultForNonce;
 
@@ -163,7 +161,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         Err(BlockchainTransactionError::Sending(msg, H256::default()))
     }
 
-    fn get_eth_balance(&self, _address: &Wallet) -> ResultForBalance {
+    fn get_gas_balance(&self, _address: &Wallet) -> ResultForBalance {
         error!(self.logger, "Can't get eth balance clandestinely yet",);
         Ok(0.into())
     }
@@ -171,12 +169,6 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     fn get_token_balance(&self, _address: &Wallet) -> ResultForBalance {
         error!(self.logger, "Can't get token balance clandestinely yet",);
         Ok(0.into())
-    }
-
-    fn get_both_balances(&self, _address: &Wallet) -> ResultForWalletBalances {
-        let msg = "Can't get wallet balances clandestinely yet".to_string();
-        error!(self.logger, "{}", msg);
-        Err(BlockchainError::QueryFailed(msg))
     }
 
     fn get_transaction_count(&self, _address: &Wallet) -> ResultForNonce {
@@ -336,7 +328,7 @@ where
         }
     }
 
-    fn get_eth_balance(&self, wallet: &Wallet) -> ResultForBalance {
+    fn get_gas_balance(&self, wallet: &Wallet) -> ResultForBalance {
         self.web3
             .eth()
             .balance(wallet.address(), None)
@@ -350,15 +342,11 @@ where
                 "balanceOf",
                 wallet.address(),
                 None,
-                Options::with(|_| {}),
+                Options::default(), //TODO changed from a diff function call, is this gonna work?
                 None,
             )
             .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
-    }
-
-    fn get_both_balances(&self, address: &Wallet) -> ResultForWalletBalances {
-        todo!()
     }
 
     fn get_transaction_count(&self, wallet: &Wallet) -> ResultForNonce {
@@ -968,7 +956,7 @@ mod tests {
         );
 
         let result = subject
-            .get_eth_balance(
+            .get_gas_balance(
                 &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
             )
             .unwrap();
@@ -993,7 +981,7 @@ mod tests {
         );
 
         let result =
-            subject.get_eth_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"));
+            subject.get_gas_balance(&Wallet::new("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fQ"));
 
         assert_eq!(result, Err(BlockchainError::InvalidAddress));
     }
@@ -1019,7 +1007,7 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
-        let result = subject.get_eth_balance(
+        let result = subject.get_gas_balance(
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
@@ -1083,6 +1071,16 @@ mod tests {
     #[test]
     fn blockchain_interface_non_clandestine_returns_an_error_for_unintelligible_response_when_requesting_token_balance(
     ) {
+        let act = |subject: &BlockchainInterfaceNonClandestine<Http>, wallet: &Wallet| {
+            subject.get_token_balance(wallet)
+        };
+        error_on_requesting_balance(act);
+    }
+
+    fn error_on_requesting_balance<F>(act: F)
+    where
+        F: FnOnce(&BlockchainInterfaceNonClandestine<Http>, &Wallet) -> ResultForBalance,
+    {
         let port = find_free_port();
         let _test_server = TestServer::start (port, vec![
             br#"{"jsonrpc":"2.0","id":0,"result":"0x000000000000000000000000000000000000000000000000000000000000FFFQ"}"#.to_vec()
@@ -1099,7 +1097,8 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
-        let result = subject.get_token_balance(
+        let result = act(
+            &subject,
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
@@ -1107,44 +1106,6 @@ mod tests {
             Err(BlockchainError::QueryFailed(msg)) if msg.contains("Invalid hex") => (),
             x => panic!("Expected complaint about hex character, but got {:?}", x),
         }
-    }
-
-    #[test]
-    fn blockchain_interface_non_clandestine_can_request_both_eth_and_token_balances_happy_path() {
-        let port = find_free_port();
-        let _test_server = TestServer::start (port, vec![
-            br#"{"jsonrpc":"2.0","id":0,"result":"0x0000000000000000000000000000000000000000000000000000000000000001"}"#.to_vec(),
-            br#"{"jsonrpc":"2.0","id":0,"result":"0x0000000000000000000000000000000000000000000000000000000000000001"}"#.to_vec(),
-        ]);
-
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST.to_string(), port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            event_loop_handle,
-            TEST_DEFAULT_CHAIN,
-        );
-
-        let result = await_value(None, || {
-            match subject.get_both_balances(
-                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-            ) {
-                Ok(wallet_balances) => Ok::<WalletBalances, BlockchainError>(wallet_balances),
-                Err(e) => panic!(
-                    "we expected Ok() result with wallet balances but got: {:?}",
-                    e
-                ),
-            }
-        })
-        .unwrap();
-
-        let eth_balance = result.for_gas;
-        let token_balance = result.exchange_currency;
-        assert_eq!(eth_balance, U256::from(1),);
-        assert_eq!(token_balance, U256::from(1))
     }
 
     #[test]

@@ -212,6 +212,18 @@ impl Handler<ReceivedPayments> for Accountant {
     }
 }
 
+impl Handler<AvailableBalancesAndQualifiedPayables> for Accountant {
+    type Result = ();
+
+    fn handle(
+        &mut self,
+        msg: AvailableBalancesAndQualifiedPayables,
+        _ctx: &mut Self::Context,
+    ) -> Self::Result {
+        todo!()
+    }
+}
+
 impl Handler<SentPayables> for Accountant {
     type Result = ();
 
@@ -448,6 +460,10 @@ impl Accountant {
             report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
             report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
             report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
+            report_our_balances_and_qualified_payables: recipient!(
+                addr,
+                AvailableBalancesAndQualifiedPayables
+            ),
             report_inbound_payments: recipient!(addr, ReceivedPayments),
             pending_payable_fingerprint: recipient!(addr, PendingPayableFingerprint),
             report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),

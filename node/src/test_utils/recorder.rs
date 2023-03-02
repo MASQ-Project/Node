@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
-use crate::accountant::ReportTransactionReceipts;
+use crate::accountant::{AvailableBalancesAndQualifiedPayables, ReportTransactionReceipts};
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables,
     ScanForPendingPayables, ScanForReceivables, SentPayables,
@@ -127,6 +127,7 @@ recorder_message_handler!(ReportServicesConsumedMessage);
 recorder_message_handler!(ReportExitServiceProvidedMessage);
 recorder_message_handler!(ReportRoutingServiceProvidedMessage);
 recorder_message_handler!(ScanError);
+recorder_message_handler!(AvailableBalancesAndQualifiedPayables);
 recorder_message_handler!(SentPayables);
 recorder_message_handler!(SetConsumingWalletMessage);
 recorder_message_handler!(RequestAvailableBalancesForPayables);
@@ -412,6 +413,10 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
         report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
         report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
+        report_our_balances_and_qualified_payables: recipient!(
+            addr,
+            AvailableBalancesAndQualifiedPayables
+        ),
         report_inbound_payments: recipient!(addr, ReceivedPayments),
         pending_payable_fingerprint: recipient!(addr, PendingPayableFingerprint),
         report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),

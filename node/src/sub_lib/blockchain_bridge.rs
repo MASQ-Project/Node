@@ -43,7 +43,6 @@ pub struct RequestAvailableBalancesForPayables {
 
 impl SkeletonOptHolder for RequestAvailableBalancesForPayables {
     fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
-        todo!("is needed?");
         self.response_skeleton_opt
     }
 }
@@ -62,8 +61,8 @@ impl SkeletonOptHolder for ReportAccountsPayable {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WalletBalances {
-    pub for_gas: U256,
-    pub exchange_currency: U256,
+    pub gas_currency: U256,
+    pub masq_tokens: U256,
 }
 
 #[cfg(test)]
