@@ -49,7 +49,7 @@ pub struct BlockchainBridge {
     persistent_config: Box<dyn PersistentConfiguration>,
     set_consuming_wallet_subs_opt: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
     sent_payable_subs_opt: Option<Recipient<SentPayables>>,
-    our_balances_and_payables_sub_opt: Option<Recipient<AvailableBalancesAndQualifiedPayables>>,
+    balances_and_payables_sub_opt: Option<Recipient<AvailableBalancesAndQualifiedPayables>>,
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
     scan_error_subs_opt: Option<Recipient<ScanError>>,
     crashable: bool,
@@ -78,7 +78,7 @@ impl Handler<BindMessage> for BlockchainBridge {
         self.payment_confirmation
             .report_transaction_receipts_sub_opt =
             Some(msg.peer_actors.accountant.report_transaction_receipts);
-        self.our_balances_and_payables_sub_opt = Some(
+        self.balances_and_payables_sub_opt = Some(
             msg.peer_actors
                 .accountant
                 .report_our_balances_and_qualified_payables,
@@ -194,7 +194,7 @@ impl BlockchainBridge {
             persistent_config,
             set_consuming_wallet_subs_opt: None,
             sent_payable_subs_opt: None,
-            our_balances_and_payables_sub_opt: None,
+            balances_and_payables_sub_opt: None,
             received_payments_subs_opt: None,
             scan_error_subs_opt: None,
             crashable,
@@ -273,7 +273,7 @@ impl BlockchainBridge {
                 )
             }
         };
-        //TODO rewrite this into a batch call as soon as a card with that feature gets into master
+        //TODO rewrite this into a batch call as soon as a card also involving this feature gets into master
         let gas_balance = match self.blockchain_interface.get_gas_balance(consuming_wallet) {
             Ok(gas_balance) => gas_balance,
             Err(e) => {
@@ -301,7 +301,7 @@ impl BlockchainBridge {
                 masq_tokens: token_balance,
             }
         };
-        self.our_balances_and_payables_sub_opt
+        self.balances_and_payables_sub_opt
             .as_ref()
             .expect("Accountant is unbound")
             .try_send(AvailableBalancesAndQualifiedPayables {

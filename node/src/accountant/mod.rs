@@ -2246,7 +2246,7 @@ mod tests {
         let payable_dao = PayableDaoMock::default().non_pending_payables_result(accounts.clone());
         let (blockchain_bridge, _, blockchain_bridge_recordings_arc) = make_recorder();
         let blockchain_bridge =
-            blockchain_bridge.system_stop_conditions(match_every_type_id!(ReportAccountsPayable));
+            blockchain_bridge.system_stop_conditions(match_every_type_id!(RequestAvailableBalancesForPayables));
         let system =
             System::new("scan_for_payable_message_triggers_payment_for_balances_over_the_curve");
         let peer_actors = peer_actors_builder()
@@ -2286,8 +2286,8 @@ mod tests {
         let (blockchain_bridge, _, blockchain_bridge_recording) = make_recorder();
         let blockchain_bridge_addr = blockchain_bridge
             .system_stop_conditions(match_every_type_id!(
-                ReportAccountsPayable,
-                ReportAccountsPayable
+                RequestAvailableBalancesForPayables,
+                RequestAvailableBalancesForPayables
             ))
             .start();
         let request_available_balances_for_payables_sub =

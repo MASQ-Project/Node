@@ -13,7 +13,7 @@ use crate::accountant::receivable_dao::{
     ReceivableAccount, ReceivableDao, ReceivableDaoError, ReceivableDaoFactory,
 };
 use crate::accountant::scanners::{
-    PayableDatabaseScanner, PendingPayableScanner, ReceivableScanner,
+    PayableScanner, PendingPayableScanner, ReceivableScanner,
 };
 use crate::accountant::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
 use crate::accountant::{gwei_to_wei, Accountant, PendingPayableId, DEFAULT_PENDING_TOO_LONG_SEC};
@@ -1067,8 +1067,8 @@ impl PayableScannerBuilder {
         self
     }
 
-    pub fn build(self) -> PayableDatabaseScanner {
-        PayableDatabaseScanner::new(
+    pub fn build(self) -> PayableScanner {
+        PayableScanner::new(
             Box::new(self.payable_dao),
             Box::new(self.pending_payable_dao),
             Rc::new(self.payment_thresholds),

@@ -58,7 +58,7 @@ impl Scanners {
         financial_statistics: Rc<RefCell<FinancialStatistics>>,
     ) -> Self {
         Scanners {
-            payable: Box::new(PayableDatabaseScanner::new(
+            payable: Box::new(PayableScanner::new(
                 dao_factories.payable_dao_factory.make(),
                 dao_factories.pending_payable_dao_factory.make(),
                 Rc::clone(&payment_thresholds),
@@ -152,14 +152,14 @@ macro_rules! time_marking_methods {
     };
 }
 
-pub struct PayableDatabaseScanner {
+pub struct PayableScanner {
     pub common: ScannerCommon,
     pub payable_dao: Box<dyn PayableDao>,
     pub pending_payable_dao: Box<dyn PendingPayableDao>,
     pub payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
 }
 
-impl Scanner<RequestAvailableBalancesForPayables, SentPayables> for PayableDatabaseScanner {
+impl Scanner<RequestAvailableBalancesForPayables, SentPayables> for PayableScanner {
     fn begin_scan(
         &mut self,
         timestamp: SystemTime,
@@ -228,7 +228,7 @@ impl Scanner<RequestAvailableBalancesForPayables, SentPayables> for PayableDatab
     implement_as_any!();
 }
 
-impl PayableDatabaseScanner {
+impl PayableScanner {
     pub fn new(
         payable_dao: Box<dyn PayableDao>,
         pending_payable_dao: Box<dyn PendingPayableDao>,
@@ -958,7 +958,7 @@ impl<T: Default> PeriodicalScanConfig<T> {
 #[cfg(test)]
 mod tests {
     use crate::accountant::scanners::{
-        BeginScanError, PayableDatabaseScanner, PendingPayableScanner, ReceivableScanner, Scanner,
+        BeginScanError, PayableScanner, PendingPayableScanner, ReceivableScanner, Scanner,
         ScannerCommon, Scanners,
     };
     use crate::accountant::test_utils::{
@@ -1035,7 +1035,7 @@ mod tests {
         let payable_scanner = scanners
             .payable
             .as_any()
-            .downcast_ref::<PayableDatabaseScanner>()
+            .downcast_ref::<PayableScanner>()
             .unwrap();
         let pending_payable_scanner = scanners
             .pending_payable

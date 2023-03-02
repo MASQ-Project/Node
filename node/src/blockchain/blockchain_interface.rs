@@ -341,7 +341,7 @@ where
                 "balanceOf",
                 wallet.address(),
                 None,
-                Options::default(), //TODO changed from a diff function call, is this gonna work?
+                Options::default(),
                 None,
             )
             .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
