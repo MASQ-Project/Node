@@ -5,8 +5,7 @@
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainResult, BlockchainTransactionError,
-    BlockchainTxnInputs, ResultForBalance, ResultForBothBalances, ResultForNonce, ResultForReceipt,
-    REQUESTS_IN_PARALLEL,
+    BlockchainTxnInputs, ResultForBalance, ResultForNonce, ResultForReceipt, REQUESTS_IN_PARALLEL,
 };
 use crate::blockchain::tool_wrappers::SendTransactionToolsWrapper;
 use crate::sub_lib::wallet::Wallet;

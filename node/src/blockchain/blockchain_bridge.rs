@@ -30,7 +30,6 @@ use actix::Handler;
 use actix::Message;
 use actix::{Addr, Recipient};
 use itertools::Itertools;
-use libc::wait;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
@@ -727,7 +726,6 @@ mod tests {
         let subject_subs = BlockchainBridge::make_subs_from(&addr);
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         send_bind_message!(subject_subs, peer_actors);
-        let before = SystemTime::now();
 
         addr.try_send(RequestAvailableBalancesForPayables {
             accounts: qualified_accounts.clone(),
@@ -740,7 +738,6 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let after = SystemTime::now();
         let get_gas_balance_params = get_gas_balance_params_arc.lock().unwrap();
         assert_eq!(*get_gas_balance_params, vec![consuming_wallet.clone()]);
         let get_token_balance_params = get_token_balance_params_arc.lock().unwrap();

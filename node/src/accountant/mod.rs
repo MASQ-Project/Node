@@ -220,7 +220,15 @@ impl Handler<AvailableBalancesAndQualifiedPayables> for Accountant {
         msg: AvailableBalancesAndQualifiedPayables,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        todo!()
+        //TODO GH-672 is gonna take place here
+        self.report_accounts_payable_sub_opt
+            .as_ref()
+            .expect("BlockchainBridge is unbound")
+            .try_send(ReportAccountsPayable {
+                accounts: msg.accounts,
+                response_skeleton_opt: msg.response_skeleton_opt,
+            })
+            .expect("BlockchainBridge is dead")
     }
 }
 
@@ -1009,8 +1017,8 @@ mod tests {
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
     use crate::accountant::test_utils::{
-        bc_from_earning_wallet, bc_from_wallets, make_payables, BannedDaoFactoryMock,
-        MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock,
+        bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables,
+        BannedDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock,
         PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock,
         ReceivableDaoMock,
     };
@@ -1339,6 +1347,51 @@ mod tests {
             &NodeToUiMessage {
                 target: ClientId(1234),
                 body: UiScanResponse {}.tmb(4321),
+            }
+        );
+    }
+
+    #[test]
+    fn receives_available_balances_for_payables_calls_all_payments_feasible_and_reports_back_to_blockchain_bridge(
+    ) {
+        let mut subject = AccountantBuilder::default().build();
+        let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
+        let report_recipient = blockchain_bridge
+            .system_stop_conditions(match_every_type_id!(ReportAccountsPayable))
+            .start()
+            .recipient();
+        subject.report_accounts_payable_sub_opt = Some(report_recipient);
+        let subject_addr = subject.start();
+        let number_closely_fitting_under = ((u32::MAX / 2) - 1) as u64 / WEIS_OF_GWEI as u64;
+        let account_1 = make_payable_account(number_closely_fitting_under);
+        let account_2 = account_1.clone();
+        let system = System::new("test");
+        let available_balances_and_qualified_payments = AvailableBalancesAndQualifiedPayables {
+            accounts: vec![account_1.clone(), account_2.clone()],
+            consuming_wallet_balances: WalletBalances {
+                gas_currency: U256::from(u32::MAX),
+                masq_tokens: U256::from(u32::MAX),
+            },
+            response_skeleton_opt: Some(ResponseSkeleton {
+                client_id: 1234,
+                context_id: 4321,
+            }),
+        };
+
+        subject_addr
+            .try_send(available_balances_and_qualified_payments)
+            .unwrap();
+
+        system.run();
+        let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
+        assert_eq!(
+            blockchain_bridge_recording.get_record::<ReportAccountsPayable>(0),
+            &ReportAccountsPayable {
+                accounts: vec![account_1, account_2],
+                response_skeleton_opt: Some(ResponseSkeleton {
+                    client_id: 1234,
+                    context_id: 4321,
+                })
             }
         );
     }
@@ -3074,6 +3127,8 @@ mod tests {
         let mut transaction_receipt_tx_2_fourth_round = TransactionReceipt::default();
         transaction_receipt_tx_2_fourth_round.status = Some(U64::from(1)); // confirmed
         let blockchain_interface = BlockchainInterfaceMock::default()
+            .get_gas_balance_result(Ok(U256::from(u128::MAX)))
+            .get_token_balance_result(Ok(U256::from(u128::MAX)))
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
             .get_transaction_count_result(Ok(web3::types::U256::from(2)))
             //because we cannot have both, resolution on the high level and also of what's inside blockchain interface,

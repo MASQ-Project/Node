@@ -323,19 +323,27 @@ fn assert_balances(
     expected_eth_balance: &str,
     expected_token_balance: &str,
 ) {
-    if let (Ok(eth_balance), Ok(token_balance)) = blockchain_interface.get_balances(&wallet) {
+    if let Ok(eth_balance) = blockchain_interface.get_gas_balance(&wallet) {
         assert_eq!(
             format!("{}", eth_balance),
             String::from(expected_eth_balance),
-            "EthBalance"
+            "Actual EthBalance {} doesn't much with expected {}",
+            eth_balance,
+            expected_eth_balance
         );
+    } else {
+        panic!("Failed to retrieve gas balance for {}", wallet);
+    }
+    if let Ok(token_balance) = blockchain_interface.get_token_balance(&wallet) {
         assert_eq!(
             token_balance,
             web3::types::U256::from_dec_str(expected_token_balance).unwrap(),
-            "TokenBalance"
+            "Actual TokenBalance {} doesn't match with expected {}",
+            token_balance,
+            expected_token_balance
         );
     } else {
-        assert!(false, "Failed to retrieve balances {}", wallet);
+        panic!("Failed to retrieve token balance for {}", wallet);
     }
 }
 
