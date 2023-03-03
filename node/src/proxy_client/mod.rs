@@ -757,7 +757,7 @@ mod tests {
         };
         let key1 = make_meaningless_public_key();
         let key2 = make_meaningless_public_key();
-        let route = make_route(vec![&key1, &key2]);
+        let route = make_route_to_proxy_client(vec![&key1, &key2]);
         let package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             Some(make_wallet("consuming")),
@@ -1068,8 +1068,8 @@ mod tests {
         );
         assert_eq!(accountant_recording.len(), 2);
         let tlh = TestLogHandler::new();
-        tlh.exists_log_containing(format!("ERROR: ProxyClient: Received InboundServerData from 1.2.3.4:5678: stream {}, sequence 1236, length {}; but no such known stream - ignoring", stream_key, data.len()).as_str());
-        tlh.exists_log_containing(format!("ERROR: ProxyClient: Received InboundServerData (last_data) from 1.2.3.4:5678: stream {}, sequence 1237, length {}; but no such known stream - ignoring", stream_key, data.len()).as_str());
+        tlh.exists_log_containing(format!("ERROR: ProxyClient: Received InboundServerData from 1.2.3.4:5678: stream +dKB2Lsh3ET2TS/J/cexaanFQz4, sequence 1236, length {}; but no such known stream - ignoring", data.len()).as_str());
+        tlh.exists_log_containing(format!("ERROR: ProxyClient: Received InboundServerData (last_data) from 1.2.3.4:5678: stream +dKB2Lsh3ET2TS/J/cexaanFQz4, sequence 1237, length {}; but no such known stream - ignoring", data.len()).as_str());
     }
 
     #[test]

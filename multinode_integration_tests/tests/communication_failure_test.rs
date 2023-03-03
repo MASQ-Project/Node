@@ -18,6 +18,7 @@ use node_lib::sub_lib::neighborhood::RatePack;
 use node_lib::sub_lib::proxy_client::DnsResolveFailure_0v1;
 use node_lib::sub_lib::route::Route;
 use node_lib::sub_lib::versioned_data::VersionedData;
+use node_lib::test_utils::assert_string_contains;
 use node_lib::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
 use std::convert::TryInto;
 use std::net::SocketAddr;
@@ -162,6 +163,7 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
     let relay1_cryptde =
         CryptDENull::from(&relay1_mock.main_public_key(), TEST_DEFAULT_MULTINODE_CHAIN);
     let cheap_exit_cryptde = CryptDENull::from(&cheap_exit_key, TEST_DEFAULT_MULTINODE_CHAIN);
+    let key_length = normal_exit_key.len();
 
     // This request should be routed through cheap_exit because it's cheaper
     client.send_chunk("GET / HTTP/1.1\r\nHost: nonexistent.com\r\n\r\n".as_bytes());
@@ -169,7 +171,7 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         .wait_for_package(&masquerader, Duration::from_secs(2))
         .unwrap();
     let (_, intended_exit_public_key) =
-        CryptDENull::extract_key_pair(cheap_exit_key.len(), &live_cores_package.payload);
+        CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
     assert_eq!(intended_exit_public_key, cheap_exit_key);
     let expired_cores_package: ExpiredCoresPackage<MessageType> = live_cores_package
         .to_expired(
@@ -191,8 +193,27 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
             originating_node.socket_addr(PortSelector::First),
         )
         .unwrap();
-    let _dns_error_response: Vec<u8> = client.wait_for_chunk();
-    // TODO: make sure it's the expected error response
+    let dns_error_response: Vec<u8> = client.wait_for_chunk();
+    let dns_error_response_str = String::from_utf8(dns_error_response).unwrap();
+    assert_string_contains(&dns_error_response_str, "<h1>Error 503</h1>");
+    assert_string_contains(
+        &dns_error_response_str,
+        "<h2>Title: DNS Resolution Problem</h2>",
+    );
+    assert_string_contains(
+        &dns_error_response_str,
+        "<h3>Subtitle: Exit Node couldn't resolve \"nonexistent.com\"</h3>",
+    );
+    assert_string_contains(
+        &dns_error_response_str,
+        &format!(
+            "<p>We chose the exit Node {cheap_exit_key} for your request to nonexistent.com; \
+        but when it asked its DNS server to look up the IP address for nonexistent.com, \
+        it wasn't found. If nonexistent.com exists, it will need to be looked up by a \
+        different exit Node. We've deprioritized this exit Node. Reload the page, \
+        and we'll try to find another.</p>"
+        ),
+    );
 
     // This request should be routed through normal_exit because it's unreachable through cheap_exit
     client.send_chunk("GET / HTTP/1.1\r\nHost: nonexistent.com\r\n\r\n".as_bytes());
@@ -200,14 +221,20 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
         .wait_for_package(&masquerader, Duration::from_secs(2))
         .unwrap();
     let (_, intended_exit_public_key) =
-        CryptDENull::extract_key_pair(normal_exit_key.len(), &live_cores_package.payload);
+        CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
     assert_eq!(intended_exit_public_key, normal_exit_key);
 
-    // // Now request a different host; it should be routed through cheap_exit because it's cheaper
-    // client.send_chunk("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes());
-    // let (_, _, live_cores_package) = relay1_mock.wait_for_package(&masquerader, Duration::from_secs(2)).unwrap();
-    // let (_, intended_exit_public_key) = CryptDENull::extract_key_pair(cheap_exit_key.len(), &live_cores_package.payload);
-    // assert_eq! (intended_exit_public_key, cheap_exit_key);
+    // TODO GH-674: Once the new exit node is picked, the Node will continue using that exit node
+    // for all its route unless the current exit node faces an extreme penalty. Maybe it's not the
+    // most economical solution. For example, in the assertion below, we may prefer to use
+    // cheaper_exit_node instead.
+    client.send_chunk("GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes());
+    let (_, _, live_cores_package) = relay1_mock
+        .wait_for_package(&masquerader, Duration::from_secs(2))
+        .unwrap();
+    let (_, intended_exit_public_key) =
+        CryptDENull::extract_key_pair(key_length, &live_cores_package.payload);
+    assert_eq!(intended_exit_public_key, normal_exit_key);
 }
 
 fn cheaper_rate_pack(base_rate_pack: &RatePack, decrement: u64) -> RatePack {

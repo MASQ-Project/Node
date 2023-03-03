@@ -342,7 +342,7 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
 
     fn handle(&mut self, msg: NodeRecordMetadataMessage, _ctx: &mut Self::Context) -> Self::Result {
         match msg.metadata_change {
-            NRMetadataChange::AddUnreachableHost { host_name } => {
+            NRMetadataChange::AddUnreachableHost { hostname } => {
                 let public_key = msg.public_key;
                 let node_record = self
                     .neighborhood_database
@@ -352,10 +352,10 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
                     });
                 debug!(
                     self.logger,
-                    "Marking host {host_name} unreachable for the Node with public key {:?}",
+                    "Marking host {hostname} unreachable for the Node with public key {:?}",
                     public_key
                 );
-                node_record.metadata.unreachable_hosts.insert(host_name);
+                node_record.metadata.unreachable_hosts.insert(hostname);
             }
         }
     }
@@ -532,8 +532,7 @@ impl Neighborhood {
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
-        // TODO: Don't do this work unless log level is Debug or Trace
-        let msg_str = format!("{:?}", msg);
+        let debug_msg_opt = self.logger.debug_enabled().then(|| format!("{:?}", msg));
         let route_result = if msg.minimum_hop_count == 0 {
             Ok(self.zero_hop_route_response())
         } else {
@@ -541,6 +540,7 @@ impl Neighborhood {
         };
         match route_result {
             Ok(response) => {
+                let msg_str = debug_msg_opt.expect("Debug Message wasn't built but expected.");
                 debug!(
                     self.logger,
                     "Processed {} into {}-hop response",
@@ -953,27 +953,32 @@ impl Neighborhood {
 
     fn make_round_trip_route(
         &mut self,
-        msg: RouteQueryMessage,
+        request_msg: RouteQueryMessage,
     ) -> Result<RouteQueryResponse, String> {
-        let hostname_opt = msg.hostname_opt.as_deref();
+        let hostname_opt = request_msg.hostname_opt.as_deref();
         let over = self.make_route_segment(
             self.cryptde.public_key(),
-            msg.target_key_opt.as_ref(),
-            msg.minimum_hop_count,
-            msg.target_component,
-            msg.payload_size,
+            request_msg.target_key_opt.as_ref(),
+            request_msg.minimum_hop_count,
+            request_msg.target_component,
+            request_msg.payload_size,
             RouteDirection::Over,
             hostname_opt,
         )?;
         debug!(self.logger, "Route over: {:?}", over);
-        // Estimate for routing-undesirability calculations
-        let response_payload_len = msg.payload_size * RESPONSE_UNDESIRABILITY_FACTOR;
+        // Estimate for routing-undesirability calculations.
+        // We don't know what the size of response will be.
+        // So, we estimate the value by multiplying the payload_size of request with a constant value.
+        let anticipated_response_payload_len =
+            request_msg.payload_size * RESPONSE_UNDESIRABILITY_FACTOR;
         let back = self.make_route_segment(
             over.keys.last().expect("Empty segment"),
             Some(self.cryptde.public_key()),
-            msg.minimum_hop_count,
-            msg.return_component_opt.expect("No return component"),
-            response_payload_len,
+            request_msg.minimum_hop_count,
+            request_msg
+                .return_component_opt
+                .expect("No return component"),
+            anticipated_response_payload_len,
             RouteDirection::Back,
             hostname_opt,
         )?;
@@ -1143,33 +1148,26 @@ impl Neighborhood {
 
     fn compute_undesirability(
         node_record: &NodeRecord,
-        payload_size: usize,
+        payload_size: u64,
         undesirability_type: UndesirabilityType,
         logger: &Logger,
     ) -> i64 {
         let mut rate_undesirability = match undesirability_type {
-            UndesirabilityType::Relay => {
-                (node_record.inner.rate_pack.routing_byte_rate * payload_size as u64)
-                    + node_record.inner.rate_pack.routing_service_rate
-            }
+            UndesirabilityType::Relay => node_record.inner.rate_pack.routing_charge(payload_size),
             UndesirabilityType::ExitRequest(_) => {
-                (node_record.inner.rate_pack.exit_byte_rate * payload_size as u64)
-                    + node_record.inner.rate_pack.exit_service_rate
+                node_record.inner.rate_pack.exit_charge(payload_size)
             }
             UndesirabilityType::ExitAndRouteResponse => {
-                (node_record.inner.rate_pack.exit_byte_rate * payload_size as u64)
-                    + node_record.inner.rate_pack.exit_service_rate
-                    + (node_record.inner.rate_pack.routing_byte_rate * payload_size as u64)
-                    + node_record.inner.rate_pack.routing_service_rate
+                node_record.inner.rate_pack.exit_charge(payload_size)
+                    + node_record.inner.rate_pack.routing_charge(payload_size)
             }
         } as i64;
         if let UndesirabilityType::ExitRequest(Some(hostname)) = undesirability_type {
             if node_record.metadata.unreachable_hosts.contains(hostname) {
                 trace!(
                     logger,
-                    "To {:?} ({:?}): unreachable host {}; undesirability {} + {} = {}",
+                    "Node with PubKey {:?} failed to reach host {:?} during ExitRequest; Undesirability: {} + {} = {}",
                     node_record.public_key(),
-                    undesirability_type,
                     hostname,
                     rate_undesirability,
                     UNREACHABLE_HOST_PENALTY,
@@ -1178,6 +1176,7 @@ impl Neighborhood {
                 rate_undesirability += UNREACHABLE_HOST_PENALTY;
             }
         }
+
         rate_undesirability
     }
 
@@ -1218,10 +1217,12 @@ impl Neighborhood {
         hostname_opt: Option<&str>,
     ) -> Option<Vec<&'a PublicKey>> {
         let mut minimum_undesirability = i64::MAX;
+        let initial_undesirability =
+            self.compute_initial_undesirability(source, payload_size as u64, direction);
         let result = self
             .routing_engine(
                 vec![source],
-                self.compute_initial_undesirability(source, payload_size, direction),
+                initial_undesirability,
                 target_opt,
                 minimum_hops,
                 payload_size,
@@ -1230,8 +1231,10 @@ impl Neighborhood {
                 hostname_opt,
             )
             .into_iter()
-            .filter(|cr| cr.undesirability <= minimum_undesirability)
-            .map(|cr| cr.nodes)
+            .filter_map(|cr| match cr.undesirability <= minimum_undesirability {
+                true => Some(cr.nodes),
+                false => None,
+            })
             .next();
 
         result
@@ -1298,7 +1301,7 @@ impl Neighborhood {
                         undesirability,
                         target_opt,
                         new_hops_remaining,
-                        payload_size,
+                        payload_size as u64,
                         direction,
                         hostname_opt,
                     );
@@ -1340,7 +1343,7 @@ impl Neighborhood {
     fn compute_initial_undesirability(
         &self,
         public_key: &PublicKey,
-        payload_size: usize,
+        payload_size: u64,
         direction: RouteDirection,
     ) -> i64 {
         if direction == RouteDirection::Over {
@@ -1365,7 +1368,7 @@ impl Neighborhood {
         undesirability: i64,
         target_opt: Option<&PublicKey>,
         hops_remaining: usize,
-        payload_size: usize,
+        payload_size: u64,
         direction: RouteDirection,
         hostname_opt: Option<&str>,
     ) -> i64 {
@@ -1374,9 +1377,7 @@ impl Neighborhood {
                 UndesirabilityType::ExitRequest(hostname_opt)
             }
             (RouteDirection::Over, _) => UndesirabilityType::Relay,
-            (RouteDirection::Back, _) if undesirability == 0 => {
-                UndesirabilityType::ExitAndRouteResponse
-            }
+            // The exit-and-relay undesirability is initial_undesirability
             (RouteDirection::Back, _) => UndesirabilityType::Relay,
         };
         let node_undesirability = Self::compute_undesirability(
@@ -3416,6 +3417,7 @@ mod tests {
 
     #[test]
     fn computing_undesirability_works_for_exit_on_over_leg_for_blacklisted_host() {
+        init_test_logging();
         let mut node_record = make_node_record(2345, false);
         node_record
             .metadata
@@ -3439,6 +3441,11 @@ mod tests {
             1_000_000 // existing undesirability
                     + rate_pack.exit_charge (1_000) as i64 // charge to exit request
                     + UNREACHABLE_HOST_PENALTY // because host is blacklisted
+        );
+        TestLogHandler::new().exists_log_containing(
+            "TRACE: Neighborhood: Node with PubKey 0x02030405 \
+                      failed to reach host \"hostname.com\" during ExitRequest; \
+                      Undesirability: 2350745 + 100000000 = 102350745",
         );
     }
 
@@ -5301,7 +5308,7 @@ mod tests {
         let _ = addr.try_send(NodeRecordMetadataMessage {
             public_key: public_key.clone(),
             metadata_change: NRMetadataChange::AddUnreachableHost {
-                host_name: unreachable_host.clone(),
+                hostname: unreachable_host.clone(),
             },
         });
 

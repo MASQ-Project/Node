@@ -290,7 +290,7 @@ impl ProxyServer {
                         .try_send(NodeRecordMetadataMessage {
                             public_key: exit_public_key.clone(),
                             metadata_change: NRMetadataChange::AddUnreachableHost {
-                                host_name: server_name,
+                                hostname: server_name,
                             },
                         })
                         .expect("Neighborhood is dead");
@@ -3913,7 +3913,7 @@ mod tests {
             &NodeRecordMetadataMessage {
                 public_key: exit_public_key,
                 metadata_change: NRMetadataChange::AddUnreachableHost {
-                    host_name: "server.com".to_string()
+                    hostname: "server.com".to_string()
                 }
             }
         );

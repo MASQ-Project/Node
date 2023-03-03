@@ -59,12 +59,12 @@ pub struct RatePack {
 }
 
 impl RatePack {
-    pub fn routing_charge(&self, payload_len: usize) -> u64 {
-        self.routing_service_rate + (self.routing_byte_rate * payload_len as u64)
+    pub fn routing_charge(&self, payload_size: u64) -> u64 {
+        self.routing_service_rate + (self.routing_byte_rate * payload_size)
     }
 
-    pub fn exit_charge(&self, payload_len: usize) -> u64 {
-        self.exit_service_rate + (self.exit_byte_rate * payload_len as u64)
+    pub fn exit_charge(&self, payload_size: u64) -> u64 {
+        self.exit_service_rate + (self.exit_byte_rate * payload_size)
     }
 }
 
@@ -524,7 +524,7 @@ pub struct NodeRecordMetadataMessage {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NRMetadataChange {
-    AddUnreachableHost { host_name: String },
+    AddUnreachableHost { hostname: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]

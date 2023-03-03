@@ -103,12 +103,12 @@ impl CryptDE for CryptDENull {
         signature: &CryptData,
         public_key: &PublicKey,
     ) -> bool {
-        let key_data = public_key.as_slice();
-        let (k, _) = Self::key_and_data(key_data.len(), signature);
-        if k != key_data {
+        let public_key_bytes = public_key.as_slice();
+        let (private_key_bytes, _) = Self::key_and_data(public_key_bytes.len(), signature);
+        if private_key_bytes != public_key_bytes {
             return false;
         }
-        let claimed_hash = match Self::decode_with_key_data(key_data, signature) {
+        let claimed_hash = match Self::decode_with_key_data(public_key_bytes, signature) {
             Err(_) => return false,
             Ok(hash) => CryptData::new(hash.as_slice()),
         };
@@ -521,7 +521,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Could not decrypt with f5cdab8967452301 data beginning with f4cdab8967452301"
+        expected = "Could not decrypt with f0cdab8967452301 data beginning with efcdab8967452301"
     )]
     fn symmetric_encryption_fails_with_different_keys() {
         let subject = main_cryptde();

@@ -501,6 +501,7 @@ impl RoutingService {
 mod tests {
     use super::*;
     use crate::banned_dao::BAN_CACHE;
+    use crate::bootstrapper::Bootstrapper;
     use crate::neighborhood::gossip::{GossipBuilder, Gossip_0v1};
     use crate::node_test_utils::check_timestamp;
     use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
@@ -509,6 +510,7 @@ mod tests {
     use crate::sub_lib::cryptde_real::CryptDEReal;
     use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType, MessageType::ClientRequest};
     use crate::sub_lib::neighborhood::GossipFailure_0v1;
+    use crate::sub_lib::peer_actors::PeerActors;
     use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
     use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyProtocol};
     use crate::sub_lib::route::{Route, RouteSegment};
@@ -524,7 +526,6 @@ mod tests {
         route_to_proxy_client, route_to_proxy_server,
     };
     use actix::System;
-    use lazy_static::lazy_static;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -631,18 +632,14 @@ mod tests {
         );
     }
 
-    lazy_static! {
-        static ref REAL_MAIN_CRYPTDE: Box<dyn CryptDE> =
-            Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN));
-        static ref REAL_ALIAS_CRYPTDE: Box<dyn CryptDE> =
-            Box::new(CryptDEReal::new(TEST_DEFAULT_CHAIN));
-    }
-
     #[test]
     fn logs_and_ignores_message_that_cannot_be_decrypted() {
         init_test_logging();
-        let main_cryptde = REAL_MAIN_CRYPTDE.as_ref();
-        let alias_cryptde = REAL_ALIAS_CRYPTDE.as_ref();
+        let (main_cryptde, alias_cryptde) = {
+            //initialization to real CryptDEs
+            let pair = Bootstrapper::pub_initialize_cryptdes_for_testing(&None, &None);
+            (pair.main, pair.alias)
+        };
         let rogue_cryptde = CryptDEReal::new(TEST_DEFAULT_CHAIN);
         let route = route_from_proxy_client(main_cryptde.public_key(), main_cryptde);
         let lcp = LiveCoresPackage::new(
@@ -1402,9 +1399,7 @@ mod tests {
             })
             .collect();
         let route = Route { hops };
-        let icp =
-            IncipientCoresPackage::new(main_cryptde, route, payload, main_cryptde.public_key())
-                .unwrap();
+        let icp = IncipientCoresPackage::new(main_cryptde, route, payload, public_key).unwrap();
         let (lcp, _) = LiveCoresPackage::from_incipient(icp, main_cryptde).unwrap();
         let data_ser = PlainData::new(&serde_cbor::ser::to_vec(&lcp).unwrap()[..]);
         let data_enc = main_cryptde
@@ -1860,6 +1855,17 @@ mod tests {
         );
     }
 
+    fn make_routing_service_subs(peer_actors: PeerActors) -> RoutingServiceSubs {
+        RoutingServiceSubs {
+            proxy_client_subs_opt: peer_actors.proxy_client_opt,
+            proxy_server_subs: peer_actors.proxy_server,
+            neighborhood_subs: peer_actors.neighborhood,
+            hopper_subs: peer_actors.hopper,
+            to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
+            to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
+        }
+    }
+
     fn route_data_to_peripheral_component_uses_proper_key_on_payload_for_component<F>(
         payload_factory: F,
         target_component: Component,
@@ -1869,14 +1875,7 @@ mod tests {
         let peer_actors = peer_actors_builder().build();
         let subject = RoutingService::new(
             make_cryptde_pair(),
-            RoutingServiceSubs {
-                proxy_client_subs_opt: peer_actors.proxy_client_opt,
-                proxy_server_subs: peer_actors.proxy_server,
-                neighborhood_subs: peer_actors.neighborhood,
-                hopper_subs: peer_actors.hopper,
-                to_dispatcher: peer_actors.dispatcher.from_dispatcher_client,
-                to_accountant_routing: peer_actors.accountant.report_routing_service_provided,
-            },
+            make_routing_service_subs(peer_actors),
             100,
             200,
             true,
@@ -1896,10 +1895,10 @@ mod tests {
     }
 
     #[test]
-    fn route_data_to_peripheral_component_uses_alias_key_on_payload_for_proxy_client() {
+    fn route_data_to_peripheral_component_uses_main_key_on_payload_for_proxy_client() {
         let payload_factory = |cryptdes: &CryptDEPair| {
             encodex(
-                cryptdes.alias,
+                cryptdes.main,
                 cryptdes.main.public_key(),
                 &MessageType::ClientRequest(VersionedData::new(
                     &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
@@ -1964,6 +1963,31 @@ mod tests {
         route_data_to_peripheral_component_uses_proper_key_on_payload_for_component(
             payload_factory,
             Component::Neighborhood,
+        );
+    }
+
+    #[test]
+    fn route_data_to_peripheral_component_uses_main_key_on_payload_for_hopper() {
+        let payload_factory = |cryptdes: &CryptDEPair| {
+            encodex(
+                cryptdes.main,
+                cryptdes.main.public_key(),
+                &MessageType::ClientResponse(VersionedData::new(
+                    &crate::sub_lib::migrations::client_request_payload::MIGRATIONS,
+                    &ClientResponsePayload_0v1 {
+                        stream_key: StreamKey::new(
+                            PublicKey::new(b"1234"),
+                            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+                        ),
+                        sequenced_packet: SequencedPacket::new(vec![1, 2, 3, 4], 1234, false),
+                    },
+                )),
+            )
+            .unwrap()
+        };
+        route_data_to_peripheral_component_uses_proper_key_on_payload_for_component(
+            payload_factory,
+            Component::Hopper,
         );
     }
 
