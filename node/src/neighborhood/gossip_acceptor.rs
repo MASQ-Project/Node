@@ -3612,11 +3612,6 @@ mod tests {
         C   F
 
         <------------------------------------->
-
-        Source Node will send a gossip to the destination Node with
-        an updated version of Node A and B. The IP of Node C won't
-        be revealed but for Nodes B, E and F, it will be revealed.
-
          */
 
         let root_node = make_node_record(1234, true);
