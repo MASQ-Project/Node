@@ -182,7 +182,7 @@ pub fn make_meaningless_message_type() -> MessageType {
     DnsResolveFailure_0v1::new(make_meaningless_stream_key()).into()
 }
 
-pub fn make_route_to_proxy_client(public_keys: Vec<&PublicKey>) -> Route {
+pub fn make_one_way_route_to_proxy_client(public_keys: Vec<&PublicKey>) -> Route {
     Route::one_way(
         RouteSegment::new(public_keys, Component::ProxyClient),
         main_cryptde(),

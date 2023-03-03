@@ -532,12 +532,7 @@ impl Neighborhood {
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
-        // TODO: Don't do this work unless log level is Debug or Trace
-        let msg_str = if self.logger.debug_enabled() {
-            format!("{:?}", msg)
-        } else {
-            "".to_string()
-        };
+        let debug_msg_opt = self.logger.debug_enabled().then(|| format!("{:?}", msg));
         let route_result = if msg.minimum_hop_count == 0 {
             Ok(self.zero_hop_route_response())
         } else {
@@ -545,6 +540,7 @@ impl Neighborhood {
         };
         match route_result {
             Ok(response) => {
+                let msg_str = debug_msg_opt.expect("Debug Message wasn't built but expected.");
                 debug!(
                     self.logger,
                     "Processed {} into {}-hop response",
@@ -3447,8 +3443,8 @@ mod tests {
                     + UNREACHABLE_HOST_PENALTY // because host is blacklisted
         );
         TestLogHandler::new().exists_log_containing(
-            "Node with PubKey 0x02030405 failed to reach \
-                      host \"hostname.com\" during ExitRequest; \
+            "TRACE: Neighborhood: Node with PubKey 0x02030405 \
+                      failed to reach host \"hostname.com\" during ExitRequest; \
                       Undesirability: 2350745 + 100000000 = 102350745",
         );
     }

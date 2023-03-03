@@ -949,7 +949,7 @@ impl GossipHandler for StandardGossipHandler {
         );
         db_changed = self.identify_and_update_obsolete_nodes(database, filtered_agrs) || db_changed;
         db_changed =
-            self.add_gossip_node_as_half_neighbor(cryptde, database, gossip_source) || db_changed;
+            self.add_src_node_as_half_neighbor(cryptde, database, gossip_source) || db_changed;
         let final_neighborship_status =
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
         // If no Nodes need updating, return ::Ignored and don't change the database.
@@ -1108,7 +1108,7 @@ impl StandardGossipHandler {
         })
     }
 
-    fn add_gossip_node_as_half_neighbor(
+    fn add_src_node_as_half_neighbor(
         &self,
         cryptde: &dyn CryptDE,
         database: &mut NeighborhoodDatabase,
@@ -3593,21 +3593,25 @@ mod tests {
     fn standard_gossip_containing_unfamiliar_node_addrs_leads_to_them_being_ignored() {
         /*
 
+        <---- Databases before the gossip ---->
+
         Destination Database (Root) ==>
 
-            Root
-            / \
-           A---B---D
+          Root
+         /  |
+        B---A
+        |
+        D
 
         Source Database (A) ==>
-        - Source has updated version of A and B.
-        - C will not reveal IP, but B, E and F will do.
 
-           Root
+          Root
          /  |
         B---A---E
         |   |
         C   F
+
+        <------------------------------------->
          */
 
         let root_node = make_node_record(1234, true);

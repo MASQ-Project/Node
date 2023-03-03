@@ -380,7 +380,6 @@ mod tests {
     fn id_returns_error_when_the_id_fails_to_decrypt() {
         let cryptde1 = CryptDENull::from(&PublicKey::new(b"key a"), TEST_DEFAULT_CHAIN);
         let cryptde2 = CryptDENull::from(&PublicKey::new(b"key b"), TEST_DEFAULT_CHAIN);
-
         let subject = Route {
             hops: vec![Route::encrypt_return_route_id(42, &cryptde1)],
         };
