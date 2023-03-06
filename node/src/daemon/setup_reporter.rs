@@ -19,7 +19,8 @@ use crate::node_configurator::unprivileged_parse_args_configuration::{
 use crate::node_configurator::{
     data_directory_from_context, determine_config_file_path, DirsWrapper, DirsWrapperReal,
 };
-use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
+use crate::sub_lib::accountant::PaymentThresholds as PaymentThresholdsFromAccountant;
+use crate::sub_lib::accountant::DEFAULT_SCAN_INTERVALS;
 use crate::sub_lib::neighborhood::NodeDescriptor;
 use crate::sub_lib::neighborhood::{NeighborhoodMode as NeighborhoodModeEnum, DEFAULT_RATE_PACK};
 use crate::sub_lib::utils::make_new_multi_config;
@@ -31,7 +32,6 @@ use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Default, Required, Set};
 use masq_lib::messages::{UiSetupRequestValue, UiSetupResponseValue, UiSetupResponseValueStatus};
-use masq_lib::multi_config::make_arg_matches_accesible;
 use masq_lib::multi_config::{
     CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine,
 };
@@ -44,6 +44,8 @@ use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
 const CONSOLE_DIAGNOSTICS: bool = false;
+
+const ERR_SENSITIVE_BLANKED_OUT_VALUE_PAIRS: &[(&str, &str)] = &[("chain", "data-directory")];
 
 pub type SetupCluster = HashMap<String, UiSetupResponseValue>;
 
@@ -84,9 +86,8 @@ impl SetupReporter for SetupReporterReal {
                     blanked_out_former_values.insert(v.name.clone(), former_value);
                 };
             });
-        //TODO investigate this, not sure if the right way to solve the issue
-        //answers an attempt to blank out 'chain' behind an error resulting in chain different from data_dir
-        let _ = blanked_out_former_values.remove("chain");
+        let err_conflicts_for_blanked_out =
+            Self::get_err_conflicts_for_blanked_out(&blanked_out_former_values, &existing_setup);
         let mut incoming_setup = incoming_setup
             .into_iter()
             .filter(|v| v.value.is_some())
@@ -152,7 +153,7 @@ impl SetupReporter for SetupReporterReal {
                     )
                 };
                 match combined_setup.get(retriever.value_name()) {
-                    Some(uisrv) if vec![Blank, Required].contains(&uisrv.status) => {
+                    Some(uisrv) if [Blank, Required].contains(&uisrv.status) => {
                         make_blank_or_required()
                     }
                     Some(uisrv) => (retriever.value_name().to_string(), uisrv.clone()),
@@ -164,10 +165,12 @@ impl SetupReporter for SetupReporterReal {
         if error_so_far.param_errors.is_empty() {
             Ok(final_setup)
         } else {
-            Err((
-                Self::combine_clusters(vec![&final_setup, &blanked_out_former_values]),
-                error_so_far,
-            ))
+            let setup = Self::combine_clusters(vec![
+                &final_setup,
+                &blanked_out_former_values,
+                &err_conflicts_for_blanked_out,
+            ]);
+            Err((setup, error_so_far))
         }
     }
 }
@@ -221,6 +224,25 @@ impl SetupReporterReal {
             Ok(ru) => Some(ru),
             Err(_) => None,
         }
+    }
+
+    fn get_err_conflicts_for_blanked_out(
+        blanked_out_former_values: &SetupCluster,
+        existing_setup: &SetupCluster,
+    ) -> SetupCluster {
+        ERR_SENSITIVE_BLANKED_OUT_VALUE_PAIRS.iter().fold(
+            HashMap::new(),
+            |mut acc, (blanked_out_arg, err_persistent_linked_arg)| {
+                if blanked_out_former_values.contains_key(&blanked_out_arg.to_string()) {
+                    if let Some(former_value) =
+                        existing_setup.get(&err_persistent_linked_arg.to_string())
+                    {
+                        acc.insert(err_persistent_linked_arg.to_string(), former_value.clone());
+                    }
+                };
+                acc
+            },
+        )
     }
 
     fn calculate_fundamentals(
@@ -863,7 +885,10 @@ impl ValueRetriever for PaymentThresholds {
         _db_password_opt: &Option<String>,
     ) -> Option<(String, UiSetupResponseValueStatus)> {
         let pc_value = pc.payment_thresholds().expectv("payment-thresholds");
-        payment_thresholds_rate_pack_and_scan_intervals(pc_value, *DEFAULT_PAYMENT_THRESHOLDS)
+        payment_thresholds_rate_pack_and_scan_intervals(
+            pc_value,
+            PaymentThresholdsFromAccountant::default(),
+        )
     }
 
     fn is_required(&self, _params: &SetupCluster) -> bool {
@@ -927,7 +952,7 @@ fn payment_thresholds_rate_pack_and_scan_intervals<T>(
     default: T,
 ) -> Option<(String, UiSetupResponseValueStatus)>
 where
-    T: PartialEq + Display + Copy,
+    T: PartialEq + Display + Clone,
 {
     if persistent_config_value == default {
         Some((default.to_string(), Default))
@@ -1041,6 +1066,9 @@ mod tests {
     };
     use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
     use crate::node_test_utils::DirsWrapperMock;
+    use crate::sub_lib::accountant::{
+        PaymentThresholds as PaymentThresholdsFromAccountant, DEFAULT_PAYMENT_THRESHOLDS,
+    };
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
@@ -1053,6 +1081,7 @@ mod tests {
     };
     use crate::test_utils::{assert_string_contains, rate_pack};
     use masq_lib::blockchains::chains::Chain as Blockchain;
+    use masq_lib::blockchains::chains::Chain::PolyMumbai;
     use masq_lib::constants::{DEFAULT_CHAIN, DEFAULT_GAS_PRICE};
     use masq_lib::messages::UiSetupResponseValueStatus::{Blank, Configured, Required, Set};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
@@ -1913,13 +1942,14 @@ mod tests {
     }
 
     #[test]
-    fn get_modified_setup_data_directory_trying_to_blank_chain_out_on_error() {
+    fn get_modified_setup_blanking_chain_out_on_error_checking_chain_and_data_dir() {
         let _guard = EnvironmentGuard::new();
         let base_dir = ensure_node_home_directory_exists(
             "setup_reporter",
-            "get_modified_setup_data_directory_trying_to_blank_chain_out_on_error",
+            "get_modified_setup_blanking_chain_out_on_error_checking_chain_and_data_dir",
         );
         let current_data_dir = base_dir
+            .join("data_dir")
             .join("MASQ")
             .join(BlockChain::PolyMumbai.rec().literal_identifier); //not a default
         let existing_setup = setup_cluster_from(vec![
@@ -1948,6 +1978,7 @@ mod tests {
             ("ip", "1.2.3.4", Set),
             ("log-level", "warn", Default),
             ("neighborhood-mode", "originate-only", Set),
+            //this causes the error: cannot run in this mode without any supplied descriptors
             ("neighbors", "", Blank),
             (
                 "real-user",
@@ -1958,12 +1989,9 @@ mod tests {
             ),
             ("scans", "on", Default),
         ]);
+        //blanking out the chain parameter
         let incoming_setup = vec![UiSetupRequestValue::clear("chain")];
         let base_data_dir = base_dir.join("data_dir");
-        let expected_chain = DEFAULT_CHAIN.rec().literal_identifier;
-        let expected_data_directory = base_data_dir
-            .join("MASQ")
-            .join(DEFAULT_CHAIN.rec().literal_identifier);
         let dirs_wrapper = Box::new(
             DirsWrapperMock::new()
                 .data_dir_result(Some(base_data_dir))
@@ -1971,16 +1999,16 @@ mod tests {
         );
         let subject = SetupReporterReal::new(dirs_wrapper);
 
-        let result = subject
+        let (resulting_setup_cluster, _) = subject
             .get_modified_setup(existing_setup, incoming_setup)
-            .err()
-            .unwrap()
-            .0;
+            .unwrap_err();
 
-        let actual_chain = &result.get("chain").unwrap().value;
+        let expected_chain = PolyMumbai.rec().literal_identifier;
+        let actual_chain = &resulting_setup_cluster.get("chain").unwrap().value;
         assert_eq!(actual_chain, expected_chain);
-        let actual_data_directory = PathBuf::from(&result.get("data-directory").unwrap().value);
-        assert_eq!(actual_data_directory, expected_data_directory);
+        let actual_data_directory =
+            PathBuf::from(&resulting_setup_cluster.get("data-directory").unwrap().value);
+        assert_eq!(actual_data_directory, current_data_dir);
     }
 
     #[test]
@@ -3112,7 +3140,7 @@ mod tests {
 
     #[test]
     fn payment_thresholds_computed_default_persistent_config_unequal_to_default() {
-        let mut payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
+        let mut payment_thresholds = PaymentThresholdsFromAccountant::default();
         payment_thresholds.maturity_threshold_sec += 12;
         payment_thresholds.unban_below_gwei -= 12;
         payment_thresholds.debt_threshold_gwei += 1111;
@@ -3150,14 +3178,16 @@ mod tests {
         pc_method_result_setter: &C,
     ) where
         C: Fn(PersistentConfigurationMock, T) -> PersistentConfigurationMock,
-        T: Display + PartialEq + Copy,
+        T: Display + PartialEq + Clone,
     {
         let mut bootstrapper_config = BootstrapperConfig::new();
         //the rate_pack within the mode setting does not determine the result, so I just set a nonsense
         bootstrapper_config.neighborhood_config.mode =
             NeighborhoodModeEnum::OriginateOnly(vec![], rate_pack(0));
-        let persistent_config =
-            pc_method_result_setter(PersistentConfigurationMock::new(), persistent_config_value);
+        let persistent_config = pc_method_result_setter(
+            PersistentConfigurationMock::new(),
+            persistent_config_value.clone(),
+        );
 
         let result = subject.computed_default(&bootstrapper_config, &persistent_config, &None);
 

@@ -6,7 +6,7 @@ use crate::commands::commands_common::{
 };
 use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{UiWalletAddressesRequest, UiWalletAddressesResponse};
-use masq_lib::{as_any_impl, short_writeln};
+use masq_lib::{implement_as_any, short_writeln};
 #[cfg(test)]
 use std::any::Any;
 
@@ -68,7 +68,7 @@ impl Command for WalletAddressesCommand {
         );
         Ok(())
     }
-    as_any_impl!();
+    implement_as_any!();
 }
 
 #[cfg(test)]

@@ -10,7 +10,7 @@ pub struct UiGatewayConfig {
     pub ui_port: u16,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct UiGatewaySubs {
     pub bind: Recipient<BindMessage>,
     pub node_from_ui_message_sub: Recipient<NodeFromUiMessage>,

@@ -1153,10 +1153,8 @@ mod tests {
     fn maintains_setup_through_start_order() {
         let _environment_guard = EnvironmentGuard::new();
         let _clap_guard = ClapGuard::new();
-        let data_dir = ensure_node_home_directory_exists(
-            "daemon",
-            "accepts_start_order_launches_and_replies_failure",
-        );
+        let data_dir =
+            ensure_node_home_directory_exists("daemon", "maintains_setup_through_start_order");
         let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
         let launcher = LauncherMock::new().launch_result(Ok(Some(LaunchSuccess {
             new_process_id: 2345,

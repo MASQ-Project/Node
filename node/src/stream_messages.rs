@@ -61,7 +61,7 @@ impl Debug for RemoveStreamMsg {
     }
 }
 
-#[derive(Message, Clone)]
+#[derive(Message, Clone, PartialEq, Eq)]
 pub struct PoolBindMessage {
     pub dispatcher_subs: DispatcherSubs,
     pub stream_handler_pool_subs: StreamHandlerPoolSubs,
@@ -80,6 +80,18 @@ mod tests {
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::test_utils::recorder::peer_actors_builder;
     use actix::System;
+
+    impl PartialEq for AddStreamMsg {
+        fn eq(&self, _other: &Self) -> bool {
+            // We need to implement PartialEq so that AddStreamMsg can be received by the Recorder;
+            // but AddStreamMsg breaks the rules for an actor message by containing references to
+            // outside resources (namely, an I/O stream) and therefore cannot have a real implementation
+            // of PartialEq. So here we break the rules again to patch up the problems created by
+            // the first breach of the rules. Don't move this into the production tree; it only needs
+            // to be here for the Recorder, and the Recorder is only in the test tree.
+            intentionally_blank!()
+        }
+    }
 
     #[test]
     fn pool_bind_message_is_debug() {

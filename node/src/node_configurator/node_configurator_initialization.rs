@@ -39,7 +39,6 @@ mod initialization {
     use super::*;
     use clap::value_t;
     use masq_lib::constants::DEFAULT_UI_PORT;
-    use masq_lib::multi_config::make_arg_matches_accesible;
     use masq_lib::multi_config::MultiConfig;
 
     pub fn parse_args(multi_config: &MultiConfig, config: &mut InitializationConfig) {
@@ -50,7 +49,6 @@ mod initialization {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::test_utils::ArgsBuilder;
     use masq_lib::constants::DEFAULT_UI_PORT;
     use masq_lib::multi_config::{CommandLineVcl, VirtualCommandLine};
@@ -61,7 +59,7 @@ mod tests {
         let mut config = InitializationConfig::default();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app_daemon(), vcls).unwrap();
+        let multi_config = make_new_multi_config(&app_daemon(), vcls).unwrap();
 
         initialization::parse_args(&multi_config, &mut config);
 
@@ -76,7 +74,7 @@ mod tests {
         let mut config = InitializationConfig::default();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app_daemon(), vcls).unwrap();
+        let multi_config = make_new_multi_config(&app_daemon(), vcls).unwrap();
 
         initialization::parse_args(&multi_config, &mut config);
 

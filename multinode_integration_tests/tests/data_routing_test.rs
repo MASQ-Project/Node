@@ -316,7 +316,7 @@ fn multiple_stream_zero_hop_test() {
     let mut another_client = zero_hop_node.make_client(8080);
 
     one_client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.example.com\r\n\r\n");
-    another_client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.fallingfalling.com\r\n\r\n");
+    another_client.send_chunk(b"GET / HTTP/1.1\r\nHost: www.neverssl.com\r\n\r\n");
 
     let one_response = one_client.wait_for_chunk();
     let another_response = another_client.wait_for_chunk();
@@ -328,11 +328,7 @@ fn multiple_stream_zero_hop_test() {
         String::from_utf8(one_response).unwrap()
     );
     assert_eq!(
-        index_of(
-            &another_response,
-            &b"FALLING FALLING .COM BY RAFAEL ROZENDAAL"[..],
-        )
-        .is_some(),
+        index_of(&another_response, &b"NeverSSL - Connecting ..."[..],).is_some(),
         true,
         "Actual response:\n{}",
         String::from_utf8(another_response).unwrap()

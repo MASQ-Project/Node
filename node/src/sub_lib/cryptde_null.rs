@@ -521,7 +521,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Could not decrypt with f0cdab8967452301 data beginning with efcdab8967452301"
+        expected = "Could not decrypt with f5cdab8967452301 data beginning with f4cdab8967452301"
     )]
     fn symmetric_encryption_fails_with_different_keys() {
         let subject = main_cryptde();
