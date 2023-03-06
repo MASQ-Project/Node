@@ -5,15 +5,15 @@ use crate::accountant::big_int_processing::big_int_db_processor::WeiChange::{
     Addition, Subtraction,
 };
 use crate::accountant::big_int_processing::big_int_db_processor::{
-    BigIntDbProcessor, BigIntSqlConfig, SQLParamsBuilder, TableNameDAO,
+    BigIntDbProcessor, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO,
 };
 use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
+use crate::accountant::checked_conversion;
 use crate::accountant::dao_utils::{
     sum_i128_values_from_table, to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal,
-    RangeStmConfig, TopStmConfig, VigilantRusqliteFlatten,
+    RangeStmConfig, ThresholdUtils, TopStmConfig, VigilantRusqliteFlatten,
 };
 use crate::accountant::receivable_dao::ReceivableDaoError::RusqliteError;
-use crate::accountant::{checked_conversion, ThresholdUtils};
 use crate::accountant::{dao_utils, gwei_to_wei};
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -85,7 +85,7 @@ pub trait ReceivableDao: Send {
     //test only intended method but because of share with multi-node tests conditional compilation is disallowed
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 
-    as_any_dcl!();
+    declare_as_any!();
 }
 
 pub trait ReceivableDaoFactory {
@@ -94,18 +94,15 @@ pub trait ReceivableDaoFactory {
 
 impl ReceivableDaoFactory for DaoFactoryReal {
     fn make(&self) -> Box<dyn ReceivableDao> {
-        let init_config = self
-            .init_config
-            .take()
-            .expectv("init config")
-            .add_special_conn_setup(
-                BigIntDivider::register_big_int_deconstruction_for_sqlite_connection,
-            );
-        Box::new(ReceivableDaoReal::new(connection_or_panic(
+        let init_config = self.init_config.clone().add_special_conn_setup(
+            BigIntDivider::register_big_int_deconstruction_for_sqlite_connection,
+        );
+        let conn = connection_or_panic(
             &DbInitializerReal::default(),
             self.data_directory.as_path(),
             init_config,
-        )))
+        );
+        Box::new(ReceivableDaoReal::new(conn))
     }
 }
 
@@ -126,11 +123,11 @@ impl ReceivableDao for ReceivableDaoReal {
         Ok(self.big_int_db_processor.execute(Left(self.conn.as_ref()), BigIntSqlConfig::new(
                "insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (:wallet, :balance_high_b, :balance_low_b, :last_received) on conflict (wallet_address) do \
                update set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b",
-            "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b",
+            "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b where wallet_address = :wallet",
             SQLParamsBuilder::default()
                         .key(  WalletAddress(wallet))
                         .wei_change(Addition("balance",amount))
-                        .other(vec![(":last_received",&to_time_t(timestamp))])
+                        .other(vec![Param::new((":last_received",&to_time_t(timestamp)),false)])
                         .build()
         ))?)
     }
@@ -260,7 +257,7 @@ impl ReceivableDao for ReceivableDaoReal {
         }
     }
 
-    as_any_impl!();
+    implement_as_any!();
 }
 
 impl ReceivableDaoReal {
@@ -281,13 +278,13 @@ impl ReceivableDaoReal {
         {
             for transaction in payments {
                 self.big_int_db_processor.execute(Either::Right(&xactn), BigIntSqlConfig::new(
-                    //the plus signs are correct, 'Subtraction' in the wei_change converts x of u128 to -x of i128 which leads into the high bytes integer being negative
+                    //the plus signs are correct, 'Subtraction' in the wei_change converts x of u128 to -x of i128 which leads to an integer pair with the high bytes integer being negative
                     "update receivable set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, last_received_timestamp = :last_received where wallet_address = :wallet",
                     "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, last_received_timestamp = :last_received where wallet_address = :wallet",
                     SQLParamsBuilder::default()
                                 .key( WalletAddress(&transaction.from))
                                 .wei_change(Subtraction("balance",transaction.wei_amount))
-                                .other(vec![(":last_received", &to_time_t(timestamp))])
+                                .other(vec![Param::new((":last_received", &to_time_t(timestamp)),true)])
                                 .build()
                     ))?
             }
@@ -511,45 +508,95 @@ mod tests {
             "receivable_dao",
             "more_money_receivable_works_for_new_address",
         );
-        let now = SystemTime::now();
+        let payment_time_t = to_time_t(SystemTime::now()) - 1111;
+        let payment_time = from_time_t(payment_time_t);
         let wallet = make_wallet("booga");
         let subject = ReceivableDaoReal::new(
             DbInitializerReal::default()
                 .initialize(&home_dir, DbInitializationConfig::test_default())
                 .unwrap(),
         );
-
-        subject.more_money_receivable(now, &wallet, 1234).unwrap();
-
-        let status = subject.account_status(&wallet).unwrap();
-        assert_eq!(status.wallet, wallet);
-        assert_eq!(status.balance_wei, 1234);
-        assert_eq!(to_time_t(status.last_received_timestamp), to_time_t(now));
-    }
-
-    #[test]
-    fn more_money_receivable_works_for_existing_address() {
-        let home_dir = ensure_node_home_directory_exists(
-            "receivable_dao",
-            "more_money_receivable_works_for_existing_address",
-        );
-        let wallet = make_wallet("booga");
-        let subject = ReceivableDaoReal::new(
-            DbInitializerReal::default()
-                .initialize(&home_dir, DbInitializationConfig::test_default())
-                .unwrap(),
-        );
-        let now = SystemTime::now();
-        subject.more_money_receivable(now, &wallet, 1234).unwrap();
 
         subject
-            .more_money_receivable(SystemTime::UNIX_EPOCH, &wallet, 2345)
+            .more_money_receivable(payment_time, &wallet, 1234)
             .unwrap();
 
         let status = subject.account_status(&wallet).unwrap();
         assert_eq!(status.wallet, wallet);
-        assert_eq!(status.balance_wei, 3579);
-        assert_eq!(to_time_t(status.last_received_timestamp), to_time_t(now));
+        assert_eq!(status.balance_wei, 1234);
+        assert_eq!(to_time_t(status.last_received_timestamp), payment_time_t);
+    }
+
+    #[test]
+    fn more_money_receivable_works_for_existing_address_without_overflow() {
+        //testing correctness of the main SQL
+        let home_dir = ensure_node_home_directory_exists(
+            "receivable_dao",
+            "more_money_receivable_works_for_existing_address_without_overflow",
+        );
+        let wallet = make_wallet("booga");
+        let wallet_unchanged_account = make_wallet("hurrah");
+        let payment_time = SystemTime::now();
+        let subject = ReceivableDaoReal::new(
+            DbInitializerReal::default()
+                .initialize(&home_dir, DbInitializationConfig::test_default())
+                .unwrap(),
+        );
+        let prepare_account = |wallet: &Wallet, initial_value| {
+            subject
+                .more_money_receivable(SystemTime::UNIX_EPOCH, wallet, initial_value)
+                .unwrap();
+        };
+        prepare_account(&wallet, 1234);
+        //making sure the SQL will not affect a different wallet
+        prepare_account(&wallet_unchanged_account, 7788);
+
+        subject
+            .more_money_receivable(payment_time, &wallet, 2345)
+            .unwrap();
+
+        let assert_account = |wallet, expected_balance| {
+            let status = subject.account_status(&wallet).unwrap();
+            assert_eq!(status.wallet, wallet);
+            assert_eq!(status.balance_wei, expected_balance);
+            assert_eq!(
+                to_time_t(status.last_received_timestamp),
+                to_time_t(SystemTime::UNIX_EPOCH)
+            );
+        };
+        assert_account(wallet, 1234 + 2345);
+        assert_account(wallet_unchanged_account, 7788)
+    }
+
+    #[test]
+    fn more_money_receivable_works_for_existing_address_hitting_overflow() {
+        //testing correctness of the overflow update clause
+        let home_dir = ensure_node_home_directory_exists(
+            "receivable_dao",
+            "more_money_receivable_works_for_existing_address_hitting_overflow",
+        );
+        let wallet = make_wallet("buffalo");
+        let subject = ReceivableDaoReal::new(
+            DbInitializerReal::default()
+                .initialize(&home_dir, DbInitializationConfig::test_default())
+                .unwrap(),
+        );
+        let payment_time = SystemTime::now();
+        subject
+            .more_money_receivable(SystemTime::UNIX_EPOCH, &wallet, 1234)
+            .unwrap();
+
+        subject
+            .more_money_receivable(payment_time, &wallet, i64::MAX as u128)
+            .unwrap();
+
+        let status = subject.account_status(&wallet).unwrap();
+        assert_eq!(status.wallet, wallet);
+        assert_eq!(status.balance_wei, 1234 + i64::MAX as i128);
+        assert_eq!(
+            to_time_t(status.last_received_timestamp),
+            to_time_t(SystemTime::UNIX_EPOCH)
+        );
     }
 
     #[test]
@@ -571,47 +618,86 @@ mod tests {
     }
 
     #[test]
-    fn more_money_received_works_for_existing_addresses() {
-        let home_dir = ensure_node_home_directory_exists(
-            "receivable_dao",
-            "more_money_received_works_for_existing_address",
-        );
+    fn more_money_received_works_for_existing_addresses_without_overflow() {
+        //asserting on the correctness of the main sql
+        let initial_received_and_resulted_for_account_1 = (1234, 1000, 1234 - 1000);
+        let initial_received_and_resulted_for_account_2 = (4567, 3456, 4567 - 3456);
+        more_money_received_works_for_existing_addresses(
+            "more_money_received_works_for_existing_addresses_without_overflow",
+            initial_received_and_resulted_for_account_1,
+            initial_received_and_resulted_for_account_2,
+        )
+    }
+
+    #[test]
+    fn more_money_received_works_for_existing_addresses_hitting_overflow() {
+        //asserting on correctness of the overflow update clause
+        let initial_received_and_resulted_for_account_1 = (1234, 1000, 1234 - 1000);
+        //initial (0, 1234)
+        //received with sign (-1, abs(i64::MIN) - 1000)
+        let initial = i64::MAX as u128 - 123;
+        //(0, i64::MAX - 123)
+        let received = i64::MAX as u128 - 200;
+        //with sign (-2, abs(i64::MIN) - 200)
+        let initial_received_and_resulted_for_account_2 =
+            (initial, received, initial as i128 - received as i128);
+        more_money_received_works_for_existing_addresses(
+            "more_money_received_works_for_existing_addresses_hitting_overflow",
+            initial_received_and_resulted_for_account_1,
+            initial_received_and_resulted_for_account_2,
+        )
+    }
+
+    fn more_money_received_works_for_existing_addresses(
+        test_name: &str,
+        (first_initial, first_newly_received, first_expected_result): (u128, u128, i128),
+        (second_initial, second_newly_received, second_expected_result): (u128, u128, i128),
+    ) {
+        let home_dir = ensure_node_home_directory_exists("receivable_dao", test_name);
         let debtor1 = make_wallet("debtor1");
         let debtor2 = make_wallet("debtor2");
-        let now = SystemTime::now();
-        let mut subject = {
-            let subject = ReceivableDaoReal::new(
-                DbInitializerReal::default()
-                    .initialize(&home_dir, DbInitializationConfig::test_default())
-                    .unwrap(),
-            );
-            subject.more_money_receivable(now, &debtor1, 1234).unwrap();
-            subject.more_money_receivable(now, &debtor2, 2345).unwrap();
-            subject
-        };
+        let payment_time = SystemTime::now();
+        let previous_timestamp = SystemTime::UNIX_EPOCH;
+        let mut subject = ReceivableDaoReal::new(
+            DbInitializerReal::default()
+                .initialize(&home_dir, DbInitializationConfig::test_default())
+                .unwrap(),
+        );
+        subject
+            .more_money_receivable(previous_timestamp, &debtor1, first_initial)
+            .unwrap();
+        subject
+            .more_money_receivable(previous_timestamp, &debtor2, second_initial)
+            .unwrap();
         let transactions = vec![
             BlockchainTransaction {
                 from: debtor1.clone(),
-                wei_amount: 1200_u128,
+                wei_amount: first_newly_received,
                 block_number: 35_u64,
             },
             BlockchainTransaction {
                 from: debtor2.clone(),
-                wei_amount: 2300_u128,
+                wei_amount: second_newly_received,
                 block_number: 57_u64,
             },
         ];
 
-        subject.more_money_received(now, transactions);
+        subject.more_money_received(payment_time, transactions);
 
         let status1 = subject.account_status(&debtor1).unwrap();
         assert_eq!(status1.wallet, debtor1);
-        assert_eq!(status1.balance_wei, 34);
-        assert_eq!(to_time_t(status1.last_received_timestamp), to_time_t(now));
+        assert_eq!(status1.balance_wei, first_expected_result);
+        assert_eq!(
+            to_time_t(status1.last_received_timestamp),
+            to_time_t(payment_time)
+        );
         let status2 = subject.account_status(&debtor2).unwrap();
         assert_eq!(status2.wallet, debtor2);
-        assert_eq!(status2.balance_wei, 45);
-        assert_eq!(to_time_t(status2.last_received_timestamp), to_time_t(now));
+        assert_eq!(status2.balance_wei, second_expected_result);
+        assert_eq!(
+            to_time_t(status2.last_received_timestamp),
+            to_time_t(payment_time)
+        );
     }
 
     #[test]

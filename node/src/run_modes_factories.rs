@@ -68,17 +68,17 @@ pub trait DaemonInitializerFactory {
 
 pub trait DumpConfigRunner {
     fn go(&self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
-    as_any_dcl!();
+    declare_as_any!();
 }
 
 pub trait ServerInitializer: futures::Future {
     fn go(&mut self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
-    as_any_dcl!();
+    declare_as_any!();
 }
 
 pub trait DaemonInitializer {
     fn go(&mut self, streams: &mut StdStreams, args: &[String]) -> RunModeResult;
-    as_any_dcl!();
+    declare_as_any!();
 }
 
 impl DumpConfigRunnerFactory for DumpConfigRunnerFactoryReal {

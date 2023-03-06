@@ -66,7 +66,7 @@ impl From<DnsResolveFailure_0v1> for MessageType {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProxyClientSubs {
     pub bind: Recipient<BindMessage>,
     pub from_hopper: Recipient<ExpiredCoresPackage<ClientRequestPayload_0v1>>,
