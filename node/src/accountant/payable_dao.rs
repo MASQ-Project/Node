@@ -31,6 +31,7 @@ use std::fmt::Debug;
 use std::str::FromStr;
 use std::time::SystemTime;
 use web3::types::H256;
+use crate::accountant::scanners::join_displayable_items_by_commas;
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum PayableDaoError {
@@ -143,14 +144,13 @@ impl PayableDao for PayableDaoReal {
             row.get::<usize, Option<u64>>(0)
                 .map(|id_opt| id_opt.map(|_| ()))
         }
-        fn error_extension_about_not_null_ids(
+        fn error_extension_for_non_matching_row_count(
             conn: &dyn ConnectionWrapper,
             wallets_and_rowids: &[(&Wallet, u64)],
         ) -> String {
             let sql = format!(
-                "select wallet_address from payable where pending_payable_rowid not in ({}) and wallet_address in ({})",
-                wallets_and_rowids.iter().map(|(_, rowid)|rowid.to_string()).join(COMMA_SEPARATOR),
-                 comma_separated_wallets(wallets_and_rowids,"'")
+                "select wallet_address from payable where {}",
+                conditions_to_catch_mismatched_values(wallets_and_rowids)
             );
             let failing_wallets = conn
                 .prepare(&sql)
@@ -162,19 +162,24 @@ impl PayableDao for PayableDaoReal {
             if failing_wallets.is_empty() {
                 failing_wallets
             } else {
-                format!(" Accounts for wallets ({}) had contained rowids when we tried to update them with new ones. \
-                 All such columns should be emptied beforehand at the confirmation of the earlier transactions. \
-                 A malformed, repeated payment is suspected", failing_wallets)
+                format!("Accounts for wallets ({failing_wallets}) had had to contain populated \
+                pending payable rowids when the last attempt to write the newest ids into the table \
+                took place. System unreliable. Repeated, broken payments may be suspected the cause \
+                in such case")
+                // This condition would disallow a replacement for the newer ids. Instead, the rowid
+                // colum should be emptied out after every payment is fully resolved and so that
+                // need for the associated pending payable record passes.
             }
         }
-        fn comma_separated_wallets(
+        fn conditions_to_catch_mismatched_values(
             wallets_and_rowids: &[(&Wallet, u64)],
-            quoting_mark: &str,
         ) -> String {
             wallets_and_rowids
                 .iter()
-                .map(|(wallet, _)| format!("{quoting_mark}{wallet}{quoting_mark}"))
-                .join(COMMA_SEPARATOR)
+                .map(|(wallet, rowid)| format!(
+                    "(wallet_address = '{wallet}' and pending_payable_rowid != {rowid})"
+                ))
+                .join(" or ")
         }
         fn resolve_success_or_failure(
             conn: &dyn ConnectionWrapper,
@@ -191,11 +196,11 @@ impl PayableDao for PayableDaoReal {
                 Ok(rows_affected) => match rows_affected {
                     num if num == wallets_and_rowids.len() => Ok(()),
                     num => panic!(
-                        "Marking pending payable rowid for wallets {} affected {} rows but expected {}.{}",
-                        comma_separated_wallets(wallets_and_rowids,""),
+                        "Marking pending payable rowid for wallets {} affected {} rows but expected {}. {}",
+                        join_displayable_items_by_commas(wallets_and_rowids, |(wallet, _)|wallet.to_string()),
                         num,
                         wallets_and_rowids.len(),
-                        error_extension_about_not_null_ids(conn, wallets_and_rowids)
+                        error_extension_for_non_matching_row_count(conn, wallets_and_rowids)
                     ),
                 },
                 Err(e) => Err(PayableDaoError::RusqliteError(e.to_string())),
@@ -689,9 +694,9 @@ mod tests {
     #[should_panic(
         expected = "Marking pending payable rowid for wallets 0x000000000000000000000000000000686f6f6761, \
          0x000000000000000000000000000000626f6f6761, 0x00000000000000000000626f6f6761686f6f6761 affected 1 rows but expected 3. \
-         Accounts for wallets (0x000000000000000000000000000000626f6f6761, 0x00000000000000000000626f6f6761686f6f6761) had contained \
-          rowids when we tried to update them with new ones. All such columns should be emptied beforehand at the confirmation of the \
-           earlier transactions. A malformed, repeated payment is suspected"
+         Accounts for wallets (0x000000000000000000000000000000626f6f6761, 0x00000000000000000000626f6f6761686f6f6761) \
+         had had to contain populated pending payable rowids when the last attempt to write the newest ids into the \
+         table took place. System unreliable. Repeated, broken payments may be suspected the cause in such case"
     )]
     fn mark_pending_payables_rowids_refuses_to_overwrite_existing_marked_rowids() {
         let home_dir = ensure_node_home_directory_exists(
