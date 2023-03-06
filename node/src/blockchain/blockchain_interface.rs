@@ -9,6 +9,7 @@ use crate::sub_lib::wallet::Wallet;
 use actix::{Message, Recipient};
 use ethereum_types::U64;
 use futures::Future;
+use itertools::fold;
 use masq_lib::blockchains::chains::{Chain, ChainFamily};
 use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::logger::Logger;
@@ -158,7 +159,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
     fn retrieve_transactions(
         &self,
         _start_block: BlockNumber,
-        _latest_block: BlockNumber,
+        _end_block: BlockNumber,
         _recipient: &Wallet,
     ) -> Result<RetrievedBlockchainTransactions, BlockchainError> {
         let msg = "Can't retrieve transactions clandestinely yet".to_string();
@@ -297,6 +298,7 @@ where
 
                 match log_request.wait() {
                     Ok(logs) => {
+                        let logs_len = logs.len();
                         if logs
                             .iter()
                             .any(|log| log.topics.len() < 2 || log.data.0.len() > 32)
@@ -304,13 +306,21 @@ where
                             warning!(
                                 logger,
                                 "Invalid response from blockchain server: {:?}",
-                                logs
+                                logs.clone()
                             );
                             Err(BlockchainError::InvalidResponse)
                         } else {
                             let transactions: Vec<BlockchainTransaction> =
                                 self.extract_transactions_from_logs(logs);
                             debug!(logger, "Retrieved transactions: {:?}", transactions);
+                            if transactions.is_empty() && logs_len != transactions.len() {
+                                warning!(
+                                    logger,
+                                    "Retrieving transactions: logs: {}, transactions: {}",
+                                    logs_len,
+                                    transactions.len()
+                                )
+                            }
                             // Get the largest transaction block number, unless there are no
                             // transactions, in which case use end_block, unless get_latest_block()
                             // was not successful.
@@ -325,10 +335,13 @@ where
                             })
                         }
                     }
-                    Err(_) => Ok(RetrievedBlockchainTransactions {
-                        new_start_block: fallback_end_block_number,
-                        transactions: vec![],
-                    }),
+                    Err(e) => {
+                        error!(self.logger, "Retrieving transactions: {}", e.to_string());
+                        Ok(RetrievedBlockchainTransactions {
+                            new_start_block: fallback_end_block_number,
+                            transactions: vec![],
+                        })
+                    }
                 }
             }
             Err(e) => Err(BlockchainError::QueryFailed(e.to_string())),
@@ -426,15 +439,9 @@ where
         if transactions.is_empty() {
             response_block_number
         } else {
-            transactions
-                .iter()
-                .fold(response_block_number, |so_far, elem| {
-                    if elem.block_number > so_far {
-                        elem.block_number
-                    } else {
-                        so_far
-                    }
-                })
+            fold(transactions, response_block_number, |a, b| {
+                a.max(b.block_number)
+            })
         }
     }
 }
@@ -719,13 +726,13 @@ mod tests {
             std::env::set_var("SIMPLESERVER_THREADS", "1");
             let (tx, rx) = unbounded();
             let _ = thread::spawn(move || {
-                let bodies_arc: Arc<Mutex<Vec<Vec<u8>>>> = Arc::new(Mutex::new(bodies));
+                let bodies_arc = Arc::new(Mutex::new(bodies));
                 Server::new(move |req, mut rsp| {
                     if req.headers().get("X-Quit").is_some() {
                         panic!("Server stop requested");
                     }
                     tx.send(req).unwrap();
-                    let body: Vec<u8> = bodies_arc.lock().unwrap().remove(0);
+                    let body = bodies_arc.lock().unwrap().remove(0);
                     Ok(rsp.body(body)?)
                 })
                 .listen(&Ipv4Addr::LOCALHOST.to_string(), &format!("{}", port));
@@ -774,7 +781,6 @@ mod tests {
             port,
             vec![br#"[{"jsonrpc":"2.0","id":2,"result":"0x400"},{"jsonrpc":"2.0","id":3,"result":[]}]"#.to_vec()],
         );
-
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
@@ -785,29 +791,26 @@ mod tests {
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
         );
-
         let end_block_nbr = 1024u64;
-
         let result = subject
             .retrieve_transactions(
                 BlockNumber::Number(42u64.into()),
                 BlockNumber::Number(end_block_nbr.into()),
-                &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
+                &Wallet::from_str(&to).unwrap(),
             )
             .unwrap();
 
         let requests = test_server.requests_so_far();
-        let bodies: Vec<Value> = requests
+
+        let bodies: Vec<String> = requests
             .into_iter()
             .map(|request| serde_json::from_slice(&request.body()).unwrap())
-            .collect();
-        let bodies: Vec<String> = bodies
             .into_iter()
-            .map(|b| serde_json::to_string(&b).unwrap())
+            .map(|b: Value| serde_json::to_string(&b).unwrap())
             .collect();
         assert_eq!(
-            bodies,
-            vec![format!("[{{\"id\":0,\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[]}},{{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{{\"address\":\"0x384dec25e03f94931767ce4c3556168468ba24c3\",\"fromBlock\":\"0x2a\",\"toBlock\":\"0x400\",\"topics\":[\"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef\",null,\"0x000000000000000000000000{}\"]}}]}}]", &to[2..])],
+            bodies[0],
+            r#"[{"id":0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},{"id":1,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0x384dec25e03f94931767ce4c3556168468ba24c3","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc"]}]}]"#,
         );
         assert_eq!(
             result,
@@ -815,7 +818,7 @@ mod tests {
                 new_start_block: end_block_nbr,
                 transactions: vec![]
             }
-        )
+        );
     }
 
     #[test]
@@ -882,17 +885,14 @@ mod tests {
             .unwrap();
 
         let requests = test_server.requests_so_far();
-        let bodies: Vec<Value> = requests
+        let bodies = requests
             .into_iter()
             .map(|request| serde_json::from_slice(&request.body()).unwrap())
-            .collect();
-        let bodies: Vec<String> = bodies
-            .into_iter()
-            .map(|b| serde_json::to_string(&b).unwrap())
+            .map(|b: Value| serde_json::to_string(&b).unwrap())
             .collect();
         assert_eq!(
-            bodies,
-            vec![format!("[{{\"id\":0,\"jsonrpc\":\"2.0\",\"method\":\"eth_blockNumber\",\"params\":[]}},{{\"id\":1,\"jsonrpc\":\"2.0\",\"method\":\"eth_getLogs\",\"params\":[{{\"address\":\"0x384dec25e03f94931767ce4c3556168468ba24c3\",\"fromBlock\":\"0x2a\",\"toBlock\":\"0x400\",\"topics\":[\"0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef\",null,\"0x000000000000000000000000{}\"]}}]}}]", &to[2..])],
+            bodies[0],
+            r#"[{"id":0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},{"id":1,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0x384dec25e03f94931767ce4c3556168468ba24c3","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc"]}]}]"#,
         );
         assert_eq!(
             result,
@@ -984,20 +984,19 @@ mod tests {
         let _test_server = TestServer::start (port, vec![
             br#"[{"jsonrpc":"2.0","id":1,"result":"0x400"},{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
         ]);
-
+        init_test_logging();
         let (event_loop_handle, transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
         )
         .unwrap();
-
         let subject = BlockchainInterfaceNonClandestine::new(
             transport,
             event_loop_handle,
             TEST_DEFAULT_CHAIN,
         );
-
         let end_block_nbr = 1024u64;
+
         let result = subject.retrieve_transactions(
             BlockNumber::Number(42u64.into()),
             BlockNumber::Number(end_block_nbr.into()),
@@ -1011,6 +1010,10 @@ mod tests {
                 transactions: vec![]
             })
         );
+        let test_log_handler = TestLogHandler::new();
+        test_log_handler.assert_logs_contain_in_order(vec![
+            "WARN: BlockchainInterface: Retrieving transactions: logs: 1, transactions: 0",
+        ])
     }
 
     #[test]
@@ -1040,16 +1043,17 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        let new_start_block = if let BlockNumber::Number(start_block_nbr) = start_block {
-            start_block_nbr.as_u64() + 1u64
-        } else {
-            panic!("start_block of Latest, Earliest, and Pending are not supported!")
-        };
+        let expected_fallback_start_block =
+            if let BlockNumber::Number(start_block_nbr) = start_block {
+                start_block_nbr.as_u64() + 1u64
+            } else {
+                panic!("start_block of Latest, Earliest, and Pending are not supported!")
+            };
 
         assert_eq!(
             result,
             Ok(RetrievedBlockchainTransactions {
-                new_start_block,
+                new_start_block: expected_fallback_start_block,
                 transactions: vec![]
             })
         );
@@ -2040,6 +2044,12 @@ mod tests {
     }
 
     #[test]
+    fn constant_gwei_matches_calculated_value() {
+        let gwei = U256([1_000_000_000u64, 0, 0, 0]);
+        assert_eq!(gwei, GWEI);
+    }
+
+    #[test]
     fn hash_the_smartcontract_transfer_function_signature() {
         assert_eq!(
             TRANSFER_METHOD_ID,
@@ -2159,8 +2169,7 @@ mod tests {
 
     #[test]
     fn non_clandestine_can_fetch_latest_block_number_successfully() {
-        let prepare_params_arc: Arc<Mutex<Vec<(String, Vec<Value>)>>> =
-            Arc::new(Mutex::new(vec![]));
+        let prepare_params_arc = Arc::new(Mutex::new(vec![]));
         let transport = TestTransport::default()
             .prepare_params(&prepare_params_arc)
             .send_result(json!("0x1e37066"));
@@ -2170,13 +2179,16 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
-        match subject.get_block_number() {
-            Ok(latest_block_number) => assert_eq!(latest_block_number, U64::from(31_682_662u64)),
+        let latest_block_number = match subject.get_block_number() {
+            Ok(latest_block_number) => latest_block_number,
             Err(e) => panic!("Unexpected failure {}", e.to_string()),
-        }
+        };
+
+        assert_eq!(latest_block_number, U64::from(0x1e37066u64));
 
         let mut prepare_params = prepare_params_arc.lock().unwrap();
         let (method_name, actual_arguments) = prepare_params.remove(0);
+        assert!(prepare_params.is_empty());
         assert_eq!(method_name, "eth_blockNumber".to_string());
         let expected_arguments: Vec<Value> = vec![];
         assert_eq!(actual_arguments, expected_arguments);
@@ -2204,6 +2216,7 @@ mod tests {
 
         let mut prepare_params = prepare_params_arc.lock().unwrap();
         let (method_name, actual_arguments) = prepare_params.remove(0);
+        assert!(prepare_params.is_empty());
         assert_eq!(method_name, "eth_blockNumber".to_string());
         let expected_arguments: Vec<Value> = vec![];
         assert_eq!(actual_arguments, expected_arguments);
@@ -2223,19 +2236,21 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
-        match subject.get_block_number() {
+        let expected_error = match subject.get_block_number() {
             Ok(_) => panic!("Expected an error"),
-            Err(e) => assert_eq!(
-                e,
-                BlockchainError::QueryFailed(
-                    "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)"
-                        .to_string()
-                )
-            ),
-        }
+            Err(e) => e,
+        };
+
+        assert_eq!(
+            expected_error,
+            BlockchainError::QueryFailed(
+                "Decoder error: Error(\"0x prefix is missing\", line: 0, column: 0)".to_string()
+            )
+        );
 
         let mut prepare_params = prepare_params_arc.lock().unwrap();
         let (method_name, actual_arguments) = prepare_params.remove(0);
+        assert!(prepare_params.is_empty());
         assert_eq!(method_name, "eth_blockNumber".to_string());
         let expected_arguments: Vec<Value> = vec![];
         assert_eq!(actual_arguments, expected_arguments);

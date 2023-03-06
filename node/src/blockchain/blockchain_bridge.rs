@@ -273,10 +273,9 @@ impl BlockchainBridge {
         let end_block = match self.blockchain_interface.get_block_number() {
             Ok(eb) => BlockNumber::Number(eb),
             Err(e) => {
-                warning!(
+                info!(
                     self.logger,
-                    "Using 'latest' block number instead of a literal number. {:?}",
-                    e
+                    "Using 'latest' block number instead of a literal number. {:?}", e
                 );
                 BlockNumber::Latest
             }

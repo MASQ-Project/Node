@@ -216,8 +216,6 @@ pub struct TestTransport {
     send_results: RefCell<VecDeque<rpc::Value>>,
     send_batch_params: Arc<Mutex<Vec<Vec<(RequestId, rpc::Call)>>>>,
     send_batch_results: RefCell<Vec<Vec<Result<rpc::Value, web3::Error>>>>,
-    //to check if we hold a true descendant of a certain initial instance
-    reference_counter_opt: Option<Arc<()>>,
 }
 
 impl Transport for TestTransport {
@@ -284,11 +282,6 @@ impl TestTransport {
         self
     }
 
-    pub fn initiate_reference_counter(mut self, reference_arc: &Arc<()>) -> Self {
-        self.reference_counter_opt = Some(reference_arc.clone());
-        self
-    }
-
     pub fn add_response(&mut self, value: rpc::Value) {
         self.send_results.borrow_mut().push_back(value);
     }
@@ -302,7 +295,7 @@ impl TestTransport {
             .lock()
             .unwrap()
             .get(idx)
-            .expect("Expected result.")
+            .unwrap()
             .clone();
         assert_eq!(m, method);
 
