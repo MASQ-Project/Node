@@ -266,6 +266,7 @@ mod tests {
     use crate::test_utils::main_cryptde;
     use ethsign_crypto::Keccak256;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
 
     #[test]
     fn encode_with_empty_key() {
@@ -520,9 +521,6 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Could not decrypt with f5cdab8967452301 data beginning with f4cdab8967452301"
-    )]
     fn symmetric_encryption_fails_with_different_keys() {
         let subject = main_cryptde();
 
@@ -531,7 +529,21 @@ mod tests {
         let expected_data = PlainData::new(&b"These are the times that try men's souls"[..]);
         let encrypted_data = subject.encode_sym(&key1, &expected_data).unwrap();
 
-        let _ = subject.decode_sym(&key2, &encrypted_data);
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            subject.decode_sym(&key2, &encrypted_data)
+        }))
+        .unwrap_err();
+
+        let panic_msg = result.downcast_ref::<String>().unwrap();
+        let wrong_key = key2.as_slice().to_hex::<String>();
+        let data = key1.as_slice().to_hex::<String>();
+        assert_eq!(
+            panic_msg,
+            &format!(
+                "Could not decrypt with {} data beginning with {}",
+                wrong_key, data
+            )
+        );
     }
 
     #[test]
