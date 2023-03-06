@@ -6,6 +6,7 @@ use crate::masq_node::MASQNodeUtils;
 use crate::masq_node::NodeReference;
 use crate::masq_node::PortSelector;
 use crate::multinode_gossip::{Introduction, MultinodeGossip, SingleNode};
+use itertools::Either;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
@@ -145,43 +146,59 @@ impl MASQNode for MASQMockNode {
     }
 }
 
-pub struct ConfigurableMASQMockNode {
+pub struct MASQMockNodeWithMutableHandle {
     pub control_stream: RefCell<TcpStream>,
     configurable_guts: MASQMockNodeGuts,
 }
 
-impl ConfigurableMASQMockNode {
-    pub fn start_with_public_key(
-        ports: Vec<u16>,
-        index: usize,
-        host_node_parent_dir: Option<String>,
-        public_key: &PublicKey,
-        chain: Chain,
-    ) -> ConfigurableMASQMockNode {
-        let main_cryptde = CryptDENull::from(public_key, chain);
-        let mut key = public_key.as_slice().to_vec();
-        key.reverse();
-        let alias_cryptde = CryptDENull::from(&PublicKey::new(&key), chain);
-        let cryptde_enum = CryptDEEnum::Fake((main_cryptde, alias_cryptde));
-        Self::start_with_cryptde_enum(ports, index, host_node_parent_dir, cryptde_enum)
+impl MASQMockNodeWithMutableHandle {
+    pub fn absorb_configuration(&mut self, node_record: &NodeRecord) {
+        // Copy attributes from the NodeRecord into the MASQNode.
+        self.configurable_guts.earning_wallet = node_record.earning_wallet();
+        self.configurable_guts.rate_pack = *node_record.rate_pack();
     }
 
+    pub fn finalize_mutable_handle(self) -> MASQMockNode {
+        MASQMockNode {
+            control_stream: self.control_stream,
+            guts: Rc::new(self.configurable_guts),
+        }
+    }
+}
+
+pub enum MASQMockNodeStarterMode {
+    Direct,
+    WithTemporarilyMutableHandle,
+}
+
+pub struct MASQMockNodeStarter {}
+
+impl MASQMockNodeStarter {
     pub fn start(
         ports: Vec<u16>,
         index: usize,
         host_node_parent_dir: Option<String>,
+        starter_mode: MASQMockNodeStarterMode,
+        public_key_opt: Option<&PublicKey>,
         chain: Chain,
-    ) -> ConfigurableMASQMockNode {
-        let cryptde_enum = CryptDEEnum::Real(CryptDEReal::new(chain));
-        Self::start_with_cryptde_enum(ports, index, host_node_parent_dir, cryptde_enum)
+    ) -> Either<MASQMockNode, MASQMockNodeWithMutableHandle> {
+        let cryptde_enum = Self::initiate_cryptde_enum(public_key_opt, chain);
+        Self::start_with_cryptde_enum(
+            ports,
+            index,
+            starter_mode,
+            host_node_parent_dir,
+            cryptde_enum,
+        )
     }
 
     fn start_with_cryptde_enum(
         ports: Vec<u16>,
         index: usize,
+        starter_mode: MASQMockNodeStarterMode,
         host_node_parent_dir: Option<String>,
         cryptde_enum: CryptDEEnum,
-    ) -> ConfigurableMASQMockNode {
+    ) -> Either<MASQMockNode, MASQMockNodeWithMutableHandle> {
         let name = format!("mock_node_{}", index);
         let node_addr = NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8)), &ports);
         let earning_wallet = make_wallet(format!("{}_earning", name).as_str());
@@ -191,7 +208,7 @@ impl ConfigurableMASQMockNode {
         let wait_addr = SocketAddr::new(node_addr.ip_addr(), CONTROL_STREAM_PORT);
         let control_stream = RefCell::new(MASQMockNode::wait_for_startup(wait_addr, &name));
         let framer = RefCell::new(DataHunkFramer::new());
-        let configurable_guts = MASQMockNodeGuts {
+        let guts = MASQMockNodeGuts {
             name,
             node_addr,
             earning_wallet,
@@ -201,22 +218,30 @@ impl ConfigurableMASQMockNode {
             framer,
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
         };
-        ConfigurableMASQMockNode {
-            control_stream,
-            configurable_guts,
+        match starter_mode {
+            MASQMockNodeStarterMode::Direct => Either::Left(MASQMockNode {
+                control_stream,
+                guts: Rc::new(guts),
+            }),
+            MASQMockNodeStarterMode::WithTemporarilyMutableHandle => {
+                Either::Right(MASQMockNodeWithMutableHandle {
+                    control_stream,
+                    configurable_guts: guts,
+                })
+            }
         }
     }
 
-    pub fn absorb_configuration(&mut self, node_record: &NodeRecord) {
-        // Copy attributes from the NodeRecord into the MASQNode.
-        self.configurable_guts.earning_wallet = node_record.earning_wallet();
-        self.configurable_guts.rate_pack = *node_record.rate_pack();
-    }
-
-    pub fn finish_with_guts_pointer(self) -> MASQMockNode {
-        MASQMockNode {
-            control_stream: self.control_stream,
-            guts: Rc::new(self.configurable_guts),
+    fn initiate_cryptde_enum(public_key_opt: Option<&PublicKey>, chain: Chain) -> CryptDEEnum {
+        match public_key_opt {
+            Some(public_key) => {
+                let main_cryptde = CryptDENull::from(public_key, chain);
+                let mut key = public_key.as_slice().to_vec();
+                key.reverse();
+                let alias_cryptde = CryptDENull::from(&PublicKey::new(&key), chain);
+                CryptDEEnum::Fake((main_cryptde, alias_cryptde))
+            }
+            None => CryptDEEnum::Real(CryptDEReal::new(chain)),
         }
     }
 }

@@ -36,9 +36,8 @@ fn graph_connects_but_does_not_over_connect() {
         })
         .collect::<Vec<MASQRealNode>>();
     let last_node = real_nodes.last().unwrap();
-    let configurable_mock_node = cluster
-        .start_configurable_mock_node_with_public_key(vec![10000], &PublicKey::new(&[1, 2, 3, 4]));
-    let mock_node = cluster.finish_mock_node(configurable_mock_node);
+    let mock_node =
+        cluster.start_mock_node_with_public_key(vec![10000], &PublicKey::new(&[1, 2, 3, 4]));
     let dont_count_these = vec![mock_node.main_public_key()];
     // Wait for Gossip to abate
     thread::sleep(Duration::from_millis(2000));
@@ -91,9 +90,8 @@ fn lots_of_stalled_nodes_dont_prevent_acceptance_of_new_node() {
     db.add_arbitrary_full_neighbor(root_node.public_key(), full_neighbor_key);
     let mut cluster = MASQNodeCluster::start().unwrap();
     let (_, root_node, _) = construct_neighborhood(&mut cluster, db, vec![]);
-    let configurable_mock = cluster
-        .start_configurable_mock_node_with_public_key(vec![5050], &PublicKey::new(&[3, 4, 5, 6]));
-    let new_node = cluster.finish_mock_node(configurable_mock);
+    let new_node =
+        cluster.start_mock_node_with_public_key(vec![5050], &PublicKey::new(&[3, 4, 5, 6]));
 
     new_node.transmit_debut(&root_node).unwrap();
 

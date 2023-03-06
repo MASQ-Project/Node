@@ -1,9 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::command::Command;
-use crate::masq_mock_node::{ConfigurableMASQMockNode, MASQMockNode};
+use crate::masq_mock_node::{
+    MASQMockNode, MASQMockNodeStarter, MASQMockNodeStarterMode, MASQMockNodeWithMutableHandle,
+};
 use crate::masq_node::{MASQNode, MASQNodeUtils};
 use crate::masq_real_node::MASQRealNode;
 use crate::masq_real_node::NodeStartupConfig;
+use itertools::Either;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use node_lib::sub_lib::cryptde::PublicKey;
@@ -77,8 +80,7 @@ impl MASQNodeCluster {
     }
 
     pub fn start_mock_node_with_real_cryptde(&mut self, ports: Vec<u16>) -> MASQMockNode {
-        let unfinished_node = self.start_configurable_mock_node(ports, None);
-        self.finish_mock_node(unfinished_node)
+        self.start_mock_node_added_to_cluster(ports, None)
     }
 
     pub fn start_mock_node_with_public_key(
@@ -86,47 +88,66 @@ impl MASQNodeCluster {
         ports: Vec<u16>,
         public_key: &PublicKey,
     ) -> MASQMockNode {
-        let unfinished_node = self.start_configurable_mock_node(ports, Some(public_key));
-        self.finish_mock_node(unfinished_node)
+        self.start_mock_node_added_to_cluster(ports, Some(public_key))
     }
 
     pub fn start_configurable_mock_node_with_public_key(
         &mut self,
         ports: Vec<u16>,
         public_key: &PublicKey,
-    ) -> ConfigurableMASQMockNode {
-        self.start_configurable_mock_node(ports, Some(public_key))
-    }
-
-    fn start_configurable_mock_node(
-        &mut self,
-        ports: Vec<u16>,
-        public_key_opt: Option<&PublicKey>,
-    ) -> ConfigurableMASQMockNode {
-        let index = self.next_index;
-        self.next_index += 1;
-        match public_key_opt {
-            Some(public_key) => ConfigurableMASQMockNode::start_with_public_key(
-                ports,
-                index,
-                self.host_node_parent_dir.clone(),
-                public_key,
-                self.chain,
-            ),
-            None => ConfigurableMASQMockNode::start(
-                ports,
-                index,
-                self.host_node_parent_dir.clone(),
-                self.chain,
+    ) -> MASQMockNodeWithMutableHandle {
+        match self.start_mock_node(
+            ports,
+            MASQMockNodeStarterMode::WithTemporarilyMutableHandle,
+            Some(public_key),
+        ) {
+            Either::Right(mock_node_mutable_handle) => mock_node_mutable_handle,
+            _ => panic!(
+                "This is expected to return MASQMockNodeMutablePrototype but we hit MASQMockNode"
             ),
         }
     }
 
-    pub fn finish_mock_node(
+    fn start_mock_node_added_to_cluster(
         &mut self,
-        configurable_mock_node: ConfigurableMASQMockNode,
+        ports: Vec<u16>,
+        public_key_opt: Option<&PublicKey>,
     ) -> MASQMockNode {
-        let mock_node = configurable_mock_node.finish_with_guts_pointer();
+        match self.start_mock_node(ports, MASQMockNodeStarterMode::Direct, public_key_opt) {
+            Either::Left(masq_mock_node) => {
+                let name = masq_mock_node.name().to_string();
+                self.mock_nodes.insert(name.clone(), masq_mock_node);
+                self.mock_nodes.get(&name).unwrap().clone()
+            }
+            _ => panic!(
+                "This is expected to return MASQMockNode but we hit MASQMockNodeMutablePrototype"
+            ),
+        }
+    }
+
+    fn start_mock_node(
+        &mut self,
+        ports: Vec<u16>,
+        mock_node_starter_mode: MASQMockNodeStarterMode,
+        public_key_opt: Option<&PublicKey>,
+    ) -> Either<MASQMockNode, MASQMockNodeWithMutableHandle> {
+        let index = self.next_index;
+        self.next_index += 1;
+        MASQMockNodeStarter::start(
+            ports,
+            index,
+            self.host_node_parent_dir.clone(),
+            mock_node_starter_mode,
+            public_key_opt,
+            self.chain,
+        )
+    }
+
+    pub fn finalize_mock_node_with_mutable_handle(
+        &mut self,
+        mutable_mock_node_handle: MASQMockNodeWithMutableHandle,
+    ) -> MASQMockNode {
+        let mock_node = mutable_mock_node_handle.finalize_mutable_handle();
         let name = mock_node.name().to_string();
         self.mock_nodes.insert(name.clone(), mock_node);
         self.mock_nodes.get(&name).unwrap().clone()
