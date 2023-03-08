@@ -188,9 +188,9 @@ fn form_mock_node_skeleton(
         .into_iter()
         .map(|model_node_key| {
             let mut configurable_node =
-                cluster.start_configurable_mock_node_with_public_key(vec![10000], model_node_key);
+                cluster.start_modifiable_mock_node_with_public_key(vec![10000], model_node_key);
             configurable_node.absorb_configuration(model_db.node_by_key(model_node_key).unwrap());
-            let node = cluster.finalize_mock_node_with_mutable_handle(configurable_node);
+            let node = cluster.finalize_mutable_mock_node_and_add_it_to_cluster(configurable_node);
             node.transmit_debut(real_node).unwrap();
             node.wait_for_gossip(Duration::from_secs(2)).unwrap();
             let standard_gossip = StandardBuilder::new()

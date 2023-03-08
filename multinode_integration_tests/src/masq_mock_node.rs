@@ -6,7 +6,6 @@ use crate::masq_node::MASQNodeUtils;
 use crate::masq_node::NodeReference;
 use crate::masq_node::PortSelector;
 use crate::multinode_gossip::{Introduction, MultinodeGossip, SingleNode};
-use itertools::Either;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
@@ -146,29 +145,26 @@ impl MASQNode for MASQMockNode {
     }
 }
 
-pub struct MASQMockNodeWithMutableHandle {
+pub struct ModifiableMasqMockNode {
     pub control_stream: RefCell<TcpStream>,
     configurable_guts: MASQMockNodeGuts,
 }
 
-impl MASQMockNodeWithMutableHandle {
+impl ModifiableMasqMockNode {
     pub fn absorb_configuration(&mut self, node_record: &NodeRecord) {
         // Copy attributes from the NodeRecord into the MASQNode.
         self.configurable_guts.earning_wallet = node_record.earning_wallet();
         self.configurable_guts.rate_pack = *node_record.rate_pack();
     }
-
-    pub fn finalize_mutable_handle(self) -> MASQMockNode {
-        MASQMockNode {
-            control_stream: self.control_stream,
-            guts: Rc::new(self.configurable_guts),
-        }
-    }
 }
 
-pub enum MASQMockNodeStarterMode {
-    Direct,
-    WithTemporarilyMutableHandle,
+impl From<ModifiableMasqMockNode> for MASQMockNode {
+    fn from(mutable_handle: ModifiableMasqMockNode) -> Self {
+        MASQMockNode {
+            control_stream: mutable_handle.control_stream,
+            guts: Rc::new(mutable_handle.configurable_guts),
+        }
+    }
 }
 
 pub struct MASQMockNodeStarter {}
@@ -178,27 +174,40 @@ impl MASQMockNodeStarter {
         ports: Vec<u16>,
         index: usize,
         host_node_parent_dir: Option<String>,
-        starter_mode: MASQMockNodeStarterMode,
         public_key_opt: Option<&PublicKey>,
         chain: Chain,
-    ) -> Either<MASQMockNode, MASQMockNodeWithMutableHandle> {
+    ) -> MASQMockNode {
         let cryptde_enum = Self::initiate_cryptde_enum(public_key_opt, chain);
-        Self::start_with_cryptde_enum(
-            ports,
-            index,
-            starter_mode,
-            host_node_parent_dir,
-            cryptde_enum,
-        )
+        let (control_stream, mock_node_guts) =
+            Self::start_with_cryptde_enum(ports, index, host_node_parent_dir, cryptde_enum);
+        MASQMockNode {
+            control_stream,
+            guts: Rc::new(mock_node_guts),
+        }
+    }
+
+    pub fn start_with_mutable_handle(
+        ports: Vec<u16>,
+        index: usize,
+        host_node_parent_dir: Option<String>,
+        public_key_opt: Option<&PublicKey>,
+        chain: Chain,
+    ) -> ModifiableMasqMockNode {
+        let cryptde_enum = Self::initiate_cryptde_enum(public_key_opt, chain);
+        let (control_stream, mock_node_guts) =
+            Self::start_with_cryptde_enum(ports, index, host_node_parent_dir, cryptde_enum);
+        ModifiableMasqMockNode {
+            control_stream,
+            configurable_guts: mock_node_guts,
+        }
     }
 
     fn start_with_cryptde_enum(
         ports: Vec<u16>,
         index: usize,
-        starter_mode: MASQMockNodeStarterMode,
         host_node_parent_dir: Option<String>,
         cryptde_enum: CryptDEEnum,
-    ) -> Either<MASQMockNode, MASQMockNodeWithMutableHandle> {
+    ) -> (RefCell<TcpStream>, MASQMockNodeGuts) {
         let name = format!("mock_node_{}", index);
         let node_addr = NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8)), &ports);
         let earning_wallet = make_wallet(format!("{}_earning", name).as_str());
@@ -218,18 +227,7 @@ impl MASQMockNodeStarter {
             framer,
             chain: TEST_DEFAULT_MULTINODE_CHAIN,
         };
-        match starter_mode {
-            MASQMockNodeStarterMode::Direct => Either::Left(MASQMockNode {
-                control_stream,
-                guts: Rc::new(guts),
-            }),
-            MASQMockNodeStarterMode::WithTemporarilyMutableHandle => {
-                Either::Right(MASQMockNodeWithMutableHandle {
-                    control_stream,
-                    configurable_guts: guts,
-                })
-            }
-        }
+        (control_stream, guts)
     }
 
     fn initiate_cryptde_enum(public_key_opt: Option<&PublicKey>, chain: Chain) -> CryptDEEnum {

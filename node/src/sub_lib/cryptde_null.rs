@@ -536,12 +536,12 @@ mod tests {
 
         let panic_msg = result.downcast_ref::<String>().unwrap();
         let wrong_key = key2.as_slice().to_hex::<String>();
-        let data = key1.as_slice().to_hex::<String>();
+        let right_key = key1.as_slice().to_hex::<String>();
         assert_eq!(
             panic_msg,
             &format!(
                 "Could not decrypt with {} data beginning with {}",
-                wrong_key, data
+                wrong_key, right_key
             )
         );
     }
