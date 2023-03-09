@@ -103,6 +103,7 @@ impl Display for StreamWriterKey {
     }
 }
 
+// It is used to store streams for both neighbors and browser.
 pub struct NeighborStreamHandlerPool {
     stream_writers: HashMap<StreamWriterKey, Option<Box<dyn SenderWrapper<SequencedPacket>>>>,
     dispatcher_subs_opt: Option<DispatcherSubs>,
