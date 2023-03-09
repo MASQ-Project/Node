@@ -377,7 +377,7 @@ macro_rules! intentionally_blank {
 }
 
 #[macro_export]
-macro_rules! as_any_dcl {
+macro_rules! declare_as_any {
     () => {
         #[cfg(test)]
         fn as_any(&self) -> &dyn Any {
@@ -388,7 +388,7 @@ macro_rules! as_any_dcl {
 }
 
 #[macro_export]
-macro_rules! as_any_impl {
+macro_rules! implement_as_any {
     () => {
         #[cfg(test)]
         fn as_any(&self) -> &dyn Any {

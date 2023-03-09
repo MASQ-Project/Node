@@ -69,7 +69,7 @@ pub struct AddRouteMessage {
     pub route: RouteQueryResponse,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProxyServerSubs {
     // ProxyServer will handle these messages:
     pub bind: Recipient<BindMessage>,

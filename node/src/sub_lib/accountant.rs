@@ -94,7 +94,7 @@ pub struct AccountantSubs {
     pub report_routing_service_provided: Recipient<ReportRoutingServiceProvidedMessage>,
     pub report_exit_service_provided: Recipient<ReportExitServiceProvidedMessage>,
     pub report_services_consumed: Recipient<ReportServicesConsumedMessage>,
-    pub report_new_payments: Recipient<ReceivedPayments>,
+    pub report_inbound_payments: Recipient<ReceivedPayments>,
     pub pending_payable_fingerprint: Recipient<PendingPayableFingerprint>,
     pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,
     pub report_sent_payments: Recipient<SentPayables>,
@@ -177,7 +177,7 @@ pub enum SignConversionError {
 
 pub trait MessageIdGenerator {
     fn id(&self) -> u32;
-    as_any_dcl!();
+    declare_as_any!();
 }
 
 #[derive(Default)]
@@ -187,7 +187,7 @@ impl MessageIdGenerator for MessageIdGeneratorReal {
     fn id(&self) -> u32 {
         MSG_ID_INCREMENTER.fetch_add(1, Ordering::Relaxed)
     }
-    as_any_impl!();
+    implement_as_any!();
 }
 
 #[cfg(test)]

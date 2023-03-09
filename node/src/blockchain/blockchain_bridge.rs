@@ -75,7 +75,7 @@ impl Handler<BindMessage> for BlockchainBridge {
             .report_transaction_receipts_sub_opt =
             Some(msg.peer_actors.accountant.report_transaction_receipts);
         self.sent_payable_subs_opt = Some(msg.peer_actors.accountant.report_sent_payments);
-        self.received_payments_subs_opt = Some(msg.peer_actors.accountant.report_new_payments);
+        self.received_payments_subs_opt = Some(msg.peer_actors.accountant.report_inbound_payments);
         self.scan_error_subs_opt = Some(msg.peer_actors.accountant.scan_errors);
         match self.consuming_wallet_opt.as_ref() {
             Some(wallet) => debug!(
@@ -443,9 +443,12 @@ mod tests {
     use crate::blockchain::tool_wrappers::SendTransactionToolsWrapperNull;
     use crate::database::db_initializer::test_utils::DbInitializerMock;
     use crate::db_config::persistent_configuration::PersistentConfigError;
+    use crate::match_every_type_id;
     use crate::node_test_utils::check_timestamp;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
+    use crate::test_utils::recorder_stop_conditions::StopCondition;
+    use crate::test_utils::recorder_stop_conditions::StopConditions;
     use crate::test_utils::unshared_test_utils::{
         configure_default_persistent_config, prove_that_crash_request_handler_is_hooked_up, ZERO,
     };
@@ -458,6 +461,7 @@ mod tests {
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
     use rustc_hex::FromHex;
+    use std::any::TypeId;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
     use web3::types::{TransactionReceipt, H160, H256, U256};
@@ -734,7 +738,10 @@ mod tests {
     fn handle_report_account_payable_manages_gas_price_error() {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let scan_error_recipient: Recipient<ScanError> = accountant.start().recipient();
+        let scan_error_recipient: Recipient<ScanError> = accountant
+            .system_stop_conditions(match_every_type_id!(ScanError))
+            .start()
+            .recipient();
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_result(Ok(web3::types::U256::from(1)));
         let persistent_configuration_mock = PersistentConfigurationMock::new()
@@ -756,15 +763,11 @@ mod tests {
             }],
             response_skeleton_opt: None,
         };
+        let subject_addr = subject.start();
         let system = System::new("test");
 
-        subject.handle_scan(
-            BlockchainBridge::handle_report_accounts_payable,
-            ScanType::Payables,
-            &request,
-        );
+        subject_addr.try_send(request).unwrap();
 
-        System::current().stop();
         system.run();
         let recording = accountant_recording_arc.lock().unwrap();
         let message = recording.get_record::<ScanError>(0);
@@ -854,7 +857,10 @@ mod tests {
     fn blockchain_bridge_logs_error_from_retrieving_received_payments() {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let scan_error_recipient: Recipient<ScanError> = accountant.start().recipient();
+        let scan_error_recipient: Recipient<ScanError> = accountant
+            .system_stop_conditions(match_every_type_id!(ScanError))
+            .start()
+            .recipient();
         let blockchain_interface = BlockchainInterfaceMock::default()
             .retrieve_transactions_result(Err(BlockchainError::QueryFailed(
                 "we have no luck".to_string(),
@@ -872,15 +878,11 @@ mod tests {
             recipient: make_wallet("blah"),
             response_skeleton_opt: None,
         };
+        let subject_addr = subject.start();
         let system = System::new("test");
 
-        subject.handle_scan(
-            BlockchainBridge::handle_retrieve_transactions,
-            ScanType::Receivables,
-            &msg,
-        );
+        subject_addr.try_send(msg).unwrap();
 
-        System::current().stop();
         system.run();
         let recording = accountant_recording_arc.lock().unwrap();
         let message = recording.get_record::<ScanError>(0);
@@ -905,7 +907,9 @@ mod tests {
         init_test_logging();
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let accountant_addr = accountant.start();
+        let accountant_addr = accountant
+            .system_stop_conditions(match_every_type_id!(ReportTransactionReceipts, ScanError))
+            .start();
         let report_transaction_receipt_recipient: Recipient<ReportTransactionReceipts> =
             accountant_addr.clone().recipient();
         let scan_error_recipient: Recipient<ScanError> = accountant_addr.recipient();
@@ -972,14 +976,10 @@ mod tests {
                 context_id: 4321,
             }),
         };
+        let subject_addr = subject.start();
 
-        let _ = subject.handle_scan(
-            BlockchainBridge::handle_request_transaction_receipts,
-            ScanType::PendingPayables,
-            &msg,
-        );
+        subject_addr.try_send(msg).unwrap();
 
-        System::current().stop();
         assert_eq!(system.run(), 0);
         let get_transaction_receipts_params = get_transaction_receipt_params_arc.lock().unwrap();
         assert_eq!(

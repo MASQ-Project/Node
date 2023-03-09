@@ -6,7 +6,7 @@ use crate::commands::commands_common::{
 };
 use clap::{App, Arg, ArgGroup, SubCommand};
 use itertools::{Either, Itertools};
-use masq_lib::as_any_impl;
+use masq_lib::implement_as_any;
 use masq_lib::messages::{UiRecoverSeedSpec, UiRecoverWalletsRequest, UiRecoverWalletsResponse};
 use masq_lib::short_writeln;
 #[cfg(test)]
@@ -121,7 +121,7 @@ impl Command for RecoverWalletsCommand {
         Ok(())
     }
 
-    as_any_impl!();
+    implement_as_any!();
 }
 
 const RECOVER_WALLETS_ABOUT: &str =
