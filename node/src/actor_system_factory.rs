@@ -3,8 +3,8 @@ use super::accountant::Accountant;
 use super::bootstrapper::BootstrapperConfig;
 use super::dispatcher::Dispatcher;
 use super::hopper::Hopper;
-use super::neighbor_stream_handler_pool::NeighborStreamHandlerPoolSubs;
 use super::neighbor_stream_handler_pool::StreamHandlerPool;
+use super::neighbor_stream_handler_pool::StreamHandlerPoolSubs;
 use super::neighborhood::Neighborhood;
 use super::proxy_client::ProxyClient;
 use super::proxy_server::ProxyServer;
@@ -56,7 +56,7 @@ pub trait ActorSystemFactory {
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
         persist_config: Box<dyn PersistentConfiguration>,
-    ) -> NeighborStreamHandlerPoolSubs;
+    ) -> StreamHandlerPoolSubs;
 }
 
 pub struct ActorSystemFactoryReal {
@@ -69,7 +69,7 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         config: BootstrapperConfig,
         actor_factory: Box<dyn ActorFactory>,
         persist_config: Box<dyn PersistentConfiguration>,
-    ) -> NeighborStreamHandlerPoolSubs {
+    ) -> StreamHandlerPoolSubs {
         self.t.validate_database_chain(
             persist_config.as_ref(),
             config.blockchain_bridge_config.chain,
@@ -92,7 +92,7 @@ pub trait ActorSystemFactoryTools {
         config: BootstrapperConfig,
         persistent_config: Box<dyn PersistentConfiguration>,
         actor_factory: Box<dyn ActorFactory>,
-    ) -> NeighborStreamHandlerPoolSubs;
+    ) -> StreamHandlerPoolSubs;
     fn cryptdes(&self) -> CryptDEPair;
     fn validate_database_chain(
         &self,
@@ -113,7 +113,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         config: BootstrapperConfig,
         persistent_config: Box<dyn PersistentConfiguration>,
         actor_factory: Box<dyn ActorFactory>,
-    ) -> NeighborStreamHandlerPoolSubs {
+    ) -> StreamHandlerPoolSubs {
         let db_initializer = DbInitializerReal::default();
         let (dispatcher_subs, pool_bind_sub) = actor_factory.make_and_start_dispatcher(&config);
         let proxy_server_subs = actor_factory.make_and_start_proxy_server(cryptdes, &config);
@@ -368,7 +368,7 @@ pub trait ActorFactory {
     fn make_and_start_stream_handler_pool(
         &self,
         config: &BootstrapperConfig,
-    ) -> NeighborStreamHandlerPoolSubs;
+    ) -> StreamHandlerPoolSubs;
     fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs;
     fn make_and_start_blockchain_bridge(&self, config: &BootstrapperConfig)
         -> BlockchainBridgeSubs;
@@ -479,7 +479,7 @@ impl ActorFactory for ActorFactoryReal {
     fn make_and_start_stream_handler_pool(
         &self,
         config: &BootstrapperConfig,
-    ) -> NeighborStreamHandlerPoolSubs {
+    ) -> StreamHandlerPoolSubs {
         let clandestine_discriminator_factories =
             config.clandestine_discriminator_factories.clone();
         let crashable = is_crashable(config);
@@ -698,7 +698,7 @@ mod tests {
                 )>,
             >,
         >,
-        prepare_initial_messages_results: RefCell<Vec<NeighborStreamHandlerPoolSubs>>,
+        prepare_initial_messages_results: RefCell<Vec<StreamHandlerPoolSubs>>,
         cryptdes_results: RefCell<Vec<CryptDEPair>>,
         validate_database_chain_params: Arc<Mutex<Vec<(ArbitraryIdStamp, Chain)>>>,
     }
@@ -710,7 +710,7 @@ mod tests {
             config: BootstrapperConfig,
             persistent_config: Box<dyn PersistentConfiguration>,
             actor_factory: Box<dyn ActorFactory>,
-        ) -> NeighborStreamHandlerPoolSubs {
+        ) -> StreamHandlerPoolSubs {
             self.prepare_initial_messages_params.lock().unwrap().push((
                 Box::new(<&CryptDENull>::from(cryptdes.main).clone()),
                 Box::new(<&CryptDENull>::from(cryptdes.alias).clone()),
@@ -769,10 +769,7 @@ mod tests {
             self
         }
 
-        pub fn prepare_initial_messages_result(
-            self,
-            result: NeighborStreamHandlerPoolSubs,
-        ) -> Self {
+        pub fn prepare_initial_messages_result(self, result: StreamHandlerPoolSubs) -> Self {
             self.prepare_initial_messages_results
                 .borrow_mut()
                 .push(result);
@@ -895,7 +892,7 @@ mod tests {
         fn make_and_start_stream_handler_pool(
             &self,
             _: &BootstrapperConfig,
-        ) -> NeighborStreamHandlerPoolSubs {
+        ) -> StreamHandlerPoolSubs {
             let addr = start_recorder_refcell_opt(&self.stream_handler_pool);
             make_stream_handler_pool_subs_from_recorder(&addr)
         }

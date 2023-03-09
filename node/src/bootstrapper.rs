@@ -712,7 +712,7 @@ mod tests {
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
     use crate::listener_handler::{ListenerHandler, ListenerHandlerFactory};
-    use crate::neighbor_stream_handler_pool::NeighborStreamHandlerPoolSubs;
+    use crate::neighbor_stream_handler_pool::StreamHandlerPoolSubs;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::node_test_utils::TestLogOwner;
     use crate::node_test_utils::{extract_log, DirsWrapperMock, IdWrapperMock};
@@ -2124,7 +2124,7 @@ mod tests {
     struct NeighborStreamHandlerPoolCluster {
         recording: Option<Arc<Mutex<Recording>>>,
         awaiter: Option<RecordAwaiter>,
-        subs: NeighborStreamHandlerPoolSubs,
+        subs: StreamHandlerPoolSubs,
     }
 
     struct ActorSystemFactoryActiveMock {
@@ -2146,7 +2146,7 @@ mod tests {
             config: BootstrapperConfig,
             actor_factory: Box<dyn ActorFactory>,
             persist_config: Box<dyn PersistentConfiguration>,
-        ) -> NeighborStreamHandlerPoolSubs {
+        ) -> StreamHandlerPoolSubs {
             let mut parameter_guard = self.make_and_start_actors_params.lock().unwrap();
             parameter_guard.push((config.clone(), actor_factory, persist_config));
 

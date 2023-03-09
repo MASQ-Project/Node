@@ -213,7 +213,7 @@ mod tests {
     use crate::json_discriminator_factory::JsonDiscriminatorFactory;
     use crate::json_masquerader::JsonMasquerader;
     use crate::masquerader::Masquerader;
-    use crate::neighbor_stream_handler_pool::NeighborStreamHandlerPoolSubs;
+    use crate::neighbor_stream_handler_pool::StreamHandlerPoolSubs;
     use crate::node_test_utils::{check_timestamp, make_stream_handler_pool_subs_from};
     use crate::stream_messages::RemovedStreamType::NonClandestine;
     use crate::sub_lib::dispatcher::DispatcherSubs;
@@ -236,7 +236,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
 
-    fn stream_handler_pool_stuff() -> (Arc<Mutex<Recording>>, NeighborStreamHandlerPoolSubs) {
+    fn stream_handler_pool_stuff() -> (Arc<Mutex<Recording>>, StreamHandlerPoolSubs) {
         let (shp, _, recording) = make_recorder();
         (recording, make_stream_handler_pool_subs_from(Some(shp)))
     }

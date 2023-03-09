@@ -54,7 +54,7 @@ use tokio::prelude::Future;
 
 pub const CRASH_KEY: &str = "STREAMHANDLERPOOL";
 
-pub struct NeighborStreamHandlerPoolSubs {
+pub struct StreamHandlerPoolSubs {
     pub add_sub: Recipient<AddStreamMsg>,
     pub transmit_sub: Recipient<TransmitDataMsg>,
     pub remove_sub: Recipient<RemoveStreamMsg>,
@@ -63,9 +63,9 @@ pub struct NeighborStreamHandlerPoolSubs {
     pub node_from_ui_sub: Recipient<NodeFromUiMessage>,
 }
 
-impl Clone for NeighborStreamHandlerPoolSubs {
+impl Clone for StreamHandlerPoolSubs {
     fn clone(&self) -> Self {
-        NeighborStreamHandlerPoolSubs {
+        StreamHandlerPoolSubs {
             add_sub: self.add_sub.clone(),
             transmit_sub: self.transmit_sub.clone(),
             remove_sub: self.remove_sub.clone(),
@@ -107,7 +107,7 @@ impl Display for StreamWriterKey {
 pub struct StreamHandlerPool {
     stream_writers: HashMap<StreamWriterKey, Option<Box<dyn SenderWrapper<SequencedPacket>>>>,
     dispatcher_subs_opt: Option<DispatcherSubs>,
-    self_subs_opt: Option<NeighborStreamHandlerPoolSubs>,
+    self_subs_opt: Option<StreamHandlerPoolSubs>,
     ask_neighborhood_opt: Option<Recipient<DispatcherNodeQueryMessage>>,
     remove_neighbor_sub_opt: Option<Recipient<RemoveNeighborMessage>>,
     connection_progress_sub_opt: Option<Recipient<ConnectionProgressMessage>>,
@@ -196,8 +196,8 @@ impl StreamHandlerPool {
         }
     }
 
-    pub fn make_subs_from(pool_addr: &Addr<StreamHandlerPool>) -> NeighborStreamHandlerPoolSubs {
-        NeighborStreamHandlerPoolSubs {
+    pub fn make_subs_from(pool_addr: &Addr<StreamHandlerPool>) -> StreamHandlerPoolSubs {
+        StreamHandlerPoolSubs {
             add_sub: recipient!(pool_addr, AddStreamMsg),
             transmit_sub: recipient!(pool_addr, TransmitDataMsg),
             remove_sub: recipient!(pool_addr, RemoveStreamMsg),
