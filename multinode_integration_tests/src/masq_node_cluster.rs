@@ -1,6 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::command::Command;
-use crate::masq_mock_node::{MASQMockNode, MASQMockNodeStarter, ModifiableMasqMockNode};
+use crate::masq_mock_node::{
+    ImmutableMASQMockNodeStarter, MASQMockNode, MASQMockNodeStarter, MutableMASQMockNode,
+    MutableMASQMockNodeStarter,
+};
 use crate::masq_node::{MASQNode, MASQNodeUtils};
 use crate::masq_real_node::MASQRealNode;
 use crate::masq_real_node::NodeStartupConfig;
@@ -88,12 +91,12 @@ impl MASQNodeCluster {
         self.start_mock_node_added_to_cluster(ports, Some(public_key))
     }
 
-    pub fn start_modifiable_mock_node_with_public_key(
+    pub fn start_mutable_mock_node_with_public_key(
         &mut self,
         ports: Vec<u16>,
         public_key: &PublicKey,
-    ) -> ModifiableMasqMockNode {
-        self.start_mock_node_with_mutable_handle(ports, Some(public_key))
+    ) -> MutableMASQMockNode {
+        self.start_mock_node(&MutableMASQMockNodeStarter {}, ports, Some(public_key))
     }
 
     fn start_mock_node_added_to_cluster(
@@ -101,20 +104,22 @@ impl MASQNodeCluster {
         ports: Vec<u16>,
         public_key_opt: Option<&PublicKey>,
     ) -> MASQMockNode {
-        let mock_node = self.start_mock_node(ports, public_key_opt);
+        let mock_node =
+            self.start_mock_node(&ImmutableMASQMockNodeStarter {}, ports, public_key_opt);
         let name = mock_node.name().to_string();
         self.mock_nodes.insert(name.clone(), mock_node);
         self.mock_nodes.get(&name).unwrap().clone()
     }
 
-    fn start_mock_node(
+    fn start_mock_node<T>(
         &mut self,
+        mock_node_starter: &dyn MASQMockNodeStarter<T>,
         ports: Vec<u16>,
         public_key_opt: Option<&PublicKey>,
-    ) -> MASQMockNode {
+    ) -> T {
         let index = self.next_index;
         self.next_index += 1;
-        MASQMockNodeStarter::start(
+        mock_node_starter.start(
             ports,
             index,
             self.host_node_parent_dir.clone(),
@@ -123,27 +128,8 @@ impl MASQNodeCluster {
         )
     }
 
-    fn start_mock_node_with_mutable_handle(
-        &mut self,
-        ports: Vec<u16>,
-        public_key_opt: Option<&PublicKey>,
-    ) -> ModifiableMasqMockNode {
-        let index = self.next_index;
-        self.next_index += 1;
-        MASQMockNodeStarter::start_with_mutable_handle(
-            ports,
-            index,
-            self.host_node_parent_dir.clone(),
-            public_key_opt,
-            self.chain,
-        )
-    }
-
-    pub fn finalize_mutable_mock_node_and_add_it_to_cluster(
-        &mut self,
-        mutable_mock_node_handle: ModifiableMasqMockNode,
-    ) -> MASQMockNode {
-        let mock_node = MASQMockNode::from(mutable_mock_node_handle);
+    pub fn finalize_and_add(&mut self, mutable_mock_node: MutableMASQMockNode) -> MASQMockNode {
+        let mock_node = MASQMockNode::from(mutable_mock_node);
         let name = mock_node.name().to_string();
         self.mock_nodes.insert(name.clone(), mock_node);
         self.mock_nodes.get(&name).unwrap().clone()
