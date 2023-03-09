@@ -850,7 +850,7 @@ mod tests {
                 let add_stream_msg = add_stream_msgs.remove(0);
                 add_stream_sub
                     .try_send(add_stream_msg)
-                    .expect("NeighborStreamHandlerPool is dead");
+                    .expect("StreamHandlerPool is dead");
             }
             if let Some(desired_number) = self.polling_setting.how_many_attempts_wanted_opt {
                 self.polling_setting.counter += 1;

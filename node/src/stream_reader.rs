@@ -140,7 +140,7 @@ impl StreamReaderReal {
                     let sequence_number = if unmasked_chunk.sequenced && !is_connect {
                         Some(self.sequencer.next_sequence_number())
                     } else if is_connect {
-                        // This case needs to explicitly be Some(0) instead of None so that the NeighborStreamHandlerPool does
+                        // This case needs to explicitly be Some(0) instead of None so that the StreamHandlerPool does
                         // not masquerade it.
                         Some(0)
                     } else {
@@ -198,7 +198,7 @@ impl StreamReaderReal {
                 },
                 sub: self.stream_shutdown_sub.clone(),
             })
-            .expect("NeighborStreamHandlerPool is dead");
+            .expect("StreamHandlerPool is dead");
     }
 
     fn stringify(local_addr: SocketAddr, peer_addr: SocketAddr) -> String {

@@ -75,7 +75,7 @@ impl StreamEstablisher {
 
         self.stream_adder_tx
             .send((payload.stream_key, tx_to_write.clone()))
-            .expect("NeighborStreamHandlerPool died");
+            .expect("StreamHandlerPool died");
         Ok(tx_to_write)
     }
 

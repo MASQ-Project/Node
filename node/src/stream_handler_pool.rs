@@ -47,9 +47,9 @@ use std::thread;
 use std::time::Duration;
 use tokio::prelude::Future;
 
-// IMPORTANT: Nothing at or below the level of NeighborStreamHandlerPool should know about StreamKeys.
+// IMPORTANT: Nothing at or below the level of StreamHandlerPool should know about StreamKeys.
 // StreamKeys should exist solely between ProxyServer and ProxyClient. Many of the streams
-// overseen by NeighborStreamHandlerPool will not (and should not) have StreamKeys. Don't let the
+// overseen by StreamHandlerPool will not (and should not) have StreamKeys. Don't let the
 // concept leak down this far.
 
 pub const CRASH_KEY: &str = "STREAMHANDLERPOOL";
@@ -224,7 +224,7 @@ impl StreamHandlerPool {
         let remove_sub: Recipient<RemoveStreamMsg> = self
             .self_subs_opt
             .as_ref()
-            .expect("NeighborStreamHandlerPool is unbound")
+            .expect("StreamHandlerPool is unbound")
             .remove_sub
             .clone();
         let stream_shutdown_sub: Recipient<StreamShutdownMsg> = self
@@ -287,7 +287,7 @@ impl StreamHandlerPool {
         let node_query_response_recipient = self
             .self_subs_opt
             .as_ref()
-            .expect("NeighborStreamHandlerPool is unbound.")
+            .expect("StreamHandlerPool is unbound.")
             .node_query_response
             .clone();
         match msg.endpoint.clone() {
@@ -303,7 +303,7 @@ impl StreamHandlerPool {
                 );
                 self.ask_neighborhood_opt
                     .as_ref()
-                    .expect("NeighborStreamHandlerPool is unbound.")
+                    .expect("StreamHandlerPool is unbound.")
                     .try_send(request)
                     .expect("Neighborhood is Dead")
             }
@@ -321,7 +321,7 @@ impl StreamHandlerPool {
                         )),
                         context: msg,
                     })
-                    .expect("NeighborStreamHandlerPool is dead?")
+                    .expect("StreamHandlerPool is dead?")
             }
         };
     }
@@ -535,16 +535,14 @@ impl StreamHandlerPool {
         let recipient = self
             .self_subs_opt
             .as_ref()
-            .expect("NeighborStreamHandlerPool is unbound.")
+            .expect("StreamHandlerPool is unbound.")
             .node_query_response
             .clone();
         // TODO FIXME revisit once SC-358/GH-96 is done (idea: use notify_later() to delay messages)
         thread::spawn(move || {
             // to avoid getting into too-tight a resubmit loop, add a delay; in a separate thread, to avoid delaying other traffic
             thread::sleep(Duration::from_millis(100));
-            recipient
-                .try_send(msg)
-                .expect("NeighborStreamHandlerPool is dead");
+            recipient.try_send(msg).expect("StreamHandlerPool is dead");
         });
     }
 
@@ -596,7 +594,7 @@ impl StreamStartFailureHandler {
         let subs = pool
             .self_subs_opt
             .clone()
-            .expect("NeighborStreamHandlerPool Unbound");
+            .expect("StreamHandlerPool Unbound");
         Self {
             msg_data_len: msg.context.data.len(),
             key: msg
@@ -639,7 +637,7 @@ impl StreamStartFailureHandler {
                 stream_type: RemovedStreamType::Clandestine,
                 sub: self.sub,
             })
-            .expect("NeighborStreamHandlerPool is dead");
+            .expect("StreamHandlerPool is dead");
         let remove_node_message = RemoveNeighborMessage {
             public_key: self.key.clone(),
         };
@@ -675,7 +673,7 @@ impl StreamStartSuccessHandler {
         let subs = pool
             .self_subs_opt
             .clone()
-            .expect("NeighborStreamHandlerPool Unbound");
+            .expect("StreamHandlerPool Unbound");
         Self {
             msg,
             add_stream_sub: subs.add_sub,
@@ -705,10 +703,10 @@ impl StreamStartSuccessHandler {
                     true,
                 ),
             })
-            .expect("NeighborStreamHandlerPool is dead");
+            .expect("StreamHandlerPool is dead");
         self.node_query_response_sub
             .try_send(self.msg)
-            .expect("NeighborStreamHandlerPool is dead");
+            .expect("StreamHandlerPool is dead");
         let connection_progress_message = ConnectionProgressMessage {
             peer_addr: self.peer_addr.ip(),
             event: ConnectionProgressEvent::TcpConnectionSuccessful,

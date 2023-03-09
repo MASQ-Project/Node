@@ -199,7 +199,7 @@ impl Handler<DispatcherNodeQueryMessage> for Neighborhood {
 
         msg.recipient
             .try_send(response)
-            .expect("Dispatcher's NeighborStreamHandlerPool is dead");
+            .expect("Dispatcher's StreamHandlerPool is dead");
     }
 }
 

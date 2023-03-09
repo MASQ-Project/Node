@@ -99,15 +99,15 @@ impl Handler<TransmitDataMsg> for Dispatcher {
     fn handle(&mut self, msg: TransmitDataMsg, _ctx: &mut Self::Context) {
         debug!(
             self.logger,
-            "Relaying {} bytes to NeighborStreamHandlerPool for {:?}",
+            "Relaying {} bytes to StreamHandlerPool for {:?}",
             msg.data.len(),
             msg.endpoint
         );
         self.to_stream
             .as_ref()
-            .expect("NeighborStreamHandlerPool unbound in Dispatcher")
+            .expect("StreamHandlerPool unbound in Dispatcher")
             .try_send(msg)
-            .expect("NeighborStreamHandlerPool is dead");
+            .expect("StreamHandlerPool is dead");
     }
 }
 
@@ -385,7 +385,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "NeighborStreamHandlerPool unbound in Dispatcher")]
+    #[should_panic(expected = "StreamHandlerPool unbound in Dispatcher")]
     fn panics_when_stream_handler_pool_is_unbound() {
         let system = System::new("test");
         let subject = Dispatcher::new(NODE_DESCRIPTOR.clone(), false);
