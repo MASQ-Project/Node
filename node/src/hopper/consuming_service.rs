@@ -85,10 +85,7 @@ impl ConsumingService {
                 if &next_hop.public_key == self.cryptde.public_key() {
                     self.zero_hop(encrypted_package);
                 } else {
-                    self.launch_lcp(
-                        encrypted_package,
-                        Endpoint::NeighborPublicKey(next_hop.public_key),
-                    );
+                    self.launch_lcp(encrypted_package, Endpoint::Key(next_hop.public_key));
                 }
             }
             Err(e) => error!(self.logger, "{}", e),
@@ -253,7 +250,7 @@ mod tests {
         let expected_lcp_enc = encodex(cryptde, &destination_key, &expected_lcp).unwrap();
         assert_eq!(
             TransmitDataMsg {
-                endpoint: Endpoint::NeighborPublicKey(destination_key.clone()),
+                endpoint: Endpoint::Key(destination_key.clone()),
                 last_data: false,
                 sequence_number: None,
                 data: expected_lcp_enc.into(),

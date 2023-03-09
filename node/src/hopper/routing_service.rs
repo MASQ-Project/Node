@@ -508,7 +508,7 @@ impl RoutingService {
                 }
             };
         Ok(TransmitDataMsg {
-            endpoint: Endpoint::NeighborPublicKey(next_hop.public_key),
+            endpoint: Endpoint::Key(next_hop.public_key),
             last_data,
             data: next_live_package_enc.into(),
             sequence_number: None,
@@ -1180,7 +1180,7 @@ mod tests {
         assert_eq!(
             *record,
             TransmitDataMsg {
-                endpoint: Endpoint::NeighborPublicKey(next_key.clone()),
+                endpoint: Endpoint::Key(next_key.clone()),
                 last_data: true,
                 sequence_number: None,
                 data: expected_lcp_enc.into(),

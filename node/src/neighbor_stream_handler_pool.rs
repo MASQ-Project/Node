@@ -291,7 +291,7 @@ impl StreamHandlerPool {
             .node_query_response
             .clone();
         match msg.endpoint.clone() {
-            Endpoint::NeighborPublicKey(key) => {
+            Endpoint::Key(key) => {
                 let request = DispatcherNodeQueryMessage {
                     query: NodeQueryMessage::PublicKey(key.clone()),
                     context: msg,
@@ -1318,7 +1318,7 @@ mod tests {
                         rate_pack(100),
                     )),
                     context: TransmitDataMsg {
-                        endpoint: Endpoint::NeighborPublicKey(public_key),
+                        endpoint: Endpoint::Key(public_key),
                         last_data: false,
                         sequence_number: None,
                         data: b"hello".to_vec(),
@@ -1407,7 +1407,7 @@ mod tests {
         subject_subs
             .transmit_sub
             .try_send(TransmitDataMsg {
-                endpoint: Endpoint::NeighborPublicKey(public_key.clone()),
+                endpoint: Endpoint::Key(public_key.clone()),
                 last_data: false,
                 sequence_number: None,
                 data: outgoing_unmasked,
@@ -1525,7 +1525,7 @@ mod tests {
         subject_subs
             .transmit_sub
             .try_send(TransmitDataMsg {
-                endpoint: Endpoint::NeighborPublicKey(key.clone()),
+                endpoint: Endpoint::Key(key.clone()),
                 last_data: false,
                 sequence_number: Some(0),
                 data: b"hello".to_vec(),
@@ -1582,7 +1582,7 @@ mod tests {
                 .try_send(DispatcherNodeQueryResponse {
                     result: None,
                     context: TransmitDataMsg {
-                        endpoint: Endpoint::NeighborPublicKey(key.clone()),
+                        endpoint: Endpoint::Key(key.clone()),
                         last_data: false,
                         sequence_number: Some(0),
                         data: b"hello".to_vec(),
@@ -1596,7 +1596,7 @@ mod tests {
         TestLogHandler::new().await_log_containing(
             format!(
                 "ERROR: Dispatcher: No Node found at endpoint {:?}",
-                Endpoint::NeighborPublicKey(cryptde.public_key().clone())
+                Endpoint::Key(cryptde.public_key().clone())
             )
             .as_str(),
             1000,
@@ -1634,7 +1634,7 @@ mod tests {
                         rate_pack(100),
                     )),
                     context: TransmitDataMsg {
-                        endpoint: Endpoint::NeighborPublicKey(key.clone()),
+                        endpoint: Endpoint::Key(key.clone()),
                         last_data: false,
                         sequence_number: None,
                         data: b"hello".to_vec(),

@@ -79,14 +79,14 @@ impl<'a> Visitor<'a> for ComponentVisitor {
 
 #[derive(Clone, PartialEq, Eq)]
 pub enum Endpoint {
-    NeighborPublicKey(PublicKey),
+    Key(PublicKey),
     Socket(SocketAddr), // This SocketAddr can be either a neighbor Node or a browser stream, but not a server stream.
 }
 
 impl fmt::Debug for Endpoint {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match *self {
-            Endpoint::NeighborPublicKey(ref key) => write!(f, "PublicKey({})", key),
+            Endpoint::Key(ref key) => write!(f, "PublicKey({})", key),
             Endpoint::Socket(ref socket_addr) => write!(f, "Socket({})", *socket_addr),
         }
     }
@@ -213,7 +213,7 @@ mod tests {
 
     #[test]
     fn debug_string_for_endpoint_with_utf8_key() {
-        let subject = Endpoint::NeighborPublicKey(PublicKey::new(b"blah"));
+        let subject = Endpoint::Key(PublicKey::new(b"blah"));
 
         let result = format!("{:?}", subject);
 
@@ -222,7 +222,7 @@ mod tests {
 
     #[test]
     fn debug_string_for_endpoint_with_non_utf8_key() {
-        let subject = Endpoint::NeighborPublicKey(PublicKey::new(&[192, 193]));
+        let subject = Endpoint::Key(PublicKey::new(&[192, 193]));
 
         let result = format!("{:?}", subject);
 
