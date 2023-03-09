@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::bootstrapper::PortConfiguration;
-use crate::neighbor_stream_handler_pool::StreamHandlerPoolSubs;
+use crate::stream_handler_pool::StreamHandlerPoolSubs;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::stream_connector::ConnectionInfo;

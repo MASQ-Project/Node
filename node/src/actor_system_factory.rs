@@ -3,11 +3,11 @@ use super::accountant::Accountant;
 use super::bootstrapper::BootstrapperConfig;
 use super::dispatcher::Dispatcher;
 use super::hopper::Hopper;
-use super::neighbor_stream_handler_pool::StreamHandlerPool;
-use super::neighbor_stream_handler_pool::StreamHandlerPoolSubs;
 use super::neighborhood::Neighborhood;
 use super::proxy_client::ProxyClient;
 use super::proxy_server::ProxyServer;
+use super::stream_handler_pool::StreamHandlerPool;
+use super::stream_handler_pool::StreamHandlerPoolSubs;
 use super::stream_messages::PoolBindMessage;
 use super::ui_gateway::UiGateway;
 use crate::banned_dao::{BannedCacheLoader, BannedCacheLoaderReal};
@@ -636,7 +636,7 @@ mod tests {
     use crate::test_utils::unshared_test_utils::{ArbitraryIdStamp, SystemKillerActor};
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
-    use crate::{hopper, neighbor_stream_handler_pool, proxy_client, proxy_server, ui_gateway};
+    use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
     use actix::{Actor, Arbiter, System};
     use automap_lib::control_layer::automap_control::AutomapChange;
     #[cfg(all(test, not(feature = "no_test_share")))]
@@ -1712,10 +1712,7 @@ mod tests {
             subscribers.node_from_ui_sub
         };
 
-        panic_in_arbiter_thread_versus_system(
-            Box::new(closure),
-            neighbor_stream_handler_pool::CRASH_KEY,
-        )
+        panic_in_arbiter_thread_versus_system(Box::new(closure), stream_handler_pool::CRASH_KEY)
     }
 
     fn panic_in_arbiter_thread_versus_system<F>(actor_initialization: Box<F>, actor_crash_key: &str)

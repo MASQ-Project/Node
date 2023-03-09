@@ -712,12 +712,12 @@ mod tests {
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
     use crate::listener_handler::{ListenerHandler, ListenerHandlerFactory};
-    use crate::neighbor_stream_handler_pool::StreamHandlerPoolSubs;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::node_test_utils::TestLogOwner;
     use crate::node_test_utils::{extract_log, DirsWrapperMock, IdWrapperMock};
     use crate::server_initializer::test_utils::LoggerInitializerWrapperMock;
     use crate::server_initializer::LoggerInitializerWrapper;
+    use crate::stream_handler_pool::StreamHandlerPoolSubs;
     use crate::stream_messages::AddStreamMsg;
     use crate::sub_lib::accountant::ScanIntervals;
     use crate::sub_lib::cryptde::PublicKey;
