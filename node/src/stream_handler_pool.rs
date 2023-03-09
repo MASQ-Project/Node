@@ -547,7 +547,6 @@ impl StreamHandlerPool {
         });
     }
 
-    // TODO: This method is wayyyy too big
     fn open_new_stream_and_recycle_message(
         &self,
         msg: DispatcherNodeQueryResponse,
