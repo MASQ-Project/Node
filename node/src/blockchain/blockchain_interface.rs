@@ -306,7 +306,7 @@ where
                             warning!(
                                 logger,
                                 "Invalid response from blockchain server: {:?}",
-                                logs.clone()
+                                logs
                             );
                             Err(BlockchainError::InvalidResponse)
                         } else {
@@ -336,7 +336,7 @@ where
                         }
                     }
                     Err(e) => {
-                        error!(self.logger, "Retrieving transactions: {}", e.to_string());
+                        error!(self.logger, "Retrieving transactions: {}", e);
                         Ok(RetrievedBlockchainTransactions {
                             new_start_block: fallback_end_block_number,
                             transactions: vec![],
@@ -805,13 +805,17 @@ mod tests {
         let bodies: Vec<String> = requests
             .into_iter()
             .map(|request| serde_json::from_slice(&request.body()).unwrap())
-            .into_iter()
             .map(|b: Value| serde_json::to_string(&b).unwrap())
             .collect();
-        assert_eq!(
-            bodies[0],
-            r#"[{"id":0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},{"id":1,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0x384dec25e03f94931767ce4c3556168468ba24c3","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc"]}]}]"#,
+        let expected_body_prefix = r#"[{"id":0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},{"id":1,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0x384dec25e03f94931767ce4c3556168468ba24c3","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x000000000000000000000000"#;
+        let expected_body_suffix = r#""]}]}]"#;
+        let expected_body = format!(
+            "{}{}{}",
+            expected_body_prefix,
+            &to[2..],
+            expected_body_suffix
         );
+        assert_eq!(bodies, vec!(expected_body));
         assert_eq!(
             result,
             RetrievedBlockchainTransactions {
@@ -885,15 +889,20 @@ mod tests {
             .unwrap();
 
         let requests = test_server.requests_so_far();
-        let bodies = requests
+        let bodies: Vec<String> = requests
             .into_iter()
             .map(|request| serde_json::from_slice(&request.body()).unwrap())
             .map(|b: Value| serde_json::to_string(&b).unwrap())
             .collect();
-        assert_eq!(
-            bodies[0],
-            r#"[{"id":0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},{"id":1,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0x384dec25e03f94931767ce4c3556168468ba24c3","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc"]}]}]"#,
+        let expected_body_prefix = r#"[{"id":0,"jsonrpc":"2.0","method":"eth_blockNumber","params":[]},{"id":1,"jsonrpc":"2.0","method":"eth_getLogs","params":[{"address":"0x384dec25e03f94931767ce4c3556168468ba24c3","fromBlock":"0x2a","toBlock":"0x400","topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef",null,"0x000000000000000000000000"#;
+        let expected_body_suffix = r#""]}]}]"#;
+        let expected_body = format!(
+            "{}{}{}",
+            expected_body_prefix,
+            &to[2..],
+            expected_body_suffix
         );
+        assert_eq!(bodies, vec!(expected_body));
         assert_eq!(
             result,
             RetrievedBlockchainTransactions {
@@ -1011,9 +1020,9 @@ mod tests {
             })
         );
         let test_log_handler = TestLogHandler::new();
-        test_log_handler.assert_logs_contain_in_order(vec![
+        test_log_handler.exists_log_containing(
             "WARN: BlockchainInterface: Retrieving transactions: logs: 1, transactions: 0",
-        ])
+        );
     }
 
     #[test]
@@ -2013,17 +2022,11 @@ mod tests {
         );
         let tx_hash = H256::from_uint(&U256::from(4564546));
 
-        let result = subject.get_transaction_receipt(tx_hash);
-
-        match result {
-            Err(BlockchainError::QueryFailed(err_message)) => assert!(
-                err_message.contains("Transport error: Error(Connect, Os"),
-                "we got this error msg: {}",
-                err_message
-            ),
-            Err(e) => panic!("we expected a different error than: {}", e),
-            Ok(x) => panic!("we expected an error, but got: {:?}", x),
-        };
+        let expected_error = subject.get_transaction_receipt(tx_hash).unwrap_err();
+        assert_eq!(
+            expected_error,
+            BlockchainError::QueryFailed("Transport error: Error(Connect, Os { code: 61, kind: ConnectionRefused, message: \"Connection refused\" })".to_string())
+        );
     }
 
     #[test]
@@ -2179,10 +2182,7 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
-        let latest_block_number = match subject.get_block_number() {
-            Ok(latest_block_number) => latest_block_number,
-            Err(e) => panic!("Unexpected failure {}", e.to_string()),
-        };
+        let latest_block_number = subject.get_block_number().unwrap();
 
         assert_eq!(latest_block_number, U64::from(0x1e37066u64));
 
@@ -2206,13 +2206,11 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
-        match subject.get_block_number() {
-            Ok(_) => panic!("Expected an error"),
-            Err(e) => assert_eq!(
-                e,
-                BlockchainError::QueryFailed("Decoder error: Error(\"invalid type: null, expected a 0x-prefixed hex string with length between (0; 16]\", line: 0, column: 0)".to_string())
-            ),
-        }
+        let expected_error = subject.get_block_number().unwrap_err();
+        assert_eq!(
+            expected_error,
+            BlockchainError::QueryFailed("Decoder error: Error(\"invalid type: null, expected a 0x-prefixed hex string with length between (0; 16]\", line: 0, column: 0)".to_string())
+        );
 
         let mut prepare_params = prepare_params_arc.lock().unwrap();
         let (method_name, actual_arguments) = prepare_params.remove(0);
@@ -2236,10 +2234,7 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
-        let expected_error = match subject.get_block_number() {
-            Ok(_) => panic!("Expected an error"),
-            Err(e) => e,
-        };
+        let expected_error = subject.get_block_number().unwrap_err();
 
         assert_eq!(
             expected_error,

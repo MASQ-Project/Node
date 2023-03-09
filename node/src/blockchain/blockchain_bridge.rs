@@ -1212,7 +1212,7 @@ mod tests {
             }
         );
 
-        TestLogHandler::new().exists_log_containing("WARN: BlockchainBridge: Using 'latest' block number instead of a literal number. QueryFailed(\"Failed to read the latest block number\")");
+        TestLogHandler::new().exists_log_containing("INFO: BlockchainBridge: Using 'latest' block number instead of a literal number. QueryFailed(\"Failed to read the latest block number\")");
     }
 
     #[test]
