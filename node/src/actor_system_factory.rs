@@ -3,8 +3,8 @@ use super::accountant::Accountant;
 use super::bootstrapper::BootstrapperConfig;
 use super::dispatcher::Dispatcher;
 use super::hopper::Hopper;
-use super::neighbor_stream_handler_pool::NeighborStreamHandlerPool;
 use super::neighbor_stream_handler_pool::NeighborStreamHandlerPoolSubs;
+use super::neighbor_stream_handler_pool::StreamHandlerPool;
 use super::neighborhood::Neighborhood;
 use super::proxy_client::ProxyClient;
 use super::proxy_server::ProxyServer;
@@ -484,10 +484,9 @@ impl ActorFactory for ActorFactoryReal {
             config.clandestine_discriminator_factories.clone();
         let crashable = is_crashable(config);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
-        let addr: Addr<NeighborStreamHandlerPool> = arbiter.start(move |_| {
-            NeighborStreamHandlerPool::new(clandestine_discriminator_factories, crashable)
-        });
-        NeighborStreamHandlerPool::make_subs_from(&addr)
+        let addr: Addr<StreamHandlerPool> = arbiter
+            .start(move |_| StreamHandlerPool::new(clandestine_discriminator_factories, crashable));
+        StreamHandlerPool::make_subs_from(&addr)
     }
 
     fn make_and_start_proxy_client(&self, config: ProxyClientConfig) -> ProxyClientSubs {
