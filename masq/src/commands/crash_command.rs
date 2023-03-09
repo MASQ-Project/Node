@@ -27,7 +27,7 @@ const ACTOR_ARG_POSSIBLE_VALUES: [&str; 5] = [
     // "ProxyClient",
     // "ProxyServer",
     // "UiGateway", // This should be the default, when it comes in
-    // "NeighborStreamHandlerPool",
+    // "StreamHandlerPool",
 ];
 const ACTOR_ARG_DEFAULT_VALUE: &str = "BlockchainBridge";
 const MESSAGE_ARG_DEFAULT_VALUE: &str = "Intentional crash";
