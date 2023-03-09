@@ -8,12 +8,12 @@ use crate::sub_lib::cryptde::{decodex, encodex, CodexError, CryptData, CryptdecE
 use crate::sub_lib::dispatcher::{Component, Endpoint, InboundClientData};
 use crate::sub_lib::hop::LiveHop;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, HopperSubs, MessageType};
-use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::neighborhood::{GossipFailure_0v1, NeighborhoodSubs};
 use crate::sub_lib::proxy_client::{
     ClientResponsePayload_0v1, DnsResolveFailure_0v1, ProxyClientSubs,
 };
 use crate::sub_lib::proxy_server::{ClientRequestPayload_0v1, ProxyServerSubs};
+use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use actix::Recipient;
 use masq_lib::logger::Logger;
 use std::borrow::Borrow;

@@ -15,8 +15,6 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher;
 use crate::sub_lib::dispatcher::Endpoint;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
-use crate::sub_lib::neighbor_stream_handler_pool::DispatcherNodeQueryResponse;
-use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::{
@@ -28,6 +26,8 @@ use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_connector::ConnectionInfo;
 use crate::sub_lib::stream_connector::StreamConnector;
 use crate::sub_lib::stream_connector::StreamConnectorReal;
+use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
+use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};

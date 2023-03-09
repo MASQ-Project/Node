@@ -25,7 +25,6 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{Endpoint, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage};
-use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{ExpectedService, NodeRecordMetadataMessage};
@@ -39,6 +38,7 @@ use crate::sub_lib::proxy_server::{
 };
 use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
+use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::ttl_hashmap::TtlHashMap;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};

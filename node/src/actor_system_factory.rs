@@ -616,12 +616,12 @@ mod tests {
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::{InboundClientData, StreamShutdownMsg};
-    use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::neighborhood::NeighborhoodMode;
     use crate::sub_lib::neighborhood::NodeDescriptor;
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::peer_actors::StartMessage;
+    use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
     use crate::test_utils::make_wallet;

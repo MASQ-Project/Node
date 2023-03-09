@@ -5,7 +5,7 @@ use crate::sub_lib::cryptde::CryptData;
 use crate::sub_lib::cryptde::{encodex, CryptDE};
 use crate::sub_lib::dispatcher::{Endpoint, InboundClientData};
 use crate::sub_lib::hopper::{IncipientCoresPackage, NoLookupIncipientCoresPackage};
-use crate::sub_lib::neighbor_stream_handler_pool::TransmitDataMsg;
+use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use actix::Recipient;
 use masq_lib::logger::Logger;
 use std::borrow::Borrow;
