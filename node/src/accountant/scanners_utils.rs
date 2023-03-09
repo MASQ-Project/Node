@@ -135,7 +135,7 @@ pub mod payable_scanner_utils {
             payment_thresholds: &PaymentThresholds,
             x: u64,
         ) -> u128;
-        as_any_dcl!();
+        declare_as_any!();
     }
 
     #[derive(Default)]
@@ -157,7 +157,7 @@ pub mod payable_scanner_utils {
         ) -> u128 {
             ThresholdUtils::calculate_finite_debt_limit_by_age(payment_thresholds, debt_age)
         }
-        as_any_impl!();
+        implement_as_any!();
     }
 }
 

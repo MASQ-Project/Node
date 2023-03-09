@@ -3,7 +3,7 @@
 #[cfg(test)]
 use crate::arbitrary_id_stamp_in_trait;
 #[cfg(test)]
-use crate::test_utils::unshared_test_utils::ArbitraryIdStamp;
+use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 use rusqlite::{Connection, Error, Statement, Transaction};
 use std::fmt::Debug;
 

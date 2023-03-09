@@ -12,7 +12,7 @@ pub struct TransmitDataMsg {
     pub data: Vec<u8>,
 }
 
-#[derive(Message, Clone)]
+#[derive(Message, Clone, PartialEq, Eq)]
 pub struct DispatcherNodeQueryResponse {
     pub result: Option<NodeQueryResponseMetadata>,
     pub context: TransmitDataMsg,

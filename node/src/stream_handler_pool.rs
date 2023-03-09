@@ -54,6 +54,7 @@ use tokio::prelude::Future;
 
 pub const CRASH_KEY: &str = "STREAMHANDLERPOOL";
 
+#[derive(PartialEq, Eq)]
 pub struct StreamHandlerPoolSubs {
     pub add_sub: Recipient<AddStreamMsg>,
     pub transmit_sub: Recipient<TransmitDataMsg>,

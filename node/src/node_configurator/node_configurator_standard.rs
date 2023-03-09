@@ -32,7 +32,6 @@ use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::utils::make_new_multi_config;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
 use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
-use masq_lib::multi_config::make_arg_matches_accesible;
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
 use masq_lib::utils::WrapResult;
 use std::str::FromStr;
@@ -287,7 +286,6 @@ mod tests {
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
-    use crate::sub_lib::utils::make_new_test_multi_config;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::{
@@ -484,7 +482,7 @@ mod tests {
             .param("--data-directory", home_dir.to_str().unwrap())
             .param("--ip", "1.2.3.4");
         let mut bootstrapper_config = BootstrapperConfig::new();
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![
                 Box::new(CommandLineVcl::new(args.into())),
@@ -558,7 +556,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
 
         privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
 
@@ -602,7 +600,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
 
         privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
 
@@ -633,7 +631,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
 
         privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
 
@@ -659,7 +657,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
 
         privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
 
@@ -686,7 +684,7 @@ mod tests {
         let args = make_default_cli_params();
         let mut config = BootstrapperConfig::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
-        let multi_config = make_new_test_multi_config(&app_node(), vec![vcl]).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vec![vcl]).unwrap();
 
         privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
 
@@ -699,7 +697,7 @@ mod tests {
         let args = make_default_cli_params().param("--crash-point", "panic");
         let mut config = BootstrapperConfig::new();
         let vcl = Box::new(CommandLineVcl::new(args.into()));
-        let multi_config = make_new_test_multi_config(&app_node(), vec![vcl]).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vec![vcl]).unwrap();
 
         privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
 
