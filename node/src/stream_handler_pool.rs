@@ -488,7 +488,7 @@ impl StreamHandlerPool {
         let packet_len = packet.data.len();
         match tx_box.unbounded_send(packet) {
             Err(e) => {
-                debug!(
+                error!(
                     self.logger,
                     "Removing channel to disabled StreamWriter {} to {}: {}", sw_key, peer_addr, e
                 );
