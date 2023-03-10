@@ -191,7 +191,7 @@ impl MASQMockNodeStarter<MASQMockNode> for ImmutableMASQMockNodeStarter {
         public_key_opt: Option<&PublicKey>,
         chain: Chain,
     ) -> MASQMockNode {
-        let (control_stream, mock_node_guts) = MASQMockNode::start_masq_mock_nodes_with_bare_guts(
+        let (control_stream, mock_node_guts) = MASQMockNode::start_masq_mock_node_with_bare_guts(
             ports,
             index,
             host_node_parent_dir,
@@ -216,7 +216,7 @@ impl MASQMockNodeStarter<MutableMASQMockNode> for MutableMASQMockNodeStarter {
         public_key_opt: Option<&PublicKey>,
         chain: Chain,
     ) -> MutableMASQMockNode {
-        let (control_stream, mock_node_guts) = MASQMockNode::start_masq_mock_nodes_with_bare_guts(
+        let (control_stream, mock_node_guts) = MASQMockNode::start_masq_mock_node_with_bare_guts(
             ports,
             index,
             host_node_parent_dir,
@@ -451,7 +451,7 @@ impl MASQMockNode {
         stream.shutdown(Shutdown::Both).unwrap();
     }
 
-    fn start_masq_mock_nodes_with_bare_guts(
+    fn start_masq_mock_node_with_bare_guts(
         ports: Vec<u16>,
         index: usize,
         host_node_parent_dir: Option<String>,
