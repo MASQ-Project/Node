@@ -17,7 +17,6 @@ use masq_lib::command::StdStreams;
 use masq_lib::constants::DEFAULT_UI_PORT;
 use masq_lib::test_utils::fake_stream_holder::{ByteArrayWriter, ByteArrayWriterInner};
 use masq_lib::ui_gateway::MessageBody;
-use masq_lib::utils::WrapResult;
 use std::cell::RefCell;
 use std::fmt::Arguments;
 use std::io::{Read, Write};
