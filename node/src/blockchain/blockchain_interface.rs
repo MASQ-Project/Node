@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
-use crate::blockchain::blockchain_bridge::NewPendingPayableFingerprints;
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::BlockchainError::{
     InvalidAddress, InvalidResponse, InvalidUrl, PayableTransactionFailed, QueryFailed,
 };
@@ -134,7 +134,7 @@ pub trait BlockchainInterface<T: Transport = Http> {
         consuming_wallet: &Wallet,
         gas_price: u64,
         pending_nonce: U256,
-        new_fingerprints_recipient: &Recipient<NewPendingPayableFingerprints>,
+        new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, BlockchainError>;
 
@@ -195,7 +195,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         _consuming_wallet: &Wallet,
         _gas_price: u64,
         _last_nonce: U256,
-        _new_fingerprints_recipient: &Recipient<NewPendingPayableFingerprints>,
+        _new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         _accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, BlockchainError> {
         error!(self.logger, "Can't send transactions out clandestinely yet",);
@@ -344,7 +344,7 @@ where
         consuming_wallet: &Wallet,
         gas_price: u64,
         pending_nonce: U256,
-        new_fingerprints_recipient: &Recipient<NewPendingPayableFingerprints>,
+        new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, BlockchainError> {
         debug!(
@@ -1319,7 +1319,7 @@ mod tests {
             .send_batch_result(expected_batch_responses);
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let actor_addr = accountant.start();
-        let fingerprint_recipient = recipient!(actor_addr, NewPendingPayableFingerprints);
+        let fingerprint_recipient = recipient!(actor_addr, PendingPayableFingerprintSeeds);
         let logger = Logger::new("sending_batch_payments");
         let mut subject = BlockchainInterfaceNonClandestine::new(
             transport.clone(),
@@ -1455,7 +1455,7 @@ mod tests {
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 1);
         let initiate_fingerprints_msg =
-            accountant_recording.get_record::<NewPendingPayableFingerprints>(0);
+            accountant_recording.get_record::<PendingPayableFingerprintSeeds>(0);
         let actual_common_timestamp = initiate_fingerprints_msg.batch_wide_timestamp;
         assert!(
             test_timestamp_before <= actual_common_timestamp
@@ -1463,7 +1463,7 @@ mod tests {
         );
         assert_eq!(
             initiate_fingerprints_msg,
-            &NewPendingPayableFingerprints {
+            &PendingPayableFingerprintSeeds {
                 batch_wide_timestamp: actual_common_timestamp,
                 hashes_and_balances: vec![
                     (
@@ -1695,7 +1695,7 @@ mod tests {
         check_web3_origin(&web3_from_sb_call);
         assert!(accountant_recording_arc.lock().unwrap().is_empty());
         let system = System::new("non_clandestine_interface_send_payables_in_batch_components_are_used_together_properly");
-        let probe_message = NewPendingPayableFingerprints {
+        let probe_message = PendingPayableFingerprintSeeds {
             batch_wide_timestamp: SystemTime::now(),
             hashes_and_balances: vec![],
         };

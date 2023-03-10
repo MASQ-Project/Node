@@ -612,7 +612,7 @@ impl PendingPayableScanner {
                 ),
                 Err(e) => panic!(
                     "Failure on incrementing scan attempts for fingerprints of {} due to {:?}",
-                    PendingPayableId::serialized_hashes_to_string(&ids),
+                    PendingPayableId::serialize_hashes_to_string(&ids),
                     e
                 ),
             }
@@ -629,12 +629,12 @@ impl PendingPayableScanner {
                     "Broken transactions {} marked as an error. You should take over the care \
                  of those to make sure your debts are going to be settled properly. At the moment, \
                  there is no automated process fixing that without your assistance",
-                    PendingPayableId::serialized_hashes_to_string(&ids)
+                    PendingPayableId::serialize_hashes_to_string(&ids)
                 ),
                 Err(e) => panic!(
                     "Unsuccessful attempt for transactions {} \
                     to mark fatal error at payable fingerprint due to {:?}; database unreliable",
-                    PendingPayableId::serialized_hashes_to_string(&ids),
+                    PendingPayableId::serialize_hashes_to_string(&ids),
                     e
                 ),
             }

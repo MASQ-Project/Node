@@ -141,7 +141,10 @@ impl PayableDao for PayableDaoReal {
         wallets_and_rowids: &[(&Wallet, u64)],
     ) -> Result<(), PayableDaoError> {
         fn collect_feedback(row: &Row) -> Result<bool, rusqlite::Error> {
-            row.get::<usize, Option<u64>>(0).map(|opt|match opt  {Some(_) => true, None => false })
+            row.get::<usize, Option<u64>>(0).map(|opt| match opt {
+                Some(_) => true,
+                None => false,
+            })
         }
         fn error_extension_for_non_matching_row_count(
             conn: &dyn ConnectionWrapper,
@@ -197,7 +200,7 @@ impl PayableDao for PayableDaoReal {
                         error_extension_for_non_matching_row_count(conn, wallets_and_rowids)
                     ),
                 },
-                Err(e) => Err(PayableDaoError::RusqliteError(e.to_string())),
+                Err(errs) => Err(PayableDaoError::RusqliteError(format!("Multi-row update to mark pending payable hit these errors: {:?}",errs))),
             }
         }
         fn compose_when_clauses_within_case_stm(wallets_and_rowids: &[(&Wallet, u64)]) -> String {
@@ -207,6 +210,9 @@ impl PayableDao for PayableDaoReal {
                 .join("\n")
         }
 
+        if wallets_and_rowids.is_empty() {
+            panic!("broken code: empty input is not permit to enter this method")
+        }
         let sql = format!(
             "update payable set pending_payable_rowid = case {} end \
              where
@@ -472,6 +478,7 @@ mod tests {
     };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
+    use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
     use crate::database::db_initializer::{
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
@@ -718,19 +725,15 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        insert_record_fn(&*conn, &wallet_1.to_string(), 12345, 1_000_000_000, Some(1));
-        conn.prepare("update payable set pending_payable_rowid = null where wallet_address = ?")
-            .unwrap()
-            .execute(&[&wallet_1])
-            .unwrap();
-        insert_record_fn(
+        insert_payable_record_fn(&*conn, &wallet_1.to_string(), 12345, 1_000_000_000, None);
+        insert_payable_record_fn(
             &*conn,
             &wallet_2.to_string(),
             23456,
             1_000_000_111,
             Some(540),
         );
-        insert_record_fn(
+        insert_payable_record_fn(
             &*conn,
             &wallet_3.to_string(),
             34567,
@@ -756,19 +759,28 @@ mod tests {
         let rowid = 656;
         let conn = trick_rusqlite_with_read_only_conn(&home_dir);
         let conn_wrapped = ConnectionWrapperReal::new(conn);
-        let conn = DbInitializerReal::default().initialize(home_dir.as_path(),DbInitializationConfig::test_default()).unwrap();
-        let subject = PayableDaoReal::new(conn);
+        let subject = PayableDaoReal::new(Box::new(conn_wrapped));
 
-        todo!( "this test might be outdated because there's no way to spur an error" );
-        todo!( "also, in these methods with composed sqls...we might need a check that we didn't supplied an empty vector" );
         let result = subject.mark_pending_payables_rowids(&[(&wallet, rowid)]);
 
         assert_eq!(
             result,
             Err(PayableDaoError::RusqliteError(
-                "attempt to write a readonly database".to_string()
+                "Multi-row update to mark pending payable hit these errors: [SqliteFailure(\
+                Error { code: ReadOnly, extended_code: 8 }, Some(\"attempt to write a readonly \
+                database\"))]"
+                    .to_string()
             ))
         )
+    }
+
+    #[test]
+    #[should_panic(expected = "broken code: empty input is not permit to enter this method")]
+    fn mark_pending_payables_rowids_is_strict_about_empty_input() {
+        let wrapped_conn = ConnectionWrapperMock::default();
+        let subject = PayableDaoReal::new(Box::new(wrapped_conn));
+
+        let _ = subject.mark_pending_payables_rowids(&[]);
     }
 
     struct TestSetupValuesHolder {
@@ -798,14 +810,14 @@ mod tests {
         let new_payable_timestamp_2 = from_time_t(191_333_000);
         let wallet_2 = make_wallet("booble bobble");
         {
-            insert_record_fn(
+            insert_payable_record_fn(
                 conn,
                 &wallet_1.to_string(),
                 i128::try_from(initial_amount_1).unwrap(),
                 previous_timestamp_1_s,
                 Some(rowid_1 as i64),
             );
-            insert_record_fn(
+            insert_payable_record_fn(
                 conn,
                 &wallet_2.to_string(),
                 i128::try_from(initial_amount_2).unwrap(),
@@ -1086,7 +1098,7 @@ mod tests {
         let conn = Connection::open_with_flags(&home_dir.join(DATABASE_FILE), flags).unwrap();
         let conn = ConnectionWrapperReal::new(conn);
         let insert = |wallet: &str, pending_payable_rowid: Option<i64>| {
-            insert_record_fn(
+            insert_payable_record_fn(
                 &conn,
                 wallet,
                 1234567890123456,
@@ -1139,7 +1151,7 @@ mod tests {
     type InsertPayableHelperFn<'b> =
         &'b dyn for<'a> Fn(&'a dyn ConnectionWrapper, &'a str, i128, i64, Option<i64>);
 
-    fn insert_record_fn(
+    fn insert_payable_record_fn(
         conn: &dyn ConnectionWrapper,
         wallet: &str,
         balance: i128,
@@ -1475,28 +1487,28 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let timestamp = dao_utils::now_time_t();
-        insert_record_fn(
+        insert_payable_record_fn(
             &*conn,
             "0x1111111111111111111111111111111111111111",
             999_999_999,
             timestamp - 1000,
             None,
         );
-        insert_record_fn(
+        insert_payable_record_fn(
             &*conn,
             "0x2222222222222222222222222222222222222222",
             1_000_123_123,
             timestamp - 2000,
             None,
         );
-        insert_record_fn(
+        insert_payable_record_fn(
             &*conn,
             "0x3333333333333333333333333333333333333333",
             1_000_000_000,
             timestamp - 3000,
             None,
         );
-        insert_record_fn(
+        insert_payable_record_fn(
             &*conn,
             "0x4444444444444444444444444444444444444444",
             1_000_000_001,
@@ -1520,14 +1532,14 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        insert_record_fn(
+        insert_payable_record_fn(
             &*conn,
             "0x1111111111111111111111111111111111111111",
             123_456,
             111_111_111,
             None,
         );
-        insert_record_fn(
+        insert_payable_record_fn(
             &*conn,
             "0x2222222222222222222222222222222222222222",
             -999_999,
@@ -1576,7 +1588,7 @@ mod tests {
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
-        main_setup_fn(conn.as_ref(), &insert_record_fn);
+        main_setup_fn(conn.as_ref(), &insert_payable_record_fn);
 
         let pending_payable_account: &[&dyn ToSql] = &[
             &String::from("0xabc4546cce78230a2312e12f3acb78747340456fe5237896666100143abcd223"),

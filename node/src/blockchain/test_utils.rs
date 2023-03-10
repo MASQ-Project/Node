@@ -2,7 +2,7 @@
 
 #![cfg(test)]
 
-use crate::blockchain::blockchain_bridge::NewPendingPayableFingerprints;
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::{
     Balance, BlockchainError, BlockchainInterface, BlockchainResult, Nonce,
     ProcessedPayableFallible, Receipt, REQUESTS_IN_PARALLEL,
@@ -89,7 +89,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         consuming_wallet: &Wallet,
         gas_price: u64,
         last_nonce: U256,
-        _new_fingerprints_recipient: &Recipient<NewPendingPayableFingerprints>,
+        _new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, BlockchainError> {
         self.send_payables_within_batch_params
@@ -310,7 +310,7 @@ pub struct BatchPayableToolsMock<T: BatchTransport> {
         Mutex<
             Vec<(
                 SystemTime,
-                Recipient<NewPendingPayableFingerprints>,
+                Recipient<PendingPayableFingerprintSeeds>,
                 Vec<(H256, u128)>,
             )>,
         >,
@@ -350,7 +350,7 @@ impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
     fn send_new_payable_fingerprints_credentials(
         &self,
         batch_wide_timestamp: SystemTime,
-        pp_fingerprint_sub: &Recipient<NewPendingPayableFingerprints>,
+        pp_fingerprint_sub: &Recipient<PendingPayableFingerprintSeeds>,
         hashes_and_balances: &[(H256, u128)],
     ) {
         self.send_new_payable_fingerprint_credentials_params
@@ -404,7 +404,7 @@ impl<T: BatchTransport> BatchPayableToolsMock<T> {
             Mutex<
                 Vec<(
                     SystemTime,
-                    Recipient<NewPendingPayableFingerprints>,
+                    Recipient<PendingPayableFingerprintSeeds>,
                     Vec<(H256, u128)>,
                 )>,
             >,
