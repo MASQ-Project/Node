@@ -870,19 +870,19 @@ impl Accountant {
 
         match self
             .pending_payable_dao
-            .insert_new_fingerprints(&msg.init_params, msg.batch_wide_timestamp)
+            .insert_new_fingerprints(&msg.hashes_and_balances, msg.batch_wide_timestamp)
         {
             Ok(_) => debug!(
                 self.logger,
                 "Saved new pending payable fingerprints for: {}",
-                serialize_hashes(&msg.init_params)
+                serialize_hashes(&msg.hashes_and_balances)
             ),
             Err(e) => error!(
                 self.logger,
                 "Failed to process new pending payable fingerprints due to '{:?}', \
                  disabling the automated confirmation for all these transactions: {}",
                 e,
-                serialize_hashes(&msg.init_params)
+                serialize_hashes(&msg.hashes_and_balances)
             ),
         }
     }
@@ -2905,10 +2905,10 @@ mod tests {
                 (Some(rowid_for_account_1), pending_tx_hash_1),
                 (Some(rowid_for_account_2), pending_tx_hash_2),
             ])
-            .update_fingerprints_params(&update_fingerprint_params_arc)
-            .update_fingerprints_results(Ok(()))
-            .update_fingerprints_results(Ok(()))
-            .update_fingerprints_results(Ok(()))
+            .increment_scan_attempts_params(&update_fingerprint_params_arc)
+            .increment_scan_attempts_result(Ok(()))
+            .increment_scan_attempts_result(Ok(()))
+            .increment_scan_attempts_result(Ok(()))
             .mark_failures_params(&mark_failure_params_arc)
             //we don't have a better solution yet, so we mark this down
             .mark_failures_result(Ok(()))
@@ -3109,7 +3109,7 @@ mod tests {
         let init_params = vec![(hash_1, amount_1), (hash_2, amount_2)];
         let init_fingerprints_msg = NewPendingPayableFingerprints {
             batch_wide_timestamp: timestamp,
-            init_params: init_params.clone(),
+            hashes_and_balances: init_params.clone(),
         };
 
         let _ = accountant_subs
@@ -3149,7 +3149,7 @@ mod tests {
         let timestamp = SystemTime::now();
         let report_new_fingerprints = NewPendingPayableFingerprints {
             batch_wide_timestamp: timestamp,
-            init_params: vec![(transaction_hash, amount)],
+            hashes_and_balances: vec![(transaction_hash, amount)],
         };
 
         let _ = subject.handle_new_pending_payable_fingerprints(report_new_fingerprints);

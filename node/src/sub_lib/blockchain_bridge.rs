@@ -77,13 +77,13 @@ where
         web3: &Web3<Batch<T>>,
         key: &secp256k1secrets::key::SecretKey,
     ) -> Result<SignedTransaction, Web3Error>;
-    fn enter_raw_transaction_to_batch(&self, signed_transactions: Bytes, web3: &Web3<Batch<T>>);
+    fn enter_raw_transaction_to_batch(&self, signed_transaction: Bytes, web3: &Web3<Batch<T>>);
     fn batch_wide_timestamp(&self) -> SystemTime;
     fn send_new_payable_fingerprints_credentials(
         &self,
         batch_wide_timestamp: SystemTime,
         new_pp_fingerprints_sub: &Recipient<NewPendingPayableFingerprints>,
-        payable_attributes: &[(H256, u128)],
+        hashes_and_balances: &[(H256, u128)],
     );
     fn submit_batch(
         &self,
@@ -116,8 +116,8 @@ impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T
             .wait()
     }
 
-    fn enter_raw_transaction_to_batch(&self, signed_transactions: Bytes, web3: &Web3<Batch<T>>) {
-        let _ = web3.eth().send_raw_transaction(signed_transactions);
+    fn enter_raw_transaction_to_batch(&self, signed_transaction: Bytes, web3: &Web3<Batch<T>>) {
+        let _ = web3.eth().send_raw_transaction(signed_transaction);
     }
 
     fn batch_wide_timestamp(&self) -> SystemTime {
@@ -128,12 +128,12 @@ impl<T: BatchTransport + Debug> BatchPayableTools<T> for BatchPayableToolsReal<T
         &self,
         batch_wide_timestamp: SystemTime,
         pp_fingerprint_sub: &Recipient<NewPendingPayableFingerprints>,
-        chief_payable_attributes: &[(H256, u128)],
+        hashes_and_balances: &[(H256, u128)],
     ) {
         pp_fingerprint_sub
             .try_send(NewPendingPayableFingerprints {
                 batch_wide_timestamp,
-                init_params: chief_payable_attributes.to_vec(),
+                hashes_and_balances: hashes_and_balances.to_vec(),
             })
             .expect("Accountant is dead");
     }
@@ -160,15 +160,10 @@ mod tests {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let recipient = accountant.start().recipient();
         let timestamp = SystemTime::now();
-        let chief_attributes_of_payables =
-            vec![(Default::default(), 5), (make_tx_hash(45466), 444444)];
+        let hashes_and_balances = vec![(make_tx_hash(123), 5), (make_tx_hash(45466), 444444)];
 
         let _ = BatchPayableToolsReal::<TestTransport>::default()
-            .send_new_payable_fingerprints_credentials(
-                timestamp,
-                &recipient,
-                &chief_attributes_of_payables,
-            );
+            .send_new_payable_fingerprints_credentials(timestamp, &recipient, &hashes_and_balances);
 
         let system = System::new("new fingerprints");
         System::current().stop();
@@ -179,7 +174,7 @@ mod tests {
             message,
             &NewPendingPayableFingerprints {
                 batch_wide_timestamp: timestamp,
-                init_params: chief_attributes_of_payables
+                hashes_and_balances
             }
         )
     }
@@ -192,7 +187,13 @@ mod tests {
         let result = subject.batch_wide_timestamp();
 
         let after = SystemTime::now();
-        assert!(before <= result && result <= after)
+        assert!(
+            before <= result && result <= after,
+            "Actual timestamp {:?} didn't fit between before {:?} and after {:?}",
+            result,
+            before,
+            after
+        )
     }
 
     #[test]

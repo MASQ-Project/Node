@@ -14,7 +14,7 @@ use itertools::Itertools;
 use masq_lib::blockchains::chains::{Chain, ChainFamily};
 use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::logger::Logger;
-use masq_lib::utils::{plus, ExpectValue};
+use masq_lib::utils::ExpectValue;
 use serde_json::Value;
 use std::convert::{From, TryFrom, TryInto};
 use std::fmt;
@@ -78,10 +78,10 @@ pub enum PayableTransactionError {
 
 impl Display for BlockchainError {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        fn interpret_existence_of_hashes(hashes_opt: &Option<Vec<H256>>) -> String {
+        fn interpret_optionally_attached_hashes(hashes_opt: &Option<Vec<H256>>) -> String {
             match hashes_opt {
                 Some(hashes) => format!(
-                    "With signed transactions, each registered: {}.",
+                    "Successfully signed and hashed these transactions: {}.",
                     serialize_hashes(hashes)
                 ),
                 None => "Without prepared transactions, no hashes to report.".to_string(),
@@ -100,9 +100,9 @@ impl Display for BlockchainError {
                 msg,
                 signed_and_saved_txs_opt,
             } => Right(format!(
-                "Batch processing: \"{}\". {}",
+                "Occurred at the final batch processing: \"{}\". {}",
                 msg,
-                interpret_existence_of_hashes(signed_and_saved_txs_opt)
+                interpret_optionally_attached_hashes(signed_and_saved_txs_opt)
             )),
         };
         write!(f, "Blockchain error: {}", err_type_spec)
@@ -469,7 +469,8 @@ where
         pending_nonce: U256,
         accounts: &[PayableAccount],
     ) -> HashAndAmountResult {
-        let init: (HashAndAmountResult, Option<U256>) = (Ok(vec![]), Some(pending_nonce));
+        let init: (HashAndAmountResult, Option<U256>) =
+            (Ok(Vec::with_capacity(accounts.len())), Some(pending_nonce));
 
         let (result, _) = accounts
             .iter()
@@ -495,7 +496,7 @@ where
 
     fn sign_and_register_single_payment(
         &self,
-        hashes_and_amounts: Vec<(H256, u128)>,
+        mut hashes_and_amounts: Vec<(H256, u128)>,
         consuming_wallet: &Wallet,
         nonce: U256,
         gas_price: u64,
@@ -508,14 +509,20 @@ where
             account.wallet,
             nonce
         );
-        self.handle_new_transaction(
+
+        match self.handle_new_transaction(
             &account.wallet,
             consuming_wallet,
             account.balance_wei,
             nonce,
             gas_price,
-        )
-        .map(|new_hash| plus(hashes_and_amounts, (new_hash, account.balance_wei)))
+        ) {
+            Ok(new_hash) => {
+                hashes_and_amounts.push((new_hash, account.balance_wei));
+                Ok(hashes_and_amounts)
+            }
+            Err(e) => Err(e),
+        }
     }
 
     fn advance_used_nonce(current_nonce: U256) -> U256 {
@@ -556,11 +563,10 @@ where
             .into_iter()
             .map(|(hash, _)| hash)
             .collect();
-        PayableTransactionError::Sending {
+        BlockchainError::from(PayableTransactionError::Sending {
             msg: error.to_string(),
             hashes,
-        }
-        .into()
+        })
     }
 
     fn handle_new_transaction<'a>(
@@ -1459,7 +1465,7 @@ mod tests {
             initiate_fingerprints_msg,
             &NewPendingPayableFingerprints {
                 batch_wide_timestamp: actual_common_timestamp,
-                init_params: vec![
+                hashes_and_balances: vec![
                     (
                         H256::from_str(
                             "26e5e0cec02023e40faff67e88e3cf48a98574b5f9fdafc03ef42cad96dae1c1"
@@ -1691,7 +1697,7 @@ mod tests {
         let system = System::new("non_clandestine_interface_send_payables_in_batch_components_are_used_together_properly");
         let probe_message = NewPendingPayableFingerprints {
             batch_wide_timestamp: SystemTime::now(),
-            init_params: vec![],
+            hashes_and_balances: vec![],
         };
         recipient.try_send(probe_message).unwrap();
         System::current().stop();
@@ -2485,10 +2491,10 @@ mod tests {
                 "Blockchain error: Invalid address.",
                 "Blockchain error: Invalid response.",
                 "Blockchain error: Query failed: Don't query so often, it gives me a headache.",
-                "Blockchain error: Batch processing: \"Signing phase: Look at your signature, \
-                 it's a mess!\". Without prepared transactions, no hashes to report.",
-                "Blockchain error: Batch processing: \"Sending phase: No luck. \
-                 I tried, I swear\". With signed transactions, each registered: \
+                "Blockchain error: Occurred at the final batch processing: \"Signing phase: Look at \
+                your signature, it's a mess!\". Without prepared transactions, no hashes to report.",
+                "Blockchain error: Occurred at the final batch processing: \"Sending phase: No luck. \
+                 I tried, I swear\". Successfully signed and hashed these transactions: \
                   0x000000000000000000000000000000000000000000000000000000000000022b, \
                   0x0000000000000000000000000000000000000000000000000000000000000309."
             ])

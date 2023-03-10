@@ -825,8 +825,8 @@ pub struct PendingPayableDaoMock {
     delete_fingerprints_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
     insert_new_fingerprints_params: Arc<Mutex<Vec<(Vec<(H256, u128)>, SystemTime)>>>,
     insert_new_fingerprints_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
-    update_fingerprints_params: Arc<Mutex<Vec<Vec<u64>>>>,
-    update_fingerprints_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
+    increment_scan_attempts_params: Arc<Mutex<Vec<Vec<u64>>>>,
+    increment_scan_attempts_result: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
     mark_failures_params: Arc<Mutex<Vec<Vec<u64>>>>,
     mark_failures_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
     return_all_fingerprints_params: Arc<Mutex<Vec<()>>>,
@@ -874,12 +874,12 @@ impl PendingPayableDao for PendingPayableDaoMock {
         self.delete_fingerprints_results.borrow_mut().remove(0)
     }
 
-    fn update_fingerprints(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError> {
-        self.update_fingerprints_params
+    fn increment_scan_attempts(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError> {
+        self.increment_scan_attempts_params
             .lock()
             .unwrap()
             .push(ids.to_vec());
-        self.update_fingerprints_results.borrow_mut().remove(0)
+        self.increment_scan_attempts_result.borrow_mut().remove(0)
     }
 
     fn mark_failures(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError> {
@@ -950,13 +950,18 @@ impl PendingPayableDaoMock {
         self
     }
 
-    pub fn update_fingerprints_params(mut self, params: &Arc<Mutex<Vec<Vec<u64>>>>) -> Self {
-        self.update_fingerprints_params = params.clone();
+    pub fn increment_scan_attempts_params(mut self, params: &Arc<Mutex<Vec<Vec<u64>>>>) -> Self {
+        self.increment_scan_attempts_params = params.clone();
         self
     }
 
-    pub fn update_fingerprints_results(self, result: Result<(), PendingPayableDaoError>) -> Self {
-        self.update_fingerprints_results.borrow_mut().push(result);
+    pub fn increment_scan_attempts_result(
+        self,
+        result: Result<(), PendingPayableDaoError>,
+    ) -> Self {
+        self.increment_scan_attempts_result
+            .borrow_mut()
+            .push(result);
         self
     }
 }

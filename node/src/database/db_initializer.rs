@@ -9,7 +9,6 @@ use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
 use masq_lib::logger::Logger;
-#[cfg(any(test, not(feature = "no_test_share")))]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::NeighborhoodModeLight;
 use rand::prelude::*;
@@ -550,7 +549,6 @@ impl DbInitializationConfig {
         }
     }
 
-    #[cfg(any(test, not(feature = "no_test_share")))]
     pub fn test_default() -> Self {
         Self {
             mode: InitializationMode::CreationAndMigration {

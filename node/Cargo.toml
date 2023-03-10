@@ -87,7 +87,6 @@ simple-server = "0.4.0"
 serial_test_derive = "0.5.1"
 serial_test = "0.5.1"
 trust-dns-proto = "0.8.0"
-linreg = "0.2.0"
 
 [[bin]]
 name = "MASQNode"
@@ -105,7 +104,6 @@ cargo-bundle = "0.4.0"
 
 [features]
 expose_test_privates = []
-no_test_share = []
 
 #[profile.release]
 #opt-level = 0

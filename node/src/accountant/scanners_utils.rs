@@ -522,7 +522,7 @@ mod tests {
         assert!(oks.is_empty());
         assert_eq!(errs, Some(LocallyCausedError(error)));
         TestLogHandler::new().exists_log_containing("WARN: test_logger: Failed process to be screened for persisted data. Caused by: \
-         Blockchain error: Batch processing: \"bad timing\". Without prepared transactions, no hashes to report");
+         Blockchain error: Occurred at the final batch processing: \"bad timing\". Without prepared transactions, no hashes to report");
     }
 
     #[test]

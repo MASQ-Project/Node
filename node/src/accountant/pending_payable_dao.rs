@@ -1,10 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
-use crate::accountant::checked_conversion;
 use crate::accountant::dao_utils::{
     from_time_t, to_time_t, DaoFactoryReal, VigilantRusqliteFlatten,
 };
+use crate::accountant::scanners::join_displayable_items_by_commas;
+use crate::accountant::{checked_conversion, COMMA_SEPARATOR};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use itertools::Itertools;
@@ -34,38 +35,41 @@ pub trait PendingPayableDao {
         batch_wide_timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError>;
     fn delete_fingerprints(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError>;
-    fn update_fingerprints(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError>;
+    fn increment_scan_attempts(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError>;
     fn mark_failures(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError>;
 }
 
 impl PendingPayableDao for PendingPayableDaoReal<'_> {
     fn fingerprints_rowids(&self, hashes: &[H256]) -> Vec<(Option<u64>, H256)> {
-        fn extract_hash_and_rowid(row: &Row) -> rusqlite::Result<(H256, u64)> {
-            let str_hash: String = row.get(0).expectv("hash");
-            let hash = H256::from_str(&str_hash[2..]).expect("inserted hash turned malformed");
-            let sqlite_rowid: i64 = row.get(1).expectv("rowid");
-            let rowid = u64::try_from(sqlite_rowid).expect("SQlite counts from 1 to i64:MAX");
+        fn hash_and_rowid_in_single_row(row: &Row) -> rusqlite::Result<(H256, u64)> {
+            let hash_str: String = row.get(0).expectv("hash");
+            let hash = H256::from_str(&hash_str[2..]).expect("hash inserted right turned wrong");
+            let sqlite_signed_rowid: i64 = row.get(1).expectv("rowid");
+            let rowid = u64::try_from(sqlite_signed_rowid).expect("SQlite goes from 1 to i64:MAX");
             Ok((hash, rowid))
         }
 
         let sql = format!(
-            "select transaction_hash, rowid from pending_payable where {}",
-            hashes
-                .iter()
-                .map(|hash| format!("transaction_hash = '{:?}'", hash))
-                .join(" or ")
+            "select transaction_hash, rowid from pending_payable where transaction_hash in ({})",
+            join_displayable_items_by_commas(hashes, |hash| format!("'{:?}'", hash))
         );
-        let mut all_found_records = self
+        let all_found_records = self
             .conn
             .prepare(&sql)
             .expect("Internal error")
-            .query_map([], extract_hash_and_rowid)
+            .query_map([], hash_and_rowid_in_single_row)
             .expect("map query failed")
             .vigilant_flatten()
             .collect::<HashMap<H256, u64>>();
-        hashes
+        let hashes_of_missing_rowids = hashes
             .iter()
-            .map(|hash| (all_found_records.remove(hash), *hash))
+            .filter(|hash| !all_found_records.keys().contains(hash));
+        all_found_records
+            .iter()
+            .sorted()
+            .map(|(hash, rowid)| (Some(*rowid), *hash))
+            .rev()
+            .chain(hashes_of_missing_rowids.map(|hash| (None, *hash)))
             .collect()
     }
 
@@ -111,18 +115,28 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         hashes_and_amounts: &[(H256, u128)],
         batch_wide_timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError> {
-        let timestamp_as_time_t = to_time_t(batch_wide_timestamp);
-        let insert_sql =
-            format!("insert into pending_payable (transaction_hash, amount_high_b, amount_low_b, payable_timestamp, attempt, process_error) values {}",
-                    hashes_and_amounts
-                        .iter()
-                        .map(|(hash, amount)| {
-                            let (high_bytes, low_bytes) =
-                                BigIntDivider::deconstruct(checked_conversion::<u128, i128>(*amount));
-                            format!("('{:?}', {}, {}, {}, 1, null)", hash, high_bytes, low_bytes, timestamp_as_time_t)
-                        }
-                         )
-                        .join(", ")
+        fn substitution_question_marks_and_values(
+            hashes_and_amounts: &[(H256, u128)],
+            batch_wide_timestamp: SystemTime,
+        ) -> String {
+            let timestamp_as_time_t = to_time_t(batch_wide_timestamp);
+            hashes_and_amounts
+                .iter()
+                .map(|(hash, amount)| {
+                    let (high_bytes, low_bytes) =
+                        BigIntDivider::deconstruct(checked_conversion::<u128, i128>(*amount));
+                    format!(
+                        "('{:?}', {}, {}, {}, 1, null)",
+                        hash, high_bytes, low_bytes, timestamp_as_time_t
+                    )
+                })
+                .join(COMMA_SEPARATOR)
+        }
+
+        let insert_sql = format!(
+            "insert into pending_payable (transaction_hash, amount_high_b, amount_low_b, \
+            payable_timestamp, attempt, process_error) values {}",
+            substitution_question_marks_and_values(hashes_and_amounts, batch_wide_timestamp)
         );
         match self
             .conn
@@ -133,7 +147,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             Ok(x) if x == hashes_and_amounts.len() => Ok(()),
             //untested panic
             Ok(x) => panic!(
-                "expected {} of changed rows but got {}",
+                "expected {} changed rows but got {}",
                 hashes_and_amounts.len(),
                 x
             ),
@@ -162,7 +176,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         }
     }
 
-    fn update_fingerprints(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError> {
+    fn increment_scan_attempts(&self, ids: &[u64]) -> Result<(), PendingPayableDaoError> {
         let sql = format!(
             "update pending_payable set attempt = attempt + 1 where rowid in ({})",
             Self::serialize_ids(ids)
@@ -330,7 +344,7 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "expected 1 of changed rows but got 0")]
+    #[should_panic(expected = "expected 1 changed rows but got 0")]
     fn insert_new_fingerprints_number_of_returned_rows_different_than_expected() {
         let setup_conn = Connection::open_in_memory().unwrap();
         setup_conn
@@ -387,11 +401,12 @@ mod tests {
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let subject = PendingPayableDaoReal::new(wrapped_conn);
-        let hash = make_tx_hash(11119);
+        let hash_1 = make_tx_hash(11119);
+        let hash_2 = make_tx_hash(22229);
 
-        let result = subject.fingerprints_rowids(&[hash]);
+        let result = subject.fingerprints_rowids(&[hash_1, hash_2]);
 
-        assert_eq!(result, vec![(None, hash)])
+        assert_eq!(result, vec![(None, hash_1), (None, hash_2)])
     }
 
     #[test]
@@ -614,7 +629,7 @@ mod tests {
                 .unwrap();
         }
 
-        let result = subject.update_fingerprints(&[2, 3]);
+        let result = subject.increment_scan_attempts(&[2, 3]);
 
         assert_eq!(result, Ok(()));
         let mut all_records = subject.return_all_fingerprints();
@@ -649,7 +664,7 @@ mod tests {
         let wrapped_conn = ConnectionWrapperReal::new(conn_read_only);
         let subject = PendingPayableDaoReal::new(Box::new(wrapped_conn));
 
-        let result = subject.update_fingerprints(&[1]);
+        let result = subject.increment_scan_attempts(&[1]);
 
         assert_eq!(
             result,
@@ -673,7 +688,7 @@ mod tests {
             .unwrap();
         let subject = PendingPayableDaoReal::new(conn);
 
-        let _ = subject.update_fingerprints(&[1, 2]);
+        let _ = subject.increment_scan_attempts(&[1, 2]);
     }
 
     #[test]

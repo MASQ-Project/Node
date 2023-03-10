@@ -146,8 +146,7 @@ impl Handler<ReportAccountsPayable> for BlockchainBridge {
 #[derive(Debug, Clone, PartialEq, Eq, Message)]
 pub struct NewPendingPayableFingerprints {
     pub batch_wide_timestamp: SystemTime,
-    // TODO maybe a better name?
-    pub init_params: Vec<(H256, u128)>,
+    pub hashes_and_balances: Vec<(H256, u128)>,
 }
 
 #[derive(Debug, PartialEq, Eq, Clone)]
@@ -721,19 +720,29 @@ mod tests {
             }
         );
         let scan_error_msg = accountant_recording.get_record::<ScanError>(1);
-        assert_eq!(*scan_error_msg, ScanError{
-            scan_type: ScanType::Payables,
-            response_skeleton_opt: Some(ResponseSkeleton { client_id: 1234, context_id: 4321 }),
-            msg: format!("ReportAccountsPayable: Blockchain error: Batch processing: \"{}\". With signed transactions, \
-              each registered: 0x00000000000000000000000000000000000000000000000000000000000000de.", expected_error_msg)
-        })
+        assert_eq!(
+            *scan_error_msg,
+            ScanError {
+                scan_type: ScanType::Payables,
+                response_skeleton_opt: Some(ResponseSkeleton {
+                    client_id: 1234,
+                    context_id: 4321
+                }),
+                msg: format!(
+                    "ReportAccountsPayable: Blockchain error: Occurred at the final batch \
+            processing: \"{}\". Successfully signed and hashed these transactions: \
+            0x00000000000000000000000000000000000000000000000000000000000000de.",
+                    expected_error_msg
+                )
+            }
+        )
     }
 
     #[test]
-    fn report_accounts_payable_returns_error_fetching_last_nonce() {
+    fn report_accounts_payable_returns_error_fetching_pending_nonce() {
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_result(Err(BlockchainError::QueryFailed(
-                "Eh, guys. What am I doing here, please??".to_string(),
+                "What the hack...??".to_string(),
             )));
         let consuming_wallet = make_wallet("somewallet");
         let persistent_configuration_mock =
@@ -759,7 +768,7 @@ mod tests {
         assert_eq!(
             result,
             Err(BlockchainError::QueryFailed(
-                "Eh, guys. What am I doing here, please??".to_string()
+                "What the hack...??".to_string()
             ))
         );
     }

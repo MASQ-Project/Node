@@ -604,14 +604,14 @@ impl PendingPayableScanner {
     fn update_remaining_fingerprints(&self, ids: Vec<PendingPayableId>, logger: &Logger) {
         if !ids.is_empty() {
             let rowids = PendingPayableId::rowids(&ids);
-            match self.pending_payable_dao.update_fingerprints(&rowids) {
+            match self.pending_payable_dao.increment_scan_attempts(&rowids) {
                 Ok(_) => trace!(
                     logger,
                     "Updated records for rowids: {} ",
                     join_displayable_items_by_commas(&rowids, |id| id.to_string())
                 ),
                 Err(e) => panic!(
-                    "Failure on updating payable fingerprints {} due to {:?}",
+                    "Failure on incrementing scan attempts for fingerprints of {} due to {:?}",
                     PendingPayableId::serialized_hashes_to_string(&ids),
                     e
                 ),
@@ -1401,8 +1401,8 @@ mod tests {
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!("WARN: {test_name}: \
-         Failed process to be screened for persisted data. Caused by: Blockchain error: Batch processing: \"Attempt failed\". \
-         With signed transactions, each registered: 0x00000000000000000000000000000000000000000000000000000000000015b3, \
+         Failed process to be screened for persisted data. Caused by: Blockchain error: Occurred at the final batch processing: \"Attempt failed\". \
+         Successfully signed and hashed these transactions: 0x00000000000000000000000000000000000000000000000000000000000015b3, \
          0x0000000000000000000000000000000000000000000000000000000000003039."));
         log_handler.exists_log_containing(
             &format!("WARN: {test_name}: \
@@ -1588,7 +1588,8 @@ mod tests {
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(
             &format!("WARN: {test_name}: Failed process to be screened for persisted data. Caused by: \
-             Blockchain error: Batch processing: \"SQLite migraine\". With signed transactions, each registered: \
+             Blockchain error: Occurred at the final batch processing: \"SQLite migraine\". Successfully signed and hashed \
+             these transactions: \
                0x000000000000000000000000000000000000000000000000000000000001b669, \
               0x0000000000000000000000000000000000000000000000000000000000003039, \
                0x000000000000000000000000000000000000000000000000000000000000223d."));
@@ -2162,15 +2163,15 @@ mod tests {
     }
 
     #[test]
-    fn update_payable_fingerprints_happy_path() {
+    fn increment_scan_attempts_happy_path() {
         let update_after_cycle_params_arc = Arc::new(Mutex::new(vec![]));
         let hash_1 = make_tx_hash(444888);
         let rowid_1 = 3456;
         let hash_2 = make_tx_hash(444888);
         let rowid_2 = 3456;
         let pending_payable_dao = PendingPayableDaoMock::default()
-            .update_fingerprints_params(&update_after_cycle_params_arc)
-            .update_fingerprints_results(Ok(()));
+            .increment_scan_attempts_params(&update_after_cycle_params_arc)
+            .increment_scan_attempts_result(Ok(()));
         let subject = PendingPayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
@@ -2187,14 +2188,16 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(expected = "Failure on updating payable fingerprints \
+    #[should_panic(
+        expected = "Failure on incrementing scan attempts for fingerprints of \
                 0x000000000000000000000000000000000000000000000000000000000006c9d8 \
-                due to UpdateFailed(\"yeah, bad\")")]
-    fn update_fingerprints_sad_path() {
+                due to UpdateFailed(\"yeah, bad\")"
+    )]
+    fn increment_scan_attempts_sad_path() {
         let hash = make_tx_hash(444888);
         let rowid = 3456;
         let pending_payable_dao =
-            PendingPayableDaoMock::default().update_fingerprints_results(Err(
+            PendingPayableDaoMock::default().increment_scan_attempts_result(Err(
                 PendingPayableDaoError::UpdateFailed("yeah, bad".to_string()),
             ));
         let subject = PendingPayableScannerBuilder::new()

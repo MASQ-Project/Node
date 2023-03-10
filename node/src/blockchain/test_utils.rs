@@ -303,7 +303,7 @@ pub struct BatchPayableToolsMock<T: BatchTransport> {
     >,
     sign_transaction_results: RefCell<Vec<Result<SignedTransaction, Web3Error>>>,
     enter_raw_transaction_to_batch_params: Arc<Mutex<Vec<(Bytes, Web3<Batch<T>>)>>>,
-    //enter_raw_transactions_to_batch returns just the unit type
+    //enter_raw_transaction_to_batch returns just the unit type
     //batch_wide_timestamp doesn't have params
     batch_wide_timestamp_results: RefCell<Vec<SystemTime>>,
     send_new_payable_fingerprint_credentials_params: Arc<
@@ -336,11 +336,11 @@ impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
         self.sign_transaction_results.borrow_mut().remove(0)
     }
 
-    fn enter_raw_transaction_to_batch(&self, signed_transactions: Bytes, web3: &Web3<Batch<T>>) {
+    fn enter_raw_transaction_to_batch(&self, signed_transaction: Bytes, web3: &Web3<Batch<T>>) {
         self.enter_raw_transaction_to_batch_params
             .lock()
             .unwrap()
-            .push((signed_transactions, web3.clone()));
+            .push((signed_transaction, web3.clone()));
     }
 
     fn batch_wide_timestamp(&self) -> SystemTime {
@@ -351,7 +351,7 @@ impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
         &self,
         batch_wide_timestamp: SystemTime,
         pp_fingerprint_sub: &Recipient<NewPendingPayableFingerprints>,
-        payable_attributes: &[(H256, u128)],
+        hashes_and_balances: &[(H256, u128)],
     ) {
         self.send_new_payable_fingerprint_credentials_params
             .lock()
@@ -359,7 +359,7 @@ impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
             .push((
                 batch_wide_timestamp,
                 (*pp_fingerprint_sub).clone(),
-                payable_attributes.to_vec(),
+                hashes_and_balances.to_vec(),
             ));
     }
 
