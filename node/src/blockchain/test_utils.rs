@@ -57,7 +57,7 @@ pub struct BlockchainInterfaceMock {
     retrieve_transactions_parameters: Arc<Mutex<Vec<(u64, Wallet)>>>,
     retrieve_transactions_results:
         RefCell<Vec<Result<RetrievedBlockchainTransactions, BlockchainError>>>,
-    send_payables_within_batch_params: Arc<Mutex<Vec<(Wallet, u64, U256, Vec<PayableAccount>)>>>,
+    send_payables_within_batch_params: Arc<Mutex<Vec<(Wallet, u64, U256, Recipient<PendingPayableFingerprintSeeds>, Vec<PayableAccount>)>>>,
     send_payables_within_batch_results:
         RefCell<Vec<Result<Vec<ProcessedPayableFallible>, BlockchainError>>>,
     get_transaction_receipt_params: Arc<Mutex<Vec<H256>>>,
@@ -89,7 +89,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
         consuming_wallet: &Wallet,
         gas_price: u64,
         last_nonce: U256,
-        _new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
+        new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
     ) -> Result<Vec<ProcessedPayableFallible>, BlockchainError> {
         self.send_payables_within_batch_params
@@ -99,6 +99,7 @@ impl BlockchainInterface for BlockchainInterfaceMock {
                 consuming_wallet.clone(),
                 gas_price,
                 last_nonce,
+                new_fingerprints_recipient.clone(),
                 accounts.to_vec(),
             ));
         self.send_payables_within_batch_results
@@ -147,7 +148,7 @@ impl BlockchainInterfaceMock {
 
     pub fn send_payables_within_batch_params(
         mut self,
-        params: &Arc<Mutex<Vec<(Wallet, u64, U256, Vec<PayableAccount>)>>>,
+        params: &Arc<Mutex<Vec<(Wallet, u64, U256, Recipient<PendingPayableFingerprintSeeds>, Vec<PayableAccount>)>>>,
     ) -> Self {
         self.send_payables_within_batch_params = params.clone();
         self

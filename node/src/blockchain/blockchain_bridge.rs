@@ -427,6 +427,7 @@ struct PendingTxInfo {
 
 #[cfg(test)]
 mod tests {
+    use std::any::TypeId;
     use super::*;
     use crate::accountant::dao_utils::from_time_t;
     use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
@@ -454,7 +455,7 @@ mod tests {
     use masq_lib::test_utils::logging::TestLogHandler;
     use rustc_hex::FromHex;
     use std::sync::{Arc, Mutex};
-    use std::time::SystemTime;
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
     use web3::types::{TransactionReceipt, H160, H256, U256};
 
     #[test]
@@ -563,6 +564,8 @@ mod tests {
         let get_transaction_count_params_arc = Arc::new(Mutex::new(vec![]));
         let send_payables_within_batch_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
+        todo!("fix this with the newer version of this feature");
+        let accountant = accountant.stop_condition(TypeId::of::<PendingPayableFingerprintSeeds>());
         let wallet_account_1 = make_wallet("blah");
         let wallet_account_2 = make_wallet("foo");
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
@@ -620,17 +623,14 @@ mod tests {
 
         System::current().stop();
         system.run();
-        let send_payables_within_batch_params =
+        let mut send_payables_within_batch_params =
             send_payables_within_batch_params_arc.lock().unwrap();
-        assert_eq!(
-            *send_payables_within_batch_params,
-            vec![(
-                consuming_wallet.clone(),
-                expected_gas_price,
-                U256::from(1u64),
-                accounts
-            )]
-        );
+        let (consuming_wallet_actual, gas_price_actual, nonce_actual, recipient_actual, accounts_actual) = send_payables_within_batch_params.remove(0);
+        assert!(send_payables_within_batch_params.is_empty());
+        assert_eq!(consuming_wallet_actual, consuming_wallet.clone());
+        assert_eq!(gas_price_actual, expected_gas_price);
+        assert_eq!(nonce_actual,  U256::from(1u64));
+        assert_eq!(accounts_actual, accounts);
         let get_transaction_count_params = get_transaction_count_params_arc.lock().unwrap();
         assert_eq!(*get_transaction_count_params, vec![consuming_wallet]);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
@@ -655,6 +655,14 @@ mod tests {
                 })
             }
         );
+        drop(accountant_recording);
+        let system = System::new("assert_system");
+        let probe_msg = PendingPayableFingerprintSeeds{ batch_wide_timestamp: UNIX_EPOCH.checked_add(Duration::from_secs(55555)).unwrap(), hashes_and_balances: vec![] };
+        recipient_actual.try_send(probe_msg.clone()).unwrap();
+        assert_eq!(system.run(),0);
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let fingerprint_seeds_message = accountant_recording.get_record::<PendingPayableFingerprintSeeds>(1);
+        assert_eq!(fingerprint_seeds_message, &probe_msg)
     }
 
     #[test]
