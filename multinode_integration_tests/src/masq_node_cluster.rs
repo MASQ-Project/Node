@@ -1,12 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::command::Command;
 use crate::masq_mock_node::{
-    MASQMockNode, MASQMockNodeStarter, MASQMockNodeStarterMode, MASQMockNodeWithMutableHandle,
+    ImmutableMASQMockNodeStarter, MASQMockNode, MASQMockNodeStarter, MutableMASQMockNode,
+    MutableMASQMockNodeStarter,
 };
 use crate::masq_node::{MASQNode, MASQNodeUtils};
 use crate::masq_real_node::MASQRealNode;
 use crate::masq_real_node::NodeStartupConfig;
-use itertools::Either;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use node_lib::sub_lib::cryptde::PublicKey;
@@ -91,21 +91,12 @@ impl MASQNodeCluster {
         self.start_mock_node_added_to_cluster(ports, Some(public_key))
     }
 
-    pub fn start_configurable_mock_node_with_public_key(
+    pub fn start_mutable_mock_node_with_public_key(
         &mut self,
         ports: Vec<u16>,
         public_key: &PublicKey,
-    ) -> MASQMockNodeWithMutableHandle {
-        match self.start_mock_node(
-            ports,
-            MASQMockNodeStarterMode::WithTemporarilyMutableHandle,
-            Some(public_key),
-        ) {
-            Either::Right(mock_node_mutable_handle) => mock_node_mutable_handle,
-            _ => panic!(
-                "This is expected to return MASQMockNodeMutablePrototype but we hit MASQMockNode"
-            ),
-        }
+    ) -> MutableMASQMockNode {
+        self.start_mock_node(&MutableMASQMockNodeStarter {}, ports, Some(public_key))
     }
 
     fn start_mock_node_added_to_cluster(
@@ -113,41 +104,32 @@ impl MASQNodeCluster {
         ports: Vec<u16>,
         public_key_opt: Option<&PublicKey>,
     ) -> MASQMockNode {
-        match self.start_mock_node(ports, MASQMockNodeStarterMode::Direct, public_key_opt) {
-            Either::Left(masq_mock_node) => {
-                let name = masq_mock_node.name().to_string();
-                self.mock_nodes.insert(name.clone(), masq_mock_node);
-                self.mock_nodes.get(&name).unwrap().clone()
-            }
-            _ => panic!(
-                "This is expected to return MASQMockNode but we hit MASQMockNodeMutablePrototype"
-            ),
-        }
+        let mock_node =
+            self.start_mock_node(&ImmutableMASQMockNodeStarter {}, ports, public_key_opt);
+        let name = mock_node.name().to_string();
+        self.mock_nodes.insert(name.clone(), mock_node);
+        self.mock_nodes.get(&name).unwrap().clone()
     }
 
-    fn start_mock_node(
+    fn start_mock_node<T>(
         &mut self,
+        mock_node_starter: &dyn MASQMockNodeStarter<T>,
         ports: Vec<u16>,
-        mock_node_starter_mode: MASQMockNodeStarterMode,
         public_key_opt: Option<&PublicKey>,
-    ) -> Either<MASQMockNode, MASQMockNodeWithMutableHandle> {
+    ) -> T {
         let index = self.next_index;
         self.next_index += 1;
-        MASQMockNodeStarter::start(
+        mock_node_starter.start(
             ports,
             index,
             self.host_node_parent_dir.clone(),
-            mock_node_starter_mode,
             public_key_opt,
             self.chain,
         )
     }
 
-    pub fn finalize_mock_node_with_mutable_handle(
-        &mut self,
-        mutable_mock_node_handle: MASQMockNodeWithMutableHandle,
-    ) -> MASQMockNode {
-        let mock_node = mutable_mock_node_handle.finalize_mutable_handle();
+    pub fn finalize_and_add(&mut self, mutable_mock_node: MutableMASQMockNode) -> MASQMockNode {
+        let mock_node = MASQMockNode::from(mutable_mock_node);
         let name = mock_node.name().to_string();
         self.mock_nodes.insert(name.clone(), mock_node);
         self.mock_nodes.get(&name).unwrap().clone()

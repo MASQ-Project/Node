@@ -6,7 +6,6 @@ use crate::masq_node::MASQNodeUtils;
 use crate::masq_node::NodeReference;
 use crate::masq_node::PortSelector;
 use crate::multinode_gossip::{Introduction, MultinodeGossip, SingleNode};
-use itertools::Either;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
@@ -43,8 +42,10 @@ use std::time::{Duration, Instant};
 
 pub struct MASQMockNode {
     control_stream: RefCell<TcpStream>,
-    //keep this smart pointer because any drop() called on a clone of the naked structure
-    //would stop the Docker container for this Node...or redesign...
+    // retain this Rc pointer because as long as there is at least one reference we won't drop
+    // the actual structure, instead, only the reference count will be affected; unlike to situation
+    // with this structure creating its clones directly, then the whole Docker container would
+    // immediately halt for this Node...because that's how its Drop implementation works...
     guts: Rc<MASQMockNodeGuts>,
 }
 
@@ -146,102 +147,85 @@ impl MASQNode for MASQMockNode {
     }
 }
 
-pub struct MASQMockNodeWithMutableHandle {
+pub struct MutableMASQMockNode {
     pub control_stream: RefCell<TcpStream>,
     configurable_guts: MASQMockNodeGuts,
 }
 
-impl MASQMockNodeWithMutableHandle {
+impl MutableMASQMockNode {
     pub fn absorb_configuration(&mut self, node_record: &NodeRecord) {
         // Copy attributes from the NodeRecord into the MASQNode.
         self.configurable_guts.earning_wallet = node_record.earning_wallet();
         self.configurable_guts.rate_pack = *node_record.rate_pack();
     }
+}
 
-    pub fn finalize_mutable_handle(self) -> MASQMockNode {
+impl From<MutableMASQMockNode> for MASQMockNode {
+    fn from(mutable_handle: MutableMASQMockNode) -> Self {
         MASQMockNode {
-            control_stream: self.control_stream,
-            guts: Rc::new(self.configurable_guts),
+            control_stream: mutable_handle.control_stream,
+            guts: Rc::new(mutable_handle.configurable_guts),
         }
     }
 }
 
-pub enum MASQMockNodeStarterMode {
-    Direct,
-    WithTemporarilyMutableHandle,
-}
-
-pub struct MASQMockNodeStarter {}
-
-impl MASQMockNodeStarter {
-    pub fn start(
+pub trait MASQMockNodeStarter<T> {
+    fn start(
+        &self,
         ports: Vec<u16>,
         index: usize,
         host_node_parent_dir: Option<String>,
-        starter_mode: MASQMockNodeStarterMode,
         public_key_opt: Option<&PublicKey>,
         chain: Chain,
-    ) -> Either<MASQMockNode, MASQMockNodeWithMutableHandle> {
-        let cryptde_enum = Self::initiate_cryptde_enum(public_key_opt, chain);
-        Self::start_with_cryptde_enum(
-            ports,
-            index,
-            starter_mode,
-            host_node_parent_dir,
-            cryptde_enum,
-        )
-    }
+    ) -> T;
+}
 
-    fn start_with_cryptde_enum(
+pub struct ImmutableMASQMockNodeStarter {}
+
+impl MASQMockNodeStarter<MASQMockNode> for ImmutableMASQMockNodeStarter {
+    fn start(
+        &self,
         ports: Vec<u16>,
         index: usize,
-        starter_mode: MASQMockNodeStarterMode,
         host_node_parent_dir: Option<String>,
-        cryptde_enum: CryptDEEnum,
-    ) -> Either<MASQMockNode, MASQMockNodeWithMutableHandle> {
-        let name = format!("mock_node_{}", index);
-        let node_addr = NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8)), &ports);
-        let earning_wallet = make_wallet(format!("{}_earning", name).as_str());
-        let consuming_wallet = Some(make_paying_wallet(format!("{}_consuming", name).as_bytes()));
-        MASQNodeUtils::clean_up_existing_container(&name[..]);
-        MASQMockNode::do_docker_run(&node_addr, host_node_parent_dir, &name);
-        let wait_addr = SocketAddr::new(node_addr.ip_addr(), CONTROL_STREAM_PORT);
-        let control_stream = RefCell::new(MASQMockNode::wait_for_startup(wait_addr, &name));
-        let framer = RefCell::new(DataHunkFramer::new());
-        let guts = MASQMockNodeGuts {
-            name,
-            node_addr,
-            earning_wallet,
-            consuming_wallet,
-            rate_pack: DEFAULT_RATE_PACK,
-            cryptde_enum,
-            framer,
-            chain: TEST_DEFAULT_MULTINODE_CHAIN,
-        };
-        match starter_mode {
-            MASQMockNodeStarterMode::Direct => Either::Left(MASQMockNode {
-                control_stream,
-                guts: Rc::new(guts),
-            }),
-            MASQMockNodeStarterMode::WithTemporarilyMutableHandle => {
-                Either::Right(MASQMockNodeWithMutableHandle {
-                    control_stream,
-                    configurable_guts: guts,
-                })
-            }
+        public_key_opt: Option<&PublicKey>,
+        chain: Chain,
+    ) -> MASQMockNode {
+        let (control_stream, mock_node_guts) = MASQMockNode::start_masq_mock_node_with_bare_guts(
+            ports,
+            index,
+            host_node_parent_dir,
+            public_key_opt,
+            chain,
+        );
+        MASQMockNode {
+            control_stream,
+            guts: Rc::new(mock_node_guts),
         }
     }
+}
 
-    fn initiate_cryptde_enum(public_key_opt: Option<&PublicKey>, chain: Chain) -> CryptDEEnum {
-        match public_key_opt {
-            Some(public_key) => {
-                let main_cryptde = CryptDENull::from(public_key, chain);
-                let mut key = public_key.as_slice().to_vec();
-                key.reverse();
-                let alias_cryptde = CryptDENull::from(&PublicKey::new(&key), chain);
-                CryptDEEnum::Fake((main_cryptde, alias_cryptde))
-            }
-            None => CryptDEEnum::Real(CryptDEReal::new(chain)),
+pub struct MutableMASQMockNodeStarter {}
+
+impl MASQMockNodeStarter<MutableMASQMockNode> for MutableMASQMockNodeStarter {
+    fn start(
+        &self,
+        ports: Vec<u16>,
+        index: usize,
+        host_node_parent_dir: Option<String>,
+        public_key_opt: Option<&PublicKey>,
+        chain: Chain,
+    ) -> MutableMASQMockNode {
+        let (control_stream, mock_node_guts) = MASQMockNode::start_masq_mock_node_with_bare_guts(
+            ports,
+            index,
+            host_node_parent_dir,
+            public_key_opt,
+            chain,
+        );
+        MutableMASQMockNode {
+            control_stream,
+            configurable_guts: mock_node_guts,
         }
     }
 }
@@ -377,12 +361,7 @@ impl MASQMockNode {
     ) -> Result<(SocketAddr, SocketAddr, LiveCoresPackage), Error> {
         let stop_at = Instant::now().add(timeout);
         let mut accumulated_data: Vec<u8> = vec![];
-        // dunno why these are a problem; they _are_ used on the last line of the function.
-        #[allow(unused_assignments)]
-        let mut from_opt: Option<SocketAddr> = None;
-        #[allow(unused_assignments)]
-        let mut to_opt: Option<SocketAddr> = None;
-        let unmasked_chunk: Vec<u8> = loop {
+        let (unmasked_chunk, socket_from, socket_to) = loop {
             match self.wait_for_data(Duration::from_millis(100)) {
                 Err(ref e) if e.kind() == ErrorKind::WouldBlock => {
                     if Instant::now() > stop_at {
@@ -393,14 +372,14 @@ impl MASQMockNode {
                 Err(e) => return Err(e),
                 Ok(data_hunk) => {
                     accumulated_data.extend(data_hunk.data);
-                    from_opt = Some(data_hunk.from);
-                    to_opt = Some(data_hunk.to);
                     match masquerader.try_unmask(&accumulated_data) {
                         Err(MasqueradeError::NotThisMasquerader) => {
                             panic!("Wrong Masquerader supplied to wait_for_package")
                         }
                         Err(_) => continue,
-                        Ok(unmasked_chunk) => break unmasked_chunk.chunk,
+                        Ok(unmasked_chunk) => {
+                            break (unmasked_chunk.chunk, data_hunk.from, data_hunk.to)
+                        }
                     }
                 }
             }
@@ -412,7 +391,7 @@ impl MASQMockNode {
             .unwrap();
         let live_cores_package =
             serde_cbor::de::from_slice::<LiveCoresPackage>(decrypted_data.as_slice()).unwrap();
-        Ok((from_opt.unwrap(), to_opt.unwrap(), live_cores_package))
+        Ok((socket_from, socket_to, live_cores_package))
     }
 
     pub fn wait_for_gossip(&self, timeout: Duration) -> Option<(Gossip_0v1, IpAddr)> {
@@ -470,6 +449,58 @@ impl MASQMockNode {
         let mut stream = self.control_stream.borrow_mut();
         stream.flush().unwrap();
         stream.shutdown(Shutdown::Both).unwrap();
+    }
+
+    fn start_masq_mock_node_with_bare_guts(
+        ports: Vec<u16>,
+        index: usize,
+        host_node_parent_dir: Option<String>,
+        public_key_opt: Option<&PublicKey>,
+        chain: Chain,
+    ) -> (RefCell<TcpStream>, MASQMockNodeGuts) {
+        let cryptde_enum = Self::initiate_cryptde_enum(public_key_opt, chain);
+        Self::start_with_cryptde_enum(ports, index, host_node_parent_dir, cryptde_enum)
+    }
+
+    fn initiate_cryptde_enum(public_key_opt: Option<&PublicKey>, chain: Chain) -> CryptDEEnum {
+        match public_key_opt {
+            Some(public_key) => {
+                let main_cryptde = CryptDENull::from(public_key, chain);
+                let mut key = public_key.as_slice().to_vec();
+                key.reverse();
+                let alias_cryptde = CryptDENull::from(&PublicKey::new(&key), chain);
+                CryptDEEnum::Fake((main_cryptde, alias_cryptde))
+            }
+            None => CryptDEEnum::Real(CryptDEReal::new(chain)),
+        }
+    }
+
+    fn start_with_cryptde_enum(
+        ports: Vec<u16>,
+        index: usize,
+        host_node_parent_dir: Option<String>,
+        cryptde_enum: CryptDEEnum,
+    ) -> (RefCell<TcpStream>, MASQMockNodeGuts) {
+        let name = format!("mock_node_{}", index);
+        let node_addr = NodeAddr::new(&IpAddr::V4(Ipv4Addr::new(172, 18, 1, index as u8)), &ports);
+        let earning_wallet = make_wallet(format!("{}_earning", name).as_str());
+        let consuming_wallet = Some(make_paying_wallet(format!("{}_consuming", name).as_bytes()));
+        MASQNodeUtils::clean_up_existing_container(&name[..]);
+        MASQMockNode::do_docker_run(&node_addr, host_node_parent_dir, &name);
+        let wait_addr = SocketAddr::new(node_addr.ip_addr(), CONTROL_STREAM_PORT);
+        let control_stream = RefCell::new(MASQMockNode::wait_for_startup(wait_addr, &name));
+        let framer = RefCell::new(DataHunkFramer::new());
+        let guts = MASQMockNodeGuts {
+            name,
+            node_addr,
+            earning_wallet,
+            consuming_wallet,
+            rate_pack: DEFAULT_RATE_PACK,
+            cryptde_enum,
+            framer,
+            chain: TEST_DEFAULT_MULTINODE_CHAIN,
+        };
+        (control_stream, guts)
     }
 
     fn do_docker_run(node_addr: &NodeAddr, host_node_parent_dir: Option<String>, name: &str) {
