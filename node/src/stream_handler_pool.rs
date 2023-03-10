@@ -553,7 +553,7 @@ impl StreamHandlerPool {
 
         schedule_message_sub
             .try_send(MessageScheduler {
-                // scheduled_msg: Box::new(msg),
+                schedule_msg: Box::new(msg),
                 duration: Duration::from_secs(5),
             })
             .expect("StreamHandlerPool is dead");
