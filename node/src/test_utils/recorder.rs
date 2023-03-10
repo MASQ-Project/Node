@@ -41,7 +41,7 @@ use crate::sub_lib::proxy_server::{
 };
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-use crate::sub_lib::stream_handler_pool::{DispatcherNodeQueryResponse, ScheduleMessage};
+use crate::sub_lib::stream_handler_pool::{DispatcherNodeQueryResponse, MessageScheduler};
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::test_utils::recorder_stop_conditions::StopConditions;
 use crate::test_utils::to_millis;
@@ -124,7 +124,7 @@ recorder_message_handler!(ReportServicesConsumedMessage);
 recorder_message_handler!(ReportExitServiceProvidedMessage);
 recorder_message_handler!(ReportRoutingServiceProvidedMessage);
 recorder_message_handler!(ScanError);
-recorder_message_handler!(ScheduleMessage);
+recorder_message_handler!(MessageScheduler);
 recorder_message_handler!(SentPayables);
 recorder_message_handler!(SetConsumingWalletMessage);
 recorder_message_handler!(StartMessage);

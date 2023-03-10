@@ -14,7 +14,7 @@ use crate::stream_messages::*;
 use crate::sub_lib::framer::FramedChunk;
 use crate::sub_lib::framer::Framer;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-use crate::sub_lib::stream_handler_pool::{DispatcherNodeQueryResponse, ScheduleMessage};
+use crate::sub_lib::stream_handler_pool::{DispatcherNodeQueryResponse, MessageScheduler};
 use crate::test_utils::recorder::Recorder;
 use actix::Actor;
 use actix::Addr;
@@ -307,7 +307,7 @@ pub fn make_stream_handler_pool_subs_from_recorder(addr: &Addr<Recorder>) -> Str
         bind: recipient!(addr, PoolBindMessage),
         node_query_response: recipient!(addr, DispatcherNodeQueryResponse),
         node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
-        schedule_message_sub: recipient!(addr, ScheduleMessage),
+        schedule_message_sub: recipient!(addr, MessageScheduler),
     }
 }
 

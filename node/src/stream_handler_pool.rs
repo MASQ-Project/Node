@@ -27,7 +27,7 @@ use crate::sub_lib::stream_connector::ConnectionInfo;
 use crate::sub_lib::stream_connector::StreamConnector;
 use crate::sub_lib::stream_connector::StreamConnectorReal;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-use crate::sub_lib::stream_handler_pool::{DispatcherNodeQueryResponse, ScheduleMessage};
+use crate::sub_lib::stream_handler_pool::{DispatcherNodeQueryResponse, MessageScheduler};
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
@@ -62,7 +62,7 @@ pub struct StreamHandlerPoolSubs {
     pub bind: Recipient<PoolBindMessage>,
     pub node_query_response: Recipient<DispatcherNodeQueryResponse>,
     pub node_from_ui_sub: Recipient<NodeFromUiMessage>,
-    pub schedule_message_sub: Recipient<ScheduleMessage>,
+    pub schedule_message_sub: Recipient<MessageScheduler>,
 }
 
 impl Clone for StreamHandlerPoolSubs {
@@ -157,11 +157,11 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
     }
 }
 
-impl Handler<ScheduleMessage> for StreamHandlerPool {
+impl Handler<MessageScheduler> for StreamHandlerPool {
     type Result = ();
 
-    fn handle(&mut self, msg: ScheduleMessage, ctx: &mut Self::Context) -> Self::Result {
-        todo!("schedule message received");
+    fn handle(&mut self, msg: MessageScheduler, ctx: &mut Self::Context) -> Self::Result {
+        panic!("Send the message after {:?}", msg.duration);
     }
 }
 
@@ -215,7 +215,7 @@ impl StreamHandlerPool {
             bind: recipient!(pool_addr, PoolBindMessage),
             node_query_response: recipient!(pool_addr, DispatcherNodeQueryResponse),
             node_from_ui_sub: recipient!(pool_addr, NodeFromUiMessage),
-            schedule_message_sub: recipient!(pool_addr, ScheduleMessage),
+            schedule_message_sub: recipient!(pool_addr, MessageScheduler),
         }
     }
 
@@ -552,7 +552,8 @@ impl StreamHandlerPool {
             .clone();
 
         schedule_message_sub
-            .try_send(ScheduleMessage {
+            .try_send(MessageScheduler {
+                // scheduled_msg: Box::new(msg),
                 duration: Duration::from_secs(5),
             })
             .expect("StreamHandlerPool is dead");

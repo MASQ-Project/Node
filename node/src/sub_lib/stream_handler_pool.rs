@@ -3,6 +3,7 @@ use std::time::Duration;
 use crate::sub_lib::dispatcher::Endpoint;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use actix::Message;
+use nix::dir::Type;
 
 // This message can be sent either to a neighboring Node or to the client, but not to the server.
 #[derive(PartialEq, Eq, Debug, Message, Clone)]
@@ -20,6 +21,7 @@ pub struct DispatcherNodeQueryResponse {
 }
 
 #[derive(Message, Clone, PartialEq, Eq)]
-pub struct ScheduleMessage {
+pub struct MessageScheduler {
+    // pub scheduled_msg: Box<dyn Message<Result = Type>>,
     pub duration: Duration,
 }
