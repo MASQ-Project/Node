@@ -328,11 +328,7 @@ fn multiple_stream_zero_hop_test() {
         String::from_utf8(one_response).unwrap()
     );
     assert_eq!(
-        index_of(
-            &another_response,
-            &b"NeverSSL - Connecting ..."[..],
-        )
-        .is_some(),
+        index_of(&another_response, &b"NeverSSL - Connecting ..."[..],).is_some(),
         true,
         "Actual response:\n{}",
         String::from_utf8(another_response).unwrap()
