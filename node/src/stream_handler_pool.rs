@@ -26,8 +26,8 @@ use crate::sub_lib::sequence_buffer::SequencedPacket;
 use crate::sub_lib::stream_connector::ConnectionInfo;
 use crate::sub_lib::stream_connector::StreamConnector;
 use crate::sub_lib::stream_connector::StreamConnectorReal;
-use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
+use crate::sub_lib::stream_handler_pool::{DispatcherNodeQueryResponse, ScheduleMessage};
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
@@ -62,6 +62,7 @@ pub struct StreamHandlerPoolSubs {
     pub bind: Recipient<PoolBindMessage>,
     pub node_query_response: Recipient<DispatcherNodeQueryResponse>,
     pub node_from_ui_sub: Recipient<NodeFromUiMessage>,
+    pub schedule_message_sub: Recipient<ScheduleMessage>,
 }
 
 impl Clone for StreamHandlerPoolSubs {
@@ -73,6 +74,7 @@ impl Clone for StreamHandlerPoolSubs {
             bind: self.bind.clone(),
             node_query_response: self.node_query_response.clone(),
             node_from_ui_sub: self.node_from_ui_sub.clone(),
+            schedule_message_sub: self.schedule_message_sub.clone(),
         }
     }
 }
@@ -155,6 +157,14 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
     }
 }
 
+impl Handler<ScheduleMessage> for StreamHandlerPool {
+    type Result = ();
+
+    fn handle(&mut self, msg: ScheduleMessage, ctx: &mut Self::Context) -> Self::Result {
+        todo!("schedule message received");
+    }
+}
+
 impl Handler<PoolBindMessage> for StreamHandlerPool {
     type Result = ();
 
@@ -205,6 +215,7 @@ impl StreamHandlerPool {
             bind: recipient!(pool_addr, PoolBindMessage),
             node_query_response: recipient!(pool_addr, DispatcherNodeQueryResponse),
             node_from_ui_sub: recipient!(pool_addr, NodeFromUiMessage),
+            schedule_message_sub: recipient!(pool_addr, ScheduleMessage),
         }
     }
 

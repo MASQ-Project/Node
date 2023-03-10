@@ -2,6 +2,7 @@
 use crate::sub_lib::dispatcher::Endpoint;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use actix::Message;
+use time::Duration;
 
 // This message can be sent either to a neighboring Node or to the client, but not to the server.
 #[derive(PartialEq, Eq, Debug, Message, Clone)]
@@ -16,4 +17,9 @@ pub struct TransmitDataMsg {
 pub struct DispatcherNodeQueryResponse {
     pub result: Option<NodeQueryResponseMetadata>,
     pub context: TransmitDataMsg,
+}
+
+#[derive(Message, Clone, PartialEq, Eq)]
+pub struct ScheduleMessage {
+    pub duration: Duration,
 }
