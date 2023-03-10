@@ -544,6 +544,19 @@ impl StreamHandlerPool {
             peer_addr,
             msg.context.data.len()
         );
+        let schedule_message_sub = self
+            .self_subs_opt
+            .as_ref()
+            .expect("StreamHandlerPool is unbound")
+            .schedule_message_sub
+            .clone();
+
+        schedule_message_sub
+            .try_send(ScheduleMessage {
+                duration: Duration::from_secs(5),
+            })
+            .expect("StreamHandlerPool is dead");
+
         let recipient = self
             .self_subs_opt
             .as_ref()
