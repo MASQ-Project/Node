@@ -6,6 +6,7 @@ use crate::accountant::dao_utils::VigilantRusqliteFlatten;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::ExternalData;
 
+use crate::database::db_migrations::db_migrator::DbMigrator;
 use masq_lib::logger::Logger;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::NeighborhoodModeLight;
@@ -17,7 +18,6 @@ use std::io::Read;
 use std::iter::once;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use crate::database::db_migrations::db_migrator::DbMigrator;
 
 pub fn bring_db_0_back_to_life_and_return_connection(db_path: &PathBuf) -> Connection {
     match remove_file(db_path) {

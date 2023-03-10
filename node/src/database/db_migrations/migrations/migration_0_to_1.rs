@@ -1,8 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-
 use crate::database::db_migrations::db_migrator::DatabaseMigration;
-use crate::database::db_migrations::db_migrator_utils::MigDeclarationUtilities;
+use crate::database::db_migrations::migrator_utils::MigDeclarationUtilities;
 
 #[allow(non_camel_case_types)]
 pub struct Migrate_0_to_1;
@@ -22,12 +21,15 @@ impl DatabaseMigration for Migrate_0_to_1 {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
+    use crate::database::db_initializer::{
+        DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
+    };
+    use crate::test_utils::database_utils::{
+        bring_db_0_back_to_life_and_return_connection, make_external_data, retrieve_config_row,
+    };
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use crate::database::db_initializer::{DATABASE_FILE, DbInitializationConfig, DbInitializer, DbInitializerReal};
-    use crate::test_utils::database_utils::{bring_db_0_back_to_life_and_return_connection, make_external_data, retrieve_config_row};
     use std::fs::create_dir_all;
 
     #[test]

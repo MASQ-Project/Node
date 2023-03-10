@@ -4,4 +4,3 @@ pub mod config_dumper;
 pub mod connection_wrapper;
 pub mod db_initializer;
 pub mod db_migrations;
-

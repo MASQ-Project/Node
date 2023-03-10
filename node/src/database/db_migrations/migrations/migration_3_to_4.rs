@@ -1,14 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-
-use itertools::Itertools;
-use tiny_hderive::bip32::ExtendedPrivKey;
 use crate::blockchain::bip39::Bip39;
 use crate::database::db_migrations::db_migrator::DatabaseMigration;
-use crate::database::db_migrations::db_migrator_utils::MigDeclarationUtilities;
+use crate::database::db_migrations::migrator_utils::MigDeclarationUtilities;
 use crate::db_config::db_encryption_layer::DbEncryptionLayer;
 use crate::db_config::typed_config_layer::decode_bytes;
 use crate::sub_lib::cryptde::PlainData;
+use itertools::Itertools;
+use tiny_hderive::bip32::ExtendedPrivKey;
 
 #[allow(non_camel_case_types)]
 pub struct Migrate_3_to_4;
@@ -31,10 +30,10 @@ impl DatabaseMigration for Migrate_3_to_4 {
             .collect::<Vec<(String, Option<String>)>>();
         if rows.iter().map(|r| r.0.as_str()).collect_vec()
             != vec![
-            "consuming_wallet_derivation_path",
-            "example_encrypted",
-            "seed",
-        ]
+                "consuming_wallet_derivation_path",
+                "example_encrypted",
+                "seed",
+            ]
         {
             panic!("Database is corrupt");
         }
@@ -63,7 +62,7 @@ impl DatabaseMigration for Migrate_3_to_4 {
                         &private_key_data.as_slice(),
                         password_opt.as_ref().expect("Test-drive me!"),
                     )
-                        .expect("Internal error: encryption failed"),
+                    .expect("Internal error: encryption failed"),
                 )
             }
             _ => None,
@@ -85,21 +84,24 @@ impl DatabaseMigration for Migrate_3_to_4 {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use bip39::{Language, Mnemonic, MnemonicType, Seed};
-    use rand::Rng;
-    use rusqlite::ToSql;
-    use tiny_hderive::bip32::ExtendedPrivKey;
-    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use masq_lib::utils::derivation_path;
     use crate::blockchain::bip39::Bip39;
-    use crate::database::db_initializer::{DATABASE_FILE, DbInitializationConfig, DbInitializer, DbInitializerReal};
+    use crate::database::db_initializer::{
+        DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
+    };
     use crate::db_config::db_encryption_layer::DbEncryptionLayer;
     use crate::db_config::typed_config_layer::encode_bytes;
     use crate::sub_lib::cryptde::PlainData;
-    use crate::test_utils::database_utils::{bring_db_0_back_to_life_and_return_connection, make_external_data, retrieve_config_row};
+    use crate::test_utils::database_utils::{
+        bring_db_0_back_to_life_and_return_connection, make_external_data, retrieve_config_row,
+    };
+    use bip39::{Language, Mnemonic, MnemonicType, Seed};
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use masq_lib::utils::derivation_path;
+    use rand::Rng;
+    use rusqlite::ToSql;
+    use tiny_hderive::bip32::ExtendedPrivKey;
 
     #[test]
     fn migration_from_3_to_4_with_wallets() {
@@ -181,7 +183,7 @@ mod tests {
                 &private_key_encrypted.unwrap(),
                 password_opt.as_ref().unwrap(),
             )
-                .unwrap();
+            .unwrap();
             private_key.as_slice().to_vec()
         };
 
@@ -224,5 +226,4 @@ mod tests {
         assert_eq!(private_key_encrypted, None);
         assert_eq!(encrypted, true);
     }
-
 }

@@ -1,14 +1,15 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-
-use itertools::Itertools;
-use rusqlite::{Row, ToSql};
 use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
 use crate::accountant::dao_utils::VigilantRusqliteFlatten;
 use crate::accountant::gwei_to_wei;
 use crate::database::db_migrations::db_migrator::DatabaseMigration;
-use crate::database::db_migrations::db_migrator_utils::{MigDeclarationUtilities, StatementObject, StatementWithRusqliteParams};
+use crate::database::db_migrations::migrator_utils::{
+    MigDeclarationUtilities, StatementObject, StatementWithRusqliteParams,
+};
 use crate::sub_lib::neighborhood::RatePack;
+use itertools::Itertools;
+use rusqlite::{Row, ToSql};
 
 #[allow(non_camel_case_types)]
 pub struct Migrate_6_to_7;
@@ -227,17 +228,24 @@ impl<'a> Migrate_6_to_7_carrier<'a> {
 
 #[cfg(test)]
 mod tests {
-    use std::str::FromStr;
-    use rusqlite::Row;
+    use crate::database::connection_wrapper::ConnectionWrapper;
+    use crate::database::db_initializer::{
+        DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
+    };
+    use crate::database::db_migrations::db_migrator::{DbMigrator, DbMigratorReal};
+    use crate::db_config::persistent_configuration::{
+        PersistentConfiguration, PersistentConfigurationReal,
+    };
+    use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::database_utils::{
+        assert_table_created_as_strict, bring_db_0_back_to_life_and_return_connection,
+        make_external_data, retrieve_config_row,
+    };
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use crate::database::connection_wrapper::ConnectionWrapper;
-    use crate::database::db_initializer::{DATABASE_FILE, DbInitializationConfig, DbInitializer, DbInitializerReal};
-    use crate::database::db_migrations::db_migrator::{DbMigrator, DbMigratorReal};
-    use crate::db_config::persistent_configuration::{PersistentConfiguration, PersistentConfigurationReal};
-    use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::database_utils::{assert_table_created_as_strict, bring_db_0_back_to_life_and_return_connection, make_external_data, retrieve_config_row};
+    use rusqlite::Row;
+    use std::str::FromStr;
 
     #[test]
     fn migration_from_6_to_7_works() {
@@ -366,5 +374,4 @@ mod tests {
         let mut statement = conn.prepare(sql).unwrap();
         statement.query_row([], expected_typed_values).unwrap();
     }
-
 }

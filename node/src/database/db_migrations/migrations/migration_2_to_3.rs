@@ -1,8 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-
 use crate::database::db_migrations::db_migrator::DatabaseMigration;
-use crate::database::db_migrations::db_migrator_utils::MigDeclarationUtilities;
+use crate::database::db_migrations::migrator_utils::MigDeclarationUtilities;
 
 #[allow(non_camel_case_types)]
 pub struct Migrate_2_to_3;
@@ -26,14 +25,17 @@ impl DatabaseMigration for Migrate_2_to_3 {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
+    use crate::database::db_initializer::{
+        DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData, DATABASE_FILE,
+    };
+    use crate::test_utils::database_utils::{
+        bring_db_0_back_to_life_and_return_connection, make_external_data, retrieve_config_row,
+    };
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::NeighborhoodModeLight;
-    use crate::database::db_initializer::{DATABASE_FILE, DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData};
-    use crate::test_utils::database_utils::{bring_db_0_back_to_life_and_return_connection, make_external_data, retrieve_config_row};
 
     #[test]
     fn migration_from_2_to_3_is_properly_set() {
@@ -78,5 +80,4 @@ mod tests {
         assert_eq!(cs_value, Some("3".to_string()));
         assert_eq!(cs_encrypted, false);
     }
-
 }

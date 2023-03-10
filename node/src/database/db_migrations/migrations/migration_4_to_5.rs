@@ -1,9 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-
 use crate::accountant::dao_utils::VigilantRusqliteFlatten;
 use crate::database::db_migrations::db_migrator::DatabaseMigration;
-use crate::database::db_migrations::db_migrator_utils::MigDeclarationUtilities;
+use crate::database::db_migrations::migrator_utils::MigDeclarationUtilities;
 
 #[allow(non_camel_case_types)]
 pub struct Migrate_4_to_5;
@@ -77,22 +76,29 @@ impl DatabaseMigration for Migrate_4_to_5 {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashMap;
-    use std::time::SystemTime;
+    use crate::accountant::dao_utils::{from_time_t, to_time_t};
+    use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
+    use crate::database::db_initializer::{
+        DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData, DATABASE_FILE,
+    };
+    use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::database_utils::{
+        assert_create_table_stm_contains_all_parts,
+        assert_index_stm_is_coupled_with_right_parameter, assert_no_index_exists_for_table,
+        assert_table_does_not_exist, bring_db_0_back_to_life_and_return_connection,
+        make_external_data,
+    };
+    use crate::test_utils::make_wallet;
     use ethereum_types::BigEndianHash;
     use itertools::Itertools;
-    use rusqlite::ToSql;
-    use rusqlite::types::Value::Null;
-    use web3::types::{H256, U256};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
     use masq_lib::utils::NeighborhoodModeLight;
-    use crate::accountant::dao_utils::{from_time_t, to_time_t};
-    use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
-    use crate::database::db_initializer::{DATABASE_FILE, DbInitializationConfig, DbInitializer, DbInitializerReal, ExternalData};
-    use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::database_utils::{assert_create_table_stm_contains_all_parts, assert_index_stm_is_coupled_with_right_parameter, assert_no_index_exists_for_table, assert_table_does_not_exist, bring_db_0_back_to_life_and_return_connection, make_external_data};
-    use crate::test_utils::make_wallet;
+    use rusqlite::types::Value::Null;
+    use rusqlite::ToSql;
+    use std::collections::HashMap;
+    use std::time::SystemTime;
+    use web3::types::{H256, U256};
 
     #[test]
     fn migration_from_4_to_5_without_pending_transactions() {
@@ -293,5 +299,4 @@ mod tests {
         vec_of_values.sort_by_key(|(name, _)| name.clone());
         vec_of_values
     }
-
 }

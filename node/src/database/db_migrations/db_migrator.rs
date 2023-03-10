@@ -1,24 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-
-use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
-use crate::accountant::dao_utils::VigilantRusqliteFlatten;
-use crate::accountant::gwei_to_wei;
-use crate::blockchain::bip39::Bip39;
 use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::database::db_initializer::{ExternalData, CURRENT_SCHEMA_VERSION};
-use crate::db_config::db_encryption_layer::DbEncryptionLayer;
-use crate::db_config::typed_config_layer::decode_bytes;
-use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
-use crate::sub_lib::cryptde::PlainData;
-use crate::sub_lib::neighborhood::{RatePack, DEFAULT_RATE_PACK};
-use itertools::Itertools;
-use masq_lib::logger::Logger;
-use masq_lib::utils::{ExpectValue, WrapResult};
-use rusqlite::{params_from_iter, Error, Row, ToSql, Transaction};
-use std::fmt::{Debug, Display, Formatter};
-use tiny_hderive::bip32::ExtendedPrivKey;
-use crate::database::db_migrations::db_migrator_utils::{DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration, MigDeclarationUtilities};
+use crate::database::db_initializer::ExternalData;
 use crate::database::db_migrations::migrations::migration_0_to_1::Migrate_0_to_1;
 use crate::database::db_migrations::migrations::migration_1_to_2::Migrate_1_to_2;
 use crate::database::db_migrations::migrations::migration_2_to_3::Migrate_2_to_3;
@@ -26,7 +9,12 @@ use crate::database::db_migrations::migrations::migration_3_to_4::Migrate_3_to_4
 use crate::database::db_migrations::migrations::migration_4_to_5::Migrate_4_to_5;
 use crate::database::db_migrations::migrations::migration_5_to_6::Migrate_5_to_6;
 use crate::database::db_migrations::migrations::migration_6_to_7::Migrate_6_to_7;
-
+use crate::database::db_migrations::migrator_utils::{
+    DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration,
+    MigDeclarationUtilities,
+};
+use masq_lib::logger::Logger;
+use rusqlite::Transaction;
 
 pub trait DbMigrator {
     fn migrate_database(
@@ -193,54 +181,28 @@ impl DbMigratorReal {
 
 #[cfg(test)]
 mod tests {
-    use crate::accountant::dao_utils::{from_time_t, to_time_t};
-    use crate::blockchain::bip39::Bip39;
+    use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
-    use crate::database::db_initializer::{CURRENT_SCHEMA_VERSION, DATABASE_FILE, ExternalData};
-    use crate::db_config::db_encryption_layer::DbEncryptionLayer;
-    use crate::db_config::persistent_configuration::{
-        PersistentConfiguration, PersistentConfigurationReal,
+    use crate::database::db_initializer::{ExternalData, CURRENT_SCHEMA_VERSION};
+    use crate::database::db_migrations::db_migrator::{
+        DatabaseMigration, DbMigrator, DbMigratorReal,
     };
-    use crate::db_config::typed_config_layer::encode_bytes;
-    use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
-    use crate::sub_lib::cryptde::PlainData;
-    use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
-    use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::database_utils::{
-        assert_create_table_stm_contains_all_parts,
-        assert_index_stm_is_coupled_with_right_parameter, assert_no_index_exists_for_table,
-        assert_table_does_not_exist, bring_db_0_back_to_life_and_return_connection,
-        make_external_data,
+    use crate::database::db_migrations::migrations::migration_0_to_1::Migrate_0_to_1;
+    use crate::database::db_migrations::migrator_utils::{
+        DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration,
+        MigDeclarationUtilities, StatementObject,
     };
-    use crate::test_utils::database_utils::{assert_table_created_as_strict, retrieve_config_row};
-    use crate::test_utils::make_wallet;
-    use bip39::{Language, Mnemonic, MnemonicType, Seed};
-    use ethereum_types::BigEndianHash;
-    use itertools::Itertools;
-    use masq_lib::constants::DEFAULT_CHAIN;
+    use crate::test_utils::database_utils::make_external_data;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
-    use rand::Rng;
-    use rusqlite::types::Value::Null;
-    use rusqlite::{Connection, Error, OptionalExtension, Row, ToSql, Transaction};
+    use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use masq_lib::utils::NeighborhoodModeLight;
+    use rusqlite::{Connection, Error, Transaction};
     use std::cell::RefCell;
-    use std::collections::HashMap;
     use std::fmt::Debug;
-    use std::fs::create_dir_all;
     use std::iter::once;
     use std::panic::{catch_unwind, AssertUnwindSafe};
-    use std::str::FromStr;
     use std::sync::{Arc, Mutex};
-    use std::time::SystemTime;
-    use tiny_hderive::bip32::ExtendedPrivKey;
-    use web3::types::{H256, U256};
-    use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
-    use crate::database::db_migrations::db_migrator::{DatabaseMigration, DbMigrator, DbMigratorReal};
-    use crate::database::db_migrations::db_migrator_utils::{DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration, MigDeclarationUtilities, StatementObject};
-    use crate::database::db_migrations::migrations::migration_0_to_1::Migrate_0_to_1;
-
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {
@@ -432,7 +394,6 @@ mod tests {
         }
     }
 
-
     const _REMINDER_FROM_COMPILATION_TIME: () = check_schema_version_continuity();
 
     #[allow(dead_code)]
@@ -481,7 +442,7 @@ mod tests {
                 DbMigratorReal::list_of_migrations(),
             )
         }))
-            .unwrap_err();
+        .unwrap_err();
 
         let panic_message = captured_panic.downcast_ref::<String>().unwrap();
         assert_eq!(
@@ -493,7 +454,6 @@ mod tests {
             )
         )
     }
-
 
     #[test]
     #[should_panic(expected = "The list of database migrations is not ordered properly")]
@@ -542,7 +502,6 @@ mod tests {
         let _ = list_validation_check(DbMigratorReal::list_of_migrations());
         //success if no panicking
     }
-
 
     #[test]
     fn list_of_migrations_ends_on_the_current_version() {
@@ -610,7 +569,6 @@ mod tests {
             r#"ERROR: DbMigrator: Migrating database from version 0 to 1 failed: InvalidColumnIndex(5)"#,
         );
     }
-
 
     fn make_success_mig_record(
         old_version: usize,
@@ -758,7 +716,6 @@ mod tests {
         assert_eq!(*fifth_record_migration_params, vec![]);
     }
 
-
     #[test]
     fn db_migration_happy_path() {
         init_test_logging();
@@ -848,6 +805,4 @@ mod tests {
         let second_record_migration_params = second_record_migration_p_arc.lock().unwrap();
         assert_eq!(*second_record_migration_params, vec![()]);
     }
-
-
 }

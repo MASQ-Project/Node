@@ -1,12 +1,12 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::fmt::{Display, Formatter};
-use rusqlite::{Error, params_from_iter, ToSql, Transaction};
+use crate::database::connection_wrapper::ConnectionWrapper;
+use crate::database::db_initializer::{ExternalData, CURRENT_SCHEMA_VERSION};
+use crate::database::db_migrations::db_migrator::{DatabaseMigration, DbMigratorReal};
 use masq_lib::logger::Logger;
 use masq_lib::utils::{ExpectValue, WrapResult};
-use crate::database::connection_wrapper::ConnectionWrapper;
-use crate::database::db_initializer::{CURRENT_SCHEMA_VERSION, ExternalData};
-use crate::database::db_migrations::db_migrator::{DatabaseMigration, DbMigratorReal};
+use rusqlite::{params_from_iter, Error, ToSql, Transaction};
+use std::fmt::{Display, Formatter};
 
 pub trait MigDeclarationUtilities {
     fn db_password(&self) -> Option<String>;
@@ -47,7 +47,7 @@ impl<'a> DBMigrationUtilitiesReal<'a> {
             root_transaction: Some(conn.transaction()?),
             db_migrator_configuration,
         }
-            .wrap_to_ok()
+        .wrap_to_ok()
     }
 
     fn root_transaction_ref(&self) -> &Transaction<'a> {
@@ -202,6 +202,12 @@ impl DBMigratorInnerConfiguration {
     }
 }
 
+impl Default for DBMigratorInnerConfiguration {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug)]
 struct InterimMigrationPlaceholder(usize);
 
@@ -220,15 +226,15 @@ impl DatabaseMigration for InterimMigrationPlaceholder {
 
 #[cfg(test)]
 mod tests {
-    use crate::database::connection_wrapper::{ConnectionWrapperReal};
-    use crate::test_utils::database_utils::{
-        make_external_data,
+    use crate::database::connection_wrapper::ConnectionWrapperReal;
+    use crate::database::db_migrations::migrator_utils::{
+        DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration,
+        StatementObject, StatementWithRusqliteParams,
     };
+    use crate::test_utils::database_utils::make_external_data;
     use masq_lib::logger::Logger;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists};
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::{Connection, Error, OptionalExtension, ToSql};
-    use crate::database::db_migrations::db_migrator_utils::{DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration, StatementObject, StatementWithRusqliteParams};
-
 
     #[test]
     fn statement_with_rusqlite_params_can_display_its_stm() {
@@ -241,7 +247,6 @@ mod tests {
 
         assert_eq!(stm, "insert into table2 (column) values (?)".to_string())
     }
-
 
     #[test]
     fn db_password_works() {
@@ -256,7 +261,7 @@ mod tests {
                 current_schema_version: 0,
             },
         )
-            .unwrap();
+        .unwrap();
         let mut external_parameters = make_external_data();
         external_parameters.db_password_opt = Some("booga".to_string());
         let logger = Logger::new("test_logger");
@@ -280,7 +285,7 @@ mod tests {
                 current_schema_version: 0,
             },
         )
-            .unwrap();
+        .unwrap();
         let external_parameters = make_external_data();
         let logger = Logger::new("test_logger");
         let subject = utils.make_mig_declaration_utils(&external_parameters, &logger);
@@ -398,7 +403,7 @@ mod tests {
                     )",
             [],
         )
-            .unwrap();
+        .unwrap();
         let statement_1_simple =
             "INSERT INTO botanic_garden (name,count) VALUES ('sun_flowers', 100)";
         let statement_2_good = StatementWithRusqliteParams {
@@ -448,8 +453,4 @@ mod tests {
         assert_eq!(assertion, None)
         //the table remained empty because an error causes the whole transaction to abort
     }
-
-
-
-
 }

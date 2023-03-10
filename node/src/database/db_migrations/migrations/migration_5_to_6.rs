@@ -1,9 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-
-
 use crate::database::db_migrations::db_migrator::DatabaseMigration;
-use crate::database::db_migrations::db_migrator_utils::MigDeclarationUtilities;
+use crate::database::db_migrations::migrator_utils::MigDeclarationUtilities;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 
@@ -42,14 +40,17 @@ impl Migrate_5_to_6 {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
-    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use crate::database::db_initializer::{DATABASE_FILE, DbInitializationConfig, DbInitializer, DbInitializerReal};
+    use crate::database::db_initializer::{
+        DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
+    };
     use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
-    use crate::test_utils::database_utils::{bring_db_0_back_to_life_and_return_connection, make_external_data, retrieve_config_row};
+    use crate::test_utils::database_utils::{
+        bring_db_0_back_to_life_and_return_connection, make_external_data, retrieve_config_row,
+    };
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 
     #[test]
     fn migration_from_5_to_6_works() {
@@ -90,5 +91,4 @@ mod tests {
         assert_eq!(scan_intervals, Some(DEFAULT_SCAN_INTERVALS.to_string()));
         assert_eq!(encrypted, false);
     }
-
 }
