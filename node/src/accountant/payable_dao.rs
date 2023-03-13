@@ -54,10 +54,10 @@ pub struct PendingPayable {
 }
 
 impl PendingPayable {
-    pub fn new(to: Wallet, txn: H256) -> Self {
+    pub fn new(recipient_wallet: Wallet, hash: H256) -> Self {
         Self {
-            recipient_wallet: to,
-            hash: txn,
+            recipient_wallet,
+            hash,
         }
     }
 }

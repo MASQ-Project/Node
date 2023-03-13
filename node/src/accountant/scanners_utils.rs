@@ -126,6 +126,7 @@ pub mod payable_scanner_utils {
         }
     }
 
+    //TODO this method looks awful
     fn separate_rpc_results<'a, 'b>(
         individual_responses_in_the_batch: &'a [ProcessedPayableFallible],
         logger: &'b Logger,
@@ -226,17 +227,17 @@ pub mod payable_scanner_utils {
             .map(|(_, hash)| hash)
             .collect::<Vec<H256>>();
         panic!(
-            "Running into failed transactions {} with missing fingerprints",
+            "Ran into failed transactions {} with missing fingerprints. System no longer reliable",
             serialize_hashes(&hashes_of_nonexistent),
         )
     }
 
-    pub fn log_failed_payments_having_fingerprints_and_return_ids(
+    pub fn log_failed_payments_with_fingerprints_and_return_rowids(
         ids_of_payments: VecOfRowidOptAndHash,
         serialize_hashes: fn(&[H256]) -> String,
         logger: &Logger,
     ) -> Vec<u64> {
-        let (ids, hashes): (Vec<u64>, Vec<H256>) = ids_of_payments
+        let (rowids, hashes): (Vec<u64>, Vec<H256>) = ids_of_payments
             .into_iter()
             .map(|(ever_some_rowid, hash)| (ever_some_rowid.expectv("validated rowid"), hash))
             .unzip();
@@ -245,7 +246,7 @@ pub mod payable_scanner_utils {
             "Deleting fingerprints for failed transactions {}",
             serialize_hashes(&hashes)
         );
-        ids
+        rowids
     }
 
     pub(super) fn count_total_errors(
@@ -255,9 +256,11 @@ pub mod payable_scanner_utils {
             Some(errors) => match errors {
                 LocallyCausedError(blockchain_error) => match blockchain_error {
                     PayableTransactionFailed {
-                        signed_and_saved_txs_opt,
+                        signed_and_hashed_txs_opt,
                         ..
-                    } => signed_and_saved_txs_opt.as_ref().map(|hashes| hashes.len()),
+                    } => signed_and_hashed_txs_opt
+                        .as_ref()
+                        .map(|hashes| hashes.len()),
                     _ => None,
                 },
                 RemotelyCausedErrors(b_e) => Some(b_e.len()),
@@ -274,7 +277,7 @@ pub mod payable_scanner_utils {
             payment_thresholds: &PaymentThresholds,
             x: u64,
         ) -> u128;
-        as_any_dcl!();
+        declare_as_any!();
     }
 
     #[derive(Default)]
@@ -296,7 +299,7 @@ pub mod payable_scanner_utils {
         ) -> u128 {
             ThresholdUtils::calculate_finite_debt_limit_by_age(payment_thresholds, debt_age)
         }
-        as_any_impl!();
+        implement_as_any!();
     }
 }
 
@@ -510,7 +513,7 @@ mod tests {
         init_test_logging();
         let error = PayableTransactionFailed {
             msg: "bad timing".to_string(),
-            signed_and_saved_txs_opt: None,
+            signed_and_hashed_txs_opt: None,
         };
         let sent_payable = SentPayables {
             payment_procedure_result: Err(error.clone()),
@@ -746,7 +749,7 @@ mod tests {
     fn count_total_errors_says_unidentifiable_for_local_error_before_signing() {
         let error = PayableTransactionFailed {
             msg: "Ouuuups".to_string(),
-            signed_and_saved_txs_opt: None,
+            signed_and_hashed_txs_opt: None,
         };
         let sent_payable = Some(LocallyCausedError(error));
 
@@ -759,7 +762,7 @@ mod tests {
     fn count_total_errors_works_correctly_for_local_error_after_signing() {
         let error = PayableTransactionFailed {
             msg: "Ouuuups".to_string(),
-            signed_and_saved_txs_opt: Some(vec![make_tx_hash(333), make_tx_hash(666)]),
+            signed_and_hashed_txs_opt: Some(vec![make_tx_hash(333), make_tx_hash(666)]),
         };
         let sent_payable = Some(LocallyCausedError(error));
 

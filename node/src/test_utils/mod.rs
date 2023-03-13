@@ -11,6 +11,7 @@ pub mod logfile_name_guard;
 pub mod neighborhood_test_utils;
 pub mod persistent_configuration_mock;
 pub mod recorder;
+pub mod recorder_stop_conditions;
 pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
@@ -525,6 +526,8 @@ pub mod unshared_test_utils {
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, Recorder, Recording};
+    use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
+    use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use actix::{Actor, Addr, AsyncContext, Context, Handler, Recipient, System};
     use actix::{Message, SpawnHandle};
     use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -542,6 +545,7 @@ pub mod unshared_test_utils {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use std::vec;
 
     #[derive(Message)]
     pub struct AssertionsMessage<A: Actor> {
@@ -624,7 +628,9 @@ pub mod unshared_test_utils {
     {
         let (recorder, _, recording_arc) = make_recorder();
         let recorder = match stopping_message {
-            Some(type_id) => recorder.stop_condition(type_id), // No need to write stop message after this
+            Some(type_id) => recorder.system_stop_conditions(StopConditions::All(vec![
+                StopCondition::StopOnType(type_id),
+            ])), // No need to write stop message after this
             None => recorder,
         };
         let addr = recorder.start();
@@ -720,11 +726,6 @@ pub mod unshared_test_utils {
             )))
     }
 
-    #[derive(Debug, Message, Clone)]
-    pub struct CleanUpMessage {
-        pub sleep_ms: u64,
-    }
-
     pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
         (0..s.len())
             .step_by(2)
@@ -732,255 +733,272 @@ pub mod unshared_test_utils {
             .collect()
     }
 
-    pub struct SystemKillerActor {
-        after: Duration,
-        tx: Sender<()>,
-        rx: Receiver<()>,
-    }
+    pub mod system_killer_actor {
+        use super::*;
 
-    impl Actor for SystemKillerActor {
-        type Context = Context<Self>;
-
-        fn started(&mut self, ctx: &mut Self::Context) {
-            ctx.notify_later(CleanUpMessage { sleep_ms: 0 }, self.after.clone());
-        }
-    }
-
-    // Note: the sleep_ms field of the CleanUpMessage is unused; all we need is a time strobe.
-    impl Handler<CleanUpMessage> for SystemKillerActor {
-        type Result = ();
-
-        fn handle(&mut self, _msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
-            System::current().stop();
-            self.tx.try_send(()).expect("Receiver is dead");
-        }
-    }
-
-    impl SystemKillerActor {
-        pub fn new(after: Duration) -> Self {
-            let (tx, rx) = unbounded();
-            Self { after, tx, rx }
+        #[derive(Debug, Message, Clone)]
+        pub struct CleanUpMessage {
+            pub sleep_ms: u64,
         }
 
-        pub fn receiver(&self) -> Receiver<()> {
-            self.rx.clone()
+        pub struct SystemKillerActor {
+            after: Duration,
+            tx: Sender<()>,
+            rx: Receiver<()>,
         }
-    }
 
-    pub struct NotifyLaterHandleMock<M> {
-        notify_later_params: Arc<Mutex<Vec<(M, Duration)>>>,
-        send_message_out: bool,
-    }
+        impl Actor for SystemKillerActor {
+            type Context = Context<Self>;
 
-    impl<M: Message> Default for NotifyLaterHandleMock<M> {
-        fn default() -> Self {
-            Self {
-                notify_later_params: Arc::new(Mutex::new(vec![])),
-                send_message_out: false,
+            fn started(&mut self, ctx: &mut Self::Context) {
+                ctx.notify_later(CleanUpMessage { sleep_ms: 0 }, self.after.clone());
+            }
+        }
+
+        // Note: the sleep_ms field of the CleanUpMessage is unused; all we need is a time strobe.
+        impl Handler<CleanUpMessage> for SystemKillerActor {
+            type Result = ();
+
+            fn handle(&mut self, _msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
+                System::current().stop();
+                self.tx.try_send(()).expect("Receiver is dead");
+            }
+        }
+
+        impl SystemKillerActor {
+            pub fn new(after: Duration) -> Self {
+                let (tx, rx) = unbounded();
+                Self { after, tx, rx }
+            }
+
+            pub fn receiver(&self) -> Receiver<()> {
+                self.rx.clone()
             }
         }
     }
 
-    impl<M: Message> NotifyLaterHandleMock<M> {
-        pub fn notify_later_params(mut self, params: &Arc<Mutex<Vec<(M, Duration)>>>) -> Self {
-            self.notify_later_params = params.clone();
-            self
+    pub mod notify_handlers {
+        use super::*;
+
+        pub struct NotifyLaterHandleMock<M> {
+            notify_later_params: Arc<Mutex<Vec<(M, Duration)>>>,
+            send_message_out: bool,
         }
 
-        pub fn permit_to_send_out(mut self) -> Self {
-            self.send_message_out = true;
-            self
-        }
-    }
-
-    impl<M, A> NotifyLaterHandle<M, A> for NotifyLaterHandleMock<M>
-    where
-        M: Message + 'static + Clone,
-        A: Actor<Context = Context<A>> + Handler<M>,
-    {
-        fn notify_later<'a>(
-            &'a self,
-            msg: M,
-            interval: Duration,
-            ctx: &'a mut Context<A>,
-        ) -> Box<dyn NLSpawnHandleHolder> {
-            self.notify_later_params
-                .lock()
-                .unwrap()
-                .push((msg.clone(), interval));
-            if self.send_message_out {
-                let handle = ctx.notify_later(msg, interval);
-                Box::new(NLSpawnHandleHolderReal::new(handle))
-            } else {
-                Box::new(NLSpawnHandleHolderNull {})
+        impl<M: Message> Default for NotifyLaterHandleMock<M> {
+            fn default() -> Self {
+                Self {
+                    notify_later_params: Arc::new(Mutex::new(vec![])),
+                    send_message_out: false,
+                }
             }
         }
-    }
 
-    pub struct NLSpawnHandleHolderNull {}
-
-    impl NLSpawnHandleHolder for NLSpawnHandleHolderNull {
-        fn handle(self) -> SpawnHandle {
-            intentionally_blank!()
-        }
-    }
-
-    pub struct NotifyHandleMock<M> {
-        notify_params: Arc<Mutex<Vec<M>>>,
-        send_message_out: bool,
-    }
-
-    impl<M: Message> Default for NotifyHandleMock<M> {
-        fn default() -> Self {
-            Self {
-                notify_params: Arc::new(Mutex::new(vec![])),
-                send_message_out: false,
-            }
-        }
-    }
-
-    impl<M: Message> NotifyHandleMock<M> {
-        pub fn notify_params(mut self, params: &Arc<Mutex<Vec<M>>>) -> Self {
-            self.notify_params = params.clone();
-            self
-        }
-
-        pub fn permit_to_send_out(mut self) -> Self {
-            self.send_message_out = true;
-            self
-        }
-    }
-
-    impl<M, A> NotifyHandle<M, A> for NotifyHandleMock<M>
-    where
-        M: Message + 'static + Clone,
-        A: Actor<Context = Context<A>> + Handler<M>,
-    {
-        fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>) {
-            self.notify_params.lock().unwrap().push(msg.clone());
-            if self.send_message_out {
-                ctx.notify(msg)
-            }
-        }
-    }
-
-    //The whole concept of the ArbitraryIdStamp has been intended as making an aid to reach out when
-    //standard constructs, such as downcasting or raw pointers, fail to help make some desired
-    //assertion to prove an identity of a certain trait object used at a certain place.
-    //
-    //The issues we're going to cross over look practically as follows:
-    //
-    // 1) Our mockable objects are never Clone themselves (as it would break Rust trait object
-    // safeness),
-    // 2) You can get only very limited information by downcasting: you can inspect the guts, yes,
-    // but it can hardly ever answer your question if the object you're looking at is the same which
-    // you've pasted in before at the other end.
-    // 3) Using raw pointers to link the real memory address to your objects does not lead to good
-    // results in all cases (It was found confusing and hard to be done correctly or even impossible
-    // to implement this approach for references that are just "children" of a dereferenced Box that
-    // was supplied as an argument into the testing environment at the very beginning, or we can
-    // suspect the link already broken by moves of the owned, boxed instance within the tested code)
-    //
-    //The new tool was devised as ultimately powerful and capable of addressing these difficulties.
-    //
-    //The most fundamental idea of that is trivial. The hard part is to wrap your one's head around
-    //the preferred routine with its realization.
-    //
-    //We need to mount a test-only method to our arbitrary trait. (Yes, that means the method is
-    //not going to have any place in the production code).
-    //Because it's now a method of the trait, the trait object will also respond if you try to call
-    //it up.
-    //We will be using the trait as a trait object. The mock version of it will need an extra field
-    //whose job will be to store the arbitrary id that we will hand to it within the setup phase of
-    //the test.
-    //That's the way the trait object gets its unique identifier.
-    //
-    //You'll want to go back to the function with which you had difficulties when you were going
-    //to assert on the values coming in as its arguments.
-    //
-    //Let's mention certain attributes of this function, knowing it will always hold true.
-    //It's going to be just another method of some other trait, moreover, also intended to be used
-    //as a trait object.
-    //We can state this because proper seizing function arguments is enabled only if the examined
-    //function belongs to another mockable object.
-    //
-    //In vast majority of cases, for all methods of such a mock, it goes that they've got the body
-    //filled with code of two tasks: to capture params and also to push out a prepared result that
-    //the exercised method will return.
-    //To fulfill the first task you might like to query an id from any supplied trait object,
-    //a mock, that comes up as the examined method's argument.
-    //
-    //Use your convenient method by which you previously extended the trait of the incoming trait
-    //object and which can get you the id. Once done, you can simply add the id in to the other
-    //parameters in the container you've got to be later used for the delivery of the params to
-    //place with an assertion (the standard container is Arc<Mutex<T>>).
-    //Write an assertion for the captured values, including the arbitrary id.
-    //
-    //If it matches with the id which originates in the setup phase of the test, the circle encloses
-    //and the test is appeased.
-    //
-    //Most often, you would be advised to use the convenient macros offered down here. Their easy
-    //implementation should spare some work for you.
-    //
-    //Note for future maintainers:
-    //A trait object cannot be cloned so you don't have to worry if the later captured id comes
-    //from the original object or from some of its successors. There is now way how it wouldn't.
-
-    lazy_static! {
-        pub static ref ARBITRARY_ID_STAMP_SEQUENCER: Mutex<MutexIncrementInset> =
-            Mutex::new(MutexIncrementInset(0));
-    }
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub struct ArbitraryIdStamp {
-        id: usize,
-    }
-
-    impl ArbitraryIdStamp {
-        pub fn new() -> Self {
-            ArbitraryIdStamp {
-                id: {
-                    let mut access = ARBITRARY_ID_STAMP_SEQUENCER.lock().unwrap();
-                    access.0 += 1;
-                    access.0
-                },
-            }
-        }
-    }
-
-    //to be added to other methods in your trait
-    #[macro_export]
-    macro_rules! arbitrary_id_stamp_in_trait {
-        () => {
-            #[cfg(test)]
-            fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-                //no necessity to implement it for all impls of the trait this is to be a member of
-                intentionally_blank!()
-            }
-        };
-    }
-
-    //the following macros might be handy but your object must contain exactly this field:
-    //arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>
-    //Refcell is omitted because the id is Copy
-
-    #[macro_export]
-    macro_rules! arbitrary_id_stamp {
-        () => {
-            fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-                *self.arbitrary_id_stamp_opt.as_ref().unwrap()
-            }
-        };
-    }
-
-    #[macro_export]
-    macro_rules! set_arbitrary_id_stamp {
-        () => {
-            pub fn set_arbitrary_id_stamp(mut self, id_stamp: ArbitraryIdStamp) -> Self {
-                self.arbitrary_id_stamp_opt.replace(id_stamp);
+        impl<M: Message> NotifyLaterHandleMock<M> {
+            pub fn notify_later_params(mut self, params: &Arc<Mutex<Vec<(M, Duration)>>>) -> Self {
+                self.notify_later_params = params.clone();
                 self
             }
-        };
+
+            pub fn permit_to_send_out(mut self) -> Self {
+                self.send_message_out = true;
+                self
+            }
+        }
+
+        impl<M, A> NotifyLaterHandle<M, A> for NotifyLaterHandleMock<M>
+        where
+            M: Message + 'static + Clone,
+            A: Actor<Context = Context<A>> + Handler<M>,
+        {
+            fn notify_later<'a>(
+                &'a self,
+                msg: M,
+                interval: Duration,
+                ctx: &'a mut Context<A>,
+            ) -> Box<dyn NLSpawnHandleHolder> {
+                self.notify_later_params
+                    .lock()
+                    .unwrap()
+                    .push((msg.clone(), interval));
+                if self.send_message_out {
+                    let handle = ctx.notify_later(msg, interval);
+                    Box::new(NLSpawnHandleHolderReal::new(handle))
+                } else {
+                    Box::new(NLSpawnHandleHolderNull {})
+                }
+            }
+        }
+
+        pub struct NLSpawnHandleHolderNull {}
+
+        impl NLSpawnHandleHolder for NLSpawnHandleHolderNull {
+            fn handle(self) -> SpawnHandle {
+                intentionally_blank!()
+            }
+        }
+
+        pub struct NotifyHandleMock<M> {
+            notify_params: Arc<Mutex<Vec<M>>>,
+            send_message_out: bool,
+        }
+
+        impl<M: Message> Default for NotifyHandleMock<M> {
+            fn default() -> Self {
+                Self {
+                    notify_params: Arc::new(Mutex::new(vec![])),
+                    send_message_out: false,
+                }
+            }
+        }
+
+        impl<M: Message> NotifyHandleMock<M> {
+            pub fn notify_params(mut self, params: &Arc<Mutex<Vec<M>>>) -> Self {
+                self.notify_params = params.clone();
+                self
+            }
+
+            pub fn permit_to_send_out(mut self) -> Self {
+                self.send_message_out = true;
+                self
+            }
+        }
+
+        impl<M, A> NotifyHandle<M, A> for NotifyHandleMock<M>
+        where
+            M: Message + 'static + Clone,
+            A: Actor<Context = Context<A>> + Handler<M>,
+        {
+            fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>) {
+                self.notify_params.lock().unwrap().push(msg.clone());
+                if self.send_message_out {
+                    ctx.notify(msg)
+                }
+            }
+        }
+    }
+
+    pub mod arbitrary_id_stamp {
+        use super::*;
+
+        //The whole concept of the ArbitraryIdStamp has been intended as making an aid to reach out when
+        //standard constructs, such as downcasting or raw pointers, fail to help make some desired
+        //assertion to prove an identity of a certain trait object used at a certain place.
+        //
+        //The issues we're going to cross over look practically as follows:
+        //
+        // 1) Our mockable objects are never Clone themselves (as it would break Rust trait object
+        // safeness),
+        // 2) You can get only very limited information by downcasting: you can inspect the guts, yes,
+        // but it can hardly ever answer your question if the object you're looking at is the same which
+        // you've pasted in before at the other end.
+        // 3) Using raw pointers to link the real memory address to your objects does not lead to good
+        // results in all cases (It was found confusing and hard to be done correctly or even impossible
+        // to implement this approach for references that are just "children" of a dereferenced Box that
+        // was supplied as an argument into the testing environment at the very beginning, or we can
+        // suspect the link already broken by moves of the owned, boxed instance within the tested code)
+        //
+        //The new tool was devised as ultimately powerful and capable of addressing these difficulties.
+        //
+        //The most fundamental idea of that is trivial. The hard part is to wrap your one's head around
+        //the preferred routine with its realization.
+        //
+        //We need to mount a test-only method to our arbitrary trait. (Yes, that means the method is
+        //not going to have any place in the production code).
+        //Because it's now a method of the trait, the trait object will also respond if you try to call
+        //it up.
+        //We will be using the trait as a trait object. The mock version of it will need an extra field
+        //whose job will be to store the arbitrary id that we will hand to it within the setup phase of
+        //the test.
+        //That's the way the trait object gets its unique identifier.
+        //
+        //You'll want to go back to the function with which you had difficulties when you were going
+        //to assert on the values coming in as its arguments.
+        //
+        //Let's mention certain attributes of this function, knowing it will always hold true.
+        //It's going to be just another method of some other trait, moreover, also intended to be used
+        //as a trait object.
+        //We can state this because proper seizing function arguments is enabled only if the examined
+        //function belongs to another mockable object.
+        //
+        //In vast majority of cases, for all methods of such a mock, it goes that they've got the body
+        //filled with code of two tasks: to capture params and also to push out a prepared result that
+        //the exercised method will return.
+        //To fulfill the first task you might like to query an id from any supplied trait object,
+        //a mock, that comes up as the examined method's argument.
+        //
+        //Use your convenient method by which you previously extended the trait of the incoming trait
+        //object and which can get you the id. Once done, you can simply add the id in to the other
+        //parameters in the container you've got to be later used for the delivery of the params to
+        //place with an assertion (the standard container is Arc<Mutex<T>>).
+        //Write an assertion for the captured values, including the arbitrary id.
+        //
+        //If it matches with the id which originates in the setup phase of the test, the circle encloses
+        //and the test is appeased.
+        //
+        //Most often, you would be advised to use the convenient macros offered down here. Their easy
+        //implementation should spare some work for you.
+        //
+        //Note for future maintainers:
+        //A trait object cannot be cloned so you don't have to worry if the later captured id comes
+        //from the original object or from some of its successors. There is now way how it wouldn't.
+
+        lazy_static! {
+            pub static ref ARBITRARY_ID_STAMP_SEQUENCER: Mutex<MutexIncrementInset> =
+                Mutex::new(MutexIncrementInset(0));
+        }
+
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub struct ArbitraryIdStamp {
+            id: usize,
+        }
+
+        impl ArbitraryIdStamp {
+            pub fn new() -> Self {
+                ArbitraryIdStamp {
+                    id: {
+                        let mut access = ARBITRARY_ID_STAMP_SEQUENCER.lock().unwrap();
+                        access.0 += 1;
+                        access.0
+                    },
+                }
+            }
+        }
+
+        //to be added to other methods in your trait
+        #[macro_export]
+        macro_rules! arbitrary_id_stamp_in_trait {
+            () => {
+                #[cfg(test)]
+                fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
+                    //no necessity to implement it for all impls of the trait this is to be a member of
+                    intentionally_blank!()
+                }
+            };
+        }
+
+        //the following macros might be handy but your object must contain exactly this field:
+        //arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>
+        //Refcell is omitted because the id is Copy
+
+        #[macro_export]
+        macro_rules! arbitrary_id_stamp {
+            () => {
+                fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
+                    *self.arbitrary_id_stamp_opt.as_ref().unwrap()
+                }
+            };
+        }
+
+        #[macro_export]
+        macro_rules! set_arbitrary_id_stamp {
+            () => {
+                pub fn set_arbitrary_id_stamp(mut self, id_stamp: ArbitraryIdStamp) -> Self {
+                    self.arbitrary_id_stamp_opt.replace(id_stamp);
+                    self
+                }
+            };
+        }
     }
 }
 

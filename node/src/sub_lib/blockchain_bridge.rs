@@ -28,7 +28,7 @@ pub struct BlockchainBridgeConfig {
     pub gas_price: u64,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct BlockchainBridgeSubs {
     pub bind: Recipient<BindMessage>,
     pub report_accounts_payable: Recipient<ReportAccountsPayable>,
@@ -67,6 +67,7 @@ pub struct SetGasPriceMsg {
     pub gas_price: String,
 }
 
+//TODO maybe this isn't a suitable place for logic, just plain structures seem to love here
 pub trait BatchPayableTools<T>
 where
     T: BatchTransport,

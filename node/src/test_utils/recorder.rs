@@ -15,8 +15,7 @@ use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
-use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, SetDbPasswordMsg};
-use crate::sub_lib::blockchain_bridge::{ReportAccountsPayable, SetGasPriceMsg};
+use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, ReportAccountsPayable};
 use crate::sub_lib::configurator::{ConfiguratorSubs, NewPasswordMessage};
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
@@ -44,8 +43,9 @@ use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
+use crate::test_utils::recorder_stop_conditions::StopConditions;
 use crate::test_utils::to_millis;
-use crate::test_utils::unshared_test_utils::SystemKillerActor;
+use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
@@ -54,8 +54,6 @@ use actix::System;
 use actix::{Actor, Message};
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use std::any::Any;
-use std::any::TypeId;
-use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
@@ -66,7 +64,7 @@ pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
     node_query_responses: Vec<Option<NodeQueryResponseMetadata>>,
     route_query_responses: Vec<Option<RouteQueryResponse>>,
-    expected_count_by_msg_type_opt: Option<HashMap<TypeId, usize>>,
+    stop_conditions_opt: Option<StopConditions>,
 }
 
 #[derive(Default)]
@@ -88,21 +86,7 @@ macro_rules! recorder_message_handler {
             type Result = ();
 
             fn handle(&mut self, msg: $message_type, _ctx: &mut Self::Context) {
-                self.record(msg);
-                if let Some(expected_count_by_msg_type) = &mut self.expected_count_by_msg_type_opt {
-                    let type_id = TypeId::of::<$message_type>();
-                    let count = expected_count_by_msg_type.entry(type_id).or_insert(0);
-                    if *count == 0 {
-                        panic!(
-                            "Received a message, which we were not supposed to receive. {:?}",
-                            stringify!($message_type)
-                        );
-                    };
-                    *count -= 1;
-                    if !expected_count_by_msg_type.values().any(|&x| x > 0) {
-                        System::current().stop();
-                    }
-                }
+                self.handle_msg(msg)
             }
         }
     };
@@ -142,8 +126,6 @@ recorder_message_handler!(ReportRoutingServiceProvidedMessage);
 recorder_message_handler!(ScanError);
 recorder_message_handler!(SentPayables);
 recorder_message_handler!(SetConsumingWalletMessage);
-recorder_message_handler!(SetDbPasswordMsg);
-recorder_message_handler!(SetGasPriceMsg);
 recorder_message_handler!(StartMessage);
 recorder_message_handler!(StreamShutdownMsg);
 recorder_message_handler!(TransmitDataMsg);
@@ -235,20 +217,33 @@ impl Recorder {
         self
     }
 
-    pub fn stop_condition(self, message_type_id: TypeId) -> Recorder {
-        let mut expected_count_by_messages: HashMap<TypeId, usize> = HashMap::new();
-        expected_count_by_messages.insert(message_type_id, 1);
-        self.stop_after_messages_and_start_system_killer(expected_count_by_messages)
+    pub fn system_stop_conditions(mut self, stop_conditions: StopConditions) -> Recorder {
+        if self.stop_conditions_opt.is_none() {
+            self.start_system_killer();
+            self.stop_conditions_opt = Some(stop_conditions)
+        } else {
+            panic!("Stop conditions must be set by a single method call. Consider to use StopConditions::All")
+        };
+        self
     }
 
-    pub fn stop_after_messages_and_start_system_killer(
-        mut self,
-        expected_count_by_messages: HashMap<TypeId, usize>,
-    ) -> Recorder {
+    fn start_system_killer(&mut self) {
         let system_killer = SystemKillerActor::new(Duration::from_secs(15));
         system_killer.start();
-        self.expected_count_by_msg_type_opt = Some(expected_count_by_messages);
-        self
+    }
+
+    fn handle_msg<T: 'static + PartialEq + Send>(&mut self, msg: T) {
+        let kill_system = if let Some(stop_conditions) = &mut self.stop_conditions_opt {
+            stop_conditions.resolve_stop_conditions::<T>(&msg)
+        } else {
+            false
+        };
+
+        self.record(msg);
+
+        if kill_system {
+            System::current().stop()
+        }
     }
 }
 
@@ -413,7 +408,7 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
         report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
         report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
-        report_new_payments: recipient!(addr, ReceivedPayments),
+        report_inbound_payments: recipient!(addr, ReceivedPayments),
         init_pending_payable_fingerprints: recipient!(addr, PendingPayableFingerprintSeeds),
         report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
         report_sent_payments: recipient!(addr, SentPayables),

@@ -65,7 +65,7 @@ pub enum BlockchainError {
     QueryFailed(String),
     PayableTransactionFailed {
         msg: String,
-        signed_and_saved_txs_opt: Option<Vec<H256>>,
+        signed_and_hashed_txs_opt: Option<Vec<H256>>,
     },
 }
 
@@ -98,11 +98,11 @@ impl Display for BlockchainError {
             QueryFailed(msg) => Right(format!("Query failed: {}.", msg)),
             PayableTransactionFailed {
                 msg,
-                signed_and_saved_txs_opt,
+                signed_and_hashed_txs_opt,
             } => Right(format!(
                 "Occurred at the final batch processing: \"{}\". {}",
                 msg,
-                interpret_optionally_attached_hashes(signed_and_saved_txs_opt)
+                interpret_optionally_attached_hashes(signed_and_hashed_txs_opt)
             )),
         };
         write!(f, "Blockchain error: {}", err_type_spec)
@@ -201,7 +201,7 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         error!(self.logger, "Can't send transactions out clandestinely yet",);
         Err(BlockchainError::PayableTransactionFailed {
             msg: "invalid attempt to send txs clandestinely".to_string(),
-            signed_and_saved_txs_opt: None,
+            signed_and_hashed_txs_opt: None,
         })
     }
 
@@ -682,11 +682,11 @@ impl BlockchainError {
         match self {
             Self::PayableTransactionFailed {
                 msg: _,
-                signed_and_saved_txs_opt: None,
+                signed_and_hashed_txs_opt: None,
             } => None,
             Self::PayableTransactionFailed {
                 msg: _,
-                signed_and_saved_txs_opt: Some(hash),
+                signed_and_hashed_txs_opt: Some(hash),
             } => Some(hash.clone()),
             _ => None,
         }
@@ -710,12 +710,12 @@ impl From<PayableTransactionError> for BlockchainError {
             PayableTransactionError::Sending { hashes, .. } => {
                 BlockchainError::PayableTransactionFailed {
                     msg: displayed_error,
-                    signed_and_saved_txs_opt: Some(hashes),
+                    signed_and_hashed_txs_opt: Some(hashes),
                 }
             }
             _ => BlockchainError::PayableTransactionFailed {
                 msg: displayed_error,
-                signed_and_saved_txs_opt: None,
+                signed_and_hashed_txs_opt: None,
             },
         }
     }
@@ -1837,7 +1837,7 @@ mod tests {
                 msg: "UnusableWallet: Cannot sign with non-keypair \
          wallet: Address(0x636f6e73756d652c20796f752067726565647920)."
                     .to_string(),
-                signed_and_saved_txs_opt: None
+                signed_and_hashed_txs_opt: None
             })
         )
     }
@@ -1877,7 +1877,7 @@ mod tests {
         assert_eq!(result,
                    Err(BlockchainError::PayableTransactionFailed {msg:
                        "UnusableWallet: Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string(),
-                       signed_and_saved_txs_opt: None}
+                       signed_and_hashed_txs_opt: None}
                    )
         );
         let accountant_recording = accountant_recording_arc.lock().unwrap();
@@ -1923,7 +1923,7 @@ mod tests {
             result,
             Err(BlockchainError::PayableTransactionFailed {
                 msg: "Sending phase: Transport error: Transaction crashed".to_string(),
-                signed_and_saved_txs_opt: Some(vec![hash])
+                signed_and_hashed_txs_opt: Some(vec![hash])
             })
         );
     }
@@ -2398,7 +2398,7 @@ mod tests {
                         BlockchainError::from(to_assert),
                         BlockchainError::PayableTransactionFailed {
                             msg: "UnusableWallet: wallet error".to_string(),
-                            signed_and_saved_txs_opt: None
+                            signed_and_hashed_txs_opt: None
                         }
                     );
                     11
@@ -2408,7 +2408,7 @@ mod tests {
                         BlockchainError::from(to_assert),
                         BlockchainError::PayableTransactionFailed {
                             msg: "Signing phase: signature error".to_string(),
-                            signed_and_saved_txs_opt: None
+                            signed_and_hashed_txs_opt: None
                         }
                     );
                     22
@@ -2418,7 +2418,7 @@ mod tests {
                         BlockchainError::from(to_assert),
                         BlockchainError::PayableTransactionFailed {
                             msg: "Sending phase: sending error".to_string(),
-                            signed_and_saved_txs_opt: Some(vec![make_tx_hash(456)])
+                            signed_and_hashed_txs_opt: Some(vec![make_tx_hash(456)])
                         }
                     );
                     33
@@ -2439,11 +2439,11 @@ mod tests {
             ),
             BlockchainError::PayableTransactionFailed {
                 msg: "Signing phase: Look at your signature, it's a mess!".to_string(),
-                signed_and_saved_txs_opt: None,
+                signed_and_hashed_txs_opt: None,
             },
             BlockchainError::PayableTransactionFailed {
                 msg: "Sending phase: No luck. I tried, I swear".to_string(),
-                signed_and_saved_txs_opt: Some(vec![make_tx_hash(555), make_tx_hash(777)]),
+                signed_and_hashed_txs_opt: Some(vec![make_tx_hash(555), make_tx_hash(777)]),
             },
         ]
     }
@@ -2464,11 +2464,11 @@ mod tests {
                     BlockchainError::InvalidResponse => (to_resolve.to_string(), 33),
                     BlockchainError::QueryFailed(..) => (to_resolve.to_string(), 44),
                     BlockchainError::PayableTransactionFailed {
-                        signed_and_saved_txs_opt: None,
+                        signed_and_hashed_txs_opt: None,
                         ..
                     } => (to_resolve.to_string(), 55),
                     BlockchainError::PayableTransactionFailed {
-                        signed_and_saved_txs_opt: Some(_),
+                        signed_and_hashed_txs_opt: Some(_),
                         ..
                     } => (to_resolve.to_string(), 66),
                 }
@@ -2527,14 +2527,14 @@ mod tests {
                     44
                 }
                 BlockchainError::PayableTransactionFailed {
-                    signed_and_saved_txs_opt: None,
+                    signed_and_hashed_txs_opt: None,
                     ..
                 } => {
                     assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
                     55
                 }
                 BlockchainError::PayableTransactionFailed {
-                    signed_and_saved_txs_opt: Some(vec_of_hashes),
+                    signed_and_hashed_txs_opt: Some(vec_of_hashes),
                     ..
                 } => {
                     let result = to_assert.carries_transaction_hashes_opt();

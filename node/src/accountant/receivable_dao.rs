@@ -85,7 +85,7 @@ pub trait ReceivableDao: Send {
     //test-only-like method but because of share with multi-node tests #[cfg(test)] is disallowed
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 
-    as_any_dcl!();
+    declare_as_any!();
 }
 
 pub trait ReceivableDaoFactory {
@@ -268,7 +268,7 @@ impl ReceivableDao for ReceivableDaoReal {
         }
     }
 
-    as_any_impl!();
+    implement_as_any!();
 }
 
 impl ReceivableDaoReal {

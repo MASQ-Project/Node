@@ -60,7 +60,7 @@ pub trait ActorSystemFactory {
 }
 
 pub struct ActorSystemFactoryReal {
-    t: Box<dyn ActorSystemFactoryTools>,
+    tools: Box<dyn ActorSystemFactoryTools>,
 }
 
 impl ActorSystemFactory for ActorSystemFactoryReal {
@@ -70,18 +70,22 @@ impl ActorSystemFactory for ActorSystemFactoryReal {
         actor_factory: Box<dyn ActorFactory>,
         persist_config: Box<dyn PersistentConfiguration>,
     ) -> StreamHandlerPoolSubs {
-        self.t.validate_database_chain(
+        self.tools.validate_database_chain(
             persist_config.as_ref(),
             config.blockchain_bridge_config.chain,
         );
-        self.t
-            .prepare_initial_messages(self.t.cryptdes(), config, persist_config, actor_factory)
+        self.tools.prepare_initial_messages(
+            self.tools.cryptdes(),
+            config,
+            persist_config,
+            actor_factory,
+        )
     }
 }
 
 impl ActorSystemFactoryReal {
     pub fn new(tools: Box<dyn ActorSystemFactoryTools>) -> Self {
-        Self { t: tools }
+        Self { tools }
     }
 }
 
@@ -632,7 +636,8 @@ mod tests {
         make_ui_gateway_subs_from_recorder, Recording,
     };
     use crate::test_utils::recorder::{make_recorder, Recorder};
-    use crate::test_utils::unshared_test_utils::{ArbitraryIdStamp, SystemKillerActor};
+    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
+    use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};

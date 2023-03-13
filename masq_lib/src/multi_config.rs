@@ -17,7 +17,7 @@ use toml::Value;
 #[macro_export]
 macro_rules! value_m {
     ($m:ident, $v:expr, $t:ty) => {{
-        let matches = make_arg_matches_accesible(&$m);
+        let matches = $m.arg_matches_ref();
         match value_t!(matches, $v, $t) {
             Ok(v) => Some(v),
             Err(_) => None,
@@ -29,7 +29,7 @@ macro_rules! value_m {
 macro_rules! value_user_specified_m {
     ($m:ident, $v:expr, $t:ty) => {{
         let user_specified = $m.occurrences_of($v) > 0;
-        let matches = make_arg_matches_accesible(&$m);
+        let matches = $m.arg_matches_ref();
         match value_t!(matches, $v, $t) {
             Ok(v) => (Some(v), user_specified),
             Err(_) => (None, user_specified),
@@ -40,7 +40,7 @@ macro_rules! value_user_specified_m {
 #[macro_export]
 macro_rules! values_m {
     ($m:ident, $v:expr, $t:ty) => {{
-        let matches = make_arg_matches_accesible(&$m);
+        let matches = $m.arg_matches_ref();
         match values_t!(matches, $v, $t) {
             Ok(vs) => vs,
             Err(_) => vec![],
@@ -116,10 +116,10 @@ impl<'a> MultiConfig<'a> {
     pub fn occurrences_of(&self, parameter: &str) -> u64 {
         self.arg_matches.occurrences_of(parameter)
     }
-}
 
-pub fn make_arg_matches_accesible<'a>(multi_confuig: &'a MultiConfig) -> &'a ArgMatches<'a> {
-    &multi_confuig.arg_matches
+    pub fn arg_matches_ref(&self) -> &ArgMatches {
+        &self.arg_matches
+    }
 }
 
 pub trait VclArg: Debug {

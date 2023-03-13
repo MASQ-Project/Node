@@ -9,7 +9,7 @@ use clap::{App, Arg, SubCommand};
 use masq_lib::messages::{
     UiChangePasswordRequest, UiChangePasswordResponse, UiNewPasswordBroadcast,
 };
-use masq_lib::{as_any_impl, short_writeln};
+use masq_lib::{implement_as_any, short_writeln};
 #[cfg(test)]
 use std::any::Any;
 use std::io::Write;
@@ -81,7 +81,7 @@ impl Command for ChangePasswordCommand {
         Ok(())
     }
 
-    as_any_impl!();
+    implement_as_any!();
 }
 
 pub fn change_password_subcommand() -> App<'static, 'static> {

@@ -623,7 +623,7 @@ pub mod test_utils {
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, InitializationError};
     use crate::set_arbitrary_id_stamp;
-    use crate::test_utils::unshared_test_utils::ArbitraryIdStamp;
+    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
     use rusqlite::Transaction;
     use rusqlite::{Error, Statement};
     use std::cell::RefCell;
