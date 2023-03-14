@@ -20,7 +20,9 @@ pub struct DispatcherNodeQueryResponse {
 }
 
 #[derive(Message, Clone, PartialEq, Eq)]
-pub struct MessageScheduler {
-    pub schedule_msg: Box<dyn Message<Result=()> + Send>,
+pub struct MessageScheduler<M>
+    where M: Message + Clone + PartialEq + Eq + Send
+{
+    pub schedule_msg: M,
     pub duration: Duration,
 }

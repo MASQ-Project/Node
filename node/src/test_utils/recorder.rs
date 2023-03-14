@@ -92,6 +92,16 @@ macro_rules! recorder_message_handler {
     };
 }
 
+impl<M> Handler<MessageScheduler<M>> for Recorder
+    where M: Message + Clone + PartialEq + Eq + Send + 'static
+{
+type Result = ();
+
+fn handle(&mut self, msg: MessageScheduler<M>, _ctx: &mut Self::Context) {
+    self.handle_msg(msg)
+}
+}
+
 recorder_message_handler!(AddReturnRouteMessage);
 recorder_message_handler!(AddRouteMessage);
 recorder_message_handler!(AddStreamMsg);
@@ -124,7 +134,6 @@ recorder_message_handler!(ReportServicesConsumedMessage);
 recorder_message_handler!(ReportExitServiceProvidedMessage);
 recorder_message_handler!(ReportRoutingServiceProvidedMessage);
 recorder_message_handler!(ScanError);
-recorder_message_handler!(MessageScheduler);
 recorder_message_handler!(SentPayables);
 recorder_message_handler!(SetConsumingWalletMessage);
 recorder_message_handler!(StartMessage);

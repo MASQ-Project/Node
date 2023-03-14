@@ -62,7 +62,7 @@ pub struct StreamHandlerPoolSubs {
     pub bind: Recipient<PoolBindMessage>,
     pub node_query_response: Recipient<DispatcherNodeQueryResponse>,
     pub node_from_ui_sub: Recipient<NodeFromUiMessage>,
-    pub schedule_message_sub: Recipient<MessageScheduler>,
+    pub schedule_message_sub: Recipient<MessageScheduler<DispatcherNodeQueryResponse>>,
 }
 
 impl Clone for StreamHandlerPoolSubs {
@@ -157,10 +157,10 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
     }
 }
 
-impl Handler<MessageScheduler> for StreamHandlerPool {
+impl Handler<MessageScheduler<DispatcherNodeQueryResponse>> for StreamHandlerPool {
     type Result = ();
 
-    fn handle(&mut self, msg: MessageScheduler, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: MessageScheduler<DispatcherNodeQueryResponse>, ctx: &mut Self::Context) -> Self::Result {
         panic!("Send the message after {:?}", msg.duration);
     }
 }
@@ -215,7 +215,7 @@ impl StreamHandlerPool {
             bind: recipient!(pool_addr, PoolBindMessage),
             node_query_response: recipient!(pool_addr, DispatcherNodeQueryResponse),
             node_from_ui_sub: recipient!(pool_addr, NodeFromUiMessage),
-            schedule_message_sub: recipient!(pool_addr, MessageScheduler),
+            schedule_message_sub: recipient!(pool_addr, MessageScheduler<DispatcherNodeQueryResponse>),
         }
     }
 
@@ -553,23 +553,23 @@ impl StreamHandlerPool {
 
         schedule_message_sub
             .try_send(MessageScheduler {
-                schedule_msg: Box::new(msg),
+                schedule_msg: msg,
                 duration: Duration::from_secs(5),
             })
             .expect("StreamHandlerPool is dead");
 
-        let recipient = self
-            .self_subs_opt
-            .as_ref()
-            .expect("StreamHandlerPool is unbound.")
-            .node_query_response
-            .clone();
-        // TODO FIXME revisit once SC-358/GH-96 is done (idea: use notify_later() to delay messages)
-        thread::spawn(move || {
-            // to avoid getting into too-tight a resubmit loop, add a delay; in a separate thread, to avoid delaying other traffic
-            thread::sleep(Duration::from_millis(100));
-            recipient.try_send(msg).expect("StreamHandlerPool is dead");
-        });
+        // let recipient = self
+        //     .self_subs_opt
+        //     .as_ref()
+        //     .expect("StreamHandlerPool is unbound.")
+        //     .node_query_response
+        //     .clone();
+        // // TODO FIXME revisit once SC-358/GH-96 is done (idea: use notify_later() to delay messages)
+        // thread::spawn(move || {
+        //     // to avoid getting into too-tight a resubmit loop, add a delay; in a separate thread, to avoid delaying other traffic
+        //     thread::sleep(Duration::from_millis(100));
+        //     recipient.try_send(msg).expect("StreamHandlerPool is dead");
+        // });
     }
 
     fn open_new_stream_and_recycle_message(
