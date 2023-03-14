@@ -1,6 +1,6 @@
 #!/bin/bash -xv
 # Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
-new_version=$1
+version=$1
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 file=Cargo.toml
 final_exit_code=0
@@ -8,7 +8,7 @@ final_exit_code=0
 bump_version() {
   pushd "$1"
 
-  sed -i '3s/version = .*/version = "'$new_version'"/' $file
+  sed -i '3s/version = .*/version = "'"$version"'"/' $file
   cargo generate-lockfile
 
   popd
