@@ -162,16 +162,17 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
     }
 }
 
-impl Handler<MessageScheduler<DispatcherNodeQueryResponse>> for StreamHandlerPool {
+impl<M: actix::Message + 'static> Handler<MessageScheduler<M>> for StreamHandlerPool
+    where StreamHandlerPool: Handler<M>
+{
     type Result = ();
 
     fn handle(
         &mut self,
-        msg: MessageScheduler<DispatcherNodeQueryResponse>,
+        msg: MessageScheduler<M>,
         ctx: &mut Self::Context,
     ) -> Self::Result {
         NotifyLaterHandleReal::new().notify_later(msg.schedule_msg, msg.duration, ctx);
-        eprintln!("The schedule msg was handled as expected.");
     }
 }
 
