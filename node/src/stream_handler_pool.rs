@@ -30,7 +30,9 @@ use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::stream_handler_pool::{DispatcherNodeQueryResponse, MessageScheduler};
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
-use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY, NotifyLaterHandle, NotifyLaterHandleReal};
+use crate::sub_lib::utils::{
+    handle_ui_crash_request, NotifyLaterHandle, NotifyLaterHandleReal, NODE_MAILBOX_CAPACITY,
+};
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
@@ -43,7 +45,6 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io;
 use std::net::SocketAddr;
-use std::thread;
 use std::time::Duration;
 use tokio::prelude::Future;
 
@@ -120,7 +121,7 @@ pub struct StreamHandlerPool {
     channel_factory: Box<dyn FuturesChannelFactory<SequencedPacket>>,
     clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     traffic_analyzer: Box<dyn TrafficAnalyzer>,
-    notify_later: Box<dyn NotifyLaterHandle<DispatcherNodeQueryResponse, StreamHandlerPool>>
+    notify_later: Box<dyn NotifyLaterHandle<DispatcherNodeQueryResponse, StreamHandlerPool>>,
 }
 
 impl Actor for StreamHandlerPool {
@@ -154,7 +155,10 @@ impl Handler<TransmitDataMsg> for StreamHandlerPool {
 impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
     type Result = ();
     fn handle(&mut self, msg: DispatcherNodeQueryResponse, _ctx: &mut Self::Context) {
-        eprintln!("Received a DispatcherNodeQueryResponse msg with context: {:?}", msg.context.clone());
+        eprintln!(
+            "Received a DispatcherNodeQueryResponse msg with context: {:?}",
+            msg.context.clone()
+        );
         self.handle_dispatcher_node_query_response(msg)
     }
 }
@@ -162,8 +166,13 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
 impl Handler<MessageScheduler<DispatcherNodeQueryResponse>> for StreamHandlerPool {
     type Result = ();
 
-    fn handle(&mut self, msg: MessageScheduler<DispatcherNodeQueryResponse>, ctx: &mut Self::Context) -> Self::Result {
-        self.notify_later.notify_later(msg.schedule_msg, msg.duration, ctx);
+    fn handle(
+        &mut self,
+        msg: MessageScheduler<DispatcherNodeQueryResponse>,
+        ctx: &mut Self::Context,
+    ) -> Self::Result {
+        self.notify_later
+            .notify_later(msg.schedule_msg, msg.duration, ctx);
         eprintln!("The schedule msg was handled as expected.");
     }
 }
@@ -219,7 +228,10 @@ impl StreamHandlerPool {
             bind: recipient!(pool_addr, PoolBindMessage),
             node_query_response: recipient!(pool_addr, DispatcherNodeQueryResponse),
             node_from_ui_sub: recipient!(pool_addr, NodeFromUiMessage),
-            schedule_message_sub: recipient!(pool_addr, MessageScheduler<DispatcherNodeQueryResponse>),
+            schedule_message_sub: recipient!(
+                pool_addr,
+                MessageScheduler<DispatcherNodeQueryResponse>
+            ),
         }
     }
 

@@ -93,13 +93,14 @@ macro_rules! recorder_message_handler {
 }
 
 impl<M> Handler<MessageScheduler<M>> for Recorder
-    where M: Message + PartialEq + Send + 'static
+where
+    M: Message + PartialEq + Send + 'static,
 {
-type Result = ();
+    type Result = ();
 
-fn handle(&mut self, msg: MessageScheduler<M>, _ctx: &mut Self::Context) {
-    self.handle_msg(msg)
-}
+    fn handle(&mut self, msg: MessageScheduler<M>, _ctx: &mut Self::Context) {
+        self.handle_msg(msg)
+    }
 }
 
 recorder_message_handler!(AddReturnRouteMessage);
