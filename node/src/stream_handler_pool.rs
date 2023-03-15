@@ -33,7 +33,7 @@ use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::utils::{
     handle_ui_crash_request, NotifyLaterHandle, NotifyLaterHandleReal, NODE_MAILBOX_CAPACITY,
 };
-use actix::Actor;
+use actix::{Actor, AsyncContext};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
@@ -172,7 +172,7 @@ impl<M: actix::Message + 'static> Handler<MessageScheduler<M>> for StreamHandler
         msg: MessageScheduler<M>,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        NotifyLaterHandleReal::new().notify_later(msg.schedule_msg, msg.duration, ctx);
+        ctx.notify_later(msg.schedule_msg, msg.duration);
     }
 }
 
