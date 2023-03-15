@@ -30,7 +30,7 @@ bump_version "$CI_DIR"/../multinode_integration_tests
 bump_version "$CI_DIR"/../port_exposer
 
 if [[ "${#failed_crates[@]}" != "0" ]]; then
-  echo "Failed to generate lockfile for ${#failed_crates[@]} crates : ${failed_crates[@]}"
+  echo "Failed to generate lockfile for ${#failed_crates[@]} crates: ${failed_crates[*]}"
 else
   echo "The version number has been changed to $1."
 fi
