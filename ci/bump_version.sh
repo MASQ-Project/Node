@@ -23,7 +23,7 @@ declare -a crates=(
 declare -a failed_crates
 
 bump_version() {
-  pushd """$CI_DIR""/../$1"
+  pushd "$CI_DIR/../$1"
 
   sed -i '3s/version = .*/version = "'"$version"'"/' $file
   cargo generate-lockfile
