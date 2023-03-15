@@ -121,7 +121,6 @@ pub struct StreamHandlerPool {
     channel_factory: Box<dyn FuturesChannelFactory<SequencedPacket>>,
     clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     traffic_analyzer: Box<dyn TrafficAnalyzer>,
-    notify_later: Box<dyn NotifyLaterHandle<DispatcherNodeQueryResponse, StreamHandlerPool>>,
 }
 
 impl Actor for StreamHandlerPool {
@@ -171,8 +170,7 @@ impl Handler<MessageScheduler<DispatcherNodeQueryResponse>> for StreamHandlerPoo
         msg: MessageScheduler<DispatcherNodeQueryResponse>,
         ctx: &mut Self::Context,
     ) -> Self::Result {
-        self.notify_later
-            .notify_later(msg.schedule_msg, msg.duration, ctx);
+        NotifyLaterHandleReal::new().notify_later(msg.schedule_msg, msg.duration, ctx);
         eprintln!("The schedule msg was handled as expected.");
     }
 }
@@ -216,7 +214,6 @@ impl StreamHandlerPool {
             channel_factory: Box::new(FuturesChannelFactoryReal {}),
             clandestine_discriminator_factories,
             traffic_analyzer: Box::new(TrafficAnalyzerReal {}),
-            notify_later: Box::new(NotifyLaterHandleReal::new()),
         }
     }
 
