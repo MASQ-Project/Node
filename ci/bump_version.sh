@@ -1,5 +1,5 @@
-#!/bin/bash
-# Copyright (c) 2017-2019, Substratum LLC (https://substratum.net) and/or its affiliates. All rights reserved.
+#!/bin/bash -xv
+
 version=$1
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 file=Cargo.toml
@@ -15,7 +15,6 @@ bump_version() {
   exit_code="$?"
   if [[ "$exit_code" != "0" ]]; then
       final_exit_code=1
-      echo "Failed to generate lockfile for $(basename $1)"
       failed_crates+=($(basename $1))
   fi
 
@@ -30,6 +29,10 @@ bump_version "$CI_DIR"/../masq
 bump_version "$CI_DIR"/../multinode_integration_tests
 bump_version "$CI_DIR"/../port_exposer
 
-echo "Failed to generate lockfile for ${#failed_crates[@]} crates : ${failed_crates[@]}"
-echo "The version number has been changed to $1."
+if [[ "${#failed_crates[@]}" != "0" ]]; then
+  echo "Failed to generate lockfile for ${#failed_crates[@]} crates : ${failed_crates[@]}"
+else
+  echo "The version number has been changed to $1."
+fi
+
 exit $final_exit_code
