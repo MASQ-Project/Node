@@ -93,7 +93,7 @@ macro_rules! recorder_message_handler {
 }
 
 impl<M> Handler<MessageScheduler<M>> for Recorder
-    where M: Message + Clone + PartialEq + Eq + Send + 'static
+    where M: Message + PartialEq + Send + 'static
 {
 type Result = ();
 
