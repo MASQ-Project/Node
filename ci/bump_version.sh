@@ -1,5 +1,11 @@
 #!/bin/bash -xv
 
+if [ $# != 1 ]
+then
+     echo "Please provide version as the first argument"
+     exit 1
+fi
+
 version=$1
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 file=Cargo.toml
