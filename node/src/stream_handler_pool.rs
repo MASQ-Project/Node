@@ -154,6 +154,7 @@ impl Handler<TransmitDataMsg> for StreamHandlerPool {
 impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
     type Result = ();
     fn handle(&mut self, msg: DispatcherNodeQueryResponse, _ctx: &mut Self::Context) {
+        eprintln!("Received a DispatcherNodeQueryResponse msg with context: {:?}", msg.context.clone());
         self.handle_dispatcher_node_query_response(msg)
     }
 }
@@ -163,6 +164,7 @@ impl Handler<MessageScheduler<DispatcherNodeQueryResponse>> for StreamHandlerPoo
 
     fn handle(&mut self, msg: MessageScheduler<DispatcherNodeQueryResponse>, ctx: &mut Self::Context) -> Self::Result {
         self.notify_later.notify_later(msg.schedule_msg, msg.duration, ctx);
+        eprintln!("The schedule msg was handled as expected.");
     }
 }
 
@@ -556,7 +558,7 @@ impl StreamHandlerPool {
         schedule_message_sub
             .try_send(MessageScheduler {
                 schedule_msg: msg,
-                duration: Duration::from_secs(5),
+                duration: Duration::from_millis(100),
             })
             .expect("StreamHandlerPool is dead");
 
