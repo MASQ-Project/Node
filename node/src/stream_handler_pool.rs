@@ -30,7 +30,7 @@ use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::stream_handler_pool::{DispatcherNodeQueryResponse, MessageScheduler};
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
-use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY, NotifyLaterHandle, NotifyLaterHandleReal};
 use actix::Actor;
 use actix::Addr;
 use actix::Context;
@@ -120,6 +120,7 @@ pub struct StreamHandlerPool {
     channel_factory: Box<dyn FuturesChannelFactory<SequencedPacket>>,
     clandestine_discriminator_factories: Vec<Box<dyn DiscriminatorFactory>>,
     traffic_analyzer: Box<dyn TrafficAnalyzer>,
+    notify_later: Box<dyn NotifyLaterHandle<DispatcherNodeQueryResponse, StreamHandlerPool>>
 }
 
 impl Actor for StreamHandlerPool {
@@ -161,7 +162,7 @@ impl Handler<MessageScheduler<DispatcherNodeQueryResponse>> for StreamHandlerPoo
     type Result = ();
 
     fn handle(&mut self, msg: MessageScheduler<DispatcherNodeQueryResponse>, ctx: &mut Self::Context) -> Self::Result {
-        panic!("Send the message after {:?}", msg.duration);
+        self.notify_later.notify_later(msg.schedule_msg, msg.duration, ctx);
     }
 }
 
@@ -204,6 +205,7 @@ impl StreamHandlerPool {
             channel_factory: Box::new(FuturesChannelFactoryReal {}),
             clandestine_discriminator_factories,
             traffic_analyzer: Box::new(TrafficAnalyzerReal {}),
+            notify_later: Box::new(NotifyLaterHandleReal::new()),
         }
     }
 
@@ -557,6 +559,8 @@ impl StreamHandlerPool {
                 duration: Duration::from_secs(5),
             })
             .expect("StreamHandlerPool is dead");
+
+        eprintln!("A Schedule msg was sent to the StreamHandler.");
 
         // let recipient = self
         //     .self_subs_opt
