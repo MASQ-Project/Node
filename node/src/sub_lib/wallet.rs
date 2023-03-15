@@ -674,7 +674,7 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = r#"Trying to sign for AQID encountered Signature("Cannot sign with non-keypair wallet: Uninitialized.")"#
+        expected = r#"Trying to sign for 0x010203 encountered Signature("Cannot sign with non-keypair wallet: Uninitialized.")"#
     )]
     fn sign_with_uninitialized_wallets_panic() {
         Wallet::new("").as_payer(
