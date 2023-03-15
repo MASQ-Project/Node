@@ -214,8 +214,13 @@ impl BlockchainInterfaceMock {
 
 #[derive(Debug, Default, Clone)]
 pub struct TestTransport {
+    // neither prepare_results or send_results can be effectively implemented the traditional way,
+    // their queue would never progress and would return always the first prepared result despite
+    // taking multiple calls; the reason is that the Web3 library tends to clone (!!) the transport
+    // and by doing that, removing one element affects just the current clone, and next time an intact
+    // version of the same full queue will come in again as another individualistic clone
     prepare_params: Arc<Mutex<Vec<(String, Vec<rpc::Value>)>>>,
-    _send_params: Arc<Mutex<Vec<(RequestId, rpc::Call)>>>,
+    send_params: Arc<Mutex<Vec<(RequestId, rpc::Call)>>>,
     send_results: RefCell<VecDeque<rpc::Value>>,
     send_batch_params: Arc<Mutex<Vec<Vec<(RequestId, rpc::Call)>>>>,
     send_batch_results: RefCell<Vec<Vec<Result<rpc::Value, web3::Error>>>>,
@@ -234,6 +239,7 @@ impl Transport for TestTransport {
     }
 
     fn send(&self, id: RequestId, request: rpc::Call) -> Self::Out {
+        self.send_params.lock().unwrap().push((id, request.clone()));
         match self.send_results.borrow_mut().pop_front() {
             Some(response) => Box::new(futures::finished(response)),
             None => {
@@ -263,6 +269,13 @@ impl BatchTransport for TestTransport {
 impl TestTransport {
     pub fn prepare_params(mut self, params: &Arc<Mutex<Vec<(String, Vec<rpc::Value>)>>>) -> Self {
         self.prepare_params = params.clone();
+        self
+    }
+
+    //why prepare_result missing? Look up for a comment at the struct
+
+    pub fn send_params(mut self, params: &Arc<Mutex<Vec<(RequestId, rpc::Call)>>>) -> Self {
+        self.send_params = params.clone();
         self
     }
 

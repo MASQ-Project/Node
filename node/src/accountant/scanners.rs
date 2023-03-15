@@ -7,8 +7,8 @@ use crate::accountant::scanners_utils::payable_scanner_utils::PayableTransacting
     LocallyCausedError, RemotelyCausedErrors,
 };
 use crate::accountant::scanners_utils::payable_scanner_utils::{
-    debugging_summary_after_error_separation, fatal_database_mark_pending_payable_error,
-    investigate_debt_extremes, log_failed_payments_with_fingerprints_and_return_rowids,
+    debugging_summary_after_error_separation, investigate_debt_extremes,
+    log_failed_payments_with_fingerprints_and_return_rowids, mark_pending_payable_fatal_error,
     panic_for_failed_payments_lacking_fingerprints, payables_debug_summary, separate_errors,
     PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum,
     RefWalletAndRowidOptCoupledWithHash, VecOfRowidOptAndHash,
@@ -365,7 +365,7 @@ impl PayableScanner {
                 .as_ref()
                 .mark_pending_payables_rowids(&mark_p_payables_input_data)
             {
-                fatal_database_mark_pending_payable_error(
+                mark_pending_payable_fatal_error(
                     sent_payments,
                     &nonexistent,
                     e,
@@ -1508,8 +1508,7 @@ mod tests {
 
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!(
-            "DEBUG: {test_name}: Got 0 properly sent payables of not \
-         determinable number of attempts"
+            "DEBUG: {test_name}: Got 0 properly sent payables of an unknown number of attempts"
         ));
         log_handler.exists_log_containing(&format!(
             "DEBUG: {test_name}: Ignoring a non-fatal error on our end from before \
@@ -2023,57 +2022,19 @@ mod tests {
         assert_eq!(is_scan_running, false);
     }
 
-    #[test]
-    fn interpret_transaction_receipt_when_transaction_status_is_none_and_outside_waiting_interval()
-    {
+    fn assert_interpreting_none_status_for_pending_payable(
+        test_name: &str,
+        when_pending_too_long_sec: u64,
+        pending_payable_age_sec: u64,
+        rowid: u64,
+        hash: H256,
+    ) -> PendingPayableScanReport {
         init_test_logging();
-        let test_name = "interpret_transaction_receipt_when_transaction_status_is_none_and_outside_waiting_interval";
-        let hash = make_tx_hash(567);
-        let rowid = 466;
         let tx_receipt = TransactionReceipt::default(); //status defaulted to None
-        let when_sent =
-            SystemTime::now().sub(Duration::from_secs(DEFAULT_PENDING_TOO_LONG_SEC + 5)); //old transaction
-        let subject = PendingPayableScannerBuilder::new().build();
-        let fingerprint = PendingPayableFingerprint {
-            rowid,
-            timestamp: when_sent,
-            hash,
-            attempt: 10,
-            amount: 123,
-            process_error: None,
-        };
-        let logger = Logger::new(test_name);
-        let scan_report = PendingPayableScanReport::default();
-
-        let result =
-            subject.interpret_transaction_receipt(scan_report, &tx_receipt, fingerprint, &logger);
-
-        assert_eq!(
-            result,
-            PendingPayableScanReport {
-                still_pending: vec![],
-                failures: vec![PendingPayableId::new(rowid, hash)],
-                confirmed: vec![]
-            }
-        );
-        TestLogHandler::new().exists_log_containing(&format!(
-            "ERROR: {test_name}: Pending transaction 0x00000000000000000000000000000000000000\
-            00000000000000000000000237 has exceeded the maximum pending time (21600sec) and the \
-            confirmation process is going to be aborted now at the final attempt 10; manual \
-            resolution is required from the user to complete the transaction"
-        ));
-    }
-
-    #[test]
-    fn interpret_transaction_receipt_when_transaction_status_is_none_and_within_waiting_interval() {
-        init_test_logging();
-        let test_name = "interpret_transaction_receipt_when_transaction_status_is_none_and_within_waiting_interval";
-        let subject = PendingPayableScannerBuilder::new().build();
-        let hash = H256::from_uint(&U256::from(567));
-        let rowid = 466;
-        let tx_receipt = TransactionReceipt::default(); //status defaulted to None
-        let duration_in_ms = 100;
-        let when_sent = SystemTime::now().sub(Duration::from_millis(duration_in_ms));
+        let when_sent = SystemTime::now().sub(Duration::from_secs(pending_payable_age_sec));
+        let subject = PendingPayableScannerBuilder::new()
+            .when_pending_too_long_sec(when_pending_too_long_sec)
+            .build();
         let fingerprint = PendingPayableFingerprint {
             rowid,
             timestamp: when_sent,
@@ -2085,9 +2046,89 @@ mod tests {
         let logger = Logger::new(test_name);
         let scan_report = PendingPayableScanReport::default();
 
-        let result =
-            subject.interpret_transaction_receipt(scan_report, &tx_receipt, fingerprint, &logger);
+        subject.interpret_transaction_receipt(scan_report, &tx_receipt, fingerprint, &logger)
+    }
 
+    fn assert_log_msg_and_elapsed_time_in_log_makes_sense(
+        expected_msg: &str,
+        elapsed_after: u64,
+        capture_regex: &str,
+    ) {
+        let log_handler = TestLogHandler::default();
+        let log_idx = log_handler.exists_log_matching(expected_msg);
+        let log = log_handler.get_log_at(log_idx);
+        let capture = captures_for_regex_time_in_sec(&log, capture_regex);
+        assert!(capture <= elapsed_after)
+    }
+
+    fn captures_for_regex_time_in_sec(stack: &str, capture_regex: &str) -> u64 {
+        let capture_regex = Regex::new(capture_regex).unwrap();
+        let time_str = capture_regex
+            .captures(stack)
+            .unwrap()
+            .get(1)
+            .unwrap()
+            .as_str();
+        time_str.parse().unwrap()
+    }
+
+    fn elapsed_since_secs_back(sec: u64) -> u64 {
+        SystemTime::now()
+            .sub(Duration::from_secs(sec))
+            .elapsed()
+            .unwrap()
+            .as_secs()
+    }
+
+    #[test]
+    fn interpret_transaction_receipt_when_transaction_status_is_none_and_outside_waiting_interval()
+    {
+        let test_name = "interpret_transaction_receipt_when_transaction_status_is_none_and_outside_waiting_interval";
+        let hash = make_tx_hash(567);
+        let rowid = 466;
+
+        let result = assert_interpreting_none_status_for_pending_payable(
+            test_name,
+            DEFAULT_PENDING_TOO_LONG_SEC,
+            DEFAULT_PENDING_TOO_LONG_SEC + 1,
+            rowid,
+            hash,
+        );
+
+        let elapsed_after = elapsed_since_secs_back(DEFAULT_PENDING_TOO_LONG_SEC + 1);
+        assert_eq!(
+            result,
+            PendingPayableScanReport {
+                still_pending: vec![],
+                failures: vec![PendingPayableId::new(rowid, hash)],
+                confirmed: vec![]
+            }
+        );
+        let capture_regex = "(\\d+){2}sec";
+        assert_log_msg_and_elapsed_time_in_log_makes_sense(&format!(
+            "ERROR: {}: Pending transaction 0x00000000000000000000000000000000000000\
+            00000000000000000000000237 has exceeded the maximum pending time \\({}sec\\) with the age \
+            \\d+sec and the confirmation process is going to be aborted now at the final attempt 1; manual \
+            resolution is required from the user to complete the transaction"
+            ,test_name, DEFAULT_PENDING_TOO_LONG_SEC, ),elapsed_after,capture_regex)
+    }
+
+    #[test]
+    fn interpret_transaction_receipt_when_transaction_status_is_none_and_within_waiting_interval() {
+        let test_name = "interpret_transaction_receipt_when_transaction_status_is_none_and_within_waiting_interval";
+        let hash = H256::from_uint(&U256::from(123));
+        let rowid = 333;
+        let pending_payable_age = DEFAULT_PENDING_TOO_LONG_SEC - 1;
+
+        let result = assert_interpreting_none_status_for_pending_payable(
+            test_name,
+            DEFAULT_PENDING_TOO_LONG_SEC,
+            pending_payable_age,
+            rowid,
+            hash,
+        );
+
+        let elapsed_after_ms = elapsed_since_secs_back(pending_payable_age) * 1000;
         assert_eq!(
             result,
             PendingPayableScanReport {
@@ -2096,10 +2137,41 @@ mod tests {
                 confirmed: vec![]
             }
         );
-        TestLogHandler::new().exists_log_containing(&format!(
+        let capture_regex = r#"\s(\d+)ms"#;
+        assert_log_msg_and_elapsed_time_in_log_makes_sense (&format!(
             "INFO: {test_name}: Pending transaction 0x0000000000000000000000000000000000000000000000000\
-            000000000000237 couldn't be confirmed at attempt 1 at {duration_in_ms}ms after its sending",
-        ));
+            00000000000007b couldn't be confirmed at attempt 1 at \\d+ms after its sending"), elapsed_after_ms, capture_regex);
+    }
+
+    #[test]
+    fn interpret_transaction_receipt_when_transaction_status_is_none_and_time_equals_the_limit() {
+        let test_name = "interpret_transaction_receipt_when_transaction_status_is_none_and_time_equals_the_limit";
+        let hash = H256::from_uint(&U256::from(567));
+        let rowid = 466;
+        let pending_payable_age = DEFAULT_PENDING_TOO_LONG_SEC;
+
+        let result = assert_interpreting_none_status_for_pending_payable(
+            test_name,
+            DEFAULT_PENDING_TOO_LONG_SEC,
+            pending_payable_age,
+            rowid,
+            hash,
+        );
+
+        let elapsed_after_ms = elapsed_since_secs_back(pending_payable_age) * 1000;
+        assert_eq!(
+            result,
+            PendingPayableScanReport {
+                still_pending: vec![PendingPayableId::new(rowid, hash)],
+                failures: vec![],
+                confirmed: vec![]
+            }
+        );
+        let capture_regex = r#"\s(\d+)ms"#;
+        assert_log_msg_and_elapsed_time_in_log_makes_sense(&format!(
+            "INFO: {test_name}: Pending transaction 0x0000000000000000000000000000000000000000000000000\
+            000000000000237 couldn't be confirmed at attempt 1 at \\d+ms after its sending",
+        ), elapsed_after_ms, capture_regex);
     }
 
     #[test]

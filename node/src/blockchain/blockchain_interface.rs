@@ -2240,8 +2240,10 @@ mod tests {
     #[test]
     fn blockchain_interface_non_clandestine_can_fetch_nonce() {
         let prepare_params_arc = Arc::new(Mutex::new(vec![]));
+        let send_params_arc = Arc::new(Mutex::new(vec![]));
         let transport = TestTransport::default()
             .prepare_params(&prepare_params_arc)
+            .send_params(&send_params_arc)
             .send_result(json!(
                 "0x0000000000000000000000000000000000000000000000000000000000000001"
             ));
@@ -2268,7 +2270,15 @@ mod tests {
                 String::from(r#""0x5c361ba8d82fcf0e5538b2a823e9d457a2296725""#),
                 String::from(r#""pending""#),
             ]
-        )
+        );
+        let send_params = send_params_arc.lock().unwrap();
+        let rpc_call_params = vec![
+            Value::String(String::from("0x5c361ba8d82fcf0e5538b2a823e9d457a2296725")),
+            Value::String(String::from("pending")),
+        ];
+        let expected_request =
+            web3::helpers::build_request(1, "eth_getTransactionCount", rpc_call_params);
+        assert_eq!(*send_params, vec![(1, expected_request)])
     }
 
     #[test]

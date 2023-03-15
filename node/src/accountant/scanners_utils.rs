@@ -18,7 +18,6 @@ pub mod payable_scanner_utils {
     use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
     use masq_lib::logger::Logger;
-    use masq_lib::utils::plus;
     #[cfg(test)]
     use std::any::Any;
     use std::cmp::Ordering;
@@ -126,40 +125,54 @@ pub mod payable_scanner_utils {
         }
     }
 
-    //TODO this method looks awful
+    type SeparateTxsByResult<'a> = (Vec<&'a PendingPayable>, Vec<H256>);
+
     fn separate_rpc_results<'a, 'b>(
-        individual_responses_in_the_batch: &'a [ProcessedPayableFallible],
+        batch_request_responses: &'a [ProcessedPayableFallible],
         logger: &'b Logger,
     ) -> (Vec<&'a PendingPayable>, Option<Vec<H256>>) {
-        fn add_another_correct_transaction<'a>(
-            acc: (Vec<&'a PendingPayable>, Vec<H256>),
-            pending_payable: &'a PendingPayable,
-        ) -> (Vec<&'a PendingPayable>, Vec<H256>) {
-            (plus(acc.0, pending_payable), acc.1)
-        }
-        fn add_another_rpc_failure(
-            acc: (Vec<&PendingPayable>, Vec<H256>),
-            hash: H256,
-        ) -> (Vec<&PendingPayable>, Vec<H256>) {
-            (acc.0, plus(acc.1, hash))
-        }
-
-        let init = (vec![], vec![]);
-        let (oks, errs) = individual_responses_in_the_batch
+        let (oks, errs) = batch_request_responses
             .iter()
-            .fold(init,|acc, rpc_result| match rpc_result {
-                Correct(pending_payable) => add_another_correct_transaction(acc, pending_payable),
-                Failed(RpcPayableFailure{rpc_error,recipient_wallet,hash }) => {
-                    warning!(logger,
-                        "Remote transaction failure: '{}' for payment to {} and transaction hash {:?}. \
-                      Please check your blockchain service URL configuration.", rpc_error, recipient_wallet, hash);
-                    add_another_rpc_failure(acc, *hash)
-                }
+            .fold((vec![], vec![]), |acc, rpc_result| {
+                fold_guts(acc, rpc_result, logger)
             });
 
         let errs_opt = if !errs.is_empty() { Some(errs) } else { None };
 
         (oks, errs_opt)
+    }
+
+    fn add_pending_payable<'a>(
+        (mut oks, errs): (Vec<&'a PendingPayable>, Vec<H256>),
+        pending_payable: &'a PendingPayable,
+    ) -> SeparateTxsByResult<'a> {
+        oks.push(pending_payable);
+        (oks, errs)
+    }
+
+    fn add_rpc_failure((oks, mut errs): SeparateTxsByResult, hash: H256) -> SeparateTxsByResult {
+        errs.push(hash);
+        (oks, errs)
+    }
+
+    fn fold_guts<'a, 'b>(
+        acc: SeparateTxsByResult<'a>,
+        rpc_result: &'a ProcessedPayableFallible,
+        logger: &'b Logger,
+    ) -> SeparateTxsByResult<'a> {
+        match rpc_result {
+            Correct(pending_payable) => add_pending_payable(acc, pending_payable),
+            Failed(RpcPayableFailure {
+                rpc_error,
+                recipient_wallet,
+                hash,
+            }) => {
+                warning!(logger, "Remote transaction failure: '{}' for payment to {} and transaction hash {:?}. \
+                      Please check your blockchain service URL configuration.", rpc_error, recipient_wallet, hash
+                );
+                add_rpc_failure(acc, *hash)
+            }
+        }
     }
 
     pub fn payables_debug_summary(qualified_accounts: &[(PayableAccount, u128)], logger: &Logger) {
@@ -195,19 +208,39 @@ pub mod payable_scanner_utils {
             oks.len(),
             count_total_errors(errs_opt)
                 .map(|err_count| (err_count + oks.len()).to_string())
-                .unwrap_or_else(|| "not determinable number of".to_string())
+                .unwrap_or_else(|| "an unknown number of".to_string())
         )
     }
 
-    pub fn fatal_database_mark_pending_payable_error(
+    pub(super) fn count_total_errors(
+        full_set_of_errors: &Option<PayableTransactingErrorEnum>,
+    ) -> Option<usize> {
+        match full_set_of_errors {
+            Some(errors) => match errors {
+                LocallyCausedError(blockchain_error) => match blockchain_error {
+                    PayableTransactionFailed {
+                        signed_and_hashed_txs_opt,
+                        ..
+                    } => signed_and_hashed_txs_opt
+                        .as_ref()
+                        .map(|hashes| hashes.len()),
+                    _ => None,
+                },
+                RemotelyCausedErrors(b_e) => Some(b_e.len()),
+            },
+            None => Some(0),
+        }
+    }
+
+    pub fn mark_pending_payable_fatal_error(
         sent_payments: &[&PendingPayable],
         nonexistent: &[RefWalletAndRowidOptCoupledWithHash],
         error: PayableDaoError,
-        missing_fingerprints_msg: fn(&[RefWalletAndRowidOptCoupledWithHash]) -> String,
+        missing_fingerprints_msg_maker: fn(&[RefWalletAndRowidOptCoupledWithHash]) -> String,
         logger: &Logger,
     ) {
         if !nonexistent.is_empty() {
-            error!(logger, "{}", missing_fingerprints_msg(nonexistent))
+            error!(logger, "{}", missing_fingerprints_msg_maker(nonexistent))
         };
         panic!(
             "Unable to create a mark in the payable table for wallets {} due to {:?}",
@@ -247,26 +280,6 @@ pub mod payable_scanner_utils {
             serialize_hashes(&hashes)
         );
         rowids
-    }
-
-    pub(super) fn count_total_errors(
-        full_set_of_errors: &Option<PayableTransactingErrorEnum>,
-    ) -> Option<usize> {
-        match full_set_of_errors {
-            Some(errors) => match errors {
-                LocallyCausedError(blockchain_error) => match blockchain_error {
-                    PayableTransactionFailed {
-                        signed_and_hashed_txs_opt,
-                        ..
-                    } => signed_and_hashed_txs_opt
-                        .as_ref()
-                        .map(|hashes| hashes.len()),
-                    _ => None,
-                },
-                RemotelyCausedErrors(b_e) => Some(b_e.len()),
-            },
-            None => Some(0),
-        }
     }
 
     pub trait PayableThresholdsGauge {
@@ -341,15 +354,17 @@ pub mod pending_payable_scanner_utils {
             .timestamp
             .elapsed()
             .expect("we should be older now");
-        if max_pending_interval <= elapsed.as_secs() {
+        let elapsed = elapsed.as_secs();
+        if max_pending_interval < elapsed {
             error!(
                 logger,
                 "Pending transaction {:?} has exceeded the maximum pending time \
-                ({}sec) and the confirmation process is going to be aborted now \
+                ({}sec) with the age {}sec and the confirmation process is going to be aborted now \
                 at the final attempt {}; manual resolution is required from the \
                 user to complete the transaction.",
                 fingerprint.hash,
                 max_pending_interval,
+                elapsed,
                 fingerprint.attempt
             );
             scan_report.failures.push(fingerprint.into())
@@ -802,7 +817,7 @@ mod tests {
 
         assert_eq!(
             result,
-            "Got 0 properly sent payables of not determinable number of attempts"
+            "Got 0 properly sent payables of an unknown number of attempts"
         )
     }
 }

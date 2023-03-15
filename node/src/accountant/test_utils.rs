@@ -1093,6 +1093,11 @@ impl PendingPayableScannerBuilder {
         self
     }
 
+    pub fn when_pending_too_long_sec(mut self, interval: u64) -> Self {
+        self.when_pending_too_long_sec = interval;
+        self
+    }
+
     pub fn build(self) -> PendingPayableScanner {
         PendingPayableScanner::new(
             Box::new(self.payable_dao),
