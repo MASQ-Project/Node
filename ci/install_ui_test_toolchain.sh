@@ -1,5 +1,5 @@
 #!/bin/bash -xev
-# Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+# Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 function install_linux() {
   wget -q -O - https://dl-ssl.google.com/linux/linux_signing_key.pub | sudo apt-key add -

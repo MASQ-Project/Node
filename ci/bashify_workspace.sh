@@ -1,5 +1,5 @@
 #!/bin/bash -xev
-# Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+# Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 if [[ "$1" == "" ]]; then
   WORKSPACE="$HOME"
