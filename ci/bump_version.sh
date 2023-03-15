@@ -5,29 +5,36 @@ CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 file=Cargo.toml
 final_exit_code=0
 
+declare -a crates=(
+  "automap"
+  "dns_utility"
+  "masq"
+  "masq_lib"
+  "multinode_integration_tests"
+  "node"
+  "port_exposer"
+)
 declare -a failed_crates
 
 bump_version() {
-  pushd "$1"
+  pushd """$CI_DIR""/../$1"
 
   sed -i '3s/version = .*/version = "'"$version"'"/' $file
   cargo generate-lockfile
   exit_code="$?"
   if [[ "$exit_code" != "0" ]]; then
       final_exit_code=1
-      failed_crates+=($(basename $1))
+      failed_crates+=($1)
   fi
 
   popd
 }
 
-bump_version "$CI_DIR"/../automap
-bump_version "$CI_DIR"/../masq_lib
-bump_version "$CI_DIR"/../node
-bump_version "$CI_DIR"/../dns_utility
-bump_version "$CI_DIR"/../masq
-bump_version "$CI_DIR"/../multinode_integration_tests
-bump_version "$CI_DIR"/../port_exposer
+for crate in "${crates[@]}"
+do
+   :
+   bump_version "$crate"
+done
 
 if [[ "${#failed_crates[@]}" != "0" ]]; then
   echo "Failed to generate lockfile for ${#failed_crates[@]} crates: ${failed_crates[*]}"
