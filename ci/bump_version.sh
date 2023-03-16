@@ -6,7 +6,7 @@ then
      exit 1
 fi
 
-version=$1
+version="$1"
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 file=Cargo.toml
 final_exit_code=0
@@ -25,7 +25,8 @@ declare -a failed_crates
 bump_version() {
   pushd "$CI_DIR/../$1"
 
-  sed -i '3s/version = .*/version = "'"$version"'"/' $file
+# Catches every `version` that begins a line and doesn't end with a comma.
+  sed -i 's/^version\s*=.*[^,]\s*$/version = "'"$version"'"/' $file
   cargo generate-lockfile
   exit_code="$?"
   if [[ "$exit_code" != "0" ]]; then
@@ -38,7 +39,6 @@ bump_version() {
 
 for crate in "${crates[@]}"
 do
-   :
    bump_version "$crate"
 done
 
