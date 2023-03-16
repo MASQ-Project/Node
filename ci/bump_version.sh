@@ -6,20 +6,21 @@ then
      exit 1
 fi
 
+echo "Searching for crates..."
+
+crates=($(find . -type d -exec sh -c '[ -f "$0"/Cargo.toml ]' '{}' \; -print))
+
+if [[ "${#crates[@]}" == "0" ]]; then
+  echo "No crates found."
+  exit 1
+else
+  echo "Found ${#crates[@]} crate(s): ${crates[*]}"
+fi
+
 version="$1"
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 file=Cargo.toml
 final_exit_code=0
-
-declare -a crates=(
-  "automap"
-  "dns_utility"
-  "masq"
-  "masq_lib"
-  "multinode_integration_tests"
-  "node"
-  "port_exposer"
-)
 
 declare -a grep_failures
 declare -a lockfile_failures
