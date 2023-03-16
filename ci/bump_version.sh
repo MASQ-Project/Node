@@ -24,9 +24,11 @@ declare -a failed_crates
 
 bump_version() {
   pushd "$CI_DIR/../$1"
+  # Catches every `version` that begins a line and doesn't end with a comma.
+  pattern='s/^version\s*=.*[^,]\s*$/version = "'"$version"'"/'
 
 # Catches every `version` that begins a line and doesn't end with a comma.
-  sed -i 's/^version\s*=.*[^,]\s*$/version = "'"$version"'"/' $file
+  sed -i "$pattern" "$file"
   cargo generate-lockfile
   exit_code="$?"
   if [[ "$exit_code" != "0" ]]; then
