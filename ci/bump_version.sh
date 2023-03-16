@@ -25,7 +25,6 @@ declare -a grep_failures
 declare -a lockfile_failures
 
 bump_version() {
-  pushd "$CI_DIR/../$1"
   # Catches every `version` that begins a line and doesn't end with a comma.
   find_pattern='^version\s*=.*[^,]\s*$'
   replace_pattern='s/'$find_pattern'/version = "'"$version"'"/'
@@ -44,20 +43,20 @@ bump_version() {
     final_exit_code=1
     lockfile_failures+=($1)
   fi
-
-  popd
 }
 
 for crate in "${crates[@]}"
 do
-   bump_version "$crate"
+  pushd "$CI_DIR/../$crate"
+  bump_version "$crate"
+  popd
 done
 
 if [[ $final_exit_code != 0 ]]; then
   [[ "${#grep_failures[@]}" != "0" ]] && echo "Failed to find 'version' for ${#grep_failures[@]} crate(s): ${grep_failures[*]}"
   [[ "${#lockfile_failures[@]}" != "0" ]] && echo "Failed to generate lockfile for ${#lockfile_failures[@]} crate(s): ${lockfile_failures[*]}"
 else
-  echo "The version number has been changed to $1."
+  echo "The version number has been changed to $version."
 fi
 
 exit $final_exit_code
