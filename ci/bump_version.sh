@@ -6,9 +6,13 @@ then
      exit 1
 fi
 
+version="$1"
+CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
+pushd "$CI_DIR/../"
+
 echo "Searching for crates..."
 
-crates=($(find . -type d -exec sh -c '[ -f "$0"/Cargo.toml ]' '{}' \; -print))
+crates=($(find . -type d -exec bash -c '[ -f "$0"/Cargo.toml ]' '{}' \; -print))
 
 if [[ "${#crates[@]}" == "0" ]]; then
   echo "No crates found."
@@ -17,11 +21,8 @@ else
   echo "Found ${#crates[@]} crate(s): ${crates[*]}"
 fi
 
-version="$1"
-CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 file=Cargo.toml
 final_exit_code=0
-
 declare -a grep_failures
 declare -a lockfile_failures
 
@@ -48,7 +49,7 @@ bump_version() {
 
 for crate in "${crates[@]}"
 do
-  pushd "$CI_DIR/../$crate"
+  pushd "$crate"
   bump_version "$crate"
   popd
 done
