@@ -1,4 +1,4 @@
-#!/bin/bash -xv
+#!/bin/bash
 
 if [ $# != 1 ]
 then
@@ -20,7 +20,9 @@ declare -a crates=(
   "node"
   "port_exposer"
 )
-declare -a failed_crates
+
+declare -a grep_failures
+declare -a lockfile_failures
 
 bump_version() {
   pushd "$CI_DIR/../$1"
@@ -28,12 +30,11 @@ bump_version() {
   find_pattern='^version\s*=.*[^,]\s*$'
   replace_pattern='s/'$find_pattern'/version = "'"$version"'"/'
 
-  grep -q "$find_pattern" "$file" | sed -i "$replace_pattern" "$file"
+  grep -q "$find_pattern" "$file" && sed -i "$replace_pattern" "$file"
   exit_code="$?"
   if [[ "$exit_code" != "0" ]]; then
-    echo "grep failed for crate $1"
     final_exit_code=1
-    failed_crates+=($1)
+    grep_failures+=($1)
     return
   fi
 
@@ -41,7 +42,7 @@ bump_version() {
   exit_code="$?"
   if [[ "$exit_code" != "0" ]]; then
     final_exit_code=1
-    failed_crates+=($1)
+    lockfile_failures+=($1)
   fi
 
   popd
@@ -52,8 +53,9 @@ do
    bump_version "$crate"
 done
 
-if [[ "${#failed_crates[@]}" != "0" ]]; then
-  echo "Failed to generate lockfile for ${#failed_crates[@]} crates: ${failed_crates[*]}"
+if [[ $final_exit_code != 0 ]]; then
+  [[ "${#grep_failures[@]}" != "0" ]] && echo "Failed to find 'version' for ${#grep_failures[@]} crate(s): ${grep_failures[*]}"
+  [[ "${#lockfile_failures[@]}" != "0" ]] && echo "Failed to generate lockfile for ${#lockfile_failures[@]} crate(s): ${lockfile_failures[*]}"
 else
   echo "The version number has been changed to $1."
 fi
