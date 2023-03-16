@@ -12,7 +12,6 @@ use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use node_lib::neighborhood::node_record::{NodeRecord, NodeRecordMetadata};
 use node_lib::neighborhood::AccessibleGossipRecord;
 use node_lib::sub_lib::cryptde::PublicKey;
-use node_lib::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 use node_lib::sub_lib::utils::time_t_timestamp;
 use node_lib::test_utils::neighborhood_test_utils::db_from_node;
 use std::collections::{BTreeSet, HashMap};
@@ -67,6 +66,7 @@ pub fn construct_neighborhood(
             .consuming_wallet_info(make_consuming_wallet_info(
                 model_db.root().public_key().to_string().as_str(),
             ))
+            .rate_pack(model_db.root().inner.rate_pack)
             .chain(cluster.chain)
             .build(),
     );
@@ -187,7 +187,10 @@ fn form_mock_node_skeleton(
         .full_neighbor_keys(model_db)
         .into_iter()
         .map(|model_node_key| {
-            let node = cluster.start_mock_node_with_public_key(vec![10000], model_node_key);
+            let mut configurable_node =
+                cluster.start_mutable_mock_node_with_public_key(vec![10000], model_node_key);
+            configurable_node.absorb_configuration(model_db.node_by_key(model_node_key).unwrap());
+            let node = cluster.finalize_and_add(configurable_node);
             node.transmit_debut(real_node).unwrap();
             node.wait_for_gossip(Duration::from_secs(2)).unwrap();
             let standard_gossip = StandardBuilder::new()
@@ -213,7 +216,6 @@ fn modify_node(
         None => model_node.node_addr_opt(),
     };
     gossip_node.metadata.node_addr_opt = node_addr_opt;
-    gossip_node.inner.rate_pack = DEFAULT_RATE_PACK;
     gossip_node.inner.version = 2;
     gossip_node.inner.neighbors = model_node
         .half_neighbor_keys()
@@ -247,9 +249,9 @@ fn from_masq_node_to_node_record(masq_node: &dyn MASQNode) -> NodeRecord {
     NodeRecord {
         inner: agr.inner.clone(),
         metadata: NodeRecordMetadata {
-            desirable_for_exit: true,
             last_update: time_t_timestamp(),
             node_addr_opt: agr.node_addr_opt.clone(),
+            unreachable_hosts: Default::default(),
         },
         signed_gossip: agr.signed_gossip.clone(),
         signature: agr.signature,
