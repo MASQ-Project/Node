@@ -5,7 +5,7 @@ use crate::accountant::dao_utils::VigilantRusqliteFlatten;
 use crate::accountant::gwei_to_wei;
 use crate::database::db_migrations::db_migrator::DatabaseMigration;
 use crate::database::db_migrations::migrator_utils::{
-    MigDeclarationUtilities, StatementObject, StatementWithRusqliteParams,
+    DBMigDeclarationUtilities, StatementObject, StatementWithRusqliteParams,
 };
 use crate::sub_lib::neighborhood::RatePack;
 use itertools::Itertools;
@@ -14,14 +14,8 @@ use rusqlite::{Row, ToSql};
 #[allow(non_camel_case_types)]
 pub struct Migrate_6_to_7;
 
-#[allow(non_camel_case_types)]
-struct Migrate_6_to_7_carrier<'a> {
-    utils: &'a (dyn MigDeclarationUtilities + 'a),
-    statements: Vec<Box<dyn StatementObject>>,
-}
-
 impl DatabaseMigration for Migrate_6_to_7 {
-    fn migrate<'a>(&self, utils: Box<dyn MigDeclarationUtilities + 'a>) -> rusqlite::Result<()> {
+    fn migrate<'a>(&self, utils: Box<dyn DBMigDeclarationUtilities + 'a>) -> rusqlite::Result<()> {
         let mut migration_carrier = Migrate_6_to_7_carrier::new(utils.as_ref());
         migration_carrier.retype_table(
             "payable",
@@ -68,8 +62,14 @@ impl DatabaseMigration for Migrate_6_to_7 {
     }
 }
 
+#[allow(non_camel_case_types)]
+struct Migrate_6_to_7_carrier<'a> {
+    utils: &'a (dyn DBMigDeclarationUtilities + 'a),
+    statements: Vec<Box<dyn StatementObject>>,
+}
+
 impl<'a> Migrate_6_to_7_carrier<'a> {
-    fn new(utils: &'a (dyn MigDeclarationUtilities + 'a)) -> Self {
+    fn new(utils: &'a (dyn DBMigDeclarationUtilities + 'a)) -> Self {
         Self {
             utils,
             statements: vec![],

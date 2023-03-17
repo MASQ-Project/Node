@@ -10,8 +10,8 @@ use crate::database::db_migrations::migrations::migration_4_to_5::Migrate_4_to_5
 use crate::database::db_migrations::migrations::migration_5_to_6::Migrate_5_to_6;
 use crate::database::db_migrations::migrations::migration_6_to_7::Migrate_6_to_7;
 use crate::database::db_migrations::migrator_utils::{
-    DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration,
-    MigDeclarationUtilities,
+    DBMigDeclarationUtilities, DBMigrationUtilities, DBMigrationUtilitiesReal,
+    DBMigratorInnerConfiguration,
 };
 use masq_lib::logger::Logger;
 use rusqlite::Transaction;
@@ -54,7 +54,7 @@ impl DbMigrator for DbMigratorReal {
 pub trait DatabaseMigration {
     fn migrate<'a>(
         &self,
-        mig_declaration_utilities: Box<dyn MigDeclarationUtilities + 'a>,
+        mig_declaration_utilities: Box<dyn DBMigDeclarationUtilities + 'a>,
     ) -> rusqlite::Result<()>;
     fn old_version(&self) -> usize;
 }
@@ -189,15 +189,16 @@ mod tests {
     };
     use crate::database::db_migrations::migrations::migration_0_to_1::Migrate_0_to_1;
     use crate::database::db_migrations::migrator_utils::{
-        DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration,
-        MigDeclarationUtilities, StatementObject,
+        DBMigDeclarationUtilities, DBMigrationUtilities, DBMigrationUtilitiesReal,
+        DBMigratorInnerConfiguration,
     };
+    use crate::database::db_migrations::test_utils::DBMigDeclarationUtilitiesMock;
     use crate::test_utils::database_utils::make_external_data;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use masq_lib::utils::NeighborhoodModeLight;
-    use rusqlite::{Connection, Error, Transaction};
+    use rusqlite::{Connection, Error};
     use std::cell::RefCell;
     use std::fmt::Debug;
     use std::iter::once;
@@ -208,7 +209,7 @@ mod tests {
     struct DBMigrationUtilitiesMock {
         too_high_found_schema_will_panic_params: Arc<Mutex<Vec<usize>>>,
         make_mig_declaration_utils_params: Arc<Mutex<Vec<ExternalData>>>,
-        make_mig_declaration_utils_results: RefCell<Vec<Box<dyn MigDeclarationUtilities>>>,
+        make_mig_declaration_utils_results: RefCell<Vec<Box<dyn DBMigDeclarationUtilities>>>,
         update_schema_version_params: Arc<Mutex<Vec<usize>>>,
         update_schema_version_results: RefCell<Vec<rusqlite::Result<()>>>,
         commit_results: RefCell<Vec<Result<(), String>>>,
@@ -240,7 +241,7 @@ mod tests {
 
         pub fn make_mig_declaration_utils_result(
             self,
-            result: Box<dyn MigDeclarationUtilities>,
+            result: Box<dyn DBMigDeclarationUtilities>,
         ) -> Self {
             self.make_mig_declaration_utils_results
                 .borrow_mut()
@@ -266,7 +267,7 @@ mod tests {
             &'a self,
             external: &'a ExternalData,
             _logger: &'a Logger,
-        ) -> Box<dyn MigDeclarationUtilities + 'a> {
+        ) -> Box<dyn DBMigDeclarationUtilities + 'a> {
             self.make_mig_declaration_utils_params
                 .lock()
                 .unwrap()
@@ -281,67 +282,6 @@ mod tests {
                 .lock()
                 .unwrap()
                 .push(mismatched_schema);
-        }
-    }
-
-    #[derive(Default)]
-    struct DBMigrateDeclarationUtilitiesMock {
-        db_password_results: RefCell<Vec<Option<String>>>,
-        execute_upon_transaction_params: Arc<Mutex<Vec<Vec<String>>>>,
-        execute_upon_transaction_results: RefCell<Vec<rusqlite::Result<()>>>,
-    }
-
-    impl DBMigrateDeclarationUtilitiesMock {
-        #[allow(dead_code)]
-        pub fn db_password_result(self, result: Option<String>) -> Self {
-            self.db_password_results.borrow_mut().push(result);
-            self
-        }
-
-        pub fn execute_upon_transaction_params(
-            mut self,
-            params: &Arc<Mutex<Vec<Vec<String>>>>,
-        ) -> Self {
-            self.execute_upon_transaction_params = params.clone();
-            self
-        }
-
-        pub fn execute_upon_transaction_result(self, result: rusqlite::Result<()>) -> Self {
-            self.execute_upon_transaction_results
-                .borrow_mut()
-                .push(result);
-            self
-        }
-    }
-
-    impl MigDeclarationUtilities for DBMigrateDeclarationUtilitiesMock {
-        fn db_password(&self) -> Option<String> {
-            self.db_password_results.borrow_mut().remove(0)
-        }
-
-        fn transaction(&self) -> &Transaction {
-            unimplemented!("Not needed so far")
-        }
-
-        fn execute_upon_transaction<'a>(
-            &self,
-            sql_statements: &[&'a dyn StatementObject],
-        ) -> rusqlite::Result<()> {
-            self.execute_upon_transaction_params.lock().unwrap().push(
-                sql_statements
-                    .iter()
-                    .map(|stm_obj| stm_obj.to_string())
-                    .collect::<Vec<String>>(),
-            );
-            self.execute_upon_transaction_results.borrow_mut().remove(0)
-        }
-
-        fn external_parameters(&self) -> &ExternalData {
-            unimplemented!("Not needed so far")
-        }
-
-        fn logger(&self) -> &Logger {
-            unimplemented!("Not needed so far")
         }
     }
 
@@ -383,7 +323,7 @@ mod tests {
     impl DatabaseMigration for DBMigrationRecordMock {
         fn migrate<'a>(
             &self,
-            _migration_utilities: Box<dyn MigDeclarationUtilities + 'a>,
+            _migration_utilities: Box<dyn DBMigDeclarationUtilities + 'a>,
         ) -> rusqlite::Result<()> {
             self.migrate_params.lock().unwrap().push(());
             self.migrate_result.borrow_mut().remove(0)
@@ -519,9 +459,7 @@ mod tests {
             .old_version_result(4)
             .migrate_result(Ok(()));
         let migration_utilities = DBMigrationUtilitiesMock::default()
-            .make_mig_declaration_utils_result(Box::new(
-                DBMigrateDeclarationUtilitiesMock::default(),
-            ))
+            .make_mig_declaration_utils_result(Box::new(DBMigDeclarationUtilitiesMock::default()))
             .update_schema_version_result(Err(Error::InvalidQuery))
             .update_schema_version_params(&update_schema_version_params_arc);
         let subject = DbMigratorReal::new(make_external_data());
@@ -544,7 +482,7 @@ mod tests {
             .old_version_result(0)
             .migrate_result(Err(Error::InvalidColumnIndex(5)))
             as &dyn DatabaseMigration];
-        let migrate_declaration_utils = DBMigrateDeclarationUtilitiesMock::default();
+        let migrate_declaration_utils = DBMigDeclarationUtilitiesMock::default();
         let migration_utils = DBMigrationUtilitiesMock::default()
             .make_mig_declaration_utils_result(Box::new(migrate_declaration_utils));
         let mismatched_schema = 0;
@@ -724,7 +662,7 @@ mod tests {
         let make_mig_declaration_params_arc = Arc::new(Mutex::new(vec![]));
         let outdated_schema = 0;
         let list = &[&Migrate_0_to_1 as &dyn DatabaseMigration];
-        let db_migrate_declaration_utilities = DBMigrateDeclarationUtilitiesMock::default()
+        let db_migrate_declaration_utilities = DBMigDeclarationUtilitiesMock::default()
             .execute_upon_transaction_params(&execute_upon_transaction_params_arc)
             .execute_upon_transaction_result(Ok(()));
         let migration_utils = DBMigrationUtilitiesMock::default()
@@ -785,12 +723,8 @@ mod tests {
             ),
         ];
         let migration_utils = DBMigrationUtilitiesMock::default()
-            .make_mig_declaration_utils_result(Box::new(
-                DBMigrateDeclarationUtilitiesMock::default(),
-            ))
-            .make_mig_declaration_utils_result(Box::new(
-                DBMigrateDeclarationUtilitiesMock::default(),
-            ))
+            .make_mig_declaration_utils_result(Box::new(DBMigDeclarationUtilitiesMock::default()))
+            .make_mig_declaration_utils_result(Box::new(DBMigDeclarationUtilitiesMock::default()))
             .update_schema_version_result(Ok(()))
             .update_schema_version_result(Ok(()))
             .commit_result(Err("Committing transaction failed".to_string()));

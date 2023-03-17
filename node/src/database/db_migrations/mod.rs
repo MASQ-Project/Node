@@ -3,3 +3,4 @@
 pub mod db_migrator;
 pub mod migrations;
 pub mod migrator_utils;
+pub mod test_utils;

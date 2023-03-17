@@ -8,7 +8,7 @@ use masq_lib::utils::{ExpectValue, WrapResult};
 use rusqlite::{params_from_iter, Error, ToSql, Transaction};
 use std::fmt::{Display, Formatter};
 
-pub trait MigDeclarationUtilities {
+pub trait DBMigDeclarationUtilities {
     fn db_password(&self) -> Option<String>;
     fn transaction(&self) -> &Transaction;
     fn execute_upon_transaction<'a>(
@@ -28,7 +28,7 @@ pub trait DBMigrationUtilities {
         &'a self,
         external: &'a ExternalData,
         logger: &'a Logger,
-    ) -> Box<dyn MigDeclarationUtilities + 'a>;
+    ) -> Box<dyn DBMigDeclarationUtilities + 'a>;
 
     fn too_high_schema_panics(&self, mismatched_schema: usize);
 }
@@ -78,8 +78,8 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
         &'b self,
         external: &'b ExternalData,
         logger: &'b Logger,
-    ) -> Box<dyn MigDeclarationUtilities + 'b> {
-        Box::new(MigDeclarationUtilitiesReal::new(
+    ) -> Box<dyn DBMigDeclarationUtilities + 'b> {
+        Box::new(DBMigDeclarationUtilitiesReal::new(
             self.root_transaction_ref(),
             external,
             logger,
@@ -97,13 +97,13 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
     }
 }
 
-struct MigDeclarationUtilitiesReal<'a> {
+struct DBMigDeclarationUtilitiesReal<'a> {
     root_transaction_ref: &'a Transaction<'a>,
     external: &'a ExternalData,
     logger: &'a Logger,
 }
 
-impl<'a> MigDeclarationUtilitiesReal<'a> {
+impl<'a> DBMigDeclarationUtilitiesReal<'a> {
     fn new(
         root_transaction_ref: &'a Transaction<'a>,
         external: &'a ExternalData,
@@ -117,7 +117,7 @@ impl<'a> MigDeclarationUtilitiesReal<'a> {
     }
 }
 
-impl MigDeclarationUtilities for MigDeclarationUtilitiesReal<'_> {
+impl DBMigDeclarationUtilities for DBMigDeclarationUtilitiesReal<'_> {
     fn db_password(&self) -> Option<String> {
         self.external.db_password_opt.clone()
     }
@@ -132,10 +132,12 @@ impl MigDeclarationUtilities for MigDeclarationUtilitiesReal<'_> {
     ) -> rusqlite::Result<()> {
         let transaction = self.root_transaction_ref;
         sql_statements.iter().fold(Ok(()), |so_far, stm| {
+            println!("{}", stm);
             if so_far.is_ok() {
                 match stm.execute(transaction) {
                     Ok(_) => Ok(()),
-                    Err(e) if e == Error::ExecuteReturnedResults => Ok(()),
+                    Err(e) if e == Error::ExecuteReturnedResults =>
+                        panic!("Statements returning values should be avoided with execute_upon_transaction, caused by: {}",stm),
                     Err(e) => Err(e),
                 }
             } else {
@@ -214,7 +216,7 @@ struct InterimMigrationPlaceholder(usize);
 impl DatabaseMigration for InterimMigrationPlaceholder {
     fn migrate<'a>(
         &self,
-        _mig_declaration_utilities: Box<dyn MigDeclarationUtilities + 'a>,
+        _mig_declaration_utilities: Box<dyn DBMigDeclarationUtilities + 'a>,
     ) -> rusqlite::Result<()> {
         Ok(())
     }
@@ -347,10 +349,13 @@ mod tests {
     }
 
     #[test]
-    fn execute_upon_transaction_handles_also_statements_that_return_something() {
+    #[should_panic(
+        expected = "Statements returning values should be avoided with execute_upon_transaction, caused by: SELECT * FROM botanic_garden"
+    )]
+    fn execute_upon_transaction_panics_because_statement_returns() {
         let dir_path = ensure_node_home_directory_exists(
             "db_migrations",
-            "execute_upon_transaction_handles_also_statements_that_return_something",
+            "execute_upon_transaction_panics_because_statement_returns",
         );
         let db_path = dir_path.join("test_database.db");
         let connection = Connection::open(&db_path).unwrap();
@@ -364,28 +369,16 @@ mod tests {
             )
             .unwrap();
         let statement_1 = "INSERT INTO botanic_garden (name,count) VALUES ('sun_flowers', 100)";
-        let statement_2 = "ALTER TABLE botanic_garden RENAME TO just_garden"; //this statement returns an overview of the new table on its execution
-        let statement_3 = "COMMIT";
-        let set_of_sql_statements: &[&dyn StatementObject] =
-            &[&statement_1, &statement_2, &statement_3];
+        let statement_2 = "SELECT * FROM botanic_garden"; //this statement returns data
+        let set_of_sql_statements: &[&dyn StatementObject] = &[&statement_1, &statement_2];
         let mut connection_wrapper = ConnectionWrapperReal::new(connection);
         let config = DBMigratorInnerConfiguration::new();
         let external_parameters = make_external_data();
         let subject = DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap();
 
-        let result = subject
+        let _ = subject
             .make_mig_declaration_utils(&external_parameters, &Logger::new("test logger"))
             .execute_upon_transaction(set_of_sql_statements);
-
-        assert_eq!(result, Ok(()));
-        let connection = Connection::open(&db_path).unwrap();
-        let assertion: Option<(String, i64)> = connection
-            .query_row("SELECT name, count FROM just_garden", [], |row| {
-                Ok((row.get(0).unwrap(), row.get(1).unwrap()))
-            })
-            .optional()
-            .unwrap();
-        assert!(assertion.is_some()) //means there is a table named 'just_garden' now
     }
 
     #[test]
@@ -407,7 +400,7 @@ mod tests {
         let statement_1_simple =
             "INSERT INTO botanic_garden (name,count) VALUES ('sun_flowers', 100)";
         let statement_2_good = StatementWithRusqliteParams {
-            sql_stm: "select * from botanic_garden".to_string(),
+            sql_stm: "update botanic_garden set count = 111 where name = 'sun_flowers'".to_string(),
             params: {
                 let params: Vec<Box<dyn ToSql>> = vec![];
                 params

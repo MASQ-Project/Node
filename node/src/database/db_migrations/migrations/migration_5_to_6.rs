@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::database::db_migrations::db_migrator::DatabaseMigration;
-use crate::database::db_migrations::migrator_utils::MigDeclarationUtilities;
+use crate::database::db_migrations::migrator_utils::DBMigDeclarationUtilities;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
 
@@ -11,7 +11,7 @@ pub struct Migrate_5_to_6;
 impl DatabaseMigration for Migrate_5_to_6 {
     fn migrate<'a>(
         &self,
-        declaration_utils: Box<dyn MigDeclarationUtilities + 'a>,
+        declaration_utils: Box<dyn DBMigDeclarationUtilities + 'a>,
     ) -> rusqlite::Result<()> {
         let statement_1 = Self::make_initialization_statement(
             "payment_thresholds",
