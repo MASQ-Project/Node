@@ -623,7 +623,7 @@ impl InterfaceWrapper for InterfaceRawMock {
         if let Err(err) = taken_result {
             Err(err)
         } else {
-            (taken_result.unwrap() as Box<dyn WriterLock + 'static>).wrap_to_ok()
+            Ok(taken_result.unwrap() as Box<dyn WriterLock + 'static>)
         }
     }
 
