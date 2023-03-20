@@ -25,6 +25,7 @@ pub struct ProxyClientConfig {
     pub dns_servers: Vec<SocketAddr>,
     pub exit_service_rate: u64,
     pub exit_byte_rate: u64,
+    pub is_decentralized: bool,
     pub crashable: bool,
 }
 

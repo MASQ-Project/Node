@@ -40,6 +40,7 @@ use ethsign_crypto::Keccak256;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+use rand::RngCore;
 use regex::Regex;
 use rustc_hex::ToHex;
 use serde_derive::{Deserialize, Serialize};
@@ -182,12 +183,22 @@ pub fn make_meaningless_message_type() -> MessageType {
     DnsResolveFailure_0v1::new(make_meaningless_stream_key()).into()
 }
 
+pub fn make_one_way_route_to_proxy_client(public_keys: Vec<&PublicKey>) -> Route {
+    Route::one_way(
+        RouteSegment::new(public_keys, Component::ProxyClient),
+        main_cryptde(),
+        Some(make_paying_wallet(b"irrelevant")),
+        Some(TEST_DEFAULT_CHAIN.rec().contract),
+    )
+    .unwrap()
+}
+
 pub fn make_meaningless_route() -> Route {
     Route::one_way(
         RouteSegment::new(
             vec![
-                &PublicKey::new(&b"ooga"[..]),
-                &PublicKey::new(&b"booga"[..]),
+                &make_meaningless_public_key(),
+                &make_meaningless_public_key(),
             ],
             Component::ProxyClient,
         ),
@@ -199,7 +210,7 @@ pub fn make_meaningless_route() -> Route {
 }
 
 pub fn make_meaningless_public_key() -> PublicKey {
-    PublicKey::new(&make_garbage_data(8))
+    PublicKey::new(&make_garbage_data(main_cryptde().public_key().len()))
 }
 
 pub fn make_meaningless_wallet_private_key() -> PlainData {
@@ -211,8 +222,12 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
     )
 }
 
-pub fn route_to_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
-    shift_one_hop(zero_hop_route_response(key, cryptde).route, cryptde)
+// TODO: The three functions below should use only one argument, cryptde
+pub fn route_to_proxy_client(main_key: &PublicKey, main_cryptde: &dyn CryptDE) -> Route {
+    shift_one_hop(
+        zero_hop_route_response(main_key, main_cryptde).route,
+        main_cryptde,
+    )
 }
 
 pub fn route_from_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
@@ -259,7 +274,9 @@ pub fn encrypt_return_route_id(return_route_id: u32, cryptde: &dyn CryptDE) -> C
 }
 
 pub fn make_garbage_data(bytes: usize) -> Vec<u8> {
-    vec![0; bytes]
+    let mut data = vec![0; bytes];
+    rand::thread_rng().fill_bytes(&mut data);
+    data
 }
 
 pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRequestPayload_0v1 {
@@ -272,7 +289,7 @@ pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientReques
         target_hostname: Some("example.com".to_string()),
         target_port: HTTP_PORT,
         protocol: ProxyProtocol::HTTP,
-        originator_public_key: cryptde.public_key().clone(),
+        originator_alias_public_key: cryptde.public_key().clone(),
     }
 }
 
@@ -294,13 +311,13 @@ pub fn rate_pack_routing_byte(base_rate: u64) -> u64 {
     base_rate + 1
 }
 pub fn rate_pack_routing(base_rate: u64) -> u64 {
-    base_rate + 2
+    base_rate + 200
 }
 pub fn rate_pack_exit_byte(base_rate: u64) -> u64 {
     base_rate + 3
 }
 pub fn rate_pack_exit(base_rate: u64) -> u64 {
-    base_rate + 4
+    base_rate + 400
 }
 
 pub fn rate_pack(base_rate: u64) -> RatePack {

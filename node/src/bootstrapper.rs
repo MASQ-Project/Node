@@ -90,7 +90,12 @@ impl Clone for CryptDEPair {
 
 #[derive(Copy)]
 pub struct CryptDEPair {
+    // This has the public key by which this Node is known to other Nodes on the network
     pub main: &'static dyn CryptDE,
+    // This has the public key with which this Node instructs exit Nodes to encrypt responses.
+    // In production, it is unrelated to the main public key to prevent the exit Node from
+    // identifying the originating Node. In tests using --fake-public-key, the alias public key
+    // is the main public key reversed.
     pub alias: &'static dyn CryptDE,
 }
 
