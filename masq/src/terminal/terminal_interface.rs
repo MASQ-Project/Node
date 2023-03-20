@@ -7,7 +7,6 @@ use crate::terminal::secondary_infrastructure::{
 use linefeed::{Interface, Signal};
 use masq_lib::command::StdStreams;
 use masq_lib::constants::MASQ_PROMPT;
-// use masq_lib::utils::WrapResult;
 use std::sync::Arc;
 
 #[cfg(not(test))]
@@ -65,7 +64,9 @@ impl TerminalWrapper {
         if std::env::var(prod_cfg::MASQ_TEST_INTEGRATION_KEY)
             .eq(&Ok(prod_cfg::MASQ_TEST_INTEGRATION_VALUE.to_string()))
         {
-            Ok(TerminalWrapper::new(Arc::new(prod_cfg::IntegrationTestTerminal::default())))
+            Ok(TerminalWrapper::new(Arc::new(
+                prod_cfg::IntegrationTestTerminal::default(),
+            )))
         } else {
             //we have no positive test aimed at this (only negative and as an integration test)
             Self::configure_interface_generic(Box::new(prod_cfg::DefaultTerminal::new))
@@ -83,7 +84,6 @@ impl TerminalWrapper {
             terminal_creator_of_certain_type,
             Box::new(Interface::with_term),
         )?)))
-        
     }
 }
 
