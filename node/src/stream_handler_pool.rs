@@ -769,6 +769,7 @@ mod tests {
     use std::net::Ipv4Addr;
     use std::ops::Deref;
     use std::str::FromStr;
+    use std::sync::mpsc::SendError;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::SystemTime;
@@ -1749,6 +1750,57 @@ mod tests {
         let poll_write_params = poll_write_params_arc.lock().unwrap();
 
         assert_eq!(poll_write_params[0], msg_a.data);
+    }
+
+    #[test]
+    fn log_an_error_when_it_fails_to_send_a_packet() {
+        init_test_logging();
+        let cryptde = main_cryptde();
+        let key = cryptde.public_key().clone();
+        let peer_addr = SocketAddr::from_str("127.0.0.1:8005").unwrap();
+        let sw_key = StreamWriterKey::from(peer_addr);
+        let sender_wrapper_unbounded_send_params_arc = Arc::new(Mutex::new(vec![]));
+        let send_error = {
+            let (tx, rx) = futures::sync::mpsc::unbounded();
+            drop(rx);
+            tx.unbounded_send(SequencedPacket {
+                data: vec![],
+                sequence_number: 0,
+                last_data: false,
+            })
+            .unwrap_err()
+        };
+        let sender_wrapper = SenderWrapperMock::new(peer_addr)
+            .unbounded_send_params(&sender_wrapper_unbounded_send_params_arc)
+            .unbounded_send_result(Err(send_error));
+        let mut subject = StreamHandlerPool::new(vec![], false);
+        subject
+            .stream_writers
+            .insert(sw_key, Some(Box::new(sender_wrapper)));
+        let msg = DispatcherNodeQueryResponse {
+            result: Some(NodeQueryResponseMetadata {
+                public_key: key,
+                node_addr_opt: Some(NodeAddr::new(&peer_addr.ip(), &[peer_addr.port()])),
+                rate_pack: ZERO_RATE_PACK.clone(),
+            }),
+            context: TransmitDataMsg {
+                endpoint: Endpoint::Socket(peer_addr.clone()),
+                last_data: true,
+                sequence_number: Some(0),
+                data: b"hello".to_vec(),
+            },
+        };
+
+        let _ = subject.handle_dispatcher_node_query_response(msg);
+
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(
+            format!(
+                "ERROR: Dispatcher: Removing channel to disabled StreamWriter {} to {}: send failed because receiver is gone",
+                StreamWriterKey::from (peer_addr), peer_addr,
+            )
+                .as_str(),
+        );
     }
 
     #[test]
