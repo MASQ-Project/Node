@@ -1434,6 +1434,11 @@ eprintln! ("After checkout in test: {:?}", announce_socket_holder.socket.local_a
         subject.router_port = router_port;
         subject.announcement_multicast_group = announce_socket_holder.group;
         subject.announcement_port = announcement_port;
+        let multicast_address = SocketAddr::new (
+            IpAddr::V4(Ipv4Addr::new(224, 0, 0, announce_socket_holder.group)),
+            announcement_port
+        );
+        let factory = UdpSocketWrapperFactoryReal::new();
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
         let change_handler = move |change| {
@@ -1458,7 +1463,8 @@ eprintln! ("After checkout in test: {:?}", announce_socket_holder.socket.local_a
         announce_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();
-        let mapping_socket = UdpSocket::bind(SocketAddr::new(localhost(), router_port)).unwrap();
+let mapping_socket = factory.make_multicast(announce_socket_holder.group, announcement_port).unwrap();
+        // let mapping_socket = UdpSocket::bind(SocketAddr::new(localhost(), router_port)).unwrap();
         mapping_socket.set_read_timeout(Some (Duration::from_millis (1000))).unwrap();
         // Router announces to housekeeping thread that the public IP has changed
         let mut packet = vanilla_response();
@@ -1466,7 +1472,12 @@ eprintln! ("After checkout in test: {:?}", announce_socket_holder.socket.local_a
         packet.lifetime = 0;
         packet.epoch_time_opt = Some(0);
         let len_to_send = packet.marshal(&mut buffer).unwrap();
-        let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
+        // socket_sender.send_to(message, SocketAddr::V4(multicast_address)).unwrap();
+        // let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
+let sent_len = announce_socket.send_to(
+    &buffer[0..len_to_send],
+    multicast_address,
+).unwrap();
         assert_eq!(sent_len, len_to_send);
         // Router receives mapping request from housekeeping thread to stimulate transmission of
         // new public IP address
