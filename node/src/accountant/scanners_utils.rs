@@ -116,7 +116,7 @@ pub mod payable_scanner_utils {
             Err(e) => {
                 warning!(
                     logger,
-                    "Failed process to be screened for persisted data. Caused by: {}",
+                    "Any persisted data from failed process will be deleted. Caused by: {}",
                     e
                 );
 
@@ -539,7 +539,7 @@ mod tests {
 
         assert!(oks.is_empty());
         assert_eq!(errs, Some(LocallyCausedError(error)));
-        TestLogHandler::new().exists_log_containing("WARN: test_logger: Failed process to be screened for persisted data. Caused by: \
+        TestLogHandler::new().exists_log_containing("WARN: test_logger: Any persisted data from failed process will be deleted. Caused by: \
          Blockchain error: Occurred at the final batch processing: \"bad timing\". Without prepared transactions, no hashes to report");
     }
 
@@ -573,9 +573,10 @@ mod tests {
     }
 
     #[test]
-    fn payables_debug_summary_stays_inert_if_no_qualified_payments() {
+    fn payables_debug_summary_displays_nothing_for_no_qualified_payments() {
         init_test_logging();
-        let logger = Logger::new("payables_debug_summary_stays_inert_if_no_qualified_payments");
+        let logger =
+            Logger::new("payables_debug_summary_displays_nothing_for_no_qualified_payments");
 
         payables_debug_summary(&vec![], &logger);
 
@@ -752,7 +753,7 @@ mod tests {
     }
 
     #[test]
-    fn count_total_errors_says_unidentifiable_for_very_early_local_error() {
+    fn count_total_errors_says_unknown_number_for_local_error_from_the_beginning() {
         let sent_payable = Some(LocallyCausedError(BlockchainError::InvalidUrl));
 
         let result = count_total_errors(&sent_payable);
@@ -761,7 +762,7 @@ mod tests {
     }
 
     #[test]
-    fn count_total_errors_says_unidentifiable_for_local_error_before_signing() {
+    fn count_total_errors_says_unknown_number_for_local_error_before_signing() {
         let error = PayableTransactionFailed {
             msg: "Ouuuups".to_string(),
             signed_and_hashed_txs_opt: None,

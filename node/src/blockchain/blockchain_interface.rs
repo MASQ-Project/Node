@@ -1,11 +1,11 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
+use crate::blockchain::batch_payable_tools::{BatchPayableTools, BatchPayableToolsReal};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::BlockchainError::{
     InvalidAddress, InvalidResponse, InvalidUrl, PayableTransactionFailed, QueryFailed,
 };
-use crate::sub_lib::blockchain_bridge::{BatchPayableTools, BatchPayableToolsReal};
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, Recipient};
 use futures::{future, Future};
@@ -356,7 +356,7 @@ where
             gas_price
         );
 
-        let hashes_and_paid_amounts = self.sign_and_register_multiple_payments(
+        let hashes_and_paid_amounts = self.sign_and_append_multiple_payments(
             consuming_wallet,
             gas_price,
             pending_nonce,
@@ -364,7 +364,7 @@ where
         )?;
         let timestamp = self.batch_payable_tools.batch_wide_timestamp();
         self.batch_payable_tools
-            .send_new_payable_fingerprints_credentials(
+            .send_new_payable_fingerprints_seeds(
                 timestamp,
                 new_fingerprints_recipient,
                 &hashes_and_paid_amounts,
@@ -462,7 +462,7 @@ where
         }
     }
 
-    fn sign_and_register_multiple_payments(
+    fn sign_and_append_multiple_payments(
         &self,
         consuming_wallet: &Wallet,
         gas_price: u64,
@@ -472,29 +472,49 @@ where
         let init: (HashAndAmountResult, Option<U256>) =
             (Ok(Vec::with_capacity(accounts.len())), Some(pending_nonce));
 
-        let (result, _) = accounts
-            .iter()
-            .fold(init, |(acc, pending_nonce_opt), account| {
-                if let Ok(hashes_and_amounts) = acc {
-                    let nonce = pending_nonce_opt.expectv("pending nonce");
-                    (
-                        self.sign_and_register_single_payment(
-                            hashes_and_amounts,
-                            consuming_wallet,
-                            nonce,
-                            gas_price,
-                            account,
-                        ),
-                        Some(Self::advance_used_nonce(nonce)),
+        let (result, _) = accounts.iter().fold(
+            init,
+            |(processed_outputs_res, pending_nonce_opt), account| {
+                if let Ok(hashes_and_amounts) = processed_outputs_res {
+                    self.handle_payable_account(
+                        pending_nonce_opt,
+                        hashes_and_amounts,
+                        consuming_wallet,
+                        gas_price,
+                        account,
                     )
                 } else {
-                    (acc, None)
+                    (processed_outputs_res, None)
                 }
-            });
+            },
+        );
         result
     }
 
-    fn sign_and_register_single_payment(
+    fn handle_payable_account(
+        &self,
+        pending_nonce_opt: Option<U256>,
+        hashes_and_amounts: Vec<(H256, u128)>,
+        consuming_wallet: &Wallet,
+        gas_price: u64,
+        account: &PayableAccount,
+    ) -> (HashAndAmountResult, Option<U256>) {
+        let nonce = pending_nonce_opt.expectv("pending nonce");
+        let updated_collected_attributes_of_processed_payments = self.sign_and_append_payment(
+            hashes_and_amounts,
+            consuming_wallet,
+            nonce,
+            gas_price,
+            account,
+        );
+        let advanced_nonce = Self::advance_used_nonce(nonce);
+        (
+            updated_collected_attributes_of_processed_payments,
+            Some(advanced_nonce),
+        )
+    }
+
+    fn sign_and_append_payment(
         &self,
         mut hashes_and_amounts: Vec<(H256, u128)>,
         consuming_wallet: &Wallet,
@@ -580,7 +600,7 @@ where
         let signed_tx =
             self.sign_transaction(recipient, consuming_wallet, amount, nonce, gas_price)?;
         self.batch_payable_tools
-            .enter_raw_transaction_to_batch(signed_tx.raw_transaction, &self.batch_web3);
+            .append_transaction_to_batch(signed_tx.raw_transaction, &self.batch_web3);
         Ok(signed_tx.transaction_hash)
     }
 
@@ -1523,7 +1543,7 @@ mod tests {
     #[test]
     fn non_clandestine_interface_send_payables_in_batch_components_are_used_together_properly() {
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
-        let enter_raw_transaction_to_batch_params_arc = Arc::new(Mutex::new(vec![]));
+        let append_transaction_to_batch_params_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
         let submit_batch_params_arc: Arc<Mutex<Vec<Web3<Batch<TestTransport>>>>> =
             Arc::new(Mutex::new(vec![]));
@@ -1581,7 +1601,7 @@ mod tests {
         let first_hash = first_signed_transaction.transaction_hash;
         let second_hash = second_signed_transaction.transaction_hash;
         let pending_nonce = U256::from(4);
-        //technically, the jason values in those positive responses don't matter, we only check the result and take errors if any came back
+        //technically, the JSON values in the correct responses don't matter, we only check for errors if any came back
         let rpc_responses = vec![
             Ok(Value::String((&first_hash.to_string()[2..]).to_string())),
             Ok(Value::String((&second_hash.to_string()[2..]).to_string())),
@@ -1592,7 +1612,7 @@ mod tests {
             .sign_transaction_result(Ok(second_signed_transaction.clone()))
             .batch_wide_timestamp_result(batch_wide_timestamp_expected)
             .send_new_payable_fingerprint_credentials_params(&new_payable_fingerprint_params_arc)
-            .enter_raw_transaction_to_batch_params(&enter_raw_transaction_to_batch_params_arc)
+            .append_transaction_to_batch_params(&append_transaction_to_batch_params_arc)
             .submit_batch_params(&submit_batch_params_arc)
             .submit_batch_result(Ok(rpc_responses));
         subject.batch_payable_tools = Box::new(batch_payables_tools);
@@ -1672,23 +1692,23 @@ mod tests {
                 (second_hash, second_payment_amount)
             ]
         );
-        let mut enter_raw_transaction_to_batch_params =
-            enter_raw_transaction_to_batch_params_arc.lock().unwrap();
+        let mut append_transaction_to_batch_params =
+            append_transaction_to_batch_params_arc.lock().unwrap();
         let (bytes_first_payment, web3_from_ertb_call_1) =
-            enter_raw_transaction_to_batch_params.remove(0);
+            append_transaction_to_batch_params.remove(0);
         check_web3_origin(&web3_from_ertb_call_1);
         assert_eq!(
             bytes_first_payment,
             first_signed_transaction.raw_transaction
         );
         let (bytes_second_payment, web3_from_ertb_call_2) =
-            enter_raw_transaction_to_batch_params.remove(0);
+            append_transaction_to_batch_params.remove(0);
         check_web3_origin(&web3_from_ertb_call_2);
         assert_eq!(
             bytes_second_payment,
             second_signed_transaction.raw_transaction
         );
-        assert_eq!(enter_raw_transaction_to_batch_params.len(), 0);
+        assert_eq!(append_transaction_to_batch_params.len(), 0);
         let submit_batch_params = submit_batch_params_arc.lock().unwrap();
         let web3_from_sb_call = &submit_batch_params[0];
         assert_eq!(submit_batch_params.len(), 1);
@@ -1929,7 +1949,7 @@ mod tests {
     }
 
     #[test]
-    fn sign_transact_fails_on_signing_itself() {
+    fn sign_transaction_fails_on_signing_itself() {
         let transport = TestTransport::default();
         let batch_payable_tools = BatchPayableToolsMock::<TestTransport>::default()
             .sign_transaction_result(Err(Web3Error::Signing(
@@ -2388,7 +2408,7 @@ mod tests {
     }
 
     #[test]
-    fn conversion_between_errors_work() {
+    fn conversion_between_errors_works() {
         let original_errors = [
             PayableTransactionError::UnusableWallet("wallet error".to_string()),
             PayableTransactionError::Signing("signature error".to_string()),

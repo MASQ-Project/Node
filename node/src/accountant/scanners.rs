@@ -1434,9 +1434,9 @@ mod tests {
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!("WARN: {test_name}: \
-         Failed process to be screened for persisted data. Caused by: Blockchain error: Occurred at the final batch processing: \"Attempt failed\". \
-         Successfully signed and hashed these transactions: 0x00000000000000000000000000000000000000000000000000000000000015b3, \
-         0x0000000000000000000000000000000000000000000000000000000000003039."));
+         Any persisted data from failed process will be deleted. Caused by: Blockchain error: Occurred at the final batch processing: \
+         \"Attempt failed\". Successfully signed and hashed these transactions: 0x000000000000000000000000000000000000000000000000000\
+         00000000015b3, 0x0000000000000000000000000000000000000000000000000000000000003039."));
         log_handler.exists_log_containing(
             &format!("WARN: {test_name}: \
             Deleting fingerprints for failed transactions 0x00000000000000000000000000000000000000000000000000000000000015b3, \
@@ -1479,7 +1479,7 @@ mod tests {
         with missing fingerprints. System no longer reliable");
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(
-            &format!("WARN: {test_name}: Failed process to be screened for persisted data. Caused by: \
+            &format!("WARN: {test_name}: Any persisted data from failed process will be deleted. Caused by: \
              Blockchain error: Occurred at the final batch processing: \"SQLite migraine\". Successfully signed and hashed \
              these transactions: \
                0x000000000000000000000000000000000000000000000000000000000001b669, \

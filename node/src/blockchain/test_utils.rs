@@ -20,13 +20,13 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 
 use crate::accountant::payable_dao::PayableAccount;
+use crate::blockchain::batch_payable_tools::BatchPayableTools;
 use web3::transports::{Batch, EventLoopHandle, Http};
 use web3::types::{Address, Bytes, SignedTransaction, TransactionParameters, U256};
 use web3::{BatchTransport, Error as Web3Error, Web3};
 use web3::{RequestId, Transport};
 
 use crate::blockchain::blockchain_interface::RetrievedBlockchainTransactions;
-use crate::sub_lib::blockchain_bridge::BatchPayableTools;
 
 lazy_static! {
     static ref BIG_MEANINGLESS_PHRASE: Vec<&'static str> = vec![
@@ -336,8 +336,8 @@ pub struct BatchPayableToolsMock<T: BatchTransport> {
         >,
     >,
     sign_transaction_results: RefCell<Vec<Result<SignedTransaction, Web3Error>>>,
-    enter_raw_transaction_to_batch_params: Arc<Mutex<Vec<(Bytes, Web3<Batch<T>>)>>>,
-    //enter_raw_transaction_to_batch returns just the unit type
+    append_transaction_to_batch_params: Arc<Mutex<Vec<(Bytes, Web3<Batch<T>>)>>>,
+    //append_transaction_to_batch returns just the unit type
     //batch_wide_timestamp doesn't have params
     batch_wide_timestamp_results: RefCell<Vec<SystemTime>>,
     send_new_payable_fingerprint_credentials_params: Arc<
@@ -370,8 +370,8 @@ impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
         self.sign_transaction_results.borrow_mut().remove(0)
     }
 
-    fn enter_raw_transaction_to_batch(&self, signed_transaction: Bytes, web3: &Web3<Batch<T>>) {
-        self.enter_raw_transaction_to_batch_params
+    fn append_transaction_to_batch(&self, signed_transaction: Bytes, web3: &Web3<Batch<T>>) {
+        self.append_transaction_to_batch_params
             .lock()
             .unwrap()
             .push((signed_transaction, web3.clone()));
@@ -381,7 +381,7 @@ impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
         self.batch_wide_timestamp_results.borrow_mut().remove(0)
     }
 
-    fn send_new_payable_fingerprints_credentials(
+    fn send_new_payable_fingerprints_seeds(
         &self,
         batch_wide_timestamp: SystemTime,
         pp_fingerprint_sub: &Recipient<PendingPayableFingerprintSeeds>,
@@ -448,11 +448,11 @@ impl<T: BatchTransport> BatchPayableToolsMock<T> {
         self
     }
 
-    pub fn enter_raw_transaction_to_batch_params(
+    pub fn append_transaction_to_batch_params(
         mut self,
         params: &Arc<Mutex<Vec<(Bytes, Web3<Batch<T>>)>>>,
     ) -> Self {
-        self.enter_raw_transaction_to_batch_params = params.clone();
+        self.append_transaction_to_batch_params = params.clone();
         self
     }
 
