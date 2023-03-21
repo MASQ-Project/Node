@@ -33,11 +33,11 @@ use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
 use crate::sub_lib::utils::{
     handle_ui_crash_request, NotifyLaterHandle, NotifyLaterHandleReal, NODE_MAILBOX_CAPACITY,
 };
-use actix::{Actor, AsyncContext};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use actix::{Actor, AsyncContext};
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::localhost;
@@ -163,15 +163,12 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
 }
 
 impl<M: actix::Message + 'static> Handler<MessageScheduler<M>> for StreamHandlerPool
-    where StreamHandlerPool: Handler<M>
+where
+    StreamHandlerPool: Handler<M>,
 {
     type Result = ();
 
-    fn handle(
-        &mut self,
-        msg: MessageScheduler<M>,
-        ctx: &mut Self::Context,
-    ) -> Self::Result {
+    fn handle(&mut self, msg: MessageScheduler<M>, ctx: &mut Self::Context) -> Self::Result {
         ctx.notify_later(msg.schedule_msg, msg.duration);
     }
 }
