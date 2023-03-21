@@ -744,7 +744,6 @@ mod tests {
         ConnectionProgressEvent, ConnectionProgressMessage, NodeQueryResponseMetadata,
     };
     use crate::sub_lib::stream_connector::ConnectionInfo;
-    use crate::test_utils::await_messages;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::rate_pack;
@@ -756,6 +755,7 @@ mod tests {
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
+    use crate::test_utils::{await_messages, make_send_error};
     use actix::Actor;
     use actix::Addr;
     use actix::System;
@@ -763,13 +763,13 @@ mod tests {
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
+    use masq_lib::utils::find_free_port;
     use std::io::Error;
     use std::io::ErrorKind;
     use std::net::IpAddr;
     use std::net::Ipv4Addr;
     use std::ops::Deref;
     use std::str::FromStr;
-    use std::sync::mpsc::SendError;
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::SystemTime;
@@ -1757,19 +1757,10 @@ mod tests {
         init_test_logging();
         let cryptde = main_cryptde();
         let key = cryptde.public_key().clone();
-        let peer_addr = SocketAddr::from_str("127.0.0.1:8005").unwrap();
+        let peer_addr = SocketAddr::new(localhost(), find_free_port());
         let sw_key = StreamWriterKey::from(peer_addr);
         let sender_wrapper_unbounded_send_params_arc = Arc::new(Mutex::new(vec![]));
-        let send_error = {
-            let (tx, rx) = futures::sync::mpsc::unbounded();
-            drop(rx);
-            tx.unbounded_send(SequencedPacket {
-                data: vec![],
-                sequence_number: 0,
-                last_data: false,
-            })
-            .unwrap_err()
-        };
+        let send_error = make_send_error();
         let sender_wrapper = SenderWrapperMock::new(peer_addr)
             .unbounded_send_params(&sender_wrapper_unbounded_send_params_arc)
             .unbounded_send_result(Err(send_error));

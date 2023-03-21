@@ -37,6 +37,7 @@ use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
+use futures::sync::mpsc::SendError;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
@@ -288,6 +289,17 @@ pub fn make_response_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRespo
             last_data: false,
         },
     }
+}
+
+pub fn make_send_error() -> SendError<SequencedPacket> {
+    let (tx, rx) = futures::sync::mpsc::unbounded();
+    drop(rx);
+    tx.unbounded_send(SequencedPacket {
+        data: vec![],
+        sequence_number: 0,
+        last_data: false,
+    })
+    .unwrap_err()
 }
 
 pub fn rate_pack_routing_byte(base_rate: u64) -> u64 {
