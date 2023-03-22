@@ -24,13 +24,13 @@ pub trait DBMigrationUtilities {
 
     fn commit(&mut self) -> Result<(), String>;
 
-    fn make_mig_declaration_utils<'a>(
+    fn make_mig_declarator<'a>(
         &'a self,
         external: &'a ExternalData,
         logger: &'a Logger,
     ) -> Box<dyn DBMigDeclarationUtilities + 'a>;
 
-    fn too_high_schema_panics(&self, mismatched_schema: usize);
+    fn too_high_schema_panics(&self, obsolete_schema: usize);
 }
 
 pub struct DBMigrationUtilitiesReal<'a> {
@@ -74,7 +74,7 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
             .map_err(|e| e.to_string())
     }
 
-    fn make_mig_declaration_utils<'b>(
+    fn make_mig_declarator<'b>(
         &'b self,
         external: &'b ExternalData,
         logger: &'b Logger,
@@ -86,12 +86,12 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
         ))
     }
 
-    fn too_high_schema_panics(&self, mismatched_schema: usize) {
-        if mismatched_schema > self.db_migrator_configuration.current_schema_version {
+    fn too_high_schema_panics(&self, obsolete_schema: usize) {
+        if obsolete_schema > self.db_migrator_configuration.current_schema_version {
             panic!(
                 "Database claims to be more advanced ({}) than the version {} which is the latest \
              version this Node knows about.",
-                mismatched_schema, CURRENT_SCHEMA_VERSION
+                obsolete_schema, CURRENT_SCHEMA_VERSION
             )
         }
     }
@@ -267,7 +267,7 @@ mod tests {
         let mut external_parameters = make_external_data();
         external_parameters.db_password_opt = Some("booga".to_string());
         let logger = Logger::new("test_logger");
-        let subject = utils.make_mig_declaration_utils(&external_parameters, &logger);
+        let subject = utils.make_mig_declarator(&external_parameters, &logger);
 
         let result = subject.db_password();
 
@@ -290,7 +290,7 @@ mod tests {
         .unwrap();
         let external_parameters = make_external_data();
         let logger = Logger::new("test_logger");
-        let subject = utils.make_mig_declaration_utils(&external_parameters, &logger);
+        let subject = utils.make_mig_declarator(&external_parameters, &logger);
 
         let result = subject.transaction();
 
@@ -330,7 +330,7 @@ mod tests {
         let subject = DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap();
 
         let result = subject
-            .make_mig_declaration_utils(&external_parameters, &Logger::new("test logger"))
+            .make_mig_declarator(&external_parameters, &Logger::new("test logger"))
             .execute_upon_transaction(set_of_sql_statements);
 
         assert_eq!(
@@ -377,7 +377,7 @@ mod tests {
         let subject = DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap();
 
         let _ = subject
-            .make_mig_declaration_utils(&external_parameters, &Logger::new("test logger"))
+            .make_mig_declarator(&external_parameters, &Logger::new("test logger"))
             .execute_upon_transaction(set_of_sql_statements);
     }
 
@@ -427,7 +427,7 @@ mod tests {
         let subject = DBMigrationUtilitiesReal::new(&mut conn_wrapper, config).unwrap();
 
         let result = subject
-            .make_mig_declaration_utils(&external_params, &Logger::new("test logger"))
+            .make_mig_declarator(&external_params, &Logger::new("test logger"))
             .execute_upon_transaction(set_of_sql_statements);
 
         match result {

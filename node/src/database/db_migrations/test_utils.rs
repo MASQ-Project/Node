@@ -9,13 +9,13 @@ use std::cell::RefCell;
 use std::sync::{Arc, Mutex};
 
 #[derive(Default)]
-pub struct DBMigDeclarationUtilitiesMock {
+pub struct DBMigDeclaratorMock {
     db_password_results: RefCell<Vec<Option<String>>>,
     execute_upon_transaction_params: Arc<Mutex<Vec<Vec<String>>>>,
     execute_upon_transaction_results: RefCell<Vec<rusqlite::Result<()>>>,
 }
 
-impl DBMigDeclarationUtilitiesMock {
+impl DBMigDeclaratorMock {
     pub fn db_password_result(self, result: Option<String>) -> Self {
         self.db_password_results.borrow_mut().push(result);
         self
@@ -37,7 +37,7 @@ impl DBMigDeclarationUtilitiesMock {
     }
 }
 
-impl DBMigDeclarationUtilities for DBMigDeclarationUtilitiesMock {
+impl DBMigDeclarationUtilities for DBMigDeclaratorMock {
     fn db_password(&self) -> Option<String> {
         self.db_password_results.borrow_mut().remove(0)
     }

@@ -241,7 +241,6 @@ mod tests {
         assert_table_created_as_strict, bring_db_0_back_to_life_and_return_connection,
         make_external_data, retrieve_config_row,
     };
-    use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::Row;
@@ -348,8 +347,7 @@ mod tests {
                 DbInitializationConfig::create_or_migrate(make_external_data()),
             )
             .unwrap();
-        let mut subject = DbMigratorReal::new(make_external_data());
-        subject.logger = Logger::new("migration_from_6_to_7_without_any_data");
+        let subject = DbMigratorReal::new(make_external_data());
 
         subject.migrate_database(6, 7, conn).unwrap();
 
@@ -357,7 +355,9 @@ mod tests {
         ["payable", "receivable", "pending_payable"]
             .iter()
             .for_each(|table_name| {
-                test_log_handler.exists_log_containing(&format!("DEBUG: migration_from_6_to_7_without_any_data: Migration from 6 to 7: no data to migrate in {table_name}"));
+                test_log_handler.exists_log_containing(&format!(
+                    "DEBUG: DbMigrator: Migration from 6 to 7: no data to migrate in {table_name}"
+                ));
             })
     }
 

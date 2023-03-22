@@ -19,7 +19,7 @@ use rusqlite::Transaction;
 pub trait DbMigrator {
     fn migrate_database(
         &self,
-        mismatched_schema: usize,
+        obsolete_schema: usize,
         target_version: usize,
         conn: Box<dyn ConnectionWrapper>,
     ) -> Result<(), String>;
@@ -27,13 +27,13 @@ pub trait DbMigrator {
 
 pub struct DbMigratorReal {
     external: ExternalData,
-    pub logger: Logger,
+    logger: Logger,
 }
 
 impl DbMigrator for DbMigratorReal {
     fn migrate_database(
         &self,
-        mismatched_schema: usize,
+        obsolete_schema: usize,
         target_version: usize,
         mut conn: Box<dyn ConnectionWrapper>,
     ) -> Result<(), String> {
@@ -43,7 +43,7 @@ impl DbMigrator for DbMigratorReal {
             Ok(utils) => utils,
         };
         self.initiate_migrations(
-            mismatched_schema,
+            obsolete_schema,
             target_version,
             Box::new(migration_utils),
             Self::list_of_migrations(),
@@ -81,13 +81,13 @@ impl DbMigratorReal {
 
     fn initiate_migrations<'a>(
         &self,
-        mismatched_schema: usize,
+        obsolete_schema: usize,
         target_version: usize,
         mut migration_utilities: Box<dyn DBMigrationUtilities + 'a>,
         list_of_migrations: &'a [&'a (dyn DatabaseMigration + 'a)],
     ) -> Result<(), String> {
         let migrations_to_process = Self::select_migrations_to_process(
-            mismatched_schema,
+            obsolete_schema,
             list_of_migrations,
             target_version,
             &*migration_utilities,
@@ -115,7 +115,7 @@ impl DbMigratorReal {
             record.old_version(),
             record.old_version() + 1
         );
-        record.migrate(migration_utilities.make_mig_declaration_utils(&self.external, logger))?;
+        record.migrate(migration_utilities.make_mig_declarator(&self.external, logger))?;
         let migrate_to = record.old_version() + 1;
         migration_utilities.update_schema_version(migrate_to)
     }
@@ -136,15 +136,15 @@ impl DbMigratorReal {
     }
 
     fn select_migrations_to_process<'a>(
-        mismatched_schema: usize,
+        obsolete_schema: usize,
         list_of_migrations: &'a [&'a (dyn DatabaseMigration + 'a)],
         target_version: usize,
         mig_utils: &dyn DBMigrationUtilities,
     ) -> Vec<&'a (dyn DatabaseMigration + 'a)> {
-        mig_utils.too_high_schema_panics(mismatched_schema);
+        mig_utils.too_high_schema_panics(obsolete_schema);
         list_of_migrations
             .iter()
-            .skip_while(|entry| entry.old_version() != mismatched_schema)
+            .skip_while(|entry| entry.old_version() != obsolete_schema)
             .take_while(|entry| entry.old_version() < target_version)
             .map(Self::deref)
             .collect::<Vec<&(dyn DatabaseMigration + 'a)>>()
@@ -192,7 +192,7 @@ mod tests {
         DBMigDeclarationUtilities, DBMigrationUtilities, DBMigrationUtilitiesReal,
         DBMigratorInnerConfiguration,
     };
-    use crate::database::db_migrations::test_utils::DBMigDeclarationUtilitiesMock;
+    use crate::database::db_migrations::test_utils::DBMigDeclaratorMock;
     use crate::test_utils::database_utils::make_external_data;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
@@ -207,9 +207,9 @@ mod tests {
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {
-        too_high_found_schema_will_panic_params: Arc<Mutex<Vec<usize>>>,
-        make_mig_declaration_utils_params: Arc<Mutex<Vec<ExternalData>>>,
-        make_mig_declaration_utils_results: RefCell<Vec<Box<dyn DBMigDeclarationUtilities>>>,
+        too_high_schema_panics_params: Arc<Mutex<Vec<usize>>>,
+        make_mig_declarator_params: Arc<Mutex<Vec<ExternalData>>>,
+        make_mig_declarator_results: RefCell<Vec<Box<dyn DBMigDeclarationUtilities>>>,
         update_schema_version_params: Arc<Mutex<Vec<usize>>>,
         update_schema_version_results: RefCell<Vec<rusqlite::Result<()>>>,
         commit_results: RefCell<Vec<Result<(), String>>>,
@@ -231,21 +231,19 @@ mod tests {
             self
         }
 
-        pub fn make_mig_declaration_utils_params(
+        pub fn make_mig_declarator_params(
             mut self,
             params: &Arc<Mutex<Vec<ExternalData>>>,
         ) -> Self {
-            self.make_mig_declaration_utils_params = params.clone();
+            self.make_mig_declarator_params = params.clone();
             self
         }
 
-        pub fn make_mig_declaration_utils_result(
+        pub fn make_mig_declarator_result(
             self,
             result: Box<dyn DBMigDeclarationUtilities>,
         ) -> Self {
-            self.make_mig_declaration_utils_results
-                .borrow_mut()
-                .push(result);
+            self.make_mig_declarator_results.borrow_mut().push(result);
             self
         }
     }
@@ -263,43 +261,41 @@ mod tests {
             self.commit_results.borrow_mut().remove(0)
         }
 
-        fn make_mig_declaration_utils<'a>(
+        fn make_mig_declarator<'a>(
             &'a self,
             external: &'a ExternalData,
             _logger: &'a Logger,
         ) -> Box<dyn DBMigDeclarationUtilities + 'a> {
-            self.make_mig_declaration_utils_params
+            self.make_mig_declarator_params
                 .lock()
                 .unwrap()
                 .push(external.clone());
-            self.make_mig_declaration_utils_results
-                .borrow_mut()
-                .remove(0)
+            self.make_mig_declarator_results.borrow_mut().remove(0)
         }
 
-        fn too_high_schema_panics(&self, mismatched_schema: usize) {
-            self.too_high_found_schema_will_panic_params
+        fn too_high_schema_panics(&self, obsolete_schema: usize) {
+            self.too_high_schema_panics_params
                 .lock()
                 .unwrap()
-                .push(mismatched_schema);
+                .push(obsolete_schema);
         }
     }
 
     #[derive(Default, Debug)]
-    struct DBMigrationRecordMock {
+    struct DatabaseMigrationMock {
         old_version_result: RefCell<usize>,
         migrate_params: Arc<Mutex<Vec<()>>>,
-        migrate_result: RefCell<Vec<rusqlite::Result<()>>>,
+        migrate_results: RefCell<Vec<rusqlite::Result<()>>>,
     }
 
-    impl DBMigrationRecordMock {
+    impl DatabaseMigrationMock {
         fn old_version_result(self, result: usize) -> Self {
             self.old_version_result.replace(result);
             self
         }
 
         fn migrate_result(self, result: rusqlite::Result<()>) -> Self {
-            self.migrate_result.borrow_mut().push(result);
+            self.migrate_results.borrow_mut().push(result);
             self
         }
 
@@ -320,13 +316,13 @@ mod tests {
         }
     }
 
-    impl DatabaseMigration for DBMigrationRecordMock {
+    impl DatabaseMigration for DatabaseMigrationMock {
         fn migrate<'a>(
             &self,
             _migration_utilities: Box<dyn DBMigDeclarationUtilities + 'a>,
         ) -> rusqlite::Result<()> {
             self.migrate_params.lock().unwrap().push(());
-            self.migrate_result.borrow_mut().remove(0)
+            self.migrate_results.borrow_mut().remove(0)
         }
 
         fn old_version(&self) -> usize {
@@ -334,28 +330,24 @@ mod tests {
         }
     }
 
-    const _REMINDER_FROM_COMPILATION_TIME: () = check_schema_version_continuity();
-
-    #[allow(dead_code)]
-    const fn check_schema_version_continuity() {
+    const _TEST_FROM_COMPILATION_TIME: () =
         if DbMigratorReal::list_of_migrations().len() != CURRENT_SCHEMA_VERSION {
             panic!(
                 "It appears you need to increment the current schema version to have DbMigrator \
              work correctly if any new migration added"
             )
         };
-    }
 
     #[test]
     fn migrate_database_handles_an_error_from_creating_the_root_transaction() {
         let subject = DbMigratorReal::new(make_external_data());
-        let mismatched_schema = 0;
+        let obsolete_schema = 0;
         let target_version = 5; //irrelevant
         let connection = ConnectionWrapperMock::default()
             .transaction_result(Err(Error::SqliteSingleThreadedMode)); //hard to find a real-like error for this
 
         let result =
-            subject.migrate_database(mismatched_schema, target_version, Box::new(connection));
+            subject.migrate_database(obsolete_schema, target_version, Box::new(connection));
 
         assert_eq!(
             result,
@@ -398,8 +390,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "The list of database migrations is not ordered properly")]
     fn list_validation_check_works_for_badly_ordered_migrations_when_inside() {
-        let fake_one = DBMigrationRecordMock::default().old_version_result(6);
-        let fake_two = DBMigrationRecordMock::default().old_version_result(2);
+        let fake_one = DatabaseMigrationMock::default().old_version_result(6);
+        let fake_two = DatabaseMigrationMock::default().old_version_result(2);
         let list: &[&dyn DatabaseMigration] = &[&Migrate_0_to_1, &fake_one, &fake_two];
 
         let _ = list_validation_check(list);
@@ -408,8 +400,8 @@ mod tests {
     #[test]
     #[should_panic(expected = "The list of database migrations is not ordered properly")]
     fn list_validation_check_works_for_badly_ordered_migrations_when_at_the_end() {
-        let fake_one = DBMigrationRecordMock::default().old_version_result(1);
-        let fake_two = DBMigrationRecordMock::default().old_version_result(3);
+        let fake_one = DatabaseMigrationMock::default().old_version_result(1);
+        let fake_two = DatabaseMigrationMock::default().old_version_result(3);
         let list: &[&dyn DatabaseMigration] = &[&Migrate_0_to_1, &fake_one, &fake_two];
 
         let _ = list_validation_check(list);
@@ -418,7 +410,7 @@ mod tests {
     fn list_validation_check<'a>(list_of_migrations: &'a [&'a (dyn DatabaseMigration + 'a)]) {
         let begins_at_version = list_of_migrations[0].old_version();
         let iterator = list_of_migrations.iter();
-        let ending_sentinel = &DBMigrationRecordMock::default()
+        let ending_sentinel = &DatabaseMigrationMock::default()
             .old_version_result(begins_at_version + iterator.len())
             as &dyn DatabaseMigration;
         let iterator_shifted = list_of_migrations
@@ -455,13 +447,13 @@ mod tests {
     #[test]
     fn migrate_semi_automated_returns_an_error_from_update_schema_version() {
         let update_schema_version_params_arc = Arc::new(Mutex::new(vec![]));
-        let mut migration_record = DBMigrationRecordMock::default()
+        let mut migration_record = DatabaseMigrationMock::default()
             .old_version_result(4)
             .migrate_result(Ok(()));
         let migration_utilities = DBMigrationUtilitiesMock::default()
-            .make_mig_declaration_utils_result(Box::new(DBMigDeclarationUtilitiesMock::default()))
-            .update_schema_version_result(Err(Error::InvalidQuery))
-            .update_schema_version_params(&update_schema_version_params_arc);
+            .make_mig_declarator_result(Box::new(DBMigDeclaratorMock::default()))
+            .update_schema_version_params(&update_schema_version_params_arc)
+            .update_schema_version_result(Err(Error::InvalidQuery));
         let subject = DbMigratorReal::new(make_external_data());
 
         let result = subject.migrate_semi_automated(
@@ -478,19 +470,19 @@ mod tests {
     #[test]
     fn initiate_migrations_returns_an_error_from_migrate() {
         init_test_logging();
-        let list = &[&DBMigrationRecordMock::default()
+        let list = &[&DatabaseMigrationMock::default()
             .old_version_result(0)
             .migrate_result(Err(Error::InvalidColumnIndex(5)))
             as &dyn DatabaseMigration];
-        let migrate_declaration_utils = DBMigDeclarationUtilitiesMock::default();
+        let mig_declarator = DBMigDeclaratorMock::default();
         let migration_utils = DBMigrationUtilitiesMock::default()
-            .make_mig_declaration_utils_result(Box::new(migrate_declaration_utils));
-        let mismatched_schema = 0;
+            .make_mig_declarator_result(Box::new(mig_declarator));
+        let obsolete_schema = 0;
         let target_version = 5; //not relevant
         let subject = DbMigratorReal::new(make_external_data());
 
         let result = subject.initiate_migrations(
-            mismatched_schema,
+            obsolete_schema,
             target_version,
             Box::new(migration_utils),
             list,
@@ -498,13 +490,10 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(
-                r#"Migrating database from version 0 to 1 failed: InvalidColumnIndex(5)"#
-                    .to_string()
-            )
+            Err("Migrating database from version 0 to 1 failed: InvalidColumnIndex(5)".to_string())
         );
         TestLogHandler::new().exists_log_containing(
-            r#"ERROR: DbMigrator: Migrating database from version 0 to 1 failed: InvalidColumnIndex(5)"#,
+            "ERROR: DbMigrator: Migrating database from version 0 to 1 failed: InvalidColumnIndex(5)",
         );
     }
 
@@ -513,7 +502,7 @@ mod tests {
         empty_params_arc: &Arc<Mutex<Vec<()>>>,
     ) -> Box<dyn DatabaseMigration> {
         Box::new(
-            DBMigrationRecordMock::default().set_up_necessary_stuff_for_mocked_migration_record(
+            DatabaseMigrationMock::default().set_up_necessary_stuff_for_mocked_migration_record(
                 old_version,
                 Ok(()),
                 empty_params_arc,
@@ -563,11 +552,11 @@ mod tests {
             current_schema_version: 5,
         };
         let subject = DbMigratorReal::new(make_external_data());
-        let mismatched_schema = 2;
+        let obsolete_schema = 2;
         let target_version = 5;
 
         let result = subject.initiate_migrations(
-            mismatched_schema,
+            obsolete_schema,
             target_version,
             Box::new(DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap()),
             list_of_migrations,
@@ -617,13 +606,7 @@ mod tests {
         ];
         let connection = Connection::open_in_memory().unwrap();
         connection
-            .execute(
-                "CREATE TABLE test (
-            name TEXT,
-            value TEXT
-        )",
-                [],
-            )
+            .execute("CREATE TABLE test (name TEXT, value TEXT)", [])
             .unwrap();
         let mut connection_wrapper = ConnectionWrapperReal::new(connection);
         let config = DBMigratorInnerConfiguration {
@@ -631,11 +614,11 @@ mod tests {
             current_schema_version: 5,
         };
         let subject = DbMigratorReal::new(make_external_data());
-        let mismatched_schema = 0;
+        let obsolete_schema = 0;
         let target_version = 3;
 
         let result = subject.initiate_migrations(
-            mismatched_schema,
+            obsolete_schema,
             target_version,
             Box::new(DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap()),
             list_of_migrations,
@@ -659,15 +642,15 @@ mod tests {
         init_test_logging();
         let execute_upon_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let update_schema_version_params_arc = Arc::new(Mutex::new(vec![]));
-        let make_mig_declaration_params_arc = Arc::new(Mutex::new(vec![]));
+        let make_mig_declarator_params_arc = Arc::new(Mutex::new(vec![]));
         let outdated_schema = 0;
         let list = &[&Migrate_0_to_1 as &dyn DatabaseMigration];
-        let db_migrate_declaration_utilities = DBMigDeclarationUtilitiesMock::default()
+        let mig_declarator = DBMigDeclaratorMock::default()
             .execute_upon_transaction_params(&execute_upon_transaction_params_arc)
             .execute_upon_transaction_result(Ok(()));
         let migration_utils = DBMigrationUtilitiesMock::default()
-            .make_mig_declaration_utils_params(&make_mig_declaration_params_arc)
-            .make_mig_declaration_utils_result(Box::new(db_migrate_declaration_utilities))
+            .make_mig_declarator_params(&make_mig_declarator_params_arc)
+            .make_mig_declarator_result(Box::new(mig_declarator))
             .update_schema_version_params(&update_schema_version_params_arc)
             .update_schema_version_result(Ok(()))
             .commit_result(Ok(()));
@@ -695,9 +678,9 @@ mod tests {
         TestLogHandler::new().exists_log_containing(
             "INFO: DbMigrator: Database successfully migrated from version 0 to 1",
         );
-        let make_mig_declaration_utils_params = make_mig_declaration_params_arc.lock().unwrap();
+        let make_mig_declarator_params = make_mig_declarator_params_arc.lock().unwrap();
         assert_eq!(
-            *make_mig_declaration_utils_params,
+            *make_mig_declarator_params,
             vec![ExternalData {
                 chain: TEST_DEFAULT_CHAIN,
                 neighborhood_mode: NeighborhoodModeLight::Standard,
@@ -711,20 +694,20 @@ mod tests {
         let first_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
         let second_record_migration_p_arc = Arc::new(Mutex::new(vec![]));
         let list_of_migrations: &[&dyn DatabaseMigration] = &[
-            &DBMigrationRecordMock::default().set_up_necessary_stuff_for_mocked_migration_record(
+            &DatabaseMigrationMock::default().set_up_necessary_stuff_for_mocked_migration_record(
                 0,
                 Ok(()),
                 &first_record_migration_p_arc,
             ),
-            &DBMigrationRecordMock::default().set_up_necessary_stuff_for_mocked_migration_record(
+            &DatabaseMigrationMock::default().set_up_necessary_stuff_for_mocked_migration_record(
                 1,
                 Ok(()),
                 &second_record_migration_p_arc,
             ),
         ];
         let migration_utils = DBMigrationUtilitiesMock::default()
-            .make_mig_declaration_utils_result(Box::new(DBMigDeclarationUtilitiesMock::default()))
-            .make_mig_declaration_utils_result(Box::new(DBMigDeclarationUtilitiesMock::default()))
+            .make_mig_declarator_result(Box::new(DBMigDeclaratorMock::default()))
+            .make_mig_declarator_result(Box::new(DBMigDeclaratorMock::default()))
             .update_schema_version_result(Ok(()))
             .update_schema_version_result(Ok(()))
             .commit_result(Err("Committing transaction failed".to_string()));

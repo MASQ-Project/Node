@@ -115,7 +115,7 @@ mod tests {
         DbInitializationConfig, DbInitializer, DbInitializerReal, DATABASE_FILE,
     };
     use crate::database::db_migrations::migrations::migration_3_to_4::Migrate_3_to_4;
-    use crate::database::db_migrations::test_utils::DBMigDeclarationUtilitiesMock;
+    use crate::database::db_migrations::test_utils::DBMigDeclaratorMock;
     use crate::db_config::db_encryption_layer::DbEncryptionLayer;
     use crate::db_config::typed_config_layer::encode_bytes;
     use crate::sub_lib::cryptde::PlainData;
@@ -258,8 +258,8 @@ mod tests {
     #[should_panic(expected = "Migrating Database from 3 to 4: bad password")]
     fn migration_from_3_to_4_bad_password() {
         let example_encrypted = Bip39::encrypt_bytes(&b"BBBB", "GoodPassword").unwrap();
-        let utils = DBMigDeclarationUtilitiesMock::default()
-            .db_password_result(Some("BadPassword".to_string()));
+        let mig_declarator =
+            DBMigDeclaratorMock::default().db_password_result(Some("BadPassword".to_string()));
         let consuming_path_opt = Some("AAAAA".to_string());
         let example_encrypted_opt = Some(example_encrypted);
         let seed_encrypted_opt = Some("CCCCC".to_string());
@@ -268,7 +268,7 @@ mod tests {
             consuming_path_opt,
             example_encrypted_opt,
             seed_encrypted_opt,
-            &utils,
+            &mig_declarator,
         );
     }
 
@@ -277,7 +277,7 @@ mod tests {
         example_encrypted_opt: Option<&str>,
         seed_encrypted_opt: Option<&str>,
     ) -> String {
-        let utils = &DBMigDeclarationUtilitiesMock::default();
+        let mig_declarator = &DBMigDeclaratorMock::default();
         let consuming_path_opt = consuming_path_opt.map(|str| str.to_string());
         let example_encrypted_opt = example_encrypted_opt.map(|str| str.to_string());
         let seed_encrypted_opt = seed_encrypted_opt.map(|str| str.to_string());
@@ -286,7 +286,7 @@ mod tests {
                 consuming_path_opt,
                 example_encrypted_opt,
                 seed_encrypted_opt,
-                utils,
+                mig_declarator,
             )
         }))
         .unwrap_err();
