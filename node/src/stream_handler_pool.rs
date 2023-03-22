@@ -1466,9 +1466,7 @@ mod tests {
     #[test]
     fn transmit_data_msg_handler_finds_ip_from_neighborhood_and_transmits_message() {
         init_test_logging();
-        let cryptde = main_cryptde();
-        let key = cryptde.public_key();
-
+        let key = PublicKey::from(vec![8, 4, 8, 4]);
         let reader = ReadHalfWrapperMock::new().poll_read_result(vec![], Ok(Async::NotReady));
         let write_stream_params_arc = Arc::new(Mutex::new(vec![]));
         let writer = WriteHalfWrapperMock::new()
@@ -1552,6 +1550,9 @@ mod tests {
         let mut sw_to_stream_params = write_stream_params_arc.lock().unwrap();
         assert_eq!(sw_to_stream_params.len(), 2);
         assert_eq!(sw_to_stream_params.remove(0), b"hello");
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: Dispatcher: Sending node query about CAQIBA to Neighborhood"
+        ));
     }
 
     #[test]
