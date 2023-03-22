@@ -4,6 +4,7 @@ use crate::messages::UiMessageError::{DeserializationError, PayloadError, Unexpe
 use crate::shared_schema::ConfiguratorError;
 use crate::ui_gateway::MessageBody;
 use crate::ui_gateway::MessagePath::{Conversation, FireAndForget};
+use actix::Message;
 use itertools::Itertools;
 use serde::de::DeserializeOwned;
 use serde_derive::{Deserialize, Serialize};
@@ -11,6 +12,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::fmt::Debug;
 use std::str::FromStr;
+use std::time::Duration;
 
 pub const NODE_UI_PROTOCOL: &str = "MASQNode-UIv2";
 
@@ -842,6 +844,12 @@ pub struct UiWalletAddressesResponse {
     pub earning_wallet_address: String,
 }
 conversation_message!(UiWalletAddressesResponse, "walletAddresses");
+
+#[derive(Message, Clone, PartialEq, Eq)]
+pub struct MessageScheduler<M: Message> {
+    pub schedule_msg: M,
+    pub duration: Duration,
+}
 
 #[cfg(test)]
 mod tests {

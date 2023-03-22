@@ -40,8 +40,8 @@ use crate::sub_lib::proxy_server::{
     AddReturnRouteMessage, AddRouteMessage, ClientRequestPayload_0v1,
 };
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
+use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
-use crate::sub_lib::stream_handler_pool::{DispatcherNodeQueryResponse, MessageScheduler};
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
 use crate::test_utils::recorder_stop_conditions::StopConditions;
 use crate::test_utils::to_millis;
@@ -52,6 +52,7 @@ use actix::Handler;
 use actix::MessageResult;
 use actix::System;
 use actix::{Actor, Message};
+use masq_lib::messages::MessageScheduler;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use std::any::Any;
 use std::sync::{Arc, Mutex};
