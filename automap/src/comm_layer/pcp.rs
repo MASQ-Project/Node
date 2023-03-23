@@ -687,6 +687,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::{io, thread};
+    use pretty_hex::pretty_hex;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
 
     pub struct MappingNonceFactoryMock {
@@ -1507,63 +1508,73 @@ mod tests {
 
     #[test]
     fn housekeeping_thread_rejects_data_from_non_router_ip_addresses() {
-        todo!();
-        // let _ = EnvironmentGuard::new();
-        // let change_handler_port = find_free_port();
-        // let router_port = find_free_port();
-        // let announcement_port = find_free_port();
-        // let router_ip = IpAddr::from_str("7.7.7.7").unwrap();
-        // let mut subject = PcpTransactor::default();
-        // subject.router_port = router_port;
-        // subject.announcement_multicast_group = change_handler_port;
-        // let changes_arc = Arc::new(Mutex::new(vec![]));
-        // let changes_arc_inner = changes_arc.clone();
-        // let change_handler = move |change| {
-        //     changes_arc_inner.lock().unwrap().push(change);
-        // };
-        //
-        // subject
-        //     .start_housekeeping_thread(Box::new(change_handler), router_ip)
-        //     .unwrap();
-        //
-        // assert!(subject.housekeeper_commander_opt.is_some());
-        // let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        // todo! ("Replace this with a multicast socket");
-        // let announce_socket =
-        //     UdpSocket::bind(SocketAddr::new(localhost(), announcement_port)).unwrap();
-        // announce_socket
-        //     .set_read_timeout(Some(Duration::from_millis(1000)))
-        //     .unwrap();
-        // announce_socket.set_broadcast(true).unwrap();
-        // announce_socket
-        //     .connect(SocketAddr::new(change_handler_ip, change_handler_port))
-        //     .unwrap();
-        // let mut packet = vanilla_response();
-        // packet.opcode = Opcode::Announce;
-        // packet.lifetime = 0;
-        // packet.epoch_time_opt = Some(0);
-        // let mut buffer = [0u8; 100];
-        // let len_to_send = packet.marshal(&mut buffer).unwrap();
-        // let mapping_socket = UdpSocket::bind(SocketAddr::new(localhost(), router_port)).unwrap();
-        // mapping_socket
-        //     .set_read_timeout(Some(Duration::from_millis(100)))
-        //     .unwrap();
-        // let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
-        // assert_eq!(sent_len, len_to_send);
-        // match mapping_socket.recv_from(&mut buffer) {
-        //     Err(e) if (e.kind() == ErrorKind::TimedOut) || (e.kind() == ErrorKind::WouldBlock) => {
-        //         ()
-        //     }
-        //     Err(e) => panic!("{:?}", e),
-        //     Ok((recv_len, remapping_socket_addr)) => {
-        //         let dump = pretty_hex(&buffer[0..recv_len].to_vec());
-        //         panic!(
-        //             "Should have timed out; but received from {}:\n{}",
-        //             remapping_socket_addr, dump
-        //         );
-        //     }
-        // }
-        // let _ = subject.stop_housekeeping_thread();
+        let _ = EnvironmentGuard::new();
+        let announcement_port = find_free_port();
+        let announce_socket_holder = TestMulticastSocketHolder::checkout(announcement_port);
+        let router_port = find_free_port();
+        let router_ip = LocalIpFinderReal::new().find().unwrap();
+        let mut subject = PcpTransactor::default();
+        subject.router_port = router_port;
+        subject.announcement_multicast_group = announce_socket_holder.group;
+        subject.announcement_port = announcement_port;
+        let multicast_address = SocketAddr::new (
+            IpAddr::V4(Ipv4Addr::new(224, 0, 0, announce_socket_holder.group)),
+            announcement_port
+        );
+        let factory = UdpSocketWrapperFactoryReal::new();
+        let changes_arc = Arc::new(Mutex::new(vec![]));
+        let changes_arc_inner = changes_arc.clone();
+        let change_handler = move |change| {
+            changes_arc_inner.lock().unwrap().push(change);
+        };
+
+        let commander = subject
+            .start_housekeeping_thread(Box::new(change_handler), router_ip)
+            .unwrap();
+
+        commander
+            .try_send(HousekeepingThreadCommand::InitializeMappingConfig(
+                MappingConfig {
+                    hole_port: 1234,
+                    next_lifetime: Duration::from_secs(321),
+                    remap_interval: Duration::from_secs(160),
+                },
+            ))
+            .unwrap();
+        let mut buffer = [0u8; 100];
+        let announce_socket = &announce_socket_holder.socket;
+        announce_socket
+            .set_read_timeout(Some(Duration::from_millis(1000)))
+            .unwrap();
+        // Something with an IP address other than the router's sends a perfectly formed Announce packet
+        let not_the_router_ip = localhost();
+        let mapping_socket = UdpSocket::bind(SocketAddr::new(not_the_router_ip, router_port)).unwrap();
+        mapping_socket.set_read_timeout(Some (Duration::from_millis (1000))).unwrap();
+        let mut packet = vanilla_response();
+        packet.opcode = Opcode::Announce;
+        packet.lifetime = 0;
+        packet.epoch_time_opt = Some(0);
+        let len_to_send = packet.marshal(&mut buffer).unwrap();
+        let sent_len = announce_socket.send_to(
+            &buffer[0..len_to_send],
+            multicast_address,
+        ).unwrap();
+        assert_eq!(sent_len, len_to_send);
+        // That thing times out because the housekeeping thread is ignoring it
+        match mapping_socket.recv_from(&mut buffer) {
+            Err(e) if (e.kind() == ErrorKind::TimedOut) || (e.kind() == ErrorKind::WouldBlock) => {
+                ()
+            }
+            Err(e) => panic!("{:?}", e),
+            Ok((recv_len, remapping_socket_addr)) => {
+                let dump = pretty_hex(&buffer[0..recv_len].to_vec());
+                panic!(
+                    "Should have timed out; but received from {}:\n{}",
+                    remapping_socket_addr, dump
+                );
+            }
+        }
+        let _ = subject.stop_housekeeping_thread();
     }
 
     #[test]
