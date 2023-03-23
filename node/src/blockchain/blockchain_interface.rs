@@ -1,16 +1,16 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
+use crate::accountant::scanners::join_displayable_items_by_commas;
 use crate::blockchain::batch_payable_tools::{BatchPayableTools, BatchPayableToolsReal};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::BlockchainError::{
-    InvalidAddress, InvalidResponse, InvalidUrl, PayableTransactionFailed, QueryFailed,
+    InvalidAddress, InvalidResponse, InvalidUrl, QueryFailed,
 };
 use crate::sub_lib::wallet::Wallet;
 use actix::{Message, Recipient};
 use futures::{future, Future};
 use itertools::Either::{Left, Right};
-use itertools::Itertools;
 use masq_lib::blockchains::chains::{Chain, ChainFamily};
 use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::logger::Logger;
@@ -63,47 +63,15 @@ pub enum BlockchainError {
     InvalidAddress,
     InvalidResponse,
     QueryFailed(String),
-    PayableTransactionFailed {
-        msg: String,
-        signed_and_hashed_txs_opt: Option<Vec<H256>>,
-    },
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PayableTransactionError {
-    UnusableWallet(String),
-    Signing(String),
-    Sending { msg: String, hashes: Vec<H256> },
 }
 
 impl Display for BlockchainError {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        fn interpret_optionally_attached_hashes(hashes_opt: &Option<Vec<H256>>) -> String {
-            match hashes_opt {
-                Some(hashes) => format!(
-                    "Successfully signed and hashed these transactions: {}.",
-                    serialize_hashes(hashes)
-                ),
-                None => "Without prepared transactions, no hashes to report.".to_string(),
-            }
-        }
-        fn serialize_hashes(hashes: &[H256]) -> String {
-            hashes.iter().map(|hash| format!("{:?}", hash)).join(", ")
-        }
-
         let err_type_spec = match self {
-            InvalidUrl => Left("Invalid url."),
-            InvalidAddress => Left("Invalid address."),
-            InvalidResponse => Left("Invalid response."),
-            QueryFailed(msg) => Right(format!("Query failed: {}.", msg)),
-            PayableTransactionFailed {
-                msg,
-                signed_and_hashed_txs_opt,
-            } => Right(format!(
-                "Occurred at the final batch processing: \"{}\". {}",
-                msg,
-                interpret_optionally_attached_hashes(signed_and_hashed_txs_opt)
-            )),
+            InvalidUrl => Left("Invalid url"),
+            InvalidAddress => Left("Invalid address"),
+            InvalidResponse => Left("Invalid response"),
+            QueryFailed(msg) => Right(format!("Query failed: {}", msg)),
         };
         write!(f, "Blockchain error: {}", err_type_spec)
     }
@@ -113,6 +81,48 @@ pub type BlockchainResult<T> = Result<T, BlockchainError>;
 pub type Balance = BlockchainResult<web3::types::U256>;
 pub type Nonce = BlockchainResult<web3::types::U256>;
 pub type Receipt = BlockchainResult<Option<TransactionReceipt>>;
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum PayablePaymentError {
+    GeneralMsg(String),
+    MissingConsumingWallet,
+    GasPriceQueryFailed(String),
+    TransactionCount(BlockchainError),
+    UnusableWallet(String),
+    Signing(String),
+    Sending { msg: String, hashes: Vec<H256> },
+}
+
+impl Display for PayablePaymentError {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::GeneralMsg(msg) => write!(f, "General message error: \"{}\"", msg),
+            Self::MissingConsumingWallet => {
+                write!(f, "Missing consuming wallet to pay payable from")
+            }
+            Self::GasPriceQueryFailed(msg) => {
+                write!(f, "Unsuccessful gas price query: \"{}\"", msg)
+            }
+            Self::TransactionCount(blockchain_err) => write!(
+                f,
+                "Transaction count fetching failed for: {}",
+                blockchain_err
+            ),
+            Self::UnusableWallet(msg) => write!(
+                f,
+                "Unusable wallet for signing payable transactions: \"{}\"",
+                msg
+            ),
+            Self::Signing(msg) => write!(f, "Signing phase: \"{}\"", msg),
+            Self::Sending { msg, hashes } => write!(
+                f,
+                "Sending phase: \"{}\". Signed and hashed transactions: {}",
+                msg,
+                join_displayable_items_by_commas(hashes, |hash| format!("{:?}", hash))
+            ),
+        }
+    }
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct RetrievedBlockchainTransactions {
@@ -136,7 +146,7 @@ pub trait BlockchainInterface<T: Transport = Http> {
         pending_nonce: U256,
         new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
-    ) -> Result<Vec<ProcessedPayableFallible>, BlockchainError>;
+    ) -> Result<Vec<ProcessedPayableFallible>, PayablePaymentError>;
 
     fn get_eth_balance(&self, address: &Wallet) -> Balance;
 
@@ -197,12 +207,11 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         _last_nonce: U256,
         _new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         _accounts: &[PayableAccount],
-    ) -> Result<Vec<ProcessedPayableFallible>, BlockchainError> {
+    ) -> Result<Vec<ProcessedPayableFallible>, PayablePaymentError> {
         error!(self.logger, "Can't send transactions out clandestinely yet",);
-        Err(BlockchainError::PayableTransactionFailed {
-            msg: "invalid attempt to send txs clandestinely".to_string(),
-            signed_and_hashed_txs_opt: None,
-        })
+        Err(PayablePaymentError::GeneralMsg(
+            "invalid attempt to send txs clandestinely".to_string(),
+        ))
     }
 
     fn get_eth_balance(&self, _address: &Wallet) -> Balance {
@@ -346,7 +355,7 @@ where
         pending_nonce: U256,
         new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
-    ) -> Result<Vec<ProcessedPayableFallible>, BlockchainError> {
+    ) -> Result<Vec<ProcessedPayableFallible>, PayablePaymentError> {
         debug!(
             self.logger,
             "Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
@@ -437,7 +446,7 @@ pub struct RpcPayableFailure {
     pub hash: H256,
 }
 
-type HashAndAmountResult = Result<Vec<(H256, u128)>, PayableTransactionError>;
+type HashAndAmountResult = Result<Vec<(H256, u128)>, PayablePaymentError>;
 
 impl<T> BlockchainInterfaceNonClandestine<T>
 where
@@ -578,15 +587,15 @@ where
     fn error_with_hashes(
         error: Error,
         hashes_and_paid_amounts: Vec<(H256, u128)>,
-    ) -> BlockchainError {
+    ) -> PayablePaymentError {
         let hashes = hashes_and_paid_amounts
             .into_iter()
             .map(|(hash, _)| hash)
             .collect();
-        BlockchainError::from(PayableTransactionError::Sending {
+        PayablePaymentError::Sending {
             msg: error.to_string(),
             hashes,
-        })
+        }
     }
 
     fn handle_new_transaction<'a>(
@@ -596,7 +605,7 @@ where
         amount: u128,
         nonce: U256,
         gas_price: u64,
-    ) -> Result<H256, PayableTransactionError> {
+    ) -> Result<H256, PayablePaymentError> {
         let signed_tx =
             self.sign_transaction(recipient, consuming_wallet, amount, nonce, gas_price)?;
         self.batch_payable_tools
@@ -611,7 +620,7 @@ where
         amount: u128,
         nonce: U256,
         gas_price: u64,
-    ) -> Result<SignedTransaction, PayableTransactionError> {
+    ) -> Result<SignedTransaction, PayablePaymentError> {
         let mut data = [0u8; 4 + 32 + 32];
         data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
         data[16..36].copy_from_slice(&recipient.address().0[..]);
@@ -645,12 +654,12 @@ where
 
         let key = match consuming_wallet.prepare_secp256k1_secret() {
             Ok(secret) => secret,
-            Err(e) => return Err(PayableTransactionError::UnusableWallet(e.to_string())),
+            Err(e) => return Err(PayablePaymentError::UnusableWallet(e.to_string())),
         };
 
         self.batch_payable_tools
             .sign_transaction(transaction_parameters, &self.batch_web3, &key)
-            .map_err(|e| PayableTransactionError::Signing(e.to_string()))
+            .map_err(|e| PayablePaymentError::Signing(e.to_string()))
     }
 
     fn transmission_log(&self, accounts: &[PayableAccount], gas_price: u64) -> String {
@@ -694,50 +703,6 @@ where
     #[cfg(test)]
     fn web3(&self) -> &Web3<T> {
         &self.web3
-    }
-}
-
-impl BlockchainError {
-    pub fn carries_transaction_hashes_opt(&self) -> Option<Vec<H256>> {
-        match self {
-            Self::PayableTransactionFailed {
-                msg: _,
-                signed_and_hashed_txs_opt: None,
-            } => None,
-            Self::PayableTransactionFailed {
-                msg: _,
-                signed_and_hashed_txs_opt: Some(hash),
-            } => Some(hash.clone()),
-            _ => None,
-        }
-    }
-}
-
-impl Display for PayableTransactionError {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::UnusableWallet(msg) => write!(f, "UnusableWallet: {}", msg),
-            Self::Signing(msg) => write!(f, "Signing phase: {}", msg),
-            Self::Sending { msg, .. } => write!(f, "Sending phase: {}", msg),
-        }
-    }
-}
-
-impl From<PayableTransactionError> for BlockchainError {
-    fn from(error: PayableTransactionError) -> Self {
-        let displayed_error = error.to_string();
-        match error {
-            PayableTransactionError::Sending { hashes, .. } => {
-                BlockchainError::PayableTransactionFailed {
-                    msg: displayed_error,
-                    signed_and_hashed_txs_opt: Some(hashes),
-                }
-            }
-            _ => BlockchainError::PayableTransactionFailed {
-                msg: displayed_error,
-                signed_and_hashed_txs_opt: None,
-            },
-        }
     }
 }
 
@@ -1853,17 +1818,16 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(BlockchainError::PayableTransactionFailed {
-                msg: "UnusableWallet: Cannot sign with non-keypair \
-         wallet: Address(0x636f6e73756d652c20796f752067726565647920)."
-                    .to_string(),
-                signed_and_hashed_txs_opt: None
-            })
+            Err(PayablePaymentError::UnusableWallet(
+                "Cannot sign with non-keypair wallet: \
+            Address(0x636f6e73756d652c20796f752067726565647920)."
+                    .to_string()
+            ))
         )
     }
 
     #[test]
-    fn send_transaction_fails_on_badly_prepared_consuming_wallet_without_secret() {
+    fn send_payables_within_batch_fails_on_badly_prepared_consuming_wallet_without_secret() {
         let transport = TestTransport::default();
         let incomplete_consuming_wallet =
             Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap();
@@ -1895,17 +1859,14 @@ mod tests {
         System::current().stop();
         system.run();
         assert_eq!(result,
-                   Err(BlockchainError::PayableTransactionFailed {msg:
-                       "UnusableWallet: Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string(),
-                       signed_and_hashed_txs_opt: None}
-                   )
+                   Err(PayablePaymentError::UnusableWallet("Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()))
         );
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0)
     }
 
     #[test]
-    fn send_transaction_fails_on_sending_batch() {
+    fn send_payables_within_batch_fails_on_sending() {
         let transport = TestTransport::default();
         let hash = make_tx_hash(123);
         let mut signed_transaction = make_default_signed_transaction();
@@ -1941,9 +1902,9 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(BlockchainError::PayableTransactionFailed {
-                msg: "Sending phase: Transport error: Transaction crashed".to_string(),
-                signed_and_hashed_txs_opt: Some(vec![hash])
+            Err(PayablePaymentError::Sending {
+                msg: "Transport error: Transaction crashed".to_string(),
+                hashes: vec![hash]
             })
         );
     }
@@ -1972,7 +1933,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PayableTransactionError::Signing(
+            Err(PayablePaymentError::Signing(
                 "Signing error: secp: malformed or out-of-range secret key".to_string()
             ))
         );
@@ -2407,175 +2368,115 @@ mod tests {
         );
     }
 
-    #[test]
-    fn conversion_between_errors_works() {
-        let original_errors = [
-            PayableTransactionError::UnusableWallet("wallet error".to_string()),
-            PayableTransactionError::Signing("signature error".to_string()),
-            PayableTransactionError::Sending {
-                msg: "sending error".to_string(),
-                hashes: vec![make_tx_hash(456)],
-            },
-        ];
-
-        let check: Vec<_> = original_errors
-            .clone()
+    fn collect_match_displayable_error_variants_in_exhaustive_mode<E, C>(
+        errors_to_assert: &[E],
+        exhaustive_error_matching: C,
+        expected_check_nums: Vec<u8>,
+    ) -> Vec<String>
+    where
+        E: Display,
+        C: Fn(&E) -> (String, u8),
+    {
+        let displayed_errors_with_check_nums = errors_to_assert
+            .iter()
+            .map(exhaustive_error_matching)
+            .collect::<Vec<(String, u8)>>();
+        let check_nums_alone = displayed_errors_with_check_nums
+            .iter()
+            .map(|(_, num_check)| *num_check)
+            .collect::<Vec<u8>>();
+        assert_eq!(check_nums_alone, expected_check_nums);
+        displayed_errors_with_check_nums
             .into_iter()
-            .zip(original_errors.into_iter())
-            .map(|(to_resolve, to_assert)| match to_resolve {
-                PayableTransactionError::UnusableWallet(..) => {
-                    assert_eq!(
-                        BlockchainError::from(to_assert),
-                        BlockchainError::PayableTransactionFailed {
-                            msg: "UnusableWallet: wallet error".to_string(),
-                            signed_and_hashed_txs_opt: None
-                        }
-                    );
-                    11
-                }
-                PayableTransactionError::Signing(..) => {
-                    assert_eq!(
-                        BlockchainError::from(to_assert),
-                        BlockchainError::PayableTransactionFailed {
-                            msg: "Signing phase: signature error".to_string(),
-                            signed_and_hashed_txs_opt: None
-                        }
-                    );
-                    22
-                }
-                PayableTransactionError::Sending { .. } => {
-                    assert_eq!(
-                        BlockchainError::from(to_assert),
-                        BlockchainError::PayableTransactionFailed {
-                            msg: "Sending phase: sending error".to_string(),
-                            signed_and_hashed_txs_opt: Some(vec![make_tx_hash(456)])
-                        }
-                    );
-                    33
-                }
-            })
-            .collect();
-
-        assert_eq!(check, vec![11, 22, 33])
+            .map(|(msg, _)| msg)
+            .collect()
     }
 
-    fn blockchain_errors_test_array() -> [BlockchainError; 6] {
-        [
+    #[test]
+    fn blockchain_error_implements_display() {
+        //TODO at the time of writing this test 'core::mem::variant_count' was only in nightly,
+        // consider its implementation instead of these match statements here and in the test below
+        let original_errors = [
             BlockchainError::InvalidUrl,
             BlockchainError::InvalidAddress,
             BlockchainError::InvalidResponse,
             BlockchainError::QueryFailed(
                 "Don't query so often, it gives me a headache".to_string(),
             ),
-            BlockchainError::PayableTransactionFailed {
-                msg: "Signing phase: Look at your signature, it's a mess!".to_string(),
-                signed_and_hashed_txs_opt: None,
-            },
-            BlockchainError::PayableTransactionFailed {
-                msg: "Sending phase: No luck. I tried, I swear".to_string(),
-                signed_and_hashed_txs_opt: Some(vec![make_tx_hash(555), make_tx_hash(777)]),
-            },
-        ]
-    }
+        ];
+        let pretty_print_closure = |err_to_resolve: &BlockchainError| match err_to_resolve {
+            BlockchainError::InvalidUrl => (err_to_resolve.to_string(), 11),
+            BlockchainError::InvalidAddress => (err_to_resolve.to_string(), 22),
+            BlockchainError::InvalidResponse => (err_to_resolve.to_string(), 33),
+            BlockchainError::QueryFailed(..) => (err_to_resolve.to_string(), 44),
+        };
 
-    #[test]
-    fn blockchain_error_has_pretty_style_in_display() {
-        //TODO at the time of writing this test 'core::mem::variant_count' was only in nightly,
-        // consider its implementation instead of these match statements here and in the test below
-        let original_errors = blockchain_errors_test_array();
+        let actual_error_msgs = collect_match_displayable_error_variants_in_exhaustive_mode(
+            original_errors.as_slice(),
+            pretty_print_closure,
+            vec![11, 22, 33, 44],
+        );
 
-        let displayed_errors = original_errors
-            .iter()
-            .map(|to_resolve| {
-                let clone = to_resolve.clone();
-                match clone {
-                    BlockchainError::InvalidUrl => (to_resolve.to_string(), 11),
-                    BlockchainError::InvalidAddress => (to_resolve.to_string(), 22),
-                    BlockchainError::InvalidResponse => (to_resolve.to_string(), 33),
-                    BlockchainError::QueryFailed(..) => (to_resolve.to_string(), 44),
-                    BlockchainError::PayableTransactionFailed {
-                        signed_and_hashed_txs_opt: None,
-                        ..
-                    } => (to_resolve.to_string(), 55),
-                    BlockchainError::PayableTransactionFailed {
-                        signed_and_hashed_txs_opt: Some(_),
-                        ..
-                    } => (to_resolve.to_string(), 66),
-                }
-            })
-            .collect::<Vec<(String, u16)>>();
-
-        let formal_comprehensiveness_check = displayed_errors
-            .iter()
-            .map(|(_, num_check)| *num_check)
-            .collect::<Vec<u16>>();
-        assert_eq!(formal_comprehensiveness_check, vec![11, 22, 33, 44, 55, 66]);
-        let actual_error_msgs = displayed_errors
-            .into_iter()
-            .map(|(msg, _)| msg)
-            .collect::<Vec<String>>();
         assert_eq!(
             actual_error_msgs,
             slice_of_strs_to_vec_of_strings(&[
-                "Blockchain error: Invalid url.",
-                "Blockchain error: Invalid address.",
-                "Blockchain error: Invalid response.",
-                "Blockchain error: Query failed: Don't query so often, it gives me a headache.",
-                "Blockchain error: Occurred at the final batch processing: \"Signing phase: Look at \
-                your signature, it's a mess!\". Without prepared transactions, no hashes to report.",
-                "Blockchain error: Occurred at the final batch processing: \"Sending phase: No luck. \
-                 I tried, I swear\". Successfully signed and hashed these transactions: \
-                  0x000000000000000000000000000000000000000000000000000000000000022b, \
-                  0x0000000000000000000000000000000000000000000000000000000000000309."
+                "Blockchain error: Invalid url",
+                "Blockchain error: Invalid address",
+                "Blockchain error: Invalid response",
+                "Blockchain error: Query failed: Don't query so often, it gives me a headache",
             ])
         )
     }
 
     #[test]
-    fn carries_transaction_hashes_works() {
-        let original_errors = blockchain_errors_test_array();
+    fn payable_payment_error_implements_display() {
+        let original_errors = [
+            PayablePaymentError::GeneralMsg("Spicy error".to_string()),
+            PayablePaymentError::MissingConsumingWallet,
+            PayablePaymentError::GasPriceQueryFailed("Gas halves shut, no drop left".to_string()),
+            PayablePaymentError::TransactionCount(BlockchainError::InvalidResponse),
+            PayablePaymentError::UnusableWallet(
+                "This is a LEATHER wallet, not LEDGER wallet, stupid.".to_string(),
+            ),
+            PayablePaymentError::Signing(
+                "You cannot sign with just three crosses here, clever boy".to_string(),
+            ),
+            PayablePaymentError::Sending {
+                msg: "Sending to cosmos belongs elsewhere".to_string(),
+                hashes: vec![make_tx_hash(111), make_tx_hash(222)],
+            },
+        ];
+        let pretty_print_closure = |err_to_resolve: &PayablePaymentError| match err_to_resolve {
+            PayablePaymentError::GeneralMsg(_) => (err_to_resolve.to_string(), 11),
+            PayablePaymentError::MissingConsumingWallet => (err_to_resolve.to_string(), 22),
+            PayablePaymentError::GasPriceQueryFailed(_) => (err_to_resolve.to_string(), 33),
+            PayablePaymentError::TransactionCount(_) => (err_to_resolve.to_string(), 44),
+            PayablePaymentError::UnusableWallet(_) => (err_to_resolve.to_string(), 55),
+            PayablePaymentError::Signing(_) => (err_to_resolve.to_string(), 66),
+            PayablePaymentError::Sending { .. } => (err_to_resolve.to_string(), 77),
+        };
 
-        let check: Vec<_> = original_errors
-            .clone()
-            .into_iter()
-            .zip(original_errors.into_iter())
-            .map(|(to_resolve, to_assert)| match &to_resolve {
-                BlockchainError::InvalidUrl => {
-                    assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
-                    11
-                }
-                BlockchainError::InvalidAddress => {
-                    assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
-                    22
-                }
-                BlockchainError::InvalidResponse => {
-                    assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
-                    33
-                }
-                BlockchainError::QueryFailed(..) => {
-                    assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
-                    44
-                }
-                BlockchainError::PayableTransactionFailed {
-                    signed_and_hashed_txs_opt: None,
-                    ..
-                } => {
-                    assert_eq!(to_assert.carries_transaction_hashes_opt(), None);
-                    55
-                }
-                BlockchainError::PayableTransactionFailed {
-                    signed_and_hashed_txs_opt: Some(vec_of_hashes),
-                    ..
-                } => {
-                    let result = to_assert.carries_transaction_hashes_opt();
-                    let assertable_in_the_loop = result.as_ref();
-                    assert_eq!(assertable_in_the_loop, Some(vec_of_hashes));
-                    66
-                }
-            })
-            .collect();
+        let actual_error_msgs = collect_match_displayable_error_variants_in_exhaustive_mode(
+            original_errors.as_slice(),
+            pretty_print_closure,
+            vec![11, 22, 33, 44, 55, 66, 77],
+        );
 
-        assert_eq!(check, vec![11, 22, 33, 44, 55, 66])
+        assert_eq!(
+            actual_error_msgs,
+            slice_of_strs_to_vec_of_strings(&[
+                "General message error: \"Spicy error\"",
+                "Missing consuming wallet to pay payable from",
+                "Unsuccessful gas price query: \"Gas halves shut, no drop left\"",
+                "Transaction count fetching failed for: Blockchain error: Invalid response",
+                "Unusable wallet for signing payable transactions: \"This is a LEATHER wallet, not \
+                LEDGER wallet, stupid.\"",
+                "Signing phase: \"You cannot sign with just three crosses here, clever boy\"",
+                "Sending phase: \"Sending to cosmos belongs elsewhere\". Signed and hashed \
+                transactions: 0x000000000000000000000000000000000000000000000000000000000000006f, \
+                0x00000000000000000000000000000000000000000000000000000000000000de"
+            ])
+        )
     }
 
     #[test]

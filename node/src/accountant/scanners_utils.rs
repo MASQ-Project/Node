@@ -8,10 +8,9 @@ pub mod payable_scanner_utils {
         LocallyCausedError, RemotelyCausedErrors,
     };
     use crate::accountant::SentPayables;
-    use crate::blockchain::blockchain_interface::BlockchainError::PayableTransactionFailed;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{
-        BlockchainError, ProcessedPayableFallible, RpcPayableFailure,
+        PayablePaymentError, ProcessedPayableFallible, RpcPayableFailure,
     };
     use crate::masq_lib::utils::ExpectValue;
     use crate::sub_lib::accountant::PaymentThresholds;
@@ -31,7 +30,7 @@ pub mod payable_scanner_utils {
 
     #[derive(Debug, PartialEq, Eq)]
     pub enum PayableTransactingErrorEnum {
-        LocallyCausedError(BlockchainError),
+        LocallyCausedError(PayablePaymentError),
         RemotelyCausedErrors(Vec<H256>),
     }
 
@@ -109,9 +108,8 @@ pub mod payable_scanner_utils {
                 }
                 let (oks, err_hashes_opt) =
                     separate_rpc_results(individual_batch_responses, logger);
-
-                let errs_opt = err_hashes_opt.map(RemotelyCausedErrors);
-                (oks, errs_opt)
+                let remote_errs_opt = err_hashes_opt.map(|e| RemotelyCausedErrors(e));
+                (oks, remote_errs_opt)
             }
             Err(e) => {
                 warning!(
@@ -218,15 +216,10 @@ pub mod payable_scanner_utils {
         match full_set_of_errors {
             Some(errors) => match errors {
                 LocallyCausedError(blockchain_error) => match blockchain_error {
-                    PayableTransactionFailed {
-                        signed_and_hashed_txs_opt,
-                        ..
-                    } => signed_and_hashed_txs_opt
-                        .as_ref()
-                        .map(|hashes| hashes.len()),
+                    PayablePaymentError::Sending { hashes, .. } => Some(hashes.len()),
                     _ => None,
                 },
-                RemotelyCausedErrors(b_e) => Some(b_e.len()),
+                RemotelyCausedErrors(hashes) => Some(hashes.len()),
             },
             None => Some(0),
         }
@@ -439,9 +432,10 @@ mod tests {
     };
     use crate::accountant::scanners_utils::receivable_scanner_utils::balance_and_age;
     use crate::accountant::{checked_conversion, gwei_to_wei, SentPayables};
-    use crate::blockchain::blockchain_interface::BlockchainError::PayableTransactionFailed;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
-    use crate::blockchain::blockchain_interface::{BlockchainError, RpcPayableFailure};
+    use crate::blockchain::blockchain_interface::{
+        BlockchainError, PayablePaymentError, RpcPayableFailure,
+    };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
@@ -524,11 +518,11 @@ mod tests {
     }
 
     #[test]
-    fn separate_errors_works_for_our_errors() {
+    fn separate_errors_works_for_local_error() {
         init_test_logging();
-        let error = PayableTransactionFailed {
-            msg: "bad timing".to_string(),
-            signed_and_hashed_txs_opt: None,
+        let error = PayablePaymentError::Sending {
+            msg: "Bad luck".to_string(),
+            hashes: vec![make_tx_hash(123)],
         };
         let sent_payable = SentPayables {
             payment_procedure_result: Err(error.clone()),
@@ -539,8 +533,11 @@ mod tests {
 
         assert!(oks.is_empty());
         assert_eq!(errs, Some(LocallyCausedError(error)));
-        TestLogHandler::new().exists_log_containing("WARN: test_logger: Any persisted data from failed process will be deleted. Caused by: \
-         Blockchain error: Occurred at the final batch processing: \"bad timing\". Without prepared transactions, no hashes to report");
+        TestLogHandler::new().exists_log_containing(
+            "WARN: test_logger: Any persisted data from \
+        failed process will be deleted. Caused by: Sending phase: \"Bad luck\". Signed and hashed \
+        transactions: 0x000000000000000000000000000000000000000000000000000000000000007b",
+        );
     }
 
     #[test]
@@ -753,32 +750,26 @@ mod tests {
     }
 
     #[test]
-    fn count_total_errors_says_unknown_number_for_local_error_from_the_beginning() {
-        let sent_payable = Some(LocallyCausedError(BlockchainError::InvalidUrl));
+    fn count_total_errors_says_unknown_number_for_early_local_errors() {
+        let early_local_errors = [
+            PayablePaymentError::TransactionCount(BlockchainError::QueryFailed("blah".to_string())),
+            PayablePaymentError::MissingConsumingWallet,
+            PayablePaymentError::GeneralMsg("huh".to_string()),
+            PayablePaymentError::GasPriceQueryFailed("ouch".to_string()),
+            PayablePaymentError::UnusableWallet("fooo".to_string()),
+            PayablePaymentError::Signing("tsss".to_string()),
+        ];
 
-        let result = count_total_errors(&sent_payable);
-
-        assert_eq!(result, None)
-    }
-
-    #[test]
-    fn count_total_errors_says_unknown_number_for_local_error_before_signing() {
-        let error = PayableTransactionFailed {
-            msg: "Ouuuups".to_string(),
-            signed_and_hashed_txs_opt: None,
-        };
-        let sent_payable = Some(LocallyCausedError(error));
-
-        let result = count_total_errors(&sent_payable);
-
-        assert_eq!(result, None)
+        early_local_errors
+            .into_iter()
+            .for_each(|err| assert_eq!(count_total_errors(&Some(LocallyCausedError(err))), None))
     }
 
     #[test]
     fn count_total_errors_works_correctly_for_local_error_after_signing() {
-        let error = PayableTransactionFailed {
+        let error = PayablePaymentError::Sending {
             msg: "Ouuuups".to_string(),
-            signed_and_hashed_txs_opt: Some(vec![make_tx_hash(333), make_tx_hash(666)]),
+            hashes: vec![make_tx_hash(333), make_tx_hash(666)],
         };
         let sent_payable = Some(LocallyCausedError(error));
 
@@ -809,9 +800,9 @@ mod tests {
     }
 
     #[test]
-    fn debug_summary_after_error_separation_says_the_count_is_unidentifiable() {
+    fn debug_summary_after_error_separation_says_the_count_cannot_be_known() {
         let oks = vec![];
-        let error = BlockchainError::InvalidAddress;
+        let error = PayablePaymentError::MissingConsumingWallet;
         let errs = Some(LocallyCausedError(error));
 
         let result = debugging_summary_after_error_separation(&oks, &errs);

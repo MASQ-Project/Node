@@ -1,14 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::dao_utils::DaoFactoryReal;
-use crate::accountant::payable_dao::PayableAccount;
 use crate::accountant::{
     ReceivedPayments, ResponseSkeleton, ScanError, SentPayables, SkeletonOptHolder,
 };
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
-    BlockchainInterfaceNonClandestine, BlockchainResult, ProcessedPayableFallible,
+    BlockchainInterfaceNonClandestine, PayablePaymentError, ProcessedPayableFallible,
 };
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -238,7 +237,7 @@ impl BlockchainBridge {
         &mut self,
         msg: &ReportAccountsPayable,
     ) -> Result<(), String> {
-        let result = self.start_processing_payments(msg)?;
+        let result = self.process_payments(msg);
 
         let local_processing_result = match &result {
             Err(e) => Err(format!("ReportAccountsPayable: {}", e)),
@@ -256,19 +255,6 @@ impl BlockchainBridge {
             .expect("Accountant is dead");
 
         local_processing_result
-    }
-
-    fn start_processing_payments(
-        &self,
-        msg: &ReportAccountsPayable,
-    ) -> Result<BlockchainResult<Vec<ProcessedPayableFallible>>, String> {
-        match self.consuming_wallet_opt.as_ref() {
-            Some(consuming_wallet) => match self.persistent_config.gas_price() {
-                Ok(gas_price) => Ok(self.process_payments(msg, consuming_wallet, gas_price)),
-                Err(e) => Err(format!("ReportAccountsPayable: gas-price: {:?}", e)),
-            },
-            None => Err(String::from("No consuming wallet specified")),
-        }
     }
 
     fn handle_retrieve_transactions(&mut self, msg: &RetrieveTransactions) -> Result<(), String> {
@@ -380,42 +366,36 @@ impl BlockchainBridge {
     fn process_payments(
         &self,
         msg: &ReportAccountsPayable,
-        consuming_wallet: &Wallet,
-        gas_price: u64,
-    ) -> BlockchainResult<Vec<ProcessedPayableFallible>> {
-        let executable_payments = match self.check_our_capability_to_pay(&msg.accounts)
-        {
-            Ok(accounts) => accounts,
-            Err(_e) => todo!("Will be completed by driving in either GH-554 or GH-555, then transform this match into a simple question mark"),
+    ) -> Result<Vec<ProcessedPayableFallible>, PayablePaymentError> {
+        let (consuming_wallet, gas_price) = match self.consuming_wallet_opt.as_ref() {
+            Some(consuming_wallet) => match self.persistent_config.gas_price() {
+                Ok(gas_price) => (consuming_wallet, gas_price),
+                Err(e) => return Err(PayablePaymentError::GasPriceQueryFailed(format!("{:?}", e))),
+            },
+            None => return Err(PayablePaymentError::MissingConsumingWallet),
         };
 
         let pending_nonce = self
             .blockchain_interface
-            .get_transaction_count(consuming_wallet)?;
+            .get_transaction_count(consuming_wallet)
+            .map_err(|e| PayablePaymentError::TransactionCount(e))?;
 
-        let new_fingerprints_recipient = self
-            .paid_payable_confirmation
-            .new_pp_fingerprints_sub_opt
-            .as_ref()
-            .expect("Accountant unbound");
+        let new_fingerprints_recipient = self.get_new_fingerprint_recipient();
 
         self.blockchain_interface.send_payables_within_batch(
             consuming_wallet,
             gas_price,
             pending_nonce,
             new_fingerprints_recipient,
-            executable_payments,
+            &msg.accounts,
         )
     }
 
-    fn check_our_capability_to_pay<'a>(
-        &self,
-        payable_accounts: &'a [PayableAccount],
-    ) -> Result<&'a [PayableAccount], BlockchainError> {
-        //TODO: implement GH-554 and GH-555 at this place
-        // also check if the resulting amount of filtered-out accounts is the same as the original...
-        // if not, log the inability to pay it all at the moment
-        Ok(payable_accounts)
+    fn get_new_fingerprint_recipient(&self) -> &Recipient<PendingPayableFingerprintSeeds> {
+        self.paid_payable_confirmation
+            .new_pp_fingerprints_sub_opt
+            .as_ref()
+            .expect("Accountant unbound")
     }
 }
 
@@ -539,12 +519,15 @@ mod tests {
     fn report_accounts_payable_returns_error_when_there_is_no_consuming_wallet_configured() {
         let blockchain_interface_mock = BlockchainInterfaceMock::default();
         let persistent_configuration_mock = PersistentConfigurationMock::default();
-        let subject = BlockchainBridge::new(
+        let (accountant, _, accountant_recording_arc) = make_recorder();
+        let recipient = accountant.start().recipient();
+        let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface_mock),
             Box::new(persistent_configuration_mock),
             false,
             None,
         );
+        subject.sent_payable_subs_opt = Some(recipient);
         let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
@@ -554,10 +537,26 @@ mod tests {
             }],
             response_skeleton_opt: None,
         };
+        let system = System::new("test");
 
-        let result = subject.start_processing_payments(&request);
+        let result = subject.handle_report_accounts_payable(&request);
 
-        assert_eq!(result, Err("No consuming wallet specified".to_string()));
+        System::current().stop();
+        assert_eq!(system.run(), 0);
+        assert_eq!(
+            result,
+            Err("ReportAccountsPayable: Missing consuming wallet to pay payable from".to_string())
+        );
+        let accountant_recording = accountant_recording_arc.lock().unwrap();
+        let sent_payable_msg = accountant_recording.get_record::<SentPayables>(0);
+        assert_eq!(
+            sent_payable_msg,
+            &SentPayables {
+                payment_procedure_result: Err(PayablePaymentError::MissingConsumingWallet),
+                response_skeleton_opt: None
+            }
+        );
+        assert_eq!(accountant_recording.len(), 1)
     }
 
     #[test]
@@ -677,9 +676,9 @@ mod tests {
         let wallet_account = make_wallet("blah");
         let expected_error_msg = "We were so close but we stumbled and smashed our face against \
          the ground just a moment after the signing";
-        let expected_error = Err(BlockchainError::PayableTransactionFailed {
+        let expected_error = Err(PayablePaymentError::Sending {
             msg: expected_error_msg.to_string(),
-            signed_and_hashed_txs_opt: Some(vec![hash]),
+            hashes: vec![hash],
         });
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_result(Ok(U256::from(1u64)))
@@ -739,9 +738,8 @@ mod tests {
                     context_id: 4321
                 }),
                 msg: format!(
-                    "ReportAccountsPayable: Blockchain error: Occurred at the final batch \
-            processing: \"{}\". Successfully signed and hashed these transactions: \
-            0x00000000000000000000000000000000000000000000000000000000000000de.",
+                    "ReportAccountsPayable: Sending phase: \"{}\". Signed and hashed transactions: \
+            0x00000000000000000000000000000000000000000000000000000000000000de",
                     expected_error_msg
                 )
             }
@@ -761,7 +759,7 @@ mod tests {
             Box::new(blockchain_interface_mock),
             Box::new(persistent_configuration_mock),
             false,
-            Some(consuming_wallet.clone()),
+            Some(consuming_wallet),
         );
         let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
@@ -773,24 +771,24 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.process_payments(&request, &consuming_wallet, 123);
+        let result = subject.process_payments(&request);
 
         assert_eq!(
             result,
-            Err(BlockchainError::QueryFailed(
-                "What the hack...??".to_string()
+            Err(PayablePaymentError::TransactionCount(
+                BlockchainError::QueryFailed("What the hack...??".to_string())
             ))
         );
     }
 
     #[test]
-    fn report_accounts_payable_returns_error_from_sending_batch() {
+    fn process_payments_returns_error_from_sending_batch() {
         let transaction_hash = make_tx_hash(789);
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
-            .send_payables_within_batch_result(Err(BlockchainError::PayableTransactionFailed {
+            .send_payables_within_batch_result(Err(PayablePaymentError::Sending {
                 msg: "failure from exhaustion".to_string(),
-                signed_and_hashed_txs_opt: Some(vec![transaction_hash]),
+                hashes: vec![transaction_hash],
             }));
         let consuming_wallet = make_wallet("somewallet");
         let persistent_configuration_mock =
@@ -816,14 +814,14 @@ mod tests {
             .paid_payable_confirmation
             .new_pp_fingerprints_sub_opt = Some(fingerprint_recipient);
 
-        let result = subject.start_processing_payments(&request);
+        let result = subject.process_payments(&request);
 
         assert_eq!(
             result,
-            Ok(Err(BlockchainError::PayableTransactionFailed {
+            Err(PayablePaymentError::Sending {
                 msg: "failure from exhaustion".to_string(),
-                signed_and_hashed_txs_opt: Some(vec![transaction_hash])
-            }))
+                hashes: vec![transaction_hash]
+            })
         );
     }
 
@@ -831,10 +829,11 @@ mod tests {
     fn handle_report_accounts_payable_manages_gas_price_error() {
         init_test_logging();
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let scan_error_recipient: Recipient<ScanError> = accountant
+        let accountant_addr = accountant
             .system_stop_conditions(match_every_type_id!(ScanError))
-            .start()
-            .recipient();
+            .start();
+        let sent_payables_recipient = accountant_addr.clone().recipient();
+        let scan_error_recipient = accountant_addr.recipient();
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_result(Ok(web3::types::U256::from(1)));
         let persistent_configuration_mock = PersistentConfigurationMock::new()
@@ -846,6 +845,7 @@ mod tests {
             false,
             Some(consuming_wallet),
         );
+        subject.sent_payable_subs_opt = Some(sent_payables_recipient);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
         let request = ReportAccountsPayable {
             accounts: vec![PayableAccount {
@@ -863,18 +863,29 @@ mod tests {
 
         system.run();
         let recording = accountant_recording_arc.lock().unwrap();
-        let message = recording.get_record::<ScanError>(0);
+        let actual_sent_payable_msg = recording.get_record::<SentPayables>(0);
         assert_eq!(
-            message,
+            actual_sent_payable_msg,
+            &SentPayables {
+                payment_procedure_result: Err(PayablePaymentError::GasPriceQueryFailed(
+                    "TransactionError".to_string()
+                )),
+                response_skeleton_opt: None
+            }
+        );
+        let actual_scan_err_msg = recording.get_record::<ScanError>(1);
+        assert_eq!(
+            actual_scan_err_msg,
             &ScanError {
                 scan_type: ScanType::Payables,
                 response_skeleton_opt: None,
-                msg: "ReportAccountsPayable: gas-price: TransactionError".to_string()
+                msg: "ReportAccountsPayable: Unsuccessful gas price query: \"TransactionError\""
+                    .to_string()
             }
         );
-        assert_eq!(recording.len(), 1);
+        assert_eq!(recording.len(), 2);
         TestLogHandler::new().exists_log_containing(
-            "WARN: BlockchainBridge: ReportAccountsPayable: gas-price: TransactionError",
+            "WARN: BlockchainBridge: ReportAccountsPayable: Unsuccessful gas price query: \"TransactionError\"",
         );
     }
 

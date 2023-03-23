@@ -26,7 +26,7 @@ use crate::accountant::{
 use crate::accountant::{PendingPayableId, ReportAccountsPayable};
 use crate::banned_dao::BannedDao;
 use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint, RetrieveTransactions};
-use crate::blockchain::blockchain_interface::BlockchainError::PayableTransactionFailed;
+use crate::blockchain::blockchain_interface::PayablePaymentError;
 use crate::sub_lib::accountant::{
     DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
 };
@@ -394,10 +394,7 @@ impl PayableScanner {
     ) {
         if let Some(err) = err_opt {
             match err {
-                LocallyCausedError(PayableTransactionFailed {
-                    signed_and_hashed_txs_opt: Some(hashes),
-                    ..
-                })
+                LocallyCausedError(PayablePaymentError::Sending {hashes, ..})
                 | RemotelyCausedErrors(hashes) => {
                     self.discard_failed_transactions_with_possible_fingerprints(hashes, logger)
                 }
@@ -1092,7 +1089,7 @@ mod tests {
     use crate::accountant::scanners_utils::pending_payable_scanner_utils::PendingPayableScanReport;
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{
-        BlockchainError, BlockchainTransaction, RpcPayableFailure,
+        BlockchainTransaction, PayablePaymentError, RpcPayableFailure,
     };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::{
@@ -1410,9 +1407,9 @@ mod tests {
             .build();
         let logger = Logger::new(test_name);
         let sent_payable = SentPayables {
-            payment_procedure_result: Err(BlockchainError::PayableTransactionFailed {
+            payment_procedure_result: Err(PayablePaymentError::Sending {
                 msg: "Attempt failed".to_string(),
-                signed_and_hashed_txs_opt: Some(vec![hash_tx_1, hash_tx_2]),
+                hashes: vec![hash_tx_1, hash_tx_2],
             }),
             response_skeleton_opt: None,
         };
@@ -1434,9 +1431,9 @@ mod tests {
         );
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!("WARN: {test_name}: \
-         Any persisted data from failed process will be deleted. Caused by: Blockchain error: Occurred at the final batch processing: \
-         \"Attempt failed\". Successfully signed and hashed these transactions: 0x000000000000000000000000000000000000000000000000000\
-         00000000015b3, 0x0000000000000000000000000000000000000000000000000000000000003039."));
+         Any persisted data from failed process will be deleted. Caused by: Sending phase: \"Attempt failed\". \
+         Signed and hashed transactions: 0x000000000000000000000000000000000000000000000000000\
+         00000000015b3, 0x0000000000000000000000000000000000000000000000000000000000003039"));
         log_handler.exists_log_containing(
             &format!("WARN: {test_name}: \
             Deleting fingerprints for failed transactions 0x00000000000000000000000000000000000000000000000000000000000015b3, \
@@ -1460,9 +1457,9 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
         let sent_payable = SentPayables {
-            payment_procedure_result: Err(BlockchainError::PayableTransactionFailed {
+            payment_procedure_result: Err(PayablePaymentError::Sending {
                 msg: "SQLite migraine".to_string(),
-                signed_and_hashed_txs_opt: Some(vec![hash_1, hash_2, hash_3]),
+                hashes: vec![hash_1, hash_2, hash_3],
             }),
             response_skeleton_opt: None,
         };
@@ -1480,11 +1477,10 @@ mod tests {
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(
             &format!("WARN: {test_name}: Any persisted data from failed process will be deleted. Caused by: \
-             Blockchain error: Occurred at the final batch processing: \"SQLite migraine\". Successfully signed and hashed \
-             these transactions: \
+             Sending phase: \"SQLite migraine\". Signed and hashed transactions: \
                0x000000000000000000000000000000000000000000000000000000000001b669, \
               0x0000000000000000000000000000000000000000000000000000000000003039, \
-               0x000000000000000000000000000000000000000000000000000000000000223d."));
+               0x000000000000000000000000000000000000000000000000000000000000223d"));
         log_handler.exists_no_log_containing(&format!(
             "DEBUG: {test_name}: Deleting an existing backup for a failed transaction {:?}",
             hash_1
@@ -1496,10 +1492,7 @@ mod tests {
         init_test_logging();
         let test_name = "payable_scanner_handles_error_born_too_early_to_see_transaction_hash";
         let sent_payable = SentPayables {
-            payment_procedure_result: Err(BlockchainError::PayableTransactionFailed {
-                msg: "Some error".to_string(),
-                signed_and_hashed_txs_opt: None,
-            }),
+            payment_procedure_result: Err(PayablePaymentError::Signing("Some error".to_string())),
             response_skeleton_opt: None,
         };
         let mut subject = PayableScannerBuilder::new().build();
@@ -1512,8 +1505,7 @@ mod tests {
         ));
         log_handler.exists_log_containing(&format!(
             "DEBUG: {test_name}: Ignoring a non-fatal error on our end from before \
-            the transactions are hashed: LocallyCausedError(PayableTransactionFailed \
-             {{ msg: \"Some error\", signed_and_hashed_txs_opt: None }})"
+            the transactions are hashed: LocallyCausedError(Signing(\"Some error\"))"
         ));
     }
 
@@ -1556,9 +1548,9 @@ mod tests {
         let rowid_2 = 6;
         let hash_2 = make_tx_hash(789);
         let sent_payable = SentPayables {
-            payment_procedure_result: Err(BlockchainError::PayableTransactionFailed {
+            payment_procedure_result: Err(PayablePaymentError::Sending {
                 msg: "blah".to_string(),
-                signed_and_hashed_txs_opt: Some(vec![hash_1, hash_2]),
+                hashes: vec![hash_1, hash_2],
             }),
             response_skeleton_opt: None,
         };
