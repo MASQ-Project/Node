@@ -110,11 +110,8 @@ pub fn data_directory_from_context(
     data_directory_opt: &Option<PathBuf>,
     chain: Chain,
 ) -> PathBuf {
-    match data_directory_opt {
-        Some(data_directory) => {
-            let data_dir = data_directory.clone().to_string_lossy().to_string();
-            create_path_buf(chain, data_dir)
-        },
+    let right_local_data_dir: String = match data_directory_opt {
+        Some(data_directory) => data_directory.to_string_lossy().to_string(),
         None => {
             let right_home_dir = real_user
                 .home_dir_opt
@@ -132,17 +129,13 @@ pub fn data_directory_from_context(
                 .expect("No privileged local data directory; specify --data-directory")
                 .to_string_lossy()
                 .to_string();
-            let right_local_data_dir =
-                wrong_local_data_dir.replace(&wrong_home_dir, &right_home_dir);
-            create_path_buf(chain, right_local_data_dir.to_string())
+            wrong_local_data_dir.replace(&wrong_home_dir, &right_home_dir)
         }
-    }
+    };
+    add_chain_specific_directories(chain, right_local_data_dir)
 }
 
-pub fn create_path_buf(
-    chain: Chain,
-    local_data_dir: String
-) -> PathBuf {
+pub fn add_chain_specific_directories(chain: Chain, local_data_dir: String) -> PathBuf {
     PathBuf::from(local_data_dir)
         .join("MASQ")
         .join(chain.rec().literal_identifier)
@@ -200,7 +193,7 @@ mod tests {
             )),
         );
         let data_dir_opt = None;
-        let chain_name = "eth-ropsten";
+        let chain_name = "eth-mainnet";
 
         let result = data_directory_from_context(
             &dirs_wrapper,
@@ -212,24 +205,20 @@ mod tests {
         assert_eq!(
             result,
             PathBuf::from(
-                "/nonexistent_home/nonexistent_alice/.local/share/MASQ/eth-ropsten".to_string()
+                "/nonexistent_home/nonexistent_alice/.local/share/MASQ/eth-mainnet".to_string()
             )
         )
     }
 
     #[test]
-    fn data_directory_from_dir_opt_creates_new_folder_for_every_blockchain_platform() {
+    fn creating_the_right_directory_hierarchy_for_user_requested_data_directory() {
         let dirs_wrapper = DirsWrapperMock::new()
             .home_dir_result(Some(PathBuf::from("/nonexistent_home/root".to_string())))
             .data_dir_result(Some(PathBuf::from("/nonexistent_home/root/.local/share")));
-        let real_user = RealUser::new(
-            None,
-            None,
-            None,
-        );
-        let custom_dir = Some(PathBuf::from("~/mynode".to_string())); 
+        let real_user = RealUser::new(None, None, None);
+        let custom_dir = Some(PathBuf::from("~/mynode".to_string()));
         let data_dir_opt = custom_dir;
-        let chain_name = "eth-ropsten";
+        let chain_name = "eth-mainnet";
 
         let result = data_directory_from_context(
             &dirs_wrapper,
@@ -240,9 +229,7 @@ mod tests {
 
         assert_eq!(
             result,
-            PathBuf::from(
-                "~/mynode/MASQ/eth-ropsten".to_string()
-            )
+            PathBuf::from("~/mynode/MASQ/eth-mainnet".to_string())
         )
     }
 
