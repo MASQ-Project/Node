@@ -119,6 +119,7 @@ impl LocalIpFinderMock {
 #[allow(clippy::type_complexity)]
 pub struct UdpSocketWrapperMock {
     local_addr_results: RefCell<Vec<io::Result<SocketAddr>>>,
+    peer_addr_results: RefCell<Vec<io::Result<SocketAddr>>>,
     connect_params: Arc<Mutex<Vec<SocketAddr>>>,
     connect_results: RefCell<Vec<io::Result<()>>>,
     recv_from_params: Arc<Mutex<Vec<()>>>,
@@ -136,6 +137,10 @@ pub struct UdpSocketWrapperMock {
 impl UdpSocketWrapper for UdpSocketWrapperMock {
     fn local_addr(&self) -> io::Result<SocketAddr> {
         self.local_addr_results.borrow_mut().remove(0)
+    }
+
+    fn peer_addr(&self) -> io::Result<SocketAddr> {
+        self.peer_addr_results.borrow_mut().remove(0)
     }
 
     fn connect(&self, addr: SocketAddr) -> io::Result<()> {
@@ -192,6 +197,7 @@ impl UdpSocketWrapperMock {
     pub fn new() -> Self {
         Self {
             local_addr_results: RefCell::new(vec![]),
+            peer_addr_results: RefCell::new(vec![]),
             connect_params: Arc::new(Mutex::new(vec![])),
             connect_results: RefCell::new(vec![]),
             recv_from_params: Arc::new(Mutex::new(vec![])),
@@ -209,6 +215,11 @@ impl UdpSocketWrapperMock {
 
     pub fn local_addr_result(self, result: io::Result<SocketAddr>) -> Self {
         self.local_addr_results.borrow_mut().push(result);
+        self
+    }
+
+    pub fn peer_addr_result(self, result: io::Result<SocketAddr>) -> Self {
+        self.peer_addr_results.borrow_mut().push(result);
         self
     }
 

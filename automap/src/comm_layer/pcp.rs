@@ -1427,9 +1427,8 @@ mod tests {
         let _ = EnvironmentGuard::new();
         let announcement_port = find_free_port();
         let announce_socket_holder = TestMulticastSocketHolder::checkout(announcement_port);
-eprintln! ("After checkout in test: {:?}", announce_socket_holder.socket.local_addr().unwrap());
         let router_port = find_free_port();
-        let router_ip = localhost();
+        let router_ip = LocalIpFinderReal::new().find().unwrap();
         let mut subject = PcpTransactor::default();
         subject.router_port = router_port;
         subject.announcement_multicast_group = announce_socket_holder.group;
@@ -1463,8 +1462,7 @@ eprintln! ("After checkout in test: {:?}", announce_socket_holder.socket.local_a
         announce_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();
-let mapping_socket = factory.make_multicast(announce_socket_holder.group, announcement_port).unwrap();
-        // let mapping_socket = UdpSocket::bind(SocketAddr::new(localhost(), router_port)).unwrap();
+        let mapping_socket = UdpSocket::bind(SocketAddr::new(router_ip, router_port)).unwrap();
         mapping_socket.set_read_timeout(Some (Duration::from_millis (1000))).unwrap();
         // Router announces to housekeeping thread that the public IP has changed
         let mut packet = vanilla_response();
@@ -1472,12 +1470,10 @@ let mapping_socket = factory.make_multicast(announce_socket_holder.group, announ
         packet.lifetime = 0;
         packet.epoch_time_opt = Some(0);
         let len_to_send = packet.marshal(&mut buffer).unwrap();
-        // socket_sender.send_to(message, SocketAddr::V4(multicast_address)).unwrap();
-        // let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
-let sent_len = announce_socket.send_to(
-    &buffer[0..len_to_send],
-    multicast_address,
-).unwrap();
+        let sent_len = announce_socket.send_to(
+            &buffer[0..len_to_send],
+            multicast_address,
+        ).unwrap();
         assert_eq!(sent_len, len_to_send);
         // Router receives mapping request from housekeeping thread to stimulate transmission of
         // new public IP address

@@ -46,6 +46,7 @@ impl MappingConfig {
 
 pub trait UdpSocketWrapper: Send {
     fn local_addr(&self) -> io::Result<SocketAddr>;
+    fn peer_addr(&self) -> io::Result<SocketAddr>;
     fn connect(&self, addr: SocketAddr) -> io::Result<()>;
     fn recv_from(&self, buf: &mut [u8]) -> io::Result<(usize, SocketAddr)>;
     fn send_to(&self, buf: &[u8], addr: SocketAddr) -> io::Result<usize>;
@@ -61,6 +62,10 @@ pub struct UdpSocketReal {
 impl UdpSocketWrapper for UdpSocketReal {
     fn local_addr(&self) -> io::Result<SocketAddr> {
         self.delegate.local_addr()
+    }
+
+    fn peer_addr(&self) -> io::Result<SocketAddr> {
+        self.delegate.peer_addr()
     }
 
     fn connect(&self, addr: SocketAddr) -> io::Result<()> {
