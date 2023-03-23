@@ -717,6 +717,7 @@ mod tests {
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
     use crate::listener_handler::{ListenerHandler, ListenerHandlerFactory};
+    use crate::node_configurator::add_chain_specific_directories;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::node_test_utils::TestLogOwner;
     use crate::node_test_utils::{extract_log, DirsWrapperMock, IdWrapperMock};
@@ -1140,14 +1141,17 @@ mod tests {
                 "2.2.2.2",
                 "--real-user",
                 "123:456:/home/booga",
+                "--chain",
+                "polygon-mumbai",
             ]))
             .unwrap();
 
         let init_params = init_params_arc.lock().unwrap();
+        let expected_dir = add_chain_specific_directories(Chain::PolyMumbai, &data_dir);
         assert_eq!(
             *init_params,
             vec![(
-                data_dir,
+                expected_dir,
                 RealUser::new(Some(123), Some(456), Some("/home/booga".into())),
                 LevelFilter::Warn,
                 None,
