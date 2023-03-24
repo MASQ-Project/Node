@@ -132,10 +132,8 @@ pub fn data_directory_from_context(
         }
     };
     add_chain_specific_directories(chain, &right_local_data_dir)
-    add_chain_specific_directories(chain, &right_local_data_dir)
 }
 
-pub fn add_chain_specific_directories(chain: Chain, local_data_dir: &Path) -> PathBuf {
 pub fn add_chain_specific_directories(chain: Chain, local_data_dir: &Path) -> PathBuf {
     PathBuf::from(local_data_dir)
         .join("MASQ")
@@ -207,7 +205,6 @@ mod tests {
         assert_eq!(
             result,
             PathBuf::from(
-                "/nonexistent_home/nonexistent_alice/.local/share/MASQ/polygon-mumbai".to_string()
                 "/nonexistent_home/nonexistent_alice/.local/share/MASQ/polygon-mumbai".to_string()
             )
         )
