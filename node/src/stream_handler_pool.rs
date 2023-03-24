@@ -153,10 +153,6 @@ impl Handler<TransmitDataMsg> for StreamHandlerPool {
 impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
     type Result = ();
     fn handle(&mut self, msg: DispatcherNodeQueryResponse, _ctx: &mut Self::Context) {
-        eprintln!(
-            "Received a DispatcherNodeQueryResponse msg with context: {:?}",
-            msg.context.clone()
-        );
         self.handle_dispatcher_node_query_response(msg)
     }
 }
@@ -567,21 +563,6 @@ impl StreamHandlerPool {
                 duration: Duration::from_millis(100),
             })
             .expect("StreamHandlerPool is dead");
-
-        eprintln!("A Schedule msg was sent to the StreamHandler.");
-
-        // let recipient = self
-        //     .self_subs_opt
-        //     .as_ref()
-        //     .expect("StreamHandlerPool is unbound.")
-        //     .node_query_response
-        //     .clone();
-        // // TODO FIXME revisit once SC-358/GH-96 is done (idea: use notify_later() to delay messages)
-        // thread::spawn(move || {
-        //     // to avoid getting into too-tight a resubmit loop, add a delay; in a separate thread, to avoid delaying other traffic
-        //     thread::sleep(Duration::from_millis(100));
-        //     recipient.try_send(msg).expect("StreamHandlerPool is dead");
-        // });
     }
 
     fn open_new_stream_and_recycle_message(
@@ -781,7 +762,6 @@ mod tests {
         ConnectionProgressEvent, ConnectionProgressMessage, NodeQueryResponseMetadata,
     };
     use crate::sub_lib::stream_connector::ConnectionInfo;
-    use crate::test_utils::await_messages;
     use crate::test_utils::channel_wrapper_mocks::SenderWrapperMock;
     use crate::test_utils::main_cryptde;
     use crate::test_utils::rate_pack;
@@ -793,6 +773,7 @@ mod tests {
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
     use crate::test_utils::unshared_test_utils::prove_that_crash_request_handler_is_hooked_up;
+    use crate::test_utils::{await_messages, make_send_error};
     use actix::Actor;
     use actix::Addr;
     use actix::System;
@@ -800,6 +781,7 @@ mod tests {
     use masq_lib::constants::HTTP_PORT;
     use masq_lib::test_utils::logging::init_test_logging;
     use masq_lib::test_utils::logging::TestLogHandler;
+    use masq_lib::utils::find_free_port;
     use std::io::Error;
     use std::io::ErrorKind;
     use std::net::IpAddr;
@@ -1502,9 +1484,7 @@ mod tests {
     #[test]
     fn transmit_data_msg_handler_finds_ip_from_neighborhood_and_transmits_message() {
         init_test_logging();
-        let cryptde = main_cryptde();
-        let key = cryptde.public_key();
-
+        let key = PublicKey::from(vec![8, 4, 8, 4]);
         let reader = ReadHalfWrapperMock::new().poll_read_result(vec![], Ok(Async::NotReady));
         let write_stream_params_arc = Arc::new(Mutex::new(vec![]));
         let writer = WriteHalfWrapperMock::new()
@@ -1588,6 +1568,9 @@ mod tests {
         let mut sw_to_stream_params = write_stream_params_arc.lock().unwrap();
         assert_eq!(sw_to_stream_params.len(), 2);
         assert_eq!(sw_to_stream_params.remove(0), b"hello");
+        TestLogHandler::new().exists_log_containing(&format!(
+            "DEBUG: Dispatcher: Sending node query about CAQIBA to Neighborhood"
+        ));
     }
 
     #[test]
@@ -1786,6 +1769,48 @@ mod tests {
         let poll_write_params = poll_write_params_arc.lock().unwrap();
 
         assert_eq!(poll_write_params[0], msg_a.data);
+    }
+
+    #[test]
+    fn log_an_error_when_it_fails_to_send_a_packet() {
+        init_test_logging();
+        let cryptde = main_cryptde();
+        let key = cryptde.public_key().clone();
+        let peer_addr = SocketAddr::new(localhost(), find_free_port());
+        let sw_key = StreamWriterKey::from(peer_addr);
+        let sender_wrapper_unbounded_send_params_arc = Arc::new(Mutex::new(vec![]));
+        let send_error = make_send_error();
+        let sender_wrapper = SenderWrapperMock::new(peer_addr)
+            .unbounded_send_params(&sender_wrapper_unbounded_send_params_arc)
+            .unbounded_send_result(Err(send_error));
+        let mut subject = StreamHandlerPool::new(vec![], false);
+        subject
+            .stream_writers
+            .insert(sw_key, Some(Box::new(sender_wrapper)));
+        let msg = DispatcherNodeQueryResponse {
+            result: Some(NodeQueryResponseMetadata {
+                public_key: key,
+                node_addr_opt: Some(NodeAddr::new(&peer_addr.ip(), &[peer_addr.port()])),
+                rate_pack: ZERO_RATE_PACK.clone(),
+            }),
+            context: TransmitDataMsg {
+                endpoint: Endpoint::Socket(peer_addr.clone()),
+                last_data: true,
+                sequence_number: Some(0),
+                data: b"hello".to_vec(),
+            },
+        };
+
+        let _ = subject.handle_dispatcher_node_query_response(msg);
+
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_containing(
+            format!(
+                "ERROR: Dispatcher: Removing channel to disabled StreamWriter {} to {}: send failed because receiver is gone",
+                StreamWriterKey::from (peer_addr), peer_addr,
+            )
+                .as_str(),
+        );
     }
 
     #[test]
