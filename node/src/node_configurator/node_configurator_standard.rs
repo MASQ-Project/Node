@@ -281,6 +281,7 @@ mod tests {
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
+    use crate::node_configurator::add_chain_specific_directories;
     use crate::node_configurator::unprivileged_parse_args_configuration::UnprivilegedParseArgsConfigurationDaoNull;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::CryptDE;
@@ -552,7 +553,8 @@ mod tests {
                 "--consuming-private-key",
                 "ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01",
             )
-            .param("--real-user", "999:999:/home/booga");
+            .param("--real-user", "999:999:/home/booga")
+            .param("--chain", "polygon-mumbai");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
@@ -582,7 +584,8 @@ mod tests {
             config.blockchain_bridge_config.blockchain_service_url_opt,
             None,
         );
-        assert_eq!(config.data_directory, home_dir);
+        let expected_dir = add_chain_specific_directories(Chain::PolyMumbai, &home_dir);
+        assert_eq!(config.data_directory, expected_dir);
         assert_eq!(
             config.main_cryptde_null_opt.unwrap().public_key(),
             &PublicKey::new(&[1, 2, 3, 4]),
