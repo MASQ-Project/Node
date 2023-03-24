@@ -1064,7 +1064,7 @@ mod tests {
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
     };
-    use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
+    use crate::node_configurator::{add_chain_specific_directories, DirsWrapper, DirsWrapperReal};
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::accountant::{
         PaymentThresholds as PaymentThresholdsFromAccountant, DEFAULT_PAYMENT_THRESHOLDS,
@@ -2450,13 +2450,14 @@ mod tests {
             let mut config_file = File::create(config_file_path).unwrap();
             config_file.write_all(b"gas-price = \"10\"\n").unwrap();
         }
+        let expected_dir = add_chain_specific_directories(Blockchain::PolyMumbai, &data_directory);
         let setup = vec![
             // no config-file setting
             UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
             UiSetupResponseValue::new("config-file", "booga/special.toml", Set),
             UiSetupResponseValue::new(
                 "data-directory",
-                &data_directory.to_string_lossy().to_string(),
+                &expected_dir.to_string_lossy().to_string(),
                 Set,
             ),
         ]
@@ -2464,11 +2465,12 @@ mod tests {
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
         let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
-
+        println!("{:#?}", expected_dir);
+        println!("{:#?}", data_directory);
         let result = subject
-            .calculate_configured_setup(&setup, &data_directory)
+            .calculate_configured_setup(&setup, &expected_dir)
             .0;
-
+        println!("{:#?}", result);
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
 

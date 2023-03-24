@@ -110,32 +110,29 @@ pub fn data_directory_from_context(
     data_directory_opt: &Option<PathBuf>,
     chain: Chain,
 ) -> PathBuf {
-    let right_local_data_dir: String = match data_directory_opt {
-        Some(data_directory) => data_directory.to_string_lossy().to_string(),
+    let right_local_data_dir: PathBuf = match data_directory_opt {
+        Some(data_directory) => data_directory.to_owned(),
         None => {
             let right_home_dir = real_user
                 .home_dir_opt
                 .as_ref()
-                .expect("No real-user home directory; specify --real-user")
-                .to_string_lossy()
-                .to_string();
+                .expect("No real-user home directory; specify --real-user");
             let wrong_home_dir = dirs_wrapper
                 .home_dir()
-                .expect("No privileged home directory; specify --data-directory")
-                .to_string_lossy()
-                .to_string();
+                .expect("No privileged home directory; specify --data-directory");
             let wrong_local_data_dir = dirs_wrapper
                 .data_dir()
-                .expect("No privileged local data directory; specify --data-directory")
-                .to_string_lossy()
-                .to_string();
-            wrong_local_data_dir.replace(&wrong_home_dir, &right_home_dir)
+                .expect("No privileged local data directory; specify --data-directory");
+            let adjusted_local_data_dir: &Path = wrong_local_data_dir
+                .strip_prefix(wrong_home_dir)
+                .expect("std lib failed");
+            right_home_dir.join(adjusted_local_data_dir)
         }
     };
-    add_chain_specific_directories(chain, right_local_data_dir)
+    add_chain_specific_directories(chain, &right_local_data_dir)
 }
 
-pub fn add_chain_specific_directories(chain: Chain, local_data_dir: String) -> PathBuf {
+pub fn add_chain_specific_directories(chain: Chain, local_data_dir: &Path) -> PathBuf {
     PathBuf::from(local_data_dir)
         .join("MASQ")
         .join(chain.rec().literal_identifier)
@@ -193,7 +190,7 @@ mod tests {
             )),
         );
         let data_dir_opt = None;
-        let chain_name = "eth-mainnet";
+        let chain_name = "polygon-mumbai";
 
         let result = data_directory_from_context(
             &dirs_wrapper,
@@ -205,7 +202,7 @@ mod tests {
         assert_eq!(
             result,
             PathBuf::from(
-                "/nonexistent_home/nonexistent_alice/.local/share/MASQ/eth-mainnet".to_string()
+                "/nonexistent_home/nonexistent_alice/.local/share/MASQ/polygon-mumbai".to_string()
             )
         )
     }
@@ -218,7 +215,7 @@ mod tests {
         let real_user = RealUser::new(None, None, None);
         let custom_dir = Some(PathBuf::from("~/mynode".to_string()));
         let data_dir_opt = custom_dir;
-        let chain_name = "eth-mainnet";
+        let chain_name = "polygon-mumbai";
 
         let result = data_directory_from_context(
             &dirs_wrapper,
@@ -229,7 +226,7 @@ mod tests {
 
         assert_eq!(
             result,
-            PathBuf::from("~/mynode/MASQ/eth-mainnet".to_string())
+            PathBuf::from("~/mynode/MASQ/polygon-mumbai".to_string())
         )
     }
 
