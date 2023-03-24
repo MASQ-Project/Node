@@ -2,13 +2,13 @@
 
 use crate::accountant::dao_utils::VigilantRusqliteFlatten;
 use crate::database::db_migrations::db_migrator::DatabaseMigration;
-use crate::database::db_migrations::migrator_utils::DBMigDeclarationUtilities;
+use crate::database::db_migrations::migrator_utils::DBMigDeclarator;
 
 #[allow(non_camel_case_types)]
 pub struct Migrate_4_to_5;
 
 impl DatabaseMigration for Migrate_4_to_5 {
-    fn migrate<'a>(&self, utils: Box<dyn DBMigDeclarationUtilities + 'a>) -> rusqlite::Result<()> {
+    fn migrate<'a>(&self, utils: Box<dyn DBMigDeclarator + 'a>) -> rusqlite::Result<()> {
         let mut select_statement = utils
             .transaction()
             .prepare("select pending_payment_transaction from payable where pending_payment_transaction is not null")?;

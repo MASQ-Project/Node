@@ -2,7 +2,7 @@
 #![cfg(test)]
 
 use crate::database::db_initializer::ExternalData;
-use crate::database::db_migrations::migrator_utils::{DBMigDeclarationUtilities, StatementObject};
+use crate::database::db_migrations::migrator_utils::{DBMigDeclarator, StatementObject};
 use masq_lib::logger::Logger;
 use rusqlite::Transaction;
 use std::cell::RefCell;
@@ -37,7 +37,7 @@ impl DBMigDeclaratorMock {
     }
 }
 
-impl DBMigDeclarationUtilities for DBMigDeclaratorMock {
+impl  DBMigDeclarator for DBMigDeclaratorMock {
     fn db_password(&self) -> Option<String> {
         self.db_password_results.borrow_mut().remove(0)
     }

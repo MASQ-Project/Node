@@ -2,7 +2,7 @@
 
 use crate::blockchain::bip39::Bip39;
 use crate::database::db_migrations::db_migrator::DatabaseMigration;
-use crate::database::db_migrations::migrator_utils::DBMigDeclarationUtilities;
+use crate::database::db_migrations::migrator_utils::DBMigDeclarator;
 use crate::db_config::db_encryption_layer::DbEncryptionLayer;
 use crate::db_config::typed_config_layer::decode_bytes;
 use crate::sub_lib::cryptde::PlainData;
@@ -17,7 +17,7 @@ impl Migrate_3_to_4 {
         consuming_path_opt: Option<String>,
         example_encrypted_opt: Option<String>,
         seed_encrypted_opt: Option<String>,
-        utils: &dyn DBMigDeclarationUtilities,
+        utils: &dyn DBMigDeclarator,
     ) -> Option<String> {
         match (
             consuming_path_opt,
@@ -49,16 +49,17 @@ impl Migrate_3_to_4 {
                 )
             }
             (None, None, None) => None,
-            (consuming_path_opt, example_encrypted_opt, seed_encrypted_otp) => panic!(
+            (None, Some(_), None) => None,
+            (consuming_path_opt, example_encrypted_opt, seed_encrypted_opt) => panic!(
                 "these three options {:?}, {:?}, {:?} leave the database in an inconsistent state",
-                consuming_path_opt, example_encrypted_opt, seed_encrypted_otp
+                consuming_path_opt, example_encrypted_opt, seed_encrypted_opt
             ),
         }
     }
 }
 
 impl DatabaseMigration for Migrate_3_to_4 {
-    fn migrate<'a>(&self, utils: Box<dyn DBMigDeclarationUtilities + 'a>) -> rusqlite::Result<()> {
+    fn migrate<'a>(&self, utils: Box<dyn DBMigDeclarator + 'a>) -> rusqlite::Result<()> {
         let transaction = utils.transaction();
         let mut stmt = transaction
             .prepare("select name, value from config where name in ('example_encrypted', 'seed', 'consuming_wallet_derivation_path') order by name")
@@ -85,13 +86,13 @@ impl DatabaseMigration for Migrate_3_to_4 {
         let consuming_path_opt = rows[0].1.clone();
         let example_encrypted_opt = rows[1].1.clone();
         let seed_encrypted_opt = rows[2].1.clone();
-        let private_key_encoded = Self::maybe_exchange_seed_for_private_key(
+        let private_key_encoded_opt = Self::maybe_exchange_seed_for_private_key(
             consuming_path_opt,
             example_encrypted_opt,
             seed_encrypted_opt,
             utils.as_ref(),
         );
-        let private_key_column = if let Some(private_key) = private_key_encoded {
+        let private_key_column = if let Some(private_key) = private_key_encoded_opt {
             format!("'{}'", private_key)
         } else {
             "null".to_string()
@@ -272,6 +273,21 @@ mod tests {
         );
     }
 
+    #[test]
+    fn database_with_password_but_without_secrets_yet_still_accepted() {
+        let mig_declarator =  DBMigDeclaratorMock::default();
+        let example_encrypted_opt = Some("Password".to_string());
+
+        let result = Migrate_3_to_4::maybe_exchange_seed_for_private_key(
+            None,
+            example_encrypted_opt,
+            None,
+            &mig_declarator,
+        );
+
+        assert_eq!(result, None);
+    }
+
     fn catch_panic_for_maybe_exchange_seed_for_private_key_with_corrupt_database(
         consuming_path_opt: Option<&str>,
         example_encrypted_opt: Option<&str>,
@@ -290,8 +306,7 @@ mod tests {
             )
         }))
         .unwrap_err();
-        let panic_message = panic.downcast_ref::<String>().unwrap();
-        panic_message.to_owned()
+        panic.downcast_ref::<String>().unwrap().to_owned()
     }
 
     #[test]

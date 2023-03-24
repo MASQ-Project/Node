@@ -8,7 +8,7 @@ use masq_lib::utils::{ExpectValue, WrapResult};
 use rusqlite::{params_from_iter, Error, ToSql, Transaction};
 use std::fmt::{Display, Formatter};
 
-pub trait DBMigDeclarationUtilities {
+pub trait DBMigDeclarator {
     fn db_password(&self) -> Option<String>;
     fn transaction(&self) -> &Transaction;
     fn execute_upon_transaction<'a>(
@@ -28,7 +28,7 @@ pub trait DBMigrationUtilities {
         &'a self,
         external: &'a ExternalData,
         logger: &'a Logger,
-    ) -> Box<dyn DBMigDeclarationUtilities + 'a>;
+    ) -> Box<dyn DBMigDeclarator + 'a>;
 
     fn too_high_schema_panics(&self, obsolete_schema: usize);
 }
@@ -78,8 +78,8 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
         &'b self,
         external: &'b ExternalData,
         logger: &'b Logger,
-    ) -> Box<dyn DBMigDeclarationUtilities + 'b> {
-        Box::new(DBMigDeclarationUtilitiesReal::new(
+    ) -> Box<dyn DBMigDeclarator + 'b> {
+        Box::new(DBMigDeclaratorReal::new(
             self.root_transaction_ref(),
             external,
             logger,
@@ -97,13 +97,13 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
     }
 }
 
-struct DBMigDeclarationUtilitiesReal<'a> {
+struct DBMigDeclaratorReal<'a> {
     root_transaction_ref: &'a Transaction<'a>,
     external: &'a ExternalData,
     logger: &'a Logger,
 }
 
-impl<'a> DBMigDeclarationUtilitiesReal<'a> {
+impl<'a> DBMigDeclaratorReal<'a> {
     fn new(
         root_transaction_ref: &'a Transaction<'a>,
         external: &'a ExternalData,
@@ -117,7 +117,7 @@ impl<'a> DBMigDeclarationUtilitiesReal<'a> {
     }
 }
 
-impl DBMigDeclarationUtilities for DBMigDeclarationUtilitiesReal<'_> {
+impl DBMigDeclarator for DBMigDeclaratorReal<'_> {
     fn db_password(&self) -> Option<String> {
         self.external.db_password_opt.clone()
     }
@@ -132,7 +132,6 @@ impl DBMigDeclarationUtilities for DBMigDeclarationUtilitiesReal<'_> {
     ) -> rusqlite::Result<()> {
         let transaction = self.root_transaction_ref;
         sql_statements.iter().fold(Ok(()), |so_far, stm| {
-            println!("{}", stm);
             if so_far.is_ok() {
                 match stm.execute(transaction) {
                     Ok(_) => Ok(()),
@@ -216,7 +215,7 @@ struct InterimMigrationPlaceholder(usize);
 impl DatabaseMigration for InterimMigrationPlaceholder {
     fn migrate<'a>(
         &self,
-        _mig_declaration_utilities: Box<dyn DBMigDeclarationUtilities + 'a>,
+        _mig_declaration_utilities: Box<dyn DBMigDeclarator + 'a>,
     ) -> rusqlite::Result<()> {
         Ok(())
     }

@@ -10,7 +10,7 @@ use crate::database::db_migrations::migrations::migration_4_to_5::Migrate_4_to_5
 use crate::database::db_migrations::migrations::migration_5_to_6::Migrate_5_to_6;
 use crate::database::db_migrations::migrations::migration_6_to_7::Migrate_6_to_7;
 use crate::database::db_migrations::migrator_utils::{
-    DBMigDeclarationUtilities, DBMigrationUtilities, DBMigrationUtilitiesReal,
+    DBMigDeclarator, DBMigrationUtilities, DBMigrationUtilitiesReal,
     DBMigratorInnerConfiguration,
 };
 use masq_lib::logger::Logger;
@@ -54,7 +54,7 @@ impl DbMigrator for DbMigratorReal {
 pub trait DatabaseMigration {
     fn migrate<'a>(
         &self,
-        mig_declaration_utilities: Box<dyn DBMigDeclarationUtilities + 'a>,
+        mig_declaration_utilities: Box<dyn DBMigDeclarator + 'a>,
     ) -> rusqlite::Result<()>;
     fn old_version(&self) -> usize;
 }
@@ -189,7 +189,7 @@ mod tests {
     };
     use crate::database::db_migrations::migrations::migration_0_to_1::Migrate_0_to_1;
     use crate::database::db_migrations::migrator_utils::{
-        DBMigDeclarationUtilities, DBMigrationUtilities, DBMigrationUtilitiesReal,
+        DBMigDeclarator, DBMigrationUtilities, DBMigrationUtilitiesReal,
         DBMigratorInnerConfiguration,
     };
     use crate::database::db_migrations::test_utils::DBMigDeclaratorMock;
@@ -209,7 +209,7 @@ mod tests {
     struct DBMigrationUtilitiesMock {
         too_high_schema_panics_params: Arc<Mutex<Vec<usize>>>,
         make_mig_declarator_params: Arc<Mutex<Vec<ExternalData>>>,
-        make_mig_declarator_results: RefCell<Vec<Box<dyn DBMigDeclarationUtilities>>>,
+        make_mig_declarator_results: RefCell<Vec<Box<dyn DBMigDeclarator>>>,
         update_schema_version_params: Arc<Mutex<Vec<usize>>>,
         update_schema_version_results: RefCell<Vec<rusqlite::Result<()>>>,
         commit_results: RefCell<Vec<Result<(), String>>>,
@@ -241,7 +241,7 @@ mod tests {
 
         pub fn make_mig_declarator_result(
             self,
-            result: Box<dyn DBMigDeclarationUtilities>,
+            result: Box<dyn DBMigDeclarator>,
         ) -> Self {
             self.make_mig_declarator_results.borrow_mut().push(result);
             self
@@ -265,7 +265,7 @@ mod tests {
             &'a self,
             external: &'a ExternalData,
             _logger: &'a Logger,
-        ) -> Box<dyn DBMigDeclarationUtilities + 'a> {
+        ) -> Box<dyn DBMigDeclarator + 'a> {
             self.make_mig_declarator_params
                 .lock()
                 .unwrap()
@@ -319,7 +319,7 @@ mod tests {
     impl DatabaseMigration for DatabaseMigrationMock {
         fn migrate<'a>(
             &self,
-            _migration_utilities: Box<dyn DBMigDeclarationUtilities + 'a>,
+            _migration_utilities: Box<dyn DBMigDeclarator + 'a>,
         ) -> rusqlite::Result<()> {
             self.migrate_params.lock().unwrap().push(());
             self.migrate_results.borrow_mut().remove(0)
