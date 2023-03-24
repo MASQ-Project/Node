@@ -282,6 +282,7 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_configurator::add_chain_specific_directories;
+    use crate::node_configurator::add_chain_specific_directories;
     use crate::node_configurator::unprivileged_parse_args_configuration::UnprivilegedParseArgsConfigurationDaoNull;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::CryptDE;
@@ -553,6 +554,8 @@ mod tests {
                 "--consuming-private-key",
                 "ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01ABCDEF01",
             )
+            .param("--real-user", "999:999:/home/booga")
+            .param("--chain", "polygon-mumbai");
             .param("--real-user", "999:999:/home/booga")
             .param("--chain", "polygon-mumbai");
         let mut config = BootstrapperConfig::new();
