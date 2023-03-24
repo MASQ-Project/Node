@@ -47,6 +47,7 @@ impl Future for StreamReader {
                             "Read {}-byte chunk from {}: {}",
                             len,
                             self.peer_addr,
+                            // TODO: Should be pretty_hex()
                             utils::to_string(&Vec::from(&buf[0..len]))
                         );
                     }
