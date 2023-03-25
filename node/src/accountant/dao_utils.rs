@@ -885,6 +885,7 @@ mod tests {
                 Ok(num) => Ok(num > 0),
                 Err(e) => Err(e),
             });
+
         let result = rows_changed_for_multi_row_update(Ok(iterator));
 
         assert_eq!(result, Ok(3))
@@ -899,6 +900,7 @@ mod tests {
                 Ok(num) => Ok(num > 0),
                 Err(e) => Err(e),
             });
+
         let result = rows_changed_for_multi_row_update(Ok(iterator));
 
         assert_eq!(result, Ok(2))

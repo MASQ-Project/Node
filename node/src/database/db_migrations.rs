@@ -2042,9 +2042,9 @@ mod tests {
         let conn = bring_db_0_back_to_life_and_return_connection(&db_path);
         let conn = ConnectionWrapperReal::new(conn);
         let wallet_1 = make_wallet("james_bond");
-        let transaction_hash_1 = make_tx_hash(45454545);
+        let transaction_hash_1 = make_tx_hash(0x2b594d1);
         let wallet_2 = make_wallet("robinson_crusoe");
-        let transaction_hash_2 = make_tx_hash(999888);
+        let transaction_hash_2 = make_tx_hash(0xf41d0);
         let subject = DbInitializerReal::default();
         {
             let _ = subject

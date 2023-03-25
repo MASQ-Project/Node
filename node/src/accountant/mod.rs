@@ -2875,8 +2875,8 @@ mod tests {
         let notify_later_scan_for_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
         let notify_later_scan_for_pending_payable_arc_cloned =
             notify_later_scan_for_pending_payable_params_arc.clone(); //because it moves into a closure
-        let pending_tx_hash_1 = make_tx_hash(123);
-        let pending_tx_hash_2 = make_tx_hash(567);
+        let pending_tx_hash_1 = make_tx_hash(0x7b);
+        let pending_tx_hash_2 = make_tx_hash(0x237);
         let rowid_for_account_1 = 3;
         let rowid_for_account_2 = 5;
         let now = SystemTime::now();
@@ -3220,9 +3220,9 @@ mod tests {
         let accountant_addr = subject.start();
         let accountant_subs = Accountant::make_subs_from(&accountant_addr);
         let timestamp = SystemTime::now();
-        let hash_1 = make_tx_hash(444444);
+        let hash_1 = make_tx_hash(0x6c81c);
         let amount_1 = 12345;
-        let hash_2 = make_tx_hash(111111);
+        let hash_2 = make_tx_hash(0x1b207);
         let amount_2 = 87654;
         let init_params = vec![(hash_1, amount_1), (hash_2, amount_2)];
         let init_fingerprints_msg = PendingPayableFingerprintSeeds {
@@ -3260,7 +3260,7 @@ mod tests {
                 "Crashed".to_string(),
             )));
         let amount = 2345;
-        let transaction_hash = make_tx_hash(456);
+        let transaction_hash = make_tx_hash(0x1c8);
         let subject = AccountantBuilder::default()
             .pending_payable_daos(vec![ForAccountantBody(pending_payable_dao)])
             .build();

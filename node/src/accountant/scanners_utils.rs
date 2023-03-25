@@ -522,7 +522,7 @@ mod tests {
         init_test_logging();
         let error = PayablePaymentError::Sending {
             msg: "Bad luck".to_string(),
-            hashes: vec![make_tx_hash(123)],
+            hashes: vec![make_tx_hash(0x7b)],
         };
         let sent_payable = SentPayables {
             payment_procedure_result: Err(error.clone()),
@@ -550,7 +550,7 @@ mod tests {
         let bad_rpc_call = RpcPayableFailure {
             rpc_error: web3::Error::InvalidResponse("that donkey screwed it up".to_string()),
             recipient_wallet: make_wallet("whooa"),
-            hash: make_tx_hash(789),
+            hash: make_tx_hash(0x315),
         };
         let sent_payable = SentPayables {
             payment_procedure_result: Ok(vec![
@@ -563,7 +563,7 @@ mod tests {
         let (oks, errs) = separate_errors(&sent_payable, &Logger::new("test_logger"));
 
         assert_eq!(oks, vec![&payable_ok]);
-        assert_eq!(errs, Some(RemotelyCausedErrors(vec![make_tx_hash(789)])));
+        assert_eq!(errs, Some(RemotelyCausedErrors(vec![make_tx_hash(0x315)])));
         TestLogHandler::new().exists_log_containing("WARN: test_logger: Remote transaction failure: 'Got invalid response: \
          that donkey screwed it up' for payment to 0x00000000000000000000000000000077686f6f61 and transaction hash \
           0x0000000000000000000000000000000000000000000000000000000000000315. Please check your blockchain service URL configuration.");

@@ -30,7 +30,6 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::logger::Logger;
 use masq_lib::messages::ScanType;
 use masq_lib::ui_gateway::NodeFromUiMessage;
-use masq_lib::utils::plus;
 use std::path::PathBuf;
 use std::time::SystemTime;
 use web3::transports::Http;
@@ -244,13 +243,13 @@ impl BlockchainBridge {
             Ok(_) => Ok(()),
         };
 
-        let skeleton = msg.response_skeleton_opt;
+        let skeleton_opt = msg.response_skeleton_opt;
         self.sent_payable_subs_opt
             .as_ref()
             .expect("Accountant is unbound")
             .try_send(SentPayables {
                 payment_procedure_result: result,
-                response_skeleton_opt: skeleton,
+                response_skeleton_opt: skeleton_opt,
             })
             .expect("Accountant is dead");
 
@@ -303,20 +302,22 @@ impl BlockchainBridge {
             Vec<Option<TransactionReceipt>>,
             Option<(BlockchainError, H256)>,
         ) = (vec![], None);
-        let short_circuit_result =
-            msg.pending_payable
-                .iter()
-                .fold(init, |so_far, current_fingerprint| match so_far {
-                    (_, None) => match self
-                        .blockchain_interface
-                        .get_transaction_receipt(current_fingerprint.hash)
-                    {
-                        Ok(receipt_opt) => (plus(so_far.0, receipt_opt), None),
-                        Err(e) => (so_far.0, Some((e, current_fingerprint.hash))),
-                    },
-                    _ => so_far,
-                });
-        let (vector_of_results, error_opt) = short_circuit_result;
+        let (vector_of_results, error_opt) = msg.pending_payable.iter().fold(
+            init,
+            |(mut ok_receipts, err_opt), current_fingerprint| match err_opt {
+                None => match self
+                    .blockchain_interface
+                    .get_transaction_receipt(current_fingerprint.hash)
+                {
+                    Ok(receipt_opt) => {
+                        ok_receipts.push(receipt_opt);
+                        (ok_receipts, None)
+                    }
+                    Err(e) => (ok_receipts, Some((e, current_fingerprint.hash))),
+                },
+                _ => (ok_receipts, err_opt),
+            },
+        );
         let pairs = vector_of_results
             .into_iter()
             .zip(msg.pending_payable.iter().cloned())
@@ -643,7 +644,6 @@ mod tests {
         let get_transaction_count_params = get_transaction_count_params_arc.lock().unwrap();
         assert_eq!(*get_transaction_count_params, vec![consuming_wallet]);
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        assert_eq!(accountant_recording.len(), 1);
         let sent_payments_msg = accountant_recording.get_record::<SentPayables>(0);
         assert_eq!(
             *sent_payments_msg,
@@ -664,15 +664,16 @@ mod tests {
                 })
             }
         );
+        assert_eq!(accountant_recording.len(), 1);
     }
 
     #[test]
-    fn handle_report_accounts_payable_transacts_eleventh_hour_error_back_to_accountant() {
+    fn handle_report_accounts_payable_transmits_eleventh_hour_error_back_to_accountant() {
         let system = System::new(
-            "handle_report_accounts_payable_transacts_eleventh_hour_error_back_to_accountant",
+            "handle_report_accounts_payable_transmits_eleventh_hour_error_back_to_accountant",
         );
         let (accountant, _, accountant_recording_arc) = make_recorder();
-        let hash = make_tx_hash(222);
+        let hash = make_tx_hash(0xde);
         let wallet_account = make_wallet("blah");
         let expected_error_msg = "We were so close but we stumbled and smashed our face against \
          the ground just a moment after the signing";
@@ -716,7 +717,6 @@ mod tests {
         System::current().stop();
         system.run();
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        assert_eq!(accountant_recording.len(), 2);
         let sent_payments_msg = accountant_recording.get_record::<SentPayables>(0);
         assert_eq!(
             *sent_payments_msg,
@@ -743,7 +743,8 @@ mod tests {
                     expected_error_msg
                 )
             }
-        )
+        );
+        assert_eq!(accountant_recording.len(), 2)
     }
 
     #[test]
@@ -1017,7 +1018,7 @@ mod tests {
         let scan_error_recipient: Recipient<ScanError> = accountant_addr.recipient();
         let hash_1 = make_tx_hash(111334);
         let hash_2 = make_tx_hash(100000);
-        let hash_3 = make_tx_hash(78989);
+        let hash_3 = make_tx_hash(0x1348d);
         let hash_4 = make_tx_hash(11111);
         let mut fingerprint_1 = make_pending_payable_fingerprint();
         fingerprint_1.hash = hash_1;
@@ -1160,7 +1161,7 @@ mod tests {
         let report_transaction_recipient: Recipient<ReportTransactionReceipts> =
             accountant_addr.recipient();
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
-        let hash_1 = make_tx_hash(111334);
+        let hash_1 = make_tx_hash(0x1b2e6);
         let fingerprint_1 = PendingPayableFingerprint {
             rowid: 454,
             timestamp: SystemTime::now(),

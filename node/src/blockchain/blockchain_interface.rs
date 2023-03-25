@@ -2443,7 +2443,7 @@ mod tests {
             ),
             PayablePaymentError::Sending {
                 msg: "Sending to cosmos belongs elsewhere".to_string(),
-                hashes: vec![make_tx_hash(111), make_tx_hash(222)],
+                hashes: vec![make_tx_hash(0x6f), make_tx_hash(0xde)],
             },
         ];
         let pretty_print_closure = |err_to_resolve: &PayablePaymentError| match err_to_resolve {
