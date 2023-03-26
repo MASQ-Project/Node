@@ -13,7 +13,7 @@ use crate::sub_lib::cryptde::PlainData;
 use crate::sub_lib::neighborhood::{RatePack, DEFAULT_RATE_PACK};
 use itertools::Itertools;
 use masq_lib::logger::Logger;
-use masq_lib::utils::{ExpectValue, WrapResult};
+use masq_lib::utils::ExpectValue;
 use rusqlite::{params_from_iter, Error, Row, ToSql, Transaction};
 use std::fmt::{Debug, Display, Formatter};
 use tiny_hderive::bip32::ExtendedPrivKey;
@@ -96,11 +96,10 @@ impl<'a> DBMigrationUtilitiesReal<'a> {
         conn: &'b mut dyn ConnectionWrapper,
         db_migrator_configuration: DBMigratorInnerConfiguration,
     ) -> rusqlite::Result<Self> {
-        Self {
+        Ok(Self {
             root_transaction: Some(conn.transaction()?),
             db_migrator_configuration,
-        }
-        .wrap_to_ok()
+        })
     }
 
     fn root_transaction_ref(&self) -> &Transaction<'a> {
