@@ -2022,10 +2022,11 @@ mod tests {
         );
         let tx_hash = H256::from_uint(&U256::from(4564546));
 
-        let expected_error = subject.get_transaction_receipt(tx_hash).unwrap_err();
+        let actual_error = subject.get_transaction_receipt(tx_hash).unwrap_err();
+
         assert_eq!(
-            expected_error,
-            BlockchainError::QueryFailed("Transport error: Error(Connect, Os { code: 61, kind: ConnectionRefused, message: \"Connection refused\" })".to_string())
+            actual_error,
+            BlockchainError::QueryFailed(format!("Transport error: Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: \"Connection refused\" }})", if cfg!(target_os = "macos") { 61 } else { 111 }).to_string())
         );
     }
 
