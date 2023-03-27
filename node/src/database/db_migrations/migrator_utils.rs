@@ -4,7 +4,7 @@ use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{ExternalData, CURRENT_SCHEMA_VERSION};
 use crate::database::db_migrations::db_migrator::{DatabaseMigration, DbMigratorReal};
 use masq_lib::logger::Logger;
-use masq_lib::utils::{ExpectValue, WrapResult};
+use masq_lib::utils::ExpectValue;
 use rusqlite::{params_from_iter, Error, ToSql, Transaction};
 use std::fmt::{Display, Formatter};
 
@@ -43,11 +43,10 @@ impl<'a> DBMigrationUtilitiesReal<'a> {
         conn: &'b mut dyn ConnectionWrapper,
         db_migrator_configuration: DBMigratorInnerConfiguration,
     ) -> rusqlite::Result<Self> {
-        Self {
+        Ok(Self {
             root_transaction: Some(conn.transaction()?),
             db_migrator_configuration,
-        }
-        .wrap_to_ok()
+        })
     }
 
     fn root_transaction_ref(&self) -> &Transaction<'a> {
