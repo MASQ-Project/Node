@@ -10,8 +10,7 @@ use crate::database::db_migrations::migrations::migration_4_to_5::Migrate_4_to_5
 use crate::database::db_migrations::migrations::migration_5_to_6::Migrate_5_to_6;
 use crate::database::db_migrations::migrations::migration_6_to_7::Migrate_6_to_7;
 use crate::database::db_migrations::migrator_utils::{
-    DBMigDeclarator, DBMigrationUtilities, DBMigrationUtilitiesReal,
-    DBMigratorInnerConfiguration,
+    DBMigDeclarator, DBMigrationUtilities, DBMigrationUtilitiesReal, DBMigratorInnerConfiguration,
 };
 use masq_lib::logger::Logger;
 use rusqlite::Transaction;
@@ -239,10 +238,7 @@ mod tests {
             self
         }
 
-        pub fn make_mig_declarator_result(
-            self,
-            result: Box<dyn DBMigDeclarator>,
-        ) -> Self {
+        pub fn make_mig_declarator_result(self, result: Box<dyn DBMigDeclarator>) -> Self {
             self.make_mig_declarator_results.borrow_mut().push(result);
             self
         }

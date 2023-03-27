@@ -37,7 +37,7 @@ impl DBMigDeclaratorMock {
     }
 }
 
-impl  DBMigDeclarator for DBMigDeclaratorMock {
+impl DBMigDeclarator for DBMigDeclaratorMock {
     fn db_password(&self) -> Option<String> {
         self.db_password_results.borrow_mut().remove(0)
     }

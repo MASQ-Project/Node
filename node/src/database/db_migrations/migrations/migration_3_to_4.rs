@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn database_with_password_but_without_secrets_yet_still_accepted() {
-        let mig_declarator =  DBMigDeclaratorMock::default();
+        let mig_declarator = DBMigDeclaratorMock::default();
         let example_encrypted_opt = Some("Password".to_string());
 
         let result = Migrate_3_to_4::maybe_exchange_seed_for_private_key(
