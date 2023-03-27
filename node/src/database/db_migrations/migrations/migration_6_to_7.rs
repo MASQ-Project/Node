@@ -5,7 +5,7 @@ use crate::accountant::dao_utils::VigilantRusqliteFlatten;
 use crate::accountant::gwei_to_wei;
 use crate::database::db_migrations::db_migrator::DatabaseMigration;
 use crate::database::db_migrations::migrator_utils::{
-    MigDeclarationUtilities, StatementObject, StatementWithRusqliteParams,
+    DBMigDeclarator, StatementObject, StatementWithRusqliteParams,
 };
 use crate::sub_lib::neighborhood::RatePack;
 use itertools::Itertools;
@@ -14,14 +14,8 @@ use rusqlite::{Row, ToSql};
 #[allow(non_camel_case_types)]
 pub struct Migrate_6_to_7;
 
-#[allow(non_camel_case_types)]
-struct Migrate_6_to_7_carrier<'a> {
-    utils: &'a (dyn MigDeclarationUtilities + 'a),
-    statements: Vec<Box<dyn StatementObject>>,
-}
-
 impl DatabaseMigration for Migrate_6_to_7 {
-    fn migrate<'a>(&self, utils: Box<dyn MigDeclarationUtilities + 'a>) -> rusqlite::Result<()> {
+    fn migrate<'a>(&self, utils: Box<dyn DBMigDeclarator + 'a>) -> rusqlite::Result<()> {
         let mut migration_carrier = Migrate_6_to_7_carrier::new(utils.as_ref());
         migration_carrier.retype_table(
             "payable",
@@ -68,8 +62,14 @@ impl DatabaseMigration for Migrate_6_to_7 {
     }
 }
 
+#[allow(non_camel_case_types)]
+struct Migrate_6_to_7_carrier<'a> {
+    utils: &'a (dyn DBMigDeclarator + 'a),
+    statements: Vec<Box<dyn StatementObject>>,
+}
+
 impl<'a> Migrate_6_to_7_carrier<'a> {
-    fn new(utils: &'a (dyn MigDeclarationUtilities + 'a)) -> Self {
+    fn new(utils: &'a (dyn DBMigDeclarator + 'a)) -> Self {
         Self {
             utils,
             statements: vec![],
@@ -241,7 +241,6 @@ mod tests {
         assert_table_created_as_strict, bring_db_0_back_to_life_and_return_connection,
         make_external_data, retrieve_config_row,
     };
-    use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::Row;
@@ -348,8 +347,7 @@ mod tests {
                 DbInitializationConfig::create_or_migrate(make_external_data()),
             )
             .unwrap();
-        let mut subject = DbMigratorReal::new(make_external_data());
-        subject.logger = Logger::new("migration_from_6_to_7_without_any_data");
+        let subject = DbMigratorReal::new(make_external_data());
 
         subject.migrate_database(6, 7, conn).unwrap();
 
@@ -357,7 +355,9 @@ mod tests {
         ["payable", "receivable", "pending_payable"]
             .iter()
             .for_each(|table_name| {
-                test_log_handler.exists_log_containing(&format!("DEBUG: migration_from_6_to_7_without_any_data: Migration from 6 to 7: no data to migrate in {table_name}"));
+                test_log_handler.exists_log_containing(&format!(
+                    "DEBUG: DbMigrator: Migration from 6 to 7: no data to migrate in {table_name}"
+                ));
             })
     }
 

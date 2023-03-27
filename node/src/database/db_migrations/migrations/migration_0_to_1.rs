@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::database::db_migrations::db_migrator::DatabaseMigration;
-use crate::database::db_migrations::migrator_utils::MigDeclarationUtilities;
+use crate::database::db_migrations::migrator_utils::DBMigDeclarator;
 
 #[allow(non_camel_case_types)]
 pub struct Migrate_0_to_1;
@@ -9,7 +9,7 @@ pub struct Migrate_0_to_1;
 impl DatabaseMigration for Migrate_0_to_1 {
     fn migrate<'a>(
         &self,
-        declaration_utils: Box<dyn MigDeclarationUtilities + 'a>,
+        declaration_utils: Box<dyn DBMigDeclarator + 'a>,
     ) -> rusqlite::Result<()> {
         declaration_utils.execute_upon_transaction(&[
             &"INSERT INTO config (name, value, encrypted) VALUES ('mapping_protocol', null, 0)",

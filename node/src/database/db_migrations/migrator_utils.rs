@@ -4,11 +4,11 @@ use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{ExternalData, CURRENT_SCHEMA_VERSION};
 use crate::database::db_migrations::db_migrator::{DatabaseMigration, DbMigratorReal};
 use masq_lib::logger::Logger;
-use masq_lib::utils::{ExpectValue, WrapResult};
+use masq_lib::utils::ExpectValue;
 use rusqlite::{params_from_iter, Error, ToSql, Transaction};
 use std::fmt::{Display, Formatter};
 
-pub trait MigDeclarationUtilities {
+pub trait DBMigDeclarator {
     fn db_password(&self) -> Option<String>;
     fn transaction(&self) -> &Transaction;
     fn execute_upon_transaction<'a>(
@@ -24,13 +24,13 @@ pub trait DBMigrationUtilities {
 
     fn commit(&mut self) -> Result<(), String>;
 
-    fn make_mig_declaration_utils<'a>(
+    fn make_mig_declarator<'a>(
         &'a self,
         external: &'a ExternalData,
         logger: &'a Logger,
-    ) -> Box<dyn MigDeclarationUtilities + 'a>;
+    ) -> Box<dyn DBMigDeclarator + 'a>;
 
-    fn too_high_schema_panics(&self, mismatched_schema: usize);
+    fn too_high_schema_panics(&self, obsolete_schema: usize);
 }
 
 pub struct DBMigrationUtilitiesReal<'a> {
@@ -43,11 +43,10 @@ impl<'a> DBMigrationUtilitiesReal<'a> {
         conn: &'b mut dyn ConnectionWrapper,
         db_migrator_configuration: DBMigratorInnerConfiguration,
     ) -> rusqlite::Result<Self> {
-        Self {
+        Ok(Self {
             root_transaction: Some(conn.transaction()?),
             db_migrator_configuration,
-        }
-        .wrap_to_ok()
+        })
     }
 
     fn root_transaction_ref(&self) -> &Transaction<'a> {
@@ -74,36 +73,36 @@ impl<'a> DBMigrationUtilities for DBMigrationUtilitiesReal<'a> {
             .map_err(|e| e.to_string())
     }
 
-    fn make_mig_declaration_utils<'b>(
+    fn make_mig_declarator<'b>(
         &'b self,
         external: &'b ExternalData,
         logger: &'b Logger,
-    ) -> Box<dyn MigDeclarationUtilities + 'b> {
-        Box::new(MigDeclarationUtilitiesReal::new(
+    ) -> Box<dyn DBMigDeclarator + 'b> {
+        Box::new(DBMigDeclaratorReal::new(
             self.root_transaction_ref(),
             external,
             logger,
         ))
     }
 
-    fn too_high_schema_panics(&self, mismatched_schema: usize) {
-        if mismatched_schema > self.db_migrator_configuration.current_schema_version {
+    fn too_high_schema_panics(&self, obsolete_schema: usize) {
+        if obsolete_schema > self.db_migrator_configuration.current_schema_version {
             panic!(
                 "Database claims to be more advanced ({}) than the version {} which is the latest \
              version this Node knows about.",
-                mismatched_schema, CURRENT_SCHEMA_VERSION
+                obsolete_schema, CURRENT_SCHEMA_VERSION
             )
         }
     }
 }
 
-struct MigDeclarationUtilitiesReal<'a> {
+struct DBMigDeclaratorReal<'a> {
     root_transaction_ref: &'a Transaction<'a>,
     external: &'a ExternalData,
     logger: &'a Logger,
 }
 
-impl<'a> MigDeclarationUtilitiesReal<'a> {
+impl<'a> DBMigDeclaratorReal<'a> {
     fn new(
         root_transaction_ref: &'a Transaction<'a>,
         external: &'a ExternalData,
@@ -117,7 +116,7 @@ impl<'a> MigDeclarationUtilitiesReal<'a> {
     }
 }
 
-impl MigDeclarationUtilities for MigDeclarationUtilitiesReal<'_> {
+impl DBMigDeclarator for DBMigDeclaratorReal<'_> {
     fn db_password(&self) -> Option<String> {
         self.external.db_password_opt.clone()
     }
@@ -135,7 +134,8 @@ impl MigDeclarationUtilities for MigDeclarationUtilitiesReal<'_> {
             if so_far.is_ok() {
                 match stm.execute(transaction) {
                     Ok(_) => Ok(()),
-                    Err(e) if e == Error::ExecuteReturnedResults => Ok(()),
+                    Err(e) if e == Error::ExecuteReturnedResults =>
+                        panic!("Statements returning values should be avoided with execute_upon_transaction, caused by: {}",stm),
                     Err(e) => Err(e),
                 }
             } else {
@@ -214,7 +214,7 @@ struct InterimMigrationPlaceholder(usize);
 impl DatabaseMigration for InterimMigrationPlaceholder {
     fn migrate<'a>(
         &self,
-        _mig_declaration_utilities: Box<dyn MigDeclarationUtilities + 'a>,
+        _mig_declaration_utilities: Box<dyn DBMigDeclarator + 'a>,
     ) -> rusqlite::Result<()> {
         Ok(())
     }
@@ -265,7 +265,7 @@ mod tests {
         let mut external_parameters = make_external_data();
         external_parameters.db_password_opt = Some("booga".to_string());
         let logger = Logger::new("test_logger");
-        let subject = utils.make_mig_declaration_utils(&external_parameters, &logger);
+        let subject = utils.make_mig_declarator(&external_parameters, &logger);
 
         let result = subject.db_password();
 
@@ -288,7 +288,7 @@ mod tests {
         .unwrap();
         let external_parameters = make_external_data();
         let logger = Logger::new("test_logger");
-        let subject = utils.make_mig_declaration_utils(&external_parameters, &logger);
+        let subject = utils.make_mig_declarator(&external_parameters, &logger);
 
         let result = subject.transaction();
 
@@ -328,7 +328,7 @@ mod tests {
         let subject = DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap();
 
         let result = subject
-            .make_mig_declaration_utils(&external_parameters, &Logger::new("test logger"))
+            .make_mig_declarator(&external_parameters, &Logger::new("test logger"))
             .execute_upon_transaction(set_of_sql_statements);
 
         assert_eq!(
@@ -347,10 +347,13 @@ mod tests {
     }
 
     #[test]
-    fn execute_upon_transaction_handles_also_statements_that_return_something() {
+    #[should_panic(
+        expected = "Statements returning values should be avoided with execute_upon_transaction, caused by: SELECT * FROM botanic_garden"
+    )]
+    fn execute_upon_transaction_panics_because_statement_returns() {
         let dir_path = ensure_node_home_directory_exists(
             "db_migrations",
-            "execute_upon_transaction_handles_also_statements_that_return_something",
+            "execute_upon_transaction_panics_because_statement_returns",
         );
         let db_path = dir_path.join("test_database.db");
         let connection = Connection::open(&db_path).unwrap();
@@ -364,28 +367,16 @@ mod tests {
             )
             .unwrap();
         let statement_1 = "INSERT INTO botanic_garden (name,count) VALUES ('sun_flowers', 100)";
-        let statement_2 = "ALTER TABLE botanic_garden RENAME TO just_garden"; //this statement returns an overview of the new table on its execution
-        let statement_3 = "COMMIT";
-        let set_of_sql_statements: &[&dyn StatementObject] =
-            &[&statement_1, &statement_2, &statement_3];
+        let statement_2 = "SELECT * FROM botanic_garden"; //this statement returns data
+        let set_of_sql_statements: &[&dyn StatementObject] = &[&statement_1, &statement_2];
         let mut connection_wrapper = ConnectionWrapperReal::new(connection);
         let config = DBMigratorInnerConfiguration::new();
         let external_parameters = make_external_data();
         let subject = DBMigrationUtilitiesReal::new(&mut connection_wrapper, config).unwrap();
 
-        let result = subject
-            .make_mig_declaration_utils(&external_parameters, &Logger::new("test logger"))
+        let _ = subject
+            .make_mig_declarator(&external_parameters, &Logger::new("test logger"))
             .execute_upon_transaction(set_of_sql_statements);
-
-        assert_eq!(result, Ok(()));
-        let connection = Connection::open(&db_path).unwrap();
-        let assertion: Option<(String, i64)> = connection
-            .query_row("SELECT name, count FROM just_garden", [], |row| {
-                Ok((row.get(0).unwrap(), row.get(1).unwrap()))
-            })
-            .optional()
-            .unwrap();
-        assert!(assertion.is_some()) //means there is a table named 'just_garden' now
     }
 
     #[test]
@@ -407,7 +398,7 @@ mod tests {
         let statement_1_simple =
             "INSERT INTO botanic_garden (name,count) VALUES ('sun_flowers', 100)";
         let statement_2_good = StatementWithRusqliteParams {
-            sql_stm: "select * from botanic_garden".to_string(),
+            sql_stm: "update botanic_garden set count = 111 where name = 'sun_flowers'".to_string(),
             params: {
                 let params: Vec<Box<dyn ToSql>> = vec![];
                 params
@@ -434,7 +425,7 @@ mod tests {
         let subject = DBMigrationUtilitiesReal::new(&mut conn_wrapper, config).unwrap();
 
         let result = subject
-            .make_mig_declaration_utils(&external_params, &Logger::new("test logger"))
+            .make_mig_declarator(&external_params, &Logger::new("test logger"))
             .execute_upon_transaction(set_of_sql_statements);
 
         match result {

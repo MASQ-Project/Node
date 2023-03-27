@@ -132,6 +132,7 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
                         .rate_pack()
                         .exit_service_rate,
                     exit_byte_rate: config.neighborhood_config.mode.rate_pack().exit_byte_rate,
+                    is_decentralized: config.neighborhood_config.mode.is_decentralized(),
                     crashable: is_crashable(&config),
                 }),
             )
@@ -1189,13 +1190,14 @@ mod tests {
         check_start_message(&recordings.neighborhood, 2);
         let hopper_config = Parameters::get(parameters.hopper_params);
         check_cryptde(hopper_config.cryptdes.main);
-        assert_eq!(hopper_config.per_routing_service, 102);
+        assert_eq!(hopper_config.per_routing_service, 300);
         assert_eq!(hopper_config.per_routing_byte, 101);
         let proxy_client_config = Parameters::get(parameters.proxy_client_params);
         check_cryptde(proxy_client_config.cryptde);
-        assert_eq!(proxy_client_config.exit_service_rate, 104);
+        assert_eq!(proxy_client_config.exit_service_rate, 500);
         assert_eq!(proxy_client_config.exit_byte_rate, 103);
         assert_eq!(proxy_client_config.dns_servers, config.dns_servers);
+        assert_eq!(proxy_client_config.is_decentralized, true);
         let (actual_cryptde_pair, bootstrapper_config) =
             Parameters::get(parameters.proxy_server_params);
         check_cryptde(actual_cryptde_pair.main);
@@ -1668,6 +1670,7 @@ mod tests {
                     SocketAddrV4::from_str("1.1.1.1:45").unwrap(),
                 )],
                 exit_service_rate: 50,
+                is_decentralized: true,
                 crashable: true,
                 exit_byte_rate: 50,
             };
