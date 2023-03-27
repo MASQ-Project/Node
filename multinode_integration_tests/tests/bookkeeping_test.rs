@@ -26,6 +26,7 @@ fn provided_and_consumed_services_are_recorded_in_databases() {
     thread::sleep(Duration::from_secs(10));
 
     let mut client = originating_node.make_client(8080);
+    client.set_timeout(Duration::from_secs(10));
     let request = "GET / HTTP/1.1\r\nHost: example.com\r\n\r\n".as_bytes();
 
     client.send_chunk(request);

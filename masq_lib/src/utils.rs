@@ -314,25 +314,6 @@ fn expect_value_panic(subject: &str, found: Option<&dyn fmt::Debug>) -> ! {
     )
 }
 
-pub trait WrapResult {
-    fn wrap_to_ok<E>(self) -> Result<Self, E>
-    where
-        Self: Sized;
-    fn wrap_to_err<T>(self) -> Result<T, Self>
-    where
-        Self: Sized;
-}
-
-impl<T> WrapResult for T {
-    fn wrap_to_ok<E>(self) -> Result<Self, E> {
-        Ok(self)
-    }
-
-    fn wrap_to_err<V>(self) -> Result<V, Self> {
-        Err(self)
-    }
-}
-
 pub fn type_name_of<T>(_examined: T) -> &'static str {
     std::any::type_name::<T>()
 }

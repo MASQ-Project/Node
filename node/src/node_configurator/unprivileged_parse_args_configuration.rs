@@ -21,7 +21,7 @@ use masq_lib::logger::Logger;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-use masq_lib::utils::{AutomapProtocol, ExpectValue, WrapResult};
+use masq_lib::utils::{AutomapProtocol, ExpectValue};
 use rustc_hex::FromHex;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
@@ -400,7 +400,7 @@ fn validate_descriptors_from_user(
                     ))
                 }
             }
-            Err(e) => ParamError::new("neighbors", &e).wrap_to_err()
+            Err(e) => Err(ParamError::new("neighbors", &e))
         }
     })
         .collect_vec()
