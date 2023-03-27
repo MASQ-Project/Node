@@ -342,7 +342,7 @@ pub fn sum_i128_values_from_table(
         .sum()
 }
 
-pub fn rows_changed_for_multi_row_update(
+pub fn rows_changed_for_multi_row_update_sql(
     sqlite_returning_clause_results: Result<
         impl Iterator<Item = Result<bool, rusqlite::Error>>,
         rusqlite::Error,
@@ -886,7 +886,7 @@ mod tests {
                 Err(e) => Err(e),
             });
 
-        let result = rows_changed_for_multi_row_update(Ok(iterator));
+        let result = rows_changed_for_multi_row_update_sql(Ok(iterator));
 
         assert_eq!(result, Ok(3))
     }
@@ -901,7 +901,7 @@ mod tests {
                 Err(e) => Err(e),
             });
 
-        let result = rows_changed_for_multi_row_update(Ok(iterator));
+        let result = rows_changed_for_multi_row_update_sql(Ok(iterator));
 
         assert_eq!(result, Ok(2))
     }
@@ -911,7 +911,7 @@ mod tests {
         let random_collection_of_changed_data: Vec<Result<bool, _>> = vec![];
         let iterator = random_collection_of_changed_data.into_iter();
 
-        let result = rows_changed_for_multi_row_update(Ok(iterator));
+        let result = rows_changed_for_multi_row_update_sql(Ok(iterator));
 
         assert_eq!(result, Ok(0))
     }
@@ -924,7 +924,7 @@ mod tests {
         ];
         let iterator = random_collection_of_changed_data.into_iter();
 
-        let result = rows_changed_for_multi_row_update(Ok(iterator));
+        let result = rows_changed_for_multi_row_update_sql(Ok(iterator));
 
         assert_eq!(
             result,
@@ -938,9 +938,11 @@ mod tests {
     #[test]
     #[should_panic(expected = "query failed on params binding: InvalidParameterName(\"blah\")")]
     fn the_first_contact_rusqlite_error_just_panics_as_it_belongs_with_the_querys_args_binding() {
-        let _ =
-            rows_changed_for_multi_row_update(Err::<IntoIter<Result<bool, rusqlite::Error>>, _>(
-                rusqlite::Error::InvalidParameterName("blah".to_string()),
-            ));
+        let _ = rows_changed_for_multi_row_update_sql(Err::<
+            IntoIter<Result<bool, rusqlite::Error>>,
+            _,
+        >(
+            rusqlite::Error::InvalidParameterName("blah".to_string()),
+        ));
     }
 }

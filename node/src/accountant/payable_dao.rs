@@ -10,13 +10,17 @@ use crate::accountant::big_int_processing::big_int_db_processor::{
     BigIntDbProcessor, BigIntSqlConfig, Param, SQLParamsBuilder, TableNameDAO,
 };
 use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
+use crate::accountant::dao_utils;
 use crate::accountant::dao_utils::{
-    rows_changed_for_multi_row_update, sum_i128_values_from_table, to_time_t, AssemblerFeeder,
-    CustomQuery, DaoFactoryReal, RangeStmConfig, TopStmConfig, VigilantRusqliteFlatten,
+    sum_i128_values_from_table, to_time_t, AssemblerFeeder, CustomQuery, DaoFactoryReal,
+    RangeStmConfig, TopStmConfig, VigilantRusqliteFlatten,
 };
-use crate::accountant::scanners::join_displayable_items_by_commas;
-use crate::accountant::{checked_conversion, sign_conversion, PendingPayableId};
-use crate::accountant::{dao_utils, COMMA_SEPARATOR};
+use crate::accountant::payable_dao::mark_pending_payable_associated_functions::{
+    collect_feedback, compose_when_clauses_of_case_stm, resolve_success_or_failure,
+};
+use crate::accountant::{
+    checked_conversion, sign_conversion, stringify_and_join_by_commas, PendingPayableId,
+};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
@@ -144,25 +148,18 @@ impl PayableDao for PayableDaoReal {
             panic!("broken code: empty input is not permit to enter this method")
         }
         let sql = format!(
-            "update payable set pending_payable_rowid = case {} end \
+            "update payable set \
+             pending_payable_rowid = case {} end \
              where
                 pending_payable_rowid is null and wallet_address in ({})
              returning
                 pending_payable_rowid",
-            MarkPendingPayableUtils::compose_when_clauses_within_case_stm(wallets_and_rowids),
-            join_displayable_items_by_commas(wallets_and_rowids, |(wallet, _)| format!(
-                "'{}'",
-                wallet
-            ))
+            compose_when_clauses_of_case_stm(wallets_and_rowids),
+            stringify_and_join_by_commas(wallets_and_rowids, |(wallet, _)| format!("'{}'", wallet))
         );
         let mut stm = self.conn.prepare(&sql).expect("Internal Error");
-        let returning_clause_feedback =
-            stm.query_map([], MarkPendingPayableUtils::collect_feedback);
-        MarkPendingPayableUtils::resolve_success_or_failure(
-            &*self.conn,
-            wallets_and_rowids,
-            returning_clause_feedback,
-        )
+        let returning_clause_feedback = stm.query_map([], collect_feedback);
+        resolve_success_or_failure(&*self.conn, wallets_and_rowids, returning_clause_feedback)
     }
 
     fn transactions_confirmed(
@@ -275,9 +272,11 @@ impl PayableDao for PayableDaoReal {
 
     #[cfg(test)]
     fn account_status(&self, wallet: &Wallet) -> Option<PayableAccount> {
-        let mut stmt = self.conn
-            .prepare("select balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid from payable where wallet_address = ?")
-            .unwrap();
+        let stm = "\
+            select balance_high_b, balance_low_b, last_paid_timestamp, pending_payable_rowid \
+            from payable \
+            where wallet_address = ?";
+        let mut stmt = self.conn.prepare(stm).unwrap();
         stmt.query_row(&[&wallet], |row| {
             let high_bytes_result = row.get(0);
             let low_bytes_result = row.get(1);
@@ -396,10 +395,24 @@ impl PayableDaoReal {
     }
 }
 
-struct MarkPendingPayableUtils;
+impl TableNameDAO for PayableDaoReal {
+    fn table_name() -> String {
+        String::from("payable")
+    }
+}
 
-impl MarkPendingPayableUtils {
-    fn resolve_success_or_failure<T>(
+mod mark_pending_payable_associated_functions {
+    use crate::accountant::dao_utils::{
+        rows_changed_for_multi_row_update_sql, VigilantRusqliteFlatten,
+    };
+    use crate::accountant::payable_dao::PayableDaoError;
+    use crate::accountant::stringify_and_join_by_commas;
+    use crate::database::connection_wrapper::ConnectionWrapper;
+    use crate::sub_lib::wallet::Wallet;
+    use itertools::Itertools;
+    use rusqlite::Row;
+
+    pub fn resolve_success_or_failure<T>(
         conn: &dyn ConnectionWrapper,
         wallets_and_rowids: &[(&Wallet, u64)],
         returning_clause_feedback: Result<T, rusqlite::Error>,
@@ -407,76 +420,96 @@ impl MarkPendingPayableUtils {
     where
         T: Iterator<Item = Result<bool, rusqlite::Error>>,
     {
-        match rows_changed_for_multi_row_update(returning_clause_feedback) {
+        match rows_changed_for_multi_row_update_sql(returning_clause_feedback) {
             Ok(rows_affected) => match rows_affected {
                 num if num == wallets_and_rowids.len() => Ok(()),
                 num => panic!(
-                    "Marking pending payable rowid for wallets {} affected {} rows but expected {}. {}",
-                    join_displayable_items_by_commas(wallets_and_rowids, |(wallet, _)|wallet.to_string()),
-                    num,
-                    wallets_and_rowids.len(),
-                    Self::error_extension_for_non_matching_row_count(conn, wallets_and_rowids)
+                    "{}",
+                    panic_msg_non_matching_row_count(conn, wallets_and_rowids, num)
                 ),
             },
-            Err(errs) => Err(PayableDaoError::RusqliteError(format!("Multi-row update to mark pending payable hit these errors: {:?}",errs))),
+            Err(errs) => Err(PayableDaoError::RusqliteError(format!(
+                "Multi-row update to mark pending payable hit these errors: {:?}",
+                errs
+            ))),
         }
     }
 
-    fn compose_when_clauses_within_case_stm(wallets_and_rowids: &[(&Wallet, u64)]) -> String {
+    pub fn compose_when_clauses_of_case_stm(wallets_and_rowids: &[(&Wallet, u64)]) -> String {
         wallets_and_rowids
             .iter()
             .map(|(wallet, rowid)| format!("when wallet_address = '{}' then {}", wallet, rowid))
             .join("\n")
     }
 
-    fn collect_feedback(row: &Row) -> Result<bool, rusqlite::Error> {
+    pub fn collect_feedback(row: &Row) -> Result<bool, rusqlite::Error> {
         row.get::<usize, Option<u64>>(0).map(|opt| match opt {
             Some(_) => true,
             None => false,
         })
     }
 
+    fn panic_msg_non_matching_row_count(
+        conn: &dyn ConnectionWrapper,
+        wallets_and_rowids: &[(&Wallet, u64)],
+        actual_count: usize,
+    ) -> String {
+        let wallets =
+            stringify_and_join_by_commas(wallets_and_rowids, |(wallet, _)| wallet.to_string());
+        let base_err_msg = format!(
+            "Marking pending payable rowid for wallets {} affected {} rows but expected {}",
+            wallets,
+            actual_count,
+            wallets_and_rowids.len()
+        );
+        let err_extension_opt =
+            error_extension_for_non_matching_row_count(conn, wallets_and_rowids);
+        [Some(base_err_msg), err_extension_opt]
+            .into_iter()
+            .flatten()
+            .join(". ")
+    }
+
     fn error_extension_for_non_matching_row_count(
         conn: &dyn ConnectionWrapper,
         wallets_and_rowids: &[(&Wallet, u64)],
-    ) -> String {
-        let sql = format!(
-            "select wallet_address from payable where {}",
-            Self::catch_conditions_for_unaffected_values(wallets_and_rowids)
-        );
-        let failing_wallets = conn
-            .prepare(&sql)
-            .expect("select failed")
-            .query_map([], |row| row.get::<usize, String>(0))
-            .expect("no args but yet binding failed")
-            .vigilant_flatten()
-            .join(COMMA_SEPARATOR);
+    ) -> Option<String> {
+        let failing_wallets = query_wallets_for_accounts_not_affected(conn, wallets_and_rowids);
         if failing_wallets.is_empty() {
-            failing_wallets
+            None
         } else {
-            format!("Accounts for wallets ({failing_wallets}) must have contained some populated \
+            Some(format!("Accounts for wallets ({failing_wallets}) must have contained some populated \
                 pending payable rowids during the last write of the newest ids down to the respective table. \
                 System unreliable. Impaired, double payments may be suspected the cause in a situation \
-                like this")
-            // This condition would disallow a replacement for the newer ids. Instead, the rowid
+                like this"))
+            // This condition would disallow replacement for the newer ids. Instead, the rowid
             // colum should be emptied out after every payment is fully resolved and so that
             // need for the associated pending payable record passes.
         }
     }
 
-    fn catch_conditions_for_unaffected_values(wallets_and_rowids: &[(&Wallet, u64)]) -> String {
-        wallets_and_rowids
-            .iter()
-            .map(|(wallet, rowid)| {
-                format!("(wallet_address = '{wallet}' and pending_payable_rowid != {rowid})")
-            })
-            .join(" or ")
+    fn query_wallets_for_accounts_not_affected(
+        conn: &dyn ConnectionWrapper,
+        wallets_and_rowids: &[(&Wallet, u64)],
+    ) -> String {
+        conn.prepare(&sql_to_catch_unaffected_accounts(wallets_and_rowids))
+            .expect("select failed")
+            .query_map([], |row| row.get::<usize, String>(0))
+            .expect("no args yet binding failed")
+            .vigilant_flatten()
+            .join(", ")
     }
-}
 
-impl TableNameDAO for PayableDaoReal {
-    fn table_name() -> String {
-        String::from("payable")
+    fn sql_to_catch_unaffected_accounts(wallets_and_rowids: &[(&Wallet, u64)]) -> String {
+        format!(
+            "select wallet_address from payable where {}",
+            wallets_and_rowids
+                .iter()
+                .map(|(wallet, rowid)| {
+                    format!("(wallet_address = '{wallet}' and pending_payable_rowid != {rowid})")
+                })
+                .join(" or ")
+        )
     }
 }
 

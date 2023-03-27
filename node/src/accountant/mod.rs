@@ -31,7 +31,7 @@ use crate::accountant::financials::visibility_restricted_module::{
 use crate::accountant::payable_dao::PayableDaoError;
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDaoError;
-use crate::accountant::scanners::{join_displayable_items_by_commas, ScanTimings, Scanners};
+use crate::accountant::scanners::{ScanTimings, Scanners};
 use crate::blockchain::blockchain_bridge::{
     PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions,
 };
@@ -58,6 +58,7 @@ use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::Recipient;
+use itertools::Itertools;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiFinancialsResponse;
@@ -78,7 +79,6 @@ use std::time::SystemTime;
 use web3::types::{TransactionReceipt, H256};
 
 pub const CRASH_KEY: &str = "ACCOUNTANT";
-pub const COMMA_SEPARATOR: &str = ", ";
 pub const DEFAULT_PENDING_TOO_LONG_SEC: u64 = 21_600; //6 hours
 
 pub struct Accountant {
@@ -845,7 +845,7 @@ impl Accountant {
 
     fn handle_new_pending_payable_fingerprints(&self, msg: PendingPayableFingerprintSeeds) {
         fn serialize_hashes(fingerprints_data: &[(H256, u128)]) -> String {
-            join_displayable_items_by_commas(fingerprints_data, |(hash, _)| format!("{:?}", hash))
+            stringify_and_join_by_commas(fingerprints_data, |(hash, _)| format!("{:?}", hash))
         }
 
         match self
@@ -888,7 +888,7 @@ impl PendingPayableId {
     }
 
     fn serialize_hashes_to_string(ids: &[Self]) -> String {
-        join_displayable_items_by_commas(ids, |id| format!("{:?}", id.hash))
+        stringify_and_join_by_commas(ids, |id| format!("{:?}", id.hash))
     }
 }
 
@@ -899,6 +899,13 @@ impl From<PendingPayableFingerprint> for PendingPayableId {
             rowid: pending_payable_fingerprint.rowid,
         }
     }
+}
+
+pub fn stringify_and_join_by_commas<T, F>(collection: &[T], stringify: F) -> String
+where
+    F: FnMut(&T) -> String,
+{
+    collection.iter().map(stringify).join(", ")
 }
 
 pub fn sign_conversion<T: Copy, S: TryFrom<T>>(num: T) -> Result<S, T> {

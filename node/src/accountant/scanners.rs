@@ -19,9 +19,9 @@ use crate::accountant::scanners_utils::pending_payable_scanner_utils::{
 };
 use crate::accountant::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::{
-    gwei_to_wei, Accountant, ReceivedPayments, ReportTransactionReceipts,
-    RequestTransactionReceipts, ResponseSkeleton, ScanForPayables, ScanForPendingPayables,
-    ScanForReceivables, SentPayables, COMMA_SEPARATOR,
+    gwei_to_wei, stringify_and_join_by_commas, Accountant, ReceivedPayments,
+    ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
+    ScanForPendingPayables, ScanForReceivables, SentPayables,
 };
 use crate::accountant::{PendingPayableId, ReportAccountsPayable};
 use crate::banned_dao::BannedDao;
@@ -344,7 +344,7 @@ impl PayableScanner {
         fn missing_fingerprints_msg(nonexistent: &[RefWalletAndRowidOptCoupledWithHash]) -> String {
             format!(
                 "Expected pending payable fingerprints for {} were not found; system unreliable",
-                join_displayable_items_by_commas(nonexistent, |((wallet, _), hash)| format!(
+                stringify_and_join_by_commas(nonexistent, |((wallet, _), hash)| format!(
                     "(tx: {:?}, to wallet: {})",
                     hash, wallet
                 ))
@@ -379,7 +379,7 @@ impl PayableScanner {
             debug!(
                 logger,
                 "Payables {} marked as pending in the payable table",
-                join_displayable_items_by_commas(sent_payments, |pending_p| format!(
+                stringify_and_join_by_commas(sent_payments, |pending_p| format!(
                     "{:?}",
                     pending_p.hash
                 ))
@@ -417,7 +417,7 @@ impl PayableScanner {
         logger: &Logger,
     ) {
         fn serialize_hashes(hashes: &[H256]) -> String {
-            join_displayable_items_by_commas(hashes, |hash| format!("{:?}", hash))
+            stringify_and_join_by_commas(hashes, |hash| format!("{:?}", hash))
         }
 
         let (existent, nonexistent): (VecOfRowidOptAndHash, VecOfRowidOptAndHash) = self
@@ -610,7 +610,7 @@ impl PendingPayableScanner {
                 Ok(_) => trace!(
                     logger,
                     "Updated records for rowids: {} ",
-                    join_displayable_items_by_commas(&rowids, |id| id.to_string())
+                    stringify_and_join_by_commas(&rowids, |id| id.to_string())
                 ),
                 Err(e) => panic!(
                     "Failure on incrementing scan attempts for fingerprints of {} due to {:?}",
@@ -649,7 +649,7 @@ impl PendingPayableScanner {
         logger: &Logger,
     ) {
         fn serialize_hashes(fingerprints: &[PendingPayableFingerprint]) -> String {
-            join_displayable_items_by_commas(fingerprints, |fgp| format!("{:?}", fgp.hash))
+            stringify_and_join_by_commas(fingerprints, |fgp| format!("{:?}", fgp.hash))
         }
 
         if !fingerprints.is_empty() {
@@ -1053,13 +1053,6 @@ impl<T: Default> PeriodicalScanConfig<T> {
         // because scheduled scans don't respond
         let _ = self.handle.notify_later(T::default(), self.interval, ctx);
     }
-}
-
-pub fn join_displayable_items_by_commas<T, F>(collection: &[T], stringify: F) -> String
-where
-    F: FnMut(&T) -> String,
-{
-    collection.iter().map(stringify).join(COMMA_SEPARATOR)
 }
 
 #[cfg(test)]

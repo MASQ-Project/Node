@@ -149,10 +149,11 @@ pub struct PendingPayableFingerprintSeeds {
 
 #[derive(Debug, PartialEq, Eq, Clone)]
 pub struct PendingPayableFingerprint {
+    //Sqlite begins counting from 1
     pub rowid: u64,
     pub timestamp: SystemTime,
     pub hash: H256,
-    //TODO make sure this starts with 1 and is right at all places
+    //Sqlite begins counting from 1
     pub attempt: u16,
     pub amount: u128,
     pub process_error: Option<String>,

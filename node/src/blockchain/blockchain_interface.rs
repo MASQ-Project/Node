@@ -1,7 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
-use crate::accountant::scanners::join_displayable_items_by_commas;
+use crate::accountant::stringify_and_join_by_commas;
 use crate::blockchain::batch_payable_tools::{BatchPayableTools, BatchPayableToolsReal};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::blockchain::blockchain_interface::BlockchainError::{
@@ -118,7 +118,7 @@ impl Display for PayablePaymentError {
                 f,
                 "Sending phase: \"{}\". Signed and hashed transactions: {}",
                 msg,
-                join_displayable_items_by_commas(hashes, |hash| format!("{:?}", hash))
+                stringify_and_join_by_commas(hashes, |hash| format!("{:?}", hash))
             ),
         }
     }
