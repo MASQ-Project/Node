@@ -19,7 +19,7 @@ use crate::accountant::scanners_utils::pending_payable_scanner_utils::{
 };
 use crate::accountant::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::{
-    gwei_to_wei, stringify_and_join_by_commas, Accountant, ReceivedPayments,
+    comma_joined_stringifiable, gwei_to_wei, Accountant, ReceivedPayments,
     ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
     ScanForPendingPayables, ScanForReceivables, SentPayables,
 };
@@ -344,7 +344,7 @@ impl PayableScanner {
         fn missing_fingerprints_msg(nonexistent: &[RefWalletAndRowidOptCoupledWithHash]) -> String {
             format!(
                 "Expected pending payable fingerprints for {} were not found; system unreliable",
-                stringify_and_join_by_commas(nonexistent, |((wallet, _), hash)| format!(
+                comma_joined_stringifiable(nonexistent, |((wallet, _), hash)| format!(
                     "(tx: {:?}, to wallet: {})",
                     hash, wallet
                 ))
@@ -379,7 +379,7 @@ impl PayableScanner {
             debug!(
                 logger,
                 "Payables {} marked as pending in the payable table",
-                stringify_and_join_by_commas(sent_payments, |pending_p| format!(
+                comma_joined_stringifiable(sent_payments, |pending_p| format!(
                     "{:?}",
                     pending_p.hash
                 ))
@@ -417,7 +417,7 @@ impl PayableScanner {
         logger: &Logger,
     ) {
         fn serialize_hashes(hashes: &[H256]) -> String {
-            stringify_and_join_by_commas(hashes, |hash| format!("{:?}", hash))
+            comma_joined_stringifiable(hashes, |hash| format!("{:?}", hash))
         }
 
         let (existent, nonexistent): (VecOfRowidOptAndHash, VecOfRowidOptAndHash) = self
@@ -610,7 +610,7 @@ impl PendingPayableScanner {
                 Ok(_) => trace!(
                     logger,
                     "Updated records for rowids: {} ",
-                    stringify_and_join_by_commas(&rowids, |id| id.to_string())
+                    comma_joined_stringifiable(&rowids, |id| id.to_string())
                 ),
                 Err(e) => panic!(
                     "Failure on incrementing scan attempts for fingerprints of {} due to {:?}",
@@ -649,7 +649,7 @@ impl PendingPayableScanner {
         logger: &Logger,
     ) {
         fn serialize_hashes(fingerprints: &[PendingPayableFingerprint]) -> String {
-            stringify_and_join_by_commas(fingerprints, |fgp| format!("{:?}", fgp.hash))
+            comma_joined_stringifiable(fingerprints, |fgp| format!("{:?}", fgp.hash))
         }
 
         if !fingerprints.is_empty() {

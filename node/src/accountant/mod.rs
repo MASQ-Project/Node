@@ -845,7 +845,7 @@ impl Accountant {
 
     fn handle_new_pending_payable_fingerprints(&self, msg: PendingPayableFingerprintSeeds) {
         fn serialize_hashes(fingerprints_data: &[(H256, u128)]) -> String {
-            stringify_and_join_by_commas(fingerprints_data, |(hash, _)| format!("{:?}", hash))
+            comma_joined_stringifiable(fingerprints_data, |(hash, _)| format!("{:?}", hash))
         }
 
         match self
@@ -888,7 +888,7 @@ impl PendingPayableId {
     }
 
     fn serialize_hashes_to_string(ids: &[Self]) -> String {
-        stringify_and_join_by_commas(ids, |id| format!("{:?}", id.hash))
+        comma_joined_stringifiable(ids, |id| format!("{:?}", id.hash))
     }
 }
 
@@ -901,7 +901,7 @@ impl From<PendingPayableFingerprint> for PendingPayableId {
     }
 }
 
-pub fn stringify_and_join_by_commas<T, F>(collection: &[T], stringify: F) -> String
+pub fn comma_joined_stringifiable<T, F>(collection: &[T], stringify: F) -> String
 where
     F: FnMut(&T) -> String,
 {

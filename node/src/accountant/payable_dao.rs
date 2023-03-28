@@ -19,7 +19,7 @@ use crate::accountant::payable_dao::mark_pending_payable_associated_functions::{
     collect_feedback, compose_when_clauses_of_case_stm, resolve_success_or_failure,
 };
 use crate::accountant::{
-    checked_conversion, sign_conversion, stringify_and_join_by_commas, PendingPayableId,
+    checked_conversion, comma_joined_stringifiable, sign_conversion, PendingPayableId,
 };
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
@@ -155,7 +155,7 @@ impl PayableDao for PayableDaoReal {
              returning
                 pending_payable_rowid",
             compose_when_clauses_of_case_stm(wallets_and_rowids),
-            stringify_and_join_by_commas(wallets_and_rowids, |(wallet, _)| format!("'{}'", wallet))
+            comma_joined_stringifiable(wallets_and_rowids, |(wallet, _)| format!("'{}'", wallet))
         );
         let mut stm = self.conn.prepare(&sql).expect("Internal Error");
         let returning_clause_feedback = stm.query_map([], collect_feedback);
@@ -402,11 +402,11 @@ impl TableNameDAO for PayableDaoReal {
 }
 
 mod mark_pending_payable_associated_functions {
+    use crate::accountant::comma_joined_stringifiable;
     use crate::accountant::dao_utils::{
         rows_changed_for_multi_row_update_sql, VigilantRusqliteFlatten,
     };
     use crate::accountant::payable_dao::PayableDaoError;
-    use crate::accountant::stringify_and_join_by_commas;
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
@@ -455,7 +455,7 @@ mod mark_pending_payable_associated_functions {
         actual_count: usize,
     ) -> String {
         let wallets =
-            stringify_and_join_by_commas(wallets_and_rowids, |(wallet, _)| wallet.to_string());
+            comma_joined_stringifiable(wallets_and_rowids, |(wallet, _)| wallet.to_string());
         let base_err_msg = format!(
             "Marking pending payable rowid for wallets {} affected {} rows but expected {}",
             wallets,

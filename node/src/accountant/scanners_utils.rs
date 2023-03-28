@@ -6,7 +6,7 @@ pub mod payable_scanner_utils {
     use crate::accountant::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
         LocallyCausedError, RemotelyCausedErrors,
     };
-    use crate::accountant::{stringify_and_join_by_commas, SentPayables};
+    use crate::accountant::{comma_joined_stringifiable, SentPayables};
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{
         PayablePaymentError, ProcessedPayableFallible, RpcPayableFailure,
@@ -236,7 +236,7 @@ pub mod payable_scanner_utils {
         };
         panic!(
             "Unable to create a mark in the payable table for wallets {} due to {:?}",
-            stringify_and_join_by_commas(sent_payments, |pending_p| pending_p
+            comma_joined_stringifiable(sent_payments, |pending_p| pending_p
                 .recipient_wallet
                 .to_string()),
             error

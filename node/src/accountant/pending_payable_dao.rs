@@ -4,7 +4,7 @@ use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
 use crate::accountant::dao_utils::{
     from_time_t, to_time_t, DaoFactoryReal, VigilantRusqliteFlatten,
 };
-use crate::accountant::{checked_conversion, stringify_and_join_by_commas};
+use crate::accountant::{checked_conversion, comma_joined_stringifiable};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use itertools::Itertools;
@@ -50,7 +50,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
 
         let sql = format!(
             "select transaction_hash, rowid from pending_payable where transaction_hash in ({})",
-            stringify_and_join_by_commas(hashes, |hash| format!("'{:?}'", hash))
+            comma_joined_stringifiable(hashes, |hash| format!("'{:?}'", hash))
         );
         let all_found_records = self
             .conn
@@ -114,17 +114,17 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         hashes_and_amounts: &[(H256, u128)],
         batch_wide_timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError> {
-        fn values_feed_for_fingerprints_sequence(
+        fn bracket_sequence_of_values(
             hashes_and_amounts: &[(H256, u128)],
             batch_wide_timestamp: SystemTime,
         ) -> String {
-            let timestamp_as_time_t = to_time_t(batch_wide_timestamp);
-            stringify_and_join_by_commas(hashes_and_amounts, |(hash, amount)| {
-                let (high_bytes, low_bytes) =
-                    BigIntDivider::deconstruct(checked_conversion::<u128, i128>(*amount));
+            let time_t = to_time_t(batch_wide_timestamp);
+            comma_joined_stringifiable(hashes_and_amounts, |(hash, amount)| {
+                let amount_checked = checked_conversion::<u128, i128>(*amount);
+                let (high_bytes, low_bytes) = BigIntDivider::deconstruct(amount_checked);
                 format!(
                     "('{:?}', {}, {}, {}, 1, null)",
-                    hash, high_bytes, low_bytes, timestamp_as_time_t
+                    hash, high_bytes, low_bytes, time_t
                 )
             })
         }
@@ -133,7 +133,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             "insert into pending_payable (\
             transaction_hash, amount_high_b, amount_low_b, payable_timestamp, attempt, process_error\
             ) values {}",
-            values_feed_for_fingerprints_sequence(hashes_and_amounts, batch_wide_timestamp)
+            bracket_sequence_of_values(hashes_and_amounts, batch_wide_timestamp)
         );
         match self
             .conn
@@ -236,7 +236,7 @@ impl<'a> PendingPayableDaoReal<'a> {
     }
 
     fn serialize_ids(ids: &[u64]) -> String {
-        stringify_and_join_by_commas(ids, |id| id.to_string())
+        comma_joined_stringifiable(ids, |id| id.to_string())
     }
 }
 
