@@ -131,7 +131,6 @@ impl DBMigDeclarator for DBMigDeclaratorReal<'_> {
     ) -> rusqlite::Result<()> {
         let transaction = self.root_transaction_ref;
         sql_statements.iter().fold(Ok(()), |so_far, stm| {
-            println!("{}", stm);
             if so_far.is_ok() {
                 match stm.execute(transaction) {
                     Ok(_) => Ok(()),
