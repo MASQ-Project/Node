@@ -243,18 +243,20 @@ pub mod payable_scanner_utils {
         )
     }
 
-    pub fn panic_for_failed_payments_lacking_fingerprints(
-        ids_of_payments: VecOfRowidOptAndHash,
+    todo!("write a fn, that would convert the hashes and you could repeat it")
+
+    pub fn err_msg_if_failed_without_existing_fingerprints(
+        nonexistent: VecOfRowidOptAndHash,
         serialize_hashes: fn(&[H256]) -> String,
-    ) {
-        let hashes_of_nonexistent = ids_of_payments
-            .into_iter()
-            .map(|(_, hash)| hash)
+    ) -> Option<String> {
+        let hashes_of_nonexistent = nonexistent
+            .iter()
+            .map(|(_, hash)| *hash)
             .collect::<Vec<H256>>();
-        panic!(
+        nonexistent.is_empty().then_some(format!(
             "Ran into failed transactions {} with missing fingerprints. System no longer reliable",
             serialize_hashes(&hashes_of_nonexistent),
-        )
+        ))
     }
 
     pub fn log_failed_payments_with_fingerprints_and_return_rowids(

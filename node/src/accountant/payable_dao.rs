@@ -27,7 +27,6 @@ use crate::sub_lib::wallet::Wallet;
 #[cfg(test)]
 use ethereum_types::{BigEndianHash, U256};
 use itertools::Either::Left;
-use itertools::Itertools;
 use masq_lib::utils::ExpectValue;
 #[cfg(test)]
 use rusqlite::OptionalExtension;

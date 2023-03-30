@@ -6,13 +6,7 @@ use crate::accountant::receivable_dao::ReceivableDao;
 use crate::accountant::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
     LocallyCausedError, RemotelyCausedErrors,
 };
-use crate::accountant::scanners_utils::payable_scanner_utils::{
-    debugging_summary_after_error_separation, investigate_debt_extremes,
-    log_failed_payments_with_fingerprints_and_return_rowids, mark_pending_payable_fatal_error,
-    panic_for_failed_payments_lacking_fingerprints, payables_debug_summary, separate_errors,
-    PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum,
-    RefWalletAndRowidOptCoupledWithHash, VecOfRowidOptAndHash,
-};
+use crate::accountant::scanners_utils::payable_scanner_utils::{debugging_summary_after_error_separation, investigate_debt_extremes, log_failed_payments_with_fingerprints_and_return_rowids, mark_pending_payable_fatal_error, payables_debug_summary,separate_errors, PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum, RefWalletAndRowidOptCoupledWithHash, VecOfRowidOptAndHash, err_msg_if_failed_without_existing_fingerprints};
 use crate::accountant::scanners_utils::pending_payable_scanner_utils::{
     elapsed_in_ms, handle_none_status, handle_status_with_failure, handle_status_with_success,
     PendingPayableScanReport,
@@ -425,11 +419,8 @@ impl PayableScanner {
             .fingerprints_rowids(&hashes_of_the_failed)
             .into_iter()
             .partition(|(rowid_opt, _hash)| rowid_opt.is_some());
-
-        if !nonexistent.is_empty() {
-            panic_for_failed_payments_lacking_fingerprints(nonexistent, serialize_hashes)
-        }
-
+        let missing_fgp_err_msg_opt =
+            err_msg_if_failed_without_existing_fingerprints(nonexistent, serialize_hashes);
         if !existent.is_empty() {
             let ids = log_failed_payments_with_fingerprints_and_return_rowids(
                 existent,
@@ -437,14 +428,20 @@ impl PayableScanner {
                 logger,
             );
             if let Err(e) = self.pending_payable_dao.delete_fingerprints(&ids) {
+                if let Some(msg) = missing_fgp_err_msg_opt {
+                    error!(logger, "{}", msg)
+                };
                 panic!(
-                    "Database corrupt: payable fingerprint deletion for transactions {} failed \
-                 due to {:?}",
-                    serialize_hashes(&hashes_of_the_failed),
+                    "Database corrupt: payable fingerprint deletion for transactions {} \
+                    failed due to {:?}",
+                    serialize_hashes(&existent),
                     e
                 )
             }
         }
+        if let Some(msg) = missing_fgp_err_msg_opt {
+            panic!("{}", msg)
+        };
     }
 }
 
@@ -1378,6 +1375,110 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(
+        expected = "Expected pending payable fingerprints for (tx: 0x0000000000000000000000000000000000000000000000000000000000000315, \
+     to wallet: 0x000000000000000000000000000000626f6f6761), (tx: 0x000000000000000000000000000000000000000000000000000000000000007b, \
+     to wallet: 0x00000000000000000000000000000061676f6f62) were not found; system unreliable"
+    )]
+    fn payable_scanner_panics_when_fingerprints_for_correct_payments_not_found() {
+        let hash_1 = make_tx_hash(0x315);
+        let payment_1 = PendingPayable::new(make_wallet("booga"), hash_1);
+        let hash_2 = make_tx_hash(0x7b);
+        let payment_2 = PendingPayable::new(make_wallet("agoob"), hash_2);
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .fingerprints_rowids_result(vec![(None, hash_1), (None, hash_2)]);
+        let payable_dao = PayableDaoMock::new();
+        let mut subject = PayableScannerBuilder::new()
+            .payable_dao(payable_dao)
+            .pending_payable_dao(pending_payable_dao)
+            .build();
+        let sent_payable = SentPayables {
+            payment_procedure_result: Ok(vec![Correct(payment_1), Correct(payment_2)]),
+            response_skeleton_opt: None,
+        };
+
+        let _ = subject.finish_scan(sent_payable, &Logger::new("test"));
+    }
+
+    fn assert_panic_from_failing_to_mark_pending_payable_rowid(
+        test_name: &str,
+        pending_payable_dao: PendingPayableDaoMock,
+        hash_1: H256,
+        hash_2: H256,
+    ) {
+        let payable_1 = PendingPayable::new(make_wallet("blah111"), hash_1);
+        let payable_2 = PendingPayable::new(make_wallet("blah222"), hash_2);
+        let payable_dao = PayableDaoMock::new().mark_pending_payables_rowids_result(Err(
+            PayableDaoError::SignConversion(9999999999999),
+        ));
+        let mut subject = PayableScannerBuilder::new()
+            .payable_dao(payable_dao)
+            .pending_payable_dao(pending_payable_dao)
+            .build();
+        let sent_payables = SentPayables {
+            payment_procedure_result: Ok(vec![Correct(payable_1), Correct(payable_2)]),
+            response_skeleton_opt: None,
+        };
+
+        let caught_panic_in_err = catch_unwind(AssertUnwindSafe(|| {
+            subject.finish_scan(sent_payables, &Logger::new(test_name))
+        }));
+
+        let caught_panic = caught_panic_in_err.unwrap_err();
+        let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
+        assert_eq!(
+            panic_msg,
+            "Unable to create a mark in the payable table for wallets 0x00000000000\
+        000000000000000626c6168313131, 0x00000000000000000000000000626c6168323232 due to \
+         SignConversion(9999999999999)"
+        );
+    }
+
+    #[test]
+    fn payable_scanner_mark_pending_payable_only_panics_all_fingerprints_found() {
+        init_test_logging();
+        let test_name = "payable_scanner_mark_pending_payable_only_panics_all_fingerprints_found";
+        let hash_1 = make_tx_hash(248);
+        let hash_2 = make_tx_hash(139);
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .fingerprints_rowids_result(vec![(Some(7879), hash_1), (Some(7881), hash_2)]);
+
+        assert_panic_from_failing_to_mark_pending_payable_rowid(
+            test_name,
+            pending_payable_dao,
+            hash_1,
+            hash_2,
+        );
+
+        TestLogHandler::new().exists_no_log_matching(&format!(
+            "ERROR: {test_name}: Payable fingerprints for (\
+         .*) not found but should exist by now; system unreliable"
+        ));
+    }
+
+    #[test]
+    fn payable_scanner_mark_pending_payable_panics_nonexistent_fingerprints_also_found() {
+        init_test_logging();
+        let test_name =
+            "payable_scanner_mark_pending_payable_panics_nonexistent_fingerprints_also_found";
+        let hash_1 = make_tx_hash(248);
+        let hash_2 = make_tx_hash(0xf8);
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .fingerprints_rowids_result(vec![(None, hash_1), (Some(7881), hash_2)]);
+
+        assert_panic_from_failing_to_mark_pending_payable_rowid(
+            test_name,
+            pending_payable_dao,
+            hash_1,
+            hash_2,
+        );
+
+        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: Expected pending payable \
+         fingerprints for (tx: 0x00000000000000000000000000000000000000000000000000000000000000f8, to wallet: \
+          0x00000000000000000000000000626c6168313131) were not found; system unreliable"));
+    }
+
+    #[test]
     fn payable_scanner_is_facing_failed_transactions_and_their_fingerprints_exist() {
         init_test_logging();
         let test_name =
@@ -1438,51 +1539,6 @@ mod tests {
     }
 
     #[test]
-    fn payable_scanner_panics_when_dealing_with_failed_payments_because_their_fingerprints_do_not_exist(
-    ) {
-        init_test_logging();
-        let test_name = "payable_scanner_panics_when_dealing_with_failed_payments_because_their_fingerprints_do_not_exist";
-        let hash_1 = make_tx_hash(0x1b669);
-        let hash_2 = make_tx_hash(0x3039);
-        let hash_3 = make_tx_hash(0x223d);
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(vec![(Some(333), hash_1), (None, hash_2), (None, hash_3)])
-            .delete_fingerprints_result(Ok(()));
-        let mut subject = PayableScannerBuilder::new()
-            .pending_payable_dao(pending_payable_dao)
-            .build();
-        let sent_payable = SentPayables {
-            payment_procedure_result: Err(PayablePaymentError::Sending {
-                msg: "SQLite migraine".to_string(),
-                hashes: vec![hash_1, hash_2, hash_3],
-            }),
-            response_skeleton_opt: None,
-        };
-
-        let caught_panic = catch_unwind(AssertUnwindSafe(|| {
-            subject.finish_scan(sent_payable, &Logger::new(test_name))
-        }))
-        .err()
-        .unwrap();
-
-        let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
-        assert_eq!(panic_msg, "Ran into failed transactions 0x0000000000000000000000000000000000\
-        000000000000000000000000003039, 0x000000000000000000000000000000000000000000000000000000000000223d \
-        with missing fingerprints. System no longer reliable");
-        let log_handler = TestLogHandler::new();
-        log_handler.exists_log_containing(
-            &format!("WARN: {test_name}: Any persisted data from failed process will be deleted. Caused by: \
-             Sending phase: \"SQLite migraine\". Signed and hashed transactions: \
-               0x000000000000000000000000000000000000000000000000000000000001b669, \
-              0x0000000000000000000000000000000000000000000000000000000000003039, \
-               0x000000000000000000000000000000000000000000000000000000000000223d"));
-        log_handler.exists_no_log_containing(&format!(
-            "DEBUG: {test_name}: Deleting an existing backup for a failed transaction {:?}",
-            hash_1
-        ));
-    }
-
-    #[test]
     fn payable_scanner_handles_error_born_too_early_to_see_transaction_hash() {
         init_test_logging();
         let test_name = "payable_scanner_handles_error_born_too_early_to_see_transaction_hash";
@@ -1505,39 +1561,9 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Expected pending payable fingerprints for (tx: 0x0000000000000000000000000000000000000000000000000000000000000315, \
-     to wallet: 0x000000000000000000000000000000626f6f6761), (tx: 0x000000000000000000000000000000000000000000000000000000000000007b, \
-     to wallet: 0x00000000000000000000000000000061676f6f62) were not found; system unreliable"
-    )]
-    fn payable_scanner_panics_when_expected_fingerprint_is_not_found() {
-        let hash_1 = make_tx_hash(0x315);
-        let payment_1 = PendingPayable::new(make_wallet("booga"), hash_1);
-        let hash_2 = make_tx_hash(0x7b);
-        let payment_2 = PendingPayable::new(make_wallet("agoob"), hash_2);
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(vec![(None, hash_1), (None, hash_2)]);
-        let payable_dao = PayableDaoMock::new().mark_pending_payables_rowids_result(Ok(()));
-        let mut subject = PayableScannerBuilder::new()
-            .payable_dao(payable_dao)
-            .pending_payable_dao(pending_payable_dao)
-            .build();
-        let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![Correct(payment_1), Correct(payment_2)]),
-            response_skeleton_opt: None,
-        };
-
-        let _ = subject.finish_scan(sent_payable, &Logger::new("test"));
-    }
-
-    #[test]
-    #[should_panic(
-        expected = "Database corrupt: payable fingerprint deletion for transactions \
-        0x000000000000000000000000000000000000000000000000000000000000007b, 0x00000000000000000000\
-        00000000000000000000000000000000000000000315 failed due to RecordDeletion(\"Gosh, I overslept \
-        without an alarm set\")"
-    )]
-    fn payable_scanner_panics_at_deletion_of_fingerprints_of_failed_payments() {
+    fn payable_scanner_finds_fingerprints_for_failed_payments_but_panics_at_their_deletion() {
+        let test_name =
+            "payable_scanner_finds_fingerprints_for_failed_payments_but_panics_at_their_deletion";
         let rowid_1 = 4;
         let hash_1 = make_tx_hash(0x7b);
         let rowid_2 = 6;
@@ -1558,14 +1584,79 @@ mod tests {
             .pending_payable_dao(pending_payable_dao)
             .build();
 
-        let _ = subject.finish_scan(sent_payable, &Logger::new("test"));
+        let caught_panic_in_err = catch_unwind(AssertUnwindSafe(|| {
+            subject.finish_scan(sent_payable, &Logger::new(test_name))
+        }));
+
+        let caught_panic = caught_panic_in_err.unwrap_err();
+        let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
+        assert_eq!(
+            panic_msg,
+            "Database corrupt: payable fingerprint deletion for transactions \
+        0x000000000000000000000000000000000000000000000000000000000000007b, 0x00000000000000000000\
+        00000000000000000000000000000000000000000315 failed due to RecordDeletion(\"Gosh, I overslept \
+        without an alarm set\")");
+        let log_handler = TestLogHandler::new();
+        todo!("make sure this last assertion would break as expected");
+        // there is a situation when we also stumble over missing fingerprints and so we log this
+        // actuality. Here we don't and so that ERROR log shouldn't be there
+        log_handler.exists_no_log_containing(&format!("ERROR: {}", test_name))
     }
 
     #[test]
-    fn payable_scanner_tries_to_handle_failed_transactions_but_discovers_missing_fingerprints_just_before_trying_to_delete_them(
-    ) {
+    fn payable_scanner_panics_for_missing_fingerprints_of_some_failed_payments_but_deletion_works()
+    {
         init_test_logging();
-        let test_name = "payable_scanner_tries_to_handle_failed_transactions_but_discovers_missing_fingerprints_just_before_trying_to_delete_them";
+        let test_name = "payable_scanner_panics_for_missing_fingerprints_of_some_failed_payments_but_deletion_works";
+        let hash_1 = make_tx_hash(0x1b669);
+        let hash_2 = make_tx_hash(0x3039);
+        let hash_3 = make_tx_hash(0x223d);
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .fingerprints_rowids_result(vec![(Some(333), hash_1), (None, hash_2), (None, hash_3)])
+            .delete_fingerprints_result(Ok(()));
+        let mut subject = PayableScannerBuilder::new()
+            .pending_payable_dao(pending_payable_dao)
+            .build();
+        let sent_payable = SentPayables {
+            payment_procedure_result: Err(PayablePaymentError::Sending {
+                msg: "SQLite migraine".to_string(),
+                hashes: vec![hash_1, hash_2, hash_3],
+            }),
+            response_skeleton_opt: None,
+        };
+
+        let caught_panic_in_err = catch_unwind(AssertUnwindSafe(|| {
+            subject.finish_scan(sent_payable, &Logger::new(test_name))
+        }));
+
+        let caught_panic = caught_panic_in_err.unwrap_err();
+        let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
+        assert_eq!(panic_msg, "Ran into failed transactions 0x0000000000000000000000000000000000\
+        000000000000000000000000003039, 0x000000000000000000000000000000000000000000000000000000000000223d \
+        with missing fingerprints. System no longer reliable");
+        let log_handler = TestLogHandler::new();
+        log_handler.exists_log_containing(
+            &format!("WARN: {test_name}: Any persisted data from failed process will be deleted. Caused by: \
+             Sending phase: \"SQLite migraine\". Signed and hashed transactions: \
+               0x000000000000000000000000000000000000000000000000000000000001b669, \
+              0x0000000000000000000000000000000000000000000000000000000000003039, \
+               0x000000000000000000000000000000000000000000000000000000000000223d"));
+        log_handler.exists_log_containing(&format!(
+            "ERROR: {test_name}: Ran into failed transactions \
+        blaaaaah with missing fingerprints. System no longer reliable"
+        ));
+        log_handler.exists_log_containing(&format!(
+            "WARN: {test_name}: Deleting fingerprints for failed transactions {:?}",
+            hash_1
+        ));
+    }
+
+    #[test]
+    fn payable_scanner_failed_txs_with_fingerprint_missing_and_deletion_of_the_other_one_fails() {
+        // both are failure situations, missing fingerprints and fingerprint deletion error would be
+        // a reason for panic each alone
+        init_test_logging();
+        let test_name = "payable_scanner_failed_txs_with_fingerprint_missing_and_deletion_of_the_other_one_fails";
         let existent_record_hash = make_tx_hash(0xb26e);
         let nonexistent_record_hash = make_tx_hash(0x4d2);
         let pending_payable_dao = PendingPayableDaoMock::default()
@@ -1594,18 +1685,16 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let caught_panic = catch_unwind(AssertUnwindSafe(|| {
+        let caught_panic_in_err = catch_unwind(AssertUnwindSafe(|| {
             subject.finish_scan(sent_payable, &Logger::new(test_name))
-        }))
-        .err()
-        .unwrap();
+        }));
 
+        let caught_panic = caught_panic_in_err.unwrap_err();
         let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
         assert_eq!(
             panic_msg,
-            "Ran into failed transactions 0x000000000000000000000000000000000000000000000000000\
-            00000000004d2 with missing fingerprints. System no longer reliable"
-        );
+            "Database corrupt: payable fingerprint deletion for transactions 0x00000000000000000000000\
+         0000000000000000000000000000000000000b26e failed due to RecordDeletion(\"Another failure. Really???\")");
         let log_handler = TestLogHandler::new();
         log_handler.exists_log_containing(&format!("WARN: {test_name}: Remote transaction failure: 'Server is unreachable' \
          for payment to 0x0000000000000000000000000000000000616263 and transaction hash 0x00000000000000000000000\
@@ -1616,76 +1705,8 @@ mod tests {
         log_handler.exists_log_containing(&format!(
             "DEBUG: {test_name}: Got 0 properly sent payables of 2 attempts"
         ));
-    }
-
-    fn assert_mark_pending_payable_rowids_panic(
-        test_name: &str,
-        pending_payable_dao: PendingPayableDaoMock,
-        hash_1: H256,
-        hash_2: H256,
-    ) {
-        let payable_1 = PendingPayable::new(make_wallet("blah111"), hash_1);
-        let payable_2 = PendingPayable::new(make_wallet("blah222"), hash_2);
-        let payable_dao = PayableDaoMock::new().mark_pending_payables_rowids_result(Err(
-            PayableDaoError::SignConversion(9999999999999),
-        ));
-        let mut subject = PayableScannerBuilder::new()
-            .payable_dao(payable_dao)
-            .pending_payable_dao(pending_payable_dao)
-            .build();
-        let sent_payables = SentPayables {
-            payment_procedure_result: Ok(vec![Correct(payable_1), Correct(payable_2)]),
-            response_skeleton_opt: None,
-        };
-
-        let caught_panic = catch_unwind(AssertUnwindSafe(|| {
-            subject.finish_scan(sent_payables, &Logger::new(test_name))
-        }))
-        .err()
-        .unwrap();
-
-        let panic_msg = caught_panic.downcast_ref::<String>().unwrap();
-        assert_eq!(
-            panic_msg,
-            "Unable to create a mark in the payable table for wallets 0x00000000000\
-        000000000000000626c6168313131, 0x00000000000000000000000000626c6168323232 due to \
-         SignConversion(9999999999999)"
-        );
-    }
-
-    #[test]
-    fn payable_scanner_fails_on_mark_pending_payable_and_panics_simply_not_finding_any_nonexistent_fingerprints(
-    ) {
-        init_test_logging();
-        let test_name = "payable_scanner_fails_on_mark_pending_payable_and_panics_simply_not_finding_any_nonexistent_fingerprints";
-        let hash_1 = make_tx_hash(248);
-        let hash_2 = make_tx_hash(139);
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(vec![(Some(7879), hash_1), (Some(7881), hash_2)]);
-
-        assert_mark_pending_payable_rowids_panic(test_name, pending_payable_dao, hash_1, hash_2);
-
-        TestLogHandler::new().exists_no_log_matching(&format!(
-            "ERROR: {test_name}: Payable fingerprints for (\
-         .*) not found but should exist by now; system unreliable"
-        ));
-    }
-
-    #[test]
-    fn payable_scanner_fails_on_mark_pending_payable_and_panics_after_also_discovering_nonexistent_fingerprints(
-    ) {
-        init_test_logging();
-        let test_name = "payable_scanner_fails_on_mark_pending_payable_and_panics_after_also_discovering_nonexistent_fingerprints";
-        let hash_1 = make_tx_hash(248);
-        let hash_2 = make_tx_hash(0xf8);
-        let pending_payable_dao = PendingPayableDaoMock::default()
-            .fingerprints_rowids_result(vec![(None, hash_1), (Some(7881), hash_2)]);
-
-        assert_mark_pending_payable_rowids_panic(test_name, pending_payable_dao, hash_1, hash_2);
-
-        TestLogHandler::new().exists_log_containing(&format!("ERROR: {test_name}: Expected pending payable \
-         fingerprints for (tx: 0x00000000000000000000000000000000000000000000000000000000000000f8, to wallet: \
-          0x00000000000000000000000000626c6168313131) were not found; system unreliable"));
+        log_handler.exists_log_containing(&format!("ERROR: {test_name}: Ran into failed transactions 0x00000000000000000000 \
+        000000000000000000000000000000000000000004d2 with missing fingerprints. System no longer reliable"));
     }
 
     #[test]
