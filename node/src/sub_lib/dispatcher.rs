@@ -80,7 +80,7 @@ impl<'a> Visitor<'a> for ComponentVisitor {
 #[derive(Clone, PartialEq, Eq)]
 pub enum Endpoint {
     Key(PublicKey),
-    Socket(SocketAddr),
+    Socket(SocketAddr), // This SocketAddr can be either a neighbor Node or a browser stream, but not a server stream.
 }
 
 impl fmt::Debug for Endpoint {
