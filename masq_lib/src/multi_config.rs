@@ -1,7 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::shared_schema::{ConfiguratorError, ParamError};
-use crate::utils::WrapResult;
 #[allow(unused_imports)]
 use clap::{value_t, values_t};
 use clap::{App, ArgMatches};
@@ -78,7 +77,7 @@ impl<'a> MultiConfig<'a> {
                 _ => return Err(Self::make_configurator_error(e)),
             },
         };
-        MultiConfig { arg_matches }.wrap_to_ok()
+        Ok(MultiConfig { arg_matches })
     }
 
     pub fn make_configurator_error(e: clap::Error) -> ConfiguratorError {

@@ -696,6 +696,12 @@ impl MASQNode for MASQRealNode {
         &self.guts.node_reference.public_key
     }
 
+    fn alias_public_key(&self) -> &PublicKey {
+        self.alias_cryptde_null()
+            .expect("Alias Cryptde Null not found")
+            .public_key()
+    }
+
     fn ip_address(&self) -> IpAddr {
         self.guts.container_ip
     }

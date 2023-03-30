@@ -33,7 +33,6 @@ use crate::sub_lib::utils::make_new_multi_config;
 use crate::tls_discriminator_factory::TlsDiscriminatorFactory;
 use masq_lib::constants::{DEFAULT_UI_PORT, HTTP_PORT, TLS_PORT};
 use masq_lib::multi_config::{CommandLineVcl, ConfigFileVcl, EnvironmentVcl};
-use masq_lib::utils::WrapResult;
 use std::str::FromStr;
 
 pub struct NodeConfiguratorStandardPrivileged {
@@ -160,7 +159,7 @@ pub fn server_initializer_collected_params<'a>(
         .map(|dir| dir.to_path_buf())
         .expectv("data_directory");
     let real_user = real_user_from_multi_config_or_populate(&multi_config, dirs_wrapper);
-    GatheredParams::new(multi_config, data_directory, real_user).wrap_to_ok()
+    Ok(GatheredParams::new(multi_config, data_directory, real_user))
 }
 
 pub fn establish_port_configurations(config: &mut BootstrapperConfig) {
