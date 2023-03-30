@@ -19,6 +19,7 @@ pub mod payable_scanner_utils {
     #[cfg(test)]
     use std::any::Any;
     use std::cmp::Ordering;
+    use std::ops::Not;
     use std::time::SystemTime;
     use thousands::Separable;
     use web3::types::H256;
@@ -243,8 +244,6 @@ pub mod payable_scanner_utils {
         )
     }
 
-    todo!("write a fn, that would convert the hashes and you could repeat it")
-
     pub fn err_msg_if_failed_without_existing_fingerprints(
         nonexistent: VecOfRowidOptAndHash,
         serialize_hashes: fn(&[H256]) -> String,
@@ -253,17 +252,17 @@ pub mod payable_scanner_utils {
             .iter()
             .map(|(_, hash)| *hash)
             .collect::<Vec<H256>>();
-        nonexistent.is_empty().then_some(format!(
+        nonexistent.is_empty().not().then_some(format!(
             "Ran into failed transactions {} with missing fingerprints. System no longer reliable",
             serialize_hashes(&hashes_of_nonexistent),
         ))
     }
 
-    pub fn log_failed_payments_with_fingerprints_and_return_rowids(
+    pub fn log_failed_payments_and_return_rowids_and_hashes(
         ids_of_payments: VecOfRowidOptAndHash,
         serialize_hashes: fn(&[H256]) -> String,
         logger: &Logger,
-    ) -> Vec<u64> {
+    ) -> (Vec<u64>, Vec<H256>) {
         let (rowids, hashes): (Vec<u64>, Vec<H256>) = ids_of_payments
             .into_iter()
             .map(|(ever_some_rowid, hash)| (ever_some_rowid.expectv("validated rowid"), hash))
@@ -273,7 +272,7 @@ pub mod payable_scanner_utils {
             "Deleting fingerprints for failed transactions {}",
             serialize_hashes(&hashes)
         );
-        rowids
+        (rowids, hashes)
     }
 
     pub trait PayableThresholdsGauge {
