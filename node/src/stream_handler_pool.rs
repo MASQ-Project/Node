@@ -156,6 +156,7 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
     }
 }
 
+// TODO: GH-686 - This handler can be implemented using a Procedural Macro
 impl<M: actix::Message + 'static> Handler<MessageScheduler<M>> for StreamHandlerPool
 where
     StreamHandlerPool: Handler<M>,
