@@ -550,14 +550,14 @@ impl StreamHandlerPool {
             peer_addr,
             msg.context.data.len()
         );
-        let schedule_message_sub = self
+        let scheduled_node_query_response_sub = self
             .self_subs_opt
             .as_ref()
             .expect("StreamHandlerPool is unbound")
             .scheduled_node_query_response_sub
             .clone();
 
-        schedule_message_sub
+        scheduled_node_query_response_sub
             .try_send(MessageScheduler {
                 scheduled_msg: msg,
                 delay: Duration::from_millis(100),
