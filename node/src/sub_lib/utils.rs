@@ -240,7 +240,7 @@ where
 #[derive(Message, Clone, PartialEq, Eq)]
 pub struct MessageScheduler<M: Message> {
     pub scheduled_msg: M,
-    pub duration: Duration,
+    pub delay: Duration,
 }
 
 #[cfg(test)]

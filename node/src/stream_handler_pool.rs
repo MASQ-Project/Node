@@ -163,7 +163,7 @@ where
     type Result = ();
 
     fn handle(&mut self, msg: MessageScheduler<M>, ctx: &mut Self::Context) -> Self::Result {
-        ctx.notify_later(msg.scheduled_msg, msg.duration);
+        ctx.notify_later(msg.scheduled_msg, msg.delay);
     }
 }
 
@@ -559,7 +559,7 @@ impl StreamHandlerPool {
         schedule_message_sub
             .try_send(MessageScheduler {
                 scheduled_msg: msg,
-                duration: Duration::from_millis(100),
+                delay: Duration::from_millis(100),
             })
             .expect("StreamHandlerPool is dead");
     }
