@@ -308,7 +308,10 @@ pub fn make_stream_handler_pool_subs_from_recorder(addr: &Addr<Recorder>) -> Str
         bind: recipient!(addr, PoolBindMessage),
         node_query_response: recipient!(addr, DispatcherNodeQueryResponse),
         node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
-        schedule_message_sub: recipient!(addr, MessageScheduler<DispatcherNodeQueryResponse>),
+        scheduled_node_query_response_sub: recipient!(
+            addr,
+            MessageScheduler<DispatcherNodeQueryResponse>
+        ),
     }
 }
 

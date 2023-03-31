@@ -61,7 +61,7 @@ pub struct StreamHandlerPoolSubs {
     pub bind: Recipient<PoolBindMessage>,
     pub node_query_response: Recipient<DispatcherNodeQueryResponse>,
     pub node_from_ui_sub: Recipient<NodeFromUiMessage>,
-    pub schedule_message_sub: Recipient<MessageScheduler<DispatcherNodeQueryResponse>>,
+    pub scheduled_node_query_response_sub: Recipient<MessageScheduler<DispatcherNodeQueryResponse>>,
 }
 
 impl Clone for StreamHandlerPoolSubs {
@@ -73,7 +73,7 @@ impl Clone for StreamHandlerPoolSubs {
             bind: self.bind.clone(),
             node_query_response: self.node_query_response.clone(),
             node_from_ui_sub: self.node_from_ui_sub.clone(),
-            schedule_message_sub: self.schedule_message_sub.clone(),
+            scheduled_node_query_response_sub: self.scheduled_node_query_response_sub.clone(),
         }
     }
 }
@@ -217,7 +217,7 @@ impl StreamHandlerPool {
             bind: recipient!(pool_addr, PoolBindMessage),
             node_query_response: recipient!(pool_addr, DispatcherNodeQueryResponse),
             node_from_ui_sub: recipient!(pool_addr, NodeFromUiMessage),
-            schedule_message_sub: recipient!(
+            scheduled_node_query_response_sub: recipient!(
                 pool_addr,
                 MessageScheduler<DispatcherNodeQueryResponse>
             ),
@@ -553,7 +553,7 @@ impl StreamHandlerPool {
             .self_subs_opt
             .as_ref()
             .expect("StreamHandlerPool is unbound")
-            .schedule_message_sub
+            .scheduled_node_query_response_sub
             .clone();
 
         schedule_message_sub
