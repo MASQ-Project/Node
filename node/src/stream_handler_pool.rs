@@ -30,14 +30,13 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
-use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::{handle_ui_crash_request, MessageScheduler, NODE_MAILBOX_CAPACITY};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
 use actix::{Actor, AsyncContext};
 use masq_lib::logger::Logger;
-use masq_lib::messages::MessageScheduler;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::localhost;
 use std::collections::HashMap;
@@ -62,7 +61,7 @@ pub struct StreamHandlerPoolSubs {
     pub bind: Recipient<PoolBindMessage>,
     pub node_query_response: Recipient<DispatcherNodeQueryResponse>,
     pub node_from_ui_sub: Recipient<NodeFromUiMessage>,
-    pub schedule_message_sub: Recipient<MessageScheduler<DispatcherNodeQueryResponse>>,
+    pub scheduled_node_query_response_sub: Recipient<MessageScheduler<DispatcherNodeQueryResponse>>,
 }
 
 impl Clone for StreamHandlerPoolSubs {
@@ -74,7 +73,7 @@ impl Clone for StreamHandlerPoolSubs {
             bind: self.bind.clone(),
             node_query_response: self.node_query_response.clone(),
             node_from_ui_sub: self.node_from_ui_sub.clone(),
-            schedule_message_sub: self.schedule_message_sub.clone(),
+            scheduled_node_query_response_sub: self.scheduled_node_query_response_sub.clone(),
         }
     }
 }
@@ -157,6 +156,7 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
     }
 }
 
+// TODO: GH-686 - This handler can be implemented using a Procedural Macro
 impl<M: actix::Message + 'static> Handler<MessageScheduler<M>> for StreamHandlerPool
 where
     StreamHandlerPool: Handler<M>,
@@ -164,7 +164,7 @@ where
     type Result = ();
 
     fn handle(&mut self, msg: MessageScheduler<M>, ctx: &mut Self::Context) -> Self::Result {
-        ctx.notify_later(msg.schedule_msg, msg.duration);
+        ctx.notify_later(msg.scheduled_msg, msg.delay);
     }
 }
 
@@ -218,7 +218,7 @@ impl StreamHandlerPool {
             bind: recipient!(pool_addr, PoolBindMessage),
             node_query_response: recipient!(pool_addr, DispatcherNodeQueryResponse),
             node_from_ui_sub: recipient!(pool_addr, NodeFromUiMessage),
-            schedule_message_sub: recipient!(
+            scheduled_node_query_response_sub: recipient!(
                 pool_addr,
                 MessageScheduler<DispatcherNodeQueryResponse>
             ),
@@ -550,17 +550,17 @@ impl StreamHandlerPool {
             peer_addr,
             msg.context.data.len()
         );
-        let schedule_message_sub = self
+        let scheduled_node_query_response_sub = self
             .self_subs_opt
             .as_ref()
             .expect("StreamHandlerPool is unbound")
-            .schedule_message_sub
+            .scheduled_node_query_response_sub
             .clone();
 
-        schedule_message_sub
+        scheduled_node_query_response_sub
             .try_send(MessageScheduler {
-                schedule_msg: msg,
-                duration: Duration::from_millis(100),
+                scheduled_msg: msg,
+                delay: Duration::from_millis(100),
             })
             .expect("StreamHandlerPool is dead");
     }
