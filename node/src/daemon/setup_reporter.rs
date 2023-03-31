@@ -119,7 +119,7 @@ impl SetupReporter for SetupReporterReal {
                 .populate(self.dirs_wrapper.as_ref())
         });
         let data_directory = match all_but_configured.get("data-directory") {
-            Some(uisrv) if uisrv.status == Set => PathBuf::from(&uisrv.value),
+            Some(uisrv) if uisrv.status == Set => PathBuf::from(&uisrv.value), // TODO drive in the specific chain dir here
             _ => data_directory_from_context(
                 self.dirs_wrapper.as_ref(),
                 &real_user,
@@ -2419,6 +2419,7 @@ mod tests {
         }
         let setup = vec![
             // no config-file setting
+            UiSetupResponseValue::new("chain", "polygon-mumbai", Set),
             UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
             UiSetupResponseValue::new(
                 "data-directory",
@@ -2443,21 +2444,23 @@ mod tests {
             "setup_reporter",
             "config_file_has_relative_directory_that_exists_in_data_directory",
         );
+        let chain_specific_dir =
+            add_chain_specific_directories(Blockchain::PolyMumbai, &data_directory);
         {
-            let config_file_dir = data_directory.join("booga");
+            let config_file_dir = chain_specific_dir.join("booga");
             std::fs::create_dir_all(&config_file_dir).unwrap();
             let config_file_path = config_file_dir.join("special.toml");
             let mut config_file = File::create(config_file_path).unwrap();
             config_file.write_all(b"gas-price = \"10\"\n").unwrap();
         }
-        let expected_dir = add_chain_specific_directories(Blockchain::PolyMumbai, &data_directory);
         let setup = vec![
-            // no config-file setting
+            //no config-file setting
+            UiSetupResponseValue::new("chain", "polygon-mumbai", Set),
             UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
             UiSetupResponseValue::new("config-file", "booga/special.toml", Set),
             UiSetupResponseValue::new(
                 "data-directory",
-                &expected_dir.to_string_lossy().to_string(),
+                &data_directory.to_string_lossy().to_string(),
                 Set,
             ),
         ]
@@ -2465,12 +2468,9 @@ mod tests {
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
         let subject = SetupReporterReal::new(Box::new(DirsWrapperReal {}));
-        println!("{:#?}", expected_dir);
-        println!("{:#?}", data_directory);
         let result = subject
-            .calculate_configured_setup(&setup, &expected_dir)
+            .calculate_configured_setup(&setup, &data_directory)
             .0;
-        println!("{:#?}", result);
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
 

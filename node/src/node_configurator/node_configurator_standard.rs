@@ -555,8 +555,6 @@ mod tests {
             )
             .param("--real-user", "999:999:/home/booga")
             .param("--chain", "polygon-mumbai");
-            .param("--real-user", "999:999:/home/booga")
-            .param("--chain", "polygon-mumbai");
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
