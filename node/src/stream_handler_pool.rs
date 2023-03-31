@@ -30,12 +30,12 @@ use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::tokio_wrappers::ReadHalfWrapper;
 use crate::sub_lib::tokio_wrappers::WriteHalfWrapper;
-use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
-use actix::Actor;
+use crate::sub_lib::utils::{handle_ui_crash_request, MessageScheduler, NODE_MAILBOX_CAPACITY};
 use actix::Addr;
 use actix::Context;
 use actix::Handler;
 use actix::Recipient;
+use actix::{Actor, AsyncContext};
 use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use masq_lib::utils::localhost;
@@ -43,7 +43,6 @@ use std::collections::HashMap;
 use std::fmt::{Display, Formatter};
 use std::io;
 use std::net::SocketAddr;
-use std::thread;
 use std::time::Duration;
 use tokio::prelude::Future;
 
@@ -62,6 +61,7 @@ pub struct StreamHandlerPoolSubs {
     pub bind: Recipient<PoolBindMessage>,
     pub node_query_response: Recipient<DispatcherNodeQueryResponse>,
     pub node_from_ui_sub: Recipient<NodeFromUiMessage>,
+    pub scheduled_node_query_response_sub: Recipient<MessageScheduler<DispatcherNodeQueryResponse>>,
 }
 
 impl Clone for StreamHandlerPoolSubs {
@@ -73,6 +73,7 @@ impl Clone for StreamHandlerPoolSubs {
             bind: self.bind.clone(),
             node_query_response: self.node_query_response.clone(),
             node_from_ui_sub: self.node_from_ui_sub.clone(),
+            scheduled_node_query_response_sub: self.scheduled_node_query_response_sub.clone(),
         }
     }
 }
@@ -155,6 +156,18 @@ impl Handler<DispatcherNodeQueryResponse> for StreamHandlerPool {
     }
 }
 
+// TODO: GH-686 - This handler can be implemented using a Procedural Macro
+impl<M: actix::Message + 'static> Handler<MessageScheduler<M>> for StreamHandlerPool
+where
+    StreamHandlerPool: Handler<M>,
+{
+    type Result = ();
+
+    fn handle(&mut self, msg: MessageScheduler<M>, ctx: &mut Self::Context) -> Self::Result {
+        ctx.notify_later(msg.scheduled_msg, msg.delay);
+    }
+}
+
 impl Handler<PoolBindMessage> for StreamHandlerPool {
     type Result = ();
 
@@ -205,6 +218,10 @@ impl StreamHandlerPool {
             bind: recipient!(pool_addr, PoolBindMessage),
             node_query_response: recipient!(pool_addr, DispatcherNodeQueryResponse),
             node_from_ui_sub: recipient!(pool_addr, NodeFromUiMessage),
+            scheduled_node_query_response_sub: recipient!(
+                pool_addr,
+                MessageScheduler<DispatcherNodeQueryResponse>
+            ),
         }
     }
 
@@ -533,18 +550,19 @@ impl StreamHandlerPool {
             peer_addr,
             msg.context.data.len()
         );
-        let recipient = self
+        let scheduled_node_query_response_sub = self
             .self_subs_opt
             .as_ref()
-            .expect("StreamHandlerPool is unbound.")
-            .node_query_response
+            .expect("StreamHandlerPool is unbound")
+            .scheduled_node_query_response_sub
             .clone();
-        // TODO FIXME revisit once SC-358/GH-96 is done (idea: use notify_later() to delay messages)
-        thread::spawn(move || {
-            // to avoid getting into too-tight a resubmit loop, add a delay; in a separate thread, to avoid delaying other traffic
-            thread::sleep(Duration::from_millis(100));
-            recipient.try_send(msg).expect("StreamHandlerPool is dead");
-        });
+
+        scheduled_node_query_response_sub
+            .try_send(MessageScheduler {
+                scheduled_msg: msg,
+                delay: Duration::from_millis(100),
+            })
+            .expect("StreamHandlerPool is dead");
     }
 
     fn open_new_stream_and_recycle_message(
