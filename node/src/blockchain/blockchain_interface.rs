@@ -2026,7 +2026,11 @@ mod tests {
 
         assert_eq!(
             actual_error,
-            BlockchainError::QueryFailed(format!("Transport error: Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: \"Connection refused\" }})", if cfg!(target_os = "macos") { 61 } else { 111 }).to_string())
+            BlockchainError::QueryFailed(format!("Transport error: Error(Connect, Os {{ code: {}, kind: ConnectionRefused, message: \"{}\" }})",
+                                                 if cfg!(target_os = "windows") { 10061 } else if cfg!(target_os = "macos") { 61 } else { 111 },
+                                                 if cfg!(target_os = "windows") { "No connection could be made because the target machine actively refused it." }
+                                                 else { "Connection refused" }).to_string(),
+            )
         );
     }
 
