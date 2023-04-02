@@ -29,16 +29,17 @@ jobs:
           toolchain: 1.63.0
           components: rustfmt, clippy
           override: true
-      - uses: actions/cache@v3
+      - uses: Swatinem/rust-cache@v2
         with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/cache/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo
+          prefix-key: ""
+          shared-key: ""
+          key: ""
+          env-vars: ""
+          workspaces: ""
+          cache-directories: ""
+          cache-targets: ""
+          cache-on-failure: ""
+          save-if: ""
       - name: Build ${{ matrix.target.os }}
         run: |
           ./ci/all.sh
