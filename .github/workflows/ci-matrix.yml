@@ -29,29 +29,6 @@ jobs:
           ./ci/format.sh
         shell: bash
 
-  multinode_tests:
-    needs: format
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: ""
-          shared-key: ""
-          key: ""
-          env-vars: ""
-          workspaces: ""
-          cache-directories: ""
-          cache-targets: ""
-          cache-on-failure: ""
-          save-if: ""
-      - name: Multinode Integration Tests
-        run: |
-          ./ci/multinode_integration_test.sh
-        shell: bash
-
   lint:
     needs: format
     strategy:
@@ -142,6 +119,29 @@ jobs:
           ./node/ci/integration_tests.sh
           ./masq/ci/integration_tests.sh
           ./dns_utility/ci/integration_tests.sh
+        shell: bash
+
+  multinode_tests:
+    needs: format
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: ""
+          shared-key: ""
+          key: ""
+          env-vars: ""
+          workspaces: ""
+          cache-directories: ""
+          cache-targets: ""
+          cache-on-failure: ""
+          save-if: ""
+      - name: Multinode Integration Tests
+        run: |
+          ./ci/multinode_integration_test.sh
         shell: bash
 
   build:
