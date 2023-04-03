@@ -9,8 +9,6 @@ on:
 jobs:
   format:
     runs-on: ubuntu-22.04
-    env:
-      $CI_DIR: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -30,8 +28,6 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-12, windows-2022]
     runs-on: ${{ matrix.os }}
-    env:
-      $CI_DIR: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -41,12 +37,12 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "automap"
       - name: Set automap dir
-        run: cd $CI_DIR/automap
+        run: cd ${{ github.workspace }}/automap
       - name: lint automap
-        run: $CI_DIR/ci/lint.sh
+        run: ${{ github.workspace }}/ci/lint.sh
         shell: bash
       - name: unit_tests automap
-        run: $CI_DIR/ci/unit_tests.sh
+        run: ${{ github.workspace }}/ci/unit_tests.sh
         shell: bash
 
   dns_utility:
@@ -55,8 +51,6 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-12, windows-2022]
     runs-on: ${{ matrix.os }}
-    env:
-      $CI_DIR: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -66,15 +60,15 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "dns_utility"
       - name: Set dns_utility dir
-        run: cd $CI_DIR/dns_utility
+        run: cd ${{ github.workspace }}/dns_utility
       - name: lint dns_utility
-        run: $CI_DIR/ci/lint.sh
+        run: ${{ github.workspace }}/ci/lint.sh
         shell: bash
       - name: unit_tests dns_utility
-        run: $CI_DIR/ci/unit_tests.sh
+        run: ${{ github.workspace }}/ci/unit_tests.sh
         shell: bash
       - name: integration_tests dns_utility
-        run: $CI_DIR/ci/integration_tests.sh
+        run: ${{ github.workspace }}/ci/integration_tests.sh
         shell: bash
 
   masq:
@@ -83,8 +77,6 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-12, windows-2022]
     runs-on: ${{ matrix.os }}
-    env:
-      $CI_DIR: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -94,15 +86,15 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "masq"
       - name: Set masq dir
-        run: cd $CI_DIR/masq
+        run: cd ${{ github.workspace }}/masq
       - name: lint masq
-        run: $CI_DIR/ci/lint.sh
+        run: ${{ github.workspace }}/ci/lint.sh
         shell: bash
       - name: unit_tests masq
-        run: $CI_DIR/ci/unit_tests.sh
+        run: ${{ github.workspace }}/ci/unit_tests.sh
         shell: bash
       - name: integration_tests masq
-        run: $CI_DIR/ci/integration_tests.sh
+        run: ${{ github.workspace }}/ci/integration_tests.sh
         shell: bash
 
   masq_lib:
@@ -111,8 +103,6 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-12, windows-2022]
     runs-on: ${{ matrix.os }}
-    env:
-      $CI_DIR: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -122,12 +112,12 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "masq_lib"
       - name: Set masq_lib dir
-        run: cd $CI_DIR/masq_lib
+        run: cd ${{ github.workspace }}/masq_lib
       - name: lint masq_lib
-        run: $CI_DIR/ci/lint.sh
+        run: ${{ github.workspace }}/ci/lint.sh
         shell: bash
       - name: unit_tests masq_lib
-        run: $CI_DIR/ci/unit_tests.sh
+        run: ${{ github.workspace }}/ci/unit_tests.sh
         shell: bash
 
   node:
@@ -136,8 +126,6 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-12, windows-2022]
     runs-on: ${{ matrix.os }}
-    env:
-      $CI_DIR: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -147,22 +135,20 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "node"
       - name: Set node dir
-        run: cd $CI_DIR/node
+        run: cd ${{ github.workspace }}/node
       - name: lint node
-        run: $CI_DIR/ci/lint.sh
+        run: ${{ github.workspace }}/ci/lint.sh
         shell: bash
       - name: unit_tests node
-        run: $CI_DIR/ci/unit_tests.sh
+        run: ${{ github.workspace }}/ci/unit_tests.sh
         shell: bash
       - name: integration_tests node
-        run: $CI_DIR/ci/integration_tests.sh
+        run: ${{ github.workspace }}/ci/integration_tests.sh
         shell: bash
 
   multinode_tests:
     needs: format
     runs-on: ubuntu-22.04
-    env:
-      $CI_DIR: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -173,7 +159,7 @@ jobs:
           shared-key: "multinode_tests"
       - name: Multinode Integration Tests
         run: |
-          cd $CI_DIR/multinode_integration_tests
+          cd ${{ github.workspace }}/multinode_integration_tests
           ci/all.sh
         shell: bash
 
@@ -193,8 +179,6 @@ jobs:
           - { name: windows, os: windows-2022 }
     name: Build node on ${{ matrix.target.os }}
     runs-on: ${{ matrix.target.os }}
-    env:
-      $CI_DIR: ${{ github.workspace }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -205,27 +189,27 @@ jobs:
           shared-key: "build"
       - name: Build masq_lib on ${{ matrix.target.os }}
         run: |
-          cd $CI_DIR/masq_lib
+          cd ${{ github.workspace }}/masq_lib
           cargo build --release --verbose
       - name: Build automap on ${{ matrix.target.os }}
         run: |
-          cd $CI_DIR/automap
+          cd ${{ github.workspace }}/automap
           cargo build --release --verbose
       - name: Build dns_utility on ${{ matrix.target.os }}
         run: |
-          cd $CI_DIR/dns_utility
+          cd ${{ github.workspace }}/dns_utility
           cargo build --release --verbose
       - name: Build masq on ${{ matrix.target.os }}
         run: |
-          cd $CI_DIR/masq
+          cd ${{ github.workspace }}/masq
           cargo build --release --verbose
       - name: Build node on ${{ matrix.target.os }}
         run: |
-          cd $CI_DIR/node
+          cd ${{ github.workspace }}/node
           cargo build --all --lib --bins --release --verbose --features "masq_lib/no_test_share automap/no_test_share"
       - name: Collect results
         run: |
-          cd $CI_DIR
+          cd ${{ github.workspace }}
           ci/collect_results.sh
         shell: bash
       - name: Publish ${{ matrix.target.os }}
