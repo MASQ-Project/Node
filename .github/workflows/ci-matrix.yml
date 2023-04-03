@@ -18,8 +18,7 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "format"
       - name: Format Test
-        run: |
-          ci/format.sh
+        run: ${{ github.workspace }}/ci/format.sh
         shell: bash
 
   automap:
@@ -36,13 +35,11 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "automap"
-      - name: Set automap dir
-        run: cd ${{ github.workspace }}/automap
       - name: lint automap
-        run: ci/lint.sh
+        run: ${{ github.workspace }}/automap/ci/lint.sh
         shell: bash
       - name: unit_tests automap
-        run: ci/unit_tests.sh
+        run: ${{ github.workspace }}/automap/ci/ci/unit_tests.sh
         shell: bash
 
   dns_utility:
@@ -59,16 +56,14 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "dns_utility"
-      - name: Set dns_utility dir
-        run: cd ${{ github.workspace }}/dns_utility
       - name: lint dns_utility
-        run: ci/lint.sh
+        run: ${{ github.workspace }}/dns_utility/ci/lint.sh
         shell: bash
       - name: unit_tests dns_utility
-        run: ci/unit_tests.sh
+        run: ${{ github.workspace }}/dns_utility/ci/unit_tests.sh
         shell: bash
       - name: integration_tests dns_utility
-        run: ci/integration_tests.sh
+        run: ${{ github.workspace }}/dns_utility/ci/integration_tests.sh
         shell: bash
 
   masq:
@@ -85,16 +80,14 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "masq"
-      - name: Set masq dir
-        run: cd ${{ github.workspace }}/masq
       - name: lint masq
-        run: ci/lint.sh
+        run: ${{ github.workspace }}/masq/ci/lint.sh
         shell: bash
       - name: unit_tests masq
-        run: ci/unit_tests.sh
+        run: ${{ github.workspace }}/masq/ci/unit_tests.sh
         shell: bash
       - name: integration_tests masq
-        run: ci/integration_tests.sh
+        run: ${{ github.workspace }}/masq/ci/integration_tests.sh
         shell: bash
 
   masq_lib:
@@ -111,13 +104,11 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "masq_lib"
-      - name: Set masq_lib dir
-        run: cd ${{ github.workspace }}/masq_lib
       - name: lint masq_lib
-        run: ci/lint.sh
+        run: ${{ github.workspace }}/masq_lib/ci/lint.sh
         shell: bash
       - name: unit_tests masq_lib
-        run: ci/unit_tests.sh
+        run: ${{ github.workspace }}/masq_lib/ci/unit_tests.sh
         shell: bash
 
   node:
@@ -134,16 +125,14 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "node"
-      - name: Set node dir
-        run: cd ${{ github.workspace }}/node
       - name: lint node
-        run: ci/lint.sh
+        run: ${{ github.workspace }}/node/ci/lint.sh
         shell: bash
       - name: unit_tests node
-        run: ci/unit_tests.sh
+        run: ${{ github.workspace }}/node/ci/unit_tests.sh
         shell: bash
       - name: integration_tests node
-        run: ci/integration_tests.sh
+        run: ${{ github.workspace }}/node/ci/integration_tests.sh
         shell: bash
 
   multinode_tests:
@@ -158,9 +147,7 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "multinode_tests"
       - name: Multinode Integration Tests
-        run: |
-          cd ${{ github.workspace }}/multinode_integration_tests
-          ci/all.sh
+        run: ${{ github.workspace }}/multinode_integration_tests/ci/all.sh
         shell: bash
 
   build:
@@ -208,9 +195,7 @@ jobs:
           cd ${{ github.workspace }}/node
           cargo build --all --lib --bins --release --verbose --features "masq_lib/no_test_share automap/no_test_share"
       - name: Collect results
-        run: |
-          cd ${{ github.workspace }}
-          ci/collect_results.sh
+        run: ${{ github.workspace }}/ci/collect_results.sh
         shell: bash
       - name: Publish ${{ matrix.target.os }}
         uses: actions/upload-artifact@v3
