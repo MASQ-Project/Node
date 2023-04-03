@@ -32,7 +32,6 @@ jobs:
   lint:
     needs: format
     strategy:
-      fail-fast: true
       matrix:
         os: [ubuntu-22.04, macos-12, windows-2022]
     runs-on: ${{ matrix.os }}
@@ -64,7 +63,6 @@ jobs:
   unit_tests:
     needs: format
     strategy:
-      fail-fast: true
       matrix:
         os: [ubuntu-22.04, macos-12, windows-2022]
     runs-on: ${{ matrix.os }}
@@ -95,7 +93,6 @@ jobs:
   integration_tests:
     needs: format
     strategy:
-      fail-fast: true
       matrix:
         os: [ubuntu-22.04, macos-12, windows-2022]
     runs-on: ${{ matrix.os }}
@@ -151,7 +148,6 @@ jobs:
       - integration_tests
       - multinode_tests
     strategy:
-      fail-fast: true
       matrix:
         target:
           - { name: linux, os: ubuntu-22.04 }
