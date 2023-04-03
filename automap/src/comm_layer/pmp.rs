@@ -1456,6 +1456,7 @@ mod tests {
         subject.router_port = router_connections.router_port;
         subject.announcement_multicast_group = router_connections.holder.group;
         subject.announcement_port = router_connections.announcement_port;
+        subject.read_timeout_millis = 10;
         let factory = UdpSocketWrapperFactoryReal::new();
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
