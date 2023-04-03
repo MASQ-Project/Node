@@ -39,10 +39,10 @@ jobs:
       - name: Set automap dir
         run: cd ${{ github.workspace }}/automap
       - name: lint automap
-        run: ${{ github.workspace }}/ci/lint.sh
+        run: ci/lint.sh
         shell: bash
       - name: unit_tests automap
-        run: ${{ github.workspace }}/ci/unit_tests.sh
+        run: ci/unit_tests.sh
         shell: bash
 
   dns_utility:
@@ -62,13 +62,13 @@ jobs:
       - name: Set dns_utility dir
         run: cd ${{ github.workspace }}/dns_utility
       - name: lint dns_utility
-        run: ${{ github.workspace }}/ci/lint.sh
+        run: ci/lint.sh
         shell: bash
       - name: unit_tests dns_utility
-        run: ${{ github.workspace }}/ci/unit_tests.sh
+        run: ci/unit_tests.sh
         shell: bash
       - name: integration_tests dns_utility
-        run: ${{ github.workspace }}/ci/integration_tests.sh
+        run: ci/integration_tests.sh
         shell: bash
 
   masq:
@@ -88,13 +88,13 @@ jobs:
       - name: Set masq dir
         run: cd ${{ github.workspace }}/masq
       - name: lint masq
-        run: ${{ github.workspace }}/ci/lint.sh
+        run: ci/lint.sh
         shell: bash
       - name: unit_tests masq
-        run: ${{ github.workspace }}/ci/unit_tests.sh
+        run: ci/unit_tests.sh
         shell: bash
       - name: integration_tests masq
-        run: ${{ github.workspace }}/ci/integration_tests.sh
+        run: ci/integration_tests.sh
         shell: bash
 
   masq_lib:
@@ -114,10 +114,10 @@ jobs:
       - name: Set masq_lib dir
         run: cd ${{ github.workspace }}/masq_lib
       - name: lint masq_lib
-        run: ${{ github.workspace }}/ci/lint.sh
+        run: ci/lint.sh
         shell: bash
       - name: unit_tests masq_lib
-        run: ${{ github.workspace }}/ci/unit_tests.sh
+        run: ci/unit_tests.sh
         shell: bash
 
   node:
@@ -137,13 +137,13 @@ jobs:
       - name: Set node dir
         run: cd ${{ github.workspace }}/node
       - name: lint node
-        run: ${{ github.workspace }}/ci/lint.sh
+        run: ci/lint.sh
         shell: bash
       - name: unit_tests node
-        run: ${{ github.workspace }}/ci/unit_tests.sh
+        run: ci/unit_tests.sh
         shell: bash
       - name: integration_tests node
-        run: ${{ github.workspace }}/ci/integration_tests.sh
+        run: ci/integration_tests.sh
         shell: bash
 
   multinode_tests:
