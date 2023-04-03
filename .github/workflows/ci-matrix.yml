@@ -14,12 +14,15 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "rust-cache"
+          shared-key: "format"
       - name: Format Test
         run: |
           ci/format.sh
         shell: bash
 
-  lint:
+  automap:
     needs: format
     strategy:
       matrix:
@@ -30,18 +33,16 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - uses: Swatinem/rust-cache@v2
-      - name: Lint automap
-        run: cd automap; cargo clippy -- -D warnings
-      - name: Lint node
-        run: cd ../node; cargo clippy -- -D warnings
-      - name: Lint dns_utility
-        run: cd ../dns_utility; cargo clippy -- -D warnings
-      - name: Lint masq
-        run: cd ../masq; cargo clippy -- -D warnings
-      - name: Lint masq_lib
-        run: cd ../masq_lib; cargo clippy -- -D warnings
+        with:
+          prefix-key: "rust-cache"
+          shared-key: "automap"
+      - name: test automap
+        run: |
+          cd automap
+          cargo clippy -- -D warnings
+          cargo test -- --nocapture --skip _integration --test-threads=1
 
-  unit_tests:
+  dns_utility:
     needs: format
     strategy:
       matrix:
@@ -52,36 +53,82 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - uses: Swatinem/rust-cache@v2
-      - name: unit_tests node
-        run: cd node; cargo test --release --lib --no-fail-fast --features masq_lib/log_recipient_test -- --nocapture --skip _integration
-      - name: unit_tests automap
-        run: cd ../automap; cargo test -- --nocapture --skip _integration --test-threads=1
-      - name: unit_tests dns_utility
-        run: cd ../dns_utility; cargo test --release -- --nocapture --skip _integration
-      - name: unit_tests masq
-        run: cd ../masq; cargo test --release -- --nocapture --skip _integration
-      - name: unit_tests masq_lib
-        run: cd ../masq_lib; cargo test --release -- --nocapture --skip _integration --test-threads=1
-
-  integration_tests:
-    needs: format
-    strategy:
-      matrix:
-        os: [ubuntu-22.04, macos-12, windows-2022]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@v3
         with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - uses: Swatinem/rust-cache@v2
-      - name: integration_tests node
-        run: cd node; ci/integration_tests.sh
-        shell: bash
-      - name: integration_tests masq
-        run: cd ../masq; ci/integration_tests.sh
-        shell: bash
+          prefix-key: "rust-cache"
+          shared-key: "dns_utility"
+      - name: test dns_utility
+        run: |
+          cd dns_utility
+          cargo clippy -- -D warnings
+          cargo test --release -- --nocapture --skip _integration
       - name: integration_tests dns_utility
-        run: cd ../dns_utility; ci/integration_tests.sh
+        run: ci/integration_tests.sh
+        shell: bash
+
+  masq:
+    needs: format
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, macos-12, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "rust-cache"
+          shared-key: "masq"
+      - name: test masq
+        run: |
+          cd masq
+          cargo clippy -- -D warnings
+          cargo test --release -- --nocapture --skip _integration
+      - name: integration_tests masq
+        run: ci/integration_tests.sh
+        shell: bash
+
+  masq_lib:
+    needs: format
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, macos-12, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "rust-cache"
+          shared-key: "masq_lib"
+      - name: test masq_lib
+        run: |
+          cd masq_lib
+          cargo clippy -- -D warnings
+          cargo test --release -- --nocapture --skip _integration --test-threads=1
+
+  node:
+    needs: format
+    strategy:
+      matrix:
+        os: [ubuntu-22.04, macos-12, windows-2022]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "rust-cache"
+          shared-key: "node"
+      - name: test node
+        run: |
+          cd node
+          cargo clippy -- -D warnings
+          cargo test --release --lib --no-fail-fast --features masq_lib/log_recipient_test -- --nocapture --skip _integration
+      - name: integration_tests node
+        run: ci/integration_tests.sh
         shell: bash
 
   multinode_tests:
@@ -92,15 +139,22 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "rust-cache"
+          shared-key: "multinode_tests"
       - name: Multinode Integration Tests
-        run: cd multinode_integration_tests; ci/all.sh
+        run: |
+          cd multinode_integration_tests
+          ci/all.sh
         shell: bash
 
   build:
     needs:
-      - lint
-      - unit_tests
-      - integration_tests
+      - automap
+      - masq
+      - masq_lib
+      - dns_utility
+      - node
       - multinode_tests
     strategy:
       matrix:
@@ -115,18 +169,33 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "rust-cache"
+          shared-key: "build"
       - name: Build masq_lib on ${{ matrix.target.os }}
-        run: cd masq_lib; cargo build --release --verbose
+        run: |
+          cd masq_lib
+          cargo build --release --verbose
       - name: Build automap on ${{ matrix.target.os }}
-        run: cd ../automap; cargo build --release --verbose
+        run: |
+          cd ../automap
+          cargo build --release --verbose
       - name: Build dns_utility on ${{ matrix.target.os }}
-        run: cd ../dns_utility; cargo build --release --verbose
+        run: |
+          cd ../dns_utility
+          cargo build --release --verbose
       - name: Build masq on ${{ matrix.target.os }}
-        run: cd ../masq; cargo build --release --verbose
+        run: |
+          cd ../masq
+          cargo build --release --verbose
       - name: Build node on ${{ matrix.target.os }}
-        run: cd ../node; cargo build --all --lib --bins --release --verbose --features "masq_lib/no_test_share automap/no_test_share"
+        run: |
+          cd ../node
+          cargo build --all --lib --bins --release --verbose --features "masq_lib/no_test_share automap/no_test_share"
       - name: Collect results
-        run: cd ..; ci/collect_results.sh
+        run: |
+          cd ..
+          ci/collect_results.sh
         shell: bash
       - name: Publish ${{ matrix.target.os }}
         uses: actions/upload-artifact@v3
