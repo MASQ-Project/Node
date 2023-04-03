@@ -14,16 +14,6 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: ""
-          shared-key: ""
-          key: ""
-          env-vars: ""
-          workspaces: ""
-          cache-directories: ""
-          cache-targets: ""
-          cache-on-failure: ""
-          save-if: ""
       - name: Format Test
         run: |
           ./ci/format.sh
@@ -34,88 +24,70 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-22.04, macos-12, windows-2022]
+    env:
+      CI_DIR: $(pwd)
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: ""
-          shared-key: ""
-          key: ""
-          env-vars: ""
-          workspaces: ""
-          cache-directories: ""
-          cache-targets: ""
-          cache-on-failure: ""
-          save-if: ""
-      - name: Lint all modules
-        run: |
-          ./node/ci/lint.sh
-          ./multinode_integration_tests/ci/lint.sh
-          ./masq_lib/ci/lint.sh
-          ./masq/ci/lint.sh
-          ./dns_utility/ci/lint.sh
-          ./automap/ci/lint.sh
-        shell: bash
+      - name: Lint automap
+        run: cd $CI_DIR/automap; cargo clippy -- -D warnings
+      - name: Lint node
+        run: cd $CI_DIR/node; cargo clippy -- -D warnings
+      - name: Lint dns_utility
+        run: cd $CI_DIR/dns_utility; cargo clippy -- -D warnings
+      - name: Lint masq
+        run: cd $CI_DIR/masq; cargo clippy -- -D warnings
+      - name: Lint masq_lib
+        run: cd $CI_DIR/masq_lib; cargo clippy -- -D warnings
 
   unit_tests:
     needs: format
     strategy:
       matrix:
         os: [ubuntu-22.04, macos-12, windows-2022]
+    env:
+      CI_DIR: $(pwd)
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: ""
-          shared-key: ""
-          key: ""
-          env-vars: ""
-          workspaces: ""
-          cache-directories: ""
-          cache-targets: ""
-          cache-on-failure: ""
-          save-if: ""
-      - name: unit_tests all modules
-        run: |
-          ./node/ci/unit_tests.sh
-          ./masq_lib/ci/unit_tests.sh
-          ./masq/ci/unit_tests.sh
-          ./dns_utility/ci/unit_tests.sh
-          ./automap/ci/unit_tests.sh
-        shell: bash
+      - name: unit_tests node
+        run: cd $CI_DIR/node; cargo test --release --lib --no-fail-fast --features masq_lib/log_recipient_test -- --nocapture --skip _integration
+      - name: unit_tests automap
+        run: cd $CI_DIR/automap; cargo test -- --nocapture --skip _integration --test-threads=1
+      - name: unit_tests dns_utility
+        run: cd $CI_DIR/dns_utility; cargo test --release -- --nocapture --skip _integration
+      - name: unit_tests masq
+        run: cd $CI_DIR/masq; cargo test --release -- --nocapture --skip _integration
+      - name: unit_tests masq_lib
+        run: cd $CI_DIR/masq_lib; cargo test --release -- --nocapture --skip _integration --test-threads=1
 
   integration_tests:
     needs: format
     strategy:
       matrix:
         os: [ubuntu-22.04, macos-12, windows-2022]
+    env:
+      CI_DIR: $(pwd)
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: ""
-          shared-key: ""
-          key: ""
-          env-vars: ""
-          workspaces: ""
-          cache-directories: ""
-          cache-targets: ""
-          cache-on-failure: ""
-          save-if: ""
-      - name: integration_tests all modules
-        run: |
-          ./node/ci/integration_tests.sh
-          ./masq/ci/integration_tests.sh
-          ./dns_utility/ci/integration_tests.sh
+      - name: integration_tests node
+        run: $CI_DIR/node/ci/integration_tests.sh
+        shell: bash
+      - name: integration_tests masq
+        run: $CI_DIR/masq/ci/integration_tests.sh
+        shell: bash
+      - name: integration_tests dns_utility
+        run: $CI_DIR/dns_utility/ci/integration_tests.sh
         shell: bash
 
   multinode_tests:
@@ -126,19 +98,8 @@ jobs:
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: ""
-          shared-key: ""
-          key: ""
-          env-vars: ""
-          workspaces: ""
-          cache-directories: ""
-          cache-targets: ""
-          cache-on-failure: ""
-          save-if: ""
       - name: Multinode Integration Tests
-        run: |
-          ./ci/multinode_integration_test.sh
+        run: cd multinode_integration_tests; ci/all.sh
         shell: bash
 
   build:
@@ -154,30 +115,26 @@ jobs:
           - { name: macos, os: macos-12 }
           - { name: windows, os: windows-2022 }
     name: Build node on ${{ matrix.target.os }}
+    env:
+      CI_DIR: $(pwd)
     runs-on: ${{ matrix.target.os }}
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
       - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: ""
-          shared-key: ""
-          key: ""
-          env-vars: ""
-          workspaces: ""
-          cache-directories: ""
-          cache-targets: ""
-          cache-on-failure: ""
-          save-if: ""
-      - name: Build ${{ matrix.target.os }}
-        run: |
-          ./node/ci/build.sh
-          ./masq_lib/ci/build.sh
-          ./masq/ci/build.sh
-          ./dns_utility/ci/build.sh
-          ./automap/ci/build.sh
-          ./ci/collect_results.sh
+      - name: Build masq_lib on ${{ matrix.target.os }}
+        run: cd $CI_DIR/masq_lib; cargo build --release --verbose
+      - name: Build automap on ${{ matrix.target.os }}
+        run: cd $CI_DIR/automap; cargo build --release --verbose
+      - name: Build dns_utility on ${{ matrix.target.os }}
+        run: cd $CI_DIR/dns_utility; cargo build --release --verbose
+      - name: Build masq on ${{ matrix.target.os }}
+        run: cd $CI_DIR/masq; cargo build --release --verbose
+      - name: Build node on ${{ matrix.target.os }}
+        run: cd $CI_DIR/node; cargo build --all --lib --bins --release --verbose --features "masq_lib/no_test_share automap/no_test_share"
+      - name: Collect results
+        run: $CI_DIR/ci/collect_results.sh
         shell: bash
       - name: Publish ${{ matrix.target.os }}
         uses: actions/upload-artifact@v3
