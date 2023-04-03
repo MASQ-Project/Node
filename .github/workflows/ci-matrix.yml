@@ -30,11 +30,12 @@ jobs:
         shell: bash
 
   lint:
+    needs: format
     strategy:
       fail-fast: true
       matrix:
-        os: [linux, macos, windows]
-    runs-on: $
+        os: [ubuntu-22.04, macos-12, windows-2022]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -61,10 +62,11 @@ jobs:
         shell: bash
 
   unit_tests:
+    needs: format
     strategy:
       fail-fast: true
       matrix:
-        os: [linux, macos, windows]
+        os: [ubuntu-22.04, macos-12, windows-2022]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -91,10 +93,11 @@ jobs:
         shell: bash
 
   integration_tests:
+    needs: format
     strategy:
       fail-fast: true
       matrix:
-        os: [linux, macos, windows]
+        os: [ubuntu-22.04, macos-12, windows-2022]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v3
@@ -119,11 +122,8 @@ jobs:
         shell: bash
 
   multinode_tests:
-    strategy:
-      fail-fast: true
-      matrix:
-        os: [linux, macos, windows]
-    runs-on: ${{ matrix.os }}
+    needs: format
+    runs-on: ubuntu-22.04
     steps:
       - uses: actions/checkout@v3
         with:
@@ -146,7 +146,6 @@ jobs:
 
   build:
     needs:
-      - format
       - lint
       - unit_tests
       - integration_tests
