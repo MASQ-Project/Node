@@ -36,11 +36,14 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "automap"
-      - name: test automap
-        run: |
-          cd automap
-          cargo clippy -- -D warnings
-          cargo test -- --nocapture --skip _integration --test-threads=1
+      - name: Set automap dir
+        run: cd automap
+      - name: lint automap
+        run: ci/lint.sh
+        shell: bash
+      - name: unit_tests automap
+        run: ci/unit_tests.sh
+        shell: bash
 
   dns_utility:
     needs: format
@@ -56,11 +59,14 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "dns_utility"
-      - name: test dns_utility
-        run: |
-          cd dns_utility
-          cargo clippy -- -D warnings
-          cargo test --release -- --nocapture --skip _integration
+      - name: Set dns_utility dir
+        run: cd dns_utility
+      - name: lint dns_utility
+        run: ci/lint.sh
+        shell: bash
+      - name: unit_tests dns_utility
+        run: ci/unit_tests.sh
+        shell: bash
       - name: integration_tests dns_utility
         run: ci/integration_tests.sh
         shell: bash
@@ -79,11 +85,14 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "masq"
-      - name: test masq
-        run: |
-          cd masq
-          cargo clippy -- -D warnings
-          cargo test --release -- --nocapture --skip _integration
+      - name: Set masq dir
+        run: cd masq
+      - name: lint masq
+        run: ci/lint.sh
+        shell: bash
+      - name: unit_tests masq
+        run: ci/unit_tests.sh
+        shell: bash
       - name: integration_tests masq
         run: ci/integration_tests.sh
         shell: bash
@@ -102,11 +111,14 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "masq_lib"
-      - name: test masq_lib
-        run: |
-          cd masq_lib
-          cargo clippy -- -D warnings
-          cargo test --release -- --nocapture --skip _integration --test-threads=1
+      - name: Set masq_lib dir
+        run: cd masq_lib
+      - name: lint masq_lib
+        run: ci/lint.sh
+        shell: bash
+      - name: unit_tests masq_lib
+        run: ci/unit_tests.sh
+        shell: bash
 
   node:
     needs: format
@@ -122,11 +134,14 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "node"
-      - name: test node
-        run: |
-          cd node
-          cargo clippy -- -D warnings
-          cargo test --release --lib --no-fail-fast --features masq_lib/log_recipient_test -- --nocapture --skip _integration
+      - name: Set node dir
+        run: cd node
+      - name: lint node
+        run: ci/lint.sh
+        shell: bash
+      - name: unit_tests node
+        run: ci/unit_tests.sh
+        shell: bash
       - name: integration_tests node
         run: ci/integration_tests.sh
         shell: bash
