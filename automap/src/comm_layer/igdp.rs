@@ -1606,9 +1606,8 @@ mod tests {
     fn thread_guts_iteration_reports_mapping_error_to_change_handler() {
         init_test_logging();
         let public_ip_addr = Ipv4Addr::from_str("1.2.3.4").unwrap();
-        let gateway = GatewayWrapperMock::new()
-            .get_external_ip_result(Ok(public_ip_addr));
-            // .get_external_ip_result(Err(GetExternalIpError::ActionNotAuthorized));
+        let gateway = GatewayWrapperMock::new().get_external_ip_result(Ok(public_ip_addr));
+        // .get_external_ip_result(Err(GetExternalIpError::ActionNotAuthorized));
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mapping_adder = MappingAdderMock::new()
             .add_mapping_params(&add_mapping_params_arc)

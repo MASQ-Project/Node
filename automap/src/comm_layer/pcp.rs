@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig, UdpSocketWrapperFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory, ANNOUNCEMENT_MULTICAST_GROUP, ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT, ANNOUNCEMENT_PORT};
+use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig, UdpSocketWrapper, UdpSocketWrapperFactory, UdpSocketWrapperFactoryReal, ANNOUNCEMENT_MULTICAST_GROUP, ANNOUNCEMENT_PORT, ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT, make_announcement_socket};
 use crate::comm_layer::{
     AutomapError, AutomapErrorCause, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal,
     Transactor,
@@ -191,7 +191,11 @@ impl Transactor for PcpTransactor {
         if let Some(_change_handler_stopper) = &self.housekeeper_commander_opt {
             return Err(AutomapError::HousekeeperAlreadyRunning);
         }
-        let announcement_socket = self.make_announcement_socket()?;
+        let announcement_socket = make_announcement_socket(
+            self.inner().factories.socket_factory.as_ref(),
+            self.announcement_multicast_group,
+            self.announcement_port
+        )?;
         let (tx, rx) = unbounded();
         self.housekeeper_commander_opt = Some(tx.clone());
         let inner_arc = self.inner_arc.clone();
@@ -273,27 +277,6 @@ impl PcpTransactor {
             .expect("PCP Housekeeping Thread is dead")
     }
 
-    fn make_announcement_socket(&mut self) -> Result<Box<dyn UdpSocketWrapper>, AutomapError> {
-        let socket_result = {
-            let factories = &self.inner().factories;
-            factories.socket_factory.make_multicast(
-                self.announcement_multicast_group,
-                self.announcement_port,
-            )
-        };
-        let socket = match socket_result {
-            Ok(s) => s,
-            Err(e) => {
-                let multicast = Ipv4Addr::new(224, 0, 0, self.announcement_multicast_group);
-                return Err(AutomapError::SocketBindingError(
-                    format!("{:?}", e),
-                    SocketAddr::new(IpAddr::V4(multicast), self.announcement_port),
-                ));
-            }
-        };
-        Ok(socket)
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn thread_guts(
         announcement_socket: &dyn UdpSocketWrapper,
@@ -357,17 +340,17 @@ impl PcpTransactor {
                                     &mut mapping_config_opt,
                                     &logger,
                                 );
-                            }
-                            else {
+                            } else {
                             }
                         }
                         Err(e) => {
                             error!(
                                 logger,
-                                "Unparseable PCP packet:\n{}",
+                                "Unparseable PCP packet: (${:?})\n{}",
+                                e,
                                 PrettyHex::hex_dump(&&buffer[0..len])
                             )
-                        },
+                        }
                     }
                 }
                 #[allow(clippy::unused_unit)] // Clippy and the formatter argue over this one
@@ -378,7 +361,7 @@ impl PcpTransactor {
                 }
                 Err(e) => {
                     error!(logger, "Error receiving PCP packet from router: {:?}", e)
-                },
+                }
             }
             let since_last_remapped = last_remapped.elapsed();
             match &mut mapping_config_opt {
@@ -669,15 +652,20 @@ impl MappingTransactorReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::comm_layer::pcp_pmp_common::{ANNOUNCEMENT_PORT, ROUTER_PORT};
+    use crate::comm_layer::pcp_pmp_common::{ANNOUNCEMENT_PORT, make_router_connections, ROUTER_PORT};
     use crate::comm_layer::{AutomapErrorCause, LocalIpFinder};
-    use crate::mocks::{FreePortFactoryMock, LocalIpFinderMock, TestMulticastSocketHolder, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock};
+    use crate::mocks::{
+        FreePortFactoryMock, LocalIpFinderMock, TestMulticastSocketHolder,
+        UdpSocketWrapperFactoryMock, UdpSocketWrapperMock,
+    };
     use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
     use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket};
     use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
     use core::ptr::addr_of;
+    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::utils::{find_free_port, localhost};
+    use pretty_hex::pretty_hex;
     use socket2::{Domain, SockAddr, Socket, Type};
     use std::cell::RefCell;
     use std::collections::HashSet;
@@ -687,8 +675,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::{io, thread};
-    use pretty_hex::pretty_hex;
-    use masq_lib::test_utils::environment_guard::EnvironmentGuard;
 
     pub struct MappingNonceFactoryMock {
         make_results: RefCell<Vec<[u8; 12]>>,
@@ -797,30 +783,6 @@ mod tests {
                 value_sets[n]
             );
         }
-    }
-
-    #[test]
-    fn make_announcement_socket_failure_is_handled() {
-        let mut subject = PcpTransactor::default();
-        subject.announcement_multicast_group = 134;
-        subject.announcement_port = 1234;
-        let make_multicast_params_arc = Arc::new(Mutex::new(vec![]));
-        let socket_factory = UdpSocketWrapperFactoryMock::new()
-            .make_multicast_params(&make_multicast_params_arc)
-            .make_multicast_result(Err(std::io::Error::from(ErrorKind::AddrInUse)));
-        subject.inner().factories.socket_factory = Box::new (socket_factory);
-
-        let result = subject.make_announcement_socket();
-
-        assert_eq!(result.err().unwrap(), AutomapError::SocketBindingError(
-            "Kind(AddrInUse)".to_string(),
-            SocketAddr::new (IpAddr::V4(Ipv4Addr::new(224, 0, 0, 134)),
-                                        1234)
-        ));
-        let make_multicast_params = make_multicast_params_arc.lock().unwrap();
-        assert_eq!(*make_multicast_params, vec![
-            (134, 1234)
-        ]);
     }
 
     #[test]
@@ -1426,18 +1388,11 @@ mod tests {
     #[test]
     fn housekeeping_thread_works() {
         let _ = EnvironmentGuard::new();
-        let announcement_port = find_free_port();
-        let announce_socket_holder = TestMulticastSocketHolder::checkout(announcement_port);
-        let router_port = find_free_port();
-        let router_ip = LocalIpFinderReal::new().find().unwrap();
+        let router_connections = make_router_connections();
         let mut subject = PcpTransactor::default();
-        subject.router_port = router_port;
-        subject.announcement_multicast_group = announce_socket_holder.group;
-        subject.announcement_port = announcement_port;
-        let multicast_address = SocketAddr::new (
-            IpAddr::V4(Ipv4Addr::new(224, 0, 0, announce_socket_holder.group)),
-            announcement_port
-        );
+        subject.router_port = router_connections.router_port;
+        subject.announcement_multicast_group = router_connections.holder.group;
+        subject.announcement_port = router_connections.announcement_port;
         let factory = UdpSocketWrapperFactoryReal::new();
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
@@ -1446,7 +1401,7 @@ mod tests {
         };
 
         let commander = subject
-            .start_housekeeping_thread(Box::new(change_handler), router_ip)
+            .start_housekeeping_thread(Box::new(change_handler), router_connections.router_ip)
             .unwrap();
 
         commander
@@ -1459,22 +1414,25 @@ mod tests {
             ))
             .unwrap();
         let mut buffer = [0u8; 100];
-        let announce_socket = &announce_socket_holder.socket;
+        let announce_socket = &router_connections.holder.socket;
         announce_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();
-        let mapping_socket = UdpSocket::bind(SocketAddr::new(router_ip, router_port)).unwrap();
-        mapping_socket.set_read_timeout(Some (Duration::from_millis (1000))).unwrap();
+        let mapping_socket = UdpSocket::bind(
+            SocketAddr::new(router_connections.router_ip, router_connections.router_port)
+        ).unwrap();
+        mapping_socket
+            .set_read_timeout(Some(Duration::from_millis(1000)))
+            .unwrap();
         // Router announces to housekeeping thread that the public IP has changed
         let mut packet = vanilla_response();
         packet.opcode = Opcode::Announce;
         packet.lifetime = 0;
         packet.epoch_time_opt = Some(0);
         let len_to_send = packet.marshal(&mut buffer).unwrap();
-        let sent_len = announce_socket.send_to(
-            &buffer[0..len_to_send],
-            multicast_address,
-        ).unwrap();
+        let sent_len = announce_socket
+            .send_to(&buffer[0..len_to_send], router_connections.multicast_address)
+            .unwrap();
         assert_eq!(sent_len, len_to_send);
         // Router receives mapping request from housekeeping thread to stimulate transmission of
         // new public IP address
@@ -1517,9 +1475,9 @@ mod tests {
         subject.router_port = router_port;
         subject.announcement_multicast_group = announce_socket_holder.group;
         subject.announcement_port = announcement_port;
-        let multicast_address = SocketAddr::new (
+        let multicast_address = SocketAddr::new(
             IpAddr::V4(Ipv4Addr::new(224, 0, 0, announce_socket_holder.group)),
-            announcement_port
+            announcement_port,
         );
         let factory = UdpSocketWrapperFactoryReal::new();
         let changes_arc = Arc::new(Mutex::new(vec![]));
@@ -1548,17 +1506,19 @@ mod tests {
             .unwrap();
         // Something with an IP address other than the router's sends a perfectly formed Announce packet
         let not_the_router_ip = localhost();
-        let mapping_socket = UdpSocket::bind(SocketAddr::new(not_the_router_ip, router_port)).unwrap();
-        mapping_socket.set_read_timeout(Some (Duration::from_millis (1000))).unwrap();
+        let mapping_socket =
+            UdpSocket::bind(SocketAddr::new(not_the_router_ip, router_port)).unwrap();
+        mapping_socket
+            .set_read_timeout(Some(Duration::from_millis(1000)))
+            .unwrap();
         let mut packet = vanilla_response();
         packet.opcode = Opcode::Announce;
         packet.lifetime = 0;
         packet.epoch_time_opt = Some(0);
         let len_to_send = packet.marshal(&mut buffer).unwrap();
-        let sent_len = announce_socket.send_to(
-            &buffer[0..len_to_send],
-            multicast_address,
-        ).unwrap();
+        let sent_len = announce_socket
+            .send_to(&buffer[0..len_to_send], multicast_address)
+            .unwrap();
         assert_eq!(sent_len, len_to_send);
         // That thing times out because the housekeeping thread is ignoring it
         match mapping_socket.recv_from(&mut buffer) {
@@ -2262,10 +2222,8 @@ mod tests {
         // the sending socket. There shouldn't be any security threat in using UNSPECIFIED, because
         // multicast addresses are not routed out to the Internet; but this is still puzzling.
         let multicast_interface = Ipv4Addr::UNSPECIFIED;
-        let multicast_address = SocketAddr::new(
-            IpAddr::V4(Ipv4Addr::new(224, 0, 0, 122)),
-            find_free_port()
-        );
+        let multicast_address =
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(224, 0, 0, 122)), find_free_port());
         let make_socket = || {
             let socket =
                 Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP)).unwrap();
@@ -2279,21 +2237,17 @@ mod tests {
             socket.set_reuse_address(true).unwrap();
             let multicast_ipv4 = match multicast_address.ip() {
                 IpAddr::V4(addr) => addr,
-                IpAddr::V6(addr) => panic! ("Multicast IP is IPv6! {}", addr)
+                IpAddr::V6(addr) => panic!("Multicast IP is IPv6! {}", addr),
             };
             socket
-                .join_multicast_v4(
-                    &multicast_ipv4,
-                    &multicast_interface)
+                .join_multicast_v4(&multicast_ipv4, &multicast_interface)
                 .unwrap();
-            socket.bind(
-                &SockAddr::from(
-                    SocketAddr::new(
-                        IpAddr::from(multicast_interface),
-                        multicast_address.port()
-                    )
-                )
-            ).unwrap();
+            socket
+                .bind(&SockAddr::from(SocketAddr::new(
+                    IpAddr::from(multicast_interface),
+                    multicast_address.port(),
+                )))
+                .unwrap();
             UdpSocket::from(socket)
         };
         let socket_sender = make_socket();

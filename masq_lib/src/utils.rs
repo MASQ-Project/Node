@@ -118,7 +118,7 @@ fn port_is_free_for_ip_addr(ip_addr: IpAddr, port: u16) -> bool {
             Ok(socket) => {
                 drop(socket);
                 true
-            },
+            }
         }
     }
     let result = TcpListener::bind(test_address);

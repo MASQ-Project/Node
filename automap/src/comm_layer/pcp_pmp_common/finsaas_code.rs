@@ -72,7 +72,10 @@ fn run_receiver() {
 #[allow(dead_code)]
 fn run_sender() {
     //socket address to use for send_to later on, must be the same multicast group and port we set for the receiver
-    let addr = &SockAddr::from(SocketAddr::new(MULTICAST_GROUP_ADDRESS_1.into(), MCAST_PORT_1));
+    let addr = &SockAddr::from(SocketAddr::new(
+        MULTICAST_GROUP_ADDRESS_1.into(),
+        MCAST_PORT_1,
+    ));
     //creates socket
     let socket = create_socket(MULTICAST_GROUP_ADDRESS_1, MCAST_PORT_1);
     //easy way to send 10 messages
@@ -119,24 +122,26 @@ fn multicast_udp_test() {
             .send_to(message.as_bytes(), socket_addr)
             .expect("could not send_to!");
         let mut buf = [0u8; 64];
-        receivers
-            .iter()
-            .enumerate()
-            .for_each (|(idx, receiver)| {
-                match receiver.recv_from(&mut buf) {
-                    Ok((len, _remote_addr)) => {
-                        let data = &buf[..len];
-                        let response = std::str::from_utf8(data).unwrap();
+        receivers.iter().enumerate().for_each(|(idx, receiver)| {
+            match receiver.recv_from(&mut buf) {
+                Ok((len, _remote_addr)) => {
+                    let data = &buf[..len];
+                    let response = std::str::from_utf8(data).unwrap();
 
-                        eprintln!("{}: Received on receiver{}: '{}' when expecting '{}'", (idx + 1), x,
-                                  response, message);
-                        assert_eq!(response, message)
-                    }
-                    Err(err) => {
-                        println!("receiver{}: had a problem: {}", (idx + 1), err);
-                        panic!()
-                    }
+                    eprintln!(
+                        "{}: Received on receiver{}: '{}' when expecting '{}'",
+                        (idx + 1),
+                        x,
+                        response,
+                        message
+                    );
+                    assert_eq!(response, message)
                 }
-            });
+                Err(err) => {
+                    println!("receiver{}: had a problem: {}", (idx + 1), err);
+                    panic!()
+                }
+            }
+        });
     })
 }

@@ -1,6 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig, UdpSocketWrapperFactoryReal, UdpSocketWrapper, UdpSocketWrapperFactory, ANNOUNCEMENT_PORT, ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT, ANNOUNCEMENT_MULTICAST_GROUP};
+use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig, UdpSocketWrapper, UdpSocketWrapperFactory, UdpSocketWrapperFactoryReal, ANNOUNCEMENT_MULTICAST_GROUP, ANNOUNCEMENT_PORT, ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT, make_announcement_socket};
 use crate::comm_layer::{AutomapError, AutomapErrorCause, HousekeepingThreadCommand, Transactor};
 use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
 use crate::protocols::pmp::get_packet::GetOpcodeData;
@@ -16,7 +16,7 @@ use std::any::Any;
 use std::convert::TryFrom;
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -165,21 +165,11 @@ impl Transactor for PmpTransactor {
         if let Some(_housekeeper_commander) = &self.housekeeper_commander_opt {
             return Err(AutomapError::HousekeeperAlreadyRunning);
         }
-        let announce_ip_addr = IpAddr::V4(Ipv4Addr::new(224, 0, 0, self.announcement_multicast_group));
-        let announce_socket_addr = SocketAddr::new(announce_ip_addr, self.announcement_port);
-        let announce_socket_result = {
-            let factories = self.factories_arc.lock().expect("Automap is poisoned!");
-            factories.socket_factory.make(announce_socket_addr)
-        };
-        let announcement_socket = match announce_socket_result {
-            Ok(s) => s,
-            Err(e) => {
-                return Err(AutomapError::SocketBindingError(
-                    format!("{:?}", e),
-                    announce_socket_addr,
-                ))
-            }
-        };
+        let announcement_socket = make_announcement_socket(
+            self.factories_arc.lock().expect("PMP housekeeping thread is dead").socket_factory.as_ref(),
+            self.announcement_multicast_group,
+            self.announcement_port
+        )?;
         let (tx, rx) = unbounded();
         self.housekeeper_commander_opt = Some(tx.clone());
         let thread_guts = ThreadGuts::new(self, router_ip, announcement_socket, change_handler, rx);
@@ -702,10 +692,13 @@ impl MappingAdder for MappingAdderReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::comm_layer::pcp_pmp_common::{MappingConfig, UdpSocket};
+    use crate::comm_layer::pcp_pmp_common::{make_router_connections, MappingConfig, UdpSocket};
     use crate::comm_layer::{AutomapErrorCause, LocalIpFinder, LocalIpFinderReal};
     use crate::control_layer::automap_control::AutomapChange;
-    use crate::mocks::{FreePortFactoryMock, TestMulticastSocketHolder, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock};
+    use crate::mocks::{
+        FreePortFactoryMock, TestMulticastSocketHolder, UdpSocketWrapperFactoryMock,
+        UdpSocketWrapperMock,
+    };
     use crate::protocols::pmp::get_packet::GetOpcodeData;
     use crate::protocols::pmp::map_packet::MapOpcodeData;
     use crate::protocols::pmp::pmp_packet::{Opcode, PmpOpcodeData, PmpPacket, ResultCode};
@@ -1285,7 +1278,7 @@ mod tests {
                 response_buffer[0..response_len].to_vec(),
             );
         let socket_factory = UdpSocketWrapperFactoryMock::new()
-            .make_result(Ok(announcement_socket))
+            .make_multicast_result(Ok(announcement_socket))
             .make_result(Ok(main_socket));
         let mut subject = make_subject(socket_factory);
         subject
@@ -1427,7 +1420,7 @@ mod tests {
                 response_buffer[0..response_len].to_vec(),
             );
         let socket_factory = UdpSocketWrapperFactoryMock::new()
-            .make_result(Ok(announcement_socket))
+            .make_multicast_result(Ok(announcement_socket))
             .make_result(Ok(main_socket));
         let mut subject = make_subject(socket_factory);
         subject
@@ -1458,18 +1451,11 @@ mod tests {
     #[test]
     fn housekeeping_thread_works() {
         let _ = EnvironmentGuard::new();
-        let announcement_port = find_free_port();
-        let announce_socket_holder = TestMulticastSocketHolder::checkout(announcement_port);
-        let router_port = find_free_port();
-        let router_ip = LocalIpFinderReal::new().find().unwrap();
+        let router_connections = make_router_connections();
         let mut subject = PmpTransactor::default();
-        subject.router_port = router_port;
-        subject.announcement_multicast_group = announce_socket_holder.group;
-        subject.announcement_port = announcement_port;
-        let multicast_address = SocketAddr::new (
-            IpAddr::V4(Ipv4Addr::new(224, 0, 0, announce_socket_holder.group)),
-            announcement_port
-        );
+        subject.router_port = router_connections.router_port;
+        subject.announcement_multicast_group = router_connections.holder.group;
+        subject.announcement_port = router_connections.announcement_port;
         let factory = UdpSocketWrapperFactoryReal::new();
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
@@ -1478,7 +1464,7 @@ mod tests {
         };
 
         let commander = subject
-            .start_housekeeping_thread(Box::new(change_handler), router_ip)
+            .start_housekeeping_thread(Box::new(change_handler), router_connections.router_ip)
             .unwrap();
 
         commander
@@ -1492,12 +1478,16 @@ mod tests {
             .unwrap();
         thread::sleep(Duration::from_millis(50)); // wait for first announcement read to time out
         let mut buffer = [0u8; 100];
-        let announce_socket = &announce_socket_holder.socket;
+        let announce_socket = &router_connections.holder.socket;
         announce_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();
-        let mapping_socket = UdpSocket::bind(SocketAddr::new(router_ip, router_port)).unwrap();
-        mapping_socket.set_read_timeout(Some (Duration::from_millis (1000))).unwrap();
+        let mapping_socket = UdpSocket::bind(
+            SocketAddr::new(router_connections.router_ip, router_connections.router_port)
+        ).unwrap();
+        mapping_socket
+            .set_read_timeout(Some(Duration::from_millis(1000)))
+            .unwrap();
         // Router announces to housekeeping thread that the public IP has changed
         let mut packet = PmpPacket::default();
         packet.opcode = Opcode::Get;
@@ -1506,10 +1496,9 @@ mod tests {
         packet.opcode_data = make_get_response(0, Ipv4Addr::from_str("1.2.3.4").unwrap());
         let mut buffer = [0u8; 100];
         let len_to_send = packet.marshal(&mut buffer).unwrap();
-        let sent_len = announce_socket.send_to(
-            &buffer[0..len_to_send],
-            multicast_address,
-        ).unwrap();
+        let sent_len = announce_socket
+            .send_to(&buffer[0..len_to_send], router_connections.multicast_address)
+            .unwrap();
         assert_eq!(sent_len, len_to_send);
         // Router receives mapping request from housekeeping thread
         let (recv_len, remapping_socket_addr) = mapping_socket.recv_from(&mut buffer).unwrap();
@@ -1760,8 +1749,9 @@ mod tests {
         let mut subject = PmpTransactor::default();
         subject.announcement_port = find_free_port();
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
-        let _ =
-            subject.start_housekeeping_thread(change_handler, IpAddr::from_str("1.2.3.4").unwrap()).unwrap();
+        let _ = subject
+            .start_housekeeping_thread(change_handler, IpAddr::from_str("1.2.3.4").unwrap())
+            .unwrap();
 
         let change_handler = subject.stop_housekeeping_thread().unwrap();
 

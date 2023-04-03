@@ -1,6 +1,9 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{FindRoutersCommand, FreePortFactory, UdpSocketWrapper, UdpSocketWrapperFactory, UdpSocketWrapperFactoryReal};
+use crate::comm_layer::pcp_pmp_common::{
+    FindRoutersCommand, FreePortFactory, UdpSocketWrapper, UdpSocketWrapperFactory,
+    UdpSocketWrapperFactoryReal,
+};
 use crate::comm_layer::{AutomapError, HousekeepingThreadCommand, LocalIpFinder, Transactor};
 use crate::control_layer::automap_control::{
     replace_transactor, AutomapControlReal, ChangeHandler,
@@ -11,7 +14,7 @@ use masq_lib::utils::AutomapProtocol;
 use std::any::Any;
 use std::cell::RefCell;
 use std::io::ErrorKind;
-use std::net::{IpAddr, Ipv4Addr, SocketAddr, ToSocketAddrs, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
@@ -45,13 +48,17 @@ impl TestMulticastSocketHolder {
         let factory = UdpSocketWrapperFactoryReal::new();
         let multicast_group = Self::allocate_bit();
         let socket = factory.make_multicast(multicast_group, port).unwrap();
-        Self { socket, group: multicast_group }
+        Self {
+            socket,
+            group: multicast_group,
+        }
     }
 
     fn allocate_bit() -> u8 {
         let mut guard = MULTICAST_GROUPS_ACTIVE.lock().unwrap();
         let mut bit_idx = 0u8;
-        while bit_idx <= 250 { // 251-254 are reserved for special-purpose tests
+        while bit_idx <= 250 {
+            // 251-254 are reserved for special-purpose tests
             if !Self::bit_at(&guard, bit_idx) {
                 Self::set_bit(&mut guard, bit_idx);
                 return bit_idx;
@@ -187,7 +194,10 @@ impl UdpSocketWrapper for UdpSocketWrapperMock {
     }
 
     fn leave_multicast_v4(&self, multiaddr: &Ipv4Addr, interface: &Ipv4Addr) -> io::Result<()> {
-        self.leave_multicast_v4_params.lock().unwrap().push((multiaddr.clone(), interface.clone()));
+        self.leave_multicast_v4_params
+            .lock()
+            .unwrap()
+            .push((multiaddr.clone(), interface.clone()));
         self.leave_multicast_v4_results.borrow_mut().remove(0)
     }
 }
@@ -274,7 +284,10 @@ impl UdpSocketWrapperMock {
         self
     }
 
-    pub fn leave_multicast_v4_params(mut self, params: &Arc<Mutex<Vec<(Ipv4Addr, Ipv4Addr)>>>) -> Self {
+    pub fn leave_multicast_v4_params(
+        mut self,
+        params: &Arc<Mutex<Vec<(Ipv4Addr, Ipv4Addr)>>>,
+    ) -> Self {
         self.leave_multicast_v4_params = params.clone();
         self
     }
@@ -392,12 +405,12 @@ impl FindRoutersCommand for FindRoutersCommandMock {
 impl FindRoutersCommandMock {
     pub fn new() -> Self {
         Self {
-            execute_results: RefCell::new (vec![]),
+            execute_results: RefCell::new(vec![]),
         }
     }
 
-    pub fn execute_result (self, result: Result<String, String>) -> Self {
-        self.execute_results.borrow_mut().push (result);
+    pub fn execute_result(self, result: Result<String, String>) -> Self {
+        self.execute_results.borrow_mut().push(result);
         self
     }
 }

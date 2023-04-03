@@ -14,17 +14,18 @@ pub fn linux_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr
     let output = loop {
         match command.execute() {
             Ok(stdout) => break stdout,
-            Err(stderr) if (stderr.contains("Os { code: 2,")) => { // File not found
+            Err(stderr) if (stderr.contains("Os { code: 2,")) => {
+                // File not found
                 if retries_left == 0 {
-                    return Err (AutomapError::FindRouterError(format!("Retries exhausted: {}",
-                        last_stderror_opt.expect("Last error disappeared"))))
+                    return Err(AutomapError::FindRouterError(format!(
+                        "Retries exhausted: {}",
+                        last_stderror_opt.expect("Last error disappeared")
+                    )));
                 }
-                last_stderror_opt = Some (stderr);
+                last_stderror_opt = Some(stderr);
                 retries_left -= 1;
-            },
-            Err(stderr) => {
-                return Err (AutomapError::FindRouterError(stderr))
             }
+            Err(stderr) => return Err(AutomapError::FindRouterError(stderr)),
         };
     };
     let addresses = output
@@ -68,7 +69,7 @@ mod tests {
 
     #[test]
     fn assert_constants() {
-        assert_eq! (RETRIES_FOR_FIND_ROUTERS_OS_ERR_2, 3);
+        assert_eq!(RETRIES_FOR_FIND_ROUTERS_OS_ERR_2, 3);
     }
 
     #[test]
@@ -81,8 +82,8 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 172.18.0.0      0.0.0.0         255.255.0.0     U     0      0        0 br-2c4b4b668d71
 192.168.0.0     0.0.0.0         255.255.255.0   U     100    0        0 enp4s0
 ";
-        let find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Ok(route_n_output.to_string()));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(route_n_output.to_string()));
 
         let result = linux_find_routers(&find_routers_command).unwrap();
 
@@ -100,8 +101,8 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 172.18.0.0      0.0.0.0         255.255.0.0     U     0      0        0 br-2c4b4b668d71
 192.168.0.0     0.0.0.0         255.255.255.0   U     100    0        0 enp4s0
 ";
-        let find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Ok(route_n_output.to_string()));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(route_n_output.to_string()));
 
         let result = linux_find_routers(&find_routers_command).unwrap();
 
@@ -124,8 +125,8 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 172.18.0.0      0.0.0.0         255.255.0.0     U     0      0        0 br-2c4b4b668d71
 192.168.0.0     0.0.0.0         255.255.255.0   U     100    0        0 enp4s0
 ";
-        let find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Ok(route_n_output.to_string()));
+        let find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Ok(route_n_output.to_string()));
 
         let result = linux_find_routers(&find_routers_command).unwrap();
 
@@ -136,22 +137,26 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
     fn find_routers_works_when_command_produces_os_error_2_too_many_times() {
         let mut find_routers_command = FindRoutersCommandMock::new();
         for idx in 0..=RETRIES_FOR_FIND_ROUTERS_OS_ERR_2 {
-            find_routers_command = find_routers_command
-                .execute_result(Err(format! ("prologue, Os {{ code: 2, iteration {}", idx + 1)))
+            find_routers_command = find_routers_command.execute_result(Err(format!(
+                "prologue, Os {{ code: 2, iteration {}",
+                idx + 1
+            )))
         }
 
         let result = linux_find_routers(&find_routers_command);
 
         assert_eq!(
             result,
-            Err(AutomapError::FindRouterError("Retries exhausted: prologue, Os { code: 2, iteration 3".to_string()))
+            Err(AutomapError::FindRouterError(
+                "Retries exhausted: prologue, Os { code: 2, iteration 3".to_string()
+            ))
         )
     }
 
     #[test]
     fn find_routers_works_when_command_produces_stderr_output() {
-        let mut find_routers_command = FindRoutersCommandMock::new()
-            .execute_result(Err("Booga!".to_string()));
+        let mut find_routers_command =
+            FindRoutersCommandMock::new().execute_result(Err("Booga!".to_string()));
 
         let result = linux_find_routers(&find_routers_command);
 

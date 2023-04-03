@@ -1,9 +1,9 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+mod finsaas_code;
 pub mod linux_specific;
 mod macos_specific;
 mod windows_specific;
-mod finsaas_code;
 
 #[cfg(target_os = "linux")]
 use crate::comm_layer::pcp_pmp_common::linux_specific::{
@@ -17,14 +17,15 @@ use crate::comm_layer::pcp_pmp_common::macos_specific::{
 use crate::comm_layer::pcp_pmp_common::windows_specific::{
     windows_find_routers, WindowsFindRoutersCommand,
 };
-use crate::comm_layer::AutomapError;
+use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal};
 use masq_lib::utils::find_free_port;
+use socket2::{Domain, SockAddr, Socket, Type};
 use std::io;
 pub use std::net::UdpSocket;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, ToSocketAddrs};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::process::Command;
 use std::time::Duration;
-use socket2::{Domain, SockAddr, Socket, Type};
+use crate::mocks::TestMulticastSocketHolder;
 
 pub const ROUTER_PORT: u16 = 5351; // from the PCP and PMP RFCs
 pub const ANNOUNCEMENT_PORT: u16 = 5350; // from the PCP and PMP RFCs
@@ -81,7 +82,7 @@ impl UdpSocketWrapper for UdpSocketReal {
     }
 
     fn send(&self, buf: &[u8]) -> io::Result<usize> {
-        self.delegate.send (buf)
+        self.delegate.send(buf)
     }
 
     fn set_read_timeout(&self, dur: Option<Duration>) -> io::Result<()> {
@@ -122,8 +123,7 @@ impl UdpSocketWrapperFactory for UdpSocketWrapperFactoryReal {
     ) -> io::Result<Box<dyn UdpSocketWrapper>> {
         let multicast_interface = Ipv4Addr::UNSPECIFIED;
         let multicast_address = IpAddr::V4(Ipv4Addr::new(224, 0, 0, multicast_group));
-        let socket =
-            Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP))?;
+        let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(socket2::Protocol::UDP))?;
         socket.set_read_timeout(Some(Duration::from_secs(1)))?;
         //Linux/macOS have reuse_port exposed so we can flag it for non-Windows systems
         #[cfg(not(target_os = "windows"))]
@@ -132,21 +132,14 @@ impl UdpSocketWrapperFactory for UdpSocketWrapperFactoryReal {
         socket.set_reuse_address(true)?;
         let multicast_ipv4 = match multicast_address {
             IpAddr::V4(addr) => addr,
-            IpAddr::V6(addr) => panic! ("Multicast IP is IPv6! {}", addr)
+            IpAddr::V6(addr) => panic!("Multicast IP is IPv6! {}", addr),
         };
-        socket
-            .join_multicast_v4(
-                &multicast_ipv4,
-                &multicast_interface)?;
-        socket.bind(
-            &SockAddr::from(
-                SocketAddr::new(
-                    IpAddr::from(multicast_interface),
-                    port
-                )
-            )
-        )?;
-        let delegate= UdpSocket::from(socket);
+        socket.join_multicast_v4(&multicast_ipv4, &multicast_interface)?;
+        socket.bind(&SockAddr::from(SocketAddr::new(
+            IpAddr::from(multicast_interface),
+            port,
+        )))?;
+        let delegate = UdpSocket::from(socket);
         // delegate.connect(
         //     delegate.local_addr().expect ("Local address suddenly disappeared")
         // )?;
@@ -244,12 +237,62 @@ pub fn make_local_socket_address(is_ipv4: bool, free_port: u16) -> SocketAddr {
     SocketAddr::new(ip_addr, free_port)
 }
 
+pub fn make_announcement_socket(
+    factory: &dyn UdpSocketWrapperFactory,
+    announcement_multicast_group: u8,
+    announcement_port: u16,
+) -> Result<Box<dyn UdpSocketWrapper>, AutomapError> {
+    let socket_result = factory.make_multicast(
+        announcement_multicast_group,
+        announcement_port
+    );
+    let socket = match socket_result {
+        Ok(s) => s,
+        Err(e) => {
+            let multicast = Ipv4Addr::new(224, 0, 0, announcement_multicast_group);
+            return Err(AutomapError::SocketBindingError(
+                format!("{:?}", e),
+                SocketAddr::new(IpAddr::V4(multicast), announcement_port),
+            ));
+        }
+    };
+    Ok(socket)
+}
+
+pub struct RouterConnections {
+    pub holder: TestMulticastSocketHolder,
+    pub announcement_port: u16,
+    pub router_ip: IpAddr,
+    pub router_port: u16,
+    pub multicast_address: SocketAddr
+}
+
+pub fn make_router_connections() -> RouterConnections {
+    let announcement_port = find_free_port();
+    let holder = TestMulticastSocketHolder::checkout(announcement_port);
+    let router_port = find_free_port();
+    let router_ip = LocalIpFinderReal::new().find().unwrap();
+    let multicast_address = SocketAddr::new(
+        IpAddr::V4(Ipv4Addr::new(224, 0, 0, holder.group)),
+        announcement_port,
+    );
+    return RouterConnections {
+        holder,
+        announcement_port,
+        router_ip,
+        router_port,
+        multicast_address
+    }
+}
+
 #[cfg(test)]
 pub mod tests {
-    use std::io::ErrorKind;
-    use std::net::SocketAddrV4;
     use super::*;
     use masq_lib::utils::localhost;
+    use std::io::ErrorKind;
+    use std::net::SocketAddrV4;
+    use std::sync::{Arc, Mutex};
+    use crate::mocks::UdpSocketWrapperFactoryMock;
 
     #[test]
     fn change_handler_config_next_lifetime_secs_handles_greater_than_one_second() {
@@ -304,12 +347,21 @@ pub mod tests {
         let multicast_port = find_free_port();
         let multicast_group = 253u8;
         let subject = UdpSocketWrapperFactoryReal::new();
-        let socket_sender = subject.make_multicast(multicast_group, multicast_port).unwrap();
-        let socket_receiver_1 = subject.make_multicast(multicast_group, multicast_port).unwrap();
-        let socket_receiver_2 = subject.make_multicast(multicast_group, multicast_port).unwrap();
+        let socket_sender = subject
+            .make_multicast(multicast_group, multicast_port)
+            .unwrap();
+        let socket_receiver_1 = subject
+            .make_multicast(multicast_group, multicast_port)
+            .unwrap();
+        let socket_receiver_2 = subject
+            .make_multicast(multicast_group, multicast_port)
+            .unwrap();
         let message = b"Taxation is theft!";
-        let multicast_address = SocketAddrV4::new (Ipv4Addr::new(224, 0, 0, multicast_group), multicast_port);
-        socket_sender.send_to(message, SocketAddr::V4(multicast_address)).unwrap();
+        let multicast_address =
+            SocketAddrV4::new(Ipv4Addr::new(224, 0, 0, multicast_group), multicast_port);
+        socket_sender
+            .send_to(message, SocketAddr::V4(multicast_address))
+            .unwrap();
         let mut buf = [0u8; 100];
         let (size, source) = socket_receiver_1.recv_from(&mut buf).unwrap();
         assert_eq!(&buf[..size], message);
@@ -322,11 +374,14 @@ pub mod tests {
         let multicast_port = find_free_port();
         let multicast_group = 254u8;
         let subject = UdpSocketWrapperFactoryReal::new();
-        let blocker_socket = subject.make (SocketAddr::new (IpAddr::V4(Ipv4Addr::UNSPECIFIED), multicast_port));
+        let blocker_socket = subject.make(SocketAddr::new(
+            IpAddr::V4(Ipv4Addr::UNSPECIFIED),
+            multicast_port,
+        ));
 
-        let result = subject.make_multicast (multicast_group, multicast_port);
+        let result = subject.make_multicast(multicast_group, multicast_port);
 
-        assert_eq! (result.err().unwrap().kind(), ErrorKind::AddrInUse);
+        assert_eq!(result.err().unwrap().kind(), ErrorKind::AddrInUse);
     }
 
     struct TameFindRoutersCommand {}
@@ -377,5 +432,31 @@ pub mod tests {
             Err(stderr) => panic!("Unexpected content in stderr: '{}'", stderr),
             x => panic!("Expected error message in stderr; got {:?}", x),
         }
+    }
+
+    #[test]
+    fn make_announcement_socket_failure_is_handled() {
+        let announcement_multicast_group = 134;
+        let announcement_port = 1234;
+        let make_multicast_params_arc = Arc::new(Mutex::new(vec![]));
+        let socket_factory = UdpSocketWrapperFactoryMock::new()
+            .make_multicast_params(&make_multicast_params_arc)
+            .make_multicast_result(Err(std::io::Error::from(ErrorKind::AddrInUse)));
+
+        let result = make_announcement_socket(
+            &socket_factory,
+            announcement_multicast_group,
+            announcement_port
+        );
+
+        assert_eq!(
+            result.err().unwrap(),
+            AutomapError::SocketBindingError(
+                "Kind(AddrInUse)".to_string(),
+                SocketAddr::new(IpAddr::V4(Ipv4Addr::new(224, 0, 0, 134)), 1234)
+            )
+        );
+        let make_multicast_params = make_multicast_params_arc.lock().unwrap();
+        assert_eq!(*make_multicast_params, vec![(134, 1234)]);
     }
 }
