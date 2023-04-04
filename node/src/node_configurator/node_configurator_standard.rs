@@ -1507,8 +1507,7 @@ mod tests {
 
         assert_eq!(
             config.data_directory,
-            PathBuf::from(expected_root_string)
-                .join(DEFAULT_CHAIN.rec().literal_identifier)
+            PathBuf::from(expected_root_string).join(DEFAULT_CHAIN.rec().literal_identifier)
         );
     }
 
