@@ -5,7 +5,7 @@ use crate::db_config::persistent_configuration::{PersistentConfigError, Persiste
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
-use crate::test_utils::unshared_test_utils::ArbitraryIdStamp;
+use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
 #[cfg(test)]
 use crate::{arbitrary_id_stamp, set_arbitrary_id_stamp};
 use masq_lib::utils::AutomapProtocol;

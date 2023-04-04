@@ -11,6 +11,7 @@ pub mod logfile_name_guard;
 pub mod neighborhood_test_utils;
 pub mod persistent_configuration_mock;
 pub mod recorder;
+pub mod recorder_stop_conditions;
 pub mod stream_connector_mock;
 pub mod tcp_wrapper_mocks;
 pub mod tokio_wrapper_mocks;
@@ -36,9 +37,11 @@ use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::wallet::Wallet;
 use crossbeam_channel::{unbounded, Receiver, Sender};
 use ethsign_crypto::Keccak256;
+use futures::sync::mpsc::SendError;
 use lazy_static::lazy_static;
 use masq_lib::constants::HTTP_PORT;
 use masq_lib::test_utils::utils::{to_millis, TEST_DEFAULT_CHAIN};
+use rand::RngCore;
 use regex::Regex;
 use rustc_hex::ToHex;
 use serde_derive::{Deserialize, Serialize};
@@ -182,12 +185,22 @@ pub fn make_meaningless_message_type() -> MessageType {
     DnsResolveFailure_0v1::new(make_meaningless_stream_key()).into()
 }
 
+pub fn make_one_way_route_to_proxy_client(public_keys: Vec<&PublicKey>) -> Route {
+    Route::one_way(
+        RouteSegment::new(public_keys, Component::ProxyClient),
+        main_cryptde(),
+        Some(make_paying_wallet(b"irrelevant")),
+        Some(TEST_DEFAULT_CHAIN.rec().contract),
+    )
+    .unwrap()
+}
+
 pub fn make_meaningless_route() -> Route {
     Route::one_way(
         RouteSegment::new(
             vec![
-                &PublicKey::new(&b"ooga"[..]),
-                &PublicKey::new(&b"booga"[..]),
+                &make_meaningless_public_key(),
+                &make_meaningless_public_key(),
             ],
             Component::ProxyClient,
         ),
@@ -199,7 +212,7 @@ pub fn make_meaningless_route() -> Route {
 }
 
 pub fn make_meaningless_public_key() -> PublicKey {
-    PublicKey::new(&make_garbage_data(32))
+    PublicKey::new(&make_garbage_data(main_cryptde().public_key().len()))
 }
 
 pub fn make_meaningless_wallet_private_key() -> PlainData {
@@ -211,8 +224,12 @@ pub fn make_meaningless_wallet_private_key() -> PlainData {
     )
 }
 
-pub fn route_to_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
-    shift_one_hop(zero_hop_route_response(key, cryptde).route, cryptde)
+// TODO: The three functions below should use only one argument, cryptde
+pub fn route_to_proxy_client(main_key: &PublicKey, main_cryptde: &dyn CryptDE) -> Route {
+    shift_one_hop(
+        zero_hop_route_response(main_key, main_cryptde).route,
+        main_cryptde,
+    )
 }
 
 pub fn route_from_proxy_client(key: &PublicKey, cryptde: &dyn CryptDE) -> Route {
@@ -259,7 +276,9 @@ pub fn encrypt_return_route_id(return_route_id: u32, cryptde: &dyn CryptDE) -> C
 }
 
 pub fn make_garbage_data(bytes: usize) -> Vec<u8> {
-    vec![0; bytes]
+    let mut data = vec![0; bytes];
+    rand::thread_rng().fill_bytes(&mut data);
+    data
 }
 
 pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRequestPayload_0v1 {
@@ -272,7 +291,7 @@ pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientReques
         target_hostname: Some("example.com".to_string()),
         target_port: HTTP_PORT,
         protocol: ProxyProtocol::HTTP,
-        originator_public_key: cryptde.public_key().clone(),
+        originator_alias_public_key: cryptde.public_key().clone(),
     }
 }
 
@@ -290,17 +309,28 @@ pub fn make_response_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientRespo
     }
 }
 
+pub fn make_send_error() -> SendError<SequencedPacket> {
+    let (tx, rx) = futures::sync::mpsc::unbounded();
+    drop(rx);
+    tx.unbounded_send(SequencedPacket {
+        data: vec![],
+        sequence_number: 0,
+        last_data: false,
+    })
+    .unwrap_err()
+}
+
 pub fn rate_pack_routing_byte(base_rate: u64) -> u64 {
     base_rate + 1
 }
 pub fn rate_pack_routing(base_rate: u64) -> u64 {
-    base_rate + 2
+    base_rate + 200
 }
 pub fn rate_pack_exit_byte(base_rate: u64) -> u64 {
     base_rate + 3
 }
 pub fn rate_pack_exit(base_rate: u64) -> u64 {
-    base_rate + 4
+    base_rate + 400
 }
 
 pub fn rate_pack(base_rate: u64) -> RatePack {
@@ -509,19 +539,20 @@ pub struct TestRawTransaction {
 pub mod unshared_test_utils {
     use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
     use crate::apps::app_node;
+    use crate::bootstrapper::BootstrapperConfig;
     use crate::daemon::{ChannelFactory, DaemonBindMessage};
     use crate::db_config::config_dao_null::ConfigDaoNull;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
-    use crate::sub_lib::accountant::{
-        AccountantConfig, DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS,
-    };
+    use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
     use crate::sub_lib::neighborhood::{ConnectionProgressMessage, DEFAULT_RATE_PACK};
     use crate::sub_lib::utils::{
         NLSpawnHandleHolder, NLSpawnHandleHolderReal, NotifyHandle, NotifyLaterHandle,
     };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, Recorder, Recording};
+    use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
+    use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use actix::{Actor, Addr, AsyncContext, Context, Handler, Recipient, System};
     use actix::{Message, SpawnHandle};
     use crossbeam_channel::{unbounded, Receiver, Sender};
@@ -539,6 +570,7 @@ pub mod unshared_test_utils {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use std::vec;
 
     #[derive(Message)]
     pub struct AssertionsMessage<A: Actor> {
@@ -600,30 +632,21 @@ pub mod unshared_test_utils {
         persistent_config_mock: PersistentConfigurationMock,
     ) -> PersistentConfigurationMock {
         persistent_config_mock
-            .payment_thresholds_result(Ok(*DEFAULT_PAYMENT_THRESHOLDS))
-            .scan_intervals_result(Ok(*DEFAULT_SCAN_INTERVALS))
+            .payment_thresholds_result(Ok(PaymentThresholds::default()))
+            .scan_intervals_result(Ok(ScanIntervals::default()))
     }
 
     pub fn make_persistent_config_real_with_config_dao_null() -> PersistentConfigurationReal {
         PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()))
     }
 
-    pub fn make_populated_accountant_config_with_defaults() -> AccountantConfig {
-        AccountantConfig {
-            scan_intervals: *DEFAULT_SCAN_INTERVALS,
-            payment_thresholds: *DEFAULT_PAYMENT_THRESHOLDS,
-            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-            suppress_initial_scans: false,
-        }
-    }
-
-    pub fn make_accountant_config_null() -> AccountantConfig {
-        AccountantConfig {
-            scan_intervals: Default::default(),
-            payment_thresholds: Default::default(),
-            when_pending_too_long_sec: Default::default(),
-            suppress_initial_scans: false,
-        }
+    pub fn make_bc_with_defaults() -> BootstrapperConfig {
+        let mut config = BootstrapperConfig::new();
+        config.scan_intervals_opt = Some(ScanIntervals::default());
+        config.suppress_initial_scans = false;
+        config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
+        config.payment_thresholds_opt = Some(PaymentThresholds::default());
+        config
     }
 
     pub fn make_recipient_and_recording_arc<M: 'static>(
@@ -636,7 +659,9 @@ pub mod unshared_test_utils {
     {
         let (recorder, _, recording_arc) = make_recorder();
         let recorder = match stopping_message {
-            Some(type_id) => recorder.stop_condition(type_id), // No need to write stop message after this
+            Some(type_id) => recorder.system_stop_conditions(StopConditions::All(vec![
+                StopCondition::StopOnType(type_id),
+            ])), // No need to write stop message after this
             None => recorder,
         };
         let addr = recorder.start();
@@ -739,11 +764,6 @@ pub mod unshared_test_utils {
             )))
     }
 
-    #[derive(Debug, Message, Clone)]
-    pub struct CleanUpMessage {
-        pub sleep_ms: u64,
-    }
-
     pub fn decode_hex(s: &str) -> Result<Vec<u8>, ParseIntError> {
         (0..s.len())
             .step_by(2)
@@ -751,216 +771,233 @@ pub mod unshared_test_utils {
             .collect()
     }
 
-    pub struct SystemKillerActor {
-        after: Duration,
-        tx: Sender<()>,
-        rx: Receiver<()>,
-    }
+    pub mod system_killer_actor {
+        use super::*;
 
-    impl Actor for SystemKillerActor {
-        type Context = Context<Self>;
-
-        fn started(&mut self, ctx: &mut Self::Context) {
-            ctx.notify_later(CleanUpMessage { sleep_ms: 0 }, self.after);
-        }
-    }
-
-    // Note: the sleep_ms field of the CleanUpMessage is unused; all we need is a time strobe.
-    impl Handler<CleanUpMessage> for SystemKillerActor {
-        type Result = ();
-
-        fn handle(&mut self, _msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
-            System::current().stop();
-            self.tx.try_send(()).expect("Receiver is dead");
-        }
-    }
-
-    impl SystemKillerActor {
-        pub fn new(after: Duration) -> Self {
-            let (tx, rx) = unbounded();
-            Self { after, tx, rx }
+        #[derive(Debug, Message, Clone)]
+        pub struct CleanUpMessage {
+            pub sleep_ms: u64,
         }
 
-        pub fn receiver(&self) -> Receiver<()> {
-            self.rx.clone()
+        pub struct SystemKillerActor {
+            after: Duration,
+            tx: Sender<()>,
+            rx: Receiver<()>,
         }
-    }
 
-    pub struct NotifyLaterHandleMock<M> {
-        notify_later_params: Arc<Mutex<Vec<(M, Duration)>>>,
-        send_message_out: bool,
-    }
+        impl Actor for SystemKillerActor {
+            type Context = Context<Self>;
 
-    impl<M: Message> Default for NotifyLaterHandleMock<M> {
-        fn default() -> Self {
-            Self {
-                notify_later_params: Arc::new(Mutex::new(vec![])),
-                send_message_out: false,
+            fn started(&mut self, ctx: &mut Self::Context) {
+                ctx.notify_later(CleanUpMessage { sleep_ms: 0 }, self.after);
+            }
+        }
+
+        // Note: the sleep_ms field of the CleanUpMessage is unused; all we need is a time strobe.
+        impl Handler<CleanUpMessage> for SystemKillerActor {
+            type Result = ();
+
+            fn handle(&mut self, _msg: CleanUpMessage, _ctx: &mut Self::Context) -> Self::Result {
+                System::current().stop();
+                self.tx.try_send(()).expect("Receiver is dead");
+            }
+        }
+
+        impl SystemKillerActor {
+            pub fn new(after: Duration) -> Self {
+                let (tx, rx) = unbounded();
+                Self { after, tx, rx }
+            }
+
+            pub fn receiver(&self) -> Receiver<()> {
+                self.rx.clone()
             }
         }
     }
 
-    impl<M: Message> NotifyLaterHandleMock<M> {
-        pub fn notify_later_params(mut self, params: &Arc<Mutex<Vec<(M, Duration)>>>) -> Self {
-            self.notify_later_params = params.clone();
-            self
+    pub mod notify_handlers {
+        use super::*;
+
+        pub struct NotifyLaterHandleMock<M> {
+            notify_later_params: Arc<Mutex<Vec<(M, Duration)>>>,
+            send_message_out: bool,
         }
 
-        pub fn permit_to_send_out(mut self) -> Self {
-            self.send_message_out = true;
-            self
-        }
-    }
-
-    impl<M, A> NotifyLaterHandle<M, A> for NotifyLaterHandleMock<M>
-    where
-        M: Message + 'static + Clone,
-        A: Actor<Context = Context<A>> + Handler<M>,
-    {
-        fn notify_later<'a>(
-            &'a self,
-            msg: M,
-            interval: Duration,
-            ctx: &'a mut Context<A>,
-        ) -> Box<dyn NLSpawnHandleHolder> {
-            self.notify_later_params
-                .lock()
-                .unwrap()
-                .push((msg.clone(), interval));
-            if self.send_message_out {
-                let handle = ctx.notify_later(msg, interval);
-                Box::new(NLSpawnHandleHolderReal::new(handle))
-            } else {
-                Box::new(NLSpawnHandleHolderNull {})
+        impl<M: Message> Default for NotifyLaterHandleMock<M> {
+            fn default() -> Self {
+                Self {
+                    notify_later_params: Arc::new(Mutex::new(vec![])),
+                    send_message_out: false,
+                }
             }
         }
-    }
 
-    pub struct NLSpawnHandleHolderNull {}
+        impl<M: Message> NotifyLaterHandleMock<M> {
+            pub fn notify_later_params(mut self, params: &Arc<Mutex<Vec<(M, Duration)>>>) -> Self {
+                self.notify_later_params = params.clone();
+                self
+            }
 
-    impl NLSpawnHandleHolder for NLSpawnHandleHolderNull {
-        fn handle(self) -> SpawnHandle {
-            intentionally_blank!()
-        }
-    }
-
-    pub struct NotifyHandleMock<M> {
-        notify_params: Arc<Mutex<Vec<M>>>,
-        send_message_out: bool,
-    }
-
-    impl<M: Message> Default for NotifyHandleMock<M> {
-        fn default() -> Self {
-            Self {
-                notify_params: Arc::new(Mutex::new(vec![])),
-                send_message_out: false,
+            pub fn permit_to_send_out(mut self) -> Self {
+                self.send_message_out = true;
+                self
             }
         }
-    }
 
-    impl<M: Message> NotifyHandleMock<M> {
-        pub fn notify_params(mut self, params: &Arc<Mutex<Vec<M>>>) -> Self {
-            self.notify_params = params.clone();
-            self
-        }
-
-        pub fn permit_to_send_out(mut self) -> Self {
-            self.send_message_out = true;
-            self
-        }
-    }
-
-    impl<M, A> NotifyHandle<M, A> for NotifyHandleMock<M>
-    where
-        M: Message + 'static + Clone,
-        A: Actor<Context = Context<A>> + Handler<M>,
-    {
-        fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>) {
-            self.notify_params.lock().unwrap().push(msg.clone());
-            if self.send_message_out {
-                ctx.notify(msg)
+        impl<M, A> NotifyLaterHandle<M, A> for NotifyLaterHandleMock<M>
+        where
+            M: Message + 'static + Clone,
+            A: Actor<Context = Context<A>> + Handler<M>,
+        {
+            fn notify_later<'a>(
+                &'a self,
+                msg: M,
+                interval: Duration,
+                ctx: &'a mut Context<A>,
+            ) -> Box<dyn NLSpawnHandleHolder> {
+                self.notify_later_params
+                    .lock()
+                    .unwrap()
+                    .push((msg.clone(), interval));
+                if self.send_message_out {
+                    let handle = ctx.notify_later(msg, interval);
+                    Box::new(NLSpawnHandleHolderReal::new(handle))
+                } else {
+                    Box::new(NLSpawnHandleHolderNull {})
+                }
             }
         }
-    }
 
-    //This is intended as an aid when standard constructs (e.g. downcasting,
-    //raw pointers) fail to help us make an assertion on a parameter use of a particular trait object.
-    //It is actually handy for very specific scenarios:
-    //
-    //Consider writing a test. We initiate a mocked trait object "O" encapsulated in a Box (so we will be
-    //moving ownership) and we plan to paste it in a function A. The function contains other functions like
-    //B, C, D. Let's say C takes our trait object as downgraded (with a plain reference) because D later takes
-    //"O" wholly as within the box. That means we couldn't easily call it in C.
-    //We need to assert from outside of fn A that "O" was pasted in C properly. However for capturing a param
-    //we need an owned or a cloneable object, neither of those is usually acceptable. A possible raw pointer of "O"
-    //that we create outside of fn A will be always different than what we have in C, because a move occurred
-    //in between, by moving the Box around.
-    //Downcasting is also a pain and not proving anything alone.
-    //
-    //That's why we can add a test-only method to our arbitrary trait by this macro. It allows to implement
-    //a method fetching a made up id which is internally generated and dedicated to the object before the test begins.
-    //Then, at any stage, there is a chance to ask for that id from within any mocked function
-    //where we want to precisely identify what we get with the arguments that come in. The captured id represents the
-    //supplied instance, one of the function's parameters, and can be later asserted by comparing it with a copy of
-    //the same artificial id generated in the setup part of the test.
+        pub struct NLSpawnHandleHolderNull {}
 
-    lazy_static! {
-        pub static ref ARBITRARY_ID_STAMP_SEQUENCER: Mutex<MutexIncrementInset> =
-            Mutex::new(MutexIncrementInset(0));
-    }
-
-    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-    pub struct ArbitraryIdStamp(usize);
-
-    impl Default for ArbitraryIdStamp {
-        fn default() -> Self {
-            Self::new()
-        }
-    }
-
-    impl ArbitraryIdStamp {
-        pub fn new() -> Self {
-            ArbitraryIdStamp({
-                let mut access = ARBITRARY_ID_STAMP_SEQUENCER.lock().unwrap();
-                access.0 += 1;
-                access.0
-            })
-        }
-    }
-
-    //to be put among the methods in your trait
-    #[macro_export]
-    macro_rules! arbitrary_id_stamp_in_trait {
-        () => {
-            #[cfg(test)]
-            fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-                //no necessity to implement it for all impls of the trait this is to be a member of
+        impl NLSpawnHandleHolder for NLSpawnHandleHolderNull {
+            fn handle(self) -> SpawnHandle {
                 intentionally_blank!()
             }
-        };
+        }
+
+        pub struct NotifyHandleMock<M> {
+            notify_params: Arc<Mutex<Vec<M>>>,
+            send_message_out: bool,
+        }
+
+        impl<M: Message> Default for NotifyHandleMock<M> {
+            fn default() -> Self {
+                Self {
+                    notify_params: Arc::new(Mutex::new(vec![])),
+                    send_message_out: false,
+                }
+            }
+        }
+
+        impl<M: Message> NotifyHandleMock<M> {
+            pub fn notify_params(mut self, params: &Arc<Mutex<Vec<M>>>) -> Self {
+                self.notify_params = params.clone();
+                self
+            }
+
+            pub fn permit_to_send_out(mut self) -> Self {
+                self.send_message_out = true;
+                self
+            }
+        }
+
+        impl<M, A> NotifyHandle<M, A> for NotifyHandleMock<M>
+        where
+            M: Message + 'static + Clone,
+            A: Actor<Context = Context<A>> + Handler<M>,
+        {
+            fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>) {
+                self.notify_params.lock().unwrap().push(msg.clone());
+                if self.send_message_out {
+                    ctx.notify(msg)
+                }
+            }
+        }
     }
 
-    //the following macros might be handy but your object must contain exactly this field:
-    //arbitrary_id_stamp_opt: RefCell<Option<ArbitraryIdStamp>>
+    pub mod arbitrary_id_stamp {
+        use super::*;
 
-    #[macro_export]
-    macro_rules! arbitrary_id_stamp {
-        () => {
-            fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-                *self.arbitrary_id_stamp_opt.borrow().as_ref().unwrap()
-            }
-        };
-    }
+        //This is intended as an aid when standard constructs (e.g. downcasting,
+        //raw pointers) fail to help us make an assertion on a parameter use of a particular trait object.
+        //It is actually handy for very specific scenarios:
+        //
+        //Consider writing a test. We initiate a mocked trait object "O" encapsulated in a Box (so we will be
+        //moving ownership) and we plan to paste it in a function A. The function contains other functions like
+        //B, C, D. Let's say C takes our trait object as downgraded (with a plain reference) because D later takes
+        //"O" wholly as within the box. That means we couldn't easily call it in C.
+        //We need to assert from outside of fn A that "O" was pasted in C properly. However for capturing a param
+        //we need an owned or a cloneable object, neither of those is usually acceptable. A possible raw pointer of "O"
+        //that we create outside of fn A will be always different than what we have in C, because a move occurred
+        //in between, by moving the Box around.
+        //Downcasting is also a pain and not proving anything alone.
+        //
+        //That's why we can add a test-only method to our arbitrary trait by this macro. It allows to implement
+        //a method fetching a made up id which is internally generated and dedicated to the object before the test begins.
+        //Then, at any stage, there is a chance to ask for that id from within any mocked function
+        //where we want to precisely identify what we get with the arguments that come in. The captured id represents the
+        //supplied instance, one of the function's parameters, and can be later asserted by comparing it with a copy of
+        //the same artificial id generated in the setup part of the test.
 
-    #[macro_export]
-    macro_rules! set_arbitrary_id_stamp {
-        () => {
-            pub fn set_arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-                let id_stamp = ArbitraryIdStamp::new();
-                self.arbitrary_id_stamp_opt.borrow_mut().replace(id_stamp);
-                id_stamp
+        lazy_static! {
+            pub static ref ARBITRARY_ID_STAMP_SEQUENCER: Mutex<MutexIncrementInset> =
+                Mutex::new(MutexIncrementInset(0));
+        }
+
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        pub struct ArbitraryIdStamp(usize);
+
+        impl Default for ArbitraryIdStamp {
+            fn default() -> Self {
+                Self::new()
             }
-        };
+        }
+
+        impl ArbitraryIdStamp {
+            pub fn new() -> Self {
+                ArbitraryIdStamp({
+                    let mut access = ARBITRARY_ID_STAMP_SEQUENCER.lock().unwrap();
+                    access.0 += 1;
+                    access.0
+                })
+            }
+        }
+
+        //to be put among the methods in your trait
+        #[macro_export]
+        macro_rules! arbitrary_id_stamp_in_trait {
+            () => {
+                #[cfg(test)]
+                fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
+                    //no necessity to implement it for all impls of the trait this is to be a member of
+                    intentionally_blank!()
+                }
+            };
+        }
+
+        //the following macros might be handy but your object must contain exactly this field:
+        //arbitrary_id_stamp_opt: RefCell<Option<ArbitraryIdStamp>>
+
+        #[macro_export]
+        macro_rules! arbitrary_id_stamp {
+            () => {
+                fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
+                    *self.arbitrary_id_stamp_opt.borrow().as_ref().unwrap()
+                }
+            };
+        }
+
+        #[macro_export]
+        macro_rules! set_arbitrary_id_stamp {
+            () => {
+                pub fn set_arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
+                    let id_stamp = ArbitraryIdStamp::new();
+                    self.arbitrary_id_stamp_opt.borrow_mut().replace(id_stamp);
+                    id_stamp
+                }
+            };
+        }
     }
 }
 

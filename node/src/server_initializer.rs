@@ -64,7 +64,7 @@ impl ServerInitializer for ServerInitializerReal {
                     .initialize_as_unprivileged(&params.multi_config, streams),
             )
     }
-    as_any_impl!();
+    implement_as_any!();
 }
 
 impl Future for ServerInitializerReal {
@@ -400,7 +400,7 @@ pub mod tests {
     use crate::test_utils::unshared_test_utils::make_pre_populated_mocked_directory_wrapper;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;
-    use masq_lib::multi_config::{make_arg_matches_accesible, MultiConfig};
+    use masq_lib::multi_config::MultiConfig;
     use masq_lib::shared_schema::{ConfiguratorError, ParamError};
     use masq_lib::test_utils::fake_stream_holder::{
         ByteArrayReader, ByteArrayWriter, FakeStreamHolder,
@@ -547,7 +547,8 @@ pub mod tests {
             self.arg_matches_requested_entries = required
                 .iter()
                 .map(|key| {
-                    make_arg_matches_accesible(multi_config)
+                    multi_config
+                        .arg_matches_ref()
                         .value_of(key)
                         .unwrap()
                         .to_string()

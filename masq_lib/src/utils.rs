@@ -317,25 +317,6 @@ fn expect_value_panic(subject: &str, found: Option<&dyn fmt::Debug>) -> ! {
     )
 }
 
-pub trait WrapResult {
-    fn wrap_to_ok<E>(self) -> Result<Self, E>
-    where
-        Self: Sized;
-    fn wrap_to_err<T>(self) -> Result<T, Self>
-    where
-        Self: Sized;
-}
-
-impl<T> WrapResult for T {
-    fn wrap_to_ok<E>(self) -> Result<Self, E> {
-        Ok(self)
-    }
-
-    fn wrap_to_err<V>(self) -> Result<V, Self> {
-        Err(self)
-    }
-}
-
 pub fn type_name_of<T>(_examined: T) -> &'static str {
     std::any::type_name::<T>()
 }
@@ -380,7 +361,7 @@ macro_rules! intentionally_blank {
 }
 
 #[macro_export]
-macro_rules! as_any_dcl {
+macro_rules! declare_as_any {
     () => {
         #[cfg(test)]
         fn as_any(&self) -> &dyn Any {
@@ -391,7 +372,7 @@ macro_rules! as_any_dcl {
 }
 
 #[macro_export]
-macro_rules! as_any_impl {
+macro_rules! implement_as_any {
     () => {
         #[cfg(test)]
         fn as_any(&self) -> &dyn Any {

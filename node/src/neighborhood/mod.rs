@@ -46,7 +46,6 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
@@ -56,6 +55,7 @@ use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, NodeDescriptor};
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
+use crate::sub_lib::neighborhood::{NRMetadataChange, NodeQueryMessage};
 use crate::sub_lib::neighborhood::{NeighborhoodSubs, NeighborhoodTools};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
@@ -78,7 +78,8 @@ use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
-pub const UNDESIRABLE_FOR_EXIT_PENALTY: i64 = 100_000_000;
+pub const UNREACHABLE_HOST_PENALTY: i64 = 100_000_000;
+pub const RESPONSE_UNDESIRABILITY_FACTOR: usize = 1_000; // assumed response length is request * this
 
 pub struct Neighborhood {
     cryptde: &'static dyn CryptDE,
@@ -340,17 +341,23 @@ impl Handler<NodeRecordMetadataMessage> for Neighborhood {
     type Result = ();
 
     fn handle(&mut self, msg: NodeRecordMetadataMessage, _ctx: &mut Self::Context) -> Self::Result {
-        match msg {
-            NodeRecordMetadataMessage::Desirable(public_key, desirable) => {
-                if let Some(node_record) = self.neighborhood_database.node_by_key_mut(&public_key) {
-                    debug!(
-                        self.logger,
-                        "About to set desirable '{}' for '{:?}'", desirable, public_key
-                    );
-                    node_record.set_desirable_for_exit(desirable);
-                };
+        match msg.metadata_change {
+            NRMetadataChange::AddUnreachableHost { hostname } => {
+                let public_key = msg.public_key;
+                let node_record = self
+                    .neighborhood_database
+                    .node_by_key_mut(&public_key)
+                    .unwrap_or_else(|| {
+                        panic!("No Node Record found for public_key: {:?}", public_key)
+                    });
+                debug!(
+                    self.logger,
+                    "Marking host {hostname} unreachable for the Node with public key {:?}",
+                    public_key
+                );
+                node_record.metadata.unreachable_hosts.insert(hostname);
             }
-        };
+        }
     }
 }
 
@@ -525,7 +532,7 @@ impl Neighborhood {
     }
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
-        let msg_str = format!("{:?}", msg);
+        let debug_msg_opt = self.logger.debug_enabled().then(|| format!("{:?}", msg));
         let route_result = if msg.minimum_hop_count == 0 {
             Ok(self.zero_hop_route_response())
         } else {
@@ -533,6 +540,7 @@ impl Neighborhood {
         };
         match route_result {
             Ok(response) => {
+                let msg_str = debug_msg_opt.expect("Debug Message wasn't built but expected.");
                 debug!(
                     self.logger,
                     "Processed {} into {}-hop response",
@@ -818,6 +826,7 @@ impl Neighborhood {
             minimum_hop_count: DEFAULT_MINIMUM_HOP_COUNT,
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
+            hostname_opt: None,
         };
         if self.handle_route_query_message(msg).is_some() {
             debug!(
@@ -944,24 +953,34 @@ impl Neighborhood {
 
     fn make_round_trip_route(
         &mut self,
-        msg: RouteQueryMessage,
+        request_msg: RouteQueryMessage,
     ) -> Result<RouteQueryResponse, String> {
+        let hostname_opt = request_msg.hostname_opt.as_deref();
         let over = self.make_route_segment(
             self.cryptde.public_key(),
-            msg.target_key_opt.as_ref(),
-            msg.minimum_hop_count,
-            msg.target_component,
-            msg.payload_size,
+            request_msg.target_key_opt.as_ref(),
+            request_msg.minimum_hop_count,
+            request_msg.target_component,
+            request_msg.payload_size,
             RouteDirection::Over,
+            hostname_opt,
         )?;
         debug!(self.logger, "Route over: {:?}", over);
+        // Estimate for routing-undesirability calculations.
+        // We don't know what the size of response will be.
+        // So, we estimate the value by multiplying the payload_size of request with a constant value.
+        let anticipated_response_payload_len =
+            request_msg.payload_size * RESPONSE_UNDESIRABILITY_FACTOR;
         let back = self.make_route_segment(
             over.keys.last().expect("Empty segment"),
             Some(self.cryptde.public_key()),
-            msg.minimum_hop_count,
-            msg.return_component_opt.expect("No return component"),
-            msg.payload_size,
+            request_msg.minimum_hop_count,
+            request_msg
+                .return_component_opt
+                .expect("No return component"),
+            anticipated_response_payload_len,
             RouteDirection::Back,
+            hostname_opt,
         )?;
         debug!(self.logger, "Route back: {:?}", back);
         self.compose_route_query_response(over, back)
@@ -1012,6 +1031,7 @@ impl Neighborhood {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn make_route_segment(
         &self,
         origin: &PublicKey,
@@ -1020,6 +1040,7 @@ impl Neighborhood {
         target_component: Component,
         payload_size: usize,
         direction: RouteDirection,
+        hostname_opt: Option<&str>,
     ) -> Result<RouteSegment, String> {
         let route_opt = self.find_best_route_segment(
             origin,
@@ -1027,6 +1048,7 @@ impl Neighborhood {
             minimum_hop_count,
             payload_size,
             direction,
+            hostname_opt,
         );
         match route_opt {
             None => {
@@ -1125,30 +1147,37 @@ impl Neighborhood {
     }
 
     fn compute_undesirability(
-        &self,
         node_record: &NodeRecord,
-        payload_size: usize,
-        link_type: LinkType,
+        payload_size: u64,
+        undesirability_type: UndesirabilityType,
+        logger: &Logger,
     ) -> i64 {
-        let (per_byte, per_cores) = match link_type {
-            LinkType::Relay => (
-                node_record.inner.rate_pack.routing_byte_rate,
-                node_record.inner.rate_pack.routing_service_rate,
-            ),
-            LinkType::Exit => (
-                node_record.inner.rate_pack.exit_byte_rate,
-                node_record.inner.rate_pack.exit_service_rate,
-            ),
-            LinkType::Origin => (0, 0),
-        };
-        let rate_undesirability = per_cores as i64 + (per_byte as i64 * payload_size as i64);
-        let desirable_undesirability =
-            if !node_record.metadata.desirable_for_exit && (link_type == LinkType::Exit) {
-                UNDESIRABLE_FOR_EXIT_PENALTY
-            } else {
-                0
-            };
-        rate_undesirability + desirable_undesirability
+        let mut rate_undesirability = match undesirability_type {
+            UndesirabilityType::Relay => node_record.inner.rate_pack.routing_charge(payload_size),
+            UndesirabilityType::ExitRequest(_) => {
+                node_record.inner.rate_pack.exit_charge(payload_size)
+            }
+            UndesirabilityType::ExitAndRouteResponse => {
+                node_record.inner.rate_pack.exit_charge(payload_size)
+                    + node_record.inner.rate_pack.routing_charge(payload_size)
+            }
+        } as i64;
+        if let UndesirabilityType::ExitRequest(Some(hostname)) = undesirability_type {
+            if node_record.metadata.unreachable_hosts.contains(hostname) {
+                trace!(
+                    logger,
+                    "Node with PubKey {:?} failed to reach host {:?} during ExitRequest; Undesirability: {} + {} = {}",
+                    node_record.public_key(),
+                    hostname,
+                    rate_undesirability,
+                    UNREACHABLE_HOST_PENALTY,
+                    rate_undesirability + UNREACHABLE_HOST_PENALTY
+                );
+                rate_undesirability += UNREACHABLE_HOST_PENALTY;
+            }
+        }
+
+        rate_undesirability
     }
 
     fn is_orig_node_on_back_leg(
@@ -1171,8 +1200,8 @@ impl Neighborhood {
         return_route_id
     }
 
-    // Interface to main routing engine. Supply source key, target key, if any, in target_opt,
-    // minimum hop count in hops_remaining, size of payload in bytes, and the route direction.
+    // Interface to main routing engine. Supply source key, target key--if any--in target_opt,
+    // minimum hops, size of payload in bytes, the route direction, and the hostname if you know it.
     //
     // Return value is the least undesirable route that will either go from the origin to the
     // target in hops_remaining or more hops with no cycles, or from the origin hops_remaining hops
@@ -1185,21 +1214,30 @@ impl Neighborhood {
         minimum_hops: usize,
         payload_size: usize,
         direction: RouteDirection,
+        hostname_opt: Option<&str>,
     ) -> Option<Vec<&'a PublicKey>> {
         let mut minimum_undesirability = i64::MAX;
-        self.routing_engine(
-            vec![source],
-            0,
-            target_opt,
-            minimum_hops,
-            payload_size,
-            direction,
-            &mut minimum_undesirability,
-        )
-        .into_iter()
-        .filter(|cr| cr.undesirability <= minimum_undesirability)
-        .map(|cr| cr.nodes)
-        .next()
+        let initial_undesirability =
+            self.compute_initial_undesirability(source, payload_size as u64, direction);
+        let result = self
+            .routing_engine(
+                vec![source],
+                initial_undesirability,
+                target_opt,
+                minimum_hops,
+                payload_size,
+                direction,
+                &mut minimum_undesirability,
+                hostname_opt,
+            )
+            .into_iter()
+            .filter_map(|cr| match cr.undesirability <= minimum_undesirability {
+                true => Some(cr.nodes),
+                false => None,
+            })
+            .next();
+
+        result
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -1212,6 +1250,7 @@ impl Neighborhood {
         payload_size: usize,
         direction: RouteDirection,
         minimum_undesirability: &mut i64,
+        hostname_opt: Option<&str>,
     ) -> Vec<ComputedRouteSegment<'a>> {
         if undesirability > *minimum_undesirability {
             return vec![];
@@ -1261,9 +1300,10 @@ impl Neighborhood {
                         node_record,
                         undesirability,
                         target_opt,
-                        hops_remaining,
-                        payload_size,
+                        new_hops_remaining,
+                        payload_size as u64,
                         direction,
+                        hostname_opt,
                     );
 
                     self.routing_engine(
@@ -1274,6 +1314,7 @@ impl Neighborhood {
                         payload_size,
                         direction,
                         minimum_undesirability,
+                        hostname_opt,
                     )
                 })
                 .collect()
@@ -1299,24 +1340,52 @@ impl Neighborhood {
         );
     }
 
+    fn compute_initial_undesirability(
+        &self,
+        public_key: &PublicKey,
+        payload_size: u64,
+        direction: RouteDirection,
+    ) -> i64 {
+        if direction == RouteDirection::Over {
+            return 0;
+        }
+        let node_record = self
+            .neighborhood_database
+            .node_by_key(public_key)
+            .expect("Exit node disappeared");
+        Self::compute_undesirability(
+            node_record,
+            payload_size,
+            UndesirabilityType::ExitAndRouteResponse,
+            &self.logger,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn compute_new_undesirability(
         &self,
         node_record: &NodeRecord,
         undesirability: i64,
         target_opt: Option<&PublicKey>,
         hops_remaining: usize,
-        payload_size: usize,
+        payload_size: u64,
         direction: RouteDirection,
+        hostname_opt: Option<&str>,
     ) -> i64 {
-        let link_type = match (direction, target_opt) {
-            (RouteDirection::Over, None) if hops_remaining == 0 => LinkType::Exit,
-            (RouteDirection::Over, _) => LinkType::Relay,
-            (RouteDirection::Back, Some(target)) if &node_record.inner.public_key == target => {
-                LinkType::Origin
+        let undesirability_type = match (direction, target_opt) {
+            (RouteDirection::Over, None) if hops_remaining == 0 => {
+                UndesirabilityType::ExitRequest(hostname_opt)
             }
-            (RouteDirection::Back, _) => LinkType::Relay,
+            (RouteDirection::Over, _) => UndesirabilityType::Relay,
+            // The exit-and-relay undesirability is initial_undesirability
+            (RouteDirection::Back, _) => UndesirabilityType::Relay,
         };
-        let node_undesirability = self.compute_undesirability(node_record, payload_size, link_type);
+        let node_undesirability = Self::compute_undesirability(
+            node_record,
+            payload_size,
+            undesirability_type,
+            &self.logger,
+        );
         undesirability + node_undesirability
     }
 
@@ -1483,11 +1552,11 @@ pub fn regenerate_signed_gossip(
     (signed_gossip, signature)
 }
 
-#[derive(PartialEq, Eq)]
-enum LinkType {
+#[derive(PartialEq, Eq, Debug)]
+enum UndesirabilityType<'hostname> {
     Relay,
-    Exit,
-    Origin,
+    ExitRequest(Option<&'hostname str>),
+    ExitAndRouteResponse,
 }
 
 struct ComputedRouteSegment<'a> {
@@ -1564,7 +1633,7 @@ mod tests {
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::unshared_test_utils::{
         make_node_to_ui_recipient, make_recipient_and_recording_arc,
-        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, NotifyLaterHandleMock,
+        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::vec_to_set;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
@@ -1576,6 +1645,7 @@ mod tests {
     use crate::neighborhood::overall_connection_status::{
         ConnectionProgress, ConnectionStage, OverallConnectionStage,
     };
+    use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
 
     impl Handler<AssertionsMessage<Neighborhood>> for Neighborhood {
@@ -2644,7 +2714,9 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(5, 400));
+        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, 5, 400,
+        ));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2660,7 +2732,9 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(2, 430));
+        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, 2, 430,
+        ));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2683,8 +2757,7 @@ mod tests {
         subject.consuming_wallet_opt = None;
         // These happen to be extracted in the desired order. We could not think of a way to guarantee it.
         let desirable_exit_node = make_node_record(2345, false);
-        let mut undesirable_exit_node = make_node_record(3456, true);
-        undesirable_exit_node.set_desirable_for_exit(false);
+        let undesirable_exit_node = make_node_record(3456, true);
         let originating_node = &subject.neighborhood_database.root().clone();
         {
             let db = &mut subject.neighborhood_database;
@@ -2701,7 +2774,7 @@ mod tests {
         }
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(1, 54000);
+        let msg = RouteQueryMessage::data_indefinite_route_request(None, 1, 54000);
 
         let future = sub.send(msg);
 
@@ -2774,7 +2847,7 @@ mod tests {
         }
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(1, 10000);
+        let msg = RouteQueryMessage::data_indefinite_route_request(None, 1, 10000);
 
         let future = sub.send(msg);
 
@@ -2791,7 +2864,7 @@ mod tests {
         let subject = make_standard_subject();
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(2, 20000);
+        let msg = RouteQueryMessage::data_indefinite_route_request(None, 2, 20000);
 
         let future = sub.send(msg);
 
@@ -2809,7 +2882,9 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(0, 12345));
+        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, 0, 12345,
+        ));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2884,8 +2959,7 @@ mod tests {
         let q = &make_node_record(3456, true);
         let r = &make_node_record(4567, false);
         let s = &make_node_record(5678, false);
-        let mut t = make_node_record(7777, false);
-        t.set_desirable_for_exit(false);
+        let t = make_node_record(7777, false);
         {
             let db = &mut subject.neighborhood_database;
             db.add_node(q.clone()).unwrap();
@@ -2904,7 +2978,9 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(2, 5000));
+        let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, 2, 5000,
+        ));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2999,8 +3075,12 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(2, 2000));
-        let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(2, 3000));
+        let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, 2, 2000,
+        ));
+        let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, 2, 3000,
+        ));
 
         System::current().stop_with_code(0);
         system.run();
@@ -3050,13 +3130,15 @@ mod tests {
         )
         .unwrap();
 
-        let route_request_1 =
-            route_sub.send(RouteQueryMessage::data_indefinite_route_request(2, 1000));
+        let route_request_1 = route_sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, 2, 1000,
+        ));
         let _ = set_wallet_sub.try_send(SetConsumingWalletMessage {
             wallet: expected_new_wallet,
         });
-        let route_request_2 =
-            route_sub.send(RouteQueryMessage::data_indefinite_route_request(2, 2000));
+        let route_request_2 = route_sub.send(RouteQueryMessage::data_indefinite_route_request(
+            None, 2, 2000,
+        ));
 
         System::current().stop();
         system.run();
@@ -3146,30 +3228,35 @@ mod tests {
         db.add_arbitrary_full_neighbor(s, r);
 
         // At least two hops from p to anywhere standard
-        let route_opt = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over);
+        let route_opt =
+            subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None);
 
         assert_eq!(route_opt.unwrap(), vec![p, s, t]);
         // no [p, r, s] or [p, s, r] because s and r are both neighbors of p and can't exit for it
 
         // At least two hops over from p to t
-        let route_opt = subject.find_best_route_segment(p, Some(t), 2, 10000, RouteDirection::Over);
+        let route_opt =
+            subject.find_best_route_segment(p, Some(t), 2, 10000, RouteDirection::Over, None);
 
         assert_eq!(route_opt.unwrap(), vec![p, s, t]);
 
         // At least two hops over from t to p
-        let route_opt = subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Over);
+        let route_opt =
+            subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Over, None);
 
         assert_eq!(route_opt, None);
         // p is consume-only; can't be an exit Node.
 
         // At least two hops back from t to p
-        let route_opt = subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Back);
+        let route_opt =
+            subject.find_best_route_segment(t, Some(p), 2, 10000, RouteDirection::Back, None);
 
         assert_eq!(route_opt.unwrap(), vec![t, s, p]);
         // p is consume-only, but it's the originating Node, so including it is okay
 
         // At least two hops from p to Q - impossible
-        let route_opt = subject.find_best_route_segment(p, Some(q), 2, 10000, RouteDirection::Over);
+        let route_opt =
+            subject.find_best_route_segment(p, Some(q), 2, 10000, RouteDirection::Over, None);
 
         assert_eq!(route_opt, None);
     }
@@ -3242,7 +3329,7 @@ mod tests {
 
         // All the target-designated routes from L to N
         let route = subject
-            .find_best_route_segment(&l, Some(&n), 3, 10000, RouteDirection::Back)
+            .find_best_route_segment(&l, Some(&n), 3, 10000, RouteDirection::Back, None)
             .unwrap();
 
         let after = Instant::now();
@@ -3276,77 +3363,158 @@ mod tests {
         db.add_arbitrary_full_neighbor(q, r);
 
         // At least two hops from P to anywhere standard
-        let route_opt = subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over);
+        let route_opt =
+            subject.find_best_route_segment(p, None, 2, 10000, RouteDirection::Over, None);
 
         assert_eq!(route_opt, None);
     }
 
     #[test]
-    fn compute_undesirability_for_relay_nodes() {
+    fn computing_undesirability_works_for_relay_on_over_leg() {
+        let node_record = make_node_record(1234, false);
         let subject = make_standard_subject();
-        let mut node_record = make_node_record(1, false);
-        node_record.metadata.desirable_for_exit = true; // not used as exit: irrelevant
-        node_record.inner.rate_pack = RatePack {
-            routing_byte_rate: 100,
-            routing_service_rate: 200,
-            exit_byte_rate: 123456,
-            exit_service_rate: 234567,
-        };
 
-        let result = subject.compute_undesirability(&node_record, 10000, LinkType::Relay);
+        let new_undesirability = subject.compute_new_undesirability(
+            &node_record,
+            1_000_000, // Nonzero undesirability: on our way
+            None,
+            5, // Lots of hops to go yet
+            1_000,
+            RouteDirection::Over,
+            Some("hostname.com"),
+        );
 
-        assert_eq!(result, 200 + (100 * 10000));
+        let rate_pack = node_record.rate_pack();
+        // node_record will charge us for the link beyond
+        assert_eq!(
+            new_undesirability,
+            1_000_000 // existing undesirability
+                + rate_pack.routing_charge (1_000) as i64 // charge to route packet
+        );
     }
 
     #[test]
-    fn compute_undesirability_for_exit_nodes() {
+    fn computing_undesirability_works_for_exit_on_over_leg_for_non_blacklisted_host() {
+        let node_record = make_node_record(2345, false);
         let subject = make_standard_subject();
-        let mut node_record = make_node_record(1, false);
-        node_record.metadata.desirable_for_exit = true; // used as exit, but leave out penalty for now
-        node_record.inner.rate_pack = RatePack {
-            routing_byte_rate: 123456,
-            routing_service_rate: 234567,
-            exit_byte_rate: 100,
-            exit_service_rate: 200,
-        };
 
-        let result = subject.compute_undesirability(&node_record, 10000, LinkType::Exit);
+        let new_undesirability = subject.compute_new_undesirability(
+            &node_record,
+            1_000_000,
+            None,
+            0, // Last hop
+            1_000,
+            RouteDirection::Over,
+            Some("hostname.com"),
+        );
 
-        assert_eq!(result, 200 + (100 * 10000));
+        let rate_pack = node_record.rate_pack();
+        assert_eq!(
+            new_undesirability,
+            1_000_000 // existing undesirability
+                    + rate_pack.exit_charge (1_000) as i64 // charge to exit request
+        );
     }
 
     #[test]
-    fn compute_undesirability_for_origin() {
+    fn computing_undesirability_works_for_exit_on_over_leg_for_blacklisted_host() {
+        init_test_logging();
+        let mut node_record = make_node_record(2345, false);
+        node_record
+            .metadata
+            .unreachable_hosts
+            .insert("hostname.com".to_string());
         let subject = make_standard_subject();
-        let mut node_record = make_node_record(1, false);
-        node_record.metadata.desirable_for_exit = true; // not used as exit: irrelevant
-        node_record.inner.rate_pack = RatePack {
-            routing_byte_rate: 123456,
-            routing_service_rate: 234567,
-            exit_byte_rate: 345678,
-            exit_service_rate: 456789,
-        };
 
-        let result = subject.compute_undesirability(&node_record, 10000, LinkType::Origin);
+        let new_undesirability = subject.compute_new_undesirability(
+            &node_record,
+            1_000_000,
+            None,
+            0, // Last hop
+            1_000,
+            RouteDirection::Over,
+            Some("hostname.com"),
+        );
 
-        assert_eq!(result, 0);
+        let rate_pack = node_record.rate_pack();
+        assert_eq!(
+            new_undesirability,
+            1_000_000 // existing undesirability
+                    + rate_pack.exit_charge (1_000) as i64 // charge to exit request
+                    + UNREACHABLE_HOST_PENALTY // because host is blacklisted
+        );
+        TestLogHandler::new().exists_log_containing(
+            "TRACE: Neighborhood: Node with PubKey 0x02030405 \
+                      failed to reach host \"hostname.com\" during ExitRequest; \
+                      Undesirability: 2350745 + 100000000 = 102350745",
+        );
     }
 
     #[test]
-    fn compute_undesirability_for_undesirable_for_exit_node_used_as_exit() {
+    fn computing_initial_undesirability_works_for_origin_on_over_leg() {
+        let node_record = make_node_record(4567, false);
+        let mut subject = make_standard_subject();
+        subject
+            .neighborhood_database
+            .add_node(node_record.clone())
+            .unwrap();
+
+        let initial_undesirability = subject.compute_initial_undesirability(
+            node_record.public_key(),
+            1_000,
+            RouteDirection::Over,
+        );
+
+        assert_eq!(
+            initial_undesirability,
+            0 // Origin does not charge itself for routing
+        );
+    }
+
+    #[test]
+    fn computing_initial_undesirability_works_for_exit_on_back_leg() {
+        let node_record = make_node_record(4567, false);
+        let mut subject = make_standard_subject();
+        subject
+            .neighborhood_database
+            .add_node(node_record.clone())
+            .unwrap();
+
+        let initial_undesirability = subject.compute_initial_undesirability(
+            node_record.public_key(),
+            1_000,
+            RouteDirection::Back,
+        );
+
+        let rate_pack = node_record.rate_pack();
+        assert_eq!(
+            initial_undesirability,
+            rate_pack.exit_charge (1_000) as i64 // charge to exit response
+                + rate_pack.routing_charge (1_000) as i64 // charge to route response
+        );
+    }
+
+    #[test]
+    fn computing_undesirability_works_for_relay_on_back_leg() {
+        let node_record = make_node_record(4567, false);
         let subject = make_standard_subject();
-        let mut node_record = make_node_record(1, false);
-        node_record.metadata.desirable_for_exit = false; // used as exit: penalty is effective
-        node_record.inner.rate_pack = RatePack {
-            routing_byte_rate: 123456,
-            routing_service_rate: 234567,
-            exit_byte_rate: 1,
-            exit_service_rate: 1,
-        };
 
-        let result = subject.compute_undesirability(&node_record, 10000, LinkType::Exit);
+        let new_undesirability = subject.compute_new_undesirability(
+            &node_record,
+            1_000_000, // Nonzero undesirability: we're on our way
+            Some(&PublicKey::new(b"Booga")),
+            5, // Plenty of hops remaining: not there yet
+            1_000,
+            RouteDirection::Back,
+            None,
+        );
 
-        assert_eq!(result, 1 + (1 * 10000) + UNDESIRABLE_FOR_EXIT_PENALTY);
+        let rate_pack = node_record.rate_pack();
+        assert_eq!(
+            new_undesirability,
+            1_000_000 // existing undesirability
+                + rate_pack.routing_charge (1_000) as i64 // charge to route response
+        );
     }
 
     #[test]
@@ -4613,6 +4781,7 @@ mod tests {
             minimum_hop_count: 3,
             return_component_opt: None,
             payload_size: 10000,
+            hostname_opt: None,
         };
         let unsuccessful_three_hop_route = addr.send(three_hop_route_request);
         let public_key_query = addr.send(NodeQueryMessage::PublicKey(a.public_key().clone()));
@@ -4969,6 +5138,7 @@ mod tests {
             minimum_hop_count,
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
+            hostname_opt: None,
         });
 
         assert_eq!(
@@ -5015,6 +5185,7 @@ mod tests {
             minimum_hop_count,
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
+            hostname_opt: None,
         });
 
         let next_door_neighbor_cryptde =
@@ -5063,8 +5234,8 @@ mod tests {
 
            O is the originating Node, X is the exit Node. Minimum hop count is 2.
            Node A offers low per-packet rates and high per-byte rates; Node B offers
-           low per-byte rates and high per-packet rates. Large packets should prefer
-           route O -> A -> X -> A -> O; small packets should prefer route
+           low per-byte rates and high per-packet rates. Small packets should prefer
+           route O -> A -> X -> A -> O; large packets should prefer route
            O -> B -> X -> B -> O.
     */
 
@@ -5089,12 +5260,14 @@ mod tests {
         db.add_arbitrary_full_neighbor(a, x);
         db.add_arbitrary_full_neighbor(x, b);
         db.add_arbitrary_full_neighbor(b, o);
+        // Small packages should prefer A
         db.node_by_key_mut(a).unwrap().inner.rate_pack = RatePack {
             routing_byte_rate: 100,     // high
             routing_service_rate: 1000, // low
             exit_byte_rate: 0,
             exit_service_rate: 0,
         };
+        // Large packages should prefer B
         db.node_by_key_mut(b).unwrap().inner.rate_pack = RatePack {
             routing_byte_rate: 1,          // low
             routing_service_rate: 100_000, // high
@@ -5109,6 +5282,7 @@ mod tests {
                 minimum_hop_count: 2,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size,
+                hostname_opt: None,
             })
             .unwrap();
 
@@ -5122,7 +5296,53 @@ mod tests {
         };
         let expected_relay_key = if a_not_b { a.clone() } else { b.clone() };
         assert_eq!(extract_key(over), expected_relay_key);
-        assert_eq!(extract_key(back), expected_relay_key);
+        // All response packages are "large," so they'll all want B on the way back.
+        assert_eq!(extract_key(back), *b);
+    }
+
+    #[test]
+    fn node_record_metadata_message_is_handled_properly() {
+        init_test_logging();
+        let subject_node = make_global_cryptde_node_record(1345, true);
+        let public_key = PublicKey::from(&b"exit_node"[..]);
+        let node_record = NodeRecord::new(
+            &public_key,
+            make_wallet("earning"),
+            rate_pack(100),
+            true,
+            true,
+            0,
+            main_cryptde(),
+        );
+        let unreachable_host = String::from("facebook.com");
+        let mut subject = neighborhood_from_nodes(&subject_node, None);
+        let _ = subject.neighborhood_database.add_node(node_record);
+        let addr = subject.start();
+        let system = System::new("test");
+
+        let _ = addr.try_send(NodeRecordMetadataMessage {
+            public_key: public_key.clone(),
+            metadata_change: NRMetadataChange::AddUnreachableHost {
+                hostname: unreachable_host.clone(),
+            },
+        });
+
+        let assertions = Box::new(move |actor: &mut Neighborhood| {
+            let updated_node_record = actor
+                .neighborhood_database
+                .node_by_key(&public_key)
+                .unwrap();
+            assert!(updated_node_record
+                .metadata
+                .unreachable_hosts
+                .contains(&unreachable_host));
+            TestLogHandler::new().exists_log_matching(&format!(
+                "DEBUG: Neighborhood: Marking host facebook.com unreachable for the Node with public key 0x657869745F6E6F6465"
+            ));
+        });
+        addr.try_send(AssertionsMessage { assertions }).unwrap();
+        System::current().stop();
+        assert_eq!(system.run(), 0);
     }
 
     #[test]

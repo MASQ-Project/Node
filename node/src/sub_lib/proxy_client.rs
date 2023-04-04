@@ -25,6 +25,7 @@ pub struct ProxyClientConfig {
     pub dns_servers: Vec<SocketAddr>,
     pub exit_service_rate: u64,
     pub exit_byte_rate: u64,
+    pub is_decentralized: bool,
     pub crashable: bool,
 }
 
@@ -65,7 +66,7 @@ impl From<DnsResolveFailure_0v1> for MessageType {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProxyClientSubs {
     pub bind: Recipient<BindMessage>,
     pub from_hopper: Recipient<ExpiredCoresPackage<ClientRequestPayload_0v1>>,

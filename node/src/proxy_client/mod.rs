@@ -59,6 +59,7 @@ pub struct ProxyClient {
     stream_contexts: HashMap<StreamKey, StreamContext>,
     exit_service_rate: u64,
     exit_byte_rate: u64,
+    is_decentralized: bool,
     crashable: bool,
     logger: Logger,
 }
@@ -105,18 +106,14 @@ impl Handler<ExpiredCoresPackage<ClientRequestPayload_0v1>> for ProxyClient {
         msg: ExpiredCoresPackage<ClientRequestPayload_0v1>,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        let is_zero_hop = match msg.remaining_route.next_hop(self.cryptde) {
-            Ok(live_hop) => &live_hop.public_key == self.cryptde.public_key(),
-            Err(_) => false,
-        };
         let payload = msg.payload;
         let paying_wallet = msg.paying_wallet;
-        if paying_wallet.is_some() || is_zero_hop {
+        if paying_wallet.is_some() || !self.is_decentralized {
             let pool = self.pool.as_mut().expect("StreamHandlerPool unbound");
             let return_route = msg.remaining_route;
             let latest_stream_context = StreamContext {
                 return_route,
-                payload_destination_key: payload.originator_public_key.clone(),
+                payload_destination_key: payload.originator_alias_public_key.clone(),
                 paying_wallet: paying_wallet.clone(),
             };
             debug!(
@@ -235,6 +232,7 @@ impl ProxyClient {
             stream_contexts: HashMap::new(),
             exit_service_rate: config.exit_service_rate,
             exit_byte_rate: config.exit_byte_rate,
+            is_decentralized: config.is_decentralized,
             crashable: config.crashable,
             logger: Logger::new("ProxyClient"),
         }
@@ -486,6 +484,26 @@ mod tests {
     }
 
     #[test]
+    fn is_decentralized_flag_is_passed_through_constructor() {
+        let config_factory = |is_decentralized: bool| ProxyClientConfig {
+            cryptde: main_cryptde(),
+            dns_servers: vec![SocketAddr::V4(
+                SocketAddrV4::from_str("1.2.3.4:4560").unwrap(),
+            )],
+            exit_service_rate: 100,
+            exit_byte_rate: 200,
+            is_decentralized,
+            crashable: false,
+        };
+
+        let zero_hop = ProxyClient::new(config_factory(false));
+        let standard = ProxyClient::new(config_factory(true));
+
+        assert_eq!(zero_hop.is_decentralized, false);
+        assert_eq!(standard.is_decentralized, true);
+    }
+
+    #[test]
     #[should_panic(
         expected = "panic message (processed with: node_lib::sub_lib::utils::crash_request_analyzer)"
     )]
@@ -497,6 +515,7 @@ mod tests {
             )],
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            is_decentralized: true,
             crashable: true,
         });
 
@@ -513,6 +532,7 @@ mod tests {
             dns_servers: vec![],
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            is_decentralized: true,
             crashable: false,
         });
     }
@@ -541,6 +561,7 @@ mod tests {
             ],
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            is_decentralized: true,
             crashable: false,
         });
         subject.resolver_wrapper_factory = Box::new(resolver_wrapper_factory);
@@ -589,7 +610,7 @@ mod tests {
             target_hostname: Some(String::from("target.hostname.com")),
             target_port: 1234,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: PublicKey::new(&b"originator_public_key"[..]),
+            originator_alias_public_key: PublicKey::new(&b"originator_public_key"[..]),
         };
         let cryptde = main_cryptde();
         let package = ExpiredCoresPackage::new(
@@ -605,6 +626,7 @@ mod tests {
             dns_servers: dnss(),
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            is_decentralized: true,
             crashable: false,
         });
         let subject_addr: Addr<ProxyClient> = subject.start();
@@ -628,6 +650,7 @@ mod tests {
                 dns_servers: vec![SocketAddr::from_str("1.1.1.1:53").unwrap()],
                 exit_service_rate: 0,
                 exit_byte_rate: 0,
+                is_decentralized: true,
                 crashable: false,
             });
             let subject_addr = subject.start();
@@ -668,6 +691,7 @@ mod tests {
                 dns_servers: vec![SocketAddr::from_str("1.1.1.1:53").unwrap()],
                 exit_service_rate: 0,
                 exit_byte_rate: 0,
+                is_decentralized: true,
                 crashable: false,
             });
             subject.stream_contexts.insert(
@@ -729,12 +753,15 @@ mod tests {
             target_hostname: None,
             target_port: 0,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: PublicKey::new(&b"originator"[..]),
+            originator_alias_public_key: PublicKey::new(&b"originator"[..]),
         };
+        let key1 = make_meaningless_public_key();
+        let key2 = make_meaningless_public_key();
+        let route = make_one_way_route_to_proxy_client(vec![&key1, &key2]);
         let package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
             Some(make_wallet("consuming")),
-            make_meaningless_route(),
+            route,
             request.clone().into(),
             0,
         );
@@ -756,6 +783,7 @@ mod tests {
             dns_servers: dnss(),
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            is_decentralized: true,
             crashable: false,
         });
         subject.resolver_wrapper_factory = Box::new(resolver_factory);
@@ -785,7 +813,7 @@ mod tests {
             target_hostname: None,
             target_port: 0,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: PublicKey::new(&b"originator"[..]),
+            originator_alias_public_key: PublicKey::new(&b"originator"[..]),
         };
         let package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
@@ -812,6 +840,7 @@ mod tests {
             dns_servers: dnss(),
             exit_service_rate: rate_pack_exit(100),
             exit_byte_rate: rate_pack_exit_byte(100),
+            is_decentralized: true,
             crashable: false,
         });
         subject.resolver_wrapper_factory = Box::new(resolver_factory);
@@ -841,7 +870,7 @@ mod tests {
             target_hostname: None,
             target_port: 0,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: alias_cryptde.public_key().clone(),
+            originator_alias_public_key: alias_cryptde.public_key().clone(),
         };
         let zero_hop_remaining_route = Route::one_way(
             RouteSegment::new(
@@ -878,6 +907,7 @@ mod tests {
             dns_servers: dnss(),
             exit_service_rate: rate_pack_exit(100),
             exit_byte_rate: rate_pack_exit_byte(100),
+            is_decentralized: false,
             crashable: false,
         });
         subject.resolver_wrapper_factory = Box::new(resolver_factory);
@@ -901,17 +931,19 @@ mod tests {
         let stream_key = make_meaningless_stream_key();
         let data: &[u8] = b"An honest politician is one who, when he is bought, will stay bought.";
         let system = System::new("inbound_server_data_is_translated_to_cores_packages");
+        let route = make_meaningless_route();
         let mut subject = ProxyClient::new(ProxyClientConfig {
             cryptde: main_cryptde(),
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            is_decentralized: true,
             crashable: false,
         });
         subject.stream_contexts.insert(
             stream_key.clone(),
             StreamContext {
-                return_route: make_meaningless_route(),
+                return_route: route.clone(),
                 payload_destination_key: PublicKey::new(&b"abcd"[..]),
                 paying_wallet: Some(make_wallet("paying")),
             },
@@ -969,7 +1001,7 @@ mod tests {
             hopper_recording.get_record::<IncipientCoresPackage>(0),
             &IncipientCoresPackage::new(
                 main_cryptde(),
-                make_meaningless_route(),
+                route.clone(),
                 MessageType::ClientResponse(VersionedData::new(
                     &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
                     &ClientResponsePayload_0v1 {
@@ -989,7 +1021,7 @@ mod tests {
             hopper_recording.get_record::<IncipientCoresPackage>(1),
             &IncipientCoresPackage::new(
                 main_cryptde(),
-                make_meaningless_route(),
+                route.clone(),
                 MessageType::ClientResponse(VersionedData::new(
                     &crate::sub_lib::migrations::client_response_payload::MIGRATIONS,
                     &ClientResponsePayload_0v1 {
@@ -1052,6 +1084,7 @@ mod tests {
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            is_decentralized: true,
             crashable: false,
         });
         subject.stream_contexts.insert(
@@ -1103,6 +1136,7 @@ mod tests {
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            is_decentralized: true,
             crashable: false,
         });
         subject.stream_contexts.insert(
@@ -1152,6 +1186,7 @@ mod tests {
             dns_servers: vec![SocketAddr::from_str("8.7.6.5:4321").unwrap()],
             exit_service_rate: 100,
             exit_byte_rate: 200,
+            is_decentralized: true,
             crashable: false,
         });
         let mut process_package_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1188,7 +1223,7 @@ mod tests {
             target_hostname: None,
             target_port: 0,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: originator_public_key.clone(),
+            originator_alias_public_key: originator_public_key.clone(),
         };
         let before = SystemTime::now();
 

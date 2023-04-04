@@ -58,6 +58,16 @@ pub struct RatePack {
     pub exit_service_rate: u64,
 }
 
+impl RatePack {
+    pub fn routing_charge(&self, payload_size: u64) -> u64 {
+        self.routing_service_rate + (self.routing_byte_rate * payload_size)
+    }
+
+    pub fn exit_charge(&self, payload_size: u64) -> u64 {
+        self.exit_service_rate + (self.exit_byte_rate * payload_size)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum NeighborhoodMode {
     Standard(NodeAddr, Vec<NodeDescriptor>, RatePack),
@@ -366,7 +376,7 @@ lazy_static! {
     static ref EMPTY_CONFIGS: Vec<NodeDescriptor> = vec![];
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct NeighborhoodSubs {
     pub bind: Recipient<BindMessage>,
     pub start: Recipient<StartMessage>,
@@ -422,7 +432,7 @@ impl Message for NodeQueryMessage {
     type Result = Option<NodeQueryResponseMetadata>;
 }
 
-#[derive(Message, Clone)]
+#[derive(Message, Clone, PartialEq, Eq)]
 pub struct DispatcherNodeQueryMessage {
     pub query: NodeQueryMessage,
     pub context: TransmitDataMsg,
@@ -436,6 +446,7 @@ pub struct RouteQueryMessage {
     pub minimum_hop_count: usize,
     pub return_component_opt: Option<Component>,
     pub payload_size: usize,
+    pub hostname_opt: Option<String>,
 }
 
 impl Message for RouteQueryMessage {
@@ -444,6 +455,7 @@ impl Message for RouteQueryMessage {
 
 impl RouteQueryMessage {
     pub fn data_indefinite_route_request(
+        hostname_opt: Option<String>,
         minimum_hop_count: usize,
         payload_size: usize,
     ) -> RouteQueryMessage {
@@ -453,6 +465,7 @@ impl RouteQueryMessage {
             minimum_hop_count,
             return_component_opt: Some(Component::ProxyServer),
             payload_size,
+            hostname_opt,
         }
     }
 }
@@ -504,8 +517,14 @@ pub struct AskAboutDebutGossipMessage {
 }
 
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
-pub enum NodeRecordMetadataMessage {
-    Desirable(PublicKey, bool),
+pub struct NodeRecordMetadataMessage {
+    pub public_key: PublicKey,
+    pub metadata_change: NRMetadataChange,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NRMetadataChange {
+    AddUnreachableHost { hostname: String },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -873,6 +892,34 @@ mod tests {
     }
 
     #[test]
+    fn rate_pack_routing_charge_works() {
+        let subject = RatePack {
+            routing_byte_rate: 100,
+            routing_service_rate: 900_000,
+            exit_byte_rate: 0,
+            exit_service_rate: 0,
+        };
+
+        let result = subject.routing_charge(1000);
+
+        assert_eq!(result, 1_000_000);
+    }
+
+    #[test]
+    fn rate_pack_exit_charge_works() {
+        let subject = RatePack {
+            routing_byte_rate: 0,
+            routing_service_rate: 0,
+            exit_byte_rate: 100,
+            exit_service_rate: 900_000,
+        };
+
+        let result = subject.exit_charge(1000);
+
+        assert_eq!(result, 1_000_000);
+    }
+
+    #[test]
     fn node_descriptor_from_key_node_addr_and_mainnet_flag_works() {
         let cryptde: &dyn CryptDE = main_cryptde();
         let public_key = PublicKey::new(&[1, 2, 3, 4, 5, 6, 7, 8]);
@@ -947,7 +994,7 @@ mod tests {
 
     #[test]
     fn data_indefinite_route_request() {
-        let result = RouteQueryMessage::data_indefinite_route_request(2, 7500);
+        let result = RouteQueryMessage::data_indefinite_route_request(None, 2, 7500);
 
         assert_eq!(
             result,
@@ -957,6 +1004,7 @@ mod tests {
                 minimum_hop_count: 2,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 7500,
+                hostname_opt: None
             }
         );
     }

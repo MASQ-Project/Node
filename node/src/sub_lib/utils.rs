@@ -155,7 +155,7 @@ where
         interval: Duration,
         ctx: &mut Context<A>,
     ) -> Box<dyn NLSpawnHandleHolder>;
-    as_any_dcl!();
+    declare_as_any!();
 }
 
 #[derive(Default)]
@@ -168,18 +168,6 @@ impl<T> NotifyLaterHandleReal<T> {
         Self {
             phantom: PhantomData::default(),
         }
-    }
-}
-
-impl<M, A> Default for Box<dyn NotifyLaterHandle<M, A>>
-where
-    M: Message + 'static,
-    A: Actor<Context = Context<A>> + Handler<M>,
-{
-    fn default() -> Self {
-        Box::new(NotifyLaterHandleReal {
-            phantom: PhantomData::default(),
-        })
     }
 }
 
@@ -197,7 +185,7 @@ where
         let handle = ctx.notify_later(msg, interval);
         Box::new(NLSpawnHandleHolderReal::new(handle))
     }
-    as_any_impl!();
+    implement_as_any!();
 }
 
 pub trait NotifyHandle<M, A>
@@ -205,7 +193,7 @@ where
     A: Actor<Context = Context<A>>,
 {
     fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>);
-    as_any_dcl!();
+    declare_as_any!();
 }
 
 impl<M, A> Default for Box<dyn NotifyHandle<M, A>>
@@ -252,15 +240,13 @@ where
     fn notify<'a>(&'a self, msg: M, ctx: &'a mut Context<A>) {
         ctx.notify(msg)
     }
-    as_any_impl!();
+    implement_as_any!();
 }
 
-#[cfg(test)]
-pub fn make_new_test_multi_config<'a>(
-    schema: &App<'a, 'a>,
-    vcls: Vec<Box<dyn VirtualCommandLine>>,
-) -> Result<MultiConfig<'a>, ConfiguratorError> {
-    make_new_multi_config(schema, vcls)
+#[derive(Message, Clone, PartialEq, Eq)]
+pub struct MessageScheduler<M: Message> {
+    pub scheduled_msg: M,
+    pub delay: Duration,
 }
 
 #[cfg(test)]

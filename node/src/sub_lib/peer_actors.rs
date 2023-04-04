@@ -14,7 +14,7 @@ use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::net::IpAddr;
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct PeerActors {
     pub proxy_server: ProxyServerSubs,
     pub dispatcher: DispatcherSubs,
@@ -33,7 +33,7 @@ impl Debug for PeerActors {
     }
 }
 
-#[derive(Debug, Message, Clone)]
+#[derive(Debug, Message, Clone, PartialEq, Eq)]
 pub struct BindMessage {
     pub peer_actors: PeerActors,
 }
@@ -45,7 +45,7 @@ pub struct BindMessage {
 // Second, after the Neighborhood is successfully connected to the Network well enough to begin
 // routing messages, the Neighborhood sends another StartMessage to the Accountant, which uses
 // the StartMessage as a signal to begin running its regular scans.
-#[derive(Debug, Message, Clone)]
+#[derive(Debug, Message, Clone, PartialEq, Eq)]
 pub struct StartMessage {}
 
 #[derive(Message, Clone, PartialEq, Eq, Debug)]

@@ -940,12 +940,16 @@ impl GossipHandler for StandardGossipHandler {
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
 
         let patch = self.compute_patch(&agrs, database.root());
-        let agrs = self.filter_agrs_from_patch(agrs, patch);
+        let filtered_agrs = self.filter_agrs_by_patch(agrs, patch);
 
-        let mut db_changed =
-            self.identify_and_add_non_introductory_new_nodes(database, &agrs, gossip_source);
-        db_changed = self.identify_and_update_obsolete_nodes(database, agrs) || db_changed;
-        db_changed = self.handle_root_node(cryptde, database, gossip_source) || db_changed;
+        let mut db_changed = self.identify_and_add_non_introductory_new_nodes(
+            database,
+            &filtered_agrs,
+            gossip_source,
+        );
+        db_changed = self.identify_and_update_obsolete_nodes(database, filtered_agrs) || db_changed;
+        db_changed =
+            self.add_src_node_as_half_neighbor(cryptde, database, gossip_source) || db_changed;
         let final_neighborship_status =
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
         // If no Nodes need updating, return ::Ignored and don't change the database.
@@ -1003,26 +1007,26 @@ impl StandardGossipHandler {
     fn compute_patch_recursive(
         &self,
         patch: &mut HashSet<PublicKey>,
-        node: &PublicKey,
+        current_node_key: &PublicKey,
         agrs: &HashMap<&PublicKey, &AccessibleGossipRecord>,
         hops_remaining: usize,
         root_node: &NodeRecord,
     ) {
-        patch.insert(node.clone());
+        patch.insert(current_node_key.clone());
         if hops_remaining == 0 {
             return;
         }
-        let neighbors = if node == root_node.public_key() {
+        let neighbors = if current_node_key == root_node.public_key() {
             &root_node.inner.neighbors
         } else {
-            match agrs.get(node) {
+            match agrs.get(current_node_key) {
                 Some(agr) => &agr.inner.neighbors,
                 None => {
-                    patch.remove(node);
+                    patch.remove(current_node_key);
                     trace!(
                         self.logger,
                         "While computing patch no AGR record found for public key {:?}",
-                        node
+                        current_node_key
                     );
                     return;
                 }
@@ -1036,7 +1040,7 @@ impl StandardGossipHandler {
         }
     }
 
-    fn filter_agrs_from_patch(
+    fn filter_agrs_by_patch(
         &self,
         agrs: Vec<AccessibleGossipRecord>,
         patch: HashSet<PublicKey>,
@@ -1068,8 +1072,15 @@ impl StandardGossipHandler {
                 }
             })
             .for_each(|agr| {
+                let node_record = NodeRecord::from(agr);
+                trace!(
+                    self.logger,
+                    "Discovered new Node {:?}: {:?}",
+                    node_record.public_key(),
+                    node_record.full_neighbor_keys(database)
+                );
                 database
-                    .add_node(NodeRecord::from(agr))
+                    .add_node(node_record)
                     .expect("List of new Nodes contained existing Nodes");
             });
         database.keys().len() != all_keys.len()
@@ -1083,6 +1094,13 @@ impl StandardGossipHandler {
         agrs.into_iter().fold(false, |b, agr| {
             match database.node_by_key(&agr.inner.public_key) {
                 Some(existing_node) if agr.inner.version > existing_node.version() => {
+                    trace!(
+                        self.logger,
+                        "Updating Node {:?} from v{} to v{}",
+                        existing_node.public_key(),
+                        existing_node.version(),
+                        agr.inner.version
+                    );
                     self.update_database_record(database, agr) || b
                 }
                 _ => b,
@@ -1090,7 +1108,7 @@ impl StandardGossipHandler {
         })
     }
 
-    fn handle_root_node(
+    fn add_src_node_as_half_neighbor(
         &self,
         cryptde: &dyn CryptDE,
         database: &mut NeighborhoodDatabase,
@@ -2426,7 +2444,6 @@ mod tests {
         node_b_db.add_arbitrary_full_neighbor(node_b.public_key(), node_y.public_key());
         node_b_db.add_arbitrary_full_neighbor(node_b.public_key(), node_c.public_key());
         node_b_db.add_arbitrary_full_neighbor(node_c.public_key(), node_d.public_key());
-
         let gossip = GossipBuilder::new(&node_b_db)
             .node(node_b.public_key(), true)
             .node(node_c.public_key(), false)
@@ -3574,6 +3591,29 @@ mod tests {
 
     #[test]
     fn standard_gossip_containing_unfamiliar_node_addrs_leads_to_them_being_ignored() {
+        /*
+
+        <---- Databases before the gossip ---->
+
+        Destination Database (Root) ==>
+
+          Root
+         /  |
+        B---A
+        |
+        D
+
+        Source Database (A) ==>
+
+          Root
+         /  |
+        B---A---E
+        |   |
+        C   F
+
+        <------------------------------------->
+         */
+
         let root_node = make_node_record(1234, true);
         let mut dest_db = db_from_node(&root_node);
         let node_a = make_node_record(2345, true);

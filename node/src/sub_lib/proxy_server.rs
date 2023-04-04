@@ -37,7 +37,7 @@ pub struct ClientRequestPayload_0v1 {
     pub target_hostname: Option<String>,
     pub target_port: u16,
     pub protocol: ProxyProtocol,
-    pub originator_public_key: PublicKey,
+    pub originator_alias_public_key: PublicKey,
 }
 
 impl From<ClientRequestPayload_0v1> for MessageType {
@@ -60,7 +60,7 @@ pub struct AddReturnRouteMessage {
     pub return_route_id: u32,
     pub expected_services: Vec<ExpectedService>,
     pub protocol: ProxyProtocol,
-    pub server_name: Option<String>,
+    pub server_name_opt: Option<String>,
 }
 
 #[derive(Message, Debug, PartialEq, Eq)]
@@ -69,7 +69,7 @@ pub struct AddRouteMessage {
     pub route: RouteQueryResponse,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct ProxyServerSubs {
     // ProxyServer will handle these messages:
     pub bind: Recipient<BindMessage>,

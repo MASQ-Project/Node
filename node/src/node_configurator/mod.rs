@@ -16,12 +16,11 @@ use clap::{value_t, App};
 use dirs::{data_local_dir, home_dir};
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::DEFAULT_CHAIN;
-use masq_lib::multi_config::make_arg_matches_accesible;
 use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig, VclArg};
 use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
 };
-use masq_lib::utils::{localhost, ExpectValue, WrapResult};
+use masq_lib::utils::{localhost, ExpectValue};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 
@@ -61,7 +60,7 @@ pub fn determine_config_file_path(
         real_user_data_directory_opt_and_chain(dirs_wrapper, &multi_config);
     let directory =
         data_directory_from_context(dirs_wrapper, &real_user, &data_directory_opt, chain);
-    (directory.join(config_file_path), user_specified).wrap_to_ok()
+    Ok((directory.join(config_file_path), user_specified))
 }
 
 pub fn initialize_database(

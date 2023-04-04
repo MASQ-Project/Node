@@ -6,8 +6,8 @@ use crate::commands::commands_common::{
     dump_parameter_line, transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
-use masq_lib::as_any_impl;
 use masq_lib::constants::NODE_NOT_RUNNING_ERROR;
+use masq_lib::implement_as_any;
 use masq_lib::messages::{UiConfigurationRequest, UiConfigurationResponse};
 use masq_lib::short_writeln;
 #[cfg(test)]
@@ -65,7 +65,7 @@ impl Command for ConfigurationCommand {
         }
     }
 
-    as_any_impl!();
+    implement_as_any!();
 }
 
 impl ConfigurationCommand {

@@ -4,9 +4,7 @@ use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
-use crate::sub_lib::accountant::{
-    AccountantConfig, PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET,
-};
+use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET};
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
@@ -20,11 +18,10 @@ use itertools::Itertools;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{DEFAULT_CHAIN, MASQ_URL_PREFIX};
 use masq_lib::logger::Logger;
-use masq_lib::multi_config::make_arg_matches_accesible;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::{ConfiguratorError, ParamError};
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
-use masq_lib::utils::{AutomapProtocol, ExpectValue, WrapResult};
+use masq_lib::utils::{AutomapProtocol, ExpectValue};
 use rustc_hex::FromHex;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
@@ -403,7 +400,7 @@ fn validate_descriptors_from_user(
                     ))
                 }
             }
-            Err(e) => ParamError::new("neighbors", &e).wrap_to_err()
+            Err(e) => Err(ParamError::new("neighbors", &e))
         }
     })
         .collect_vec()
@@ -471,17 +468,6 @@ fn configure_accountant_config(
     config: &mut BootstrapperConfig,
     persist_config: &mut dyn PersistentConfiguration,
 ) -> Result<(), ConfiguratorError> {
-    let suppress_initial_scans =
-        value_m!(multi_config, "scans", String).unwrap_or_else(|| "on".to_string()) == *"off";
-
-    let scan_intervals = process_combined_params(
-        "scan-intervals",
-        multi_config,
-        persist_config,
-        |str: &str| ScanIntervals::try_from(str),
-        |pc: &dyn PersistentConfiguration| pc.scan_intervals(),
-        |pc: &mut dyn PersistentConfiguration, intervals| pc.set_scan_intervals(intervals),
-    )?;
     let payment_thresholds = process_combined_params(
         "payment-thresholds",
         multi_config,
@@ -493,13 +479,21 @@ fn configure_accountant_config(
 
     check_payment_thresholds(&payment_thresholds)?;
 
-    let accountant_config = AccountantConfig {
-        scan_intervals,
-        payment_thresholds,
-        suppress_initial_scans,
-        when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
-    };
-    config.accountant_config_opt = Some(accountant_config);
+    let scan_intervals = process_combined_params(
+        "scan-intervals",
+        multi_config,
+        persist_config,
+        |str: &str| ScanIntervals::try_from(str),
+        |pc: &dyn PersistentConfiguration| pc.scan_intervals(),
+        |pc: &mut dyn PersistentConfiguration, intervals| pc.set_scan_intervals(intervals),
+    )?;
+    let suppress_initial_scans =
+        value_m!(multi_config, "scans", String).unwrap_or_else(|| "on".to_string()) == *"off";
+
+    config.payment_thresholds_opt = Some(payment_thresholds);
+    config.scan_intervals_opt = Some(scan_intervals);
+    config.suppress_initial_scans = suppress_initial_scans;
+    config.when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
     Ok(())
 }
 
@@ -610,7 +604,7 @@ fn is_user_specified(multi_config: &MultiConfig, parameter: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::accountant::ThresholdUtils;
+    use crate::accountant::dao_utils::ThresholdUtils;
     use crate::apps::app_node;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::database::db_initializer::DbInitializationConfig;
@@ -621,7 +615,7 @@ mod tests {
     use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
-    use crate::sub_lib::utils::make_new_test_multi_config;
+    use crate::sub_lib::utils::make_new_multi_config;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::{
@@ -663,7 +657,7 @@ mod tests {
     #[test]
     fn make_neighborhood_config_standard_happy_path() {
         running_test();
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
@@ -711,7 +705,7 @@ mod tests {
     #[test]
     fn make_neighborhood_config_standard_missing_ip() {
         running_test();
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
@@ -745,7 +739,7 @@ mod tests {
     #[test]
     fn make_neighborhood_config_originate_only_doesnt_need_ip() {
         running_test();
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
@@ -800,7 +794,7 @@ mod tests {
     #[test]
     fn make_neighborhood_config_originate_only_does_need_at_least_one_neighbor() {
         running_test();
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
@@ -823,7 +817,7 @@ mod tests {
     #[test]
     fn make_neighborhood_config_consume_only_doesnt_need_ip() {
         running_test();
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
@@ -875,7 +869,7 @@ mod tests {
     #[test]
     fn make_neighborhood_config_consume_only_rejects_dns_servers_and_needs_at_least_one_neighbor() {
         running_test();
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
@@ -910,7 +904,7 @@ mod tests {
     #[test]
     fn make_neighborhood_config_zero_hop_doesnt_need_ip_or_neighbors() {
         running_test();
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
@@ -938,7 +932,7 @@ mod tests {
     #[test]
     fn make_neighborhood_config_zero_hop_cant_tolerate_ip() {
         running_test();
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
@@ -1427,7 +1421,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
 
         subject
             .unprivileged_parse_args(
@@ -1501,7 +1495,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
         let mut persistent_config = configure_default_persistent_config(
             RATE_PACK | ACCOUNTANT_CONFIG_PARAMS | MAPPING_PROTOCOL,
         )
@@ -1549,7 +1543,7 @@ mod tests {
         config.db_password_opt = Some("password".to_string());
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
         let past_neighbors_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_configuration = {
@@ -1609,7 +1603,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
         let mut persistent_configuration = {
             let config = make_persistent_config(None, None, None, None, None, None)
                 .blockchain_service_url_result(Ok(Some("https://infura.io/ID".to_string())));
@@ -1639,7 +1633,7 @@ mod tests {
         let mut config = BootstrapperConfig::new();
         let vcls: Vec<Box<dyn VirtualCommandLine>> =
             vec![Box::new(CommandLineVcl::new(args.into()))];
-        let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
         let set_mapping_protocol_params_arc = Arc::new(Mutex::new(vec![]));
         let mut persistent_config = configure_default_persistent_config(0b0000_1101)
             .mapping_protocol_result(Ok(Some(AutomapProtocol::Pcp)))
@@ -1689,7 +1683,7 @@ mod tests {
             Box::new(faux_environment),
             Box::new(CommandLineVcl::new(args.into())),
         ];
-        let multi_config = make_new_test_multi_config(&app_node(), vcls).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vcls).unwrap();
         let subject = UnprivilegedParseArgsConfigurationDaoReal {};
 
         subject
@@ -1756,25 +1750,29 @@ mod tests {
             )
             .unwrap();
 
-        let actual_accountant_config = config.accountant_config_opt.unwrap();
-        let expected_accountant_config = AccountantConfig {
-            scan_intervals: ScanIntervals {
-                pending_payable_scan_interval: Duration::from_secs(180),
-                payable_scan_interval: Duration::from_secs(150),
-                receivable_scan_interval: Duration::from_secs(130),
-            },
-            payment_thresholds: PaymentThresholds {
-                threshold_interval_sec: 1000,
-                debt_threshold_gwei: 100000,
-                payment_grace_period_sec: 1000,
-                maturity_threshold_sec: 10000,
-                permanent_debt_allowed_gwei: 20000,
-                unban_below_gwei: 20000,
-            },
-            suppress_initial_scans: false,
-            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
+        let expected_scan_intervals = ScanIntervals {
+            pending_payable_scan_interval: Duration::from_secs(180),
+            payable_scan_interval: Duration::from_secs(150),
+            receivable_scan_interval: Duration::from_secs(130),
         };
-        assert_eq!(actual_accountant_config, expected_accountant_config);
+        let expected_payment_thresholds = PaymentThresholds {
+            threshold_interval_sec: 1000,
+            debt_threshold_gwei: 100000,
+            payment_grace_period_sec: 1000,
+            maturity_threshold_sec: 10000,
+            permanent_debt_allowed_gwei: 20000,
+            unban_below_gwei: 20000,
+        };
+        assert_eq!(
+            config.payment_thresholds_opt,
+            Some(expected_payment_thresholds)
+        );
+        assert_eq!(config.scan_intervals_opt, Some(expected_scan_intervals));
+        assert_eq!(config.suppress_initial_scans, false);
+        assert_eq!(
+            config.when_pending_too_long_sec,
+            DEFAULT_PENDING_TOO_LONG_SEC
+        );
         let set_scan_intervals_params = set_scan_intervals_params_arc.lock().unwrap();
         assert_eq!(*set_scan_intervals_params, vec!["180|150|130".to_string()]);
         let set_payment_thresholds_params = set_payment_thresholds_params_arc.lock().unwrap();
@@ -1824,25 +1822,34 @@ mod tests {
             )
             .unwrap();
 
-        let actual_accountant_config = config.accountant_config_opt.unwrap();
-        let expected_accountant_config = AccountantConfig {
-            scan_intervals: ScanIntervals {
-                pending_payable_scan_interval: Duration::from_secs(180),
-                payable_scan_interval: Duration::from_secs(150),
-                receivable_scan_interval: Duration::from_secs(130),
-            },
-            payment_thresholds: PaymentThresholds {
-                threshold_interval_sec: 1000,
-                debt_threshold_gwei: 100000,
-                payment_grace_period_sec: 1000,
-                maturity_threshold_sec: 1000,
-                permanent_debt_allowed_gwei: 20000,
-                unban_below_gwei: 20000,
-            },
-            suppress_initial_scans: false,
-            when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
+        let expected_payment_thresholds = PaymentThresholds {
+            threshold_interval_sec: 1000,
+            debt_threshold_gwei: 100000,
+            payment_grace_period_sec: 1000,
+            maturity_threshold_sec: 1000,
+            permanent_debt_allowed_gwei: 20000,
+            unban_below_gwei: 20000,
         };
-        assert_eq!(actual_accountant_config, expected_accountant_config);
+        let expected_scan_intervals = ScanIntervals {
+            pending_payable_scan_interval: Duration::from_secs(180),
+            payable_scan_interval: Duration::from_secs(150),
+            receivable_scan_interval: Duration::from_secs(130),
+        };
+        let expected_suppress_initial_scans = false;
+        let expected_when_pending_too_long_sec = DEFAULT_PENDING_TOO_LONG_SEC;
+        assert_eq!(
+            config.payment_thresholds_opt,
+            Some(expected_payment_thresholds)
+        );
+        assert_eq!(config.scan_intervals_opt, Some(expected_scan_intervals));
+        assert_eq!(
+            config.suppress_initial_scans,
+            expected_suppress_initial_scans
+        );
+        assert_eq!(
+            config.when_pending_too_long_sec,
+            expected_when_pending_too_long_sec
+        );
         //no prepared results for the setter methods, that is they were uncalled
     }
 
@@ -2092,7 +2099,7 @@ mod tests {
             Box::new(CommandLineVcl::new(args.into())),
         ];
 
-        let result = make_new_test_multi_config(&app_node(), vcls).err().unwrap();
+        let result = make_new_multi_config(&app_node(), vcls).err().unwrap();
 
         assert_eq!(
             result,
@@ -2317,7 +2324,7 @@ mod tests {
 
     #[test]
     fn compute_mapping_protocol_returns_saved_value_if_nothing_supplied() {
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(ArgsBuilder::new().into()))],
         )
@@ -2334,7 +2341,7 @@ mod tests {
 
     #[test]
     fn compute_mapping_protocol_saves_computed_value_if_different() {
-        let multi_config = make_new_test_multi_config(
+        let multi_config = make_new_multi_config(
             &app_node(),
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
@@ -2421,7 +2428,7 @@ mod tests {
 
     #[test]
     fn get_public_ip_returns_sentinel_if_multiconfig_provides_none() {
-        let multi_config = make_new_test_multi_config(&app_node(), vec![]).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vec![]).unwrap();
 
         let result = get_public_ip(&multi_config);
 
@@ -2432,7 +2439,7 @@ mod tests {
     fn get_public_ip_uses_multi_config() {
         let args = ArgsBuilder::new().param("--ip", "4.3.2.1");
         let vcl = Box::new(CommandLineVcl::new(args.into()));
-        let multi_config = make_new_test_multi_config(&app_node(), vec![vcl]).unwrap();
+        let multi_config = make_new_multi_config(&app_node(), vec![vcl]).unwrap();
 
         let result = get_public_ip(&multi_config);
 
@@ -2457,13 +2464,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(
-            bootstrapper_config
-                .accountant_config_opt
-                .unwrap()
-                .suppress_initial_scans,
-            true
-        );
+        assert_eq!(bootstrapper_config.suppress_initial_scans, true);
     }
 
     #[test]
@@ -2484,13 +2485,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(
-            bootstrapper_config
-                .accountant_config_opt
-                .unwrap()
-                .suppress_initial_scans,
-            false
-        );
+        assert_eq!(bootstrapper_config.suppress_initial_scans, false);
     }
 
     #[test]
@@ -2511,13 +2506,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(
-            bootstrapper_config
-                .accountant_config_opt
-                .unwrap()
-                .suppress_initial_scans,
-            false
-        );
+        assert_eq!(bootstrapper_config.suppress_initial_scans, false);
     }
 
     fn make_persistent_config(

@@ -3,18 +3,17 @@
 use crate::accountant::big_int_processing::big_int_divider::BigIntDivider;
 use crate::accountant::payable_dao::PayableAccount;
 use crate::accountant::receivable_dao::ReceivableAccount;
-use crate::accountant::{checked_conversion, sign_conversion};
+use crate::accountant::{checked_conversion, gwei_to_wei, sign_conversion};
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::{
     connection_or_panic, DbInitializationConfig, DbInitializerReal,
 };
+use crate::sub_lib::accountant::PaymentThresholds;
 use masq_lib::constants::WEIS_OF_GWEI;
 use masq_lib::messages::{
     RangeQuery, TopRecordsConfig, TopRecordsOrdering, UiPayableAccount, UiReceivableAccount,
 };
-use masq_lib::utils::ExpectValue;
 use rusqlite::{Row, ToSql};
-use std::cell::RefCell;
 use std::fmt::Display;
 use std::iter::FlatMap;
 use std::path::{Path, PathBuf};
@@ -42,14 +41,14 @@ pub fn from_time_t(time_t: i64) -> SystemTime {
 
 pub struct DaoFactoryReal {
     pub data_directory: PathBuf,
-    pub init_config: RefCell<Option<DbInitializationConfig>>,
+    pub init_config: DbInitializationConfig,
 }
 
 impl DaoFactoryReal {
     pub fn new(data_directory: &Path, init_config: DbInitializationConfig) -> Self {
         Self {
             data_directory: data_directory.to_path_buf(),
-            init_config: RefCell::new(Some(init_config)),
+            init_config,
         }
     }
 
@@ -57,7 +56,7 @@ impl DaoFactoryReal {
         connection_or_panic(
             &DbInitializerReal::default(),
             &self.data_directory,
-            self.init_config.take().expectv("Db init config"),
+            self.init_config.clone(),
         )
     }
 }
@@ -343,15 +342,81 @@ pub fn sum_i128_values_from_table(
         .sum()
 }
 
+pub struct ThresholdUtils {}
+
+impl ThresholdUtils {
+    pub fn slope(payment_thresholds: &PaymentThresholds) -> i128 {
+        /*
+        Slope is an integer, rather than a float, to improve performance. Since there are
+        computations that divide by the slope, it cannot be allowed to be zero; but since it's
+        an integer, it can't get any closer to zero than -1.
+
+        If the numerator of this computation is less than the denominator, the slope will be
+        calculated as 0; therefore, .permanent_debt_allowed_gwei must be less than
+        .debt_threshold_gwei, so that the numerator will be no greater than -10^9 (-gwei_to_wei(1)),
+        and the denominator must be less than or equal to 10^9.
+
+        These restrictions do not seem over-strict, since having .permanent_debt_allowed greater
+        than or equal to .debt_threshold_gwei would result in chaos, and setting
+        .threshold_interval_sec over 10^9 would mean continuing to declare debts delinquent after
+        more than 31 years.
+
+        If payment_thresholds are ever configurable by the user, these validations should be done
+        on the values before they are accepted.
+        */
+
+        (gwei_to_wei::<i128, u64>(payment_thresholds.permanent_debt_allowed_gwei)
+            - gwei_to_wei::<i128, u64>(payment_thresholds.debt_threshold_gwei))
+            / payment_thresholds.threshold_interval_sec as i128
+    }
+
+    pub fn calculate_finite_debt_limit_by_age(
+        payment_thresholds: &PaymentThresholds,
+        debt_age_s: u64,
+    ) -> u128 {
+        if Self::qualifies_for_permanent_debt_limit(debt_age_s, payment_thresholds) {
+            return gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei);
+        };
+        let m = ThresholdUtils::slope(payment_thresholds);
+        let b = ThresholdUtils::compute_theoretical_interception_with_y_axis(
+            m,
+            payment_thresholds.maturity_threshold_sec as i128,
+            gwei_to_wei(payment_thresholds.debt_threshold_gwei),
+        );
+        let y = m * debt_age_s as i128 + b;
+        y as u128
+    }
+
+    fn compute_theoretical_interception_with_y_axis(
+        m: i128, //is negative
+        maturity_threshold_sec: i128,
+        debt_threshold_wei: i128,
+    ) -> i128 {
+        debt_threshold_wei - (maturity_threshold_sec * m)
+    }
+
+    fn qualifies_for_permanent_debt_limit(
+        debt_age_s: u64,
+        payment_thresholds: &PaymentThresholds,
+    ) -> bool {
+        debt_age_s
+            > (payment_thresholds.maturity_threshold_sec
+                + payment_thresholds.threshold_interval_sec)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
+    use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
     use crate::test_utils::make_wallet;
+    use masq_lib::constants::MASQ_TOTAL_SUPPLY;
     use masq_lib::messages::TopRecordsOrdering::Balance;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use rusqlite::types::{ToSqlOutput, Value};
     use rusqlite::{Connection, OpenFlags};
+    use std::collections::HashMap;
     use std::time::UNIX_EPOCH;
 
     #[test]
@@ -544,5 +609,206 @@ mod tests {
         let iterator = collection.into_iter();
 
         let _ = iterator.vigilant_flatten().collect::<Vec<_>>();
+    }
+
+    fn gap_tester(payment_thresholds: &PaymentThresholds) -> (u64, u64) {
+        let mut counts_of_unique_elements: HashMap<u64, usize> = HashMap::new();
+        (1_u64..20)
+            .map(|to_add| {
+                ThresholdUtils::calculate_finite_debt_limit_by_age(
+                    &payment_thresholds,
+                    1500 + to_add,
+                ) as u64
+            })
+            .for_each(|point_height| {
+                counts_of_unique_elements
+                    .entry(point_height)
+                    .and_modify(|q| *q += 1)
+                    .or_insert(1);
+            });
+
+        let mut heights_and_counts = counts_of_unique_elements.drain().collect::<Vec<_>>();
+        heights_and_counts.sort_by_key(|(height, _)| (u64::MAX - height));
+        let mut counts_of_groups_of_the_same_size: HashMap<usize, (u64, usize)> = HashMap::new();
+        let mut previous_height =
+            ThresholdUtils::calculate_finite_debt_limit_by_age(&payment_thresholds, 1500) as u64;
+        heights_and_counts
+            .into_iter()
+            .for_each(|(point_height, unique_count)| {
+                let height_change = if point_height <= previous_height {
+                    previous_height - point_height
+                } else {
+                    panic!("unexpected trend; previously: {previous_height}, now: {point_height}")
+                };
+                counts_of_groups_of_the_same_size
+                    .entry(unique_count)
+                    .and_modify(|(_height_change, occurrence_so_far)| *occurrence_so_far += 1)
+                    .or_insert((height_change, 1));
+                previous_height = point_height;
+            });
+
+        let mut sortable = counts_of_groups_of_the_same_size
+            .drain()
+            .collect::<Vec<_>>();
+        sortable.sort_by_key(|(_key, (_height_change, occurrence))| *occurrence);
+
+        let (number_of_seconds_detected, (height_change, occurrence)) =
+            sortable.last().expect("no values to analyze");
+        //checking if the sample of undistorted results (consist size groups) has enough weight compared to 20 tries from the beginning
+        if number_of_seconds_detected * occurrence >= 15 {
+            (*number_of_seconds_detected as u64, *height_change)
+        } else {
+            panic!("couldn't provide a relevant amount of data for the analysis")
+        }
+    }
+
+    fn assert_on_height_granularity_with_advancing_time(
+        description_of_given_pt: &str,
+        payment_thresholds: &PaymentThresholds,
+        expected_height_change_wei: u64,
+    ) {
+        let (seconds_needed_for_smallest_change_in_height, absolute_height_change_wei) =
+            gap_tester(&payment_thresholds);
+
+        assert_eq!(
+            seconds_needed_for_smallest_change_in_height,
+            1,
+            "while testing {} we expected that these thresholds: {:?} will require only 1 s until \
+             we see the height change but computed {} s instead",
+            description_of_given_pt,
+            payment_thresholds,
+            seconds_needed_for_smallest_change_in_height
+        );
+        assert_eq!(
+            absolute_height_change_wei,
+            expected_height_change_wei,
+            "while testing {} we expected that these thresholds: {:?} will cause a height change \
+             of {} wei as a result of advancement in time by {} s but the true result is {}",
+            description_of_given_pt,
+            payment_thresholds,
+            expected_height_change_wei,
+            seconds_needed_for_smallest_change_in_height,
+            absolute_height_change_wei
+        )
+    }
+
+    #[test]
+    fn testing_granularity_calculate_sloped_threshold_by_time() {
+        let payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 1000,
+            payment_grace_period_sec: 0,
+            permanent_debt_allowed_gwei: 100,
+            debt_threshold_gwei: 10_000,
+            threshold_interval_sec: 10_000,
+            unban_below_gwei: 100,
+        };
+
+        assert_on_height_granularity_with_advancing_time(
+            "135° slope",
+            &payment_thresholds,
+            990_000_000,
+        );
+
+        let payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 1000,
+            payment_grace_period_sec: 0,
+            permanent_debt_allowed_gwei: 100,
+            debt_threshold_gwei: 3_420,
+            threshold_interval_sec: 10_000,
+            unban_below_gwei: 100,
+        };
+
+        assert_on_height_granularity_with_advancing_time(
+            "160° slope",
+            &payment_thresholds,
+            332_000_000,
+        );
+
+        let payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 1000,
+            payment_grace_period_sec: 0,
+            permanent_debt_allowed_gwei: 100,
+            debt_threshold_gwei: 875,
+            threshold_interval_sec: 10_000,
+            unban_below_gwei: 100,
+        };
+
+        assert_on_height_granularity_with_advancing_time(
+            "175° slope",
+            &payment_thresholds,
+            77_500_000,
+        );
+    }
+
+    #[test]
+    fn checking_chosen_values_for_the_payment_thresholds_defaults_on_height_values_granularity() {
+        let payment_thresholds = *DEFAULT_PAYMENT_THRESHOLDS;
+
+        assert_on_height_granularity_with_advancing_time(
+            "default thresholds",
+            &payment_thresholds,
+            23_148_148_148_148,
+        );
+    }
+
+    #[test]
+    fn slope_has_loose_enough_limitations_to_allow_work_with_number_bigger_than_masq_token_max_supply(
+    ) {
+        //max masq token supply by August 2022: 37,500,000
+        let payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 20,
+            payment_grace_period_sec: 33,
+            permanent_debt_allowed_gwei: 1,
+            debt_threshold_gwei: MASQ_TOTAL_SUPPLY * WEIS_OF_GWEI as u64,
+            threshold_interval_sec: 1,
+            unban_below_gwei: 0,
+        };
+
+        let slope = ThresholdUtils::slope(&payment_thresholds);
+
+        assert_eq!(slope, -37499999999999999000000000);
+        let check = {
+            let y_interception = ThresholdUtils::compute_theoretical_interception_with_y_axis(
+                slope,
+                payment_thresholds.maturity_threshold_sec as i128,
+                gwei_to_wei(payment_thresholds.debt_threshold_gwei),
+            );
+            slope * (payment_thresholds.maturity_threshold_sec + 1) as i128 + y_interception
+        };
+        assert_eq!(check, WEIS_OF_GWEI)
+    }
+
+    #[test]
+    fn slope_after_its_end_turns_into_permanent_debt_allowed() {
+        let payment_thresholds = PaymentThresholds {
+            maturity_threshold_sec: 1000,
+            payment_grace_period_sec: 444,
+            permanent_debt_allowed_gwei: 44,
+            debt_threshold_gwei: 8888,
+            threshold_interval_sec: 11111,
+            unban_below_gwei: 0,
+        };
+
+        let right_at_the_end = ThresholdUtils::calculate_finite_debt_limit_by_age(
+            &payment_thresholds,
+            payment_thresholds.maturity_threshold_sec
+                + payment_thresholds.threshold_interval_sec
+                + 1,
+        );
+        let a_certain_distance_further = ThresholdUtils::calculate_finite_debt_limit_by_age(
+            &payment_thresholds,
+            payment_thresholds.maturity_threshold_sec
+                + payment_thresholds.threshold_interval_sec
+                + 1234,
+        );
+
+        assert_eq!(
+            right_at_the_end,
+            gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei)
+        );
+        assert_eq!(
+            a_certain_distance_further,
+            gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei)
+        )
     }
 }

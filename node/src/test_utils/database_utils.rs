@@ -5,7 +5,8 @@
 use crate::accountant::dao_utils::VigilantRusqliteFlatten;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::database::db_initializer::ExternalData;
-use crate::database::db_migrations::DbMigrator;
+
+use crate::database::db_migrations::db_migrator::DbMigrator;
 use masq_lib::logger::Logger;
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::NeighborhoodModeLight;
