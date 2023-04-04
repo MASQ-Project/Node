@@ -155,7 +155,7 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 
     #[test]
     fn find_routers_works_when_command_produces_stderr_output() {
-        let mut find_routers_command =
+        let find_routers_command =
             FindRoutersCommandMock::new().execute_result(Err("Booga!".to_string()));
 
         let result = linux_find_routers(&find_routers_command);

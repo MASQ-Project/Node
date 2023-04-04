@@ -652,7 +652,7 @@ impl MappingTransactorReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::comm_layer::pcp_pmp_common::{ANNOUNCEMENT_PORT, make_router_connections, ROUTER_PORT};
+    use crate::comm_layer::pcp_pmp_common::{make_router_connections, ROUTER_PORT};
     use crate::comm_layer::{AutomapErrorCause, LocalIpFinder};
     use crate::mocks::{
         FreePortFactoryMock, LocalIpFinderMock, TestMulticastSocketHolder,
@@ -669,8 +669,8 @@ mod tests {
     use socket2::{Domain, SockAddr, Socket, Type};
     use std::cell::RefCell;
     use std::collections::HashSet;
-    use std::io::{Error, ErrorKind};
-    use std::net::{Ipv6Addr, SocketAddr, SocketAddrV4, UdpSocket};
+    use std::io::{ErrorKind};
+    use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -1393,7 +1393,6 @@ mod tests {
         subject.router_port = router_connections.router_port;
         subject.announcement_multicast_group = router_connections.holder.group;
         subject.announcement_port = router_connections.announcement_port;
-        let factory = UdpSocketWrapperFactoryReal::new();
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
         let change_handler = move |change| {
@@ -1479,7 +1478,6 @@ mod tests {
             IpAddr::V4(Ipv4Addr::new(224, 0, 0, announce_socket_holder.group)),
             announcement_port,
         );
-        let factory = UdpSocketWrapperFactoryReal::new();
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
         let change_handler = move |change| {
@@ -2256,9 +2254,9 @@ mod tests {
         let message = b"Taxation is theft!";
         socket_sender.send_to(message, multicast_address).unwrap();
         let mut buf = [0u8; 100];
-        let (size, source) = socket_receiver_1.recv_from(&mut buf).unwrap();
+        let (size, _) = socket_receiver_1.recv_from(&mut buf).unwrap();
         assert_eq!(&buf[..size], message);
-        let (size, source) = socket_receiver_2.recv_from(&mut buf).unwrap();
+        let (size, _) = socket_receiver_2.recv_from(&mut buf).unwrap();
         assert_eq!(&buf[..size], message);
     }
 }

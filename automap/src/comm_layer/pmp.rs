@@ -16,7 +16,7 @@ use std::any::Any;
 use std::convert::TryFrom;
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
@@ -693,10 +693,10 @@ impl MappingAdder for MappingAdderReal {
 mod tests {
     use super::*;
     use crate::comm_layer::pcp_pmp_common::{make_router_connections, MappingConfig, UdpSocket};
-    use crate::comm_layer::{AutomapErrorCause, LocalIpFinder, LocalIpFinderReal};
+    use crate::comm_layer::{AutomapErrorCause};
     use crate::control_layer::automap_control::AutomapChange;
     use crate::mocks::{
-        FreePortFactoryMock, TestMulticastSocketHolder, UdpSocketWrapperFactoryMock,
+        FreePortFactoryMock, UdpSocketWrapperFactoryMock,
         UdpSocketWrapperMock,
     };
     use crate::protocols::pmp::get_packet::GetOpcodeData;
@@ -706,7 +706,7 @@ mod tests {
     use lazy_static::lazy_static;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use masq_lib::utils::{find_free_port, localhost, AutomapProtocol};
+    use masq_lib::utils::{find_free_port, AutomapProtocol};
     use std::cell::RefCell;
     use std::io::ErrorKind;
     use std::net::{Ipv4Addr, SocketAddr};
@@ -1457,7 +1457,6 @@ mod tests {
         subject.announcement_multicast_group = router_connections.holder.group;
         subject.announcement_port = router_connections.announcement_port;
         subject.read_timeout_millis = 10;
-        let factory = UdpSocketWrapperFactoryReal::new();
         let changes_arc = Arc::new(Mutex::new(vec![]));
         let changes_arc_inner = changes_arc.clone();
         let change_handler = move |change| {
@@ -1478,7 +1477,6 @@ mod tests {
             ))
             .unwrap();
         thread::sleep(Duration::from_millis(50)); // wait for first announcement read to time out
-        let mut buffer = [0u8; 100];
         let announce_socket = &router_connections.holder.socket;
         announce_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
@@ -1561,8 +1559,7 @@ mod tests {
         .unwrap();
         thread::sleep(Duration::from_millis(50)); // wait for first announcement read to time out
         assert!(subject.housekeeper_commander_opt.is_some());
-        let announcement_receive_ip = router_connections.multicast_address.ip();
-        let announcement_send_socket = &router_connections.holder.socket;;
+        let announcement_send_socket = &router_connections.holder.socket;
         announcement_send_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();

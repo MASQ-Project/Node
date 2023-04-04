@@ -9,9 +9,11 @@ use std::thread;
 #[allow(dead_code)]
 //multicast IP address must that is shared between any number of subscribers
 const MULTICAST_GROUP_ADDRESS_1: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 2);
+#[cfg(test)]
 const MULTICAST_GROUP_ADDRESS_2: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 3);
 //port that multicast group subscribers will bind to and communicate with
 const MCAST_PORT_1: u16 = 8888;
+#[cfg(test)]
 const MCAST_PORT_2: u16 = 8889;
 //unspecified interface here resolves into any available interface, if multiple interfaces are present it will try to select "default" interface first
 const MCAST_INTERFACE: Ipv4Addr = Ipv4Addr::UNSPECIFIED;
@@ -108,7 +110,7 @@ fn multicast_udp_test() {
     //socket address to use for send_to later on, must be the same multicast group and port we set for the receiver
     let socket_addr = SocketAddr::new(MULTICAST_GROUP_ADDRESS_2.into(), MCAST_PORT_2);
     //creates 3 receiver sockets and buffers
-    let mut receivers = vec![
+    let receivers = vec![
         create_socket(MULTICAST_GROUP_ADDRESS_2, MCAST_PORT_2),
         create_socket(MULTICAST_GROUP_ADDRESS_2, MCAST_PORT_2),
         create_socket(MULTICAST_GROUP_ADDRESS_2, MCAST_PORT_2),

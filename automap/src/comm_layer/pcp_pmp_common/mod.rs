@@ -363,9 +363,9 @@ pub mod tests {
             .send_to(message, SocketAddr::V4(multicast_address))
             .unwrap();
         let mut buf = [0u8; 100];
-        let (size, source) = socket_receiver_1.recv_from(&mut buf).unwrap();
+        let (size, _) = socket_receiver_1.recv_from(&mut buf).unwrap();
         assert_eq!(&buf[..size], message);
-        let (size, source) = socket_receiver_2.recv_from(&mut buf).unwrap();
+        let (size, _) = socket_receiver_2.recv_from(&mut buf).unwrap();
         assert_eq!(&buf[..size], message);
     }
 
@@ -374,7 +374,7 @@ pub mod tests {
         let multicast_port = find_free_port();
         let multicast_group = 254u8;
         let subject = UdpSocketWrapperFactoryReal::new();
-        let blocker_socket = subject.make(SocketAddr::new(
+        let _blocker_socket = subject.make(SocketAddr::new(
             IpAddr::V4(Ipv4Addr::UNSPECIFIED),
             multicast_port,
         ));
