@@ -616,10 +616,6 @@ impl PersistentConfigurationMock {
     #[cfg(test)]
     set_arbitrary_id_stamp!();
 
-    // fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-    //     *self.arbitrary_id_stamp_opt.as_ref().unwrap()
-    // }
-
     fn result_from<T: Clone>(results: &RefCell<Vec<T>>) -> T {
         let mut borrowed = results.borrow_mut();
         if borrowed.is_empty() {

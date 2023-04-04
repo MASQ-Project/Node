@@ -303,7 +303,7 @@ mod tests {
             blockchain_service_url_opt: Some("https://infura.io/ID".to_string()),
             current_schema_version: "schema version".to_string(),
             clandestine_port: 1234,
-            chain_name: "polyton-mumbai".to_string(),
+            chain_name: "polygon-mumbai".to_string(),
             gas_price: 2345,
             neighborhood_mode: "standard".to_string(),
             consuming_wallet_private_key_opt: Some("consuming wallet private key".to_string()),
@@ -361,7 +361,7 @@ mod tests {
                 "\
 |NAME                              VALUE\n\
 |Blockchain service URL:           https://infura.io/ID\n\
-|Chain:                            polyton-mumbai\n\
+|Chain:                            polygon-mumbai\n\
 |Clandestine port:                 1234\n\
 |Consuming wallet private key:     consuming wallet private key\n\
 |Current schema version:           schema version\n\

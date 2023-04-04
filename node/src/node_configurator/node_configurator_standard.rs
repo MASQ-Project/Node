@@ -1500,16 +1500,15 @@ mod tests {
         privileged_parse_args(&DirsWrapperReal {}, &multi_config, &mut config).unwrap();
 
         #[cfg(target_os = "linux")]
-        assert_eq!(
-            config.data_directory,
-            PathBuf::from("/home/booga/.local/share/MASQ")
-                .join(DEFAULT_CHAIN.rec().literal_identifier)
-        );
+        let expected_root_string = "/home/booga/.local/share/MASQ";
 
         #[cfg(target_os = "macos")]
+        let expected_root_string = "/home/booga/Library/Application Support/MASQ";
+
         assert_eq!(
             config.data_directory,
-            PathBuf::from("/home/booga/Library/Application Support/MASQ").join(DEFAULT_CHAIN_NAME)
+            PathBuf::from(expected_root_string)
+                .join(DEFAULT_CHAIN.rec().literal_identifier)
         );
     }
 

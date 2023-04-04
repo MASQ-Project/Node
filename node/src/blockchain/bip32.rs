@@ -34,20 +34,6 @@ impl Into<EthsignSecretKey> for &Bip32ECKeyProvider {
 impl Bip32ECKeyProvider {
     const SECRET_KEY_LENGTH: usize = 32;
 
-    // pub fn from_raw(seed: &[u8], derivation_path: &str) -> Result<Self, String> {
-    //     match ExtendedPrivKey::derive(seed, derivation_path) {
-    //         Ok(extended_priv_key) => match SecretKey::from_raw(&extended_priv_key.secret()) {
-    //             Ok(secret) => Ok(Self::from(secret)),
-    //             Err(e) => Err(format!("{:?}", e)),
-    //         },
-    //         Err(e) => Err(format!("{:?}", e)),
-    //     }
-    // }
-    //
-    // pub fn extended_private_key(seed: &Seed, derivation_path: &str) -> ExtendedPrivKey {
-    //     ExtendedPrivKey::derive(seed.as_bytes(), derivation_path).expect("Expected a valid path")
-    // }
-
     pub fn from_raw_secret(secret_raw: &[u8]) -> Result<Self, String> {
         Self::validate_raw_input(secret_raw)?;
         Ok(Bip32ECKeyProvider {

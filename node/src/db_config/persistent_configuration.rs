@@ -315,19 +315,6 @@ impl PersistentConfiguration for PersistentConfigurationReal {
         self.simple_set_method("gas_price", gas_price)
     }
 
-    // fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
-    //     let result = self
-    //         .dao
-    //         .get("mapping_protocol")?
-    //         .value_opt
-    //         .map(|val| AutomapProtocol::from_str(&val));
-    //     match result {
-    //         None => Ok(None),
-    //         Some(Ok(protocol)) => Ok(Some(protocol)),
-    //         Some(Err(msg)) => Err(PersistentConfigError::DatabaseError(msg)),
-    //     }
-    // }
-
     fn mapping_protocol(&self) -> Result<Option<AutomapProtocol>, PersistentConfigError> {
         let result = self
             .get("mapping_protocol")?

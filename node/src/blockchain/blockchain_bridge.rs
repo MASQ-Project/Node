@@ -1446,12 +1446,4 @@ mod tests {
 
         prove_that_crash_request_handler_is_hooked_up(subject, CRASH_KEY);
     }
-
-    /* Put this back in if it's needed
-    fn bc_from_wallet(consuming_wallet: Option<Wallet>) -> BootstrapperConfig {
-        let mut bc = BootstrapperConfig::new();
-        bc.consuming_wallet = consuming_wallet;
-        bc
-    }
-    */
 }
