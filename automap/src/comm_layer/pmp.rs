@@ -1530,16 +1530,14 @@ mod tests {
     }
 
     #[test]
-    #[ignore]
-    fn housekeeping_thread_works_old() {
+    fn housekeeping_thread_rejects_data_from_non_router_ip_addresses() {
         let _ = EnvironmentGuard::new();
-        let announcement_port = find_free_port();
-        let router_port = find_free_port();
-        let announce_port = find_free_port();
+        let mut router_connections = make_router_connections();
+        router_connections.router_ip = IpAddr::from_str("1.2.3.4").unwrap(); // won't match
         let mapping_adder = MappingAdderMock::new().add_mapping_result(Ok(1000));
         let mut subject = PmpTransactor::default();
-        subject.router_port = router_port;
-        subject.announcement_port = announcement_port;
+        subject.router_port = router_connections.router_port;
+        subject.announcement_port = router_connections.announcement_port;
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
         subject.read_timeout_millis = 10;
         let mapping_config = MappingConfig {
@@ -1553,111 +1551,20 @@ mod tests {
             changes_arc_inner.lock().unwrap().push(change);
         };
 
-        subject
-            .start_housekeeping_thread(Box::new(change_handler), localhost())
-            .unwrap();
-
-        subject
-            .housekeeper_commander_opt
-            .as_ref()
-            .unwrap()
-            .send(HousekeepingThreadCommand::InitializeMappingConfig(
-                mapping_config,
-            ))
-            .unwrap();
-        thread::sleep(Duration::from_millis(50)); // wait for first announcement read to time out
-        let announcement_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        todo!("Replace this with a multicast socket");
-        let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), announce_port)).unwrap();
-        announce_socket.set_broadcast(true).unwrap();
-        announce_socket
-            .connect(SocketAddr::new(announcement_ip, announcement_port))
-            .unwrap();
-        let mut packet = PmpPacket::default();
-        packet.opcode = Opcode::Get;
-        packet.direction = Direction::Response;
-        packet.result_code_opt = Some(ResultCode::Success);
-        packet.opcode_data = make_get_response(0, Ipv4Addr::from_str("1.2.3.4").unwrap());
-        let mut buffer = [0u8; 100];
-        let len_to_send = packet.marshal(&mut buffer).unwrap();
-        let mapping_target_address = SocketAddr::new(localhost(), router_port);
-        let mapping_socket = UdpSocket::bind(mapping_target_address).unwrap();
-        let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
-        assert_eq!(sent_len, len_to_send);
-        mapping_socket
-            .set_read_timeout(Some(Duration::from_millis(1000)))
-            .unwrap();
-        let (recv_len, remapping_socket_addr) = mapping_socket.recv_from(&mut buffer).unwrap();
-        let packet = PmpPacket::try_from(&buffer[0..recv_len]).unwrap();
-        assert_eq!(packet.opcode, Opcode::MapTcp);
-        let opcode_data: &MapOpcodeData = packet.opcode_data.as_any().downcast_ref().unwrap();
-        assert_eq!(opcode_data.external_port, 1234);
-        assert_eq!(opcode_data.internal_port, 1234);
-        let mut packet = PmpPacket::default();
-        packet.opcode = Opcode::MapTcp;
-        packet.direction = Direction::Response;
-        packet.result_code_opt = Some(ResultCode::Success);
-        packet.opcode_data = make_map_response(0, 1234, 1000);
-        let len_to_send = packet.marshal(&mut buffer).unwrap();
-        let sent_len = mapping_socket
-            .send_to(&buffer[0..len_to_send], remapping_socket_addr)
-            .unwrap();
-        assert_eq!(sent_len, len_to_send);
-        thread::sleep(Duration::from_millis(1)); // yield timeslice
-        let _ = subject.stop_housekeeping_thread();
-        assert!(subject.housekeeper_commander_opt.is_none());
-        let changes = changes_arc.lock().unwrap();
-        assert_eq!(
-            *changes,
-            vec![AutomapChange::NewIp(IpAddr::from_str("1.2.3.4").unwrap())]
-        );
-    }
-
-    #[test]
-    fn housekeeping_thread_rejects_data_from_non_router_ip_addresses() {
-        let _ = EnvironmentGuard::new();
-        let announcement_receive_port = find_free_port();
-        let router_port = find_free_port();
-        let announcement_send_port = find_free_port();
-        let router_ip = IpAddr::from_str("7.7.7.7").unwrap();
-        let mapping_adder = MappingAdderMock::new().add_mapping_result(Ok(1000));
-        let mut subject = PmpTransactor::default();
-        subject.router_port = router_port;
-        subject.announcement_port = announcement_receive_port;
-        subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
-        let mapping_config = MappingConfig {
-            hole_port: 1234,
-            next_lifetime: Duration::from_millis(321),
-            remap_interval: Duration::from_millis(0),
-        };
-        let changes_arc = Arc::new(Mutex::new(vec![]));
-        let changes_arc_inner = changes_arc.clone();
-        let change_handler = move |change| {
-            changes_arc_inner.lock().unwrap().push(change);
-        };
-
         let tx = subject
-            .start_housekeeping_thread(Box::new(change_handler), router_ip)
+            .start_housekeeping_thread(Box::new(change_handler), router_connections.router_ip)
             .unwrap();
 
         tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
             mapping_config,
         ))
         .unwrap();
+        thread::sleep(Duration::from_millis(50)); // wait for first announcement read to time out
         assert!(subject.housekeeper_commander_opt.is_some());
-        let announcement_receive_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        todo!("Replace this with a multicast socket");
-        let announcement_send_socket =
-            UdpSocket::bind(SocketAddr::new(localhost(), announcement_send_port)).unwrap();
+        let announcement_receive_ip = router_connections.multicast_address.ip();
+        let announcement_send_socket = &router_connections.holder.socket;;
         announcement_send_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
-            .unwrap();
-        announcement_send_socket.set_broadcast(true).unwrap();
-        announcement_send_socket
-            .connect(SocketAddr::new(
-                announcement_receive_ip,
-                announcement_receive_port,
-            ))
             .unwrap();
         let mut packet = PmpPacket::default();
         packet.opcode = Opcode::Get;
@@ -1667,7 +1574,7 @@ mod tests {
         let mut buffer = [0u8; 100];
         let len_to_send = packet.marshal(&mut buffer).unwrap();
         let sent_len = announcement_send_socket
-            .send(&buffer[0..len_to_send])
+            .send_to(&buffer[0..len_to_send], router_connections.multicast_address)
             .unwrap();
         assert_eq!(sent_len, len_to_send);
         thread::sleep(Duration::from_millis(1)); // yield timeslice
@@ -1681,15 +1588,13 @@ mod tests {
     fn housekeeping_thread_rejects_data_that_causes_parse_errors() {
         let _ = EnvironmentGuard::new();
         init_test_logging();
-        let change_handler_port = find_free_port();
-        let router_port = find_free_port();
-        let announce_port = find_free_port();
-        let router_ip = localhost();
+        let router_connections = make_router_connections();
         let mapping_adder = MappingAdderMock::new().add_mapping_result(Ok(1000));
         let mut subject = PmpTransactor::default();
-        subject.router_port = router_port;
-        subject.announcement_port = change_handler_port;
+        subject.router_port = router_connections.router_port;
+        subject.announcement_port = router_connections.announcement_port;
         subject.mapping_adder_arc = Arc::new(Mutex::new(Box::new(mapping_adder)));
+        subject.read_timeout_millis = 10;
         let mapping_config = MappingConfig {
             hole_port: 1234,
             next_lifetime: Duration::from_millis(321),
@@ -1702,23 +1607,18 @@ mod tests {
         };
 
         let tx = subject
-            .start_housekeeping_thread(Box::new(change_handler), router_ip)
+            .start_housekeeping_thread(Box::new(change_handler), router_connections.router_ip)
             .unwrap();
 
         tx.send(HousekeepingThreadCommand::InitializeMappingConfig(
             mapping_config,
         ))
         .unwrap();
+        thread::sleep(Duration::from_millis(50));
         assert!(subject.housekeeper_commander_opt.is_some());
-        let change_handler_ip = IpAddr::from_str("224.0.0.1").unwrap();
-        todo!("Replace this with a multicast socket");
-        let announce_socket = UdpSocket::bind(SocketAddr::new(localhost(), announce_port)).unwrap();
+        let announce_socket = &router_connections.holder.socket;
         announce_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
-            .unwrap();
-        announce_socket.set_broadcast(true).unwrap();
-        announce_socket
-            .connect(SocketAddr::new(change_handler_ip, change_handler_port))
             .unwrap();
         let mut packet = PmpPacket::default();
         packet.opcode = Opcode::Get;
@@ -1727,7 +1627,8 @@ mod tests {
         packet.opcode_data = make_get_response(0, Ipv4Addr::from_str("1.2.3.4").unwrap());
         let mut buffer = [0u8; 100];
         let len_to_send = packet.marshal(&mut buffer).unwrap();
-        let sent_len = announce_socket.send(&buffer[0..len_to_send]).unwrap();
+        let sent_len = announce_socket.send_to(&buffer[0..len_to_send],
+            router_connections.multicast_address).unwrap();
         assert_eq!(sent_len, len_to_send);
         thread::sleep(Duration::from_millis(1)); // yield timeslice
         let _ = subject.stop_housekeeping_thread();
