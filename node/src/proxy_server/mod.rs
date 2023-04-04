@@ -25,10 +25,10 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{Endpoint, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, IncipientCoresPackage};
-use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
 use crate::sub_lib::neighborhood::{ExpectedService, NodeRecordMetadataMessage};
 use crate::sub_lib::neighborhood::{ExpectedServices, RatePack};
+use crate::sub_lib::neighborhood::{NRMetadataChange, RouteQueryMessage};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_0v1};
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
@@ -278,19 +278,23 @@ impl ProxyServer {
                 })
                 .clone()
         };
+        let server_name_opt = return_route_info.server_name_opt.clone();
         let response = &msg.payload;
         match self.keys_and_addrs.a_to_b(&response.stream_key) {
             Some(socket_addr) => {
-                self.subs
-                    .as_ref()
-                    .expect("Neighborhood unbound in ProxyServer")
-                    .update_node_record_metadata
-                    .try_send(NodeRecordMetadataMessage::Desirable(
-                        exit_public_key.clone(),
-                        false,
-                    ))
-                    .expect("Neighborhood is dead");
-
+                if let Some(server_name) = server_name_opt {
+                    self.subs
+                        .as_ref()
+                        .expect("Neighborhood unbound in ProxyServer")
+                        .update_node_record_metadata
+                        .try_send(NodeRecordMetadataMessage {
+                            public_key: exit_public_key.clone(),
+                            metadata_change: NRMetadataChange::AddUnreachableHost {
+                                hostname: server_name,
+                            },
+                        })
+                        .expect("Neighborhood is dead");
+                }
                 self.report_response_services_consumed(&return_route_info, 0, msg.payload_len);
 
                 self.subs
@@ -305,7 +309,7 @@ impl ProxyServer {
                             .server_impersonator()
                             .dns_resolution_failure_response(
                                 &exit_public_key,
-                                return_route_info.server_name.clone(),
+                                return_route_info.server_name_opt.clone(),
                             ),
                     })
                     .expect("Dispatcher is dead");
@@ -316,13 +320,9 @@ impl ProxyServer {
                 self.purge_stream_key(&response.stream_key);
             }
             None => {
-                let server_name = match &return_route_info.server_name {
-                    Some(name) => format!("\"{}\"", name),
-                    None => "<unspecified server>".to_string(),
-                };
                 error!(self.logger,
                     "Discarding DnsResolveFailure message for {} from an unrecognized stream key {:?}",
-                    server_name,
+                    server_name_opt.unwrap_or_else(|| "<unspecified_server>".to_string()),
                     &response.stream_key
                 )
             }
@@ -553,7 +553,7 @@ impl ProxyServer {
                     return_route_id,
                     expected_services: back,
                     protocol: args.common.payload.protocol,
-                    server_name: args.common.payload.target_hostname.clone(),
+                    server_name_opt: args.common.payload.target_hostname.clone(),
                 };
                 debug!(
                     args.logger,
@@ -563,7 +563,7 @@ impl ProxyServer {
                     .try_send(return_route_info)
                     .expect("ProxyServer is dead");
                 ProxyServer::transmit_to_hopper(
-                    args.common.cryptde,
+                    args.common.main_cryptde,
                     args.hopper_sub,
                     args.common.timestamp,
                     args.common.payload,
@@ -645,7 +645,7 @@ impl ProxyServer {
 
     #[allow(clippy::too_many_arguments)]
     fn transmit_to_hopper(
-        cryptde: &'static dyn CryptDE,
+        main_cryptde: &'static dyn CryptDE,
         hopper: &Recipient<IncipientCoresPackage>,
         timestamp: SystemTime,
         payload: ClientRequestPayload_0v1,
@@ -664,7 +664,8 @@ impl ProxyServer {
                 _ => None,
             })
         } else {
-            Some(payload.originator_public_key.clone())
+            // In Zero Hop Mode the exit node public key is the same as this public key
+            Some(main_cryptde.public_key().clone())
         };
         match destination_key_opt {
             None => ProxyServer::handle_route_failure(payload, logger, source_addr, dispatcher),
@@ -676,7 +677,7 @@ impl ProxyServer {
                 let payload_size = payload.sequenced_packet.data.len();
                 let stream_key = payload.stream_key;
                 let pkg = IncipientCoresPackage::new(
-                    cryptde,
+                    main_cryptde,
                     route.clone(),
                     payload.into(),
                     &payload_destination_key,
@@ -892,7 +893,7 @@ impl IBCDHelper for IBCDHelperReal {
         };
         let local_args = TTHLocalArgs {
             common: TTHCommonArgs {
-                cryptde: proxy.main_cryptde,
+                main_cryptde: proxy.main_cryptde,
                 payload,
                 source_addr,
                 timestamp,
@@ -938,6 +939,7 @@ impl IBCDHelperReal {
     ) -> Result<(), String> {
         let common_args = args.common_opt.as_ref().expectv("TTH common");
         let pld = &common_args.payload;
+        let hostname_opt = pld.target_hostname.clone();
         debug!(
             args.logger,
             "Getting route and opening new stream with key {} to transmit: sequence {}, length {}",
@@ -949,6 +951,7 @@ impl IBCDHelperReal {
         tokio::spawn(
             route_source
                 .send(RouteQueryMessage::data_indefinite_route_request(
+                    hostname_opt,
                     if common_args.is_decentralized {
                         DEFAULT_MINIMUM_HOP_COUNT
                     } else {
@@ -1236,7 +1239,7 @@ mod tests {
             target_hostname: Some(String::from("nowhere.com")),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: alias_cryptde.public_key().clone(),
+            originator_alias_public_key: alias_cryptde.public_key().clone(),
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
@@ -1287,7 +1290,11 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(DEFAULT_MINIMUM_HOP_COUNT, 47)
+            &RouteQueryMessage::data_indefinite_route_request(
+                Some("nowhere.com".to_string()),
+                DEFAULT_MINIMUM_HOP_COUNT,
+                47
+            )
         );
         let recording = proxy_server_recording_arc.lock().unwrap();
         assert_eq!(recording.len(), 0);
@@ -1348,7 +1355,7 @@ mod tests {
             target_hostname: Some(String::from("realdomain.nu")),
             target_port: 443,
             protocol: ProxyProtocol::TLS,
-            originator_public_key: alias_cryptde.public_key().clone(),
+            originator_alias_public_key: alias_cryptde.public_key().clone(),
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
@@ -1407,7 +1414,11 @@ mod tests {
         let neighborhood_record = neighborhood_recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             neighborhood_record,
-            &RouteQueryMessage::data_indefinite_route_request(DEFAULT_MINIMUM_HOP_COUNT, 12)
+            &RouteQueryMessage::data_indefinite_route_request(
+                Some("realdomain.nu".to_string()),
+                DEFAULT_MINIMUM_HOP_COUNT,
+                12
+            )
         );
     }
 
@@ -1436,7 +1447,7 @@ mod tests {
                 return_route_id: 1234,
                 expected_services: vec![ExpectedService::Nothing],
                 protocol: ProxyProtocol::TLS,
-                server_name: None,
+                server_name_opt: None,
             },
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
@@ -1805,6 +1816,7 @@ mod tests {
                 minimum_hop_count: 0,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size: 47,
+                hostname_opt: Some("nowhere.com".to_string())
             }
         );
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
@@ -1823,10 +1835,10 @@ mod tests {
                         target_hostname: Some("nowhere.com".to_string()),
                         target_port: 80,
                         protocol: ProxyProtocol::HTTP,
-                        originator_public_key: alias_cryptde.public_key().clone(),
+                        originator_alias_public_key: alias_cryptde.public_key().clone(),
                     }
                 )),
-                alias_cryptde.public_key()
+                main_cryptde.public_key()
             )
             .unwrap()
         );
@@ -1884,7 +1896,8 @@ mod tests {
                 target_component: Component::ProxyClient,
                 minimum_hop_count: 0,
                 return_component_opt: Some(Component::ProxyServer),
-                payload_size: 16
+                payload_size: 16,
+                hostname_opt: None
             }
         );
         let dispatcher_recording = dispatcher_log_arc.lock().unwrap();
@@ -1903,10 +1916,10 @@ mod tests {
                         target_hostname: None,
                         target_port: 443,
                         protocol: ProxyProtocol::TLS,
-                        originator_public_key: alias_cryptde.public_key().clone(),
+                        originator_alias_public_key: alias_cryptde.public_key().clone(),
                     }
                 ),),
-                alias_cryptde.public_key()
+                main_cryptde.public_key()
             )
             .unwrap()
         );
@@ -1954,7 +1967,7 @@ mod tests {
             target_hostname: Some(String::from("nowhere.com")),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: alias_cryptde.public_key().clone(),
+            originator_alias_public_key: alias_cryptde.public_key().clone(),
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
@@ -2035,7 +2048,7 @@ mod tests {
             target_hostname: Some(String::from("nowhere.com")),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: alias_cryptde.public_key().clone(),
+            originator_alias_public_key: alias_cryptde.public_key().clone(),
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
@@ -2153,7 +2166,7 @@ mod tests {
             target_hostname: Some(String::from("nowhere.com")),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: alias_cryptde.public_key().clone(),
+            originator_alias_public_key: alias_cryptde.public_key().clone(),
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
@@ -2194,7 +2207,11 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(3, 47)
+            &RouteQueryMessage::data_indefinite_route_request(
+                Some("nowhere.com".to_string()),
+                3,
+                47
+            )
         );
     }
 
@@ -2298,7 +2315,7 @@ mod tests {
             target_hostname: Some(String::from("nowhere.com")),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: alias_cryptde.public_key().clone(),
+            originator_alias_public_key: alias_cryptde.public_key().clone(),
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
@@ -2413,12 +2430,12 @@ mod tests {
             target_hostname: Some("nowhere.com".to_string()),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: PublicKey::new(b"originator_public_key"),
+            originator_alias_public_key: PublicKey::new(b"originator_public_key"),
         };
         let logger = Logger::new("test");
         let local_tth_args = TTHLocalArgs {
             common: TTHCommonArgs {
-                cryptde,
+                main_cryptde: cryptde,
                 payload,
                 source_addr,
                 timestamp: now,
@@ -2499,12 +2516,12 @@ mod tests {
             target_hostname: Some("nowhere.com".to_string()),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
-            originator_public_key: PublicKey::new(b"originator_public_key"),
+            originator_alias_public_key: PublicKey::new(b"originator_public_key"),
         };
         let logger = Logger::new("test");
         let local_tth_args = TTHLocalArgs {
             common: TTHCommonArgs {
-                cryptde,
+                main_cryptde: cryptde,
                 payload,
                 source_addr,
                 timestamp: SystemTime::now(),
@@ -2530,7 +2547,7 @@ mod tests {
                 return_route_id: 0,
                 expected_services: vec![ExpectedService::Nothing],
                 protocol: ProxyProtocol::HTTP,
-                server_name: Some("nowhere.com".to_string())
+                server_name_opt: Some("nowhere.com".to_string())
             }
         );
         let record = recording.get_record::<StreamShutdownMsg>(1);
@@ -2610,9 +2627,9 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Each route must demand an exit service, but this route has no such demand: [Routing(cm91dGluZ19rZXlfMQ, \
+        expected = "Each route must demand an exit service, but this route has no such demand: [Routing(0x726F7574696E675F6B65795F31, \
     Wallet { kind: Address(0x00000000726f7574696e675f77616c6c65745f31) }, RatePack { routing_byte_rate: 9, \
-    routing_service_rate: 10, exit_byte_rate: 11, exit_service_rate: 12 })]"
+    routing_service_rate: 208, exit_byte_rate: 11, exit_service_rate: 408 })]"
     )]
     fn proxy_server_panics_when_exit_services_are_not_requested_in_non_zero_hop_mode() {
         let expected_services = vec![ExpectedService::Routing(
@@ -2626,11 +2643,11 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Detected more than one exit service in one-way route: [Exit(ZXhpdCBrZXkgMQ, Wallet { kind: \
+        expected = "Detected more than one exit service in one-way route: [Exit(0x65786974206B65792031, Wallet { kind: \
     Address(0x00000000000000657869742077616c6c65742031) }, RatePack { routing_byte_rate: 7, routing_service_rate: \
-    8, exit_byte_rate: 9, exit_service_rate: 10 }), Exit(ZXhpdCBrZXkgMg, Wallet { kind: \
+    206, exit_byte_rate: 9, exit_service_rate: 406 }), Exit(0x65786974206B65792032, Wallet { kind: \
     Address(0x00000000000000657869742077616c6c65742032) }, RatePack { routing_byte_rate: 6, routing_service_rate: \
-    7, exit_byte_rate: 8, exit_service_rate: 9 })]"
+    205, exit_byte_rate: 8, exit_service_rate: 405 })]"
     )]
     fn proxy_server_panics_when_there_are_more_than_one_exit_services_in_the_route() {
         let expected_services = vec![
@@ -2706,7 +2723,11 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(3, 47)
+            &RouteQueryMessage::data_indefinite_route_request(
+                Some("nowhere.com".to_string()),
+                3,
+                47
+            )
         );
         TestLogHandler::new()
             .exists_log_containing("ERROR: ProxyServer: Failed to find route to nowhere.com");
@@ -2750,13 +2771,13 @@ mod tests {
             target_hostname: None,
             target_port: 0,
             protocol: ProxyProtocol::TLS,
-            originator_public_key: cryptde.public_key().clone(),
+            originator_alias_public_key: cryptde.public_key().clone(),
         };
         let logger = Logger::new("ProxyServer");
         let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
         let local_tth_args = TTHLocalArgs {
             common: TTHCommonArgs {
-                cryptde,
+                main_cryptde: cryptde,
                 payload,
                 source_addr,
                 timestamp: SystemTime::now(),
@@ -2801,7 +2822,7 @@ mod tests {
                 ),
             ],
             protocol: ProxyProtocol::HTTP,
-            server_name: None,
+            server_name_opt: None,
         };
 
         subject.report_response_services_consumed(&add_return_route_message, 1234, 3456);
@@ -2878,7 +2899,11 @@ mod tests {
         let record = recording.get_record::<RouteQueryMessage>(0);
         assert_eq!(
             record,
-            &RouteQueryMessage::data_indefinite_route_request(3, 47)
+            &RouteQueryMessage::data_indefinite_route_request(
+                Some("nowhere.com".to_string()),
+                3,
+                47
+            )
         );
         TestLogHandler::new()
             .exists_log_containing("ERROR: ProxyServer: Failed to find route to nowhere.com");
@@ -2944,7 +2969,7 @@ mod tests {
             target_hostname: Some(String::from("server.com")),
             target_port: TLS_PORT,
             protocol: ProxyProtocol::TLS,
-            originator_public_key: alias_cryptde.public_key().clone(),
+            originator_alias_public_key: alias_cryptde.public_key().clone(),
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
@@ -3030,7 +3055,7 @@ mod tests {
             target_hostname: None,
             target_port: TLS_PORT,
             protocol: ProxyProtocol::TLS,
-            originator_public_key: alias_cryptde.public_key().clone(),
+            originator_alias_public_key: alias_cryptde.public_key().clone(),
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
@@ -3114,7 +3139,7 @@ mod tests {
             target_hostname: None,
             target_port: TLS_PORT,
             protocol: ProxyProtocol::TLS,
-            originator_public_key: alias_cryptde.public_key().clone(),
+            originator_alias_public_key: alias_cryptde.public_key().clone(),
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
@@ -3250,7 +3275,7 @@ mod tests {
                 return_route_id: 1234,
                 expected_services: vec![ExpectedService::Nothing],
                 protocol: ProxyProtocol::TLS,
-                server_name: None,
+                server_name_opt: None,
             },
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
@@ -3321,7 +3346,7 @@ mod tests {
                 return_route_id: 1234,
                 expected_services: vec![],
                 protocol: ProxyProtocol::HTTP,
-                server_name: None,
+                server_name_opt: None,
             },
         );
         let client_response_payload = ClientResponsePayload_0v1 {
@@ -3395,7 +3420,7 @@ mod tests {
                     ExpectedService::Nothing,
                 ],
                 protocol: ProxyProtocol::TLS,
-                server_name: None,
+                server_name_opt: None,
             },
         );
         let incoming_route_g_wallet = make_wallet("G Earning");
@@ -3427,7 +3452,7 @@ mod tests {
                     ExpectedService::Nothing,
                 ],
                 protocol: ProxyProtocol::TLS,
-                server_name: None,
+                server_name_opt: None,
             },
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
@@ -3592,7 +3617,7 @@ mod tests {
                     ),
                 ],
                 protocol: ProxyProtocol::TLS,
-                server_name: None,
+                server_name_opt: None,
             },
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
@@ -3699,7 +3724,7 @@ mod tests {
                     rate_pack(10),
                 )],
                 protocol: ProxyProtocol::HTTP,
-                server_name: Some("server.com".to_string()),
+                server_name_opt: Some("server.com".to_string()),
             })
             .unwrap();
         subject_addr.try_send(expired_cores_package).unwrap();
@@ -3770,7 +3795,7 @@ mod tests {
                     ExpectedService::Nothing,
                 ],
                 protocol: ProxyProtocol::TLS,
-                server_name: Some("server.com".to_string()),
+                server_name_opt: Some("server.com".to_string()),
             },
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
@@ -3858,7 +3883,7 @@ mod tests {
                     rate_pack(10),
                 )],
                 protocol: ProxyProtocol::HTTP,
-                server_name: Some("server.com".to_string()),
+                server_name_opt: Some("server.com".to_string()),
             },
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
@@ -3885,8 +3910,69 @@ mod tests {
         let record = neighborhood_recording.get_record::<NodeRecordMetadataMessage>(0);
         assert_eq!(
             record,
-            &NodeRecordMetadataMessage::Desirable(exit_public_key, false)
+            &NodeRecordMetadataMessage {
+                public_key: exit_public_key,
+                metadata_change: NRMetadataChange::AddUnreachableHost {
+                    hostname: "server.com".to_string()
+                }
+            }
         );
+    }
+
+    #[test]
+    fn handle_dns_resolve_failure_does_not_send_message_to_neighborhood_when_server_is_not_specified(
+    ) {
+        let system = System::new("test");
+        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
+        let cryptde = main_cryptde();
+        let mut subject = ProxyServer::new(
+            cryptde,
+            alias_cryptde(),
+            true,
+            Some(STANDARD_CONSUMING_WALLET_BALANCE),
+            false,
+        );
+        let stream_key = make_meaningless_stream_key();
+        let socket_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
+        subject
+            .keys_and_addrs
+            .insert(stream_key.clone(), socket_addr);
+        let exit_public_key = PublicKey::from(&b"exit_key"[..]);
+        let exit_wallet = make_wallet("exit wallet");
+        subject.route_ids_to_return_routes.insert(
+            1234,
+            AddReturnRouteMessage {
+                return_route_id: 1234,
+                expected_services: vec![ExpectedService::Exit(
+                    exit_public_key.clone(),
+                    exit_wallet,
+                    rate_pack(10),
+                )],
+                protocol: ProxyProtocol::HTTP,
+                server_name_opt: None,
+            },
+        );
+        let subject_addr: Addr<ProxyServer> = subject.start();
+        let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
+        let expired_cores_package: ExpiredCoresPackage<DnsResolveFailure_0v1> =
+            ExpiredCoresPackage::new(
+                SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+                Some(make_wallet("irrelevant")),
+                return_route_with_id(cryptde, 1234),
+                dns_resolve_failure.into(),
+                0,
+            );
+        let mut peer_actors = peer_actors_builder().neighborhood(neighborhood).build();
+        peer_actors.proxy_server = ProxyServer::make_subs_from(&subject_addr);
+
+        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
+        subject_addr.try_send(expired_cores_package).unwrap();
+
+        System::current().stop();
+        system.run();
+        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
+        let record_opt = neighborhood_recording.get_record_opt::<NodeRecordMetadataMessage>(0);
+        assert_eq!(record_opt, None);
     }
 
     #[test]
@@ -3920,7 +4006,7 @@ mod tests {
                     rate_pack(10),
                 )],
                 protocol: ProxyProtocol::HTTP,
-                server_name: Some("server.com".to_string()),
+                server_name_opt: Some("server.com".to_string()),
             },
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
@@ -3948,7 +4034,12 @@ mod tests {
         System::current().stop();
         system.run();
         TestLogHandler::new().exists_log_containing(
-            format!("Discarding DnsResolveFailure message for \"server.com\" from an unrecognized stream key {:?}", stream_key).as_str());
+            format!(
+                "Discarding DnsResolveFailure message for {} from an unrecognized stream key {:?}",
+                "server.com", stream_key
+            )
+            .as_str(),
+        );
     }
 
     #[test]
@@ -3987,7 +4078,7 @@ mod tests {
                     rate_pack(10),
                 )],
                 protocol: ProxyProtocol::HTTP,
-                server_name: None,
+                server_name_opt: None,
             },
         );
 
@@ -4023,7 +4114,11 @@ mod tests {
         system.run();
 
         TestLogHandler::new().exists_log_containing(
-            format!("Discarding DnsResolveFailure message for <unspecified server> from an unrecognized stream key {:?}", stream_key).as_str());
+            &format!(
+                "Discarding DnsResolveFailure message for <unspecified_server> from an unrecognized stream key {:?}",
+                stream_key
+            )
+        );
     }
 
     #[test]
@@ -4070,7 +4165,7 @@ mod tests {
                 return_route_id: 1234,
                 expected_services: vec![ExpectedService::Nothing, ExpectedService::Nothing],
                 protocol: ProxyProtocol::HTTP,
-                server_name: None,
+                server_name_opt: None,
             },
         );
         let dns_resolve_failure = DnsResolveFailure_0v1::new(stream_key);
@@ -4115,7 +4210,7 @@ mod tests {
                 return_route_id: 4321,
                 expected_services: vec![ExpectedService::Nothing],
                 protocol: ProxyProtocol::HTTP,
-                server_name: None,
+                server_name_opt: None,
             },
         );
         let subject_addr: Addr<ProxyServer> = subject.start();
@@ -4305,7 +4400,7 @@ mod tests {
                     return_route_id: 1234,
                     expected_services: vec![],
                     protocol: ProxyProtocol::TLS,
-                    server_name: None,
+                    server_name_opt: None,
                 },
             );
             let subject_addr: Addr<ProxyServer> = subject.start();
@@ -4484,7 +4579,7 @@ mod tests {
                     target_hostname: Some(String::from("tunneled.com")),
                     target_port: 443,
                     protocol: ProxyProtocol::TLS,
-                    originator_public_key: alias_cryptde().public_key().clone(),
+                    originator_alias_public_key: alias_cryptde().public_key().clone(),
                 }
             ),
             other => panic!("Wrong payload type: {:?}", other),
@@ -4601,7 +4696,7 @@ mod tests {
                     target_hostname: None,
                     target_port: HTTP_PORT,
                     protocol: ProxyProtocol::HTTP,
-                    originator_public_key: alias_cryptde().public_key().clone(),
+                    originator_alias_public_key: alias_cryptde().public_key().clone(),
                 }
             ),
             other => panic!("Wrong payload type: {:?}", other),

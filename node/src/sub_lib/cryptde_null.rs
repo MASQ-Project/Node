@@ -23,6 +23,11 @@ pub struct CryptDENull {
     next_symmetric_key_seed: Arc<Mutex<u64>>,
 }
 
+/*
+   Are you here because you're having trouble with a strange byte sequence consisting only of
+   repeated ASCII '4's or decimal 52s or hex 0x34s?  If so, take a look at the implementation of
+   random() below.
+*/
 impl CryptDE for CryptDENull {
     fn encode(&self, public_key: &PublicKey, data: &PlainData) -> Result<CryptData, CryptdecError> {
         Self::encode_with_key_data(&Self::other_key_data(public_key.as_slice()), data)
@@ -55,10 +60,14 @@ impl CryptDE for CryptDENull {
         SymmetricKey::new(&key_data)
     }
 
-    #[allow(clippy::needless_range_loop)]
+    // Random data in byte arrays can be difficult to tell from purposeful data in byte arrays.
+    // Hence, for CryptDENull, whenever we are told to generate random data, we produce a string
+    // of '4' or 52 or 0x34 instead: that way you can look at the data and tell that it came from
+    // here. Never fear: CryptDEReal will give you real random data.
+    // Inspiration: https://xkcd.com/221/
     fn random(&self, dest: &mut [u8]) {
-        for i in 0..dest.len() {
-            dest[i] = b'4'
+        for byte in dest {
+            *byte = b'4'
         }
     }
 
@@ -94,7 +103,12 @@ impl CryptDE for CryptDENull {
         signature: &CryptData,
         public_key: &PublicKey,
     ) -> bool {
-        let claimed_hash = match Self::decode_with_key_data(public_key.as_slice(), signature) {
+        let public_key_bytes = public_key.as_slice();
+        let (private_key_bytes, _) = Self::key_and_data(public_key_bytes.len(), signature);
+        if private_key_bytes != public_key_bytes {
+            return false;
+        }
+        let claimed_hash = match Self::decode_with_key_data(public_key_bytes, signature) {
             Err(_) => return false,
             Ok(hash) => CryptData::new(hash.as_slice()),
         };
@@ -190,6 +204,12 @@ impl CryptDENull {
         in_key_data.iter().map(|b| (*b).wrapping_add(128)).collect()
     }
 
+    pub fn extract_key_pair(key_length: usize, data: &CryptData) -> (PrivateKey, PublicKey) {
+        let private = PrivateKey::new(&data.as_slice()[0..key_length]);
+        let public = CryptDENull::public_from_private(&private);
+        (private, public)
+    }
+
     fn encode_with_key_data(key_data: &[u8], data: &PlainData) -> Result<CryptData, CryptdecError> {
         if key_data.is_empty() {
             Err(CryptdecError::EmptyKey)
@@ -198,6 +218,10 @@ impl CryptDENull {
         } else {
             Ok(CryptData::new(&[key_data, data.as_slice()].concat()[..]))
         }
+    }
+
+    fn key_and_data(key_len: usize, data: &CryptData) -> (&[u8], &[u8]) {
+        data.as_slice().split_at(key_len)
     }
 
     fn decode_with_key_data(key_data: &[u8], data: &CryptData) -> Result<PlainData, CryptdecError> {
@@ -210,10 +234,9 @@ impl CryptDENull {
                 key_data, data,
             )))
         } else {
-            let (k, d) = data.as_slice().split_at(key_data.len());
+            let (k, d) = Self::key_and_data(key_data.len(), data);
             if k != key_data {
-                eprintln!("{}", Self::wrong_key_message(key_data, data));
-                Err(CryptdecError::OpeningFailed)
+                panic!("{}", Self::wrong_key_message(key_data, data));
             } else {
                 Ok(PlainData::new(d))
             }
@@ -243,6 +266,7 @@ mod tests {
     use crate::test_utils::main_cryptde;
     use ethsign_crypto::Keccak256;
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
 
     #[test]
     fn encode_with_empty_key() {
@@ -304,13 +328,14 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(
+        expected = "Could not decrypt with 6261646b6579 data beginning with 6b6579646174"
+    )]
     fn decode_with_incorrect_private_key() {
         let mut subject = CryptDENull::new(TEST_DEFAULT_CHAIN);
         subject.private_key = PrivateKey::new(b"badkey");
 
-        let result = subject.decode(&CryptData::new(b"keydataxyz"));
-
-        assert_eq!(CryptdecError::OpeningFailed, result.err().unwrap());
+        let _ = subject.decode(&CryptData::new(b"keydataxyz"));
     }
 
     #[test]
@@ -422,13 +447,14 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(
+        expected = "Could not decrypt with 6261644b6579 data beginning with 6b6579646174"
+    )]
     fn decode_sym_with_wrong_key() {
         let subject = main_cryptde().clone();
         let key = SymmetricKey::new(b"badKey");
 
-        let result = subject.decode_sym(&key, &CryptData::new(b"keydataxyz"));
-
-        assert_eq!(CryptdecError::OpeningFailed, result.err().unwrap());
+        let _ = subject.decode_sym(&key, &CryptData::new(b"keydataxyz"));
     }
 
     #[test]
@@ -503,9 +529,21 @@ mod tests {
         let expected_data = PlainData::new(&b"These are the times that try men's souls"[..]);
         let encrypted_data = subject.encode_sym(&key1, &expected_data).unwrap();
 
-        let result = subject.decode_sym(&key2, &encrypted_data);
+        let result = catch_unwind(AssertUnwindSafe(|| {
+            subject.decode_sym(&key2, &encrypted_data)
+        }))
+        .unwrap_err();
 
-        assert_eq!(result, Err(CryptdecError::OpeningFailed));
+        let panic_msg = result.downcast_ref::<String>().unwrap();
+        let wrong_key = key2.as_slice().to_hex::<String>();
+        let right_key = key1.as_slice().to_hex::<String>();
+        assert_eq!(
+            panic_msg,
+            &format!(
+                "Could not decrypt with {} data beginning with {}",
+                wrong_key, right_key
+            )
+        );
     }
 
     #[test]
@@ -708,5 +746,15 @@ mod tests {
 
         assert_eq!(subject_one.digest(), subject_two.digest());
         assert_eq!(subject_one.digest(), subject_three.digest());
+    }
+
+    #[test]
+    fn extract_key_pair_works() {
+        let data = CryptData::new(&[0x81, 0x82, 0x83, 0x84, 42, 42, 42, 42, 42]);
+
+        let (private, public) = CryptDENull::extract_key_pair(4, &data);
+
+        assert_eq!(private.as_slice(), &[0x81, 0x82, 0x83, 0x84]);
+        assert_eq!(public.as_slice(), &[1, 2, 3, 4]);
     }
 }
