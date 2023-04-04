@@ -18,6 +18,7 @@ use crate::comm_layer::pcp_pmp_common::windows_specific::{
     windows_find_routers, WindowsFindRoutersCommand,
 };
 use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal};
+use crate::mocks::TestMulticastSocketHolder;
 use masq_lib::utils::find_free_port;
 use socket2::{Domain, SockAddr, Socket, Type};
 use std::io;
@@ -25,7 +26,6 @@ pub use std::net::UdpSocket;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::process::Command;
 use std::time::Duration;
-use crate::mocks::TestMulticastSocketHolder;
 
 pub const ROUTER_PORT: u16 = 5351; // from the PCP and PMP RFCs
 pub const ANNOUNCEMENT_PORT: u16 = 5350; // from the PCP and PMP RFCs
@@ -242,10 +242,7 @@ pub fn make_announcement_socket(
     announcement_multicast_group: u8,
     announcement_port: u16,
 ) -> Result<Box<dyn UdpSocketWrapper>, AutomapError> {
-    let socket_result = factory.make_multicast(
-        announcement_multicast_group,
-        announcement_port
-    );
+    let socket_result = factory.make_multicast(announcement_multicast_group, announcement_port);
     let socket = match socket_result {
         Ok(s) => s,
         Err(e) => {
@@ -264,7 +261,7 @@ pub struct RouterConnections {
     pub announcement_port: u16,
     pub router_ip: IpAddr,
     pub router_port: u16,
-    pub multicast_address: SocketAddr
+    pub multicast_address: SocketAddr,
 }
 
 pub fn make_router_connections() -> RouterConnections {
@@ -276,23 +273,23 @@ pub fn make_router_connections() -> RouterConnections {
         IpAddr::V4(Ipv4Addr::new(224, 0, 0, holder.group)),
         announcement_port,
     );
-    return RouterConnections {
+    RouterConnections {
         holder,
         announcement_port,
         router_ip,
         router_port,
-        multicast_address
+        multicast_address,
     }
 }
 
 #[cfg(test)]
 pub mod tests {
     use super::*;
+    use crate::mocks::UdpSocketWrapperFactoryMock;
     use masq_lib::utils::localhost;
     use std::io::ErrorKind;
     use std::net::SocketAddrV4;
     use std::sync::{Arc, Mutex};
-    use crate::mocks::UdpSocketWrapperFactoryMock;
 
     #[test]
     fn change_handler_config_next_lifetime_secs_handles_greater_than_one_second() {
@@ -446,7 +443,7 @@ pub mod tests {
         let result = make_announcement_socket(
             &socket_factory,
             announcement_multicast_group,
-            announcement_port
+            announcement_port,
         );
 
         assert_eq!(

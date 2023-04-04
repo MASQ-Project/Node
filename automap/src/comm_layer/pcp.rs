@@ -1,6 +1,11 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig, UdpSocketWrapper, UdpSocketWrapperFactory, UdpSocketWrapperFactoryReal, ANNOUNCEMENT_MULTICAST_GROUP, ANNOUNCEMENT_PORT, ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT, make_announcement_socket};
+use crate::comm_layer::pcp_pmp_common::{
+    find_routers, make_announcement_socket, make_local_socket_address, FreePortFactory,
+    FreePortFactoryReal, MappingConfig, UdpSocketWrapper, UdpSocketWrapperFactory,
+    UdpSocketWrapperFactoryReal, ANNOUNCEMENT_MULTICAST_GROUP, ANNOUNCEMENT_PORT,
+    ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT,
+};
 use crate::comm_layer::{
     AutomapError, AutomapErrorCause, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal,
     Transactor,
@@ -194,7 +199,7 @@ impl Transactor for PcpTransactor {
         let announcement_socket = make_announcement_socket(
             self.inner().factories.socket_factory.as_ref(),
             self.announcement_multicast_group,
-            self.announcement_port
+            self.announcement_port,
         )?;
         let (tx, rx) = unbounded();
         self.housekeeper_commander_opt = Some(tx.clone());
@@ -669,7 +674,7 @@ mod tests {
     use socket2::{Domain, SockAddr, Socket, Type};
     use std::cell::RefCell;
     use std::collections::HashSet;
-    use std::io::{ErrorKind};
+    use std::io::ErrorKind;
     use std::net::{SocketAddr, SocketAddrV4, UdpSocket};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
@@ -1417,9 +1422,11 @@ mod tests {
         announce_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();
-        let mapping_socket = UdpSocket::bind(
-            SocketAddr::new(router_connections.router_ip, router_connections.router_port)
-        ).unwrap();
+        let mapping_socket = UdpSocket::bind(SocketAddr::new(
+            router_connections.router_ip,
+            router_connections.router_port,
+        ))
+        .unwrap();
         mapping_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();
@@ -1430,7 +1437,10 @@ mod tests {
         packet.epoch_time_opt = Some(0);
         let len_to_send = packet.marshal(&mut buffer).unwrap();
         let sent_len = announce_socket
-            .send_to(&buffer[0..len_to_send], router_connections.multicast_address)
+            .send_to(
+                &buffer[0..len_to_send],
+                router_connections.multicast_address,
+            )
             .unwrap();
         assert_eq!(sent_len, len_to_send);
         // Router receives mapping request from housekeeping thread to stimulate transmission of

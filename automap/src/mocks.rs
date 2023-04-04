@@ -197,7 +197,7 @@ impl UdpSocketWrapper for UdpSocketWrapperMock {
         self.leave_multicast_v4_params
             .lock()
             .unwrap()
-            .push((multiaddr.clone(), interface.clone()));
+            .push((*multiaddr, *interface));
         self.leave_multicast_v4_results.borrow_mut().remove(0)
     }
 }
@@ -399,6 +399,12 @@ pub struct FindRoutersCommandMock {
 impl FindRoutersCommand for FindRoutersCommandMock {
     fn execute(&self) -> Result<String, String> {
         self.execute_results.borrow_mut().remove(0)
+    }
+}
+
+impl Default for FindRoutersCommandMock {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

@@ -1,6 +1,11 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{find_routers, make_local_socket_address, FreePortFactory, FreePortFactoryReal, MappingConfig, UdpSocketWrapper, UdpSocketWrapperFactory, UdpSocketWrapperFactoryReal, ANNOUNCEMENT_MULTICAST_GROUP, ANNOUNCEMENT_PORT, ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT, make_announcement_socket};
+use crate::comm_layer::pcp_pmp_common::{
+    find_routers, make_announcement_socket, make_local_socket_address, FreePortFactory,
+    FreePortFactoryReal, MappingConfig, UdpSocketWrapper, UdpSocketWrapperFactory,
+    UdpSocketWrapperFactoryReal, ANNOUNCEMENT_MULTICAST_GROUP, ANNOUNCEMENT_PORT,
+    ANNOUNCEMENT_READ_TIMEOUT_MILLIS, ROUTER_PORT,
+};
 use crate::comm_layer::{AutomapError, AutomapErrorCause, HousekeepingThreadCommand, Transactor};
 use crate::control_layer::automap_control::{AutomapChange, ChangeHandler};
 use crate::protocols::pmp::get_packet::GetOpcodeData;
@@ -166,9 +171,13 @@ impl Transactor for PmpTransactor {
             return Err(AutomapError::HousekeeperAlreadyRunning);
         }
         let announcement_socket = make_announcement_socket(
-            self.factories_arc.lock().expect("PMP housekeeping thread is dead").socket_factory.as_ref(),
+            self.factories_arc
+                .lock()
+                .expect("PMP housekeeping thread is dead")
+                .socket_factory
+                .as_ref(),
             self.announcement_multicast_group,
-            self.announcement_port
+            self.announcement_port,
         )?;
         let (tx, rx) = unbounded();
         self.housekeeper_commander_opt = Some(tx.clone());
@@ -693,12 +702,9 @@ impl MappingAdder for MappingAdderReal {
 mod tests {
     use super::*;
     use crate::comm_layer::pcp_pmp_common::{make_router_connections, MappingConfig, UdpSocket};
-    use crate::comm_layer::{AutomapErrorCause};
+    use crate::comm_layer::AutomapErrorCause;
     use crate::control_layer::automap_control::AutomapChange;
-    use crate::mocks::{
-        FreePortFactoryMock, UdpSocketWrapperFactoryMock,
-        UdpSocketWrapperMock,
-    };
+    use crate::mocks::{FreePortFactoryMock, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock};
     use crate::protocols::pmp::get_packet::GetOpcodeData;
     use crate::protocols::pmp::map_packet::MapOpcodeData;
     use crate::protocols::pmp::pmp_packet::{Opcode, PmpOpcodeData, PmpPacket, ResultCode};
@@ -1481,9 +1487,11 @@ mod tests {
         announce_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();
-        let mapping_socket = UdpSocket::bind(
-            SocketAddr::new(router_connections.router_ip, router_connections.router_port)
-        ).unwrap();
+        let mapping_socket = UdpSocket::bind(SocketAddr::new(
+            router_connections.router_ip,
+            router_connections.router_port,
+        ))
+        .unwrap();
         mapping_socket
             .set_read_timeout(Some(Duration::from_millis(1000)))
             .unwrap();
@@ -1496,7 +1504,10 @@ mod tests {
         let mut buffer = [0u8; 100];
         let len_to_send = packet.marshal(&mut buffer).unwrap();
         let sent_len = announce_socket
-            .send_to(&buffer[0..len_to_send], router_connections.multicast_address)
+            .send_to(
+                &buffer[0..len_to_send],
+                router_connections.multicast_address,
+            )
             .unwrap();
         assert_eq!(sent_len, len_to_send);
         // Router receives mapping request from housekeeping thread
@@ -1571,7 +1582,10 @@ mod tests {
         let mut buffer = [0u8; 100];
         let len_to_send = packet.marshal(&mut buffer).unwrap();
         let sent_len = announcement_send_socket
-            .send_to(&buffer[0..len_to_send], router_connections.multicast_address)
+            .send_to(
+                &buffer[0..len_to_send],
+                router_connections.multicast_address,
+            )
             .unwrap();
         assert_eq!(sent_len, len_to_send);
         thread::sleep(Duration::from_millis(1)); // yield timeslice
@@ -1624,8 +1638,12 @@ mod tests {
         packet.opcode_data = make_get_response(0, Ipv4Addr::from_str("1.2.3.4").unwrap());
         let mut buffer = [0u8; 100];
         let len_to_send = packet.marshal(&mut buffer).unwrap();
-        let sent_len = announce_socket.send_to(&buffer[0..len_to_send],
-            router_connections.multicast_address).unwrap();
+        let sent_len = announce_socket
+            .send_to(
+                &buffer[0..len_to_send],
+                router_connections.multicast_address,
+            )
+            .unwrap();
         assert_eq!(sent_len, len_to_send);
         thread::sleep(Duration::from_millis(1)); // yield timeslice
         let _ = subject.stop_housekeeping_thread();
