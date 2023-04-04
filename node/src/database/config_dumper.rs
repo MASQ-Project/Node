@@ -164,6 +164,7 @@ mod tests {
         PersistentConfiguration, PersistentConfigurationReal,
     };
     use crate::db_config::typed_config_layer::encode_bytes;
+    use crate::node_configurator::add_chain_specific_directories;
     use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::neighborhood::{NodeDescriptor, DEFAULT_RATE_PACK};
@@ -171,10 +172,10 @@ mod tests {
     use crate::test_utils::{main_cryptde, ArgsBuilder};
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-    use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::NeighborhoodModeLight;
     use rustc_hex::ToHex;
-    use std::fs::File;
+    use std::fs::{create_dir_all, File};
     use std::io::ErrorKind;
     use std::panic::{catch_unwind, AssertUnwindSafe};
 
@@ -204,10 +205,20 @@ mod tests {
             &format!(
                 "Could not find database at: {}. It is created when the Node \
          operates the first time. Running --dump-config before that has no effect",
-                data_dir.to_str().unwrap()
+                data_dir
+                    .join("MASQ")
+                    .join("polygon-mainnet")
+                    .to_str()
+                    .unwrap()
             )
         );
-        let err = File::open(&data_dir.join(DATABASE_FILE)).unwrap_err();
+        let err = File::open(
+            &data_dir
+                .join("MASQ")
+                .join("polygon-mainnet")
+                .join(DATABASE_FILE),
+        )
+        .unwrap_err();
         assert_eq!(err.kind(), ErrorKind::NotFound)
     }
 
@@ -217,7 +228,14 @@ mod tests {
             "config_dumper",
             "dump_config_does_not_migrate_obsolete_database",
         );
-        let conn = bring_db_0_back_to_life_and_return_connection(&data_dir.join(DATABASE_FILE));
+        let chain_specific_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_dir);
+        let created_dir = create_dir_all(&chain_specific_dir); //
+        if created_dir.unwrap() != () {
+            let x: Result<i32, &str> = Err("Could not create chain directory inside dump_config_does_not_migrate_obsolete_database home/MASQ directory");
+            assert_eq!(x.is_ok(), false);
+        }
+        let conn =
+            bring_db_0_back_to_life_and_return_connection(&chain_specific_dir.join(DATABASE_FILE));
         let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_before, "0");
@@ -225,7 +243,10 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN.rec().literal_identifier)
+            .param(
+                "--chain",
+                masq_lib::constants::POLYGON_MAINNET_FULL_IDENTIFIER,
+            )
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal;
@@ -244,16 +265,15 @@ mod tests {
         let data_dir = ensure_node_home_directory_exists(
             "config_dumper",
             "dump_config_dumps_existing_database_without_password",
-        )
-        .join("MASQ")
-        .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
+        );
+        let chain_specific_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_dir);
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
                 .initialize(
-                    &data_dir,
+                    &chain_specific_dir,
                     DbInitializationConfig::create_or_migrate(ExternalData::new(
-                        TEST_DEFAULT_CHAIN,
+                        Chain::PolyMainnet,
                         NeighborhoodModeLight::ZeroHop,
                         None,
                     )),
@@ -293,7 +313,7 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN.rec().literal_identifier)
+            .param("--chain", Chain::PolyMainnet.rec().literal_identifier)
             .opt("--dump-config")
             .into();
         let subject = DumpConfigRunnerReal;
@@ -307,7 +327,10 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, DbInitializationConfig::panic_on_migration())
+            .initialize(
+                &chain_specific_dir,
+                DbInitializationConfig::panic_on_migration(),
+            )
             .unwrap();
         let dao = ConfigDaoReal::new(conn);
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
@@ -325,7 +348,7 @@ mod tests {
         );
         assert_value(
             "chainName",
-            TEST_DEFAULT_CHAIN.rec().literal_identifier,
+            Chain::PolyMainnet.rec().literal_identifier,
             &map,
         );
         assert_value("gasPrice", "1", &map);
@@ -338,7 +361,7 @@ mod tests {
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
         assert_value(
             "startBlock",
-            &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string(),
+            &Chain::PolyMainnet.rec().contract_creation_block.to_string(),
             &map,
         );
         assert_value(
@@ -362,16 +385,15 @@ mod tests {
         let data_dir = ensure_node_home_directory_exists(
             "config_dumper",
             "dump_config_dumps_existing_database_with_correct_password",
-        )
-        .join("MASQ")
-        .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
+        );
+        let chain_specific_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_dir);
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
                 .initialize(
-                    &data_dir,
+                    &chain_specific_dir,
                     DbInitializationConfig::create_or_migrate(ExternalData::new(
-                        TEST_DEFAULT_CHAIN,
+                        Chain::PolyMainnet,
                         NeighborhoodModeLight::ConsumeOnly,
                         None,
                     )),
@@ -392,12 +414,12 @@ mod tests {
                     Some(vec![
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-ropsten:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
+                            "masq://polygon-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-ropsten:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
+                            "masq://polygon-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
                         ))
                         .unwrap(),
                     ]),
@@ -411,7 +433,7 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN.rec().literal_identifier)
+            .param("--chain", Chain::PolyMainnet.rec().literal_identifier)
             .param("--db-password", "password")
             .opt("--dump-config")
             .into();
@@ -426,7 +448,10 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, DbInitializationConfig::panic_on_migration())
+            .initialize(
+                &chain_specific_dir,
+                DbInitializationConfig::panic_on_migration(),
+            )
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
@@ -441,14 +466,14 @@ mod tests {
             "0x0123456789012345678901234567890123456789",
             &map,
         );
-        assert_value("chainName", "eth-ropsten", &map);
+        assert_value("chainName", "polygon-mainnet", &map);
         assert_value("gasPrice", "1", &map);
-        assert_value("pastNeighbors", "masq://eth-ropsten:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234,masq://eth-ropsten:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345", &map);
+        assert_value("pastNeighbors", "masq://polygon-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234,masq://polygon-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345", &map);
         assert_value("neighborhoodMode", "consume-only", &map);
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
         assert_value(
             "startBlock",
-            &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string(),
+            &Chain::PolyMainnet.rec().contract_creation_block.to_string(),
             &map,
         );
         let expected_ee_entry = dao.get("example_encrypted").unwrap().value_opt.unwrap();
@@ -470,16 +495,15 @@ mod tests {
         let data_dir = ensure_node_home_directory_exists(
             "config_dumper",
             "dump_config_dumps_existing_database_with_incorrect_password",
-        )
-        .join("MASQ")
-        .join(TEST_DEFAULT_CHAIN.rec().literal_identifier);
+        );
+        let chain_specific_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_dir);
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
                 .initialize(
-                    &data_dir,
+                    &chain_specific_dir,
                     DbInitializationConfig::create_or_migrate(ExternalData::new(
-                        TEST_DEFAULT_CHAIN,
+                        Chain::PolyMainnet,
                         NeighborhoodModeLight::Standard,
                         None,
                     )),
@@ -500,12 +524,12 @@ mod tests {
                     Some(vec![
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-ropsten:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
+                            "masq://polygon-mainnet:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIzNDU@1.2.3.4:1234",
                         ))
                         .unwrap(),
                         NodeDescriptor::try_from((
                             main_cryptde(),
-                            "masq://eth-ropsten:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
+                            "masq://polygon-mainnet:QkNERUZHSElKS0xNTk9QUVJTVFVWV1hZWjAxMjM0NTY@2.3.4.5:2345",
                         ))
                         .unwrap(),
                     ]),
@@ -519,7 +543,7 @@ mod tests {
         let args_vec: Vec<String> = ArgsBuilder::new()
             .param("--data-directory", data_dir.to_str().unwrap())
             .param("--real-user", "123::")
-            .param("--chain", TEST_DEFAULT_CHAIN.rec().literal_identifier)
+            .param("--chain", Chain::PolyMainnet.rec().literal_identifier)
             .param("--db-password", "incorrect")
             .opt("--dump-config")
             .into();
@@ -534,7 +558,10 @@ mod tests {
             x => panic!("Expected JSON object; found {:?}", x),
         };
         let conn = DbInitializerReal::default()
-            .initialize(&data_dir, DbInitializationConfig::panic_on_migration())
+            .initialize(
+                &chain_specific_dir,
+                DbInitializationConfig::panic_on_migration(),
+            )
             .unwrap();
         let dao = Box::new(ConfigDaoReal::new(conn));
         assert_value("blockchainServiceUrl", "https://infura.io/ID", &map);
@@ -552,7 +579,7 @@ mod tests {
         );
         assert_value(
             "chainName",
-            TEST_DEFAULT_CHAIN.rec().literal_identifier,
+            Chain::PolyMainnet.rec().literal_identifier,
             &map,
         );
         assert_value("gasPrice", "1", &map);
@@ -565,7 +592,7 @@ mod tests {
         assert_value("schemaVersion", &CURRENT_SCHEMA_VERSION.to_string(), &map);
         assert_value(
             "startBlock",
-            &TEST_DEFAULT_CHAIN.rec().contract_creation_block.to_string(),
+            &Chain::PolyMainnet.rec().contract_creation_block.to_string(),
             &map,
         );
         assert_value(

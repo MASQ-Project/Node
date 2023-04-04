@@ -1092,7 +1092,7 @@ mod tests {
     use std::convert::TryFrom;
     #[cfg(not(target_os = "windows"))]
     use std::default::Default;
-    use std::fs::File;
+    use std::fs::{create_dir_all, File};
     use std::io::Write;
     use std::net::IpAddr;
     use std::ops::{Add, Sub};
@@ -2413,13 +2413,21 @@ mod tests {
             "config_file_not_specified_but_exists",
         );
         {
-            let config_file_path = data_directory.join("config.toml");
-            let mut config_file = File::create(config_file_path).unwrap();
-            config_file.write_all(b"gas-price = \"10\"\n").unwrap();
+            let config_file_path = data_directory
+                .join("MASQ")
+                .join("polygon-mainnet")
+                .join("config.toml");
+            let created_dir = create_dir_all(data_directory.join("MASQ").join("polygon-mainnet"));
+            if created_dir.unwrap() == () {
+                let mut config_file = File::create(config_file_path).unwrap();
+                config_file.write_all(b"gas-price = \"10\"\n").unwrap();
+            } else {
+                let x: Result<i32, &str> = Err("Could not create chain directory inside config_file_not_specified_but_exists home/MASQ directory");
+                assert_eq!(x.is_ok(), false);
+            }
         }
         let setup = vec![
             // no config-file setting
-            UiSetupResponseValue::new("chain", "polygon-mumbai", Set),
             UiSetupResponseValue::new("neighborhood-mode", "zero-hop", Set),
             UiSetupResponseValue::new(
                 "data-directory",
@@ -2430,11 +2438,12 @@ mod tests {
         .into_iter()
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
-
         let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
-            .calculate_configured_setup(&setup, &data_directory)
+            .calculate_configured_setup(
+                &setup,
+                &data_directory.join("MASQ").join("polygon-mainnet"),
+            )
             .0;
-
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
 

@@ -301,7 +301,7 @@ mod tests {
     use masq_lib::utils::{array_of_borrows_to_vec, running_test};
     use rustc_hex::FromHex;
     use std::convert::TryFrom;
-    use std::fs::File;
+    use std::fs::{create_dir_all, File};
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
@@ -435,11 +435,18 @@ mod tests {
             "node_configurator",
             "server_initializer_collected_params_can_read_parameters_from_config_file",
         );
+        let chain_specific_dir = add_chain_specific_directories(Chain::PolyMainnet, &home_dir);
         {
-            let mut config_file = File::create(home_dir.join("config.toml")).unwrap();
-            config_file
-                .write_all(b"dns-servers = \"111.111.111.111,222.222.222.222\"\n")
-                .unwrap();
+            let created_dir = create_dir_all(&chain_specific_dir);
+            if created_dir.unwrap() == () {
+                let mut config_file = File::create(chain_specific_dir.join("config.toml")).unwrap();
+                config_file
+                    .write_all(b"dns-servers = \"111.111.111.111,222.222.222.222\"\n")
+                    .unwrap();
+            } else {
+                let x: Result<i32, &str> = Err("Could not create chain directory inside config_file_not_specified_but_exists home/MASQ directory");
+                assert_eq!(x.is_ok(), false);
+            }
         }
         let directory_wrapper = make_pre_populated_mocked_directory_wrapper();
 
@@ -710,16 +717,15 @@ mod tests {
     #[test]
     fn server_initializer_collected_params_senses_when_user_specifies_config_file() {
         running_test();
-        let data_dir = ensure_node_home_directory_exists(
-            "node_configurator_standard",
-            "server_initializer_collected_params_senses_when_user_specifies_config_file",
-        );
-        let args = ArgsBuilder::new().param("--config-file", "booga.toml"); // nonexistent config file: should stimulate panic because user-specified
+        let home_dir = PathBuf::from("/unexisting_home/unexisting_alice");
+        let chain_specific_data_dir = add_chain_specific_directories(Chain::PolyMainnet, &home_dir);
+        let args = ArgsBuilder::new()
+            .param("--config-file", "booga.toml") // nonexistent config file: should stimulate panic because user-specified
+            .param("--chain", "polygon-mainnet");
         let args_vec: Vec<String> = args.into();
         let dir_wrapper = DirsWrapperMock::new()
-            .home_dir_result(Some(PathBuf::from("/unexisting_home/unexisting_alice")))
-            .data_dir_result(Some(data_dir));
-
+            .home_dir_result(Some(home_dir))
+            .data_dir_result(Some(chain_specific_data_dir));
         let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice()).err();
 
         match result {

@@ -168,6 +168,7 @@ mod tests {
     use crate::node_test_utils::DirsWrapperMock;
     use crate::test_utils::ArgsBuilder;
     use masq_lib::test_utils::environment_guard::EnvironmentGuard;
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::utils::find_free_port;
     use std::net::{SocketAddr, TcpListener};
 
@@ -232,10 +233,17 @@ mod tests {
 
     #[test]
     fn determine_config_file_path_finds_path_in_args() {
+        let data_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "determine_config_file_path_finds_path_in_args",
+        );
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new()
             .param("--clandestine-port", "2345")
-            .param("--data-directory", "data-dir")
+            .param(
+                "--data-directory",
+                &data_directory.to_string_lossy().to_string(),
+            )
             .param("--config-file", "booga.toml");
         let args_vec: Vec<String> = args.into();
 
@@ -245,10 +253,10 @@ mod tests {
             args_vec.as_slice(),
         )
         .unwrap();
-
+        let expected_path = data_directory.join("MASQ").join("polygon-mainnet");
         assert_eq!(
             &format!("{}", config_file_path.parent().unwrap().display()),
-            "data-dir",
+            &expected_path.to_string_lossy().to_string(),
         );
         assert_eq!("booga.toml", config_file_path.file_name().unwrap());
         assert_eq!(true, user_specified);
@@ -256,10 +264,17 @@ mod tests {
 
     #[test]
     fn determine_config_file_path_finds_path_in_environment() {
+        let data_directory = ensure_node_home_directory_exists(
+            "node_configurator",
+            "determine_config_file_path_finds_path_in_environment",
+        );
         let _guard = EnvironmentGuard::new();
         let args = ArgsBuilder::new();
         let args_vec: Vec<String> = args.into();
-        std::env::set_var("MASQ_DATA_DIRECTORY", "data_dir");
+        std::env::set_var(
+            "MASQ_DATA_DIRECTORY",
+            &data_directory.to_string_lossy().to_string(),
+        );
         std::env::set_var("MASQ_CONFIG_FILE", "booga.toml");
 
         let (config_file_path, user_specified) = determine_config_file_path(
@@ -268,9 +283,9 @@ mod tests {
             args_vec.as_slice(),
         )
         .unwrap();
-
+        let expected_path = data_directory.join("MASQ").join("polygon-mainnet");
         assert_eq!(
-            "data_dir",
+            &expected_path.to_string_lossy().to_string(),
             &format!("{}", config_file_path.parent().unwrap().display())
         );
         assert_eq!("booga.toml", config_file_path.file_name().unwrap());
