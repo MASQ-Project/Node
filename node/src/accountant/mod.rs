@@ -135,7 +135,7 @@ pub struct SentPayables {
 
 #[derive(Debug, Message, PartialEq, Eq)]
 pub struct AvailableBalancesAndQualifiedPayables {
-    pub accounts: Vec<PayableAccount>,
+    pub qualified_payables: Vec<PayableAccount>,
     pub consuming_wallet_balances: WalletBalances,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
@@ -220,12 +220,12 @@ impl Handler<AvailableBalancesAndQualifiedPayables> for Accountant {
         msg: AvailableBalancesAndQualifiedPayables,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        //TODO GH-672 is gonna take place here
+        //TODO GH-672 with PaymentAdjuster hasn't been implemented yet
         self.report_accounts_payable_sub_opt
             .as_ref()
             .expect("BlockchainBridge is unbound")
             .try_send(ReportAccountsPayable {
-                accounts: msg.accounts,
+                accounts: msg.qualified_payables,
                 response_skeleton_opt: msg.response_skeleton_opt,
             })
             .expect("BlockchainBridge is dead")
@@ -1352,7 +1352,7 @@ mod tests {
     }
 
     #[test]
-    fn receives_available_balances_for_payables_calls_all_payments_feasible_and_reports_back_to_blockchain_bridge(
+    fn receives_available_balances_for_payables_finds_payments_feasible_and_reports_them_all_to_blockchain_bridge(
     ) {
         let mut subject = AccountantBuilder::default().build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
@@ -1362,12 +1362,12 @@ mod tests {
             .recipient();
         subject.report_accounts_payable_sub_opt = Some(report_recipient);
         let subject_addr = subject.start();
-        let number_closely_fitting_under = ((u32::MAX / 2) - 1) as u64 / WEIS_OF_GWEI as u64;
-        let account_1 = make_payable_account(number_closely_fitting_under);
+        let half_of_u32_max_in_wei = u32::MAX as u64 / (2 * WEIS_OF_GWEI as u64);
+        let account_1 = make_payable_account(half_of_u32_max_in_wei);
         let account_2 = account_1.clone();
         let system = System::new("test");
         let available_balances_and_qualified_payments = AvailableBalancesAndQualifiedPayables {
-            accounts: vec![account_1.clone(), account_2.clone()],
+            qualified_payables: vec![account_1.clone(), account_2.clone()],
             consuming_wallet_balances: WalletBalances {
                 gas_currency: U256::from(u32::MAX),
                 masq_tokens: U256::from(u32::MAX),

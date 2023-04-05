@@ -273,7 +273,7 @@ impl BlockchainBridge {
                 )
             }
         };
-        //TODO rewrite this into a batch call as soon as a card also involving this feature gets into master
+        //TODO rewrite this into a batch call as soon as GH-629 gets into master
         let gas_balance = match self.blockchain_interface.get_gas_balance(consuming_wallet) {
             Ok(gas_balance) => gas_balance,
             Err(e) => {
@@ -305,7 +305,7 @@ impl BlockchainBridge {
             .as_ref()
             .expect("Accountant is unbound")
             .try_send(AvailableBalancesAndQualifiedPayables {
-                accounts: msg.accounts,
+                qualified_payables: msg.accounts,
                 consuming_wallet_balances,
                 response_skeleton_opt: msg.response_skeleton_opt,
             })
@@ -749,7 +749,7 @@ mod tests {
         assert_eq!(
             reported_balances_and_qualified_accounts,
             &AvailableBalancesAndQualifiedPayables {
-                accounts: qualified_accounts,
+                qualified_payables: qualified_accounts,
                 consuming_wallet_balances: wallet_balances_found,
                 response_skeleton_opt: Some(ResponseSkeleton {
                     client_id: 11122,
@@ -759,7 +759,8 @@ mod tests {
         );
     }
 
-    fn assert_failure_on_balance_inspection(
+    fn assert_failure_during_balance_inspection(
+        test_name: &str,
         blockchain_interface: BlockchainInterfaceMock,
         error_msg: &str,
     ) {
@@ -770,13 +771,14 @@ mod tests {
             .start()
             .recipient();
         let persistent_configuration = PersistentConfigurationMock::default();
-        let consuming_wallet = make_wallet("somewallet");
+        let consuming_wallet = make_wallet(test_name);
         let mut subject = BlockchainBridge::new(
             Box::new(blockchain_interface),
             Box::new(persistent_configuration),
             false,
             Some(consuming_wallet),
         );
+        subject.logger = Logger::new(test_name);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
         let request = RequestAvailableBalancesForPayables {
             accounts: vec![PayableAccount {
@@ -791,9 +793,9 @@ mod tests {
             }),
         };
         let subject_addr = subject.start();
-        let system = System::new("test");
+        let system = System::new(test_name);
 
-        // Don't start it off somehow else; this initial message is an important check that
+        // Don't eliminate or bypass this message as an important check that
         // the Handler employs scan_handle()
         subject_addr.try_send(request).unwrap();
 
@@ -812,22 +814,25 @@ mod tests {
                 msg: error_msg.to_string()
             }
         );
-        TestLogHandler::new()
-            .exists_log_containing(&format!("WARN: BlockchainBridge: {}", error_msg));
+        TestLogHandler::new().exists_log_containing(&format!("WARN: {}: {}", test_name, error_msg));
     }
 
     #[test]
     fn handle_request_of_available_balances_for_payables_fails_on_inspection_of_gas_balance() {
+        let test_name =
+            "handle_request_of_available_balances_for_payables_fails_on_inspection_of_gas_balance";
         let blockchain_interface = BlockchainInterfaceMock::default().get_gas_balance_result(Err(
             BlockchainError::QueryFailed("Lazy and yet you're asking for balances?".to_string()),
         ));
         let error_msg = "Did not find out gas balance of the consuming wallet: \
          QueryFailed(\"Lazy and yet you're asking for balances?\")";
-        assert_failure_on_balance_inspection(blockchain_interface, error_msg)
+
+        assert_failure_during_balance_inspection(test_name, blockchain_interface, error_msg)
     }
 
     #[test]
     fn handle_request_of_available_balances_for_payables_fails_on_inspection_of_token_balance() {
+        let test_name = "handle_request_of_available_balances_for_payables_fails_on_inspection_of_token_balance";
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_gas_balance_result(Ok(U256::from(45678)))
             .get_token_balance_result(Err(BlockchainError::QueryFailed(
@@ -835,7 +840,8 @@ mod tests {
             )));
         let error_msg = "Did not find out token balance of the consuming wallet: QueryFailed(\
                \"Go get you a job. This balance must be deserved\")";
-        assert_failure_on_balance_inspection(blockchain_interface, error_msg)
+
+        assert_failure_during_balance_inspection(test_name, blockchain_interface, error_msg)
     }
 
     #[test]

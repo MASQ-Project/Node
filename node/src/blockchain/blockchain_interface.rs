@@ -1019,6 +1019,16 @@ mod tests {
     }
 
     #[test]
+    fn blockchain_interface_non_clandestine_returns_error_for_unintelligible_response_to_gas_balance(
+    ) {
+        let act = |subject: &BlockchainInterfaceNonClandestine<Http>, wallet: &Wallet| {
+            subject.get_gas_balance(wallet)
+        };
+
+        assert_error_during_requesting_balance(act, "invalid hex character");
+    }
+
+    #[test]
     fn blockchain_interface_non_clandestine_can_retrieve_token_balance_of_a_wallet() {
         let port = find_free_port();
         let _test_server = TestServer::start (port, vec![
@@ -1068,15 +1078,16 @@ mod tests {
     }
 
     #[test]
-    fn blockchain_interface_non_clandestine_returns_an_error_for_unintelligible_response_when_requesting_token_balance(
+    fn blockchain_interface_non_clandestine_returns_error_for_unintelligible_response_to_token_balance(
     ) {
         let act = |subject: &BlockchainInterfaceNonClandestine<Http>, wallet: &Wallet| {
             subject.get_token_balance(wallet)
         };
-        error_on_requesting_balance(act);
+
+        assert_error_during_requesting_balance(act, "Invalid hex");
     }
 
-    fn error_on_requesting_balance<F>(act: F)
+    fn assert_error_during_requesting_balance<F>(act: F, expected_err_msg_fragment: &str)
     where
         F: FnOnce(&BlockchainInterfaceNonClandestine<Http>, &Wallet) -> ResultForBalance,
     {
@@ -1101,10 +1112,16 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        match result {
-            Err(BlockchainError::QueryFailed(msg)) if msg.contains("Invalid hex") => (),
-            x => panic!("Expected complaint about hex character, but got {:?}", x),
-        }
+        let err_msg = match result {
+            Err(BlockchainError::QueryFailed(msg)) => msg,
+            x => panic!("Expected BlockchainError::QueryFailed, but got {:?}", x),
+        };
+        assert!(
+            err_msg.contains(expected_err_msg_fragment),
+            "Expected this fragment {} in this err msg: {}",
+            expected_err_msg_fragment,
+            err_msg
+        )
     }
 
     #[test]
