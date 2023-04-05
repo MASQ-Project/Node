@@ -41,6 +41,7 @@ jobs:
   lint:
     needs: format
     strategy:
+      fail-fast: false
       matrix:
         target:
           - { name: linux, os: ubuntu-22.04 }
@@ -75,6 +76,7 @@ jobs:
   unit_tests:
     needs: format
     strategy:
+      fail-fast: false
       matrix:
         target:
           - { name: linux, os: ubuntu-22.04 }
@@ -109,6 +111,7 @@ jobs:
   integration_tests:
     needs: format
     strategy:
+      fail-fast: false
       matrix:
         target:
           - { name: linux, os: ubuntu-22.04 }
@@ -141,6 +144,7 @@ jobs:
       - unit_tests
       - integration_tests
     strategy:
+      fail-fast: false
       matrix:
         target:
           - { name: linux, os: ubuntu-22.04 }
