@@ -1911,7 +1911,7 @@ mod tests {
                         target_hostname: Some("hostname".to_string()),
                         target_port: 1234,
                         protocol: ProxyProtocol::TLS,
-                        originator_alias_public_key: PublicKey::new(b"1234"),
+                        originator_public_key: PublicKey::new(b"1234"),
                     },
                 )),
             )
