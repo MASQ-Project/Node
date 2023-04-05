@@ -23,7 +23,7 @@ use crate::blockchain::blockchain_interface::BlockchainError;
 use crate::sub_lib::accountant::{
     DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
 };
-use crate::sub_lib::blockchain_bridge::RequestAvailableBalancesForPayables;
+use crate::sub_lib::blockchain_bridge::RequestBalancesToPayPayables;
 use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
 use crate::sub_lib::wallet::Wallet;
 use actix::{Context, Message, System};
@@ -44,7 +44,7 @@ use time::OffsetDateTime;
 use web3::types::TransactionReceipt;
 
 pub struct Scanners {
-    pub payable: Box<dyn Scanner<RequestAvailableBalancesForPayables, SentPayables>>,
+    pub payable: Box<dyn Scanner<RequestBalancesToPayPayables, SentPayables>>,
     pub pending_payable: Box<dyn Scanner<RequestTransactionReceipts, ReportTransactionReceipts>>,
     pub receivable: Box<dyn Scanner<RetrieveTransactions, ReceivedPayments>>,
 }
@@ -159,13 +159,13 @@ pub struct PayableScanner {
     pub payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
 }
 
-impl Scanner<RequestAvailableBalancesForPayables, SentPayables> for PayableScanner {
+impl Scanner<RequestBalancesToPayPayables, SentPayables> for PayableScanner {
     fn begin_scan(
         &mut self,
         timestamp: SystemTime,
         response_skeleton_opt: Option<ResponseSkeleton>,
         logger: &Logger,
-    ) -> Result<RequestAvailableBalancesForPayables, BeginScanError> {
+    ) -> Result<RequestBalancesToPayPayables, BeginScanError> {
         if let Some(timestamp) = self.scan_started_at() {
             return Err(BeginScanError::ScanAlreadyRunning(timestamp));
         }
@@ -193,7 +193,7 @@ impl Scanner<RequestAvailableBalancesForPayables, SentPayables> for PayableScann
                     "Chose {} qualified debts to pay",
                     qualified_payable.len()
                 );
-                Ok(RequestAvailableBalancesForPayables {
+                Ok(RequestBalancesToPayPayables {
                     accounts: qualified_payable,
                     response_skeleton_opt,
                 })
@@ -986,7 +986,7 @@ mod tests {
     use crate::sub_lib::accountant::{
         DaoFactories, FinancialStatistics, PaymentThresholds, DEFAULT_PAYMENT_THRESHOLDS,
     };
-    use crate::sub_lib::blockchain_bridge::RequestAvailableBalancesForPayables;
+    use crate::sub_lib::blockchain_bridge::RequestBalancesToPayPayables;
     use crate::test_utils::make_wallet;
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
@@ -1111,7 +1111,7 @@ mod tests {
         assert_eq!(timestamp, Some(now));
         assert_eq!(
             result,
-            Ok(RequestAvailableBalancesForPayables {
+            Ok(RequestBalancesToPayPayables {
                 accounts: qualified_payable_accounts.clone(),
                 response_skeleton_opt: None,
             })

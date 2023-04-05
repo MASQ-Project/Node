@@ -2,7 +2,7 @@
 
 use crate::accountant::payable_dao::{Payable, PayableAccount};
 use crate::accountant::{
-    AvailableBalancesAndQualifiedPayables, ReceivedPayments, ResponseSkeleton, ScanError,
+    ConsumingWalletBalancesAndQualifiedPayables, ReceivedPayments, ResponseSkeleton, ScanError,
     SentPayables, SkeletonOptHolder,
 };
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
@@ -16,10 +16,8 @@ use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::sub_lib::blockchain_bridge::{
-    BlockchainBridgeSubs, RequestAvailableBalancesForPayables,
-};
-use crate::sub_lib::blockchain_bridge::{ReportAccountsPayable, WalletBalances};
+use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, RequestBalancesToPayPayables};
+use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, ReportAccountsPayable};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::utils::handle_ui_crash_request;
@@ -49,7 +47,7 @@ pub struct BlockchainBridge {
     persistent_config: Box<dyn PersistentConfiguration>,
     set_consuming_wallet_subs_opt: Option<Vec<Recipient<SetConsumingWalletMessage>>>,
     sent_payable_subs_opt: Option<Recipient<SentPayables>>,
-    balances_and_payables_sub_opt: Option<Recipient<AvailableBalancesAndQualifiedPayables>>,
+    balances_and_payables_sub_opt: Option<Recipient<ConsumingWalletBalancesAndQualifiedPayables>>,
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
     scan_error_subs_opt: Option<Recipient<ScanError>>,
     crashable: bool,
@@ -81,7 +79,7 @@ impl Handler<BindMessage> for BlockchainBridge {
         self.balances_and_payables_sub_opt = Some(
             msg.peer_actors
                 .accountant
-                .report_our_balances_and_qualified_payables,
+                .report_consuming_wallet_balances_and_qualified_payables,
         );
         self.sent_payable_subs_opt = Some(msg.peer_actors.accountant.report_sent_payments);
         self.received_payments_subs_opt = Some(msg.peer_actors.accountant.report_inbound_payments);
@@ -139,12 +137,12 @@ impl Handler<RequestTransactionReceipts> for BlockchainBridge {
     }
 }
 
-impl Handler<RequestAvailableBalancesForPayables> for BlockchainBridge {
+impl Handler<RequestBalancesToPayPayables> for BlockchainBridge {
     type Result = ();
 
-    fn handle(&mut self, msg: RequestAvailableBalancesForPayables, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: RequestBalancesToPayPayables, _ctx: &mut Self::Context) {
         self.handle_scan(
-            Self::handle_request_of_available_balances_for_payables,
+            Self::handle_request_balances_to_pay_payables,
             ScanType::Payables,
             msg,
         );
@@ -249,19 +247,16 @@ impl BlockchainBridge {
         BlockchainBridgeSubs {
             bind: recipient!(addr, BindMessage),
             report_accounts_payable: recipient!(addr, ReportAccountsPayable),
-            request_available_balances_for_payables: recipient!(
-                addr,
-                RequestAvailableBalancesForPayables
-            ),
+            request_balances_to_pay_payables: recipient!(addr, RequestBalancesToPayPayables),
             retrieve_transactions: recipient!(addr, RetrieveTransactions),
             ui_sub: recipient!(addr, NodeFromUiMessage),
             request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
         }
     }
 
-    fn handle_request_of_available_balances_for_payables(
+    fn handle_request_balances_to_pay_payables(
         &mut self,
-        msg: RequestAvailableBalancesForPayables,
+        msg: RequestBalancesToPayPayables,
     ) -> Result<(), String> {
         let consuming_wallet = match self.consuming_wallet_opt.as_ref() {
             Some(wallet) => wallet,
@@ -296,7 +291,7 @@ impl BlockchainBridge {
             }
         };
         let consuming_wallet_balances = {
-            WalletBalances {
+            ConsumingWalletBalances {
                 gas_currency: gas_balance,
                 masq_tokens: token_balance,
             }
@@ -304,7 +299,7 @@ impl BlockchainBridge {
         self.balances_and_payables_sub_opt
             .as_ref()
             .expect("Accountant is unbound")
-            .try_send(AvailableBalancesAndQualifiedPayables {
+            .try_send(ConsumingWalletBalancesAndQualifiedPayables {
                 qualified_payables: msg.accounts,
                 consuming_wallet_balances,
                 response_skeleton_opt: msg.response_skeleton_opt,
@@ -503,7 +498,7 @@ mod tests {
     use crate::accountant::dao_utils::from_time_t;
     use crate::accountant::payable_dao::PayableAccount;
     use crate::accountant::test_utils::make_pending_payable_fingerprint;
-    use crate::accountant::AvailableBalancesAndQualifiedPayables;
+    use crate::accountant::ConsumingWalletBalancesAndQualifiedPayables;
     use crate::blockchain::bip32::Bip32ECKeyProvider;
     use crate::blockchain::blockchain_bridge::Payable;
     use crate::blockchain::blockchain_interface::{
@@ -516,7 +511,7 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_every_type_id;
     use crate::node_test_utils::check_timestamp;
-    use crate::sub_lib::blockchain_bridge::WalletBalances;
+    use crate::sub_lib::blockchain_bridge::ConsumingWalletBalances;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::recorder_stop_conditions::StopCondition;
@@ -688,16 +683,16 @@ mod tests {
     }
 
     #[test]
-    fn handle_request_of_available_balances_for_payables_reports_balances_back_to_accountant() {
+    fn handle_request_balances_to_pay_payables_reports_balances_and_payables_back_to_accountant() {
         let system = System::new(
-            "handle_request_of_available_balances_for_payables_reports_balances_back_to_accountant",
+            "handle_request_balances_to_pay_payables_reports_balances_and_payables_back_to_accountant",
         );
         let get_gas_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let get_token_balance_params_arc = Arc::new(Mutex::new(vec![]));
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let gas_balance = U256::from(4455);
         let token_balance = U256::from(112233);
-        let wallet_balances_found = WalletBalances {
+        let wallet_balances_found = ConsumingWalletBalances {
             gas_currency: gas_balance,
             masq_tokens: token_balance,
         };
@@ -727,7 +722,7 @@ mod tests {
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         send_bind_message!(subject_subs, peer_actors);
 
-        addr.try_send(RequestAvailableBalancesForPayables {
+        addr.try_send(RequestBalancesToPayPayables {
             accounts: qualified_accounts.clone(),
             response_skeleton_opt: Some(ResponseSkeleton {
                 client_id: 11122,
@@ -744,11 +739,11 @@ mod tests {
         assert_eq!(*get_token_balance_params, vec![consuming_wallet]);
         let accountant_received_payment = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_received_payment.len(), 1);
-        let reported_balances_and_qualified_accounts: &AvailableBalancesAndQualifiedPayables =
+        let reported_balances_and_qualified_accounts: &ConsumingWalletBalancesAndQualifiedPayables =
             accountant_received_payment.get_record(0);
         assert_eq!(
             reported_balances_and_qualified_accounts,
-            &AvailableBalancesAndQualifiedPayables {
+            &ConsumingWalletBalancesAndQualifiedPayables {
                 qualified_payables: qualified_accounts,
                 consuming_wallet_balances: wallet_balances_found,
                 response_skeleton_opt: Some(ResponseSkeleton {
@@ -780,7 +775,7 @@ mod tests {
         );
         subject.logger = Logger::new(test_name);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
-        let request = RequestAvailableBalancesForPayables {
+        let request = RequestBalancesToPayPayables {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 42,
@@ -818,9 +813,9 @@ mod tests {
     }
 
     #[test]
-    fn handle_request_of_available_balances_for_payables_fails_on_inspection_of_gas_balance() {
+    fn handle_request_balances_to_pay_payables_fails_on_inspection_of_gas_balance() {
         let test_name =
-            "handle_request_of_available_balances_for_payables_fails_on_inspection_of_gas_balance";
+            "handle_request_balances_to_pay_payables_fails_on_inspection_of_gas_balance";
         let blockchain_interface = BlockchainInterfaceMock::default().get_gas_balance_result(Err(
             BlockchainError::QueryFailed("Lazy and yet you're asking for balances?".to_string()),
         ));
@@ -831,8 +826,9 @@ mod tests {
     }
 
     #[test]
-    fn handle_request_of_available_balances_for_payables_fails_on_inspection_of_token_balance() {
-        let test_name = "handle_request_of_available_balances_for_payables_fails_on_inspection_of_token_balance";
+    fn handle_request_balances_to_pay_payables_fails_on_inspection_of_token_balance() {
+        let test_name =
+            "handle_request_balances_to_pay_payables_fails_on_inspection_of_token_balance";
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_gas_balance_result(Ok(U256::from(45678)))
             .get_token_balance_result(Err(BlockchainError::QueryFailed(
@@ -845,7 +841,7 @@ mod tests {
     }
 
     #[test]
-    fn handle_request_of_available_balances_for_payables_missing_consuming_wallet() {
+    fn handle_request_balances_to_pay_payables_fails_at_missing_consuming_wallet() {
         let blockchain_interface = BlockchainInterfaceMock::default();
         let persistent_configuration = PersistentConfigurationMock::default();
         let mut subject = BlockchainBridge::new(
@@ -854,7 +850,7 @@ mod tests {
             false,
             None,
         );
-        let request = RequestAvailableBalancesForPayables {
+        let request = RequestBalancesToPayPayables {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 4254,
@@ -864,7 +860,7 @@ mod tests {
             response_skeleton_opt: None,
         };
 
-        let result = subject.handle_request_of_available_balances_for_payables(request);
+        let result = subject.handle_request_balances_to_pay_payables(request);
 
         assert_eq!(
             result,
