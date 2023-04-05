@@ -86,8 +86,11 @@ impl SetupReporter for SetupReporterReal {
                     blanked_out_former_values.insert(v.name.clone(), former_value);
                 };
             });
-        let err_conflicts_for_blanked_out =
-            Self::get_err_conflicts_for_blanked_out(&blanked_out_former_values, &existing_setup);
+        let prevented_err_induced_impairments_to_blanked_out =
+            Self::prevent_err_induced_impairments_to_blanked_out(
+                &blanked_out_former_values,
+                &existing_setup,
+            );
         let mut incoming_setup = incoming_setup
             .into_iter()
             .filter(|v| v.value.is_some())
@@ -168,7 +171,7 @@ impl SetupReporter for SetupReporterReal {
             let setup = Self::combine_clusters(vec![
                 &final_setup,
                 &blanked_out_former_values,
-                &err_conflicts_for_blanked_out,
+                &prevented_err_induced_impairments_to_blanked_out,
             ]);
             Err((setup, error_so_far))
         }
@@ -226,18 +229,20 @@ impl SetupReporterReal {
         }
     }
 
-    fn get_err_conflicts_for_blanked_out(
+    fn prevent_err_induced_impairments_to_blanked_out(
         blanked_out_former_values: &SetupCluster,
         existing_setup: &SetupCluster,
     ) -> SetupCluster {
         ERR_SENSITIVE_BLANKED_OUT_VALUE_PAIRS.iter().fold(
             HashMap::new(),
-            |mut acc, (blanked_out_arg, err_persistent_linked_arg)| {
-                if blanked_out_former_values.contains_key(&blanked_out_arg.to_string()) {
+            |mut acc, (err_sensitive_blanked_out_arg_example, err_sensitive_linked_arg)| {
+                if blanked_out_former_values
+                    .contains_key(&err_sensitive_blanked_out_arg_example.to_string())
+                {
                     if let Some(former_value) =
-                        existing_setup.get(&err_persistent_linked_arg.to_string())
+                        existing_setup.get(&err_sensitive_linked_arg.to_string())
                     {
-                        acc.insert(err_persistent_linked_arg.to_string(), former_value.clone());
+                        acc.insert(err_sensitive_linked_arg.to_string(), former_value.clone());
                     }
                 };
                 acc
