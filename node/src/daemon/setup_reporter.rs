@@ -2414,12 +2414,9 @@ mod tests {
             "setup_reporter",
             "config_file_not_specified_but_exists",
         );
-        let data_dir_chain_path = data_directory
-            .join("MASQ")
-            .join("polygon-mainnet");
+        let data_dir_chain_path = data_directory.join("MASQ").join("polygon-mainnet");
         {
-            let config_file_path = data_dir_chain_path
-                .join("config.toml");
+            let config_file_path = data_dir_chain_path.join("config.toml");
             create_dir_all(&data_dir_chain_path)
                 .expect("Could not create chain directory inside config_file_not_specified_but_exists home/MASQ directory");
             let mut config_file = File::create(config_file_path).unwrap();
@@ -2438,10 +2435,7 @@ mod tests {
         .map(|uisrv| (uisrv.name.clone(), uisrv))
         .collect();
         let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
-            .calculate_configured_setup(
-                &setup,
-                &*data_dir_chain_path,
-            )
+            .calculate_configured_setup(&setup, &*data_dir_chain_path)
             .0;
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());
     }
