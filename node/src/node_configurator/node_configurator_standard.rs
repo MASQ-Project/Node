@@ -437,16 +437,12 @@ mod tests {
         );
         let chain_specific_dir = add_chain_specific_directories(Chain::PolyMainnet, &home_dir);
         {
-            let created_dir = create_dir_all(&chain_specific_dir);
-            if created_dir.unwrap() == () {
-                let mut config_file = File::create(chain_specific_dir.join("config.toml")).unwrap();
-                config_file
-                    .write_all(b"dns-servers = \"111.111.111.111,222.222.222.222\"\n")
-                    .unwrap();
-            } else {
-                let x: Result<i32, &str> = Err("Could not create chain directory inside config_file_not_specified_but_exists home/MASQ directory");
-                assert_eq!(x.is_ok(), false);
-            }
+            create_dir_all(&chain_specific_dir)
+                .expect("Could not create chain directory inside server_initializer_collected_params_can_read_parameters_from_config_file home/MASQ directory");
+            let mut config_file = File::create(chain_specific_dir.join("config.toml")).unwrap();
+            config_file
+                .write_all(b"dns-servers = \"111.111.111.111,222.222.222.222\"\n")
+                .unwrap();
         }
         let directory_wrapper = make_pre_populated_mocked_directory_wrapper();
 
@@ -720,7 +716,7 @@ mod tests {
         let home_dir = PathBuf::from("/unexisting_home/unexisting_alice");
         let chain_specific_data_dir = add_chain_specific_directories(Chain::PolyMainnet, &home_dir);
         let args = ArgsBuilder::new()
-            .param("--config-file", "booga.toml") // nonexistent config file: should stimulate panic because user-specified
+            .param("--config-file", "booga.toml") // nonexistent config file: should return error because user-specified
             .param("--chain", "polygon-mainnet");
         let args_vec: Vec<String> = args.into();
         let dir_wrapper = DirsWrapperMock::new()

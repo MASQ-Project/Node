@@ -119,7 +119,9 @@ impl SetupReporter for SetupReporterReal {
                 .populate(self.dirs_wrapper.as_ref())
         });
         let data_directory = match all_but_configured.get("data-directory") {
-            Some(uisrv) if uisrv.status == Set => PathBuf::from(&uisrv.value), // TODO drive in the specific chain dir here
+            Some(uisrv) if uisrv.status == Set => {
+                todo!("TODO drive in the specific chain dir here, before there were `PathBuf::from(&uisrv.value)`")
+            }
             _ => data_directory_from_context(
                 self.dirs_wrapper.as_ref(),
                 &real_user,
@@ -2412,19 +2414,16 @@ mod tests {
             "setup_reporter",
             "config_file_not_specified_but_exists",
         );
+        let data_dir_chain_path = data_directory
+            .join("MASQ")
+            .join("polygon-mainnet");
         {
-            let config_file_path = data_directory
-                .join("MASQ")
-                .join("polygon-mainnet")
+            let config_file_path = data_dir_chain_path
                 .join("config.toml");
-            let created_dir = create_dir_all(data_directory.join("MASQ").join("polygon-mainnet"));
-            if created_dir.unwrap() == () {
-                let mut config_file = File::create(config_file_path).unwrap();
-                config_file.write_all(b"gas-price = \"10\"\n").unwrap();
-            } else {
-                let x: Result<i32, &str> = Err("Could not create chain directory inside config_file_not_specified_but_exists home/MASQ directory");
-                assert_eq!(x.is_ok(), false);
-            }
+            create_dir_all(&data_dir_chain_path)
+                .expect("Could not create chain directory inside config_file_not_specified_but_exists home/MASQ directory");
+            let mut config_file = File::create(config_file_path).unwrap();
+            config_file.write_all(b"gas-price = \"10\"\n").unwrap();
         }
         let setup = vec![
             // no config-file setting
@@ -2441,7 +2440,7 @@ mod tests {
         let result = SetupReporterReal::new(Box::new(DirsWrapperReal {}))
             .calculate_configured_setup(
                 &setup,
-                &data_directory.join("MASQ").join("polygon-mainnet"),
+                &*data_dir_chain_path,
             )
             .0;
         assert_eq!(result.get("gas-price").unwrap().value, "10".to_string());

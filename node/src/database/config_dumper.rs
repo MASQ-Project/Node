@@ -228,14 +228,11 @@ mod tests {
             "config_dumper",
             "dump_config_does_not_migrate_obsolete_database",
         );
-        let chain_specific_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_dir);
-        let created_dir = create_dir_all(&chain_specific_dir); //
-        if created_dir.unwrap() != () {
-            let x: Result<i32, &str> = Err("Could not create chain directory inside dump_config_does_not_migrate_obsolete_database home/MASQ directory");
-            assert_eq!(x.is_ok(), false);
-        }
+        let chain_specific_data_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_dir);
+        create_dir_all(&chain_specific_data_dir)
+            .expect("Could not create chain directory inside config_file_not_specified_but_exists home/MASQ directory");
         let conn =
-            bring_db_0_back_to_life_and_return_connection(&chain_specific_dir.join(DATABASE_FILE));
+            bring_db_0_back_to_life_and_return_connection(&chain_specific_data_dir.join(DATABASE_FILE));
         let dao = ConfigDaoReal::new(Box::new(ConnectionWrapperReal::new(conn)));
         let schema_version_before = dao.get("schema_version").unwrap().value_opt.unwrap();
         assert_eq!(schema_version_before, "0");
@@ -245,7 +242,7 @@ mod tests {
             .param("--real-user", "123::")
             .param(
                 "--chain",
-                masq_lib::constants::POLYGON_MAINNET_FULL_IDENTIFIER,
+                Chain::PolyMainnet.rec().literal_identifier,
             )
             .opt("--dump-config")
             .into();
@@ -266,12 +263,12 @@ mod tests {
             "config_dumper",
             "dump_config_dumps_existing_database_without_password",
         );
-        let chain_specific_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_dir);
+        let chain_specific_data_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_dir);
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
                 .initialize(
-                    &chain_specific_dir,
+                    &chain_specific_data_dir,
                     DbInitializationConfig::create_or_migrate(ExternalData::new(
                         Chain::PolyMainnet,
                         NeighborhoodModeLight::ZeroHop,
@@ -328,7 +325,7 @@ mod tests {
         };
         let conn = DbInitializerReal::default()
             .initialize(
-                &chain_specific_dir,
+                &chain_specific_data_dir,
                 DbInitializationConfig::panic_on_migration(),
             )
             .unwrap();
@@ -386,12 +383,12 @@ mod tests {
             "config_dumper",
             "dump_config_dumps_existing_database_with_correct_password",
         );
-        let chain_specific_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_dir);
+        let chain_specific_data_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_dir);
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
                 .initialize(
-                    &chain_specific_dir,
+                    &chain_specific_data_dir,
                     DbInitializationConfig::create_or_migrate(ExternalData::new(
                         Chain::PolyMainnet,
                         NeighborhoodModeLight::ConsumeOnly,
@@ -449,7 +446,7 @@ mod tests {
         };
         let conn = DbInitializerReal::default()
             .initialize(
-                &chain_specific_dir,
+                &chain_specific_data_dir,
                 DbInitializationConfig::panic_on_migration(),
             )
             .unwrap();
@@ -496,12 +493,12 @@ mod tests {
             "config_dumper",
             "dump_config_dumps_existing_database_with_incorrect_password",
         );
-        let chain_specific_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_dir);
+        let chain_specific_data_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_dir);
         let mut holder = FakeStreamHolder::new();
         {
             let conn = DbInitializerReal::default()
                 .initialize(
-                    &chain_specific_dir,
+                    &chain_specific_data_dir,
                     DbInitializationConfig::create_or_migrate(ExternalData::new(
                         Chain::PolyMainnet,
                         NeighborhoodModeLight::Standard,
@@ -559,7 +556,7 @@ mod tests {
         };
         let conn = DbInitializerReal::default()
             .initialize(
-                &chain_specific_dir,
+                &chain_specific_data_dir,
                 DbInitializationConfig::panic_on_migration(),
             )
             .unwrap();
