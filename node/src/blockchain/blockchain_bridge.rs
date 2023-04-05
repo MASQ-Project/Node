@@ -19,7 +19,7 @@ use crate::sub_lib::blockchain_bridge::BlockchainBridgeSubs;
 use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
-use crate::sub_lib::utils::handle_ui_crash_request;
+use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
 use actix::Actor;
 use actix::Context;
@@ -210,12 +210,7 @@ impl BlockchainBridge {
                     &data_directory,
                     DbInitializationConfig::panic_on_migration(),
                 )
-                .unwrap_or_else(|_| {
-                    panic!(
-                        "Failed to connect to database at {:?}",
-                        &data_directory.join(DATABASE_FILE)
-                    )
-                }),
+                .unwrap_or_else(|err| db_connection_launch_panic(err, &data_directory) ),
         ));
         (
             blockchain_interface,
@@ -438,9 +433,7 @@ mod tests {
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
     use crate::test_utils::recorder_stop_conditions::StopCondition;
     use crate::test_utils::recorder_stop_conditions::StopConditions;
-    use crate::test_utils::unshared_test_utils::{
-        configure_default_persistent_config, prove_that_crash_request_handler_is_hooked_up, ZERO,
-    };
+    use crate::test_utils::unshared_test_utils::{assert_on_initialization_with_panic_on_migration, configure_default_persistent_config, prove_that_crash_request_handler_is_hooked_up, ZERO};
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use actix::System;
     use ethereum_types::{BigEndianHash, U64};
@@ -451,9 +444,14 @@ mod tests {
     use masq_lib::test_utils::logging::TestLogHandler;
     use rustc_hex::FromHex;
     use std::any::TypeId;
+    use std::path::Path;
     use std::sync::{Arc, Mutex};
     use std::time::SystemTime;
+    use itertools::Either;
     use web3::types::{TransactionReceipt, H160, H256, U256};
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use crate::database::db_initializer::DbInitializerReal;
+    use crate::node_configurator::configurator::Configurator;
 
     #[test]
     fn constants_have_correct_values() {
@@ -1445,5 +1443,22 @@ mod tests {
         );
 
         prove_that_crash_request_handler_is_hooked_up(subject, CRASH_KEY);
+    }
+
+    #[test]
+    fn make_connections_implements_panic_on_migration() {
+        let data_dir = ensure_node_home_directory_exists(
+            "blockchain_bridge",
+            "make_connections_with_panic_on_migration",
+        );
+
+        let act = |data_dir: &Path| {
+            BlockchainBridge::make_connections(Some("http://127.0.0.1".to_string()), &DbInitializerReal::default(), data_dir.to_path_buf(), Chain::PolyMumbai );
+        };
+
+        assert_on_initialization_with_panic_on_migration(
+            &data_dir,
+            &act
+        );
     }
 }

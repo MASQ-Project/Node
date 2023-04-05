@@ -462,7 +462,9 @@ impl SetupReporterReal {
             }
             Err(InitializationError::Nonexistent | InitializationError::SuppressedMigration) => {
                 // When the Daemon runs for the first time, the database will not yet have been
-                // created. If the database is old, it should not be used by the Daemon.
+                // created. If the database is old, it should not be used by the Daemon (see more
+                // information at ConfigDaoNull).
+
                 let parse_args_configuration = UnprivilegedParseArgsConfigurationDaoNull {};
                 let mut persistent_config =
                     PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()));

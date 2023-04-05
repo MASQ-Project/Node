@@ -57,6 +57,7 @@ use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
+use crate::stream_handler_pool::StreamHandlerPoolSubs;
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
@@ -515,15 +516,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
                 if node_addr.ip_addr() == Ipv4Addr::new(0, 0, 0, 0) => {} // node_addr still coming
             _ => Bootstrapper::report_local_descriptor(cryptdes.main, &self.config.node_descriptor), // here or not coming
         }
-        let stream_handler_pool_subs = self.actor_system_factory.make_and_start_actors(
-            self.config.clone(),
-            Box::new(ActorFactoryReal {}),
-            initialize_database(
-                &self.config.data_directory,
-                DbInitializationConfig::panic_on_migration(),
-            ),
-        );
-
+        let stream_handler_pool_subs = self.start_actors_and_return_shp_subs();
         self.listener_handlers
             .iter_mut()
             .for_each(|f| f.bind_subs(stream_handler_pool_subs.add_sub.clone()));
@@ -610,6 +603,17 @@ impl Bootstrapper {
                 result
             }
         }
+    }
+
+    fn start_actors_and_return_shp_subs(&self) -> StreamHandlerPoolSubs {
+        self.actor_system_factory.make_and_start_actors(
+            self.config.clone(),
+            Box::new(ActorFactoryReal {}),
+            initialize_database(
+                &self.config.data_directory,
+                DbInitializationConfig::panic_on_migration(),
+            ),
+        )
     }
 
     pub fn report_local_descriptor(cryptde: &dyn CryptDE, descriptor: &NodeDescriptor) {
@@ -738,7 +742,7 @@ mod tests {
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use crate::test_utils::unshared_test_utils::make_simplified_multi_config;
+    use crate::test_utils::unshared_test_utils::{assert_on_initialization_with_panic_on_migration, make_simplified_multi_config};
     use crate::test_utils::{assert_contains, rate_pack};
     use crate::test_utils::{main_cryptde, make_wallet};
     use actix::Recipient;
@@ -762,10 +766,11 @@ mod tests {
     use std::io::ErrorKind;
     use std::marker::Sync;
     use std::net::{IpAddr, SocketAddr};
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
+    use itertools::Either;
     use tokio;
     use tokio::executor::current_thread::CurrentThread;
     use tokio::prelude::stream::FuturesUnordered;
@@ -1382,6 +1387,31 @@ mod tests {
         let config = subject.config;
         assert_eq!(config.blockchain_bridge_config.gas_price, 11);
     }
+
+    #[test]
+    fn initialize_as_unprivileged_implements_panic_on_migration_for_make_and_start_actors() {
+        let _lock = INITIALIZATION.lock();
+        let data_dir = ensure_node_home_directory_exists(
+            "bootstrapper",
+            "initialize_as_unprivileged_implements_panic_on_migration_for_make_and_start_actors",
+        );
+
+        let act = |data_dir: &Path| {
+            let mut config = BootstrapperConfig::new();
+            config.data_directory = data_dir.to_path_buf();
+            let mut subject = BootstrapperBuilder::new()
+                .config(config)
+                .build();
+            subject.start_actors_and_return_shp_subs();
+        };
+
+        assert_on_initialization_with_panic_on_migration(
+            &data_dir,
+            &act
+        );
+    }
+
+
 
     #[test]
     fn initialize_with_clandestine_port_produces_expected_clandestine_discriminator_factories_vector(

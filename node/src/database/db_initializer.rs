@@ -20,6 +20,7 @@ use std::net::{Ipv4Addr, SocketAddr, SocketAddrV4};
 use std::path::Path;
 use std::{fs, vec};
 use tokio::net::TcpListener;
+use crate::sub_lib::utils::db_connection_launch_panic;
 
 pub const DATABASE_FILE: &str = "node-data.db";
 pub const CURRENT_SCHEMA_VERSION: usize = 7;
@@ -487,12 +488,7 @@ pub fn connection_or_panic(
 ) -> Box<dyn ConnectionWrapper> {
     db_initializer
         .initialize(path, init_config)
-        .unwrap_or_else(|_| {
-            panic!(
-                "Failed to connect to database at {:?}",
-                path.join(DATABASE_FILE)
-            )
-        })
+        .unwrap_or_else(|err| db_connection_launch_panic(err, path))
 }
 
 #[derive(Clone)]

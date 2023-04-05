@@ -11,7 +11,7 @@ use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
-use crate::sub_lib::utils::make_new_multi_config;
+use crate::sub_lib::utils::{db_connection_launch_panic, make_new_multi_config};
 use clap::{value_t, App};
 use dirs::{data_local_dir, home_dir};
 use masq_lib::blockchains::chains::Chain;
@@ -69,13 +69,7 @@ pub fn initialize_database(
 ) -> Box<dyn PersistentConfiguration> {
     let conn = DbInitializerReal::default()
         .initialize(data_directory, migrator_config)
-        .unwrap_or_else(|e| {
-            panic!(
-                "Can't initialize database at {:?}: {:?}",
-                data_directory.join(DATABASE_FILE),
-                e
-            )
-        });
+        .unwrap_or_else(|e| db_connection_launch_panic(e, &data_directory));
     Box::new(PersistentConfigurationReal::from(conn))
 }
 

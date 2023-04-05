@@ -949,7 +949,7 @@ mod tests {
     use actix::{Arbiter, System};
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
-    use itertools::Itertools;
+    use itertools::{Either, Itertools};
     use log::Level;
     use masq_lib::constants::{
         REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, REQUEST_WITH_NO_VALUES, SCAN_ERROR,
@@ -967,7 +967,7 @@ mod tests {
 
     use crate::accountant::dao_utils::from_time_t;
     use crate::accountant::dao_utils::{to_time_t, CustomQuery};
-    use crate::accountant::payable_dao::{PayableAccount, PayableDaoError};
+    use crate::accountant::payable_dao::{PayableAccount, PayableDaoError, PayableDaoFactory};
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::receivable_dao::ReceivableAccount;
     use crate::accountant::scanners::{BeginScanError, NullScanner, ScannerMock};
@@ -1002,10 +1002,12 @@ mod tests {
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use crate::test_utils::unshared_test_utils::{
-        make_bc_with_defaults, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
+        assert_on_initialization_with_panic_on_migration, make_bc_with_defaults,
+        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::{make_paying_wallet, make_wallet};
     use masq_lib::messages::TopRecordsOrdering::{Age, Balance};
+    use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
     use masq_lib::ui_gateway::MessagePath::Conversation;
     use web3::types::{TransactionReceipt, H256};
 
@@ -4247,5 +4249,23 @@ mod tests {
                 ));
             }
         }
+    }
+
+    #[test]
+    fn make_dao_factory_uses_panic_on_migration() {
+        let data_dir = ensure_node_home_directory_exists(
+            "accountant",
+            "make_dao_factory_uses_panic_on_migration",
+        );
+
+        let act = |data_dir: &Path| {
+            let factory = Accountant::dao_factory(data_dir);
+            factory.make();
+        };
+
+        assert_on_initialization_with_panic_on_migration(
+            &data_dir,
+            &act
+        );
     }
 }

@@ -12,7 +12,9 @@ use masq_lib::utils::type_name_of;
 use std::any::Any;
 use std::io::ErrorKind;
 use std::marker::PhantomData;
+use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use crate::database::db_initializer::{DATABASE_FILE, InitializationError};
 
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
     ErrorKind::BrokenPipe,
@@ -235,6 +237,10 @@ where
         ctx.notify(msg)
     }
     implement_as_any!();
+}
+
+pub fn db_connection_launch_panic(err: InitializationError, data_directory: &Path) -> ! { todo! (Wright a test to test the whole message including the path);
+    panic!("Couldn't initialize database due to \"{:?}\" at {:?}",err, data_directory.join(DATABASE_FILE) )
 }
 
 #[cfg(test)]
