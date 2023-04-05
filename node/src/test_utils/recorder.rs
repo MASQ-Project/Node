@@ -43,6 +43,7 @@ use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
 use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
 use crate::sub_lib::ui_gateway::UiGatewaySubs;
+use crate::sub_lib::utils::MessageScheduler;
 use crate::test_utils::recorder_stop_conditions::StopConditions;
 use crate::test_utils::to_millis;
 use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
@@ -138,6 +139,17 @@ recorder_message_handler!(ScanForReceivables);
 recorder_message_handler!(ScanForPayables);
 recorder_message_handler!(ConnectionProgressMessage);
 recorder_message_handler!(ScanForPendingPayables);
+
+impl<M> Handler<MessageScheduler<M>> for Recorder
+where
+    M: Message + PartialEq + Send + 'static,
+{
+    type Result = ();
+
+    fn handle(&mut self, msg: MessageScheduler<M>, _ctx: &mut Self::Context) {
+        self.handle_msg(msg)
+    }
+}
 
 impl Handler<NodeQueryMessage> for Recorder {
     type Result = MessageResult<NodeQueryMessage>;
