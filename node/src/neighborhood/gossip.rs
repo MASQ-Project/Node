@@ -436,11 +436,9 @@ impl<'a> GossipBuilder<'a> {
 
     pub fn node(mut self, public_key_ref: &PublicKey, reveal_node_addr: bool) -> GossipBuilder<'a> {
         if self.keys_so_far.contains(public_key_ref) {
-            // crashpoint
             panic!("GossipBuilder cannot add a Node more than once")
         }
         match self.db.node_by_key(public_key_ref) {
-            // crashpoint
             None => panic!("GossipBuilder cannot add a nonexistent Node"),
             Some(node_record_ref) => {
                 let mut gnr = GossipNodeRecord::from(node_record_ref.clone());

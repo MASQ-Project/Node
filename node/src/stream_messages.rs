@@ -52,7 +52,7 @@ pub struct RemoveStreamMsg {
 }
 
 impl Debug for RemoveStreamMsg {
-    fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
+    fn fmt(&self, f: &mut Formatter) -> Result<(), fmt::Error> {
         write!(
             f,
             "RemoveStreamMsg {{ peer_addr: {}, local_addr: {}, stream_type: {:?}, sub: <unprintable> }}",
