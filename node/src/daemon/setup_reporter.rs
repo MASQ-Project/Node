@@ -120,7 +120,7 @@ impl SetupReporter for SetupReporterReal {
         });
         let data_directory = match all_but_configured.get("data-directory") {
             Some(uisrv) if uisrv.status == Set => {
-                todo!("TODO drive in the specific chain dir here, before there were `PathBuf::from(&uisrv.value)`")
+                PathBuf::from(&uisrv.value),
             }
             _ => data_directory_from_context(
                 self.dirs_wrapper.as_ref(),
