@@ -22,7 +22,7 @@ jobs:
         run: ./ci/format.sh
         shell: bash
   
-  multinode_tests:
+  multinode_test:
     needs: format
     name: Multinode Integration Tests
     runs-on: ubuntu-22.04
@@ -34,8 +34,8 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "multinode"
-      - name: Run multinode integration tests
-        run: ./ci/multinode_integration_tests.sh
+      - name: Run multinode integration test
+        run: ./ci/multinode_integration_test.sh
         shell: bash
   
   lint:
@@ -136,7 +136,7 @@ jobs:
   
   build:
     needs:
-      - multinode_tests
+      - multinode_test
       - lint
       - unit_tests
       - integration_tests
