@@ -5,12 +5,14 @@ use crate::commands::commands_common::{
     transaction, Command, CommandError, STANDARD_COMMAND_TIMEOUT_MILLIS,
 };
 use clap::{App, Arg, SubCommand};
+use masq_lib::implement_as_any;
 use masq_lib::messages::{UiSetMinHopsRequest, UiSetMinHopsResponse};
+use std::any::Any;
 use std::fmt::Debug;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq, Eq)]
 pub struct MinHopsSubCommand {
-    value: u8,
+    pub value: u8,
 }
 
 const MIN_HOPS_ABOUT: &str = "Sets the value of the minimum hops count in Node.";
@@ -41,6 +43,8 @@ impl Command for MinHopsSubCommand {
             Err(e) => Err(e),
         }
     }
+
+    implement_as_any!();
 }
 
 impl MinHopsSubCommand {

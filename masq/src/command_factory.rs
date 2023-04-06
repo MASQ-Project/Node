@@ -349,6 +349,23 @@ mod tests {
     }
 
     #[test]
+    fn factory_produces_min_hops() {
+        let subject = CommandFactoryReal::new();
+
+        let command = subject
+            .make(&["min-hops".to_string(), "3".to_string()])
+            .unwrap();
+
+        assert_eq!(
+            command
+                .as_any()
+                .downcast_ref::<MinHopsSubCommand>()
+                .unwrap(),
+            &MinHopsSubCommand { value: 3 }
+        );
+    }
+
+    #[test]
     fn complains_about_generate_wallets_command_with_bad_syntax() {
         let subject = CommandFactoryReal::new();
 
