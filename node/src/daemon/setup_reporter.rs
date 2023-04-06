@@ -45,7 +45,10 @@ use std::str::FromStr;
 
 const CONSOLE_DIAGNOSTICS: bool = false;
 
-const ERR_SENSITIVE_BLANKED_OUT_VALUE_PAIRS: &[(&str, &str)] = &[("chain", "data-directory")];
+const ARG_PAIRS_SENSITIVE_TO_SETUP_ERRS: &[ErrorSensitiveArgPair] = &[ErrorSensitiveArgPair {
+    blanked_arg: "chain",
+    linked_arg: "data-directory",
+}];
 
 pub type SetupCluster = HashMap<String, UiSetupResponseValue>;
 
@@ -86,8 +89,8 @@ impl SetupReporter for SetupReporterReal {
                     blanked_out_former_values.insert(v.name.clone(), former_value);
                 };
             });
-        let prevented_err_induced_impairments_to_blanked_out =
-            Self::prevent_err_induced_impairments_to_blanked_out(
+        let prevention_to_err_induced_setup_impairments =
+            Self::prevent_err_induced_setup_impairments(
                 &blanked_out_former_values,
                 &existing_setup,
             );
@@ -171,7 +174,7 @@ impl SetupReporter for SetupReporterReal {
             let setup = Self::combine_clusters(vec![
                 &final_setup,
                 &blanked_out_former_values,
-                &prevented_err_induced_impairments_to_blanked_out,
+                &prevention_to_err_induced_setup_impairments,
             ]);
             Err((setup, error_so_far))
         }
@@ -229,25 +232,22 @@ impl SetupReporterReal {
         }
     }
 
-    fn prevent_err_induced_impairments_to_blanked_out(
-        blanked_out_former_values: &SetupCluster,
+    fn prevent_err_induced_setup_impairments(
+        blanked_out_former_setup: &SetupCluster,
         existing_setup: &SetupCluster,
     ) -> SetupCluster {
-        ERR_SENSITIVE_BLANKED_OUT_VALUE_PAIRS.iter().fold(
-            HashMap::new(),
-            |mut acc, (err_sensitive_blanked_out_arg_example, err_sensitive_linked_arg)| {
-                if blanked_out_former_values
-                    .contains_key(&err_sensitive_blanked_out_arg_example.to_string())
-                {
-                    if let Some(former_value) =
-                        existing_setup.get(&err_sensitive_linked_arg.to_string())
+        ARG_PAIRS_SENSITIVE_TO_SETUP_ERRS
+            .iter()
+            .fold(HashMap::new(), |mut acc, pair| {
+                if blanked_out_former_setup.contains_key(&pair.blanked_arg.to_string()) {
+                    if let Some(existing_linked_value) =
+                        existing_setup.get(&pair.linked_arg.to_string())
                     {
-                        acc.insert(err_sensitive_linked_arg.to_string(), former_value.clone());
+                        acc.insert(pair.linked_arg.to_string(), existing_linked_value.clone());
                     }
                 };
                 acc
-            },
-        )
+            })
     }
 
     fn calculate_fundamentals(
@@ -491,6 +491,11 @@ impl SetupReporterReal {
             Err(e) => panic!("Couldn't initialize database: {:?}", e),
         }
     }
+}
+
+struct ErrorSensitiveArgPair<'arg_names> {
+    blanked_arg: &'arg_names str,
+    linked_arg: &'arg_names str,
 }
 
 trait ValueRetriever {
