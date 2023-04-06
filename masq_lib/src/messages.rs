@@ -807,6 +807,17 @@ pub struct UiScanResponse {}
 conversation_message!(UiScanResponse, "scan");
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct UiSetMinHopsRequest {
+    #[serde(rename = "minHops")]
+    pub min_hops_count: u8,
+}
+conversation_message!(UiSetMinHopsRequest, "minHops");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct UiSetMinHopsResponse {}
+conversation_message!(UiSetMinHopsResponse, "minHops");
+
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
 pub struct UiSetConfigurationRequest {
     pub name: String,
     pub value: String,

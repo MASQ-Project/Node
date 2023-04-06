@@ -10,6 +10,7 @@ use crate::commands::crash_command::CrashCommand;
 use crate::commands::descriptor_command::DescriptorCommand;
 use crate::commands::financials_command::FinancialsCommand;
 use crate::commands::generate_wallets_command::GenerateWalletsCommand;
+use crate::commands::min_hops_command::MinHopsSubCommand;
 use crate::commands::recover_wallets_command::RecoverWalletsCommand;
 use crate::commands::scan_command::ScanCommand;
 use crate::commands::set_configuration_command::SetConfigurationCommand;
@@ -57,6 +58,10 @@ impl CommandFactory for CommandFactoryReal {
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
             "generate-wallets" => match GenerateWalletsCommand::new(pieces) {
+                Ok(command) => Box::new(command),
+                Err(msg) => return Err(CommandSyntax(msg)),
+            },
+            "min-hops" => match MinHopsSubCommand::new(pieces) {
                 Ok(command) => Box::new(command),
                 Err(msg) => return Err(CommandSyntax(msg)),
             },
