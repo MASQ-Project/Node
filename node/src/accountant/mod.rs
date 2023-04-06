@@ -13,7 +13,7 @@ pub mod scanners_utils;
 pub mod test_utils;
 
 use core::fmt::Debug;
-use masq_lib::constants::{SCAN_ERROR, WEIS_OF_GWEI};
+use masq_lib::constants::{SCAN_ERROR, WEIS_IN_GWEI};
 use std::cell::{Ref, RefCell};
 
 use masq_lib::messages::{
@@ -945,11 +945,11 @@ pub fn checked_conversion<T: Copy + Display, S: TryFrom<T>>(num: T) -> S {
 }
 
 pub fn gwei_to_wei<T: Mul<Output = T> + From<u32> + From<S>, S>(gwei: S) -> T {
-    (T::from(gwei)).mul(T::from(WEIS_OF_GWEI as u32))
+    (T::from(gwei)).mul(T::from(WEIS_IN_GWEI as u32))
 }
 
 pub fn wei_to_gwei<T: TryFrom<S>, S: Display + Copy + Div<Output = S> + From<u32>>(wei: S) -> T {
-    checked_conversion::<S, T>(wei.div(S::from(WEIS_OF_GWEI as u32)))
+    checked_conversion::<S, T>(wei.div(S::from(WEIS_IN_GWEI as u32)))
 }
 
 #[cfg(test)]
@@ -1361,7 +1361,7 @@ mod tests {
             .recipient();
         subject.report_accounts_payable_sub_opt = Some(report_recipient);
         let subject_addr = subject.start();
-        let half_of_u32_max_in_wei = u32::MAX as u64 / (2 * WEIS_OF_GWEI as u64);
+        let half_of_u32_max_in_wei = u32::MAX as u64 / (2 * WEIS_IN_GWEI as u64);
         let account_1 = make_payable_account(half_of_u32_max_in_wei);
         let account_2 = account_1.clone();
         let system = System::new("test");

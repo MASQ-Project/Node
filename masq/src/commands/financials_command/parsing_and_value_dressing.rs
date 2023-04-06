@@ -2,7 +2,7 @@
 
 pub(in crate::commands::financials_command) mod restricted {
     use crate::commands::financials_command::data_structures::restricted::UserOriginalTypingOfRanges;
-    use masq_lib::constants::{MASQ_TOTAL_SUPPLY, WEIS_OF_GWEI};
+    use masq_lib::constants::{MASQ_TOTAL_SUPPLY, WEIS_IN_GWEI};
     use masq_lib::utils::ExpectValue;
     use num::CheckedMul;
     use regex::{Captures, Regex};
@@ -15,8 +15,8 @@ pub(in crate::commands::financials_command) mod restricted {
 
     pub fn convert_masq_from_gwei_and_dress_well(balance_gwei: i64) -> String {
         const MASK_FOR_NON_SIGNIFICANT_DIGITS: i64 = 10_000_000;
-        let balance_masq_int = (balance_gwei / WEIS_OF_GWEI as i64).abs();
-        let balance_masq_frac = (balance_gwei % WEIS_OF_GWEI as i64).abs();
+        let balance_masq_int = (balance_gwei / WEIS_IN_GWEI as i64).abs();
+        let balance_masq_frac = (balance_gwei % WEIS_IN_GWEI as i64).abs();
         let balance_masq_frac_trunc = balance_masq_frac / MASK_FOR_NON_SIGNIFICANT_DIGITS;
         match (
             (balance_masq_int == 0) && (balance_masq_frac_trunc == 0),
@@ -310,7 +310,7 @@ mod tests {
         process_optionally_fractional_number,
     };
     use crate::commands::financials_command::test_utils::transpose_inputs_to_nested_tuples;
-    use masq_lib::constants::{MASQ_TOTAL_SUPPLY, WEIS_OF_GWEI};
+    use masq_lib::constants::{MASQ_TOTAL_SUPPLY, WEIS_IN_GWEI};
     use regex::Regex;
 
     #[test]
@@ -482,7 +482,7 @@ mod tests {
 
     #[test]
     fn i64_interpretation_capabilities_are_good_enough_for_masq_total_supply_in_gwei() {
-        let _: i64 = (MASQ_TOTAL_SUPPLY * WEIS_OF_GWEI as u64)
+        let _: i64 = (MASQ_TOTAL_SUPPLY * WEIS_IN_GWEI as u64)
             .try_into()
             .unwrap();
     }
