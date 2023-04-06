@@ -1239,7 +1239,7 @@ mod tests {
             target_hostname: Some(String::from("nowhere.com")),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
-            originator_alias_public_key: alias_cryptde.public_key().clone(),
+            originator_public_key: alias_cryptde.public_key().clone(),
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
@@ -1355,7 +1355,7 @@ mod tests {
             target_hostname: Some(String::from("realdomain.nu")),
             target_port: 443,
             protocol: ProxyProtocol::TLS,
-            originator_alias_public_key: alias_cryptde.public_key().clone(),
+            originator_public_key: alias_cryptde.public_key().clone(),
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
@@ -1835,7 +1835,7 @@ mod tests {
                         target_hostname: Some("nowhere.com".to_string()),
                         target_port: 80,
                         protocol: ProxyProtocol::HTTP,
-                        originator_alias_public_key: alias_cryptde.public_key().clone(),
+                        originator_public_key: alias_cryptde.public_key().clone(),
                     }
                 )),
                 main_cryptde.public_key()
@@ -1916,7 +1916,7 @@ mod tests {
                         target_hostname: None,
                         target_port: 443,
                         protocol: ProxyProtocol::TLS,
-                        originator_alias_public_key: alias_cryptde.public_key().clone(),
+                        originator_public_key: alias_cryptde.public_key().clone(),
                     }
                 ),),
                 main_cryptde.public_key()
@@ -1967,7 +1967,7 @@ mod tests {
             target_hostname: Some(String::from("nowhere.com")),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
-            originator_alias_public_key: alias_cryptde.public_key().clone(),
+            originator_public_key: alias_cryptde.public_key().clone(),
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
@@ -2048,7 +2048,7 @@ mod tests {
             target_hostname: Some(String::from("nowhere.com")),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
-            originator_alias_public_key: alias_cryptde.public_key().clone(),
+            originator_public_key: alias_cryptde.public_key().clone(),
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
@@ -2166,7 +2166,7 @@ mod tests {
             target_hostname: Some(String::from("nowhere.com")),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
-            originator_alias_public_key: alias_cryptde.public_key().clone(),
+            originator_public_key: alias_cryptde.public_key().clone(),
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
@@ -2315,7 +2315,7 @@ mod tests {
             target_hostname: Some(String::from("nowhere.com")),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
-            originator_alias_public_key: alias_cryptde.public_key().clone(),
+            originator_public_key: alias_cryptde.public_key().clone(),
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
@@ -2430,7 +2430,7 @@ mod tests {
             target_hostname: Some("nowhere.com".to_string()),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
-            originator_alias_public_key: PublicKey::new(b"originator_public_key"),
+            originator_public_key: PublicKey::new(b"originator_public_key"),
         };
         let logger = Logger::new("test");
         let local_tth_args = TTHLocalArgs {
@@ -2516,7 +2516,7 @@ mod tests {
             target_hostname: Some("nowhere.com".to_string()),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
-            originator_alias_public_key: PublicKey::new(b"originator_public_key"),
+            originator_public_key: PublicKey::new(b"originator_public_key"),
         };
         let logger = Logger::new("test");
         let local_tth_args = TTHLocalArgs {
@@ -2771,7 +2771,7 @@ mod tests {
             target_hostname: None,
             target_port: 0,
             protocol: ProxyProtocol::TLS,
-            originator_alias_public_key: cryptde.public_key().clone(),
+            originator_public_key: cryptde.public_key().clone(),
         };
         let logger = Logger::new("ProxyServer");
         let source_addr = SocketAddr::from_str("1.2.3.4:5678").unwrap();
@@ -2969,7 +2969,7 @@ mod tests {
             target_hostname: Some(String::from("server.com")),
             target_port: TLS_PORT,
             protocol: ProxyProtocol::TLS,
-            originator_alias_public_key: alias_cryptde.public_key().clone(),
+            originator_public_key: alias_cryptde.public_key().clone(),
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
@@ -3055,7 +3055,7 @@ mod tests {
             target_hostname: None,
             target_port: TLS_PORT,
             protocol: ProxyProtocol::TLS,
-            originator_alias_public_key: alias_cryptde.public_key().clone(),
+            originator_public_key: alias_cryptde.public_key().clone(),
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
@@ -3139,7 +3139,7 @@ mod tests {
             target_hostname: None,
             target_port: TLS_PORT,
             protocol: ProxyProtocol::TLS,
-            originator_alias_public_key: alias_cryptde.public_key().clone(),
+            originator_public_key: alias_cryptde.public_key().clone(),
         };
         let expected_pkg = IncipientCoresPackage::new(
             main_cryptde,
@@ -4579,7 +4579,7 @@ mod tests {
                     target_hostname: Some(String::from("tunneled.com")),
                     target_port: 443,
                     protocol: ProxyProtocol::TLS,
-                    originator_alias_public_key: alias_cryptde().public_key().clone(),
+                    originator_public_key: alias_cryptde().public_key().clone(),
                 }
             ),
             other => panic!("Wrong payload type: {:?}", other),
@@ -4696,7 +4696,7 @@ mod tests {
                     target_hostname: None,
                     target_port: HTTP_PORT,
                     protocol: ProxyProtocol::HTTP,
-                    originator_alias_public_key: alias_cryptde().public_key().clone(),
+                    originator_public_key: alias_cryptde().public_key().clone(),
                 }
             ),
             other => panic!("Wrong payload type: {:?}", other),

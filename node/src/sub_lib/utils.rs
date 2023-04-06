@@ -237,6 +237,12 @@ where
     implement_as_any!();
 }
 
+#[derive(Message, Clone, PartialEq, Eq)]
+pub struct MessageScheduler<M: Message> {
+    pub scheduled_msg: M,
+    pub delay: Duration,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
