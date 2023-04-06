@@ -325,7 +325,7 @@ fn assert_balances(
 ) {
     let eth_balance = blockchain_interface
         .get_gas_balance(&wallet)
-        .unwrap_or_else(|_| format!("Failed to retrieve gas balance for {}", wallet));
+        .unwrap_or_else(|_| panic!("Failed to retrieve gas balance for {}", wallet));
     assert_eq!(
         format!("{}", eth_balance),
         String::from(expected_eth_balance),
@@ -335,7 +335,7 @@ fn assert_balances(
     );
     let token_balance = blockchain_interface
         .get_token_balance(&wallet)
-        .unwrap_or_else(|_| format!("Failed to retrieve token balance for {}", wallet));
+        .unwrap_or_else(|_| panic!("Failed to retrieve token balance for {}", wallet));
     assert_eq!(
         token_balance,
         web3::types::U256::from_dec_str(expected_token_balance).unwrap(),
