@@ -57,8 +57,8 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "lint"
-      - name: Lint
-        run: ./ci/lint.sh ${{ matrix.target.os }}
+      - name: Lint ${{ matrix.target.os }}
+        run: ./ci/lint.sh
         shell: bash
 
   unit_tests:
@@ -80,8 +80,8 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "unit-tests"
-      - name: Unit tests
-        run: ./ci/unit_tests.sh ${{ matrix.target.os }}
+      - name: Unit tests ${{ matrix.target.os }}
+        run: ./ci/unit_tests.sh
         shell: bash
 
   integration_tests:
@@ -103,8 +103,8 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "integration-tests"
-      - name: Integration tests
-        run: ./ci/integration_tests.sh ${{ matrix.target.os }}
+      - name: Integration tests ${{ matrix.target.os }}
+        run: ./ci/integration_tests.sh
         shell: bash
 
   build:
@@ -130,8 +130,8 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "build"
-      - name: Build
-        run: ./ci/build.sh ${{ matrix.target.os }}
+      - name: Build ${{ matrix.target.os }}
+        run: ./ci/build.sh
         shell: bash
       - name: Collect results
         run: ./ci/collect_results.sh
