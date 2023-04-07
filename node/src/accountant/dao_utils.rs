@@ -9,7 +9,7 @@ use crate::database::db_initializer::{
     connection_or_panic, DbInitializationConfig, DbInitializerReal,
 };
 use crate::sub_lib::accountant::PaymentThresholds;
-use masq_lib::constants::WEIS_OF_GWEI;
+use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::messages::{
     RangeQuery, TopRecordsConfig, TopRecordsOrdering, UiPayableAccount, UiReceivableAccount,
 };
@@ -211,7 +211,7 @@ impl<N: Copy + Display> CustomQuery<N> {
         .into_iter()
         .zip([min_amount, max_amount].into_iter())
         .flat_map(|(param_names, gwei_num)| {
-            let wei_num = i128::from(gwei_num) * WEIS_OF_GWEI;
+            let wei_num = i128::from(gwei_num) * WEIS_IN_GWEI;
             let big_int_divided = BigIntDivider::deconstruct(wei_num);
             Self::balance_constraint_as_integer_pair(param_names, big_int_divided)
         })
@@ -260,7 +260,7 @@ pub fn remap_payable_accounts(accounts: Vec<PayableAccount>) -> Vec<UiPayableAcc
             wallet: account.wallet.to_string(),
             age_s: to_age(account.last_paid_timestamp),
             balance_gwei: {
-                let gwei = (account.balance_wei / (WEIS_OF_GWEI as u128)) as u64;
+                let gwei = (account.balance_wei / (WEIS_IN_GWEI as u128)) as u64;
                 if gwei > 0 {
                     gwei
                 } else {
@@ -285,7 +285,7 @@ pub fn remap_receivable_accounts(accounts: Vec<ReceivableAccount>) -> Vec<UiRece
             wallet: account.wallet.to_string(),
             age_s: to_age(account.last_received_timestamp),
             balance_gwei:{
-                let gwei =  (account.balance_wei / (WEIS_OF_GWEI as i128)) as i64;
+                let gwei =  (account.balance_wei / (WEIS_IN_GWEI as i128)) as i64;
                 if gwei != 0 {gwei} else {panic!("Broken code: ReceivableAccount with balance \
                  between {} and 0 gwei passed through db query constraints; wallet: {}, balance: {}",
                         if account.balance_wei.is_positive() {"1"}else{"-1"},
@@ -759,7 +759,7 @@ mod tests {
             maturity_threshold_sec: 20,
             payment_grace_period_sec: 33,
             permanent_debt_allowed_gwei: 1,
-            debt_threshold_gwei: MASQ_TOTAL_SUPPLY * WEIS_OF_GWEI as u64,
+            debt_threshold_gwei: MASQ_TOTAL_SUPPLY * WEIS_IN_GWEI as u64,
             threshold_interval_sec: 1,
             unban_below_gwei: 0,
         };
@@ -775,7 +775,7 @@ mod tests {
             );
             slope * (payment_thresholds.maturity_threshold_sec + 1) as i128 + y_interception
         };
-        assert_eq!(check, WEIS_OF_GWEI)
+        assert_eq!(check, WEIS_IN_GWEI)
     }
 
     #[test]
