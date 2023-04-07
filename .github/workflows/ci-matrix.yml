@@ -39,27 +39,27 @@ jobs:
         shell: bash
   
   lint:
-  needs: format
-  strategy:
-    fail-fast: false
-    matrix:
-      target:
-        - { name: linux, os: ubuntu-22.04 }
-        - { name: macos, os: macos-12 }
-        - { name: windows, os: windows-2022 }
-  name: Lint on ${{ matrix.target.os }}
-  runs-on: ${{ matrix.target.os }}
-  steps:
-    - uses: actions/checkout@v3
-      with:
-        ref: ${{ github.event.pull_request.head.sha }}
-    - uses: Swatinem/rust-cache@v2
-      with:
-        prefix-key: "rust-cache"
-        shared-key: "lint"
-    - name: Lint
-      run: ./ci/lint.sh ${{ matrix.target.os }}
-      shell: bash
+    needs: format
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { name: linux, os: ubuntu-22.04 }
+          - { name: macos, os: macos-12 }
+          - { name: windows, os: windows-2022 }
+    name: Lint on ${{ matrix.target.os }}
+    runs-on: ${{ matrix.target.os }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "rust-cache"
+          shared-key: "lint"
+      - name: Lint
+        run: ./ci/lint.sh ${{ matrix.target.os }}
+        shell: bash
 
   unit_tests:
     needs: format
