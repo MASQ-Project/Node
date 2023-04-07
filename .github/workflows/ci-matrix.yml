@@ -39,193 +39,146 @@ jobs:
         shell: bash
   
   lint:
-    needs: format
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - { name: linux, os: ubuntu-22.04 }
-          - { name: macos, os: macos-12 }
-          - { name: windows, os: windows-2022 }
-    name: Lint on ${{ matrix.target.os }}
-    runs-on: ${{ matrix.target.os }}
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: "rust-cache"
-          shared-key: "lint"
-      - name: Lint automap on ${{ matrix.target.os }}
-        run: ./automap/ci/lint.sh
-        shell: bash
-      - name: Lint dns_utility on ${{ matrix.target.os }}
-        run: ./dns_utility/ci/lint.sh
-        shell: bash
-      - name: Lint masq on ${{ matrix.target.os }}
-        run: ./masq/ci/lint.sh
-        shell: bash
-      - name: Lint masq_lib on ${{ matrix.target.os }}
-        run: ./masq_lib/ci/lint.sh
-        shell: bash
-      - name: Lint node on ${{ matrix.target.os }}
-        run: ./node/ci/lint.sh
-        shell: bash
-  
+  needs: format
+  strategy:
+    fail-fast: false
+    matrix:
+      target:
+        - { name: linux, os: ubuntu-22.04 }
+        - { name: macos, os: macos-12 }
+        - { name: windows, os: windows-2022 }
+  name: Lint on ${{ matrix.target.os }}
+  runs-on: ${{ matrix.target.os }}
+  steps:
+    - uses: actions/checkout@v3
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+    - uses: Swatinem/rust-cache@v2
+      with:
+        prefix-key: "rust-cache"
+        shared-key: "lint"
+    - name: Lint
+      run: ./ci/lint.sh ${{ matrix.target.os }}
+      shell: bash
+
   unit_tests:
-    needs: format
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - { name: linux, os: ubuntu-22.04 }
-          - { name: macos, os: macos-12 }
-          - { name: windows, os: windows-2022 }
-    name: Unit tests on ${{ matrix.target.os }}
-    runs-on: ${{ matrix.target.os }}
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: "rust-cache"
-          shared-key: "unit-tests"
-      - name: Unit tests automap on ${{ matrix.target.os }}
-        run: ./automap/ci/unit_tests.sh
-        shell: bash
-      - name: Unit tests dns_utility on ${{ matrix.target.os }}
-        run: ./dns_utility/ci/unit_tests.sh
-        shell: bash
-      - name: Unit tests masq on ${{ matrix.target.os }}
-        run: ./masq/ci/unit_tests.sh
-        shell: bash
-      - name: Unit tests masq_lib on ${{ matrix.target.os }}
-        run: ./masq_lib/ci/unit_tests.sh
-        shell: bash
-      - name: Unit tests node on ${{ matrix.target.os }}
-        run: ./node/ci/unit_tests.sh
-        shell: bash
-  
+  needs: format
+  strategy:
+    fail-fast: false
+    matrix:
+      target:
+        - { name: linux, os: ubuntu-22.04 }
+        - { name: macos, os: macos-12 }
+        - { name: windows, os: windows-2022 }
+  name: Unit tests on ${{ matrix.target.os }}
+  runs-on: ${{ matrix.target.os }}
+  steps:
+    - uses: actions/checkout@v3
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+    - uses: Swatinem/rust-cache@v2
+      with:
+        prefix-key: "rust-cache"
+        shared-key: "unit-tests"
+    - name: Unit tests
+      run: ./ci/unit_tests.sh ${{ matrix.target.os }}
+      shell: bash
+
   integration_tests:
-    needs: format
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - { name: linux, os: ubuntu-22.04 }
-          - { name: macos, os: macos-12 }
-          - { name: windows, os: windows-2022 }
-    name: Integreation tests on ${{ matrix.target.os }}
-    runs-on: ${{ matrix.target.os }}
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: "rust-cache"
-          shared-key: "integration-tests"
-      - name: Integration tests dns_utility on ${{ matrix.target.os }}
-        run: ./dns_utility/ci/integration_tests.sh
-        shell: bash
-      - name: Integration tests masq on ${{ matrix.target.os }}
-        run: ./masq/ci/integration_tests.sh
-        shell: bash
-      - name: Integration tests node on ${{ matrix.target.os }}
-        run: ./node/ci/integration_tests.sh
-        shell: bash
-  
+  needs: format
+  strategy:
+    fail-fast: false
+    matrix:
+      target:
+        - { name: linux, os: ubuntu-22.04 }
+        - { name: macos, os: macos-12 }
+        - { name: windows, os: windows-2022 }
+  name: Integration tests on ${{ matrix.target.os }}
+  runs-on: ${{ matrix.target.os }}
+  steps:
+    - uses: actions/checkout@v3
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+    - uses: Swatinem/rust-cache@v2
+      with:
+        prefix-key: "rust-cache"
+        shared-key: "integration-tests"
+    - name: Integration tests
+      run: ./ci/integration_tests.sh ${{ matrix.target.os }}
+      shell: bash
+
   build:
-    needs:
-      - multinode_test
-      - lint
-      - unit_tests
-      - integration_tests
-    strategy:
-      fail-fast: false
-      matrix:
-        target:
-          - { name: linux, os: ubuntu-22.04 }
-          - { name: macos, os: macos-12 }
-          - { name: windows, os: windows-2022 }
-    name: Build node on ${{ matrix.target.os }}
-    runs-on: ${{ matrix.target.os }}
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - uses: Swatinem/rust-cache@v2
-        with:
-          prefix-key: "rust-cache"
-          shared-key: "build"
-      - name: Build automap on ${{ matrix.target.os }}
-        run: ./automap/ci/build.sh
-        shell: bash
-      - name: Build dns_utility on ${{ matrix.target.os }}
-        run: ./dns_utility/ci/build.sh
-        shell: bash
-      - name: Build masq on ${{ matrix.target.os }}
-        run: ./masq/ci/build.sh
-        shell: bash
-      - name: Build masq_lib on ${{ matrix.target.os }}
-        run: ./masq_lib/ci/build.sh
-        shell: bash
-      - name: Build node on ${{ matrix.target.os }}
-        run: ./node/ci/build.sh
-        shell: bash
-      - name: Collect results on ${{ matrix.target.os }}
-        run: ./ci/collect_results.sh
-        shell: bash
-      - name: Publish ${{ matrix.target.os }}
-        uses: actions/upload-artifact@v3
-        with:
-          name: Node-${{ matrix.target.name }}
-          path: results
+  needs:
+    - multinode_test
+    - lint
+    - unit_tests
+    - integration_tests
+  strategy:
+    fail-fast: false
+    matrix:
+      target:
+        - { name: linux, os: ubuntu-22.04 }
+        - { name: macos, os: macos-12 }
+        - { name: windows, os: windows-2022 }
+  name: Build node on ${{ matrix.target.os }}
+  runs-on: ${{ matrix.target.os }}
+  steps:
+    - uses: actions/checkout@v3
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+    - uses: Swatinem/rust-cache@v2
+      with:
+        prefix-key: "rust-cache"
+        shared-key: "build"
+    - name: Set up Rust
+      uses: actions-rs/toolchain@v1
+      with:
+        profile: minimal
+        toolchain: stable
+        override: true
+    - name: Build
+      run: ./ci/build.sh ${{ matrix.target.os }}
+      shell: bash
+    - name: Collect results
+      run: ./ci/collect_results.sh
+      shell: bash
+    - name: Publish ${{ matrix.target.os }}
+      uses: actions/upload-artifact@v3
+      with:
+        name: Node-${{ matrix.target.name }}
+        path: results
 
   deploy_to_s3:
-    needs: build
-    strategy:
-      matrix:
-        os: [linux, macos, windows]
-    runs-on: ubuntu-22.04
-    steps:
-      - uses: actions/checkout@v3
-        with:
-          ref: ${{ github.event.pull_request.head.sha }}
-      - uses: actions/download-artifact@v3
-      - name: Display structure of downloaded files
-        run: ls -R
-      - if: startsWith(github.head_ref, 'GH')
-        name: Versioned S3 Sync
-        uses: jakejarvis/s3-sync-action@v0.5.1
-        with:
-          args: --acl private --follow-symlinks --delete
-        env:
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: "us-west-2"
-          DEST_DIR: "Node/${{ github.event.workflow_run.head_branch }}/Node-${{ matrix.os }}"
-          SOURCE_DIR: "Node-${{ matrix.os }}/generated/bin/"
-      - if: startsWith(github.head_ref, 'v')
-        name: Latest S3 Sync
-        uses: jakejarvis/s3-sync-action@v0.5.1
-        with:
-          args: --acl private --follow-symlinks --delete
-        env:
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: "us-west-2"
-          DEST_DIR: "Node/latest/Node-${{ matrix.os }}"
-          SOURCE_DIR: "Node-${{ matrix.os }}/generated/bin/"
-      - name: Invalidate Binaries CloudFront
-        uses: chetan/invalidate-cloudfront-action@v2.4
-        env:
-          DISTRIBUTION: ${{ secrets.DISTRIBUTION }}
-          PATHS: "/Node*"
-          AWS_REGION: "us-west-2"
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+  needs: build
+  strategy:
+    matrix:
+      os: [linux, macos, windows]
+  runs-on: ubuntu-22.04
+  steps:
+    - uses: actions/checkout@v3
+      with:
+        ref: ${{ github.event.pull_request.head.sha }}
+    - uses: actions/download-artifact@v3
+      with:
+        name: Node-${{ matrix.os }}
+    - name: Display structure of downloaded files
+      run: ls -R
+    - name: S3 Sync
+      uses: jakejarvis/s3-sync-action@v0.5.1
+      with:
+        args: --acl private --follow-symlinks --delete
+        destination_dir: "Node/${{ startsWith(github.head_ref, 'GH') && github.event.workflow_run.head_branch || 'latest' }}/Node-${{ matrix.os }}"
+        source_dir: "Node-${{ matrix.os }}/generated/bin/"
+      env:
+        AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        AWS_REGION: "us-west-2"
+    - name: Invalidate Binaries CloudFront
+      uses: chetan/invalidate-cloudfront-action@v2.4
+      env:
+        DISTRIBUTION: ${{ secrets.DISTRIBUTION }}
+        PATHS: "/Node*"
+        AWS_REGION: "us-west-2"
+        AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
