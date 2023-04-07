@@ -24,7 +24,7 @@ use crate::sub_lib::wallet::Wallet;
 use indoc::indoc;
 use itertools::Either;
 use itertools::Either::Left;
-use masq_lib::constants::WEIS_OF_GWEI;
+use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::logger::Logger;
 use masq_lib::utils::{plus, ExpectValue};
 use rusqlite::OptionalExtension;
@@ -188,7 +188,7 @@ impl ReceivableDao for ReceivableDaoReal {
         );
         let mut stmt = self.conn.prepare(sql).expect("Couldn't prepare statement");
         let (unban_balance_high_b, unban_balance_low_b) = BigIntDivider::deconstruct(
-            (payment_thresholds.unban_below_gwei as i128) * WEIS_OF_GWEI,
+            (payment_thresholds.unban_below_gwei as i128) * WEIS_IN_GWEI,
         );
         stmt.query_map(
             named_params! {

@@ -45,7 +45,10 @@ use std::str::FromStr;
 
 const CONSOLE_DIAGNOSTICS: bool = false;
 
-const ERR_SENSITIVE_BLANKED_OUT_VALUE_PAIRS: &[(&str, &str)] = &[("chain", "data-directory")];
+const ARG_PAIRS_SENSITIVE_TO_SETUP_ERRS: &[ErrorSensitiveArgPair] = &[ErrorSensitiveArgPair {
+    blanked_arg: "chain",
+    linked_arg: "data-directory",
+}];
 
 pub type SetupCluster = HashMap<String, UiSetupResponseValue>;
 
@@ -86,8 +89,11 @@ impl SetupReporter for SetupReporterReal {
                     blanked_out_former_values.insert(v.name.clone(), former_value);
                 };
             });
-        let err_conflicts_for_blanked_out =
-            Self::get_err_conflicts_for_blanked_out(&blanked_out_former_values, &existing_setup);
+        let prevention_to_err_induced_setup_impairments =
+            Self::prevent_err_induced_setup_impairments(
+                &blanked_out_former_values,
+                &existing_setup,
+            );
         let mut incoming_setup = incoming_setup
             .into_iter()
             .filter(|v| v.value.is_some())
@@ -168,7 +174,7 @@ impl SetupReporter for SetupReporterReal {
             let setup = Self::combine_clusters(vec![
                 &final_setup,
                 &blanked_out_former_values,
-                &err_conflicts_for_blanked_out,
+                &prevention_to_err_induced_setup_impairments,
             ]);
             Err((setup, error_so_far))
         }
@@ -226,23 +232,25 @@ impl SetupReporterReal {
         }
     }
 
-    fn get_err_conflicts_for_blanked_out(
-        blanked_out_former_values: &SetupCluster,
+    fn prevent_err_induced_setup_impairments(
+        blanked_out_former_setup: &SetupCluster,
         existing_setup: &SetupCluster,
     ) -> SetupCluster {
-        ERR_SENSITIVE_BLANKED_OUT_VALUE_PAIRS.iter().fold(
-            HashMap::new(),
-            |mut acc, (blanked_out_arg, err_persistent_linked_arg)| {
-                if blanked_out_former_values.contains_key(&blanked_out_arg.to_string()) {
-                    if let Some(former_value) =
-                        existing_setup.get(&err_persistent_linked_arg.to_string())
+        // this function arose as an unconvincing patch for a corner case situation where blanking out
+        // one parameter and a following hit of an (unrelated) error makes another parameter get out of sync with the restored
+        // blanked out one; this should remember the initial state and restore both params the way they use to be
+        ARG_PAIRS_SENSITIVE_TO_SETUP_ERRS
+            .iter()
+            .fold(HashMap::new(), |mut acc, pair| {
+                if blanked_out_former_setup.contains_key(&pair.blanked_arg.to_string()) {
+                    if let Some(existing_linked_value) =
+                        existing_setup.get(&pair.linked_arg.to_string())
                     {
-                        acc.insert(err_persistent_linked_arg.to_string(), former_value.clone());
+                        acc.insert(pair.linked_arg.to_string(), existing_linked_value.clone());
                     }
                 };
                 acc
-            },
-        )
+            })
     }
 
     fn calculate_fundamentals(
@@ -486,6 +494,11 @@ impl SetupReporterReal {
             Err(e) => panic!("Couldn't initialize database: {:?}", e),
         }
     }
+}
+
+struct ErrorSensitiveArgPair<'arg_names> {
+    blanked_arg: &'arg_names str,
+    linked_arg: &'arg_names str,
 }
 
 trait ValueRetriever {
