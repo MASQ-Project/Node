@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(test)]
-use crate::accountant::ReportTransactionReceipts;
+use crate::accountant::{ConsumingWalletBalancesAndQualifiedPayables, ReportTransactionReceipts};
 use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables,
     ScanForPendingPayables, ScanForReceivables, SentPayables,
@@ -15,7 +15,8 @@ use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
-use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, ReportAccountsPayable};
+use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
+use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, RequestBalancesToPayPayables};
 use crate::sub_lib::configurator::{ConfiguratorSubs, NewPasswordMessage};
 use crate::sub_lib::dispatcher::InboundClientData;
 use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
@@ -125,8 +126,10 @@ recorder_message_handler!(ReportServicesConsumedMessage);
 recorder_message_handler!(ReportExitServiceProvidedMessage);
 recorder_message_handler!(ReportRoutingServiceProvidedMessage);
 recorder_message_handler!(ScanError);
+recorder_message_handler!(ConsumingWalletBalancesAndQualifiedPayables);
 recorder_message_handler!(SentPayables);
 recorder_message_handler!(SetConsumingWalletMessage);
+recorder_message_handler!(RequestBalancesToPayPayables);
 recorder_message_handler!(StartMessage);
 recorder_message_handler!(StreamShutdownMsg);
 recorder_message_handler!(TransmitDataMsg);
@@ -420,6 +423,10 @@ pub fn make_accountant_subs_from_recorder(addr: &Addr<Recorder>) -> AccountantSu
         report_routing_service_provided: recipient!(addr, ReportRoutingServiceProvidedMessage),
         report_exit_service_provided: recipient!(addr, ReportExitServiceProvidedMessage),
         report_services_consumed: recipient!(addr, ReportServicesConsumedMessage),
+        report_consuming_wallet_balances_and_qualified_payables: recipient!(
+            addr,
+            ConsumingWalletBalancesAndQualifiedPayables
+        ),
         report_inbound_payments: recipient!(addr, ReceivedPayments),
         pending_payable_fingerprint: recipient!(addr, PendingPayableFingerprint),
         report_transaction_receipts: recipient!(addr, ReportTransactionReceipts),
@@ -441,6 +448,7 @@ pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBrid
     BlockchainBridgeSubs {
         bind: recipient!(addr, BindMessage),
         report_accounts_payable: recipient!(addr, ReportAccountsPayable),
+        request_balances_to_pay_payables: recipient!(addr, RequestBalancesToPayPayables),
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
         ui_sub: recipient!(addr, NodeFromUiMessage),
         request_transaction_receipts: recipient!(addr, RequestTransactionReceipts),
