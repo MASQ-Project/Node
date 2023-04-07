@@ -19,9 +19,7 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "format"
       - name: Run format
-        run: |
-          ls ci
-          ./ci/format.sh
+        run: ./ci/format.sh
         shell: bash
   
   multinode_test:
@@ -37,9 +35,7 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "multinode-test"
       - name: Run multinode integration test
-        run: |
-          ls ci
-          ./ci/multinode_integration_test.sh
+        run: ./ci/multinode_integration_test.sh
         shell: bash
   
   lint:
@@ -62,9 +58,7 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "lint"
       - name: Lint ${{ matrix.target.os }}
-        run: |
-          ls ci
-          ./ci/lint.sh
+        run: ./ci/lint.sh
         shell: bash
 
   unit_tests:
@@ -87,9 +81,7 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "unit-tests"
       - name: Unit tests ${{ matrix.target.os }}
-        run: |
-          ls ci
-          ./ci/unit_tests.sh
+        run: ./ci/unit_tests.sh
         shell: bash
 
   integration_tests:
@@ -112,9 +104,7 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "integration-tests"
       - name: Integration tests ${{ matrix.target.os }}
-        run: |
-          ls ci
-          ./ci/integration_tests.sh
+        run: ./ci/integration_tests.sh
         shell: bash
 
   build:
@@ -141,9 +131,7 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "build"
       - name: Build ${{ matrix.target.os }}
-        run: |
-          ls ci
-          ./ci/build.sh
+        run: ./ci/build.sh
         shell: bash
       - name: Collect results
         run: ./ci/collect_results.sh
