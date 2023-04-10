@@ -896,10 +896,7 @@ mod tests {
             Configurator::new(data_dir.to_path_buf(), false);
         };
 
-        assert_on_initialization_with_panic_on_migration(
-            &data_dir,
-            &act
-        );
+        assert_on_initialization_with_panic_on_migration(&data_dir, &act);
     }
 
     #[test]

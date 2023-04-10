@@ -21,6 +21,7 @@ use crate::node_configurator::node_configurator_standard::{
 use crate::node_configurator::{initialize_database, DirsWrapper, NodeConfigurator};
 use crate::privilege_drop::{IdWrapper, IdWrapperReal};
 use crate::server_initializer::LoggerInitializerWrapper;
+use crate::stream_handler_pool::StreamHandlerPoolSubs;
 use crate::sub_lib::accountant;
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
@@ -57,7 +58,6 @@ use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
-use crate::stream_handler_pool::StreamHandlerPoolSubs;
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
@@ -742,13 +742,16 @@ mod tests {
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use crate::test_utils::unshared_test_utils::{assert_on_initialization_with_panic_on_migration, make_simplified_multi_config};
+    use crate::test_utils::unshared_test_utils::{
+        assert_on_initialization_with_panic_on_migration, make_simplified_multi_config,
+    };
     use crate::test_utils::{assert_contains, rate_pack};
     use crate::test_utils::{main_cryptde, make_wallet};
     use actix::Recipient;
     use actix::System;
     use crossbeam_channel::unbounded;
     use futures::Future;
+    use itertools::Either;
     use lazy_static::lazy_static;
     use log::LevelFilter;
     use log::LevelFilter::Off;
@@ -770,7 +773,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
-    use itertools::Either;
     use tokio;
     use tokio::executor::current_thread::CurrentThread;
     use tokio::prelude::stream::FuturesUnordered;
@@ -1399,19 +1401,12 @@ mod tests {
         let act = |data_dir: &Path| {
             let mut config = BootstrapperConfig::new();
             config.data_directory = data_dir.to_path_buf();
-            let mut subject = BootstrapperBuilder::new()
-                .config(config)
-                .build();
+            let mut subject = BootstrapperBuilder::new().config(config).build();
             subject.start_actors_and_return_shp_subs();
         };
 
-        assert_on_initialization_with_panic_on_migration(
-            &data_dir,
-            &act
-        );
+        assert_on_initialization_with_panic_on_migration(&data_dir, &act);
     }
-
-
 
     #[test]
     fn initialize_with_clandestine_port_produces_expected_clandestine_discriminator_factories_vector(

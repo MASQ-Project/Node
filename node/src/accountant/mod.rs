@@ -4263,9 +4263,6 @@ mod tests {
             factory.make();
         };
 
-        assert_on_initialization_with_panic_on_migration(
-            &data_dir,
-            &act
-        );
+        assert_on_initialization_with_panic_on_migration(&data_dir, &act);
     }
 }

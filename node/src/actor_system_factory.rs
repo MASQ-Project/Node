@@ -2109,10 +2109,7 @@ mod tests {
             );
         };
 
-        assert_on_initialization_with_panic_on_migration(
-            &data_dir,
-            &act
-        );
+        assert_on_initialization_with_panic_on_migration(&data_dir, &act);
     }
 
     fn public_key_for_dyn_cryptde_being_null(cryptde: &dyn CryptDE) -> &PublicKey {

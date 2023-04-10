@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::database::db_initializer::{InitializationError, DATABASE_FILE};
 use actix::{Actor, AsyncContext, Context, Handler, Message, SpawnHandle};
 use clap::App;
 use masq_lib::logger::Logger;
@@ -14,7 +15,6 @@ use std::io::ErrorKind;
 use std::marker::PhantomData;
 use std::path::Path;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-use crate::database::db_initializer::{DATABASE_FILE, InitializationError};
 
 static DEAD_STREAM_ERRORS: [ErrorKind; 5] = [
     ErrorKind::BrokenPipe,
@@ -239,8 +239,12 @@ where
     implement_as_any!();
 }
 
-pub fn db_connection_launch_panic(err: InitializationError, data_directory: &Path) -> ! { todo! (Wright a test to test the whole message including the path);
-    panic!("Couldn't initialize database due to \"{:?}\" at {:?}",err, data_directory.join(DATABASE_FILE) )
+pub fn db_connection_launch_panic(err: InitializationError, data_directory: &Path) -> ! {
+    panic!(
+        "Couldn't initialize database due to \"{:?}\" at {:?}",
+        err,
+        data_directory.join(DATABASE_FILE)
+    )
 }
 
 #[cfg(test)]
@@ -249,11 +253,13 @@ mod tests {
     use crate::apps::app_node;
     use actix::{Handler, System};
     use crossbeam_channel::{unbounded, Sender};
+    use futures::Future;
     use log::Level;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::multi_config::CommandLineVcl;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::ops::Sub;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
 
     #[test]
     fn indicates_dead_stream_identifies_dead_stream_errors() {
@@ -527,5 +533,28 @@ mod tests {
         );
         assert!(notify_exec_duration < Duration::from_millis(DELAYED));
         assert!(notify_later_exec_duration >= Duration::from_millis(DELAYED));
+    }
+
+    #[test]
+    fn db_connection_initialization_panic_message_contains_full_path() {
+        let path = Path::new("first_directory").join("second_directory");
+
+        let caught_panic_err = catch_unwind(AssertUnwindSafe(|| {
+            db_connection_launch_panic(
+                InitializationError::SqliteError(rusqlite::Error::ExecuteReturnedResults),
+                &path,
+            );
+        }));
+
+        let caught_panic = caught_panic_err.unwrap_err();
+        let panic_message = caught_panic.downcast_ref::<String>().unwrap();
+        assert_eq!(
+            panic_message,
+            &format!(
+                "Couldn't initialize database due to \"{:?}\" at {:?}",
+                InitializationError::SqliteError(rusqlite::Error::ExecuteReturnedResults),
+                path.join(DATABASE_FILE)
+            )
+        );
     }
 }

@@ -585,10 +585,8 @@ pub mod unshared_test_utils {
         pub assertions: Box<dyn FnOnce(&mut A) + Send>,
     }
 
-    pub fn assert_on_initialization_with_panic_on_migration<A>(
-        data_dir: &Path,
-        act: &A,
-    ) where
+    pub fn assert_on_initialization_with_panic_on_migration<A>(data_dir: &Path, act: &A)
+    where
         A: Fn(&Path) + ?Sized,
     {
         fn assert_closure<S, A>(
@@ -605,16 +603,33 @@ pub mod unshared_test_utils {
             let panic_message = caught_panic.downcast_ref::<S>().unwrap();
             let panic_message_str: &str = panic_message.as_ref();
             match expected_panic_message {
-                Either::Left((message_start,message_end)) => {
-                    assert!(panic_message_str.contains(message_start), "We expected this message {} to start with {}",panic_message_str,message_start);
-                    assert!(panic_message_str.ends_with(message_end), "We expected this message {} to end with {}",panic_message_str,message_end);
-                },
+                Either::Left((message_start, message_end)) => {
+                    assert!(
+                        panic_message_str.contains(message_start),
+                        "We expected this message {} to start with {}",
+                        panic_message_str,
+                        message_start
+                    );
+                    assert!(
+                        panic_message_str.ends_with(message_end),
+                        "We expected this message {} to end with {}",
+                        panic_message_str,
+                        message_end
+                    );
+                }
                 Either::Right(message) => assert_eq!(panic_message_str, message),
             }
         }
-        let database_file_path =data_dir.join(DATABASE_FILE);
+        let database_file_path = data_dir.join(DATABASE_FILE);
 
-        assert_closure::<String, _>(&act, Either::Left(("Couldn't initialize database due to \"Nonexistent\" at \"generated", &format!("{}\"",DATABASE_FILE))), data_dir);
+        assert_closure::<String, _>(
+            &act,
+            Either::Left((
+                "Couldn't initialize database due to \"Nonexistent\" at \"generated",
+                &format!("{}\"", DATABASE_FILE),
+            )),
+            data_dir,
+        );
 
         bring_db_0_back_to_life_and_return_connection(&database_file_path);
 
