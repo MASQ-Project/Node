@@ -13,6 +13,7 @@ use std::fmt;
 use std::fmt::Debug;
 use std::fmt::Formatter;
 use std::net::IpAddr;
+use crate::stream_handler_pool::StreamHandlerPoolSubs;
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct PeerActors {

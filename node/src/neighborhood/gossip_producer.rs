@@ -16,7 +16,7 @@ pub trait GossipProducer: Send {
         database: &mut NeighborhoodDatabase,
         target: &PublicKey,
     ) -> Option<Gossip_0v1>;
-    fn produce_debut(&self, database: &NeighborhoodDatabase) -> Gossip_0v1;
+    fn produce_debut_or_ipchange(&self, database: &NeighborhoodDatabase) -> Gossip_0v1;
 }
 
 pub struct GossipProducerReal {
@@ -76,7 +76,7 @@ impl GossipProducer for GossipProducerReal {
         Some(builder.build())
     }
 
-    fn produce_debut(&self, database: &NeighborhoodDatabase) -> Gossip_0v1 {
+    fn produce_debut_or_ipchange(&self, database: &NeighborhoodDatabase) -> Gossip_0v1 {
         GossipBuilder::new(database)
             .node(database.root().public_key(), true)
             .build()
@@ -340,7 +340,7 @@ mod tests {
         let db = db_from_node(&our_node_record);
         let subject = GossipProducerReal::new();
 
-        let result_gossip: Gossip_0v1 = subject.produce_debut(&db);
+        let result_gossip: Gossip_0v1 = subject.produce_debut_or_ipchange(&db);
 
         assert_eq!(result_gossip.node_records.len(), 1);
         let result_gossip_record = result_gossip.node_records.first().unwrap();
@@ -368,7 +368,7 @@ mod tests {
         let db = db_from_node(&our_node_record);
         let subject = GossipProducerReal::new();
 
-        let result_gossip: Gossip_0v1 = subject.produce_debut(&db);
+        let result_gossip: Gossip_0v1 = subject.produce_debut_or_ipchange(&db);
 
         assert_eq!(result_gossip.node_records.len(), 1);
         let result_gossip_record = result_gossip.node_records.first().unwrap();

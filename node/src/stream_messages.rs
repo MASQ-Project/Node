@@ -43,7 +43,7 @@ pub enum RemovedStreamType {
     NonClandestine(NonClandestineAttributes),
 }
 
-#[derive(PartialEq, Eq, Message)]
+#[derive(PartialEq, Eq, Message, Clone)]
 pub struct RemoveStreamMsg {
     pub local_addr: SocketAddr,
     pub peer_addr: SocketAddr,

@@ -629,7 +629,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(NeighborhoodDatabaseError::NodeKeyNotFound(
+            Err(NodeKeyNotFound(
                 nonexistent_node.public_key().clone()
             ))
         )

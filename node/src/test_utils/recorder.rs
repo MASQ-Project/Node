@@ -60,6 +60,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use crate::node_test_utils::make_stream_handler_pool_subs_from;
 
 #[derive(Default)]
 pub struct Recorder {
@@ -554,6 +555,51 @@ impl PeerActorsBuilder {
             ui_gateway: make_ui_gateway_subs_from_recorder(&ui_gateway_addr),
             blockchain_bridge: make_blockchain_bridge_subs_from(&blockchain_bridge_addr),
             configurator: make_configurator_subs_from(&configurator_addr),
+        }
+    }
+}
+
+pub fn pool_bind_message_builder() -> PoolBindMessageBuilder {
+    PoolBindMessageBuilder::new()
+}
+
+#[derive(Default)]
+pub struct PoolBindMessageBuilder {
+    dispatcher: Recorder,
+    neighborhood: Recorder,
+    stream_handler_pool: Recorder,
+}
+
+impl PoolBindMessageBuilder {
+    pub fn new() -> Self {
+        Self {
+            dispatcher: Recorder::new(),
+            neighborhood: Recorder::new(),
+            stream_handler_pool: Recorder::new(),
+        }
+    }
+
+    pub fn dispatcher(mut self, recorder: Recorder) -> PoolBindMessageBuilder {
+        self.dispatcher = recorder;
+        self
+    }
+
+    pub fn neighborhood(mut self, recorder: Recorder) -> PoolBindMessageBuilder {
+        self.neighborhood = recorder;
+        self
+    }
+
+    pub fn stream_handler_pool(mut self, recorder: Recorder) -> PoolBindMessageBuilder {
+        self.stream_handler_pool = recorder;
+        self
+    }
+
+    // This must be called after System.new and before System.run
+    pub fn build(self) -> PoolBindMessage {
+        PoolBindMessage {
+            dispatcher_subs: make_dispatcher_subs_from(&self.dispatcher.start()),
+            neighborhood_subs: make_neighborhood_subs_from(&self.neighborhood.start()),
+            stream_handler_pool_subs: make_stream_handler_pool_subs_from(Some (self.stream_handler_pool)),
         }
     }
 }

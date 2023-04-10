@@ -9,7 +9,7 @@ use serde_cbor::Value;
 use std::convert::TryFrom;
 
 lazy_static! {
-    static ref MIGRATIONS: Migrations = {
+    pub static ref MIGRATIONS: Migrations = {
         let current_version = dv!(0, 1);
         let mut migrations = Migrations::new(current_version);
 
