@@ -1,5 +1,5 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-#![cfg(target_os = "linux")]
+// #![cfg(target_os = "linux")]
 
 use crate::comm_layer::pcp_pmp_common::FindRoutersCommand;
 use crate::comm_layer::AutomapError;
@@ -11,20 +11,31 @@ pub fn linux_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr
         Ok(stdout) => stdout,
         Err(stderr) => return Err(AutomapError::ProtocolError(stderr)),
     };
-    let addresses = output
+    let init: Result<Vec<IpAddr>,AutomapError> = Ok(vec![]);
+    output
         .split('\n')
         .take_while(|line| line.trim_start().starts_with("default "))
-        .map(|line| {
-            let ip_str: String = line
-                .chars()
-                .skip_while(|char| !char.is_numeric())
-                .take_while(|char| !char.is_whitespace())
-                .collect();
+        .fold(init, |acc, line| {
+            match acc {
+                Ok(mut ip_addr_vec) => {
+                    let ip_str: String = line
+                        .chars()
+                        .skip_while(|char| !char.is_numeric())
+                        .take_while(|char| !char.is_whitespace())
+                        .collect();
 
-            IpAddr::from_str(&ip_str).expect("Bad syntax from ip route")
+                    match IpAddr::from_str(&ip_str) {
+                        Ok(ip_addr) => {
+                            ip_addr_vec.push(ip_addr);
+                            Ok(ip_addr_vec)
+                        },
+                        Err(e) => Err(AutomapError::FindRouterError(format!("Failed to parse an IP from \"ip route\": {:?}",e)))
+                    }
+                },
+                Err(e) => Err(e)
+            }
+
         })
-        .collect::<Vec<IpAddr>>();
-    Ok(addresses)
 }
 
 pub struct LinuxFindRoutersCommand {}
@@ -116,6 +127,19 @@ mod tests {
         let result = linux_find_routers(&find_routers_command).unwrap();
 
         assert_eq!(result.is_empty(), true)
+    }
+
+    #[test]
+    fn find_routers_returns_error_if_ip_addreses_can_not_be_parsed() {
+        let route_n_output = "\
+        default via 192.168.0.1 dev enp4s0 proto dhcp src 192.168.0.100 metric 100\n\
+        default via 192.168.0 dev enp0s3 proto dhcp metric 102\n\
+        169.254.0.0/16 dev enp4s0 scope link metric 1000";
+        let find_routers_command = FindRoutersCommandMock::new(Ok(&route_n_output));
+
+        let result = linux_find_routers(&find_routers_command);
+
+        assert_eq!(result, Err(AutomapError::FindRouterError("Failed to parse an IP from \"ip route\": AddrParseError(Ip)".to_string())))
     }
 
     #[test]
