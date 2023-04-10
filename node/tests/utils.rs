@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
+use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_CHAIN, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::node_home_directory;
 use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
 use masq_lib::utils::localhost;
@@ -20,9 +20,13 @@ use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use masq_lib::blockchains::chains::Chain;
+use node_lib::node_configurator::add_chain_specific_directories;
 
+#[derive(Debug)]
 pub struct MASQNode {
     pub data_dir: PathBuf,
+    chain: Chain,
     child: Option<process::Child>,
     output: Option<Output>,
 }
@@ -163,7 +167,10 @@ impl MASQNode {
 
     #[allow(dead_code)]
     pub fn wait_for_log(&mut self, pattern: &str, limit_ms: Option<u64>) {
-        Self::wait_for_match_at_directory(pattern, self.data_dir.as_path(), limit_ms);
+        println!("wait_for_log chain");
+        println!("{:#?}", self.data_dir);
+        println!("{:#?}", self.chain);
+        Self::wait_for_match_at_directory(pattern, &add_chain_specific_directories(self.chain, self.data_dir.as_path()), limit_ms);
     }
 
     pub fn wait_for_match_at_directory(pattern: &str, logfile_dir: &Path, limit_ms: Option<u64>) {
@@ -349,28 +356,38 @@ impl MASQNode {
         if sterile_logfile {
             let _ = Self::remove_logfile(&data_dir);
         }
+        let chain = Self::get_chain_from_config(&config_opt);
         let ui_port = Self::ui_port_from_config_opt(&config_opt);
         let mut command = command_getter(&data_dir, config_opt, sterile_database);
-        eprintln!("{:?}", command);
         let command = if piped_streams {
             command.stdout(Stdio::piped()).stderr(Stdio::piped())
         } else {
             &mut command
         };
-        let mut result = Self::spawn_process(command, data_dir);
+        let mut result = Self::spawn_process(command, data_dir, chain);
         if ensure_start {
             result.wait_for_node(ui_port).unwrap();
         }
         result
     }
 
-    fn spawn_process(cmd: &mut Command, data_dir: PathBuf) -> MASQNode {
+    fn spawn_process(cmd: &mut Command, data_dir: PathBuf, chain: Chain) -> MASQNode {
         let child = cmd.spawn().unwrap();
         MASQNode {
             data_dir,
+            chain,
             child: Some(child),
             output: None,
         }
+    }
+
+    fn get_chain_from_config( config_opt: &Option<CommandConfig>) -> Chain {
+        match config_opt {
+            Some(config) => match config.value_of("chain") {
+                Some(chain_str) => Chain::from(chain_str.as_str()),
+                None => DEFAULT_CHAIN
+            },
+            None => DEFAULT_CHAIN }
     }
 
     fn millis_since(started_at: Instant) -> u64 {

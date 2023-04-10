@@ -12,7 +12,9 @@ use masq_lib::messages::{
 use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use masq_lib::utils::find_free_port;
+use node_lib::node_configurator::add_chain_specific_directories;
 use utils::CommandConfig;
+use masq_lib::blockchains::chains::Chain;
 
 #[test]
 fn ui_requests_something_and_gets_corresponding_response() {
@@ -57,7 +59,10 @@ fn log_broadcasts_are_correctly_received_integration() {
     let port = find_free_port();
     let mut node = utils::MASQNode::start_standard(
         "log_broadcasts_are_correctly_received",
-        Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
+        Some(CommandConfig::new()
+            .pair("--ui-port", &port.to_string())
+            .pair("--chain", "polygon-mainnet")
+        ),
         true,
         true,
         false,
@@ -97,6 +102,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
         "ui_gateway_test",
         "daemon_does_not_allow_node_to_keep_his_client_alive_integration",
     );
+    let expected_chain_data_dir = add_chain_specific_directories(Chain::PolyMainnet, &data_directory);
     let daemon_port = find_free_port();
     let mut daemon = utils::MASQNode::start_daemon(
         "daemon_does_not_allow_node_to_keep_his_client_alive_integration",
@@ -114,7 +120,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
             ("chain", Some("eth-mainnet")),
             ("neighborhood-mode", Some("standard")),
             ("log-level", Some("trace")),
-            ("data-directory", Some(&data_directory.to_str().unwrap())),
+            ("data-directory", Some(&expected_chain_data_dir.to_str().unwrap())),
         ]))
         .unwrap();
 
@@ -123,8 +129,6 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     let connected_and_disconnected_assertion =
         |how_many_occurrences_we_look_for: usize, pattern_in_log: fn(port_spec: &str) -> String| {
             let port_number_regex_str = r"UI connected at 127\.0\.0\.1:([\d]*)";
-            //TODO fix this when GH-580 is being played
-            // let log_file_directory = data_directory.join("eth-mainnet");
             let log_file_directory = data_directory.clone();
             let all_uis_connected_so_far = MASQNode::capture_pieces_of_log_at_directory(
                 port_number_regex_str,
@@ -169,7 +173,10 @@ fn cleanup_after_deceased_clients_integration() {
     let port = find_free_port();
     let mut node = utils::MASQNode::start_standard(
         "cleanup_after_deceased_clients_integration",
-        Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
+        Some(CommandConfig::new()
+            .pair("--chain", "eth-ropsten")
+            .pair("--ui-port", &port.to_string())
+        ),
         true,
         true,
         false,

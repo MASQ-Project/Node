@@ -17,7 +17,8 @@ use crate::node_configurator::unprivileged_parse_args_configuration::{
     UnprivilegedParseArgsConfigurationDaoReal,
 };
 use crate::node_configurator::{
-    data_directory_from_context, determine_config_file_path, DirsWrapper, DirsWrapperReal,
+    add_chain_specific_directories, data_directory_from_context, determine_config_file_path,
+    DirsWrapper, DirsWrapperReal,
 };
 use crate::sub_lib::accountant::PaymentThresholds as PaymentThresholdsFromAccountant;
 use crate::sub_lib::accountant::DEFAULT_SCAN_INTERVALS;
@@ -120,7 +121,7 @@ impl SetupReporter for SetupReporterReal {
         });
         let data_directory = match all_but_configured.get("data-directory") {
             Some(uisrv) if uisrv.status == Set => {
-                PathBuf::from(&uisrv.value),
+                add_chain_specific_directories(chain, Path::new(&uisrv.value))
             }
             _ => data_directory_from_context(
                 self.dirs_wrapper.as_ref(),
@@ -1184,9 +1185,11 @@ mod tests {
             "setup_reporter",
             "get_modified_setup_database_populated_only_requireds_set",
         );
+        let config_file_dir = home_dir.join("MASQ").join("polygon-mainnet");
+        std::fs::create_dir_all(&config_file_dir).unwrap();
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
-            .initialize(&home_dir, DbInitializationConfig::test_default())
+            .initialize(&config_file_dir, DbInitializationConfig::test_default())
             .unwrap();
         let mut config = PersistentConfigurationReal::from(conn);
         config.change_password(None, "password").unwrap();
@@ -3360,4 +3363,31 @@ mod tests {
         );
         assert_eq!(Scans {}.value_name(), "scans");
     }
+
+    // #[test]
+    // fn calculate_fundamentals_with_chain_specific_dir() {
+    //     let _guard = EnvironmentGuard::new();
+    //     vec![]
+    //         .into_iter()
+    //         .for_each(|(name, value): (&str, &str)| std::env::set_var(name, value));
+    //     let setup = setup_cluster_from(vec![
+    //         ("chain", "polygon-mainnet", Configured),
+    //         ("data-directory", "setup_dir", Default),
+    //         ("real-user", "1111:1111:agoob", Configured),
+    //     ]);
+    //
+    //     let (real_user_opt, data_directory_opt, chain) =
+    //         SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
+    //
+    //     assert_eq!(
+    //         real_user_opt,
+    //         Some(crate::bootstrapper::RealUser::new(
+    //             Some(1111),
+    //             Some(1111),
+    //             Some(PathBuf::from("agoob"))
+    //         ))
+    //     );
+    //     assert_eq!(data_directory, Some("polygon-mainnet"));
+    //     assert_eq!(chain, Blockchain::from("polygon-mainnet"));
+    // }
 }

@@ -2,6 +2,7 @@
 
 pub mod utils;
 
+use std::fs::create_dir_all;
 use crate::utils::CommandConfig;
 #[cfg(not(target_os = "windows"))]
 use std::process;
@@ -9,6 +10,7 @@ use std::process;
 use std::thread;
 #[cfg(not(target_os = "windows"))]
 use std::time::Duration;
+use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 
 #[test]
 fn node_exits_from_future_panic_integration() {
@@ -29,8 +31,17 @@ fn node_exits_from_future_panic_integration() {
 
 #[test]
 fn node_logs_panic_integration() {
-    let panic_config = CommandConfig::new().pair("--crash-point", "panic");
-
+    let data_directory = ensure_node_home_directory_exists(
+        "setup_reporter",
+        "node_logs_panic_integration",
+    );
+    let data_dir_chain_path = data_directory.join("MASQ").join("polygon-mainnet");
+    create_dir_all(&data_dir_chain_path)
+        .expect("Could not create chain directory inside node_logs_panic_integration home/MASQ directory");
+    let panic_config = CommandConfig::new()
+        .pair("--crash-point", "panic")
+        .pair("--chain", "polygon-mainnet")
+        .pair("--data-directory", data_dir_chain_path.to_str().unwrap());
     let mut node = utils::MASQNode::start_standard(
         "node_logs_panic_integration",
         Some(panic_config),
