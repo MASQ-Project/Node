@@ -132,7 +132,7 @@ impl Handler<BindMessage> for Neighborhood {
 impl Handler<PoolBindMessage> for Neighborhood {
     type Result = ();
 
-    fn handle(&mut self, msg: PoolBindMessage, ctx: &mut Self::Context) -> Self::Result {
+    fn handle(&mut self, msg: PoolBindMessage, _: &mut Self::Context) -> Self::Result {
         let gossip_acceptor_subs = self.gossip_acceptor_info_opt
             .take()
             .expect("Neighborhood never got its BindMessage")
@@ -1655,7 +1655,7 @@ mod tests {
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::neighborhood::gossip::Gossip_0v1;
     use crate::neighborhood::node_record::NodeRecordInner_0v1;
-    use crate::stream_messages::{NonClandestineAttributes, RemovedStreamType, RemoveStreamMsg};
+    use crate::stream_messages::{NonClandestineAttributes, RemovedStreamType};
     use crate::sub_lib::cryptde::{decodex, encodex, CryptData};
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::dispatcher::Endpoint;
@@ -4309,7 +4309,7 @@ mod tests {
         let subject_node = make_global_cryptde_node_record(1234, true);
         let new_public_ip = IpAddr::from_str("4.3.2.1").unwrap();
         let (hopper, _, hopper_recording_arc) = make_recorder();
-        let (subject, one_neighbor, another_neighbor, not_a_neighbor) = {
+        let (subject, one_neighbor, another_neighbor) = {
             let mut subject: Neighborhood = neighborhood_from_nodes(&subject_node,
                 Some(&make_node_record(7654, true)));
             subject.gossip_producer_opt = Some(Box::new (GossipProducerReal::new()));
@@ -4331,7 +4331,7 @@ mod tests {
 
             System::current().stop();
             system.run();
-            (subject, one_neighbor, another_neighbor, not_a_neighbor)
+            (subject, one_neighbor, another_neighbor)
         };
         let db = &subject.neighborhood_database;
         assert_eq!(
