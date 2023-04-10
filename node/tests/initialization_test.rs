@@ -9,7 +9,6 @@ use masq_lib::messages::{
 };
 use masq_lib::messages::{UiFinancialsRequest, UiRedirect, UiStartOrder, UiStartResponse};
 use masq_lib::test_utils::ui_connection::UiConnection;
-use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, node_home_directory};
 use masq_lib::utils::find_free_port;
 use node_lib::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
@@ -150,15 +149,14 @@ fn wait_for_process_end(process_id: u32) {
 
 #[test]
 fn incomplete_node_descriptor_is_refused_integration() {
-    let test_default_chain_identifier = TEST_DEFAULT_CHAIN.rec().literal_identifier;
+    let chain_identifier = "polygon-mainnet";
     let mut node = utils::MASQNode::start_standard(
         "incomplete_node_descriptor_is_refused_integration",
         Some(
             CommandConfig::new()
                 .pair(
                     "--neighbors",
-                    &format!("masq://{}:12345vhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678,masq://{}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:",
-                             test_default_chain_identifier,test_default_chain_identifier)
+                    &format!("masq://{chain_identifier}:12345vhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@12.23.34.45:5678,masq://{chain_identifier}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@:")
                 ),
         ),
         true,
@@ -176,8 +174,7 @@ fn incomplete_node_descriptor_is_refused_integration() {
                 stdout
             );
             let stderr = String::from_utf8_lossy(&output.stderr);
-            assert!(stderr.contains(&format!("neighbors - Neighbors supplied without ip addresses and ports are not valid: 'masq://{}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@<N/A>:<N/A>",
-                                            test_default_chain_identifier)
+            assert!(stderr.contains(&format!("neighbors - Neighbors supplied without ip addresses and ports are not valid: 'masq://{chain_identifier}:abJ5XvhVbmVyGejkYUkmftF09pmGZGKg_PzRNnWQxFw@<N/A>:<N/A>")
             ), "instead we got: {}",stderr)
         }
     };

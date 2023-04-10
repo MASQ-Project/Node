@@ -1,13 +1,14 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_CHAIN, DEFAULT_UI_PORT};
-use masq_lib::test_utils::utils::node_home_directory;
-use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
+use masq_lib::test_utils::utils::{node_home_directory, ensure_node_home_directory_exists};
 use masq_lib::utils::localhost;
 use node_lib::database::connection_wrapper::ConnectionWrapper;
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal,
 };
+use node_lib::node_configurator::add_chain_specific_directories;
 use node_lib::test_utils::await_value;
 use regex::{Captures, Regex};
 use std::env;
@@ -20,8 +21,6 @@ use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use masq_lib::blockchains::chains::Chain;
-use node_lib::node_configurator::add_chain_specific_directories;
 
 #[derive(Debug)]
 pub struct MASQNode {
@@ -31,7 +30,7 @@ pub struct MASQNode {
     output: Option<Output>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct CommandConfig {
     pub args: Vec<String>,
 }
@@ -74,6 +73,8 @@ impl Drop for MASQNode {
 
 impl MASQNode {
     pub fn path_to_logfile(data_dir: &Path) -> Box<Path> {
+        println!("path_to_logfile data_dir here");
+        println!("{:#?}", data_dir);
         data_dir.join(CURRENT_LOGFILE_NAME).into_boxed_path()
     }
 
@@ -167,13 +168,16 @@ impl MASQNode {
 
     #[allow(dead_code)]
     pub fn wait_for_log(&mut self, pattern: &str, limit_ms: Option<u64>) {
-        println!("wait_for_log chain");
-        println!("{:#?}", self.data_dir);
-        println!("{:#?}", self.chain);
-        Self::wait_for_match_at_directory(pattern, &add_chain_specific_directories(self.chain, self.data_dir.as_path()), limit_ms);
+        Self::wait_for_match_at_directory(
+            pattern,
+            &add_chain_specific_directories(self.chain, self.data_dir.as_path()),
+            limit_ms,
+        );
     }
 
     pub fn wait_for_match_at_directory(pattern: &str, logfile_dir: &Path, limit_ms: Option<u64>) {
+        println!("wait_for_match_at_directory logfile_dir");
+        println!("{:#?}", logfile_dir);
         let logfile_path = Self::path_to_logfile(logfile_dir);
         let do_with_log_output = |log_output: &String, regex: &Regex| -> Option<()> {
             regex.is_match(&log_output[..]).then(|| ())
@@ -381,13 +385,14 @@ impl MASQNode {
         }
     }
 
-    fn get_chain_from_config( config_opt: &Option<CommandConfig>) -> Chain {
+    fn get_chain_from_config(config_opt: &Option<CommandConfig>) -> Chain {
         match config_opt {
-            Some(config) => match config.value_of("chain") {
+            Some(config) => match config.value_of("--chain") {
                 Some(chain_str) => Chain::from(chain_str.as_str()),
-                None => DEFAULT_CHAIN
+                None => DEFAULT_CHAIN,
             },
-            None => DEFAULT_CHAIN }
+            None => DEFAULT_CHAIN,
+        }
     }
 
     fn millis_since(started_at: Instant) -> u64 {
@@ -467,7 +472,6 @@ impl MASQNode {
                 "--consuming-private-key",
                 "CCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCCC",
             )
-            .pair("--chain", TEST_DEFAULT_CHAIN.rec().literal_identifier)
             .pair("--log-level", "trace")
             .args
     }
