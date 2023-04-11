@@ -1,5 +1,5 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
-// #![cfg(target_os = "linux")]
+#![cfg(target_os = "linux")]
 
 use crate::comm_layer::pcp_pmp_common::FindRoutersCommand;
 use crate::comm_layer::AutomapError;
@@ -11,30 +11,30 @@ pub fn linux_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr
         Ok(stdout) => stdout,
         Err(stderr) => return Err(AutomapError::ProtocolError(stderr)),
     };
-    let init: Result<Vec<IpAddr>,AutomapError> = Ok(vec![]);
+    let init: Result<Vec<IpAddr>, AutomapError> = Ok(vec![]);
     output
         .split('\n')
         .take_while(|line| line.trim_start().starts_with("default "))
-        .fold(init, |acc, line| {
-            match acc {
-                Ok(mut ip_addr_vec) => {
-                    let ip_str: String = line
-                        .chars()
-                        .skip_while(|char| !char.is_numeric())
-                        .take_while(|char| !char.is_whitespace())
-                        .collect();
+        .fold(init, |acc, line| match acc {
+            Ok(mut ip_addr_vec) => {
+                let ip_str: String = line
+                    .chars()
+                    .skip_while(|char| !char.is_numeric())
+                    .take_while(|char| !char.is_whitespace())
+                    .collect();
 
-                    match IpAddr::from_str(&ip_str) {
-                        Ok(ip_addr) => {
-                            ip_addr_vec.push(ip_addr);
-                            Ok(ip_addr_vec)
-                        },
-                        Err(e) => Err(AutomapError::FindRouterError(format!("Failed to parse an IP from \"ip route\": {:?}",e)))
+                match IpAddr::from_str(&ip_str) {
+                    Ok(ip_addr) => {
+                        ip_addr_vec.push(ip_addr);
+                        Ok(ip_addr_vec)
                     }
-                },
-                Err(e) => Err(e)
+                    Err(e) => Err(AutomapError::FindRouterError(format!(
+                        "Failed to parse an IP from \"ip route\": {:?}",
+                        e
+                    ))),
+                }
             }
-
+            Err(e) => Err(e),
         })
 }
 
@@ -103,14 +103,18 @@ mod tests {
     }
 
     #[test]
-    fn find_routers_works_when_command_writes_to_stderr() {
-        let find_routers_command = FindRoutersCommandMock::new(Err("Booga!"));
+    fn find_routers_supports_ip_address_of_ipv6() {
+        let route_n_output = "\
+        default via 2001:1:2:3:4:5:6:7 dev enX0 proto kernel metric 256 pref medium\n\
+        fe80::/64 dev docker0 proto kernel metric 256 pref medium";
+
+        let find_routers_command = FindRoutersCommandMock::new(Ok(&route_n_output));
 
         let result = linux_find_routers(&find_routers_command);
 
         assert_eq!(
             result,
-            Err(AutomapError::ProtocolError("Booga!".to_string()))
+            Ok(vec![IpAddr::from_str("2001:1:2:3:4:5:6:7").unwrap()])
         )
     }
 
@@ -130,6 +134,18 @@ mod tests {
     }
 
     #[test]
+    fn find_routers_works_when_command_writes_to_stderr() {
+        let find_routers_command = FindRoutersCommandMock::new(Err("Booga!"));
+
+        let result = linux_find_routers(&find_routers_command);
+
+        assert_eq!(
+            result,
+            Err(AutomapError::ProtocolError("Booga!".to_string()))
+        )
+    }
+
+    #[test]
     fn find_routers_returns_error_if_ip_addreses_can_not_be_parsed() {
         let route_n_output = "\
         default via 192.168.0.1 dev enp4s0 proto dhcp src 192.168.0.100 metric 100\n\
@@ -139,7 +155,12 @@ mod tests {
 
         let result = linux_find_routers(&find_routers_command);
 
-        assert_eq!(result, Err(AutomapError::FindRouterError("Failed to parse an IP from \"ip route\": AddrParseError(Ip)".to_string())))
+        assert_eq!(
+            result,
+            Err(AutomapError::FindRouterError(
+                "Failed to parse an IP from \"ip route\": AddrParseError(Ip)".to_string()
+            ))
+        )
     }
 
     #[test]
@@ -149,11 +170,6 @@ mod tests {
         let result = subject.execute().unwrap();
 
         let lines = result.split('\n').collect::<Vec<&str>>();
-        assert!(
-            lines.len() > 1,
-            "Did not find more than two lines in this vector {:?}",
-            lines
-        );
         let reg = ip_route_regex();
         lines.iter().for_each(|line| {
             assert!(reg.is_match(line), "Lines: {:?} line: {}", lines, line);
@@ -162,11 +178,7 @@ mod tests {
 
     fn ip_route_regex() -> Regex {
         let reg_for_ip = r"((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}";
-        Regex::new(&format!(
-            r#"{}|^{}(/\d+)?\s(dev|via)(\s\.+)\{{3,\}}"#,
-            reg_for_ip, reg_for_ip
-        ))
-        .unwrap()
+        Regex::new(&format!(r#"^{}(/\d+)?\s(dev|via)(\s.+){{3,}}"#, reg_for_ip)).unwrap()
     }
 
     #[test]
@@ -177,17 +189,34 @@ mod tests {
         168.63.129.16 via 10.1.0.1 dev eth0 proto dhcp src 10.1.0.84 metric 100\n\
         169.254.169.254 via 10.1.0.1 dev eth0 proto dhcp src 10.1.0.84 metric 100\n\
         172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1 linkdown";
-        let reg_for_any_other_line = ip_route_regex();
+        let regex = ip_route_regex();
 
         let lines = route_n_output.split('\n').collect::<Vec<&str>>();
 
         lines.iter().for_each(|line| {
-            assert!(
-                reg_for_any_other_line.is_match(line),
-                "Lines: {:?} line: {}",
-                lines,
-                line
-            );
+            assert!(regex.is_match(line), "Lines: {:?} line: {}", lines, line);
         });
+    }
+
+    #[test]
+    fn reg_for_ip_route_bad_ip() {
+        let route_n_output = "\
+        10.1.0.0/16 dev eth0 proto kernel scope link src 10.1.0.84 metric 100\n\
+        0.1.0 dev eth0 proto dhcp scope link src 10.1.0.84 metric 100\n\
+        0.1.255.1 dev eth0 proto dhcp\n\
+        0.1.256.1 dev eth0 proto dhcp\n\
+        0.1.b.1 dev eth0 proto dhcp\n\
+        0.1.0.1/ dev eth0 proto dhcp\n\
+        2001:0db8:0000:0000:0000:ff00:0042:8329 dev eth0 proto dhcp";
+        let regex = ip_route_regex();
+
+        let lines = route_n_output.split('\n').collect::<Vec<&str>>();
+
+        assert_eq!(regex.is_match(lines[0]), true);
+        assert_eq!(regex.is_match(lines[1]), false);
+        assert_eq!(regex.is_match(lines[2]), true);
+        assert_eq!(regex.is_match(lines[3]), false);
+        assert_eq!(regex.is_match(lines[4]), false);
+        assert_eq!(regex.is_match(lines[5]), false);
     }
 }
