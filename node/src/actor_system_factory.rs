@@ -678,6 +678,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
 
     struct LogRecipientSetterNull {}
 
@@ -1070,6 +1071,7 @@ mod tests {
                     vec![],
                     rate_pack(100),
                 ),
+                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
             },
             payment_thresholds_opt: Some(PaymentThresholds::default()),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
@@ -1143,6 +1145,7 @@ mod tests {
                     vec![],
                     rate_pack(100),
                 ),
+                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
             },
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
@@ -1286,6 +1289,7 @@ mod tests {
                 vec![],
                 rate_pack(100),
             ),
+            min_hops_count: DEFAULT_MIN_HOPS_COUNT,
         };
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = make_subject_with_null_setter();
@@ -1439,6 +1443,7 @@ mod tests {
             real_user: RealUser::null(),
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![]),
+                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
             },
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
@@ -1627,6 +1632,7 @@ mod tests {
                     vec![],
                     rate_pack(100),
                 ),
+                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
             },
             node_descriptor: Default::default(),
             payment_thresholds_opt: Default::default(),

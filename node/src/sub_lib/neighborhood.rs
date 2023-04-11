@@ -370,6 +370,7 @@ impl Display for DescriptorParsingError<'_> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NeighborhoodConfig {
     pub mode: NeighborhoodMode,
+    pub min_hops_count: u8,
 }
 
 lazy_static! {

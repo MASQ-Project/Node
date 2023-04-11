@@ -25,6 +25,7 @@ use masq_lib::utils::{AutomapProtocol, ExpectValue};
 use rustc_hex::FromHex;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
+use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
 
 pub trait UnprivilegedParseArgsConfiguration {
     // Only initialization that cannot be done with privilege should happen here.
@@ -214,7 +215,7 @@ pub fn make_neighborhood_config<T: UnprivilegedParseArgsConfiguration + ?Sized>(
         }
     };
     match make_neighborhood_mode(multi_config, neighbor_configs, persistent_config) {
-        Ok(mode) => Ok(NeighborhoodConfig { mode }),
+        Ok(mode) => Ok(NeighborhoodConfig { mode, min_hops_count: DEFAULT_MIN_HOPS_COUNT, }),
         Err(e) => Err(e),
     }
 }
@@ -705,7 +706,8 @@ mod tests {
                             .unwrap()
                     ],
                     DEFAULT_RATE_PACK
-                )
+                ),
+                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
             })
         );
     }
@@ -738,6 +740,7 @@ mod tests {
         let node_addr = match result {
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(node_addr, _, _),
+                   min_hops_count: DEFAULT_MIN_HOPS_COUNT,
             }) => node_addr,
             x => panic!("Wasn't expecting {:?}", x),
         };
@@ -794,7 +797,8 @@ mod tests {
                         .unwrap()
                     ],
                     DEFAULT_RATE_PACK
-                )
+                ),
+                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
             })
         );
     }
@@ -869,7 +873,8 @@ mod tests {
                         .as_str()
                     ))
                     .unwrap()
-                ],)
+                ],),
+                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
             })
         );
     }
@@ -932,7 +937,8 @@ mod tests {
         assert_eq!(
             result,
             Ok(NeighborhoodConfig {
-                mode: NeighborhoodMode::ZeroHop
+                mode: NeighborhoodMode::ZeroHop,
+                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
             })
         );
     }
@@ -1262,7 +1268,8 @@ mod tests {
         assert_eq!(
             config.neighborhood_config,
             NeighborhoodConfig {
-                mode: NeighborhoodMode::ZeroHop
+                mode: NeighborhoodMode::ZeroHop,
+                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
             }
         );
         let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
@@ -1308,7 +1315,8 @@ mod tests {
         assert_eq!(
             config.neighborhood_config,
             NeighborhoodConfig {
-                mode: NeighborhoodMode::ZeroHop
+                mode: NeighborhoodMode::ZeroHop,
+                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
             }
         );
         let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
@@ -1489,7 +1497,8 @@ mod tests {
                         .unwrap(),
                     ],
                     DEFAULT_RATE_PACK.clone()
-                )
+                ),
+                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
             }
         );
         assert_eq!(config.db_password_opt, Some(password.to_string()));

@@ -3,7 +3,7 @@ use crate::bootstrapper::BootstrapperConfig;
 use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use crate::neighborhood::node_record::{NodeRecord, NodeRecordInner_0v1};
-use crate::neighborhood::{AccessibleGossipRecord, Neighborhood};
+use crate::neighborhood::{AccessibleGossipRecord, DEFAULT_MIN_HOPS_COUNT, Neighborhood};
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
 use crate::sub_lib::cryptde_null::CryptDENull;
@@ -95,9 +95,11 @@ pub fn neighborhood_from_nodes(
                 vec![NodeDescriptor::from((neighbor, Chain::EthRopsten, cryptde))],
                 *root.rate_pack(),
             ),
+            min_hops_count: DEFAULT_MIN_HOPS_COUNT,
         },
         None => NeighborhoodConfig {
             mode: NeighborhoodMode::ZeroHop,
+            min_hops_count: DEFAULT_MIN_HOPS_COUNT,
         },
     };
     config.earning_wallet = root.earning_wallet();

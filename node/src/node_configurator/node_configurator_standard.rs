@@ -304,6 +304,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use std::vec;
+    use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
 
     #[test]
     fn node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real() {
@@ -574,7 +575,8 @@ mod tests {
         assert_eq!(
             config.neighborhood_config,
             NeighborhoodConfig {
-                mode: NeighborhoodMode::ZeroHop // not populated on the privileged side
+                mode: NeighborhoodMode::ZeroHop, // not populated on the privileged side
+                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
             }
         );
         assert_eq!(
