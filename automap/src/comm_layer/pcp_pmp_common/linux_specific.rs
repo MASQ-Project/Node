@@ -169,7 +169,11 @@ mod tests {
 
         let result = subject.execute().unwrap();
 
-        let lines = result.split('\n').collect::<Vec<&str>>();
+        let mut lines = result.split('\n').collect::<Vec<&str>>();
+        let len = lines.len();
+        if lines[len - 1].is_empty() {
+            lines.remove(len - 1);
+        }
         let reg = ip_route_regex();
         lines.iter().for_each(|line| {
             assert!(reg.is_match(line), "Lines: {:?} line: {}", lines, line);
@@ -208,6 +212,7 @@ mod tests {
         0.1.b.1 dev eth0 proto dhcp\n\
         0.1.0.1/ dev eth0 proto dhcp\n\
         2001:0db8:0000:0000:0000:ff00:0042:8329 dev eth0 proto dhcp";
+
         let regex = ip_route_regex();
 
         let lines = route_n_output.split('\n').collect::<Vec<&str>>();
