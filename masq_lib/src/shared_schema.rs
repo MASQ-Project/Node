@@ -105,6 +105,7 @@ pub const MAPPING_PROTOCOL_HELP: &str =
     public IP address with the --ip parameter. If the Node communicates successfully with your router, \
     it will remember the protocol it used, and on its next run it will try that protocol first, unless \
     you specify a different protocol on the command line.";
+pub const MIN_HOPS_HELP: &str = "Enter the count as an argument. 3-hops is required for anonymity."; // TODO: rewrite this
 pub const REAL_USER_HELP: &str =
     "The user whose identity Node will assume when dropping privileges after bootstrapping. Since Node refuses to \
      run with root privilege after bootstrapping, you might want to use this if you start the Node as root, or if \
@@ -406,6 +407,16 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .possible_values(&["pcp", "pmp", "igdp"])
             .case_insensitive(true)
             .help(MAPPING_PROTOCOL_HELP),
+    )
+    .arg(
+        Arg::with_name("min-hops")
+            .long("min-hops")
+            .value_name("MIN_HOPS")
+            .required(false)
+            .min_values(0)
+            .max_values(1)
+            .possible_values(&["1", "2", "3", "4", "5", "6"])
+            .help(MIN_HOPS_HELP)
     )
     .arg(
         Arg::with_name("neighborhood-mode")
@@ -713,6 +724,10 @@ mod tests {
              generates a lot of log traffic. This will both consume your disk space and degrade your Node's performance. \
              You should probably not specify a level higher than the default unless you have security concerns about \
              persistent logs being kept on your computer: if your Node crashes, it's good to know why.");
+        assert_eq!(
+            MIN_HOPS_HELP,
+            "Enter the count as an argument. 3-hops is required for anonymity."
+        );
         assert_eq!(
             NEIGHBORS_HELP,
             "One or more Node descriptors for running Nodes in the MASQ \
