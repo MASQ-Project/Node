@@ -13,6 +13,7 @@ use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, node_home_d
 use masq_lib::utils::find_free_port;
 use node_lib::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use node_lib::database::db_initializer::DATABASE_FILE;
+use node_lib::node_configurator::add_chain_specific_directories;
 #[cfg(not(target_os = "windows"))]
 use node_lib::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use rusqlite::{Connection, OpenFlags};
@@ -209,13 +210,18 @@ fn started_without_explicit_chain_parameter_runs_fine() {
 
 #[test]
 fn requested_chain_meets_different_db_chain_and_panics_integration() {
+    let chain_literal = DEFAULT_CHAIN.rec().literal_identifier;
     let test_name = "requested_chain_meets_different_db_chain_and_panics_integration";
     {
         //running Node just in order to create a new database which we can do testing on
         let port = find_free_port();
         let mut node = utils::MASQNode::start_standard(
             test_name,
-            Some(CommandConfig::new().pair("--ui-port", &port.to_string())),
+            Some(
+                CommandConfig::new()
+                    .pair("--ui-port", &port.to_string())
+                    .pair("--chain", &chain_literal),
+            ),
             true,
             true,
             false,
@@ -228,8 +234,10 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
         node.wait_for_exit();
     }
     let db_dir = node_home_directory("integration", test_name);
+    let data_dir_chain_path = add_chain_specific_directories(DEFAULT_CHAIN, &db_dir);
+
     let conn = Connection::open_with_flags(
-        &db_dir.join(DATABASE_FILE),
+        &data_dir_chain_path.join(DATABASE_FILE),
         OpenFlags::SQLITE_OPEN_READ_WRITE,
     )
     .unwrap();
@@ -238,9 +246,18 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
         [],
     )
     .unwrap();
+    let mut node = MASQNode::start_standard(
+        test_name,
+        Some(CommandConfig::new().pair("--chain", &chain_literal)),
+        false,
+        true,
+        false,
+        false,
+    );
 
-    let mut node = MASQNode::start_standard(test_name, None, false, true, false, false);
-
-    let regex_pattern = r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with a wrong chain name detected; expected: eth-ropsten, was: eth-mainnet";
-    node.wait_for_log(regex_pattern, Some(1000));
+    let regex_pattern = &format!(
+        r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with a wrong chain name detected; expected: {}, was: eth-mainnet",
+        &chain_literal
+    );
+    node.wait_for_log(&regex_pattern, Some(1000));
 }

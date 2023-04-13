@@ -108,9 +108,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
     let daemon_port = find_free_port();
     let mut daemon = utils::MASQNode::start_daemon(
         "daemon_does_not_allow_node_to_keep_his_client_alive_integration",
-        Some(CommandConfig::new()
-            .pair("--ui-port", daemon_port.to_string().as_str())
-        ),
+        Some(CommandConfig::new().pair("--ui-port", daemon_port.to_string().as_str())),
         true,
         true,
         false,
@@ -124,10 +122,7 @@ fn daemon_does_not_allow_node_to_keep_his_client_alive_integration() {
             ("chain", Some("polygon-mainnet")),
             ("neighborhood-mode", Some("standard")),
             ("log-level", Some("trace")),
-            (
-                "data-directory",
-                Some(&data_directory.to_str().unwrap()),
-            ),
+            ("data-directory", Some(&data_directory.to_str().unwrap())),
         ]))
         .unwrap();
 

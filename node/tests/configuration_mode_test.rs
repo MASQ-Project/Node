@@ -20,9 +20,10 @@ fn dump_configuration_with_an_existing_database_integration() {
         let port = find_free_port();
         let mut node = utils::MASQNode::start_standard(
             test_name,
-            Some(CommandConfig::new()
-                .pair("--ui-port", &port.to_string())
-                .pair("--chain", "polygon-mumbai")
+            Some(
+                CommandConfig::new()
+                    .pair("--ui-port", &port.to_string())
+                    .pair("--chain", "polygon-mumbai"),
             ),
             true,
             true,
@@ -38,9 +39,7 @@ fn dump_configuration_with_an_existing_database_integration() {
 
     let mut node = utils::MASQNode::run_dump_config(
         test_name,
-        Some(CommandConfig::new()
-            .pair("--chain", "polygon-mumbai")
-        ),
+        Some(CommandConfig::new().pair("--chain", "polygon-mumbai")),
         false,
         true,
         true,

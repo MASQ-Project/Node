@@ -3,7 +3,10 @@
 pub mod utils;
 
 use crate::utils::CommandConfig;
+use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+use node_lib::node_configurator::add_chain_specific_directories;
 use std::fs::create_dir_all;
 #[cfg(not(target_os = "windows"))]
 use std::process;
@@ -11,8 +14,6 @@ use std::process;
 use std::thread;
 #[cfg(not(target_os = "windows"))]
 use std::time::Duration;
-use masq_lib::blockchains::chains::Chain;
-use node_lib::node_configurator::add_chain_specific_directories;
 use utils::MASQNode;
 
 #[test]
@@ -35,8 +36,8 @@ fn node_exits_from_future_panic_integration() {
 #[test]
 fn node_logs_panic_integration() {
     let data_directory =
-        ensure_node_home_directory_exists("setup_reporter", "node_logs_panic_integration");
-    let data_dir_chain_path = data_directory.join("MASQ").join("polygon-mainnet");
+        ensure_node_home_directory_exists("integration", "node_logs_panic_integration");
+    let data_dir_chain_path = add_chain_specific_directories(DEFAULT_CHAIN, &data_directory);
     create_dir_all(&data_dir_chain_path).expect(
         "Could not create chain directory inside node_logs_panic_integration home/MASQ directory",
     );
@@ -67,9 +68,7 @@ const STAT_FORMAT_PARAM_NAME: &str = "-f";
 fn node_logfile_does_not_belong_to_root_integration() {
     let mut node = MASQNode::start_standard(
         "node_logfile_does_not_belong_to_root_integration",
-        Some(CommandConfig::new()
-            .pair("--chain", "polygon-mumbai")
-        ),
+        Some(CommandConfig::new().pair("--chain", "polygon-mumbai")),
         true,
         true,
         false,

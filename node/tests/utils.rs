@@ -2,7 +2,7 @@
 
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_CHAIN, DEFAULT_UI_PORT};
-use masq_lib::test_utils::utils::{node_home_directory, ensure_node_home_directory_exists};
+use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, node_home_directory};
 use masq_lib::utils::localhost;
 use node_lib::database::connection_wrapper::ConnectionWrapper;
 use node_lib::database::db_initializer::{
@@ -73,8 +73,6 @@ impl Drop for MASQNode {
 
 impl MASQNode {
     pub fn path_to_logfile(data_dir: &Path) -> Box<Path> {
-        println!("path_to_logfile data_dir here");
-        println!("{:#?}", data_dir);
         data_dir.join(CURRENT_LOGFILE_NAME).into_boxed_path()
     }
 
@@ -170,14 +168,12 @@ impl MASQNode {
     pub fn wait_for_log(&mut self, pattern: &str, limit_ms: Option<u64>) {
         Self::wait_for_match_at_directory(
             pattern,
-            &add_chain_specific_directories(self.chain, self.data_dir.as_path()),
+            &add_chain_specific_directories(self.chain, self.data_dir.as_path()), //self.data_dir.as_path(),//
             limit_ms,
         );
     }
 
     pub fn wait_for_match_at_directory(pattern: &str, logfile_dir: &Path, limit_ms: Option<u64>) {
-        println!("wait_for_match_at_directory logfile_dir");
-        println!("{:#?}", logfile_dir);
         let logfile_path = Self::path_to_logfile(logfile_dir);
         let do_with_log_output = |log_output: &String, regex: &Regex| -> Option<()> {
             regex.is_match(&log_output[..]).then(|| ())
@@ -331,8 +327,9 @@ impl MASQNode {
         logfile_path
     }
 
-    pub fn remove_database(data_dir: &PathBuf) {
-        let database = Self::path_to_database(data_dir);
+    pub fn remove_database(data_dir: &PathBuf, chain: Chain) {
+        let data_dir_chain_path = add_chain_specific_directories(chain, data_dir);
+        let database = Self::path_to_database(&data_dir_chain_path);
         match std::fs::remove_file(&database) {
             Ok(_) => (),
             Err(ref e) if e.kind() == io::ErrorKind::NotFound => (),
@@ -357,10 +354,11 @@ impl MASQNode {
         } else {
             node_home_directory("integration", test_name)
         };
+        let chain = Self::get_chain_from_config(&config_opt);
+        //let chain_spec_dir = add_chain_specific_directories(chain, data_dir.as_path());
         if sterile_logfile {
             let _ = Self::remove_logfile(&data_dir);
         }
-        let chain = Self::get_chain_from_config(&config_opt);
         let ui_port = Self::ui_port_from_config_opt(&config_opt);
         let mut command = command_getter(&data_dir, config_opt, sterile_database);
         let command = if piped_streams {
@@ -368,7 +366,7 @@ impl MASQNode {
         } else {
             &mut command
         };
-        let mut result = Self::spawn_process(command, data_dir, chain);
+        let mut result = Self::spawn_process(command, data_dir.to_owned(), chain);
         if ensure_start {
             result.wait_for_node(ui_port).unwrap();
         }
@@ -404,43 +402,47 @@ impl MASQNode {
 
     fn make_daemon_command(
         data_dir: &PathBuf,
-        config: Option<CommandConfig>,
+        config_opt: Option<CommandConfig>,
         remove_database: bool,
     ) -> process::Command {
+        let chain = Self::get_chain_from_config(&config_opt);
         let mut args = Self::daemon_args();
-        args.extend(match config {
+        args.extend(match config_opt {
             Some(c) => c.args,
             None => vec![],
         });
-        Self::start_with_args_extension(data_dir, args, remove_database)
+        Self::start_with_args_extension(chain, data_dir, args, remove_database)
     }
 
     fn make_node_command(
         data_dir: &PathBuf,
-        config: Option<CommandConfig>,
+        config_opt: Option<CommandConfig>,
         remove_database: bool,
     ) -> process::Command {
+        let chain = Self::get_chain_from_config(&config_opt);
         let mut args = Self::standard_args();
-        args.extend(Self::get_extra_args(data_dir, config));
-        Self::start_with_args_extension(data_dir, args, remove_database)
+        args.extend(Self::get_extra_args(data_dir, config_opt));
+        Self::start_with_args_extension(chain, data_dir, args, remove_database)
     }
 
     fn make_masqnode_without_initial_config(
         data_dir: &PathBuf,
-        config: Option<CommandConfig>,
+        config_opt: Option<CommandConfig>,
         remove_database: bool,
     ) -> process::Command {
-        let args = Self::get_extra_args(data_dir, config);
-        Self::start_with_args_extension(data_dir, args, remove_database)
+        let chain = Self::get_chain_from_config(&config_opt);
+        let args = Self::get_extra_args(data_dir, config_opt);
+        Self::start_with_args_extension(chain, data_dir, args, remove_database)
     }
 
     fn start_with_args_extension(
+        chain: Chain,
         data_dir: &PathBuf,
         additional_args: Vec<String>,
         remove_database: bool,
     ) -> process::Command {
         if remove_database {
-            Self::remove_database(data_dir)
+            Self::remove_database(data_dir, chain)
         }
         let mut command = command_to_start();
         command.args(additional_args);
@@ -449,12 +451,12 @@ impl MASQNode {
 
     fn make_dump_config_command(
         data_dir: &PathBuf,
-        config: Option<CommandConfig>,
+        config_opt: Option<CommandConfig>,
         _unused: bool,
     ) -> process::Command {
         let mut command = command_to_start();
         let mut args = Self::dump_config_args();
-        args.extend(Self::get_extra_args(data_dir, config));
+        args.extend(Self::get_extra_args(data_dir, config_opt));
         command.args(&args);
         command
     }

@@ -1185,7 +1185,7 @@ mod tests {
             "setup_reporter",
             "get_modified_setup_database_populated_only_requireds_set",
         );
-        let config_file_dir = home_dir.join("MASQ").join("polygon-mainnet");
+        let config_file_dir = add_chain_specific_directories(DEFAULT_CHAIN, &home_dir);
         std::fs::create_dir_all(&config_file_dir).unwrap();
         let db_initializer = DbInitializerReal::default();
         let conn = db_initializer
@@ -2417,7 +2417,7 @@ mod tests {
             "setup_reporter",
             "config_file_not_specified_but_exists",
         );
-        let data_dir_chain_path = data_directory.join("MASQ").join("polygon-mainnet");
+        let data_dir_chain_path = add_chain_specific_directories(DEFAULT_CHAIN, &data_directory);
         {
             let config_file_path = data_dir_chain_path.join("config.toml");
             create_dir_all(&data_dir_chain_path)

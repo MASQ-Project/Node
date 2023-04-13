@@ -253,7 +253,7 @@ mod tests {
             args_vec.as_slice(),
         )
         .unwrap();
-        let expected_path = data_directory.join("MASQ").join("polygon-mainnet");
+        let expected_path = add_chain_specific_directories(DEFAULT_CHAIN, &data_directory);
         assert_eq!(
             &format!("{}", config_file_path.parent().unwrap().display()),
             &expected_path.to_string_lossy().to_string(),
@@ -283,7 +283,7 @@ mod tests {
             args_vec.as_slice(),
         )
         .unwrap();
-        let expected_path = data_directory.join("MASQ").join("polygon-mainnet");
+        let expected_path = add_chain_specific_directories(DEFAULT_CHAIN, &data_directory);
         assert_eq!(
             &expected_path.to_string_lossy().to_string(),
             &format!("{}", config_file_path.parent().unwrap().display())
