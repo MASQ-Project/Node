@@ -58,6 +58,7 @@ use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
+use crate::sub_lib::utils::db_connection_launch_panic;
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
@@ -634,7 +635,7 @@ impl Bootstrapper {
                         &self.config.data_directory,
                         DbInitializationConfig::panic_on_migration(),
                     )
-                    .expect("Cannot initialize database");
+                    .unwrap_or_else(|err| db_connection_launch_panic(err, &self.config.data_directory));
                 let config_dao = ConfigDaoReal::new(conn);
                 let mut persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
                 let clandestine_port = self.establish_clandestine_port(&mut persistent_config);
@@ -732,7 +733,7 @@ mod tests {
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
+    use crate::sub_lib::neighborhood::{DEFAULT_RATE_PACK, NeighborhoodConfig, NeighborhoodMode, NodeDescriptor, RatePack};
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::socket_server::ConfiguredByPrivilege;
     use crate::sub_lib::stream_connector::ConnectionInfo;
@@ -2046,6 +2047,27 @@ mod tests {
             .node_addr_opt()
             .is_none());
     }
+
+    #[test]
+    fn set_up_clandestine_port_panics_on_migration() {
+        let data_dir = ensure_node_home_directory_exists(
+            "bootstrapper",
+            "set_up_clandestine_port_panics_on_migration",
+        );
+
+        let act = |data_dir: &Path| {
+            let mut config = BootstrapperConfig::new();
+            config.data_directory = data_dir.to_path_buf();
+            config.neighborhood_config = NeighborhoodConfig {
+                mode: NeighborhoodMode::Standard(NodeAddr::default(), vec![], DEFAULT_RATE_PACK),
+            };
+            let mut subject = BootstrapperBuilder::new().config(config).build();
+            subject.set_up_clandestine_port();
+        };
+
+        assert_on_initialization_with_panic_on_migration(&data_dir, &act);
+    }
+
 
     #[test]
     #[should_panic(

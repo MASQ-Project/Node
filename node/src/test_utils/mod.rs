@@ -621,7 +621,6 @@ pub mod unshared_test_utils {
             }
         }
         let database_file_path = data_dir.join(DATABASE_FILE);
-
         assert_closure::<String, _>(
             &act,
             Either::Left((
@@ -632,7 +631,6 @@ pub mod unshared_test_utils {
         );
 
         bring_db_0_back_to_life_and_return_connection(&database_file_path);
-
         assert_closure::<&str, _>(
             &act,
             Either::Right("Broken code: Migrating database at inappropriate place"),
