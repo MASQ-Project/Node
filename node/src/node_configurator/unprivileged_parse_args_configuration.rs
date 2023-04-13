@@ -214,8 +214,23 @@ pub fn make_neighborhood_config<T: UnprivilegedParseArgsConfiguration + ?Sized>(
                 .get_past_neighbors(persistent_config, unprivileged_config)?,
         }
     };
+
+    let min_hops_count_string =
+        value_m!(multi_config, "min-hops", String)
+            .unwrap_or_else(|| DEFAULT_MIN_HOPS_COUNT.to_string());
+
+    let min_hops_count: u8 = match min_hops_count_string.as_str() {
+        "1" => 1,
+        "2" => 2,
+        "3" => 3,
+        "4" => 4,
+        "5" => 5,
+        "6" => 6,
+        _ => panic!("Invalid input string!"),
+    };
+
     match make_neighborhood_mode(multi_config, neighbor_configs, persistent_config) {
-        Ok(mode) => Ok(NeighborhoodConfig { mode, min_hops_count: DEFAULT_MIN_HOPS_COUNT, }),
+        Ok(mode) => Ok(NeighborhoodConfig { mode, min_hops_count }),
         Err(e) => Err(e),
     }
 }
@@ -671,6 +686,7 @@ mod tests {
             vec![Box::new(CommandLineVcl::new(
                 ArgsBuilder::new()
                     .param("--neighborhood-mode", "standard")
+                    .param("--min-hops", "1")
                     .param("--ip", "1.2.3.4")
                     .param(
                         "--neighbors",
@@ -707,7 +723,7 @@ mod tests {
                     ],
                     DEFAULT_RATE_PACK
                 ),
-                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                min_hops_count: 1,
             })
         );
     }
