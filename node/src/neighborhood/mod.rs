@@ -22,7 +22,6 @@ use actix::{Actor, System};
 use itertools::Itertools;
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest,
-    UiSetMinHopsRequest, UiSetMinHopsResponse,
 };
 use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
 use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
@@ -378,22 +377,6 @@ impl Handler<NodeFromUiMessage> for Neighborhood {
         let client_id = msg.client_id;
         if let Ok((_, context_id)) = UiConnectionStatusRequest::fmb(msg.body.clone()) {
             self.handle_connection_status_message(client_id, context_id);
-        } else if let Ok((body, context_id)) = UiSetMinHopsRequest::fmb(msg.body.clone()) {
-            // TODO: Write code that'll modify the min hops count in Neighborhood and migrate code to a new fn
-            info!(
-                self.logger,
-                "Min Hops has been set to {}",
-                body.min_hops_count.to_string()
-            );
-            let message = NodeToUiMessage {
-                target: MessageTarget::ClientId(client_id),
-                body: UiSetMinHopsResponse {}.tmb(context_id),
-            };
-            self.node_to_ui_recipient_opt
-                .as_ref()
-                .expect("UI Gateway is unbound")
-                .try_send(message)
-                .expect("UiGateway is dead");
         } else if let Ok((body, _)) = UiShutdownRequest::fmb(msg.body.clone()) {
             self.handle_shutdown_order(client_id, body);
         } else {
@@ -5649,53 +5632,6 @@ mod tests {
                 .tmb(context_id),
             })
         )
-    }
-
-    #[test]
-    fn set_min_hops_message_from_ui_is_handled_properly() {
-        let test_name = "set_min_hops_message_from_ui_is_handled_properly";
-        running_test();
-        init_test_logging();
-        let system = System::new(test_name);
-        let subject = Neighborhood::new(
-            main_cryptde(),
-            &bc_from_nc_plus(
-                NeighborhoodConfig {
-                    mode: NeighborhoodMode::ZeroHop,
-                    min_hops_count: DEFAULT_MIN_HOPS_COUNT,
-                },
-                make_wallet("earning"),
-                None,
-                test_name,
-            ),
-        );
-        let (ui_gateway, _, ui_gateway_recording_arc) = make_recorder();
-        let (client_id, context_id) = (1234, 4321);
-        let subject_addr = subject.start();
-        let peer_actors = peer_actors_builder().ui_gateway(ui_gateway).build();
-        subject_addr.try_send(BindMessage { peer_actors }).unwrap();
-
-        subject_addr
-            .try_send(NodeFromUiMessage {
-                client_id,
-                body: UiSetMinHopsRequest { min_hops_count: 5 }.tmb(context_id),
-            })
-            .unwrap();
-
-        System::current().stop();
-        system.run();
-        let ui_gateway_recording = ui_gateway_recording_arc.lock().unwrap();
-        let message = ui_gateway_recording.get_record::<NodeToUiMessage>(0);
-        assert_eq!(ui_gateway_recording.len(), 1);
-        assert_eq!(
-            message,
-            &NodeToUiMessage {
-                target: MessageTarget::ClientId(client_id),
-                body: UiSetMinHopsResponse {}.tmb(context_id),
-            }
-        );
-        TestLogHandler::new()
-            .exists_log_containing("INFO: Neighborhood: Min Hops has been set to 5");
     }
 
     #[test]
