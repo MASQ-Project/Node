@@ -182,7 +182,11 @@ mod tests {
 
     fn ip_route_regex() -> Regex {
         let reg_for_ip = r"((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}";
-        Regex::new(&format!(r#"^(default via )?{}(/\d+)?\s(dev|via)(\s.+){{3,}}"#, reg_for_ip)).unwrap()
+        Regex::new(&format!(
+            r#"^(default via )?{}(/\d+)?\s(dev|via)(\s.+){{3,}}"#,
+            reg_for_ip
+        ))
+        .unwrap()
     }
 
     #[test]
