@@ -1505,7 +1505,7 @@ mod tests {
                 },
             ],
         };
-        let latest_block_number = LatestBlockNumber::Ok(U64::from(1024u64));
+        let latest_block_number = LatestBlockNumber::Ok(1024u64.into());
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .retrieve_transactions_params(&retrieve_transactions_params_arc)
             .retrieve_transactions_result(Ok(expected_transactions.clone()))

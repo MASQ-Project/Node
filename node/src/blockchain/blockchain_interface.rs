@@ -116,7 +116,7 @@ where
 
     fn get_transaction_count(&self, address: &Wallet) -> ResultForNonce;
 
-    fn get_transaction_receipt(&self, hash: H256) -> Receipt;
+    fn get_transaction_receipt(&self, hash: H256) -> ResultForReceipt;
 
     fn send_transaction_tools<'a>(
         &'a self,
@@ -286,8 +286,17 @@ where
         match self.web3_batch.transport().submit_batch().wait() {
             Ok(_) => {
                 let response_block_number = match block_request.wait() {
-                    Ok(block_nbr) => block_nbr.as_u64(),
-                    Err(_) => fallback_end_block_number,
+                    Ok(block_nbr) => {
+                        debug!(logger, "Latest block number: {}", block_nbr.as_u64());
+                        block_nbr.as_u64()
+                    }
+                    Err(_) => {
+                        debug!(
+                            logger,
+                            "Using fallback block number: {}", fallback_end_block_number
+                        );
+                        fallback_end_block_number
+                    }
                 };
 
                 match log_request.wait() {
@@ -323,6 +332,11 @@ where
                                     response_block_number,
                                     &transactions,
                                 );
+                            debug!(
+                                logger,
+                                "Discovered transaction max block nbr: {}",
+                                transaction_max_block_number
+                            );
                             Ok(RetrievedBlockchainTransactions {
                                 new_start_block: transaction_max_block_number,
                                 transactions,
@@ -330,7 +344,7 @@ where
                         }
                     }
                     Err(e) => {
-                        error!(self.logger, "Retrieving transactions: {}", e);
+                        error!(self.logger, "Retrieving transactions: {:?}", e);
                         Ok(RetrievedBlockchainTransactions {
                             new_start_block: fallback_end_block_number,
                             transactions: vec![],
@@ -382,14 +396,6 @@ where
                 Options::default(),
                 None,
             )
-            .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
-            .wait()
-    }
-
-    fn get_block_number(&self) -> LatestBlockNumber {
-        self.web3
-            .eth()
-            .block_number()
             .map_err(|e| BlockchainError::QueryFailed(e.to_string()))
             .wait()
     }
@@ -929,6 +935,34 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "No address for an uninitialized wallet!")]
+    fn blockchain_interface_non_clandestine_retrieve_transactions_returns_an_error_if_the_to_address_is_invalid(
+    ) {
+        let port = 8545;
+        let (event_loop_handle, transport) = Http::with_max_parallel(
+            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
+            REQUESTS_IN_PARALLEL,
+        )
+        .unwrap();
+        let subject = BlockchainInterfaceNonClandestine::new(
+            transport,
+            event_loop_handle,
+            TEST_DEFAULT_CHAIN,
+        );
+
+        let result = subject.retrieve_transactions(
+            BlockNumber::Number(42u64.into()),
+            BlockNumber::Latest,
+            &Wallet::new("0x3f69f9efd4f2592fd70beecd9dce71c472fc"),
+        );
+
+        assert_eq!(
+            result.expect_err("Expected an Err, got Ok"),
+            BlockchainError::InvalidAddress
+        );
+    }
+
+    #[test]
     fn blockchain_interface_non_clandestine_retrieve_transactions_returns_an_error_if_a_response_with_too_few_topics_is_returned(
     ) {
         let port = find_free_port();
@@ -946,10 +980,9 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
-        let end_block = BlockNumber::Number(1024u64.into());
         let result = subject.retrieve_transactions(
             BlockNumber::Number(42u64.into()),
-            end_block,
+            BlockNumber::Latest,
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
@@ -979,10 +1012,9 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
 
-        let end_block = BlockNumber::Number(1024u64.into());
         let result = subject.retrieve_transactions(
             BlockNumber::Number(42u64.into()),
-            end_block,
+            BlockNumber::Latest,
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
@@ -1008,11 +1040,10 @@ mod tests {
             TEST_DEFAULT_CHAIN,
         );
         let end_block_nbr = 1024u64;
-
-        let end_block = BlockNumber::Number(U64::from(1024u64));
+        let end_block = BlockNumber::Number(end_block_nbr.into());
         let result = subject.retrieve_transactions(
             BlockNumber::Number(42u64.into()),
-            BlockNumber::Number(end_block_nbr.into()),
+            end_block,
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
@@ -1053,7 +1084,6 @@ mod tests {
         let result = subject.retrieve_transactions(
             start_block,
             BlockNumber::Latest,
-            BlockNumber::Number(U64::from(end_block_nbr)),
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
@@ -1068,48 +1098,6 @@ mod tests {
             result,
             Ok(RetrievedBlockchainTransactions {
                 new_start_block: expected_fallback_start_block,
-                transactions: vec![]
-            })
-        );
-    }
-
-    #[test]
-    fn blockchain_interface_non_clandestine_retrieve_transactions_uses_block_number_latest_as_fallback_start_block_plus_one(
-    ) {
-        let port = find_free_port();
-        let _test_server = TestServer::start (port, vec![
-            br#"[{"jsonrpc":"2.0","id":1,"result":"error"},{"jsonrpc":"2.0","id":2,"result":[{"address":"0xcd6c588e005032dd882cd43bf53a32129be81302","blockHash":"0x1a24b9169cbaec3f6effa1f600b70c7ab9e8e86db44062b49132a4415d26732a","data":"0x0000000000000000000000000000000000000000000000000010000000000000","logIndex":"0x0","removed":false,"topics":["0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef","0x0000000000000000000000003f69f9efd4f2592fd70be8c32ecd9dce71c472fc","0x000000000000000000000000adc1853c7859369639eb414b6342b36288fe6092"],"transactionHash":"0x955cec6ac4f832911ab894ce16aa22c3003f46deff3f7165b32700d2f5ff0681","transactionIndex":"0x0"}]}]"#.to_vec()
-        ]);
-
-        let (event_loop_handle, transport) = Http::with_max_parallel(
-            &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
-            REQUESTS_IN_PARALLEL,
-        )
-        .unwrap();
-
-        let subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            event_loop_handle,
-            TEST_DEFAULT_CHAIN,
-        );
-
-        let start_block = BlockNumber::Number(42u64.into());
-        let result = subject.retrieve_transactions(
-            start_block,
-            BlockNumber::Latest,
-            &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
-        );
-
-        let new_start_block = if let BlockNumber::Number(start_block_nbr) = start_block {
-            start_block_nbr.as_u64() + 1u64
-        } else {
-            panic!("start_block of Latest, Earliest, and Pending are not supported!")
-        };
-
-        assert_eq!(
-            result,
-            Ok(RetrievedBlockchainTransactions {
-                new_start_block,
                 transactions: vec![]
             })
         );
@@ -1289,10 +1277,16 @@ mod tests {
             &Wallet::from_str("0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc").unwrap(),
         );
 
-        match result {
-            Err(BlockchainError::QueryFailed(msg)) if msg.contains("Invalid hex") => (),
-            x => panic!("Expected complaint about hex character, but got {:?}", x),
-        }
+        let err_msg = match result {
+            Err(BlockchainError::QueryFailed(msg)) => msg,
+            x => panic!("Expected BlockchainError::QueryFailed, but got {:?}", x),
+        };
+        assert!(
+            err_msg.contains(expected_err_msg_fragment),
+            "Expected this fragment {} in this err msg: {}",
+            expected_err_msg_fragment,
+            err_msg
+        )
     }
 
     #[test]
@@ -1303,10 +1297,11 @@ mod tests {
             br#"{"jsonrpc":"2.0","id":0,"result":"0x0000000000000000000000000000000000000000000000000000000000000001"}"#.to_vec(),
         ]);
 
-        let (event_loop_handle, transport) = Http::with_max_parallel(
+        let (_event_loop_handle, _transport) = Http::with_max_parallel(
             &format!("http://{}:{}", &Ipv4Addr::LOCALHOST, port),
             REQUESTS_IN_PARALLEL,
-        );
+        )
+        .unwrap();
     }
 
     #[test]

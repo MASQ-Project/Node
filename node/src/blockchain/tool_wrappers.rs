@@ -167,6 +167,6 @@ mod tests {
         );
 
         assert_eq!(result, "SendTransactionToolWrapperReal { web3: Web3 { transport: TestTransport { asserted: 0, \
-        prepare_params: Mutex { data: [], poisoned: false, .. }, send_params: Mutex { data: [], poisoned: false, .. }, send_results: RefCell { value: [] }, send_batch_params: Mutex { data: [], poisoned: false, .. }, send_batch_results: RefCell { value: [] }, reference_counter_opt: None } }, pending_payable_fingerprint_sub: _OMITTED_ }")
+        prepare_params: Mutex { data: [], poisoned: false, .. }, send_params: Mutex { data: [], poisoned: false, .. }, send_results: RefCell { value: [] }, send_batch_params: Mutex { data: [], poisoned: false, .. }, send_batch_results: RefCell { value: [] } } }, pending_payable_fingerprint_sub: _OMITTED_ }")
     }
 }
