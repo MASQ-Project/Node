@@ -1,4 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+
+use std::any::Any;
 use crate::command::Command;
 use crate::main::CONTROL_STREAM_PORT;
 use crate::masq_node::MASQNode;
@@ -49,6 +51,7 @@ pub struct MASQMockNode {
     guts: Rc<MASQMockNodeGuts>,
 }
 
+#[derive(Clone)]
 enum CryptDEEnum {
     Real(CryptDEReal),
     Fake((CryptDENull, CryptDENull)),
@@ -238,6 +241,15 @@ impl MASQMockNode {
         }
     }
 
+    pub fn copy_guts_from(&mut self, other: &MASQMockNode) -> Rc<dyn Any> {
+        let container_preserver = self.guts.clone();
+        let mut guts = other.guts.as_ref().clone();
+        guts.name = container_preserver.name.clone();
+        guts.node_addr = container_preserver.node_addr.clone();
+        self.guts = Rc::new(guts);
+        container_preserver // When you drop this, self's Docker container will stop
+    }
+
     pub fn transmit_data(&self, data_hunk: DataHunk) -> Result<(), Error> {
         let to_transmit: Vec<u8> = data_hunk.into();
         match self.control_stream.borrow_mut().write(&to_transmit[..]) {
@@ -291,7 +303,7 @@ impl MASQMockNode {
         )
     }
 
-    pub fn transmit_debut(&self, receiver: &dyn MASQNode) -> Result<(), Error> {
+    pub fn transmit_ipchange_or_debut(&self, receiver: &dyn MASQNode) -> Result<(), Error> {
         let gossip = SingleNode::new(self);
         self.transmit_multinode_gossip(receiver, &gossip)
     }
@@ -563,6 +575,7 @@ impl MASQMockNode {
     }
 }
 
+#[derive(Clone)]
 struct MASQMockNodeGuts {
     name: String,
     node_addr: NodeAddr,

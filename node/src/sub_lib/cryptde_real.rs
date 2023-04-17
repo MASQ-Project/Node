@@ -24,6 +24,7 @@ lazy_static! {
 }
 
 #[allow(clippy::upper_case_acronyms)]
+#[derive (Clone)]
 pub struct CryptDEReal {
     public_key: PublicKey,
     encryption_secret_key: encryption::SecretKey,

@@ -398,6 +398,7 @@ pub fn make_proxy_client_subs_from(addr: &Addr<Recorder>) -> ProxyClientSubs {
 pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
     NeighborhoodSubs {
         bind: recipient!(addr, BindMessage),
+        pool_bind: recipient!(addr, PoolBindMessage),
         start: recipient!(addr, StartMessage),
         new_public_ip: recipient!(addr, NewPublicIp),
         node_query: recipient!(addr, NodeQueryMessage),

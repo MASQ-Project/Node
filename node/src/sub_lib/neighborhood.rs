@@ -33,6 +33,7 @@ use std::fmt::{Debug, Display, Formatter};
 use std::net::IpAddr;
 use std::str::FromStr;
 use std::time::Duration;
+use crate::stream_messages::PoolBindMessage;
 
 const ASK_ABOUT_GOSSIP_INTERVAL: Duration = Duration::from_secs(10);
 
@@ -379,6 +380,7 @@ lazy_static! {
 #[derive(Clone, PartialEq, Eq)]
 pub struct NeighborhoodSubs {
     pub bind: Recipient<BindMessage>,
+    pub pool_bind: Recipient<PoolBindMessage>,
     pub start: Recipient<StartMessage>,
     pub new_public_ip: Recipient<NewPublicIp>,
     pub node_query: Recipient<NodeQueryMessage>,
@@ -616,6 +618,7 @@ mod tests {
 
         let subject = NeighborhoodSubs {
             bind: recipient!(recorder, BindMessage),
+            pool_bind: recipient!(recorder, PoolBindMessage),
             start: recipient!(recorder, StartMessage),
             new_public_ip: recipient!(recorder, NewPublicIp),
             node_query: recipient!(recorder, NodeQueryMessage),

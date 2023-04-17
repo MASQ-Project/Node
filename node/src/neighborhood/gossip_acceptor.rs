@@ -38,6 +38,8 @@ pub enum GossipAcceptanceResult {
     // The incoming Gossip contained nothing we didn't know. Don't send out any Gossip because of it.
     // This is also used for IpChange Gossip, because it shouldn't be propagated.
     Ignored,
+    // The incoming Gossip was profitable, but should not stimulate us to send anything in response.
+    Absorbed,
     // Gossip was ignored because it was evil: ban the sender of the Gossip as a malefactor.
     Ban(String),
 }
@@ -106,7 +108,7 @@ impl GossipHandler for IpChangeHandler {
                 return Qualification::Malformed(format!("Debut from {} for {} contained NodeAddr with no ports",
                     gossip_source, agr.inner.public_key))
             }
-            if !incoming_node_addr.contains(gossip_source) {
+            if incoming_node_addr.ip_addr() != gossip_source.ip() {
                 return Qualification::Malformed(format!("Debut from {} for {} has NodeAddr ({}) that does not match its source",
                     gossip_source, agr.inner.public_key, incoming_node_addr))
             }
@@ -152,7 +154,7 @@ impl GossipHandler for IpChangeHandler {
                 .try_send(msg)
                 .expect ("StreamHandlerPool is dead");
         });
-        GossipAcceptanceResult::Ignored
+        GossipAcceptanceResult::Absorbed
     }
 }
 
@@ -1503,7 +1505,7 @@ mod tests {
         assert_eq!(Qualification::Matched, qualifies_result);
         assert_eq!(
             handle_result,
-            GossipAcceptanceResult::Ignored, // not really ignored, but don't send out any Gossip
+            GossipAcceptanceResult::Absorbed,
         );
         let db_node_node_addr = db.node_by_key(new_node.public_key()).unwrap().node_addr_opt().unwrap();
         assert_eq!(
@@ -1566,7 +1568,7 @@ mod tests {
         assert_eq!(Qualification::Matched, qualifies_result);
         assert_eq!(
             handle_result,
-            GossipAcceptanceResult::Ignored, // not really ignored, but don't send out any Gossip
+            GossipAcceptanceResult::Absorbed,
         );
         assert_eq!(
             db.node_by_key(new_node.public_key()).unwrap().node_addr_opt(),

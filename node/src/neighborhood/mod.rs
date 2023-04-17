@@ -136,8 +136,7 @@ impl Handler<PoolBindMessage> for Neighborhood {
         let gossip_acceptor_subs = self.gossip_acceptor_info_opt
             .take()
             .expect("Neighborhood never got its BindMessage")
-            .right_or_else (|_| panic! ("Neighborhood got multiple PoolBindMessages"))
-            .clone();
+            .right_or_else (|_| panic! ("Neighborhood got multiple PoolBindMessages"));
         self.gossip_acceptor_info_opt = Some(Either::Left (Box::new(GossipAcceptorReal::new(
             self.cryptde,
             gossip_acceptor_subs.connection_progress_sub,
@@ -515,6 +514,7 @@ impl Neighborhood {
     pub fn make_subs_from(addr: &Addr<Neighborhood>) -> NeighborhoodSubs {
         NeighborhoodSubs {
             bind: addr.clone().recipient::<BindMessage>(),
+            pool_bind: addr.clone().recipient::<PoolBindMessage>(),
             start: addr.clone().recipient::<StartMessage>(),
             new_public_ip: addr.clone().recipient::<NewPublicIp>(),
             node_query: addr.clone().recipient::<NodeQueryMessage>(),
@@ -781,7 +781,7 @@ impl Neighborhood {
     }
 
     fn handle_agrs(&mut self, agrs: Vec<AccessibleGossipRecord>, gossip_source: SocketAddr) {
-        let ignored_node_name = self.gossip_source_name(&agrs, gossip_source);
+        let gossip_source_name = self.gossip_source_name(&agrs, gossip_source);
         let gossip_record_count = agrs.len();
         let connection_progress_peers = self.overall_connection_status.get_peer_addrs();
         let acceptance_result = self
@@ -796,6 +796,19 @@ impl Neighborhood {
                 gossip_source,
                 &connection_progress_peers,
             );
+        self.process_acceptance_result(
+            acceptance_result,
+            &gossip_source_name,
+            gossip_record_count,
+        );
+    }
+
+    fn process_acceptance_result(
+        &mut self,
+        acceptance_result: GossipAcceptanceResult,
+        gossip_source_name: &str,
+        gossip_record_count: usize,
+    ) {
         match acceptance_result {
             GossipAcceptanceResult::Accepted => self.gossip_to_neighbors(),
             GossipAcceptanceResult::Reply(next_debut, target_key, target_node_addr) => {
@@ -805,13 +818,13 @@ impl Neighborhood {
                 self.handle_gossip_failed(failure, &target_key, &target_node_addr)
             }
             GossipAcceptanceResult::Ignored => {
-                trace!(self.logger, "Gossip from {} ignored", gossip_source);
-                self.handle_gossip_ignored(ignored_node_name, gossip_record_count)
+                trace!(self.logger, "{}-Node Gossip from {} ignored", gossip_record_count, gossip_source_name);
+            }
+            GossipAcceptanceResult::Absorbed => {
+                trace!(self.logger, "{}-Node Gossip from {} absorbed", gossip_record_count, gossip_source_name)
             }
             GossipAcceptanceResult::Ban(reason) => {
-                warning!(self.logger, "Malefactor detected at {}, but malefactor bans not yet implemented; ignoring: {}", gossip_source, reason
-            );
-                self.handle_gossip_ignored(ignored_node_name, gossip_record_count);
+                warning!(self.logger, "Malefactor detected at {}, but malefactor bans not yet implemented; ignoring: {}", gossip_source_name, reason);
             }
         }
     }
@@ -1476,10 +1489,6 @@ impl Neighborhood {
             target_node_addr,
         );
         trace!(self.logger, "Sent GossipFailure_0v1: {}", gossip_failure);
-    }
-
-    fn handle_gossip_ignored(&self, _ignored_node_name: String, _gossip_record_count: usize) {
-        // Maybe something here eventually for keeping statistics
     }
 
     fn send_no_lookup_package(
@@ -3338,7 +3347,8 @@ mod tests {
             |   |   |   |   |
             U---V---W---X---Y
 
-            All these Nodes are standard-mode. L is the root Node.
+            All these Nodes are standard-mode. L is the root Node. We'll be looking for routes
+            from L to N.
     */
 
     #[test]
@@ -3389,21 +3399,36 @@ mod tests {
         join_rows(db, (&k, &l, &m, &n, &o), (&p, &q, &r, &s, &t));
         join_rows(db, (&p, &q, &r, &s, &t), (&u, &v, &w, &x, &y));
         designate_root_node(db, &l);
-        let before = Instant::now();
+        let limit_ms = 50;
+        // Sometimes a system delay might run this over the limit. Give it three chances.
+        let total_chances = 3;
+        let mut retries_left = total_chances - 1;
+        let mut intervals: Vec<u128> = vec![];
+        let route = loop {
+            let before = Instant::now();
 
-        // All the target-designated routes from L to N
-        let route = subject
-            .find_best_route_segment(&l, Some(&n), 3, 10000, RouteDirection::Back, None)
-            .unwrap();
+            // All the target-designated routes from L to N
+            let route = subject
+                .find_best_route_segment(&l, Some(&n), 3, 10000, RouteDirection::Back, None)
+                .unwrap();
 
-        let after = Instant::now();
+            let after = Instant::now();
+            let interval = after.duration_since(before);
+            if interval.as_millis() > limit_ms {
+                intervals.push(interval.as_millis());
+                if retries_left == 0 {
+                    panic!(
+                        "Should have calculated route in <={}ms, but failed after {} tries: {:?}",
+                        limit_ms, total_chances, intervals
+                    )
+                } else {
+                    retries_left -= 1
+                }
+            } else {
+                break route
+            }
+        };
         assert_eq!(route, vec![&l, &g, &h, &i, &n]); // Cheaper than [&l, &q, &r, &s, &n]
-        let interval = after.duration_since(before);
-        assert!(
-            interval.as_millis() <= 100,
-            "Should have calculated route in <=100ms, but was {}ms",
-            interval.as_millis()
-        );
     }
 
     /*
@@ -4016,6 +4041,29 @@ mod tests {
 
         TestLogHandler::new()
             .exists_log_containing(&format!("Gossip from {} ignored", peer_2_socket_addr));
+    }
+
+    #[test]
+    fn neighborhood_can_absorb_gossip_without_sending_responses() {
+        init_test_logging();
+        let neighborhood_config = NeighborhoodConfig {
+            mode: NeighborhoodMode::Standard(
+                NodeAddr::new(&IpAddr::from_str("2.2.2.2").unwrap(), &[2222u16]),
+                vec![],
+                rate_pack(100),
+            ),
+        };
+        let bootstrap_config =
+            bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
+        let mut subject = Neighborhood::new(main_cryptde(), &bootstrap_config);
+
+        subject.process_acceptance_result(
+            GossipAcceptanceResult::Absorbed,
+            "new-IP Node",
+            27,
+        );
+
+        TestLogHandler::new().exists_log_containing("27-Node Gossip from new-IP Node absorbed");
     }
 
     #[test]

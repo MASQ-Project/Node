@@ -17,8 +17,7 @@ use crate::comm_layer::pcp_pmp_common::macos_specific::{
 use crate::comm_layer::pcp_pmp_common::windows_specific::{
     windows_find_routers, WindowsFindRoutersCommand,
 };
-use crate::comm_layer::{AutomapError, LocalIpFinder, LocalIpFinderReal};
-use crate::mocks::TestMulticastSocketHolder;
+use crate::comm_layer::AutomapError;
 use masq_lib::utils::find_free_port;
 use socket2::{Domain, SockAddr, Socket, Type};
 use std::io;
@@ -254,32 +253,6 @@ pub fn make_announcement_socket(
         }
     };
     Ok(socket)
-}
-
-pub struct RouterConnections {
-    pub holder: TestMulticastSocketHolder,
-    pub announcement_port: u16,
-    pub router_ip: IpAddr,
-    pub router_port: u16,
-    pub multicast_address: SocketAddr,
-}
-
-pub fn make_router_connections() -> RouterConnections {
-    let announcement_port = find_free_port();
-    let holder = TestMulticastSocketHolder::checkout(announcement_port);
-    let router_port = find_free_port();
-    let router_ip = LocalIpFinderReal::new().find().unwrap();
-    let multicast_address = SocketAddr::new(
-        IpAddr::V4(Ipv4Addr::new(224, 0, 0, holder.group)),
-        announcement_port,
-    );
-    RouterConnections {
-        holder,
-        announcement_port,
-        router_ip,
-        router_port,
-        multicast_address,
-    }
 }
 
 #[cfg(test)]

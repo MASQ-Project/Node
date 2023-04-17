@@ -336,7 +336,7 @@ impl AutomapControlReal {
     }
 }
 
-#[cfg(any(test, not(feature = "no_test_share")))]
+// #[cfg(any(test, not(feature = "no_test_share")))]
 pub fn replace_transactor(
     subject: AutomapControlReal,
     transactor: Box<dyn Transactor>,

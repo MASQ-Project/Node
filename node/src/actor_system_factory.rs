@@ -188,21 +188,18 @@ impl ActorSystemFactoryTools for ActorSystemFactoryToolsReal {
         if let Some(subs) = proxy_client_subs_opt {
             send_bind_message!(subs, peer_actors);
         }
-        stream_handler_pool_subs
-            .bind
+        let send_pool_bind_message = |recipient: &Recipient<PoolBindMessage>, name: &str| {
+            recipient
             .try_send(PoolBindMessage {
                 dispatcher_subs: dispatcher_subs.clone(),
                 stream_handler_pool_subs: stream_handler_pool_subs.clone(),
                 neighborhood_subs: neighborhood_subs.clone(),
             })
-            .expect("Stream Handler Pool is dead");
-        pool_bind_sub
-            .try_send(PoolBindMessage {
-                dispatcher_subs,
-                stream_handler_pool_subs: stream_handler_pool_subs.clone(),
-                neighborhood_subs,
-            })
-            .expect("Dispatcher is dead");
+            .expect(&format!("{:?} is dead", name));
+        };
+        send_pool_bind_message (&stream_handler_pool_subs.bind, "StreamHandlerPool");
+        send_pool_bind_message (&pool_bind_sub, "Dispatcher");
+        send_pool_bind_message (&neighborhood_subs.pool_bind, "Neighborhood");
 
         self.log_recipient_setter
             .prepare_log_recipient(ui_gateway_subs.node_to_ui_message_sub);
@@ -1119,8 +1116,10 @@ mod tests {
         Recording::get::<BindMessage>(&recordings.ui_gateway, 0);
         Recording::get::<BindMessage>(&recordings.blockchain_bridge, 0);
         Recording::get::<BindMessage>(&recordings.configurator, 0);
+        Recording::get::<PoolBindMessage>(&recordings.dispatcher, 1);
         Recording::get::<PoolBindMessage>(&recordings.stream_handler_pool, 0);
-        Recording::get::<StartMessage>(&recordings.neighborhood, 1);
+        Recording::get::<PoolBindMessage>(&recordings.neighborhood, 1);
+        Recording::get::<StartMessage>(&recordings.neighborhood, 2);
     }
 
     #[test]
@@ -1192,6 +1191,9 @@ mod tests {
         check_bind_message(&recordings.neighborhood, false);
         check_bind_message(&recordings.ui_gateway, false);
         check_bind_message(&recordings.accountant, false);
+        // check_pool_bind_message(&recordings.stream_handler_pool); // what _should_ we be doing here?
+        check_pool_bind_message(&recordings.dispatcher);
+        check_pool_bind_message(&recordings.neighborhood);
         check_new_ip_message(
             &recordings.dispatcher,
             IpAddr::from_str("1.2.3.4").unwrap(),
@@ -1200,9 +1202,9 @@ mod tests {
         check_new_ip_message(
             &recordings.neighborhood,
             IpAddr::from_str("1.2.3.4").unwrap(),
-            1,
+            2,
         );
-        check_start_message(&recordings.neighborhood, 2);
+        check_start_message(&recordings.neighborhood, 3);
         let hopper_config = Parameters::get(parameters.hopper_params);
         check_cryptde(hopper_config.cryptdes.main);
         assert_eq!(hopper_config.per_routing_service, 300);
@@ -1776,44 +1778,19 @@ mod tests {
 
     fn check_bind_message(recording: &Arc<Mutex<Recording>>, consume_only_flag: bool) {
         let bind_message = Recording::get::<BindMessage>(recording, 0);
-        assert_eq!(
-            format!("{:?}", bind_message.peer_actors.neighborhood),
-            "NeighborhoodSubs"
-        );
-        assert_eq!(
-            format!("{:?}", bind_message.peer_actors.accountant),
-            "AccountantSubs"
-        );
-        assert_eq!(
-            format!("{:?}", bind_message.peer_actors.ui_gateway),
-            "UiGatewaySubs"
-        );
-        assert_eq!(
-            format!("{:?}", bind_message.peer_actors.blockchain_bridge),
-            "BlockchainBridgeSubs"
-        );
-        assert_eq!(
-            format!("{:?}", bind_message.peer_actors.dispatcher),
-            "DispatcherSubs"
-        );
-        assert_eq!(
-            format!("{:?}", bind_message.peer_actors.hopper),
-            "HopperSubs"
-        );
-
-        assert_eq!(
-            format!("{:?}", bind_message.peer_actors.proxy_server),
-            "ProxyServerSubs"
-        );
-
+        // There was a BindMessage; its fields are neither optional nor dyn. Therefore they must
+        // be populated, and with data of the correct type.
         if consume_only_flag {
             assert!(bind_message.peer_actors.proxy_client_opt.is_none())
         } else {
-            assert_eq!(
-                format!("{:?}", bind_message.peer_actors.proxy_client_opt.unwrap()),
-                "ProxyClientSubs"
-            )
+            assert!(bind_message.peer_actors.proxy_client_opt.is_some())
         };
+    }
+
+    fn check_pool_bind_message(recording: &Arc<Mutex<Recording>>) {
+        let _pool_bind_message = Recording::get::<PoolBindMessage>(recording, 1);
+        // There was a PoolBindMessage; fields are neither optional nor dyn. Therefore they must
+        // be populated, and with data of the correct type.
     }
 
     fn check_start_message(recording: &Arc<Mutex<Recording>>, idx: usize) {

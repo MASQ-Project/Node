@@ -4,13 +4,11 @@ use crate::comm_layer::pcp_pmp_common::{
     FindRoutersCommand, FreePortFactory, UdpSocketWrapper, UdpSocketWrapperFactory,
     UdpSocketWrapperFactoryReal,
 };
-use crate::comm_layer::{AutomapError, HousekeepingThreadCommand, LocalIpFinder, Transactor};
-use crate::control_layer::automap_control::{
-    replace_transactor, AutomapControlReal, ChangeHandler,
-};
+use crate::comm_layer::{AutomapError, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal, Transactor};
+use crate::control_layer::automap_control::{AutomapControlReal, ChangeHandler, replace_transactor};
 use crossbeam_channel::Sender;
 use lazy_static::lazy_static;
-use masq_lib::utils::AutomapProtocol;
+use masq_lib::utils::{AutomapProtocol, find_free_port};
 use std::any::Any;
 use std::cell::RefCell;
 use std::io::ErrorKind;
@@ -96,6 +94,32 @@ impl TestMulticastSocketHolder {
         let pos = bit_idx & 0x3F;
         let mask = 1u64 << pos;
         (idx as usize, mask)
+    }
+}
+
+pub struct RouterConnections {
+    pub holder: TestMulticastSocketHolder,
+    pub announcement_port: u16,
+    pub router_ip: IpAddr,
+    pub router_port: u16,
+    pub multicast_address: SocketAddr,
+}
+
+pub fn make_router_connections() -> RouterConnections {
+    let announcement_port = find_free_port();
+    let holder = TestMulticastSocketHolder::checkout(announcement_port);
+    let router_port = find_free_port();
+    let router_ip = LocalIpFinderReal::new().find().unwrap();
+    let multicast_address = SocketAddr::new(
+        IpAddr::V4(Ipv4Addr::new(224, 0, 0, holder.group)),
+        announcement_port,
+    );
+    RouterConnections {
+        holder,
+        announcement_port,
+        router_ip,
+        router_port,
+        multicast_address,
     }
 }
 

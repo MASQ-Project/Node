@@ -191,7 +191,7 @@ fn form_mock_node_skeleton(
                 cluster.start_mutable_mock_node_with_public_key(vec![10000], model_node_key);
             configurable_node.absorb_configuration(model_db.node_by_key(model_node_key).unwrap());
             let node = cluster.finalize_and_add(configurable_node);
-            node.transmit_debut(real_node).unwrap();
+            node.transmit_ipchange_or_debut(real_node).unwrap();
             node.wait_for_gossip(Duration::from_secs(2)).unwrap();
             let standard_gossip = StandardBuilder::new()
                 .add_masq_node(&node, 1)
