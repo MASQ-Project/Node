@@ -237,7 +237,7 @@ mod tests {
             (
                 "0.1.256.1 dev eth0 proto dhcp",
                 false,
-                "IPv4 address is malformed",
+                "IPv4 address has an element greater than 255",
             ),
             (
                 "0.1.b.1 dev eth0 proto dhcp",
@@ -252,7 +252,7 @@ mod tests {
             (
                 "2001:0db8:0000:0000:0000:ff00:0042:8329 dev eth0 proto dhcp",
                 false,
-                "Should be IPv4 not IPv6",
+                "Regex does not support IPV6",
             ),
         ];
 
