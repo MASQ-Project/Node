@@ -746,7 +746,7 @@ impl Neighborhood {
                 &mut self.neighborhood_database,
                 agrs,
                 gossip_source,
-                &connection_progress_peers,
+                connection_progress_peers,
                 self.min_hops_count
             );
         match acceptance_result {
@@ -3841,7 +3841,7 @@ mod tests {
             database: &mut NeighborhoodDatabase,
             _agrs: Vec<AccessibleGossipRecord>,
             _gossip_source: SocketAddr,
-            _connection_progress_peers: &[IpAddr],
+            _connection_progress_peers: Vec<IpAddr>,
             _min_hops_count: u8,
         ) -> GossipAcceptanceResult {
             let non_root_database_keys = database
@@ -4075,7 +4075,7 @@ mod tests {
             database: &mut NeighborhoodDatabase,
             _agrs: Vec<AccessibleGossipRecord>,
             _gossip_source: SocketAddr,
-            _connection_progress_peers: &[IpAddr],
+            _connection_progress_peers: Vec<IpAddr>,
             _min_hops_count: u8,
         ) -> GossipAcceptanceResult {
             let half_neighbor_keys = database
@@ -5797,7 +5797,7 @@ mod tests {
             database: &mut NeighborhoodDatabase,
             agrs: Vec<AccessibleGossipRecord>,
             gossip_source: SocketAddr,
-            connection_progress_peers: &[IpAddr],
+            connection_progress_peers: Vec<IpAddr>,
             _min_hops_count: u8,
         ) -> GossipAcceptanceResult {
             self.handle_params.lock().unwrap().push((
