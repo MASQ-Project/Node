@@ -92,6 +92,7 @@ pub struct Neighborhood {
     gossip_producer_opt: Option<Box<dyn GossipProducer>>,
     neighborhood_database: NeighborhoodDatabase,
     consuming_wallet_opt: Option<Wallet>,
+    min_hops_count: u8,
     next_return_route_id: u32,
     overall_connection_status: OverallConnectionStatus,
     chain: Chain,
@@ -434,6 +435,7 @@ enum RouteDirection {
 impl Neighborhood {
     pub fn new(cryptde: &'static dyn CryptDE, config: &BootstrapperConfig) -> Self {
         let neighborhood_config = &config.neighborhood_config;
+        let min_hops_count = config.neighborhood_config.min_hops_count;
         if neighborhood_config.mode.is_zero_hop()
             && !neighborhood_config.mode.neighbor_configs().is_empty()
         {
@@ -477,6 +479,7 @@ impl Neighborhood {
             gossip_producer_opt: None,
             neighborhood_database,
             consuming_wallet_opt: config.consuming_wallet_opt.clone(),
+            min_hops_count,
             next_return_route_id: 0,
             overall_connection_status,
             chain: config.blockchain_bridge_config.chain,
@@ -1665,6 +1668,32 @@ mod tests {
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "NEIGHBORHOOD");
         assert_eq!(DEFAULT_MIN_HOPS_COUNT, 3);
+    }
+
+    #[test]
+    fn min_hops_count_is_set_inside_neighborhood() {
+        let min_hops_count = 6;
+        let mode = NeighborhoodMode::Standard(
+            NodeAddr::new(&make_ip(1), &[1234, 2345]),
+            vec![make_node_descriptor(make_ip(2))],
+            rate_pack(100),
+        );
+        let neighborhood_config = NeighborhoodConfig {
+            mode,
+            min_hops_count,
+        };
+
+        let subject = Neighborhood::new(
+            main_cryptde(),
+            &bc_from_nc_plus(
+                neighborhood_config,
+                make_wallet("earning"),
+                None,
+                "min_hops_count_is_set_inside_neighborhood",
+            ),
+        );
+
+        assert_eq!(subject.min_hops_count, 6);
     }
 
     #[test]
