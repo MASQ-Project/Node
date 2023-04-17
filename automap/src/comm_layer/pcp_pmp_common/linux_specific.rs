@@ -29,8 +29,8 @@ pub fn linux_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr
                         Ok(ip_addr_vec)
                     }
                     Err(e) => Err(AutomapError::FindRouterError(format!(
-                        "Failed to parse an IP from \"ip route\": {:?}",
-                        e
+                        "Failed to parse an IP from \"ip route\": {:?} Line: {}",
+                        e, line
                     ))),
                 }
             }
@@ -146,7 +146,7 @@ mod tests {
     }
 
     #[test]
-    fn find_routers_returns_error_if_ip_addreses_can_not_be_parsed() {
+    fn find_routers_returns_error_if_ip_addresses_can_not_be_parsed() {
         let route_n_output = "\
         default via 192.168.0.1 dev enp4s0 proto dhcp src 192.168.0.100 metric 100\n\
         default via 192.168.0 dev enp0s3 proto dhcp metric 102\n\
@@ -155,10 +155,12 @@ mod tests {
 
         let result = linux_find_routers(&find_routers_command);
 
+        eprintln!("{:?}", result);
+
         assert_eq!(
             result,
             Err(AutomapError::FindRouterError(
-                "Failed to parse an IP from \"ip route\": AddrParseError(Ip)".to_string()
+                "Failed to parse an IP from \"ip route\": AddrParseError(Ip) Line: default via 192.168.0 dev enp0s3 proto dhcp metric 102".to_string()
             ))
         )
     }
@@ -182,46 +184,88 @@ mod tests {
 
     fn ip_route_regex() -> Regex {
         let reg_for_ip = r"((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}";
-        Regex::new(&format!(r#"^(default via )?{}(/\d+)?\s(dev|via)(\s.+){{3,}}"#, reg_for_ip)).unwrap()
+        Regex::new(&format!(
+            r#"^(default via )?{}(/\d+)?\s(dev|via)(\s.+){{3,}}"#,
+            reg_for_ip
+        ))
+        .unwrap()
     }
 
     #[test]
-    fn reg_for_ip_route_command_output() {
-        let route_n_output = "\
-        10.1.0.0/16 dev eth0 proto kernel scope link src 10.1.0.84 metric 100\n\
-        0.1.0.1 dev eth0 proto dhcp scope link src 10.1.0.84 metric 100\n\
-        168.63.129.16 via 10.1.0.1 dev eth0 proto dhcp src 10.1.0.84 metric 100\n\
-        169.254.169.254 via 10.1.0.1 dev eth0 proto dhcp src 10.1.0.84 metric 100\n\
-        172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1 linkdown";
+    fn reg_for_ip_route_command_output_good_and_bad_ip() {
+        let route_n_output = vec![
+            (
+                "default via 0.1.0.1 dev eth0 proto dhcp scope link src 10.1.0.84 metric 100",
+                true,
+                "Example of good IPv4",
+            ),
+            (
+                "10.1.0.0/16 dev eth0 proto kernel scope link src 10.1.0.84 metric 100",
+                true,
+                "Example of good IPv4",
+            ),
+            (
+                "168.63.129.16 via 10.1.0.1 dev eth0 proto dhcp src 10.1.0.84 metric 100",
+                true,
+                "Example of good IPv4",
+            ),
+            (
+                "169.254.169.254 via 10.1.0.1 dev eth0 proto dhcp src 10.1.0.84 metric 100",
+                true,
+                "Example of good IPv4",
+            ),
+            (
+                "172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1 linkdown",
+                true,
+                "Example of good IPv4",
+            ),
+            (
+                "10.1.0.0/16 dev eth0 proto kernel scope link src 10.1.0.84 metric 100",
+                true,
+                "Example of good IPv4",
+            ),
+            (
+                "0.1.255.1 dev eth0 proto dhcp",
+                true,
+                "Example of good IPv4",
+            ),
+            (
+                "0.1.0 dev eth0 proto dhcp scope link src 10.1.0.84 metric 100",
+                false,
+                "IPv4 address has only three elements",
+            ),
+            (
+                "0.1.256.1 dev eth0 proto dhcp",
+                false,
+                "IPv4 address is malformed",
+            ),
+            (
+                "0.1.b.1 dev eth0 proto dhcp",
+                false,
+                "IPv4 address contains a letter",
+            ),
+            (
+                "0.1.0.1/ dev eth0 proto dhcp",
+                false,
+                "IPv4 Subnet is missing a netmask",
+            ),
+            (
+                "2001:0db8:0000:0000:0000:ff00:0042:8329 dev eth0 proto dhcp",
+                false,
+                "Should be IPv4 not IPv6",
+            ),
+        ];
+
         let regex = ip_route_regex();
 
-        let lines = route_n_output.split('\n').collect::<Vec<&str>>();
-
-        lines.iter().for_each(|line| {
-            assert!(regex.is_match(line), "Lines: {:?} line: {}", lines, line);
+        route_n_output.iter().for_each(|line| {
+            assert_eq!(
+                regex.is_match(line.0),
+                line.1,
+                "{}: Line: {}",
+                line.2,
+                line.0
+            );
         });
-    }
-
-    #[test]
-    fn reg_for_ip_route_bad_ip() {
-        let route_n_output = "\
-        10.1.0.0/16 dev eth0 proto kernel scope link src 10.1.0.84 metric 100\n\
-        0.1.0 dev eth0 proto dhcp scope link src 10.1.0.84 metric 100\n\
-        0.1.255.1 dev eth0 proto dhcp\n\
-        0.1.256.1 dev eth0 proto dhcp\n\
-        0.1.b.1 dev eth0 proto dhcp\n\
-        0.1.0.1/ dev eth0 proto dhcp\n\
-        2001:0db8:0000:0000:0000:ff00:0042:8329 dev eth0 proto dhcp";
-
-        let regex = ip_route_regex();
-
-        let lines = route_n_output.split('\n').collect::<Vec<&str>>();
-
-        assert_eq!(regex.is_match(lines[0]), true);
-        assert_eq!(regex.is_match(lines[1]), false);
-        assert_eq!(regex.is_match(lines[2]), true);
-        assert_eq!(regex.is_match(lines[3]), false);
-        assert_eq!(regex.is_match(lines[4]), false);
-        assert_eq!(regex.is_match(lines[5]), false);
     }
 }
