@@ -9,7 +9,6 @@ use crate::sub_lib::neighborhood::{
     ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1,
 };
 use crate::sub_lib::node_addr::NodeAddr;
-use crate::sub_lib::proxy_server::DEFAULT_MINIMUM_HOP_COUNT;
 use actix::Recipient;
 use masq_lib::logger::Logger;
 use std::cell::RefCell;
@@ -65,6 +64,7 @@ trait GossipHandler: NamedType + Send /* Send because lazily-written tests requi
         gossip_source: SocketAddr,
         connection_progress_peers: &[IpAddr],
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
+        min_hops_count: u8,
     ) -> GossipAcceptanceResult;
 }
 
@@ -135,6 +135,7 @@ impl GossipHandler for DebutHandler {
         gossip_source: SocketAddr,
         _connection_progress_peers: &[IpAddr],
         _cpm_recipient: &Recipient<ConnectionProgressMessage>,
+        _min_hops_count: u8,
     ) -> GossipAcceptanceResult {
         let source_agr = {
             let mut agr = agrs.remove(0); // empty Gossip shouldn't get here
@@ -512,6 +513,7 @@ impl GossipHandler for PassHandler {
         _gossip_source: SocketAddr,
         connection_progress_peers: &[IpAddr],
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
+        _min_hops_count: u8,
     ) -> GossipAcceptanceResult {
         let pass_agr = &agrs[0]; // empty Gossip shouldn't get here
         let pass_target_node_addr: NodeAddr = pass_agr
@@ -630,6 +632,7 @@ impl GossipHandler for IntroductionHandler {
         gossip_source: SocketAddr,
         _connection_progress_peers: &[IpAddr],
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
+        _min_hops_count: u8,
     ) -> GossipAcceptanceResult {
         if database.root().full_neighbor_keys(database).len() >= MAX_DEGREE {
             GossipAcceptanceResult::Ignored
@@ -935,11 +938,12 @@ impl GossipHandler for StandardGossipHandler {
         gossip_source: SocketAddr,
         _connection_progress_peers: &[IpAddr],
         cpm_recipient: &Recipient<ConnectionProgressMessage>,
+        min_hops_count: u8,
     ) -> GossipAcceptanceResult {
         let initial_neighborship_status =
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
 
-        let patch = self.compute_patch(&agrs, database.root());
+        let patch = self.compute_patch(&agrs, database.root(), min_hops_count);
         let filtered_agrs = self.filter_agrs_by_patch(agrs, patch);
 
         let mut db_changed = self.identify_and_add_non_introductory_new_nodes(
@@ -986,6 +990,7 @@ impl StandardGossipHandler {
         &self,
         agrs: &[AccessibleGossipRecord],
         root_node: &NodeRecord,
+        min_hops_count: u8,
     ) -> HashSet<PublicKey> {
         let agrs_by_key = agrs
             .iter()
@@ -997,7 +1002,7 @@ impl StandardGossipHandler {
             &mut patch,
             root_node.public_key(),
             &agrs_by_key,
-            DEFAULT_MINIMUM_HOP_COUNT,
+            min_hops_count,
             root_node,
         );
 
@@ -1009,7 +1014,7 @@ impl StandardGossipHandler {
         patch: &mut HashSet<PublicKey>,
         current_node_key: &PublicKey,
         agrs: &HashMap<&PublicKey, &AccessibleGossipRecord>,
-        hops_remaining: usize,
+        hops_remaining: u8,
         root_node: &NodeRecord,
     ) {
         patch.insert(current_node_key.clone());
@@ -1211,6 +1216,7 @@ impl GossipHandler for RejectHandler {
         _gossip_source: SocketAddr,
         _connection_progress_peers: &[IpAddr],
         _cpm_recipient: &Recipient<ConnectionProgressMessage>,
+        _min_hops_count: u8
     ) -> GossipAcceptanceResult {
         panic!("Should never be called")
     }
@@ -1229,6 +1235,7 @@ pub trait GossipAcceptor: Send /* Send because lazily-written tests require it *
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
         connection_progress_peers: &[IpAddr],
+        min_hops_count: u8,
     ) -> GossipAcceptanceResult;
 }
 
@@ -1246,6 +1253,7 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
         connection_progress_peers: &[IpAddr],
+        min_hops_count: u8,
     ) -> GossipAcceptanceResult {
         let (qualification, handler_ref) = self
             .gossip_handlers
@@ -1267,6 +1275,7 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
                     gossip_source,
                     connection_progress_peers,
                     &self.cpm_recipient,
+                    min_hops_count
                 )
             }
             Qualification::Unmatched => {
@@ -1352,6 +1361,7 @@ mod tests {
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
+    use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
 
     #[test]
     fn constants_have_correct_values() {
@@ -1388,6 +1398,7 @@ mod tests {
             gossip_source_opt,
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         assert_eq!(Qualification::Matched, qualifies_result);
@@ -1425,6 +1436,7 @@ mod tests {
             gossip_source,
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         assert_eq!(Qualification::Matched, qualifies_result);
@@ -1480,6 +1492,7 @@ mod tests {
             src_root.node_addr_opt().unwrap().into(),
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         assert_eq!(result, GossipAcceptanceResult::Accepted);
@@ -1514,6 +1527,7 @@ mod tests {
             src_root.node_addr_opt().unwrap().into(),
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         assert_eq!(
@@ -1628,6 +1642,7 @@ mod tests {
             dest_root.node_addr_opt().clone().unwrap().into(),
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         assert_eq!(result, GossipAcceptanceResult::Accepted);
@@ -1650,6 +1665,7 @@ mod tests {
             gossip_source,
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         assert_eq!(Qualification::Matched, qualifies_result);
@@ -1909,6 +1925,7 @@ mod tests {
             gossip_source,
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         let after = time_t_timestamp();
@@ -1956,6 +1973,7 @@ mod tests {
             gossip_source,
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         assert_eq!(Qualification::Matched, qualifies_result);
@@ -2006,6 +2024,7 @@ mod tests {
             gossip_source,
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         assert_eq!(handle_result, GossipAcceptanceResult::Ignored);
@@ -2036,6 +2055,7 @@ mod tests {
             gossip_source,
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         assert_eq!(Qualification::Matched, qualifies_result);
@@ -2093,6 +2113,7 @@ mod tests {
             gossip_source,
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         assert_eq!(Qualification::Matched, qualifies_result);
@@ -2345,6 +2366,7 @@ mod tests {
             gossip_source,
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         assert_eq!(Qualification::Matched, qualifies_result);
@@ -2400,7 +2422,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let result = subject.compute_patch(&agrs, node_a_db.root());
+        let result = subject.compute_patch(&agrs, node_a_db.root(), DEFAULT_MIN_HOPS_COUNT);
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
@@ -2452,7 +2474,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let patch = subject.compute_patch(&agrs, node_a_db.root());
+        let patch = subject.compute_patch(&agrs, node_a_db.root(), DEFAULT_MIN_HOPS_COUNT);
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
@@ -2501,7 +2523,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let patch = subject.compute_patch(&agrs, node_a_db.root());
+        let patch = subject.compute_patch(&agrs, node_a_db.root(), DEFAULT_MIN_HOPS_COUNT);
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
@@ -2580,9 +2602,14 @@ mod tests {
             gossip_source,
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         assert_eq!(result, GossipAcceptanceResult::Ignored);
+    }
+
+    fn patch_can_be_calculated_for_different_hop_counts() {
+        unimplemented!();
     }
 
     #[test]
@@ -2614,6 +2641,7 @@ mod tests {
             src_node_socket_addr,
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         System::current().stop();
@@ -2653,6 +2681,7 @@ mod tests {
             src_node_socket_addr,
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         System::current().stop();
@@ -2699,6 +2728,7 @@ mod tests {
             src_node_socket_addr,
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         System::current().stop();
@@ -2739,6 +2769,7 @@ mod tests {
             src_node_socket_addr,
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         System::current().stop();
@@ -2782,6 +2813,7 @@ mod tests {
             gossip.try_into().unwrap(),
             src_root.node_addr_opt().clone().unwrap().into(),
             &vec![],
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         assert_eq!(result, GossipAcceptanceResult::Ignored);
@@ -2866,6 +2898,7 @@ mod tests {
             gossip.try_into().unwrap(),
             src_node.node_addr_opt().unwrap().into(),
             &vec![],
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         assert_eq!(GossipAcceptanceResult::Ignored, result);
@@ -2885,6 +2918,7 @@ mod tests {
             gossip.try_into().unwrap(),
             gossip_source,
             &vec![],
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         let after = time_t_timestamp();
@@ -2924,6 +2958,7 @@ mod tests {
             gossip.try_into().unwrap(),
             gossip_source,
             &vec![],
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         let after = time_t_timestamp();
@@ -2995,6 +3030,7 @@ mod tests {
             gossip.try_into().unwrap(),
             gossip_source,
             &vec![],
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         let after = time_t_timestamp();
@@ -3091,6 +3127,7 @@ mod tests {
             gossip.try_into().unwrap(),
             gossip_source,
             &vec![],
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         let expected_acceptance_gossip_2 = GossipBuilder::new(&dest_db)
@@ -3180,6 +3217,7 @@ mod tests {
             gossip.try_into().unwrap(),
             gossip_source,
             &vec![],
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         let expected_acceptance_gossip = GossipBuilder::new(&dest_db)
@@ -3235,6 +3273,7 @@ mod tests {
             debut.try_into().unwrap(),
             gossip_source,
             &vec![],
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         assert_eq!(GossipAcceptanceResult::Ignored, result);
@@ -3269,7 +3308,7 @@ mod tests {
         let subject = make_subject(main_cryptde());
 
         let begin_at = time_t_timestamp();
-        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source, &vec![]);
+        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source, &vec![], DEFAULT_MIN_HOPS_COUNT);
         let end_at = time_t_timestamp();
 
         assert_eq!(GossipAcceptanceResult::Accepted, result);
@@ -3297,7 +3336,7 @@ mod tests {
         let gossip_source = src_node.node_addr_opt().unwrap().into();
         let subject = make_subject(main_cryptde());
 
-        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source, &vec![]);
+        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source, &vec![], DEFAULT_MIN_HOPS_COUNT);
 
         assert_eq!(result, GossipAcceptanceResult::Accepted);
         assert_eq!(
@@ -3327,7 +3366,7 @@ mod tests {
         let gossip_source = src_node.node_addr_opt().unwrap().into();
         let subject = make_subject(main_cryptde());
 
-        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source, &vec![]);
+        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source, &vec![], DEFAULT_MIN_HOPS_COUNT);
 
         assert_eq!(result, GossipAcceptanceResult::Accepted);
         assert_eq!(
@@ -3361,6 +3400,7 @@ mod tests {
             gossip_source,
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         System::current().stop();
@@ -3396,7 +3436,7 @@ mod tests {
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let subject = make_subject(main_cryptde());
 
-        let result = subject.handle(&mut db, gossip.try_into().unwrap(), gossip_source, &vec![]);
+        let result = subject.handle(&mut db, gossip.try_into().unwrap(), gossip_source, &vec![], DEFAULT_MIN_HOPS_COUNT);
 
         let expected_relay_gossip = GossipBuilder::new(&db)
             .node(root_node.public_key(), true)
@@ -3430,6 +3470,7 @@ mod tests {
             gossip_source,
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         let final_timestamp = SystemTime::now();
@@ -3483,6 +3524,7 @@ mod tests {
             gossip_source,
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         let final_timestamp = SystemTime::now();
@@ -3523,6 +3565,7 @@ mod tests {
             gossip_source,
             &vec![pass_target_ip_addr],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         System::current().stop();
@@ -3563,6 +3606,7 @@ mod tests {
             gossip_source,
             &vec![],
             &cpm_recipient,
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         let final_timestamp = SystemTime::now();
@@ -3668,6 +3712,7 @@ mod tests {
             gossip.try_into().unwrap(),
             node_a.node_addr_opt().unwrap().into(),
             &vec![],
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         let after = time_t_timestamp();
@@ -3784,6 +3829,7 @@ mod tests {
             gossip.try_into().unwrap(),
             src_node.node_addr_opt().unwrap().into(),
             &vec![],
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         let after = time_t_timestamp();
@@ -3871,6 +3917,7 @@ mod tests {
             gossip.try_into().unwrap(),
             src_root.node_addr_opt().unwrap().into(),
             &vec![],
+            DEFAULT_MIN_HOPS_COUNT
         );
 
         let after = time_t_timestamp();

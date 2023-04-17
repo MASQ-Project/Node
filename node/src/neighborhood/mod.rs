@@ -59,7 +59,6 @@ use crate::sub_lib::neighborhood::{NRMetadataChange, NodeQueryMessage};
 use crate::sub_lib::neighborhood::{NeighborhoodSubs, NeighborhoodTools};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
-use crate::sub_lib::proxy_server::DEFAULT_MINIMUM_HOP_COUNT;
 use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
@@ -748,6 +747,7 @@ impl Neighborhood {
                 agrs,
                 gossip_source,
                 &connection_progress_peers,
+                self.min_hops_count
             );
         match acceptance_result {
             GossipAcceptanceResult::Accepted => self.gossip_to_neighbors(),
@@ -827,7 +827,7 @@ impl Neighborhood {
         let msg = RouteQueryMessage {
             target_key_opt: None,
             target_component: Component::ProxyClient,
-            minimum_hop_count: DEFAULT_MINIMUM_HOP_COUNT,
+            minimum_hop_count: self.min_hops_count as usize, // TODO: do we need to test this sepertely?
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
             hostname_opt: None,
@@ -3842,6 +3842,7 @@ mod tests {
             _agrs: Vec<AccessibleGossipRecord>,
             _gossip_source: SocketAddr,
             _connection_progress_peers: &[IpAddr],
+            _min_hops_count: u8,
         ) -> GossipAcceptanceResult {
             let non_root_database_keys = database
                 .keys()
@@ -4075,6 +4076,7 @@ mod tests {
             _agrs: Vec<AccessibleGossipRecord>,
             _gossip_source: SocketAddr,
             _connection_progress_peers: &[IpAddr],
+            _min_hops_count: u8,
         ) -> GossipAcceptanceResult {
             let half_neighbor_keys = database
                 .root()
@@ -5796,6 +5798,7 @@ mod tests {
             agrs: Vec<AccessibleGossipRecord>,
             gossip_source: SocketAddr,
             connection_progress_peers: &[IpAddr],
+            _min_hops_count: u8,
         ) -> GossipAcceptanceResult {
             self.handle_params.lock().unwrap().push((
                 database.clone(),
