@@ -117,7 +117,6 @@ impl Handler<BindMessage> for Neighborhood {
         self.connected_signal_opt = Some(msg.peer_actors.accountant.start);
         self.gossip_acceptor_opt = Some(Box::new(GossipAcceptorReal::new(
             self.cryptde,
-            msg.peer_actors.neighborhood.connection_progress_sub,
         )));
         self.gossip_producer_opt = Some(Box::new(GossipProducerReal::new()));
         self.node_to_ui_recipient_opt = Some(msg.peer_actors.ui_gateway.node_to_ui_message_sub);

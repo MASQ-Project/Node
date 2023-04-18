@@ -7,7 +7,6 @@ use crate::neighborhood::AccessibleGossipRecord;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1, NeighborhoodMetadata};
 use crate::sub_lib::node_addr::NodeAddr;
-use actix::Recipient;
 use masq_lib::logger::Logger;
 use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
@@ -1231,7 +1230,6 @@ pub struct GossipAcceptorReal<'a> {
     cryptde: &'a dyn CryptDE,
     gossip_handlers: Vec<Box<dyn GossipHandler>>,
     logger: Logger,
-    cpm_recipient: Recipient<ConnectionProgressMessage>,
 }
 
 impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
@@ -1279,7 +1277,6 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
 impl<'a> GossipAcceptorReal<'a> {
     pub fn new(
         cryptde: &'a dyn CryptDE,
-        cpm_recipient: Recipient<ConnectionProgressMessage>,
     ) -> GossipAcceptorReal {
         let logger = Logger::new("GossipAcceptor");
         GossipAcceptorReal {
@@ -1292,7 +1289,6 @@ impl<'a> GossipAcceptorReal<'a> {
             ],
             cryptde,
             logger,
-            cpm_recipient,
         }
     }
 
@@ -1341,10 +1337,9 @@ mod tests {
     use crate::test_utils::neighborhood_test_utils::{
         db_from_node, make_meaningless_db, make_node_record, make_node_record_f,
     };
-    use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
-    use actix::{Actor, System};
+    use actix::System;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
     use std::convert::TryInto;
@@ -4227,10 +4222,7 @@ mod tests {
     }
 
     fn make_subject(crypt_de: &dyn CryptDE) -> GossipAcceptorReal {
-        let (neighborhood, _, _) = make_recorder();
-        let addr = neighborhood.start();
-        let recipient = addr.recipient::<ConnectionProgressMessage>();
-        GossipAcceptorReal::new(crypt_de, recipient)
+        GossipAcceptorReal::new(crypt_de)
     }
 
     fn assert_node_records_eq(
