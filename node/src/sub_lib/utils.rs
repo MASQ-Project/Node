@@ -253,7 +253,6 @@ mod tests {
     use crate::apps::app_node;
     use actix::{Handler, System};
     use crossbeam_channel::{unbounded, Sender};
-    use futures::Future;
     use log::Level;
     use masq_lib::messages::ToMessageBody;
     use masq_lib::multi_config::CommandLineVcl;

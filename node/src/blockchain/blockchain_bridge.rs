@@ -10,7 +10,7 @@ use crate::blockchain::blockchain_interface::{
     BlockchainInterfaceNonClandestine, BlockchainResult, BlockchainTxnInputs,
 };
 use crate::database::db_initializer::DbInitializationConfig;
-use crate::database::db_initializer::{DbInitializer, DATABASE_FILE};
+use crate::database::db_initializer::DbInitializer;
 use crate::db_config::config_dao::ConfigDaoReal;
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
@@ -429,7 +429,6 @@ mod tests {
     use crate::database::db_initializer::DbInitializerReal;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::match_every_type_id;
-    use crate::node_configurator::configurator::Configurator;
     use crate::node_test_utils::check_timestamp;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, peer_actors_builder};
@@ -443,7 +442,6 @@ mod tests {
     use actix::System;
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
-    use itertools::Either;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::messages::ScanType;
     use masq_lib::test_utils::logging::init_test_logging;

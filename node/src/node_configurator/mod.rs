@@ -7,7 +7,7 @@ pub mod unprivileged_parse_args_configuration;
 
 use crate::bootstrapper::RealUser;
 use crate::database::db_initializer::DbInitializationConfig;
-use crate::database::db_initializer::{DbInitializer, DbInitializerReal, DATABASE_FILE};
+use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
 use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
@@ -69,7 +69,7 @@ pub fn initialize_database(
 ) -> Box<dyn PersistentConfiguration> {
     let conn = DbInitializerReal::default()
         .initialize(data_directory, migrator_config)
-        .unwrap_or_else(|e| db_connection_launch_panic(e, &data_directory));
+        .unwrap_or_else(|e| db_connection_launch_panic(e, data_directory));
     Box::new(PersistentConfigurationReal::from(conn))
 }
 

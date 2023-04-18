@@ -64,7 +64,9 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
-use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::{
+    db_connection_launch_panic, handle_ui_crash_request, NODE_MAILBOX_CAPACITY,
+};
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
 use gossip_acceptor::GossipAcceptor;
@@ -1592,7 +1594,6 @@ mod tests {
     use std::time::Duration;
     use std::time::Instant;
     use tokio::prelude::Future;
-    use masq_lib::blockchains::chains::Chain::PolyMumbai;
 
     use masq_lib::constants::{DEFAULT_CHAIN, TLS_PORT};
     use masq_lib::messages::{ToMessageBody, UiConnectionChangeBroadcast, UiConnectionStage};
@@ -1633,11 +1634,16 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::unshared_test_utils::{make_node_to_ui_recipient, make_recipient_and_recording_arc, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, assert_on_initialization_with_panic_on_migration};
+    use crate::test_utils::unshared_test_utils::{
+        assert_on_initialization_with_panic_on_migration, make_node_to_ui_recipient,
+        make_recipient_and_recording_arc, prove_that_crash_request_handler_is_hooked_up,
+        AssertionsMessage,
+    };
     use crate::test_utils::vec_to_set;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
 
     use super::*;
+    use crate::accountant::test_utils::bc_from_earning_wallet;
     use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
         NoGossipResponseReceived, PassLoopFound, TcpConnectionFailed,
     };
@@ -1646,7 +1652,6 @@ mod tests {
     };
     use crate::test_utils::unshared_test_utils::notify_handlers::NotifyLaterHandleMock;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
-    use crate::accountant::test_utils::bc_from_earning_wallet;
 
     impl Handler<AssertionsMessage<Neighborhood>> for Neighborhood {
         type Result = ();

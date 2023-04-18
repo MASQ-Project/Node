@@ -662,7 +662,6 @@ mod tests {
         parameterizable_automap_control, TransactorMock, PUBLIC_IP, ROUTER_IP,
     };
     use crossbeam_channel::{bounded, unbounded, Sender};
-    use itertools::Either;
     use log::LevelFilter;
     use masq_lib::constants::DEFAULT_CHAIN;
     use masq_lib::crash_point::CrashPoint;

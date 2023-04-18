@@ -949,7 +949,7 @@ mod tests {
     use actix::{Arbiter, System};
     use ethereum_types::{BigEndianHash, U64};
     use ethsign_crypto::Keccak256;
-    use itertools::{Either, Itertools};
+    use itertools::Itertools;
     use log::Level;
     use masq_lib::constants::{
         REQUEST_WITH_MUTUALLY_EXCLUSIVE_PARAMS, REQUEST_WITH_NO_VALUES, SCAN_ERROR,

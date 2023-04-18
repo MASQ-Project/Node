@@ -33,6 +33,7 @@ use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
+use crate::sub_lib::utils::db_connection_launch_panic;
 use crate::sub_lib::wallet::Wallet;
 use futures::try_ready;
 use itertools::Itertools;
@@ -58,7 +59,6 @@ use tokio::prelude::stream::futures_unordered::FuturesUnordered;
 use tokio::prelude::Async;
 use tokio::prelude::Future;
 use tokio::prelude::Stream;
-use crate::sub_lib::utils::db_connection_launch_panic;
 
 static mut MAIN_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
 static mut ALIAS_CRYPTDE_BOX_OPT: Option<Box<dyn CryptDE>> = None;
@@ -635,7 +635,9 @@ impl Bootstrapper {
                         &self.config.data_directory,
                         DbInitializationConfig::panic_on_migration(),
                     )
-                    .unwrap_or_else(|err| db_connection_launch_panic(err, &self.config.data_directory));
+                    .unwrap_or_else(|err| {
+                        db_connection_launch_panic(err, &self.config.data_directory)
+                    });
                 let config_dao = ConfigDaoReal::new(conn);
                 let mut persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
                 let clandestine_port = self.establish_clandestine_port(&mut persistent_config);
@@ -733,7 +735,9 @@ mod tests {
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::sub_lib::neighborhood::{DEFAULT_RATE_PACK, NeighborhoodConfig, NeighborhoodMode, NodeDescriptor, RatePack};
+    use crate::sub_lib::neighborhood::{
+        NeighborhoodConfig, NeighborhoodMode, NodeDescriptor, DEFAULT_RATE_PACK,
+    };
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::socket_server::ConfiguredByPrivilege;
     use crate::sub_lib::stream_connector::ConnectionInfo;
@@ -752,7 +756,6 @@ mod tests {
     use actix::System;
     use crossbeam_channel::unbounded;
     use futures::Future;
-    use itertools::Either;
     use lazy_static::lazy_static;
     use log::LevelFilter;
     use log::LevelFilter::Off;
@@ -1402,7 +1405,7 @@ mod tests {
         let act = |data_dir: &Path| {
             let mut config = BootstrapperConfig::new();
             config.data_directory = data_dir.to_path_buf();
-            let mut subject = BootstrapperBuilder::new().config(config).build();
+            let subject = BootstrapperBuilder::new().config(config).build();
             subject.start_actors_and_return_shp_subs();
         };
 
@@ -2067,7 +2070,6 @@ mod tests {
 
         assert_on_initialization_with_panic_on_migration(&data_dir, &act);
     }
-
 
     #[test]
     #[should_panic(

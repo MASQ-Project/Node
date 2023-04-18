@@ -842,7 +842,6 @@ mod tests {
         prove_that_crash_request_handler_is_hooked_up, ZERO,
     };
     use bip39::{Language, Mnemonic};
-    use itertools::Either;
     use masq_lib::blockchains::chains::Chain;
     use masq_lib::constants::MISSING_DATA;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
