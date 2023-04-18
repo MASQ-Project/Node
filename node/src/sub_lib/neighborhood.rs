@@ -551,6 +551,13 @@ impl fmt::Display for GossipFailure_0v1 {
     }
 }
 
+// This metadata is only passed from Neighborhood to GossipHandler
+pub struct NeighborhoodMetadata {
+    pub connection_progress_peers: Vec<IpAddr>,
+    pub cpm_recipient: Recipient<ConnectionProgressMessage>,
+    pub min_hops_count: u8,
+}
+
 pub struct NeighborhoodTools {
     pub notify_later_ask_about_gossip:
         Box<dyn NotifyLaterHandle<AskAboutDebutGossipMessage, Neighborhood>>,

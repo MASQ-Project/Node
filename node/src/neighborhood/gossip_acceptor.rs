@@ -5,9 +5,7 @@ use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, Neighborh
 use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::AccessibleGossipRecord;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
-use crate::sub_lib::neighborhood::{
-    ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1,
-};
+use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1, NeighborhoodMetadata};
 use crate::sub_lib::node_addr::NodeAddr;
 use actix::Recipient;
 use masq_lib::logger::Logger;
@@ -47,12 +45,6 @@ enum Qualification {
 
 trait NamedType {
     fn type_name(&self) -> &'static str;
-}
-
-struct NeighborhoodMetadata {
-    connection_progress_peers: Vec<IpAddr>,
-    cpm_recipient: Recipient<ConnectionProgressMessage>,
-    min_hops_count: u8,
 }
 
 trait GossipHandler: NamedType + Send /* Send because lazily-written tests require it */ {
@@ -1231,8 +1223,7 @@ pub trait GossipAcceptor: Send /* Send because lazily-written tests require it *
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
-        connection_progress_peers: Vec<IpAddr>,
-        min_hops_count: u8,
+        neighborhood_metadata: NeighborhoodMetadata,
     ) -> GossipAcceptanceResult;
 }
 
@@ -1249,8 +1240,7 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
         database: &mut NeighborhoodDatabase,
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
-        connection_progress_peers: Vec<IpAddr>,
-        min_hops_count: u8,
+        neighborhood_metadata: NeighborhoodMetadata,
     ) -> GossipAcceptanceResult {
         let (qualification, handler_ref) = self
             .gossip_handlers
@@ -1265,11 +1255,11 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
                     "Gossip delegated to {}",
                     handler_ref.type_name()
                 );
-                let neighborhood_metadata = NeighborhoodMetadata {
-                    connection_progress_peers,
-                    cpm_recipient: self.cpm_recipient.clone(),
-                    min_hops_count,
-                };
+                // let neighborhood_metadata = NeighborhoodMetadata {
+                //     connection_progress_peers,
+                //     cpm_recipient: self.cpm_recipient.clone(),
+                //     min_hops_count,
+                // };
                 handler_ref.handle(
                     self.cryptde,
                     database,
@@ -2784,8 +2774,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             src_root.node_addr_opt().clone().unwrap().into(),
-            vec![],
-            DEFAULT_MIN_HOPS_COUNT
+            make_default_neighborhood_metadata()
         );
 
         assert_eq!(result, GossipAcceptanceResult::Ignored);
@@ -2869,8 +2858,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             src_node.node_addr_opt().unwrap().into(),
-            vec![],
-            DEFAULT_MIN_HOPS_COUNT
+            make_default_neighborhood_metadata()
         );
 
         assert_eq!(GossipAcceptanceResult::Ignored, result);
@@ -2889,8 +2877,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             gossip_source,
-            vec![],
-            DEFAULT_MIN_HOPS_COUNT
+            make_default_neighborhood_metadata()
         );
 
         let after = time_t_timestamp();
@@ -2929,8 +2916,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             gossip_source,
-            vec![],
-            DEFAULT_MIN_HOPS_COUNT
+            make_default_neighborhood_metadata()
         );
 
         let after = time_t_timestamp();
@@ -3001,8 +2987,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             gossip_source,
-            vec![],
-            DEFAULT_MIN_HOPS_COUNT
+            make_default_neighborhood_metadata()
         );
 
         let after = time_t_timestamp();
@@ -3098,8 +3083,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             gossip_source,
-            vec![],
-            DEFAULT_MIN_HOPS_COUNT
+            make_default_neighborhood_metadata()
         );
 
         let expected_acceptance_gossip_2 = GossipBuilder::new(&dest_db)
@@ -3188,8 +3172,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             gossip_source,
-            vec![],
-            DEFAULT_MIN_HOPS_COUNT
+            make_default_neighborhood_metadata()
         );
 
         let expected_acceptance_gossip = GossipBuilder::new(&dest_db)
@@ -3244,8 +3227,7 @@ mod tests {
             &mut dest_db,
             debut.try_into().unwrap(),
             gossip_source,
-            vec![],
-            DEFAULT_MIN_HOPS_COUNT
+            make_default_neighborhood_metadata()
         );
 
         assert_eq!(GossipAcceptanceResult::Ignored, result);
@@ -3280,7 +3262,7 @@ mod tests {
         let subject = make_subject(main_cryptde());
 
         let begin_at = time_t_timestamp();
-        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source, vec![], DEFAULT_MIN_HOPS_COUNT);
+        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source, make_default_neighborhood_metadata());
         let end_at = time_t_timestamp();
 
         assert_eq!(GossipAcceptanceResult::Accepted, result);
@@ -3308,7 +3290,7 @@ mod tests {
         let gossip_source = src_node.node_addr_opt().unwrap().into();
         let subject = make_subject(main_cryptde());
 
-        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source, vec![], DEFAULT_MIN_HOPS_COUNT);
+        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source, make_default_neighborhood_metadata());
 
         assert_eq!(result, GossipAcceptanceResult::Accepted);
         assert_eq!(
@@ -3338,7 +3320,7 @@ mod tests {
         let gossip_source = src_node.node_addr_opt().unwrap().into();
         let subject = make_subject(main_cryptde());
 
-        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source, vec![], DEFAULT_MIN_HOPS_COUNT);
+        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source, make_default_neighborhood_metadata());
 
         assert_eq!(result, GossipAcceptanceResult::Accepted);
         assert_eq!(
@@ -3408,7 +3390,7 @@ mod tests {
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let subject = make_subject(main_cryptde());
 
-        let result = subject.handle(&mut db, gossip.try_into().unwrap(), gossip_source, vec![], DEFAULT_MIN_HOPS_COUNT);
+        let result = subject.handle(&mut db, gossip.try_into().unwrap(), gossip_source, make_default_neighborhood_metadata());
 
         let expected_relay_gossip = GossipBuilder::new(&db)
             .node(root_node.public_key(), true)
@@ -3684,8 +3666,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             node_a.node_addr_opt().unwrap().into(),
-            vec![],
-            DEFAULT_MIN_HOPS_COUNT
+            make_default_neighborhood_metadata()
         );
 
         let after = time_t_timestamp();
@@ -3801,8 +3782,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             src_node.node_addr_opt().unwrap().into(),
-            vec![],
-            DEFAULT_MIN_HOPS_COUNT
+            make_default_neighborhood_metadata()
         );
 
         let after = time_t_timestamp();
@@ -3889,8 +3869,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             src_root.node_addr_opt().unwrap().into(),
-            vec![],
-            DEFAULT_MIN_HOPS_COUNT
+            make_default_neighborhood_metadata()
         );
 
         let after = time_t_timestamp();
