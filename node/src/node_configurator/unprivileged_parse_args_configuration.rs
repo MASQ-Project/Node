@@ -215,18 +215,11 @@ pub fn make_neighborhood_config<T: UnprivilegedParseArgsConfiguration + ?Sized>(
         }
     };
 
-    let min_hops_count_string =
-        value_m!(multi_config, "min-hops", String)
-            .unwrap_or_else(|| DEFAULT_MIN_HOPS_COUNT.to_string());
-
-    let min_hops_count: u8 = match min_hops_count_string.as_str() {
-        "1" => 1,
-        "2" => 2,
-        "3" => 3,
-        "4" => 4,
-        "5" => 5,
-        "6" => 6,
-        _ => panic!("Invalid input string!"),
+    let min_hops_arg =
+        value_m!(multi_config, "min-hops", String);
+    let min_hops_count = match min_hops_arg {
+        None => DEFAULT_MIN_HOPS_COUNT,
+        Some(string) => string.try_into().unwrap_or_else(|error| panic!("{}", error))
     };
 
     match make_neighborhood_mode(multi_config, neighbor_configs, persistent_config) {
@@ -638,7 +631,7 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
-    use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+    use crate::sub_lib::neighborhood::{DEFAULT_RATE_PACK, HopsCount};
     use crate::sub_lib::utils::make_new_multi_config;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
@@ -723,7 +716,7 @@ mod tests {
                     ],
                     DEFAULT_RATE_PACK
                 ),
-                min_hops_count: 1,
+                min_hops_count: HopsCount::OneHop,
             })
         );
     }

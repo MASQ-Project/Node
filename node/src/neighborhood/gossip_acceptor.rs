@@ -933,7 +933,7 @@ impl GossipHandler for StandardGossipHandler {
         let initial_neighborship_status =
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
 
-        let patch = self.compute_patch(&agrs, database.root(), neighborhood_metadata.min_hops_count);
+        let patch = self.compute_patch(&agrs, database.root(), neighborhood_metadata.min_hops_count as u8);
         let filtered_agrs = self.filter_agrs_by_patch(agrs, patch);
 
         let mut db_changed = self.identify_and_add_non_introductory_new_nodes(
@@ -2382,7 +2382,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let result = subject.compute_patch(&agrs, node_a_db.root(), DEFAULT_MIN_HOPS_COUNT);
+        let result = subject.compute_patch(&agrs, node_a_db.root(), DEFAULT_MIN_HOPS_COUNT as u8);
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
@@ -2434,7 +2434,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let patch = subject.compute_patch(&agrs, node_a_db.root(), DEFAULT_MIN_HOPS_COUNT);
+        let patch = subject.compute_patch(&agrs, node_a_db.root(), DEFAULT_MIN_HOPS_COUNT as u8);
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
@@ -2483,7 +2483,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let patch = subject.compute_patch(&agrs, node_a_db.root(), DEFAULT_MIN_HOPS_COUNT);
+        let patch = subject.compute_patch(&agrs, node_a_db.root(), DEFAULT_MIN_HOPS_COUNT as u8);
 
         let expected_hashset = vec![
             node_a.public_key().clone(),

@@ -367,10 +367,37 @@ impl Display for DescriptorParsingError<'_> {
     }
 }
 
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum HopsCount {
+    OneHop = 1,
+    TwoHops = 2,
+    ThreeHops = 3, // minimum for anonymity
+    FourHops = 4,
+    FiveHops = 5,
+    SixHops = 6,
+}
+
+impl TryFrom<String> for HopsCount {
+    type Error = String;
+
+    fn try_from(value: String) -> Result<Self, Self::Error> {
+
+        match value.as_str() {
+            "1" => Ok(HopsCount::OneHop),
+            "2" => Ok(HopsCount::TwoHops),
+            "3" => Ok(HopsCount::ThreeHops),
+            "4" => Ok(HopsCount::FourHops),
+            "5" => Ok(HopsCount::FiveHops),
+            "6" => Ok(HopsCount::SixHops),
+            _ => Err("Invalid value for min hops count provided".to_string()),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NeighborhoodConfig {
     pub mode: NeighborhoodMode,
-    pub min_hops_count: u8,
+    pub min_hops_count: HopsCount,
 }
 
 lazy_static! {
@@ -555,7 +582,7 @@ impl fmt::Display for GossipFailure_0v1 {
 pub struct NeighborhoodMetadata {
     pub connection_progress_peers: Vec<IpAddr>,
     pub cpm_recipient: Recipient<ConnectionProgressMessage>,
-    pub min_hops_count: u8,
+    pub min_hops_count: HopsCount,
 }
 
 pub struct NeighborhoodTools {
@@ -1225,5 +1252,23 @@ mod tests {
             .downcast_ref::<NotifyLaterHandleReal<AskAboutDebutGossipMessage>>()
             .unwrap();
         assert_eq!(subject.ask_about_gossip_interval, Duration::from_secs(10));
+    }
+
+    #[test]
+    fn min_hops_count_can_be_converted_from_string() {
+        let min_hops_count = String::from("6");
+
+        let result: HopsCount = min_hops_count.try_into().unwrap();
+
+        assert_eq!(result, HopsCount::SixHops);
+    }
+
+    #[test]
+    fn min_hops_count_conversion_from_string_panics() {
+        let min_hops_count = String::from("100");
+
+        let result: Result<HopsCount, String> = min_hops_count.try_into();
+
+        assert_eq!(result, Err("Invalid value for min hops count provided".to_string()))
     }
 }
