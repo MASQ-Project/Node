@@ -10,6 +10,7 @@ use masq_lib::blockchains::chains::Chain;
 use masq_lib::ui_gateway::NodeFromUiMessage;
 use std::fmt;
 use std::fmt::{Debug, Formatter};
+use web3::types::U256;
 
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
 pub struct BlockchainBridgeConfig {
@@ -22,6 +23,7 @@ pub struct BlockchainBridgeConfig {
 pub struct BlockchainBridgeSubs {
     pub bind: Recipient<BindMessage>,
     pub report_accounts_payable: Recipient<ReportAccountsPayable>,
+    pub request_balances_to_pay_payables: Recipient<RequestBalancesToPayPayables>,
     pub retrieve_transactions: Recipient<RetrieveTransactions>,
     pub ui_sub: Recipient<NodeFromUiMessage>,
     pub request_transaction_receipts: Recipient<RequestTransactionReceipts>,
@@ -30,6 +32,18 @@ pub struct BlockchainBridgeSubs {
 impl Debug for BlockchainBridgeSubs {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         write!(f, "BlockchainBridgeSubs")
+    }
+}
+
+#[derive(Clone, PartialEq, Eq, Debug, Message)]
+pub struct RequestBalancesToPayPayables {
+    pub accounts: Vec<PayableAccount>,
+    pub response_skeleton_opt: Option<ResponseSkeleton>,
+}
+
+impl SkeletonOptHolder for RequestBalancesToPayPayables {
+    fn skeleton_opt(&self) -> Option<ResponseSkeleton> {
+        self.response_skeleton_opt
     }
 }
 
@@ -45,16 +59,10 @@ impl SkeletonOptHolder for ReportAccountsPayable {
     }
 }
 
-#[derive(Clone, PartialEq, Eq, Debug, Message)]
-pub struct SetDbPasswordMsg {
-    pub client_id: u64,
-    pub password: String,
-}
-
-#[derive(Clone, PartialEq, Eq, Debug, Message)]
-pub struct SetGasPriceMsg {
-    pub client_id: u64,
-    pub gas_price: String,
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConsumingWalletBalances {
+    pub gas_currency: U256,
+    pub masq_tokens: U256,
 }
 
 #[cfg(test)]

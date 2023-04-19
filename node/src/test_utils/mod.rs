@@ -290,7 +290,7 @@ pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientReques
         target_hostname: Some("example.com".to_string()),
         target_port: HTTP_PORT,
         protocol: ProxyProtocol::HTTP,
-        originator_alias_public_key: cryptde.public_key().clone(),
+        originator_public_key: cryptde.public_key().clone(),
     }
 }
 

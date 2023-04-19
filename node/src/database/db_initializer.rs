@@ -1,6 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
-use crate::database::db_migrations::{DbMigrator, DbMigratorReal};
+
+use crate::database::db_migrations::db_migrator::{DbMigrator, DbMigratorReal};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
@@ -1371,8 +1372,8 @@ mod tests {
             )
         );
         let mut migrate_database_params = migrate_database_params_arc.lock().unwrap();
-        let (mismatched_schema, target_version, _) = migrate_database_params.remove(0);
-        assert_eq!(mismatched_schema, 0);
+        let (obsolete_schema, target_version, _) = migrate_database_params.remove(0);
+        assert_eq!(obsolete_schema, 0);
         assert_eq!(target_version, 5);
         TestLogHandler::new().exists_log_containing(
             "WARN: DbInitializer: Database is incompatible and its updating is necessary",
