@@ -549,7 +549,7 @@ mod tests {
 
     #[test]
     fn new_unmarshaling_handles_badly_typed_json() {
-        let json = r#"[1, 2, 3, 4]"#;
+        let json = "[1, 2, 3, 4]";
 
         let result = UiTrafficConverter::new_unmarshal_from_ui(json, 1234);
 

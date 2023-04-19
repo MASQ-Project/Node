@@ -60,7 +60,7 @@ impl ClientRequestPayloadFactory for ClientRequestPayloadFactoryReal {
             target_hostname,
             target_port,
             protocol: protocol_pack.proxy_protocol(),
-            originator_alias_public_key: cryptde.public_key().clone(),
+            originator_public_key: cryptde.public_key().clone(),
         })
     }
 }
@@ -113,7 +113,7 @@ mod tests {
                 target_hostname: Some(String::from("borkoed.com")),
                 target_port: 2345,
                 protocol: ProxyProtocol::HTTP,
-                originator_alias_public_key: cryptde.public_key().clone(),
+                originator_public_key: cryptde.public_key().clone(),
             })
         );
     }
@@ -148,7 +148,7 @@ mod tests {
                 target_hostname: Some(String::from("borkoed.com")),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
-                originator_alias_public_key: cryptde.public_key().clone(),
+                originator_public_key: cryptde.public_key().clone(),
             })
         );
     }
@@ -202,7 +202,7 @@ mod tests {
                 target_hostname: Some(String::from("server.com")),
                 target_port: 443,
                 protocol: ProxyProtocol::TLS,
-                originator_alias_public_key: cryptde.public_key().clone(),
+                originator_public_key: cryptde.public_key().clone(),
             })
         );
     }
@@ -250,7 +250,7 @@ mod tests {
                 target_hostname: None,
                 target_port: 443,
                 protocol: ProxyProtocol::TLS,
-                originator_alias_public_key: cryptde.public_key().clone(),
+                originator_public_key: cryptde.public_key().clone(),
             })
         );
     }

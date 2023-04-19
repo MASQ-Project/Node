@@ -602,7 +602,7 @@ mod tests {
                 target_hostname: Some("www.example.com".to_string()),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
-                originator_alias_public_key: cryptde.public_key().clone(),
+                originator_public_key: cryptde.public_key().clone(),
             };
 
             StreamHandlerPoolReal::process_package(payload, None, Arc::new(Mutex::new(inner)));
@@ -635,7 +635,7 @@ mod tests {
             target_hostname: None,
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
-            originator_alias_public_key: PublicKey::new(&b"men's souls"[..]),
+            originator_public_key: PublicKey::new(&b"men's souls"[..]),
         };
         let write_parameters = Arc::new(Mutex::new(vec![]));
         let tx_to_write = Box::new(
@@ -697,7 +697,7 @@ mod tests {
                 target_hostname: Some(String::from("that.try")),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
-                originator_alias_public_key: originator_key,
+                originator_public_key: originator_key,
             };
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
@@ -766,7 +766,7 @@ mod tests {
                 target_hostname: Some(String::from("3.4.5.6:80")),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
-                originator_alias_public_key: PublicKey::new(&b"men's souls"[..]),
+                originator_public_key: PublicKey::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
@@ -875,7 +875,7 @@ mod tests {
                 target_hostname: Some(String::from("3.4.5.6")),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
-                originator_alias_public_key: PublicKey::new(&b"men's souls"[..]),
+                originator_public_key: PublicKey::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
@@ -982,7 +982,7 @@ mod tests {
                 target_hostname: None,
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
-                originator_alias_public_key: originator_key,
+                originator_public_key: originator_key,
             };
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
@@ -1051,7 +1051,7 @@ mod tests {
                 target_hostname: Some(String::from("that.try")),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
-                originator_alias_public_key: PublicKey::new(&b"men's souls"[..]),
+                originator_public_key: PublicKey::new(&b"men's souls"[..]),
             };
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
@@ -1164,7 +1164,7 @@ mod tests {
                 target_hostname: Some(String::from("that.try")),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
-                originator_alias_public_key: originator_key,
+                originator_public_key: originator_key,
             };
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
@@ -1254,7 +1254,7 @@ mod tests {
                 target_hostname: Some(String::from("that.try")),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
-                originator_alias_public_key: PublicKey::new(&b"men's souls"[..]),
+                originator_public_key: PublicKey::new(&b"men's souls"[..]),
             };
 
             let package = ExpiredCoresPackage::new(
@@ -1367,7 +1367,7 @@ mod tests {
                 target_hostname: Some(String::from("that.try")),
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
-                originator_alias_public_key: originator_key,
+                originator_public_key: originator_key,
             };
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),
@@ -1429,7 +1429,7 @@ mod tests {
             target_hostname: Some(String::from("that.try")),
             target_port: HTTP_PORT,
             protocol: ProxyProtocol::HTTP,
-            originator_alias_public_key: PublicKey::new(&b"men's souls"[..]),
+            originator_public_key: PublicKey::new(&b"men's souls"[..]),
         };
         let package = ExpiredCoresPackage::new(
             SocketAddr::from_str("1.2.3.4:1234").unwrap(),
@@ -1497,7 +1497,7 @@ mod tests {
                 target_hostname: None,
                 target_port: HTTP_PORT,
                 protocol: ProxyProtocol::HTTP,
-                originator_alias_public_key: PublicKey::new(&b"booga"[..]),
+                originator_public_key: PublicKey::new(&b"booga"[..]),
             };
             let package = ExpiredCoresPackage::new(
                 SocketAddr::from_str("1.2.3.4:1234").unwrap(),

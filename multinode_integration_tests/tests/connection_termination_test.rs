@@ -338,7 +338,7 @@ fn create_request_icp(
                 target_hostname: Some(format!("{}", server.local_addr().ip())),
                 target_port: server.local_addr().port(),
                 protocol: ProxyProtocol::HTTP,
-                originator_alias_public_key: originating_node.main_public_key().clone(),
+                originator_public_key: originating_node.main_public_key().clone(),
             },
         )),
         exit_node.main_public_key(),
@@ -383,7 +383,7 @@ fn create_meaningless_icp(
                 target_hostname: Some(format!("nowhere.com")),
                 target_port: socket_addr.port(),
                 protocol: ProxyProtocol::HTTP,
-                originator_alias_public_key: originating_node.main_public_key().clone(),
+                originator_public_key: originating_node.main_public_key().clone(),
             },
         )),
         exit_node.main_public_key(),
@@ -473,7 +473,7 @@ fn create_client_drop_report(
             target_hostname: Some(String::from("doesnt.matter.com")),
             target_port: 80,
             protocol: ProxyProtocol::HTTP,
-            originator_alias_public_key: originating_node.main_public_key().clone(),
+            originator_public_key: originating_node.main_public_key().clone(),
         },
     ));
 
