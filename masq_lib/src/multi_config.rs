@@ -88,7 +88,7 @@ impl<'a> MultiConfig<'a> {
             let message = format!("Invalid value: {}", &captures[2]);
             return ConfiguratorError::required(name, &message);
         }
-        let another_invalid_value_regex = Regex::new("error: (.*) isn't a valid value for '--(.*?) <.*>'").expect("Bad regex");
+        let another_invalid_value_regex = Regex::new("error: (.*) isn't a valid value for '--(.*?) <.*>'").expect("Bad regex"); // TODO: is this good enough?
         if let Some(captures) = another_invalid_value_regex.captures(&e.message) {
             let name = &captures[2];
             let message = format!("Invalid value: {}", &captures[1]);
