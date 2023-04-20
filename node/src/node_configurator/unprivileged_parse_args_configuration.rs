@@ -722,6 +722,56 @@ mod tests {
     }
 
     #[test]
+    fn make_neighborhood_config_standard_missing_min_hops_count() {
+        running_test();
+        let multi_config = make_new_multi_config(
+            &app_node(),
+            vec![Box::new(CommandLineVcl::new(
+                ArgsBuilder::new()
+                    .param("--neighborhood-mode", "standard")
+                    .param(
+                        "--neighbors",
+                        &format!("masq://{identifier}:QmlsbA@1.2.3.4:1234/2345,masq://{identifier}:VGVk@2.3.4.5:3456/4567",identifier = DEFAULT_CHAIN.rec().literal_identifier),
+                    )
+                    .param("--fake-public-key", "booga")
+                    .into(),
+            ))],
+        )
+            .unwrap();
+
+        let result = make_neighborhood_config(
+            &UnprivilegedParseArgsConfigurationDaoReal {},
+            &multi_config,
+            &mut configure_default_persistent_config(RATE_PACK),
+            &mut BootstrapperConfig::new(),
+        );
+
+        let min_hops_count = result.unwrap().min_hops_count;
+        assert_eq!(min_hops_count, HopsCount::ThreeHops);
+    }
+
+    #[test]
+    fn make_neighborhood_config_standard_panics_with_undesirable_min_hops_count() {
+        running_test();
+        let args = ArgsBuilder::new()
+            .param("--neighborhood-mode", "standard")
+            .param(
+                "--neighbors",
+                &format!("masq://{identifier}:QmlsbA@1.2.3.4:1234/2345,masq://{identifier}:VGVk@2.3.4.5:3456/4567",identifier = DEFAULT_CHAIN.rec().literal_identifier),
+            )
+            .param("--fake-public-key", "booga")
+            .param("--min-hops", "100");
+        let vcl = CommandLineVcl::new(args.into());
+
+        let result = make_new_multi_config(
+            &app_node(),
+            vec![Box::new(vcl)],
+        ).err().unwrap();
+
+        assert_eq!(result, ConfiguratorError::required("min-hops", "Invalid value: '100'"));
+    }
+
+    #[test]
     fn make_neighborhood_config_standard_missing_ip() {
         running_test();
         let multi_config = make_new_multi_config(

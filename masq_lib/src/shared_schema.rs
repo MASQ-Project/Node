@@ -413,7 +413,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .long("min-hops")
             .value_name("MIN_HOPS")
             .required(false)
-            .min_values(0)
+            .min_values(1)
             .max_values(1)
             .possible_values(&["1", "2", "3", "4", "5", "6"])
             .help(MIN_HOPS_HELP)
