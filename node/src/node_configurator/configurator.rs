@@ -866,11 +866,11 @@ mod tests {
         let (recorder, _, _) = make_recorder();
         let recorder_addr = recorder.start();
 
-        let mut configurator = Configurator::new(data_dir, false);
+        let mut subject = Configurator::new(data_dir, false);
 
-        configurator.node_to_ui_sub = Some(recorder_addr.recipient());
-        configurator.new_password_subs = Some(vec![]);
-        let _ = configurator.handle_change_password(
+        subject.node_to_ui_sub = Some(recorder_addr.recipient());
+        subject.new_password_subs = Some(vec![]);
+        let _ = subject.handle_change_password(
             UiChangePasswordRequest {
                 old_password_opt: None,
                 new_password: "password".to_string(),
