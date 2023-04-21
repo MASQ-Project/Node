@@ -39,6 +39,7 @@ use std::net::TcpStream;
 use std::net::{IpAddr, Shutdown};
 use std::ops::Add;
 use std::rc::Rc;
+use std::str::FromStr;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -52,7 +53,7 @@ pub struct MASQMockNode {
 }
 
 #[derive(Clone)]
-enum CryptDEEnum {
+pub enum CryptDEEnum {
     Real(CryptDEReal),
     Fake((CryptDENull, CryptDENull)),
 }
@@ -248,6 +249,13 @@ impl MASQMockNode {
         guts.node_addr = container_preserver.node_addr.clone();
         self.guts = Rc::new(guts);
         container_preserver // When you drop this, self's Docker container will stop
+    }
+
+    pub fn guts_from_builder(&mut self, builder: MASQMockNodeGutsBuilder) -> Rc<dyn Any> {
+        let container_preserver = self.guts.clone();
+        let guts = builder.build();
+        self.guts = Rc::new (guts);
+        container_preserver
     }
 
     pub fn transmit_data(&self, data_hunk: DataHunk) -> Result<(), Error> {
@@ -576,7 +584,7 @@ impl MASQMockNode {
 }
 
 #[derive(Clone)]
-struct MASQMockNodeGuts {
+pub struct MASQMockNodeGuts {
     name: String,
     node_addr: NodeAddr,
     earning_wallet: Wallet,
@@ -590,5 +598,78 @@ struct MASQMockNodeGuts {
 impl Drop for MASQMockNodeGuts {
     fn drop(&mut self) {
         MASQNodeUtils::stop(self.name.as_str());
+    }
+}
+
+pub struct MASQMockNodeGutsBuilder {
+    in_progress: MASQMockNodeGuts,
+}
+
+impl MASQMockNodeGutsBuilder {
+    pub fn new () -> Self {
+        Self {
+            in_progress: MASQMockNodeGuts {
+                name: "Builder Node".to_string(),
+                node_addr: NodeAddr::new(&IpAddr::from_str("1.2.3.4").unwrap(), &[5678]),
+                earning_wallet: Wallet::new ("Earning"),
+                consuming_wallet: None,
+                rate_pack: DEFAULT_RATE_PACK.clone(),
+                cryptde_enum: CryptDEEnum::Fake ((CryptDENull::new(Chain::PolyMumbai), CryptDENull::new(Chain::PolyMumbai))),
+                framer: RefCell::new(DataHunkFramer::new()),
+                chain: Chain::PolyMumbai,
+            }
+        }
+    }
+
+    pub fn name (mut self, name: &str) -> Self {
+        self.in_progress.name = name.to_string();
+        self
+    }
+
+    pub fn node_addr (mut self, node_addr: NodeAddr) -> Self {
+        self.in_progress.node_addr = node_addr;
+        self
+    }
+
+    pub fn earning_wallet (mut self, earning_wallet: Wallet) -> Self {
+        self.in_progress.earning_wallet = earning_wallet;
+        self
+    }
+
+    pub fn consuming_wallet_opt (mut self, consuming_wallet_opt: Option<Wallet>) -> Self {
+        self.in_progress.consuming_wallet = consuming_wallet_opt;
+        self
+    }
+
+    pub fn rate_pack (mut self, rate_pack: RatePack) -> Self {
+        self.in_progress.rate_pack = rate_pack;
+        self
+    }
+
+    pub fn cryptde_enum (mut self, cryptde_enum: CryptDEEnum) -> Self {
+        self.in_progress.cryptde_enum = cryptde_enum;
+        self
+    }
+
+    pub fn framer (mut self, framer: DataHunkFramer) -> Self {
+        self.in_progress.framer = RefCell::new (framer);
+        self
+    }
+
+    pub fn chain (mut self, chain: Chain) -> Self {
+        self.in_progress.chain = chain;
+        self
+    }
+
+    pub fn build (self) -> MASQMockNodeGuts {
+        self.in_progress
+    }
+}
+
+impl From<&MASQMockNode> for MASQMockNodeGutsBuilder {
+    fn from(init: &MASQMockNode) -> Self {
+        Self {
+            in_progress: init.guts.as_ref().clone()
+        }
     }
 }

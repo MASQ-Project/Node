@@ -2,6 +2,7 @@
 
 use std::net::SocketAddr;
 use std::time::Duration;
+use multinode_integration_tests_lib::masq_mock_node::{MASQMockNode, MASQMockNodeGutsBuilder};
 use multinode_integration_tests_lib::masq_node::PortSelector;
 use multinode_integration_tests_lib::masq_node_client::MASQNodeClient;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
@@ -29,7 +30,10 @@ fn receiving_ipchange_gossip_modifies_connections_appropriately() {
         ]);
     let old_mock_node = node_map.remove(&old_ip_neighbor_key).unwrap();
     let mut new_mock_node = node_map.remove (&new_ip_neighbor_key).unwrap();
-    let _container_preserver = new_mock_node.copy_guts_from(&old_mock_node);
+    let builder = MASQMockNodeGutsBuilder::from (&old_mock_node)
+        .node_addr (new_mock_node.node_addr())
+        .name (new_mock_node.name());
+    let _container_preserver = new_mock_node.guts_from_builder(builder);
     // (maybe) have the connected mock Node disconnect its TCP stream.
     old_mock_node.kill();
     // Have the disconnected mock Node connect and send an IpChange

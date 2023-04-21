@@ -76,6 +76,7 @@ trait GossipHandler: NamedType + Send /* Send because lazily-written tests requi
 struct IpChangeHandler {
     remove_stream_sub: Recipient<RemoveStreamMsg>,
     stream_shutdown_sub: Recipient<StreamShutdownMsg>,
+    logger: Logger,
 }
 
 impl NamedType for IpChangeHandler {
@@ -88,7 +89,10 @@ impl GossipHandler for IpChangeHandler {
     // An IpChange must contain a single AGR; if it contains a NodeAddr, then (
     //   it must have at least one port;
     //   it must advertise the same IP address it came from
-    // );
+    // )
+    // else (
+    //   it is an Originate-Only Node, but it can still have its IP address changed.
+    // )
     // it must already be in our database as a next-door neighbor;
     // and it must have a different IP address than the record in the database.
 
@@ -103,6 +107,8 @@ impl GossipHandler for IpChangeHandler {
         else {
             return Qualification::Unmatched;
         };
+debug! (self.logger, "IpChangeHandler qualifies() found a database Node with node_addr_opt = {:?} and accepts_connections = {}",
+  existing_node.node_addr_opt(), existing_node.accepts_connections());
         if let Some (incoming_node_addr) = &agr.node_addr_opt {
             if incoming_node_addr.ports().is_empty() {
                 return Qualification::Malformed(format!("Debut from {} for {} contained NodeAddr with no ports",
@@ -134,26 +140,33 @@ impl GossipHandler for IpChangeHandler {
         let mut old_addrs: Vec<SocketAddr> = vec![];
         let mut db_node = database.node_by_key_mut(&source_agr.inner.public_key)
             .expect("Node disappeared");
-        if let Some (node_addr) = db_node.metadata.node_addr_opt.as_ref() {
+        if db_node.accepts_connections() {
+        // if let Some (node_addr) = db_node.node_addr_opt() {
+            // TODO: Can't keep this; allows outside communication to crash the Node
+            let node_addr = db_node.node_addr_opt().expect ("A Node that accepts connections has no NodeAddr!");
             for port in node_addr.ports() {
                 old_addrs.push (SocketAddr::new (node_addr.ip_addr(), port))
             }
-            NodeAddr::new(&gossip_source.ip(), &node_addr.ports());
-            db_node.metadata.node_addr_opt = Some (NodeAddr::new (&gossip_source.ip(), &node_addr.ports()));
+            let new_node_addr = NodeAddr::new(&gossip_source.ip(), &node_addr.ports());
+            debug!(self.logger, "IpChange Gossip from {}; setting NodeAddr to: {:?}", gossip_source, new_node_addr);
+            db_node.metadata.node_addr_opt = Some (new_node_addr);
+            let local_addr = SocketAddr::from (database.root().node_addr_opt().as_ref()
+                .expect("Roots must have NodeAddr").clone());
+            old_addrs.into_iter().for_each (|old_addr| {
+                let msg = RemoveStreamMsg {
+                    local_addr,
+                    peer_addr: old_addr,
+                    stream_type: RemovedStreamType::Clandestine,
+                    sub: self.stream_shutdown_sub.clone(),
+                };
+                self.remove_stream_sub
+                    .try_send(msg)
+                    .expect ("StreamHandlerPool is dead");
+            });
         }
-        let local_addr = SocketAddr::from (database.root().node_addr_opt().as_ref()
-            .expect("Roots must have NodeAddr").clone());
-        old_addrs.into_iter().for_each (|old_addr| {
-            let msg = RemoveStreamMsg {
-                local_addr,
-                peer_addr: old_addr,
-                stream_type: RemovedStreamType::Clandestine,
-                sub: self.stream_shutdown_sub.clone(),
-            };
-            self.remove_stream_sub
-                .try_send(msg)
-                .expect ("StreamHandlerPool is dead");
-        });
+        else {
+            debug!(self.logger, "IpChange Gossip from {}; Originate-Only, no NodeAddr", gossip_source);
+        }
         GossipAcceptanceResult::Absorbed
     }
 }
@@ -162,8 +175,9 @@ impl IpChangeHandler {
     pub fn new(
         remove_stream_sub: Recipient<RemoveStreamMsg>,
         stream_shutdown_sub: Recipient<StreamShutdownMsg>,
+        logger: Logger,
     ) -> Self {
-        Self { remove_stream_sub, stream_shutdown_sub }
+        Self { remove_stream_sub, stream_shutdown_sub, logger }
     }
 }
 
@@ -1386,7 +1400,8 @@ impl<'a> GossipAcceptorReal<'a> {
         let logger = Logger::new("GossipAcceptor");
         GossipAcceptorReal {
             gossip_handlers: vec![
-                Box::new(IpChangeHandler::new(remove_stream_recipient, stream_shutdown_recipient)),
+                Box::new(IpChangeHandler::new(remove_stream_recipient,
+                    stream_shutdown_recipient, logger.clone())),
                 Box::new(DebutHandler::new(logger.clone())),
                 Box::new(PassHandler::new()),
                 Box::new(IntroductionHandler::new(logger.clone())),
@@ -1486,7 +1501,7 @@ mod tests {
         let stream_handler_pool_sub = stream_handler_pool.start().recipient();
         let dispatcher_sub = dispatcher.start().recipient();
         let subject = IpChangeHandler::new(stream_handler_pool_sub,
-            dispatcher_sub.clone());
+            dispatcher_sub.clone(), Logger::new ("test"));
         let system = System::new("test");
 
         let qualifies_result =
@@ -1549,7 +1564,7 @@ mod tests {
         let stream_handler_pool_sub = stream_handler_pool.start().recipient();
         let dispatcher_sub = dispatcher.start().recipient();
         let subject = IpChangeHandler::new(stream_handler_pool_sub.clone(),
-            dispatcher_sub);
+            dispatcher_sub, Logger::new("test"));
         let system = System::new("test");
 
         let qualifies_result =
@@ -1586,6 +1601,7 @@ mod tests {
         let subject = IpChangeHandler::new(
             make_recorder().0.start().recipient(),
             make_recorder().0.start().recipient(),
+            Logger::new ("test"),
         );
 
         let result =
@@ -1606,6 +1622,7 @@ mod tests {
         let subject = IpChangeHandler::new(
             make_recorder().0.start().recipient(),
             make_recorder().0.start().recipient(),
+            Logger::new ("test"),
         );
 
         let result =
@@ -1626,6 +1643,7 @@ mod tests {
         let subject = IpChangeHandler::new(
             make_recorder().0.start().recipient(),
             make_recorder().0.start().recipient(),
+            Logger::new ("test"),
         );
 
         let result =
@@ -1648,6 +1666,7 @@ mod tests {
         let subject = IpChangeHandler::new(
             make_recorder().0.start().recipient(),
             make_recorder().0.start().recipient(),
+            Logger::new ("test"),
         );
 
         let result =
@@ -1669,6 +1688,7 @@ mod tests {
         let subject = IpChangeHandler::new(
             make_recorder().0.start().recipient(),
             make_recorder().0.start().recipient(),
+            Logger::new("test"),
         );
 
         let result =

@@ -167,11 +167,11 @@ impl NeighborhoodDatabase {
     }
 
     pub fn remove_neighbor(&mut self, node_key: &PublicKey) -> Result<bool, String> {
-        let ip_addr: Option<IpAddr>;
+        let ip_addr_opt: Option<IpAddr>;
         {
             let to_remove = match self.node_by_key_mut(node_key) {
                 Some(node_record) => {
-                    ip_addr = node_record.node_addr_opt().map(|addr| addr.ip_addr());
+                    ip_addr_opt = node_record.node_addr_opt().map(|addr| addr.ip_addr());
                     node_record
                 }
                 None => {
@@ -183,7 +183,7 @@ impl NeighborhoodDatabase {
             };
             to_remove.unset_node_addr();
         }
-        match ip_addr {
+        match ip_addr_opt {
             Some(ip) => self.by_ip_addr.remove(&ip),
             None => None,
         };
