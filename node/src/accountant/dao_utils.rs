@@ -13,7 +13,7 @@ use masq_lib::constants::WEIS_OF_GWEI;
 use masq_lib::messages::{
     RangeQuery, TopRecordsConfig, TopRecordsOrdering, UiPayableAccount, UiReceivableAccount,
 };
-use rusqlite::{Row, ToSql};
+use rusqlite::{Row, Statement, ToSql};
 use std::fmt::{Debug, Display};
 use std::iter::FlatMap;
 use std::path::{Path, PathBuf};
@@ -342,34 +342,28 @@ pub fn sum_i128_values_from_table(
         .sum()
 }
 
-pub fn rows_changed_for_multi_row_update_sql(
-    sqlite_returning_clause_results: Result<
-        impl Iterator<Item = Result<bool, rusqlite::Error>>,
-        rusqlite::Error,
-    >,
+pub fn update_rows_and_return_their_count(
+    stm: &mut Statement,
+    check_right_value_single_row: fn(&Row) -> rusqlite::Result<bool>,
 ) -> Result<usize, Vec<rusqlite::Error>> {
-    let init: (Vec<()>, Vec<rusqlite::Error>) = (vec![], vec![]);
-    let (oks, errs) = sqlite_returning_clause_results
+    let init: (usize, Vec<rusqlite::Error>) = (0, vec![]);
+    let aggregated_returning_clause_feedback = stm.query_map([], check_right_value_single_row);
+    let (oks_count, errs) = aggregated_returning_clause_feedback
         .expect("query failed on params binding")
-        .fold(init, |(mut oks, mut errs), current| {
-            if let Ok(returned_value_was_right) = current {
-                if returned_value_was_right {
-                    oks.push(());
+        .fold(init, |(oks, mut errs), current| {
+            if let Ok(returned_value_is_up_to_date) = current {
+                if returned_value_is_up_to_date {
+                    (oks + 1, errs)
+                } else {
+                    (oks, errs)
                 }
-                (oks, errs)
             } else {
                 errs.push(current.expect_err("was seen as err"));
                 (oks, errs)
             }
         });
     match errs.as_slice() {
-        [] => {
-            if !oks.is_empty() {
-                Ok(oks.len())
-            } else {
-                Ok(0)
-            }
-        }
+        [] => Ok(oks_count),
         _ => Err(errs),
     }
 }
@@ -443,13 +437,15 @@ mod tests {
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
     use crate::test_utils::make_wallet;
+    use itertools::Itertools;
     use masq_lib::constants::MASQ_TOTAL_SUPPLY;
     use masq_lib::messages::TopRecordsOrdering::Balance;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
+    use rusqlite::types::Type::Integer;
     use rusqlite::types::{ToSqlOutput, Value};
+    use rusqlite::Error::InvalidColumnType;
     use rusqlite::{Connection, OpenFlags};
     use std::collections::HashMap;
-    use std::option::IntoIter;
     use std::time::UNIX_EPOCH;
 
     #[test]
@@ -846,24 +842,10 @@ mod tests {
     }
 
     #[test]
-    #[cfg(not(target_os = "windows"))]
     #[should_panic(
-        expected = "Failed to connect to database at \"generated/test/dao_utils/connection_panics_if_connection_cannot_be_made/home/nonexistent_db/node-data.db\""
+        expected = "Failed to connect to database at \"generated/test/dao_utils/connection_panics_if_connection_cannot_be_made/home"
     )]
     fn connection_panics_if_connection_cannot_be_made() {
-        connection_panics_if_connection_cannot_be_made_common_body()
-    }
-
-    #[test]
-    #[cfg(target_os = "windows")]
-    #[should_panic(
-        expected = "Failed to connect to database at \"generated/test/dao_utils/connection_panics_if_connection_cannot_be_made/home\\\\nonexistent_db\\\\node-data.db\""
-    )]
-    fn connection_panics_if_connection_cannot_be_made() {
-        connection_panics_if_connection_cannot_be_made_common_body()
-    }
-
-    fn connection_panics_if_connection_cannot_be_made_common_body() {
         let data_dir = ensure_node_home_directory_exists(
             "dao_utils",
             "connection_panics_if_connection_cannot_be_made",
@@ -876,73 +858,120 @@ mod tests {
         let _ = subject.make_connection();
     }
 
-    #[test]
-    fn multi_update_rows_changed_returns_all_satisfying_results() {
-        let random_collection_of_changed_data = vec![Ok(5_i64), Ok(111), Ok(4321)];
-        let iterator = random_collection_of_changed_data
-            .into_iter()
-            .map(|res| match res {
-                Ok(num) => Ok(num > 0),
-                Err(e) => Err(e),
-            });
+    fn create_table_with_text_id_and_single_numeric_column(
+        conn: &Connection,
+        init_data: &[(&str, i64)],
+    ) {
+        conn.execute("create table example (name text, num integer)", [])
+            .unwrap();
+        if !init_data.is_empty() {
+            let sequence_of_values_for_inserted_rows = init_data
+                .iter()
+                .map(|(name, num)| format!("({}, {})", name, num))
+                .join(", ");
+            let rows_added = conn
+                .execute(
+                    &format!(
+                        "insert into example (name, num) values {}",
+                        sequence_of_values_for_inserted_rows
+                    ),
+                    [],
+                )
+                .unwrap();
+            assert_eq!(rows_added, init_data.len())
+        }
+    }
 
-        let result = rows_changed_for_multi_row_update_sql(Ok(iterator));
+    const UPDATE_STM_WITH_RETURNING: &str = "update example set num = num + 2 returning num";
+
+    #[test]
+    fn update_rows_and_return_their_count_returns_all_satisfying_results() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_table_with_text_id_and_single_numeric_column(
+            &conn,
+            &vec![("'A'", 12), ("'B'", 23), ("'C'", 34)],
+        );
+        let mut returning_update_stm = conn.prepare(UPDATE_STM_WITH_RETURNING).unwrap();
+        let function_to_validate_row_value = |row: &Row| row.get::<usize, i64>(0).map(|_num| true);
+
+        let result = update_rows_and_return_their_count(
+            &mut returning_update_stm,
+            function_to_validate_row_value,
+        );
 
         assert_eq!(result, Ok(3))
     }
 
     #[test]
-    fn multi_update_rows_changed_allows_use_of_predicate() {
-        let random_collection_of_changed_data = vec![Ok(5_i64), Ok(-111), Ok(4321)];
-        let iterator = random_collection_of_changed_data
-            .into_iter()
-            .map(|res| match res {
-                Ok(num) => Ok(num > 0),
-                Err(e) => Err(e),
-            });
+    fn update_rows_and_return_their_count_allows_use_of_predicate() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_table_with_text_id_and_single_numeric_column(
+            &conn,
+            &vec![("'A'", 12), ("'B'", -56), ("'C'", 34)],
+        );
+        let mut returning_update_stm = conn.prepare(UPDATE_STM_WITH_RETURNING).unwrap();
+        let function_to_validate_row_value =
+            |row: &Row| row.get::<usize, i64>(0).map(|num| num > 0);
 
-        let result = rows_changed_for_multi_row_update_sql(Ok(iterator));
+        let result = update_rows_and_return_their_count(
+            &mut returning_update_stm,
+            function_to_validate_row_value,
+        );
 
         assert_eq!(result, Ok(2))
     }
 
     #[test]
-    fn multi_update_rows_changed_suspects_0_if_nothing_changed() {
-        let random_collection_of_changed_data: Vec<Result<bool, _>> = vec![];
-        let iterator = random_collection_of_changed_data.into_iter();
+    fn update_rows_and_return_their_count_suspects_0_if_nothing_to_change() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_table_with_text_id_and_single_numeric_column(&conn, &vec![]);
+        let mut returning_update_stm = conn.prepare(UPDATE_STM_WITH_RETURNING).unwrap();
+        let function_to_validate_row_value = |row: &Row| row.get::<usize, i64>(0).map(|_num| true);
 
-        let result = rows_changed_for_multi_row_update_sql(Ok(iterator));
+        let result = update_rows_and_return_their_count(
+            &mut returning_update_stm,
+            function_to_validate_row_value,
+        );
 
         assert_eq!(result, Ok(0))
     }
 
     #[test]
-    fn multi_update_rows_changed_returns_all_errors() {
-        let random_collection_of_changed_data: Vec<Result<bool, _>> = vec![
-            Err(rusqlite::Error::QueryReturnedNoRows),
-            Err(rusqlite::Error::InvalidQuery),
-        ];
-        let iterator = random_collection_of_changed_data.into_iter();
+    fn update_rows_and_return_their_count_returns_all_errors() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_table_with_text_id_and_single_numeric_column(&conn, &vec![("'A'", 12), ("'B'", 23)]);
+        let mut returning_update_stm = conn.prepare(UPDATE_STM_WITH_RETURNING).unwrap();
+        let function_to_validate_row_value =
+            |row: &Row| row.get::<usize, String>(0).map(|_num| true);
 
-        let result = rows_changed_for_multi_row_update_sql(Ok(iterator));
+        let result = update_rows_and_return_their_count(
+            &mut returning_update_stm,
+            function_to_validate_row_value,
+        );
 
         assert_eq!(
             result,
             Err(vec![
-                rusqlite::Error::QueryReturnedNoRows,
-                rusqlite::Error::InvalidQuery
+                InvalidColumnType(0, "num".to_string(), Integer),
+                InvalidColumnType(0, "num".to_string(), Integer)
             ])
         )
     }
 
     #[test]
-    #[should_panic(expected = "query failed on params binding: InvalidParameterName(\"blah\")")]
-    fn the_first_contact_rusqlite_error_just_panics_as_it_belongs_with_the_querys_args_binding() {
-        let _ = rows_changed_for_multi_row_update_sql(Err::<
-            IntoIter<Result<bool, rusqlite::Error>>,
-            _,
-        >(
-            rusqlite::Error::InvalidParameterName("blah".to_string()),
-        ));
+    #[should_panic(expected = "query failed on params binding: InvalidParameterCount(0, 1)")]
+    fn the_first_contact_rusqlite_error_panics_as_it_always_belongs_with_query_args_binding() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_table_with_text_id_and_single_numeric_column(&conn, &vec![("'A'", 12), ("'B'", 23)]);
+        let mut returning_update_stm = conn
+            .prepare("update example set num = num + 2 where name = ? returning num")
+            .unwrap();
+        let function_to_validate_row_value =
+            |row: &Row| row.get::<usize, String>(0).map(|_num| true);
+
+        let _ = update_rows_and_return_their_count(
+            &mut returning_update_stm,
+            function_to_validate_row_value,
+        );
     }
 }

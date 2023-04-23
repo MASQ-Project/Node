@@ -16,7 +16,7 @@ use crate::accountant::dao_utils::{
     RangeStmConfig, TopStmConfig, VigilantRusqliteFlatten,
 };
 use crate::accountant::payable_dao::mark_pending_payable_associated_functions::{
-    collect_feedback, compose_when_clauses_of_case_stm, resolve_success_or_failure,
+    compose_when_clauses_of_case_stm, one_row_feedback, resolve_success_or_failure,
 };
 use crate::accountant::{
     checked_conversion, comma_joined_stringifiable, sign_conversion, PendingPayableId,
@@ -157,8 +157,8 @@ impl PayableDao for PayableDaoReal {
             comma_joined_stringifiable(wallets_and_rowids, |(wallet, _)| format!("'{}'", wallet))
         );
         let mut stm = self.conn.prepare(&sql).expect("Internal Error");
-        let returning_clause_feedback = stm.query_map([], collect_feedback);
-        resolve_success_or_failure(&*self.conn, wallets_and_rowids, returning_clause_feedback)
+        //  let returning_clause_feedback = stm.query_map([], one_row_feedback);
+        resolve_success_or_failure(&*self.conn, wallets_and_rowids, &mut stm, one_row_feedback)
     }
 
     fn transactions_confirmed(
@@ -403,23 +403,21 @@ impl TableNameDAO for PayableDaoReal {
 mod mark_pending_payable_associated_functions {
     use crate::accountant::comma_joined_stringifiable;
     use crate::accountant::dao_utils::{
-        rows_changed_for_multi_row_update_sql, VigilantRusqliteFlatten,
+        update_rows_and_return_their_count, VigilantRusqliteFlatten,
     };
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
-    use rusqlite::Row;
+    use rusqlite::{Row, Statement};
 
-    pub fn resolve_success_or_failure<T>(
+    pub fn resolve_success_or_failure(
         conn: &dyn ConnectionWrapper,
         wallets_and_rowids: &[(&Wallet, u64)],
-        returning_clause_feedback: Result<T, rusqlite::Error>,
-    ) -> Result<(), PayableDaoError>
-    where
-        T: Iterator<Item = Result<bool, rusqlite::Error>>,
-    {
-        match rows_changed_for_multi_row_update_sql(returning_clause_feedback) {
+        stm: &mut Statement,
+        check_right_value_single_row: fn(&Row) -> rusqlite::Result<bool>,
+    ) -> Result<(), PayableDaoError> {
+        match update_rows_and_return_their_count(stm, check_right_value_single_row) {
             Ok(rows_affected) => match rows_affected {
                 num if num == wallets_and_rowids.len() => Ok(()),
                 num => panic!(
@@ -441,11 +439,9 @@ mod mark_pending_payable_associated_functions {
             .join("\n")
     }
 
-    pub fn collect_feedback(row: &Row) -> Result<bool, rusqlite::Error> {
-        row.get::<usize, Option<u64>>(0).map(|opt| match opt {
-            Some(_) => true,
-            None => false,
-        })
+    pub fn one_row_feedback(row: &Row) -> Result<bool, rusqlite::Error> {
+        //we only want to see that a number is present in the optional column
+        row.get::<usize, Option<u64>>(0).map(|opt| opt.is_some())
     }
 
     fn panic_msg_non_matching_row_count(
