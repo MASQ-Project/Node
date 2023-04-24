@@ -1354,7 +1354,7 @@ mod tests {
             process_error: None,
         };
         let pending_payable_dao = PendingPayableDaoMock::default()
-            .return_all_fingerprints_result(vec![fingerprint.clone()]);
+            .return_all_errorless_fingerprints_result(vec![fingerprint.clone()]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .pending_payable_daos(vec![ForPendingPayableScanner(pending_payable_dao)])
@@ -1410,8 +1410,8 @@ mod tests {
             amount: 1_000_000,
             process_error: None,
         };
-        let pending_payable_dao =
-            PendingPayableDaoMock::default().return_all_fingerprints_result(vec![fingerprint]);
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .return_all_errorless_fingerprints_result(vec![fingerprint]);
         let subject = AccountantBuilder::default()
             .bootstrapper_config(config)
             .logger(Logger::new(test_name))
@@ -1665,8 +1665,8 @@ mod tests {
             .non_pending_payables_params(&payable_params_arc)
             .non_pending_payables_result(vec![]);
         let pending_payable_dao = PendingPayableDaoMock::default()
-            .return_all_fingerprints_params(&pending_payable_params_arc)
-            .return_all_fingerprints_result(vec![]);
+            .return_all_errorless_fingerprints_params(&pending_payable_params_arc)
+            .return_all_errorless_fingerprints_result(vec![]);
         let receivable_dao = ReceivableDaoMock::new()
             .new_delinquencies_parameters(&new_delinquencies_params_arc)
             .new_delinquencies_result(vec![])
@@ -2204,8 +2204,8 @@ mod tests {
             amount: 7999,
             process_error: None,
         };
-        let pending_payable_dao =
-            PendingPayableDaoMock::default().return_all_fingerprints_result(vec![
+        let pending_payable_dao = PendingPayableDaoMock::default()
+            .return_all_errorless_fingerprints_result(vec![
                 payable_fingerprint_1.clone(),
                 payable_fingerprint_2.clone(),
             ]);
@@ -2874,7 +2874,7 @@ mod tests {
         let mark_pending_payable_params_arc = Arc::new(Mutex::new(vec![]));
         let transactions_confirmed_params_arc = Arc::new(Mutex::new(vec![]));
         let get_transaction_receipt_params_arc = Arc::new(Mutex::new(vec![]));
-        let return_all_fingerprints_params_arc = Arc::new(Mutex::new(vec![]));
+        let return_all_errorless_fingerprints_params_arc = Arc::new(Mutex::new(vec![]));
         let non_pending_payables_params_arc = Arc::new(Mutex::new(vec![]));
         let update_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
         let mark_failure_params_arc = Arc::new(Mutex::new(vec![]));
@@ -3011,21 +3011,21 @@ mod tests {
                 (Some(rowid_for_account_2), pending_tx_hash_2),
             ]);
         let mut pending_payable_dao_for_pending_payable_scanner = PendingPayableDaoMock::new()
-            .return_all_fingerprints_params(&return_all_fingerprints_params_arc)
-            .return_all_fingerprints_result(vec![])
-            .return_all_fingerprints_result(vec![
+            .return_all_errorless_fingerprints_params(&return_all_errorless_fingerprints_params_arc)
+            .return_all_errorless_fingerprints_result(vec![])
+            .return_all_errorless_fingerprints_result(vec![
                 fingerprint_1_first_round,
                 fingerprint_2_first_round,
             ])
-            .return_all_fingerprints_result(vec![
+            .return_all_errorless_fingerprints_result(vec![
                 fingerprint_1_second_round,
                 fingerprint_2_second_round,
             ])
-            .return_all_fingerprints_result(vec![
+            .return_all_errorless_fingerprints_result(vec![
                 fingerprint_1_third_round,
                 fingerprint_2_third_round,
             ])
-            .return_all_fingerprints_result(vec![fingerprint_2_fourth_round.clone()])
+            .return_all_errorless_fingerprints_result(vec![fingerprint_2_fourth_round.clone()])
             .fingerprints_rowids_result(vec![
                 (Some(rowid_for_account_1), pending_tx_hash_1),
                 (Some(rowid_for_account_2), pending_tx_hash_2),
@@ -3041,7 +3041,7 @@ mod tests {
             //this is used during confirmation of the successful one
             .delete_fingerprints_result(Ok(()));
         pending_payable_dao_for_pending_payable_scanner
-            .have_return_all_fingerprints_shut_down_the_system = true;
+            .have_return_all_errorless_fingerprints_shut_down_the_system = true;
         let accountant_addr = Arbiter::builder()
             .stop_system_on_panic(true)
             .start(move |_| {
@@ -3089,9 +3089,10 @@ mod tests {
         );
         assert_eq!(second_payable.0, wallet_account_2);
         assert_eq!(second_payable.1, rowid_for_account_2);
-        let return_all_fingerprints_params = return_all_fingerprints_params_arc.lock().unwrap();
+        let return_all_errorless_fingerprints_params =
+            return_all_errorless_fingerprints_params_arc.lock().unwrap();
         //it varies with machines and sometimes we manage more cycles than necessary
-        assert!(return_all_fingerprints_params.len() >= 5);
+        assert!(return_all_errorless_fingerprints_params.len() >= 5);
         let non_pending_payables_params = non_pending_payables_params_arc.lock().unwrap();
         assert_eq!(*non_pending_payables_params, vec![()]); //because we disabled further scanning for payables
         let get_transaction_receipt_params = get_transaction_receipt_params_arc.lock().unwrap();

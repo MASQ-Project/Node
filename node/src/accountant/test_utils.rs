@@ -528,12 +528,12 @@ impl PayableDao for PayableDaoMock {
 
     fn transactions_confirmed(
         &self,
-        fingerprints: &[PendingPayableFingerprint],
+        confirmed_payables: &[PendingPayableFingerprint],
     ) -> Result<(), PayableDaoError> {
         self.transactions_confirmed_params
             .lock()
             .unwrap()
-            .push(fingerprints.to_vec());
+            .push(confirmed_payables.to_vec());
         self.transactions_confirmed_results.borrow_mut().remove(0)
     }
 
@@ -849,9 +849,9 @@ pub struct PendingPayableDaoMock {
     increment_scan_attempts_result: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
     mark_failures_params: Arc<Mutex<Vec<Vec<u64>>>>,
     mark_failures_results: RefCell<Vec<Result<(), PendingPayableDaoError>>>,
-    return_all_fingerprints_params: Arc<Mutex<Vec<()>>>,
-    return_all_fingerprints_results: RefCell<Vec<Vec<PendingPayableFingerprint>>>,
-    pub have_return_all_fingerprints_shut_down_the_system: bool,
+    return_all_errorless_fingerprints_params: Arc<Mutex<Vec<()>>>,
+    return_all_errorless_fingerprints_results: RefCell<Vec<Vec<PendingPayableFingerprint>>>,
+    pub have_return_all_errorless_fingerprints_shut_down_the_system: bool,
 }
 
 impl PendingPayableDao for PendingPayableDaoMock {
@@ -863,15 +863,23 @@ impl PendingPayableDao for PendingPayableDaoMock {
         self.fingerprints_rowids_results.borrow_mut().remove(0)
     }
 
-    fn return_all_fingerprints(&self) -> Vec<PendingPayableFingerprint> {
-        self.return_all_fingerprints_params.lock().unwrap().push(());
-        if self.have_return_all_fingerprints_shut_down_the_system
-            && self.return_all_fingerprints_results.borrow().is_empty()
+    fn return_all_errorless_fingerprints(&self) -> Vec<PendingPayableFingerprint> {
+        self.return_all_errorless_fingerprints_params
+            .lock()
+            .unwrap()
+            .push(());
+        if self.have_return_all_errorless_fingerprints_shut_down_the_system
+            && self
+                .return_all_errorless_fingerprints_results
+                .borrow()
+                .is_empty()
         {
             System::current().stop();
             return vec![];
         }
-        self.return_all_fingerprints_results.borrow_mut().remove(0)
+        self.return_all_errorless_fingerprints_results
+            .borrow_mut()
+            .remove(0)
     }
 
     fn insert_new_fingerprints(
@@ -948,13 +956,19 @@ impl PendingPayableDaoMock {
         self
     }
 
-    pub fn return_all_fingerprints_params(mut self, params: &Arc<Mutex<Vec<()>>>) -> Self {
-        self.return_all_fingerprints_params = params.clone();
+    pub fn return_all_errorless_fingerprints_params(
+        mut self,
+        params: &Arc<Mutex<Vec<()>>>,
+    ) -> Self {
+        self.return_all_errorless_fingerprints_params = params.clone();
         self
     }
 
-    pub fn return_all_fingerprints_result(self, result: Vec<PendingPayableFingerprint>) -> Self {
-        self.return_all_fingerprints_results
+    pub fn return_all_errorless_fingerprints_result(
+        self,
+        result: Vec<PendingPayableFingerprint>,
+    ) -> Self {
+        self.return_all_errorless_fingerprints_results
             .borrow_mut()
             .push(result);
         self

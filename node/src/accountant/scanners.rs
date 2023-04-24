@@ -471,7 +471,7 @@ impl Scanner<RequestTransactionReceipts, ReportTransactionReceipts> for PendingP
         }
         self.mark_as_started(timestamp);
         info!(logger, "Scanning for pending payable");
-        let filtered_pending_payable = self.pending_payable_dao.return_all_fingerprints();
+        let filtered_pending_payable = self.pending_payable_dao.return_all_errorless_fingerprints();
         match filtered_pending_payable.is_empty() {
             true => {
                 self.mark_as_ended(logger);
@@ -1957,8 +1957,8 @@ mod tests {
             process_error: None,
         };
         let fingerprints = vec![payable_fingerprint_1, payable_fingerprint_2];
-        let pending_payable_dao =
-            PendingPayableDaoMock::new().return_all_fingerprints_result(fingerprints.clone());
+        let pending_payable_dao = PendingPayableDaoMock::new()
+            .return_all_errorless_fingerprints_result(fingerprints.clone());
         let mut pending_payable_scanner = PendingPayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
@@ -1986,17 +1986,15 @@ mod tests {
     #[test]
     fn pending_payable_scanner_throws_error_in_case_scan_is_already_running() {
         let now = SystemTime::now();
-        let pending_payable_dao =
-            PendingPayableDaoMock::new().return_all_fingerprints_result(vec![
-                PendingPayableFingerprint {
-                    rowid: 1234,
-                    timestamp: SystemTime::now(),
-                    hash: Default::default(),
-                    attempt: 1,
-                    amount: 1_000_000,
-                    process_error: None,
-                },
-            ]);
+        let pending_payable_dao = PendingPayableDaoMock::new()
+            .return_all_errorless_fingerprints_result(vec![PendingPayableFingerprint {
+                rowid: 1234,
+                timestamp: SystemTime::now(),
+                hash: Default::default(),
+                attempt: 1,
+                amount: 1_000_000,
+                process_error: None,
+            }]);
         let mut subject = PendingPayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
@@ -2014,7 +2012,7 @@ mod tests {
     fn pending_payable_scanner_throws_an_error_when_no_fingerprint_is_found() {
         let now = SystemTime::now();
         let pending_payable_dao =
-            PendingPayableDaoMock::new().return_all_fingerprints_result(vec![]);
+            PendingPayableDaoMock::new().return_all_errorless_fingerprints_result(vec![]);
         let mut pending_payable_scanner = PendingPayableScannerBuilder::new()
             .pending_payable_dao(pending_payable_dao)
             .build();
