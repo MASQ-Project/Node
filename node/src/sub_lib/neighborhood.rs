@@ -368,7 +368,7 @@ impl Display for DescriptorParsingError<'_> {
 }
 
 #[derive(Copy, Clone, Debug, PartialEq, Eq)]
-pub enum HopsCount {
+pub enum Hops {
     OneHop = 1,
     TwoHops = 2,
     ThreeHops = 3, // minimum for anonymity
@@ -377,18 +377,18 @@ pub enum HopsCount {
     SixHops = 6,
 }
 
-impl TryFrom<String> for HopsCount {
+impl TryFrom<String> for Hops {
     type Error = String;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
 
         match value.as_str() {
-            "1" => Ok(HopsCount::OneHop),
-            "2" => Ok(HopsCount::TwoHops),
-            "3" => Ok(HopsCount::ThreeHops),
-            "4" => Ok(HopsCount::FourHops),
-            "5" => Ok(HopsCount::FiveHops),
-            "6" => Ok(HopsCount::SixHops),
+            "1" => Ok(Hops::OneHop),
+            "2" => Ok(Hops::TwoHops),
+            "3" => Ok(Hops::ThreeHops),
+            "4" => Ok(Hops::FourHops),
+            "5" => Ok(Hops::FiveHops),
+            "6" => Ok(Hops::SixHops),
             _ => Err("Invalid value for min hops count provided".to_string()),
         }
     }
@@ -397,7 +397,7 @@ impl TryFrom<String> for HopsCount {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct NeighborhoodConfig {
     pub mode: NeighborhoodMode,
-    pub min_hops_count: HopsCount,
+    pub min_hops_count: Hops,
 }
 
 lazy_static! {
@@ -582,7 +582,7 @@ impl fmt::Display for GossipFailure_0v1 {
 pub struct NeighborhoodMetadata {
     pub connection_progress_peers: Vec<IpAddr>,
     pub cpm_recipient: Recipient<ConnectionProgressMessage>,
-    pub min_hops_count: HopsCount,
+    pub min_hops_count: Hops,
 }
 
 pub struct NeighborhoodTools {
@@ -1258,16 +1258,16 @@ mod tests {
     fn min_hops_count_can_be_converted_from_string() {
         let min_hops_count = String::from("6");
 
-        let result: HopsCount = min_hops_count.try_into().unwrap();
+        let result: Hops = min_hops_count.try_into().unwrap();
 
-        assert_eq!(result, HopsCount::SixHops);
+        assert_eq!(result, Hops::SixHops);
     }
 
     #[test]
     fn min_hops_count_conversion_from_string_panics() {
         let min_hops_count = String::from("100");
 
-        let result: Result<HopsCount, String> = min_hops_count.try_into();
+        let result: Result<Hops, String> = min_hops_count.try_into();
 
         assert_eq!(result, Err("Invalid value for min hops count provided".to_string()))
     }

@@ -631,7 +631,7 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
-    use crate::sub_lib::neighborhood::{DEFAULT_RATE_PACK, HopsCount};
+    use crate::sub_lib::neighborhood::{DEFAULT_RATE_PACK, Hops};
     use crate::sub_lib::utils::make_new_multi_config;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
@@ -716,7 +716,7 @@ mod tests {
                     ],
                     DEFAULT_RATE_PACK
                 ),
-                min_hops_count: HopsCount::OneHop,
+                min_hops_count: Hops::OneHop,
             })
         );
     }
@@ -747,7 +747,7 @@ mod tests {
         );
 
         let min_hops_count = result.unwrap().min_hops_count;
-        assert_eq!(min_hops_count, HopsCount::ThreeHops);
+        assert_eq!(min_hops_count, Hops::ThreeHops);
     }
 
     #[test]

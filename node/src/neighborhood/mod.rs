@@ -46,7 +46,7 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::{HopsCount, NeighborhoodMetadata, NodeQueryResponseMetadata};
+use crate::sub_lib::neighborhood::{Hops, NeighborhoodMetadata, NodeQueryResponseMetadata};
 use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
@@ -77,7 +77,7 @@ use neighborhood_database::NeighborhoodDatabase;
 use node_record::NodeRecord;
 
 pub const CRASH_KEY: &str = "NEIGHBORHOOD";
-pub const DEFAULT_MIN_HOPS_COUNT: HopsCount = HopsCount::ThreeHops;
+pub const DEFAULT_MIN_HOPS_COUNT: Hops = Hops::ThreeHops;
 pub const UNREACHABLE_HOST_PENALTY: i64 = 100_000_000;
 pub const RESPONSE_UNDESIRABILITY_FACTOR: usize = 1_000; // assumed response length is request * this
 
@@ -91,7 +91,7 @@ pub struct Neighborhood {
     gossip_producer: Box<dyn GossipProducer>,
     neighborhood_database: NeighborhoodDatabase,
     consuming_wallet_opt: Option<Wallet>,
-    min_hops_count: HopsCount,
+    min_hops_count: Hops,
     next_return_route_id: u32,
     overall_connection_status: OverallConnectionStatus,
     chain: Chain,
@@ -1659,12 +1659,12 @@ mod tests {
     #[test]
     fn constants_have_correct_values() {
         assert_eq!(CRASH_KEY, "NEIGHBORHOOD");
-        assert_eq!(DEFAULT_MIN_HOPS_COUNT, HopsCount::ThreeHops);
+        assert_eq!(DEFAULT_MIN_HOPS_COUNT, Hops::ThreeHops);
     }
 
     #[test]
     fn min_hops_count_is_set_inside_neighborhood() {
-        let min_hops_count = HopsCount::SixHops;
+        let min_hops_count = Hops::SixHops;
         let mode = NeighborhoodMode::Standard(
             NodeAddr::new(&make_ip(1), &[1234, 2345]),
             vec![make_node_descriptor(make_ip(2))],
@@ -1685,7 +1685,7 @@ mod tests {
             ),
         );
 
-        assert_eq!(subject.min_hops_count, HopsCount::SixHops);
+        assert_eq!(subject.min_hops_count, Hops::SixHops);
     }
 
     #[test]

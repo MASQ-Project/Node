@@ -1332,7 +1332,7 @@ mod tests {
     use crate::neighborhood::gossip_producer::GossipProducerReal;
     use crate::neighborhood::node_record::NodeRecord;
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage, HopsCount};
+    use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage, Hops};
     use crate::sub_lib::utils::time_t_timestamp;
     use crate::test_utils::neighborhood_test_utils::{
         db_from_node, make_meaningless_db, make_node_record, make_node_record_f,
@@ -2565,7 +2565,7 @@ mod tests {
         assert_eq!(result, GossipAcceptanceResult::Ignored);
     }
 
-    fn assert_compute_patch(min_hops_count: HopsCount) {
+    fn assert_compute_patch(min_hops_count: Hops) {
         let subject = StandardGossipHandler::new(Logger::new("assert_compute_patch"));
         // Create Nodes
         let nodes_count = min_hops_count as usize + 2; // one to finish hops and one extra node
@@ -2601,12 +2601,12 @@ mod tests {
 
     #[test]
     fn patch_can_be_calculated_for_different_hops() {
-        assert_compute_patch(HopsCount::OneHop);
-        assert_compute_patch(HopsCount::TwoHops);
-        assert_compute_patch(HopsCount::ThreeHops);
-        assert_compute_patch(HopsCount::FourHops);
-        assert_compute_patch(HopsCount::FiveHops);
-        assert_compute_patch(HopsCount::SixHops);
+        assert_compute_patch(Hops::OneHop);
+        assert_compute_patch(Hops::TwoHops);
+        assert_compute_patch(Hops::ThreeHops);
+        assert_compute_patch(Hops::FourHops);
+        assert_compute_patch(Hops::FiveHops);
+        assert_compute_patch(Hops::SixHops);
     }
 
     #[test]
