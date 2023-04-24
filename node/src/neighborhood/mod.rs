@@ -5237,6 +5237,72 @@ mod tests {
         assert_eq!(expected_public_keys, actual_keys);
     }
 
+    fn assert_route_query_message(hops: Hops) {
+        let hops = hops as usize;
+        let nodes_count = hops + 1;
+        // Create Nodes
+        let nodes = (1..=nodes_count)
+            .map(|i| {
+                let nonce = 1000 + i as u16;
+                let has_ip = if i <= 2 {true} else {false};
+                let node = if i == 1 { make_global_cryptde_node_record(nonce, has_ip) } else { make_node_record(nonce, has_ip) };
+                node
+            })
+            .collect::<Vec<NodeRecord>>();
+        // Create Database
+        let root_node = nodes.get(0).unwrap();
+        let neighbor = nodes.get(1).unwrap();
+        let mut subject = neighborhood_from_nodes(root_node, Some(neighbor));
+        for i in 1..nodes_count {
+            subject.neighborhood_database.add_node(nodes[i].clone()).unwrap();
+            subject.neighborhood_database.add_arbitrary_full_neighbor(nodes[i-1].public_key(), nodes[i].public_key());
+        }
+
+        let result = subject.make_round_trip_route(RouteQueryMessage {
+            target_key_opt: None,
+            target_component: Component::ProxyClient,
+            minimum_hop_count: hops,
+            return_component_opt: Some(Component::ProxyServer),
+            payload_size: 10000,
+            hostname_opt: None,
+        });
+
+        let assert_hops = |cryptdes: Vec<CryptDENull>, route: &[CryptData]| {
+            assert_eq!(cryptdes.len(), route.len());
+            for (cryptde, data) in cryptdes.into_iter().zip(route) {
+                decodex::<LiveHop>(&cryptde, data).unwrap();
+            }
+        };
+        let mut route = result.clone().unwrap().route.hops;
+        let _accounting = route.pop();
+        let over_route = &route[..hops];
+        let back_route = &route[hops..];
+        let over_cryptdes = {
+            let mut over_nodes = nodes.clone();
+            over_nodes.pop();
+            over_nodes.iter()
+                .map(|node| CryptDENull::from(node.public_key(), TEST_DEFAULT_CHAIN))
+                .collect::<Vec<CryptDENull>>()
+        };
+        let back_cryptdes = {
+            nodes.iter().rev()
+                .map(|node| CryptDENull::from(node.public_key(), TEST_DEFAULT_CHAIN))
+                .collect::<Vec<CryptDENull>>()
+        };
+        assert_hops(over_cryptdes, over_route);
+        assert_hops(back_cryptdes, back_route);
+    }
+
+    #[test]
+    fn routes_can_be_calculated_for_different_hops() {
+        assert_route_query_message(Hops::OneHop);
+        assert_route_query_message(Hops::TwoHops);
+        assert_route_query_message(Hops::ThreeHops);
+        assert_route_query_message(Hops::FourHops);
+        assert_route_query_message(Hops::FiveHops);
+        assert_route_query_message(Hops::SixHops);
+    }
+
     /*
            For the next two tests, the database looks like this:
 
