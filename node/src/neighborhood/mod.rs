@@ -3970,48 +3970,6 @@ mod tests {
             .exists_log_containing(&format!("Gossip from {} ignored", peer_2_socket_addr));
     }
 
-    #[test]
-    fn neighborhood_updates_ocs_stage_and_sends_message_to_the_ui_when_first_route_can_be_made() {
-        init_test_logging();
-        let test_name = "neighborhood_updates_ocs_stage_and_sends_message_to_the_ui_when_first_route_can_be_made";
-        let mut subject: Neighborhood = make_neighborhood_linearly_connected_with_nodes(3);
-        let (ui_gateway, _, ui_gateway_arc) = make_recorder();
-        let (accountant, _, _) = make_recorder();
-        let node_to_ui_recipient = ui_gateway.start().recipient::<NodeToUiMessage>();
-        let connected_signal = accountant.start().recipient();
-        subject.logger = Logger::new(test_name);
-        subject.node_to_ui_recipient_opt = Some(node_to_ui_recipient);
-        subject.connected_signal_opt = Some(connected_signal);
-        let system = System::new(test_name);
-
-        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap(), make_cpm_recipient().0);
-
-        System::current().stop();
-        system.run();
-        let ui_recording = ui_gateway_arc.lock().unwrap();
-        let node_to_ui_message = ui_recording.get_record::<NodeToUiMessage>(0);
-        assert_eq!(ui_recording.len(), 1);
-        assert_eq!(subject.overall_connection_status.can_make_routes(), true);
-        assert_eq!(
-            subject.overall_connection_status.stage(),
-            OverallConnectionStage::ThreeHopsRouteFound
-        );
-        assert_eq!(
-            node_to_ui_message,
-            &NodeToUiMessage {
-                target: MessageTarget::AllClients,
-                body: UiConnectionChangeBroadcast {
-                    stage: UiConnectionStage::ThreeHopsRouteFound
-                }
-                .tmb(0),
-            }
-        );
-        TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {}: The connectivity check has found a 3-hops route.",
-            test_name
-        ));
-    }
-
     fn assert_connectivity_check(hops: Hops) {
         init_test_logging();
         let test_name = &format!("connectivity_check_for_{}_hops", hops as usize);
