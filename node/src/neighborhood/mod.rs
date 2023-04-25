@@ -824,7 +824,7 @@ impl Neighborhood {
         let msg = RouteQueryMessage {
             target_key_opt: None,
             target_component: Component::ProxyClient,
-            minimum_hop_count: self.min_hops_count as usize, // TODO: do we need to test this sepertely?
+            minimum_hop_count: self.min_hops_count as usize,
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
             hostname_opt: None,
