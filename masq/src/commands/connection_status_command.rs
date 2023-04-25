@@ -25,8 +25,8 @@ const CONNECTION_STATUS_ABOUT: &str =
 const NOT_CONNECTED_MSG: &str = "NotConnected: No external neighbor is connected to us.";
 const CONNECTED_TO_NEIGHBOR_MSG: &str =
     "ConnectedToNeighbor: External neighbor(s) are connected to us.";
-const THREE_HOPS_ROUTE_FOUND_MSG: &str =
-    "ThreeHopsRouteFound: You can relay data over the network.";
+const ROUTE_FOUND_MSG: &str =
+    "RouteFound: You can relay data over the network.";
 
 pub fn connection_status_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("connection-status").about(CONNECTION_STATUS_ABOUT)
@@ -42,7 +42,7 @@ impl Command for ConnectionStatusCommand {
                 let stdout_msg = match response.stage {
                     UiConnectionStage::NotConnected => NOT_CONNECTED_MSG,
                     UiConnectionStage::ConnectedToNeighbor => CONNECTED_TO_NEIGHBOR_MSG,
-                    UiConnectionStage::ThreeHopsRouteFound => THREE_HOPS_ROUTE_FOUND_MSG,
+                    UiConnectionStage::RouteFound => ROUTE_FOUND_MSG,
                 };
                 short_writeln!(context.stdout(), "\n{}\n", stdout_msg);
                 Ok(())
@@ -109,8 +109,8 @@ mod tests {
             "ConnectedToNeighbor: External neighbor(s) are connected to us."
         );
         assert_eq!(
-            THREE_HOPS_ROUTE_FOUND_MSG,
-            "ThreeHopsRouteFound: You can relay data over the network."
+            ROUTE_FOUND_MSG,
+            "RouteFound: You can relay data over the network."
         )
     }
 
@@ -164,9 +164,9 @@ mod tests {
     #[test]
     fn connection_status_command_happy_path_for_three_hops_route_found() {
         assert_on_connection_status_response(
-            UiConnectionStage::ThreeHopsRouteFound,
+            UiConnectionStage::RouteFound,
             (
-                "\nThreeHopsRouteFound: You can relay data over the network.\n\n",
+                "\nRouteFound: You can relay data over the network.\n\n",
                 "",
             ),
         );

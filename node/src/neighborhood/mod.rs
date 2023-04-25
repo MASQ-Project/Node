@@ -836,7 +836,7 @@ impl Neighborhood {
             );
             self.overall_connection_status
                 .update_ocs_stage_and_send_message_to_ui(
-                    OverallConnectionStage::ThreeHopsRouteFound,
+                    OverallConnectionStage::RouteFound,
                     self.node_to_ui_recipient_opt
                         .as_ref()
                         .expect("UI was not bound."),
@@ -3994,14 +3994,14 @@ mod tests {
         assert_eq!(subject.overall_connection_status.can_make_routes(), true);
         assert_eq!(
             subject.overall_connection_status.stage(),
-            OverallConnectionStage::ThreeHopsRouteFound
+            OverallConnectionStage::RouteFound
         );
         assert_eq!(
             node_to_ui_message,
             &NodeToUiMessage {
                 target: MessageTarget::AllClients,
                 body: UiConnectionChangeBroadcast {
-                    stage: UiConnectionStage::ThreeHopsRouteFound
+                    stage: UiConnectionStage::RouteFound
                 }
                     .tmb(0),
             }
@@ -5691,7 +5691,7 @@ mod tests {
 
     #[test]
     fn connection_status_message_is_handled_properly_for_three_hops_route_found() {
-        let stage = OverallConnectionStage::ThreeHopsRouteFound;
+        let stage = OverallConnectionStage::RouteFound;
         let client_id = 1236;
         let context_id = 4323;
 

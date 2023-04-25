@@ -21,7 +21,7 @@ impl ConnectionChangeNotification {
             UiConnectionStage::ConnectedToNeighbor => {
                 "\nConnectedToNeighbor: Established neighborship with an external node.\n"
             }
-            UiConnectionStage::ThreeHopsRouteFound => {
+            UiConnectionStage::RouteFound => {
                 "\nThreeHopsRouteFound: You can now relay data over the network.\n"
             }
         };
@@ -63,7 +63,7 @@ mod tests {
         let mut stdout = ByteArrayWriter::new();
         let stderr = ByteArrayWriter::new();
         let msg = UiConnectionChangeBroadcast {
-            stage: UiConnectionStage::ThreeHopsRouteFound,
+            stage: UiConnectionStage::RouteFound,
         };
         let term_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
 
