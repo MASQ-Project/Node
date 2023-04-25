@@ -4,6 +4,7 @@ use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
+use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET};
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_null::CryptDENull;
@@ -25,7 +26,6 @@ use masq_lib::utils::{AutomapProtocol, ExpectValue};
 use rustc_hex::FromHex;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
-use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
 
 pub trait UnprivilegedParseArgsConfiguration {
     // Only initialization that cannot be done with privilege should happen here.
@@ -215,15 +215,19 @@ pub fn make_neighborhood_config<T: UnprivilegedParseArgsConfiguration + ?Sized>(
         }
     };
 
-    let min_hops_arg =
-        value_m!(multi_config, "min-hops", String);
+    let min_hops_arg = value_m!(multi_config, "min-hops", String);
     let min_hops_count = match min_hops_arg {
         None => DEFAULT_MIN_HOPS_COUNT,
-        Some(string) => string.try_into().unwrap_or_else(|error| panic!("{}", error))
+        Some(string) => string
+            .try_into()
+            .unwrap_or_else(|error| panic!("{}", error)),
     };
 
     match make_neighborhood_mode(multi_config, neighbor_configs, persistent_config) {
-        Ok(mode) => Ok(NeighborhoodConfig { mode, min_hops_count }),
+        Ok(mode) => Ok(NeighborhoodConfig {
+            mode,
+            min_hops_count,
+        }),
         Err(e) => Err(e),
     }
 }
@@ -631,7 +635,7 @@ mod tests {
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
     use crate::sub_lib::cryptde::{PlainData, PublicKey};
-    use crate::sub_lib::neighborhood::{DEFAULT_RATE_PACK, Hops};
+    use crate::sub_lib::neighborhood::{Hops, DEFAULT_RATE_PACK};
     use crate::sub_lib::utils::make_new_multi_config;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
@@ -763,12 +767,14 @@ mod tests {
             .param("--min-hops", "100");
         let vcl = CommandLineVcl::new(args.into());
 
-        let result = make_new_multi_config(
-            &app_node(),
-            vec![Box::new(vcl)],
-        ).err().unwrap();
+        let result = make_new_multi_config(&app_node(), vec![Box::new(vcl)])
+            .err()
+            .unwrap();
 
-        assert_eq!(result, ConfiguratorError::required("min-hops", "Invalid value: '100'"));
+        assert_eq!(
+            result,
+            ConfiguratorError::required("min-hops", "Invalid value: '100'")
+        );
     }
 
     #[test]
@@ -799,7 +805,7 @@ mod tests {
         let node_addr = match result {
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(node_addr, _, _),
-                   min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
             }) => node_addr,
             x => panic!("Wasn't expecting {:?}", x),
         };

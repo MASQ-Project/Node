@@ -5,7 +5,9 @@ use crate::neighborhood::neighborhood_database::{NeighborhoodDatabase, Neighborh
 use crate::neighborhood::node_record::NodeRecord;
 use crate::neighborhood::AccessibleGossipRecord;
 use crate::sub_lib::cryptde::{CryptDE, PublicKey};
-use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1, NeighborhoodMetadata};
+use crate::sub_lib::neighborhood::{
+    ConnectionProgressEvent, ConnectionProgressMessage, GossipFailure_0v1, NeighborhoodMetadata,
+};
 use crate::sub_lib::node_addr::NodeAddr;
 use masq_lib::logger::Logger;
 use std::cell::RefCell;
@@ -520,7 +522,8 @@ impl GossipHandler for PassHandler {
                 peer_addr: _gossip_source.ip(),
                 event,
             };
-            neighborhood_metadata.cpm_recipient
+            neighborhood_metadata
+                .cpm_recipient
                 .try_send(connection_progress_message)
                 .expect("System is dead.");
         };
@@ -537,7 +540,10 @@ impl GossipHandler for PassHandler {
 
         let mut hash_map = self.previous_pass_targets.borrow_mut();
         let gossip_acceptance_result = match hash_map.get_mut(&pass_target_ip_addr) {
-            None => match neighborhood_metadata.connection_progress_peers.contains(&pass_target_ip_addr) {
+            None => match neighborhood_metadata
+                .connection_progress_peers
+                .contains(&pass_target_ip_addr)
+            {
                 true => {
                     send_cpm(ConnectionProgressEvent::PassLoopFound);
                     GossipAcceptanceResult::Ignored
@@ -655,7 +661,8 @@ impl GossipHandler for IntroductionHandler {
                 peer_addr: introducer_ip_addr,
                 event: ConnectionProgressEvent::IntroductionGossipReceived(introducee_ip_addr),
             };
-            neighborhood_metadata.cpm_recipient
+            neighborhood_metadata
+                .cpm_recipient
                 .try_send(connection_progess_message)
                 .expect("Neighborhood is dead");
             let (debut, target_key, target_node_addr) =
@@ -933,7 +940,11 @@ impl GossipHandler for StandardGossipHandler {
         let initial_neighborship_status =
             StandardGossipHandler::check_full_neighbor(database, gossip_source.ip());
 
-        let patch = self.compute_patch(&agrs, database.root(), neighborhood_metadata.min_hops_count as u8);
+        let patch = self.compute_patch(
+            &agrs,
+            database.root(),
+            neighborhood_metadata.min_hops_count as u8,
+        );
         let filtered_agrs = self.filter_agrs_by_patch(agrs, patch);
 
         let mut db_changed = self.identify_and_add_non_introductory_new_nodes(
@@ -956,7 +967,8 @@ impl GossipHandler for StandardGossipHandler {
                     peer_addr: gossip_source.ip(),
                     event: ConnectionProgressEvent::StandardGossipReceived,
                 };
-                neighborhood_metadata.cpm_recipient
+                neighborhood_metadata
+                    .cpm_recipient
                     .try_send(cpm)
                     .unwrap_or_else(|e| panic!("Neighborhood is dead: {}", e));
             }
@@ -1263,7 +1275,7 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
                     database,
                     agrs,
                     gossip_source,
-                    neighborhood_metadata
+                    neighborhood_metadata,
                 )
             }
             Qualification::Unmatched => {
@@ -1275,9 +1287,7 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
 }
 
 impl<'a> GossipAcceptorReal<'a> {
-    pub fn new(
-        cryptde: &'a dyn CryptDE,
-    ) -> GossipAcceptorReal {
+    pub fn new(cryptde: &'a dyn CryptDE) -> GossipAcceptorReal {
         let logger = Logger::new("GossipAcceptor");
         GossipAcceptorReal {
             gossip_handlers: vec![
@@ -1331,6 +1341,7 @@ mod tests {
     use crate::neighborhood::gossip_producer::GossipProducer;
     use crate::neighborhood::gossip_producer::GossipProducerReal;
     use crate::neighborhood::node_record::NodeRecord;
+    use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage, Hops};
     use crate::sub_lib::utils::time_t_timestamp;
@@ -1346,7 +1357,6 @@ mod tests {
     use std::ops::{Add, Sub};
     use std::str::FromStr;
     use std::time::Duration;
-    use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
 
     #[test]
     fn constants_have_correct_values() {
@@ -1388,7 +1398,7 @@ mod tests {
             &mut db,
             agrs_vec,
             gossip_source_opt,
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         assert_eq!(Qualification::Matched, qualifies_result);
@@ -1423,7 +1433,7 @@ mod tests {
             &mut db,
             agrs_vec,
             gossip_source,
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         assert_eq!(Qualification::Matched, qualifies_result);
@@ -1476,7 +1486,7 @@ mod tests {
             &mut dest_db,
             agrs_vec,
             src_root.node_addr_opt().unwrap().into(),
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         assert_eq!(result, GossipAcceptanceResult::Accepted);
@@ -1508,7 +1518,7 @@ mod tests {
             &mut dest_db,
             agrs_vec,
             src_root.node_addr_opt().unwrap().into(),
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         assert_eq!(
@@ -1620,7 +1630,7 @@ mod tests {
             &mut dest_db,
             agrs_vec,
             dest_root.node_addr_opt().clone().unwrap().into(),
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         assert_eq!(result, GossipAcceptanceResult::Accepted);
@@ -1640,7 +1650,7 @@ mod tests {
             &mut dest_db,
             agrs_vec,
             gossip_source,
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         assert_eq!(Qualification::Matched, qualifies_result);
@@ -1897,7 +1907,7 @@ mod tests {
             &mut dest_db,
             agrs.clone(),
             gossip_source,
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         let after = time_t_timestamp();
@@ -1942,7 +1952,7 @@ mod tests {
             &mut dest_db,
             agrs.clone(),
             gossip_source,
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         assert_eq!(Qualification::Matched, qualifies_result);
@@ -1990,7 +2000,7 @@ mod tests {
             &mut dest_db,
             agrs.clone(),
             gossip_source,
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         assert_eq!(handle_result, GossipAcceptanceResult::Ignored);
@@ -2018,7 +2028,7 @@ mod tests {
             &mut dest_db,
             agrs.clone(),
             gossip_source,
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         assert_eq!(Qualification::Matched, qualifies_result);
@@ -2073,7 +2083,7 @@ mod tests {
             &mut dest_db,
             agrs.clone(),
             gossip_source,
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         assert_eq!(Qualification::Matched, qualifies_result);
@@ -2326,7 +2336,7 @@ mod tests {
             &mut dest_db,
             agrs_vec,
             gossip_source,
-            neighborhood_metadata
+            neighborhood_metadata,
         );
 
         assert_eq!(Qualification::Matched, qualifies_result);
@@ -2559,7 +2569,7 @@ mod tests {
             &mut node_a_db,
             agrs,
             gossip_source,
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         assert_eq!(result, GossipAcceptanceResult::Ignored);
@@ -2580,7 +2590,8 @@ mod tests {
         let mut root_node_db = db_from_node(root_node);
         for i in 1..nodes_count {
             root_node_db.add_node(nodes[i].clone()).unwrap();
-            root_node_db.add_arbitrary_full_neighbor(nodes[i-1].public_key(), nodes[i].public_key());
+            root_node_db
+                .add_arbitrary_full_neighbor(nodes[i - 1].public_key(), nodes[i].public_key());
         }
         // Create Gossip
         let mut gossip_builder = GossipBuilder::new(&root_node_db);
@@ -2594,7 +2605,10 @@ mod tests {
 
         let mut expected_nodes = nodes;
         expected_nodes.pop();
-        let expected_hashet = expected_nodes.iter().map(|node| node.public_key().clone()).collect::<HashSet<PublicKey>>();
+        let expected_hashet = expected_nodes
+            .iter()
+            .map(|node| node.public_key().clone())
+            .collect::<HashSet<PublicKey>>();
 
         assert_eq!(result, expected_hashet);
     }
@@ -2638,7 +2652,7 @@ mod tests {
             &mut root_db,
             agrs,
             src_node_socket_addr,
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         System::current().stop();
@@ -2678,7 +2692,7 @@ mod tests {
             &mut root_db,
             agrs,
             src_node_socket_addr,
-            neighborhood_metadata
+            neighborhood_metadata,
         );
 
         System::current().stop();
@@ -2725,7 +2739,7 @@ mod tests {
             &mut root_db,
             agrs,
             src_node_socket_addr,
-            neighborhood_metadata
+            neighborhood_metadata,
         );
 
         System::current().stop();
@@ -2766,7 +2780,7 @@ mod tests {
             &mut root_db,
             agrs,
             src_node_socket_addr,
-            neighborhood_metadata
+            neighborhood_metadata,
         );
 
         System::current().stop();
@@ -2809,7 +2823,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             src_root.node_addr_opt().clone().unwrap().into(),
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         assert_eq!(result, GossipAcceptanceResult::Ignored);
@@ -2893,7 +2907,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             src_node.node_addr_opt().unwrap().into(),
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         assert_eq!(GossipAcceptanceResult::Ignored, result);
@@ -2912,7 +2926,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             gossip_source,
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         let after = time_t_timestamp();
@@ -2951,7 +2965,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             gossip_source,
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         let after = time_t_timestamp();
@@ -3022,7 +3036,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             gossip_source,
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         let after = time_t_timestamp();
@@ -3118,7 +3132,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             gossip_source,
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         let expected_acceptance_gossip_2 = GossipBuilder::new(&dest_db)
@@ -3207,7 +3221,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             gossip_source,
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         let expected_acceptance_gossip = GossipBuilder::new(&dest_db)
@@ -3262,7 +3276,7 @@ mod tests {
             &mut dest_db,
             debut.try_into().unwrap(),
             gossip_source,
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         assert_eq!(GossipAcceptanceResult::Ignored, result);
@@ -3297,7 +3311,12 @@ mod tests {
         let subject = make_subject(main_cryptde());
 
         let begin_at = time_t_timestamp();
-        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source, make_default_neighborhood_metadata());
+        let result = subject.handle(
+            &mut dest_db,
+            debut_agrs,
+            gossip_source,
+            make_default_neighborhood_metadata(),
+        );
         let end_at = time_t_timestamp();
 
         assert_eq!(GossipAcceptanceResult::Accepted, result);
@@ -3325,7 +3344,12 @@ mod tests {
         let gossip_source = src_node.node_addr_opt().unwrap().into();
         let subject = make_subject(main_cryptde());
 
-        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source, make_default_neighborhood_metadata());
+        let result = subject.handle(
+            &mut dest_db,
+            debut_agrs,
+            gossip_source,
+            make_default_neighborhood_metadata(),
+        );
 
         assert_eq!(result, GossipAcceptanceResult::Accepted);
         assert_eq!(
@@ -3355,7 +3379,12 @@ mod tests {
         let gossip_source = src_node.node_addr_opt().unwrap().into();
         let subject = make_subject(main_cryptde());
 
-        let result = subject.handle(&mut dest_db, debut_agrs, gossip_source, make_default_neighborhood_metadata());
+        let result = subject.handle(
+            &mut dest_db,
+            debut_agrs,
+            gossip_source,
+            make_default_neighborhood_metadata(),
+        );
 
         assert_eq!(result, GossipAcceptanceResult::Accepted);
         assert_eq!(
@@ -3384,13 +3413,7 @@ mod tests {
         let system =
             System::new("introduction_gossip_handler_sends_cpm_for_neighborship_established");
 
-        subject.handle(
-            cryptde,
-            &mut db,
-            agrs,
-            gossip_source,
-            neighborhood_metadata
-        );
+        subject.handle(cryptde, &mut db, agrs, gossip_source, neighborhood_metadata);
 
         System::current().stop();
         assert_eq!(system.run(), 0);
@@ -3425,7 +3448,12 @@ mod tests {
         let (gossip, pass_target, gossip_source) = make_pass(2345);
         let subject = make_subject(main_cryptde());
 
-        let result = subject.handle(&mut db, gossip.try_into().unwrap(), gossip_source, make_default_neighborhood_metadata());
+        let result = subject.handle(
+            &mut db,
+            gossip.try_into().unwrap(),
+            gossip_source,
+            make_default_neighborhood_metadata(),
+        );
 
         let expected_relay_gossip = GossipBuilder::new(&db)
             .node(root_node.public_key(), true)
@@ -3459,7 +3487,7 @@ mod tests {
             &mut db,
             gossip.try_into().unwrap(),
             gossip_source,
-            neighborhood_metadata
+            neighborhood_metadata,
         );
 
         let final_timestamp = SystemTime::now();
@@ -3513,7 +3541,7 @@ mod tests {
             &mut db,
             gossip.try_into().unwrap(),
             gossip_source,
-            neighborhood_metadata
+            neighborhood_metadata,
         );
 
         let final_timestamp = SystemTime::now();
@@ -3555,7 +3583,7 @@ mod tests {
             &mut db,
             gossip.try_into().unwrap(),
             gossip_source,
-            neighborhood_metadata
+            neighborhood_metadata,
         );
 
         System::current().stop();
@@ -3596,7 +3624,7 @@ mod tests {
             &mut db,
             gossip.try_into().unwrap(),
             gossip_source,
-            neighborhood_metadata
+            neighborhood_metadata,
         );
 
         let final_timestamp = SystemTime::now();
@@ -3701,7 +3729,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             node_a.node_addr_opt().unwrap().into(),
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         let after = time_t_timestamp();
@@ -3817,7 +3845,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             src_node.node_addr_opt().unwrap().into(),
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         let after = time_t_timestamp();
@@ -3904,7 +3932,7 @@ mod tests {
             &mut dest_db,
             gossip.try_into().unwrap(),
             src_root.node_addr_opt().unwrap().into(),
-            make_default_neighborhood_metadata()
+            make_default_neighborhood_metadata(),
         );
 
         let after = time_t_timestamp();

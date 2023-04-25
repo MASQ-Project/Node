@@ -612,6 +612,7 @@ mod tests {
     use crate::actor_system_factory::tests::ShouldWeRunTheTest::{GoAhead, Skip};
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
+    use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
     use crate::node_test_utils::{
         make_stream_handler_pool_subs_from, make_stream_handler_pool_subs_from_recorder,
         start_recorder_refcell_opt,
@@ -678,7 +679,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
 
     struct LogRecipientSetterNull {}
 

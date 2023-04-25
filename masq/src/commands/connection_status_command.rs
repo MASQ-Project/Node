@@ -25,8 +25,7 @@ const CONNECTION_STATUS_ABOUT: &str =
 const NOT_CONNECTED_MSG: &str = "NotConnected: No external neighbor is connected to us.";
 const CONNECTED_TO_NEIGHBOR_MSG: &str =
     "ConnectedToNeighbor: External neighbor(s) are connected to us.";
-const ROUTE_FOUND_MSG: &str =
-    "RouteFound: You can relay data over the network.";
+const ROUTE_FOUND_MSG: &str = "RouteFound: You can relay data over the network.";
 
 pub fn connection_status_subcommand() -> App<'static, 'static> {
     SubCommand::with_name("connection-status").about(CONNECTION_STATUS_ABOUT)
@@ -165,10 +164,7 @@ mod tests {
     fn connection_status_command_happy_path_for_three_hops_route_found() {
         assert_on_connection_status_response(
             UiConnectionStage::RouteFound,
-            (
-                "\nRouteFound: You can relay data over the network.\n\n",
-                "",
-            ),
+            ("\nRouteFound: You can relay data over the network.\n\n", ""),
         );
     }
 

@@ -13,12 +13,12 @@ use std::convert::TryFrom;
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 
-use actix::{Addr, AsyncContext};
 use actix::Context;
 use actix::Handler;
 use actix::MessageResult;
 use actix::Recipient;
 use actix::{Actor, System};
+use actix::{Addr, AsyncContext};
 use itertools::Itertools;
 use masq_lib::messages::{
     FromMessageBody, ToMessageBody, UiConnectionStage, UiConnectionStatusRequest,
@@ -46,7 +46,6 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::{Hops, NeighborhoodMetadata, NodeQueryResponseMetadata};
 use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
@@ -55,6 +54,7 @@ use crate::sub_lib::neighborhood::{AskAboutDebutGossipMessage, NodeDescriptor};
 use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ExpectedServices};
 use crate::sub_lib::neighborhood::{ConnectionProgressMessage, ExpectedService};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
+use crate::sub_lib::neighborhood::{Hops, NeighborhoodMetadata, NodeQueryResponseMetadata};
 use crate::sub_lib::neighborhood::{NRMetadataChange, NodeQueryMessage};
 use crate::sub_lib::neighborhood::{NeighborhoodSubs, NeighborhoodTools};
 use crate::sub_lib::node_addr::NodeAddr;
@@ -470,9 +470,7 @@ impl Neighborhood {
             hopper_no_lookup_opt: None,
             connected_signal_opt: None,
             node_to_ui_recipient_opt: None,
-            gossip_acceptor: Box::new(GossipAcceptorReal::new(
-                cryptde,
-            )),
+            gossip_acceptor: Box::new(GossipAcceptorReal::new(cryptde)),
             gossip_producer: Box::new(GossipProducerReal::new()),
             neighborhood_database,
             consuming_wallet_opt: config.consuming_wallet_opt.clone(),
@@ -626,7 +624,12 @@ impl Neighborhood {
         );
     }
 
-    fn handle_gossip(&mut self, incoming_gossip: Gossip_0v1, gossip_source: SocketAddr, cpm_recipient: Recipient<ConnectionProgressMessage>) {
+    fn handle_gossip(
+        &mut self,
+        incoming_gossip: Gossip_0v1,
+        gossip_source: SocketAddr,
+        cpm_recipient: Recipient<ConnectionProgressMessage>,
+    ) {
         let record_count = incoming_gossip.node_records.len();
         info!(
             self.logger,
@@ -714,7 +717,12 @@ impl Neighborhood {
             .collect()
     }
 
-    fn handle_gossip_agrs(&mut self, agrs: Vec<AccessibleGossipRecord>, gossip_source: SocketAddr, cpm_recipient: Recipient<ConnectionProgressMessage>) {
+    fn handle_gossip_agrs(
+        &mut self,
+        agrs: Vec<AccessibleGossipRecord>,
+        gossip_source: SocketAddr,
+        cpm_recipient: Recipient<ConnectionProgressMessage>,
+    ) {
         let neighbor_keys_before = self.neighbor_keys();
         self.handle_agrs(agrs, gossip_source, cpm_recipient);
         let neighbor_keys_after = self.neighbor_keys();
@@ -730,7 +738,12 @@ impl Neighborhood {
             .collect()
     }
 
-    fn handle_agrs(&mut self, agrs: Vec<AccessibleGossipRecord>, gossip_source: SocketAddr, cpm_recipient: Recipient<ConnectionProgressMessage>) {
+    fn handle_agrs(
+        &mut self,
+        agrs: Vec<AccessibleGossipRecord>,
+        gossip_source: SocketAddr,
+        cpm_recipient: Recipient<ConnectionProgressMessage>,
+    ) {
         let ignored_node_name = self.gossip_source_name(&agrs, gossip_source);
         let gossip_record_count = agrs.len();
         let neighborhood_metadata = NeighborhoodMetadata {
@@ -738,14 +751,12 @@ impl Neighborhood {
             cpm_recipient,
             min_hops_count: self.min_hops_count,
         };
-        let acceptance_result = self
-            .gossip_acceptor
-            .handle(
-                &mut self.neighborhood_database,
-                agrs,
-                gossip_source,
-                neighborhood_metadata
-            );
+        let acceptance_result = self.gossip_acceptor.handle(
+            &mut self.neighborhood_database,
+            agrs,
+            gossip_source,
+            neighborhood_metadata,
+        );
         match acceptance_result {
             GossipAcceptanceResult::Accepted => self.gossip_to_neighbors(),
             GossipAcceptanceResult::Reply(next_debut, target_key, target_node_addr) => {
@@ -1609,11 +1620,11 @@ mod tests {
     use crate::sub_lib::dispatcher::Endpoint;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::hopper::MessageType;
-    use crate::sub_lib::neighborhood::{NeighborhoodMetadata, RatePack};
     use crate::sub_lib::neighborhood::{
         AskAboutDebutGossipMessage, ExpectedServices, NeighborhoodMode,
     };
     use crate::sub_lib::neighborhood::{NeighborhoodConfig, DEFAULT_RATE_PACK};
+    use crate::sub_lib::neighborhood::{NeighborhoodMetadata, RatePack};
     use crate::sub_lib::peer_actors::PeerActors;
     use crate::sub_lib::stream_handler_pool::TransmitDataMsg;
     use crate::sub_lib::versioned_data::VersionedData;
@@ -1630,7 +1641,10 @@ mod tests {
     use crate::test_utils::recorder::peer_actors_builder;
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
-    use crate::test_utils::unshared_test_utils::{make_node_to_ui_recipient, make_recipient_and_recording_arc, prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, make_cpm_recipient};
+    use crate::test_utils::unshared_test_utils::{
+        make_cpm_recipient, make_node_to_ui_recipient, make_recipient_and_recording_arc,
+        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
+    };
     use crate::test_utils::vec_to_set;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
 
@@ -3710,7 +3724,10 @@ mod tests {
         let actual_gossip_source: SocketAddr = subject_node.node_addr_opt().unwrap().into();
         assert_eq!(actual_gossip_source, call_gossip_source);
         let neighbor_ip = neighbor.node_addr_opt().unwrap().ip_addr();
-        assert_eq!(neighborhood_metadata.connection_progress_peers, vec![neighbor_ip]);
+        assert_eq!(
+            neighborhood_metadata.connection_progress_peers,
+            vec![neighbor_ip]
+        );
     }
 
     #[test]
@@ -3746,7 +3763,7 @@ mod tests {
         subject.handle_gossip(
             Gossip_0v1::new(vec![]),
             SocketAddr::from_str("1.1.1.1:1111").unwrap(),
-            make_cpm_recipient().0
+            make_cpm_recipient().0,
         );
 
         System::current().stop();
@@ -3784,7 +3801,11 @@ mod tests {
         subject.hopper_no_lookup_opt = Some(peer_actors.hopper.from_hopper_client_no_lookup);
         subject.gossip_acceptor = Box::new(gossip_acceptor);
 
-        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap(), make_cpm_recipient().0);
+        subject.handle_gossip_agrs(
+            vec![],
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            make_cpm_recipient().0,
+        );
 
         System::current().stop();
         system.run();
@@ -3878,7 +3899,11 @@ mod tests {
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         bind_subject(&mut subject, peer_actors);
 
-        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap(), make_cpm_recipient().0);
+        subject.handle_gossip_agrs(
+            vec![],
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            make_cpm_recipient().0,
+        );
 
         System::current().stop();
         system.run();
@@ -3901,7 +3926,11 @@ mod tests {
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         bind_subject(&mut subject, peer_actors);
 
-        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap(), make_cpm_recipient().0);
+        subject.handle_gossip_agrs(
+            vec![],
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            make_cpm_recipient().0,
+        );
 
         System::current().stop();
         system.run();
@@ -3919,7 +3948,11 @@ mod tests {
         bind_subject(&mut subject, peer_actors);
         let system = System::new("neighborhood_does_not_start_accountant_if_no_route_can_be_made");
 
-        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap(), make_cpm_recipient().0);
+        subject.handle_gossip_agrs(
+            vec![],
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            make_cpm_recipient().0,
+        );
 
         System::current().stop();
         system.run();
@@ -3973,7 +4006,8 @@ mod tests {
     fn assert_connectivity_check(hops: Hops) {
         init_test_logging();
         let test_name = &format!("connectivity_check_for_{}_hops", hops as usize);
-        let mut subject: Neighborhood = make_neighborhood_linearly_connected_with_nodes(hops as u16);
+        let mut subject: Neighborhood =
+            make_neighborhood_linearly_connected_with_nodes(hops as u16);
         let (ui_gateway, _, ui_gateway_arc) = make_recorder();
         let (accountant, _, _) = make_recorder();
         let node_to_ui_recipient = ui_gateway.start().recipient::<NodeToUiMessage>();
@@ -3984,7 +4018,11 @@ mod tests {
         subject.connected_signal_opt = Some(connected_signal);
         let system = System::new(test_name);
 
-        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap(), make_cpm_recipient().0);
+        subject.handle_gossip_agrs(
+            vec![],
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            make_cpm_recipient().0,
+        );
 
         System::current().stop();
         system.run();
@@ -4003,7 +4041,7 @@ mod tests {
                 body: UiConnectionChangeBroadcast {
                     stage: UiConnectionStage::RouteFound
                 }
-                    .tmb(0),
+                .tmb(0),
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
@@ -4036,7 +4074,11 @@ mod tests {
         subject.connected_signal_opt = Some(connected_signal);
         let system = System::new(test_name);
 
-        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap(), make_cpm_recipient().0);
+        subject.handle_gossip_agrs(
+            vec![],
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            make_cpm_recipient().0,
+        );
 
         System::current().stop();
         system.run();
@@ -4103,7 +4145,11 @@ mod tests {
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         subject.persistent_config_opt = Some(Box::new(persistent_config));
 
-        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap(), make_cpm_recipient().0);
+        subject.handle_gossip_agrs(
+            vec![],
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            make_cpm_recipient().0,
+        );
 
         let mut set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
         let (neighbors_opt, db_password) = set_past_neighbors_params.remove(0);
@@ -4142,7 +4188,11 @@ mod tests {
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         subject.persistent_config_opt = Some(Box::new(persistent_config));
 
-        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap(), make_cpm_recipient().0);
+        subject.handle_gossip_agrs(
+            vec![],
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            make_cpm_recipient().0,
+        );
 
         let mut set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
         let (neighbors_opt, db_password) = set_past_neighbors_params.remove(0);
@@ -4173,7 +4223,11 @@ mod tests {
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         subject.persistent_config_opt = Some(Box::new(persistent_config));
 
-        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap(), make_cpm_recipient().0);
+        subject.handle_gossip_agrs(
+            vec![],
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            make_cpm_recipient().0,
+        );
 
         let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
         assert!(set_past_neighbors_params.is_empty());
@@ -4203,7 +4257,11 @@ mod tests {
         subject.persistent_config_opt = Some(Box::new(persistent_config));
         subject.db_password_opt = None;
 
-        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap(), make_cpm_recipient().0);
+        subject.handle_gossip_agrs(
+            vec![],
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            make_cpm_recipient().0,
+        );
 
         let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
         assert!(set_past_neighbors_params.is_empty());
@@ -4232,7 +4290,11 @@ mod tests {
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         subject.persistent_config_opt = Some(Box::new(persistent_config));
 
-        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap(), make_cpm_recipient().0);
+        subject.handle_gossip_agrs(
+            vec![],
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            make_cpm_recipient().0,
+        );
 
         TestLogHandler::new().exists_log_containing("WARN: Neighborhood: Could not persist immediate-neighbor changes: database locked - skipping");
     }
@@ -4260,7 +4322,11 @@ mod tests {
         subject.gossip_acceptor = Box::new(gossip_acceptor);
         subject.persistent_config_opt = Some(Box::new(persistent_config));
 
-        subject.handle_gossip_agrs(vec![], SocketAddr::from_str("1.2.3.4:1234").unwrap(), make_cpm_recipient().0);
+        subject.handle_gossip_agrs(
+            vec![],
+            SocketAddr::from_str("1.2.3.4:1234").unwrap(),
+            make_cpm_recipient().0,
+        );
 
         TestLogHandler::new().exists_log_containing("ERROR: Neighborhood: Could not persist immediate-neighbor changes: DatabaseError(\"Booga\")");
     }
@@ -4331,7 +4397,7 @@ mod tests {
         subject.handle_gossip(
             Gossip_0v1::new(vec![]),
             SocketAddr::from_str("1.1.1.1:1111").unwrap(),
-            make_cpm_recipient().0
+            make_cpm_recipient().0,
         );
 
         System::current().stop();
@@ -4422,7 +4488,7 @@ mod tests {
         subject.handle_gossip(
             Gossip_0v1::new(vec![]),
             SocketAddr::from_str("1.1.1.1:1111").unwrap(),
-            make_cpm_recipient().0
+            make_cpm_recipient().0,
         );
 
         System::current().stop();
@@ -4458,7 +4524,7 @@ mod tests {
             // In real life this would be Relay Gossip from gossip_source to debut_node.
             Gossip_0v1::new(vec![]),
             gossip_source,
-            make_cpm_recipient().0
+            make_cpm_recipient().0,
         );
 
         System::current().stop();
@@ -4500,7 +4566,7 @@ mod tests {
         subject.handle_gossip(
             Gossip_0v1::new(vec![]),
             subject_node.node_addr_opt().unwrap().into(),
-            make_cpm_recipient().0
+            make_cpm_recipient().0,
         );
 
         System::current().stop();
@@ -4527,7 +4593,7 @@ mod tests {
         subject.handle_gossip(
             Gossip_0v1::new(vec![]),
             subject_node.node_addr_opt().unwrap().into(),
-            make_cpm_recipient().0
+            make_cpm_recipient().0,
         );
 
         System::current().stop();
@@ -5254,8 +5320,12 @@ mod tests {
         let nodes = (1..=nodes_count)
             .map(|i| {
                 let nonce = 1000 + i as u16;
-                let has_ip = if i <= 2 {true} else {false};
-                let node = if i == 1 { make_global_cryptde_node_record(nonce, has_ip) } else { make_node_record(nonce, has_ip) };
+                let has_ip = if i <= 2 { true } else { false };
+                let node = if i == 1 {
+                    make_global_cryptde_node_record(nonce, has_ip)
+                } else {
+                    make_node_record(nonce, has_ip)
+                };
                 node
             })
             .collect::<Vec<NodeRecord>>();
@@ -5264,8 +5334,13 @@ mod tests {
         let neighbor = nodes.get(1).unwrap();
         let mut subject = neighborhood_from_nodes(root_node, Some(neighbor));
         for i in 1..nodes_count {
-            subject.neighborhood_database.add_node(nodes[i].clone()).unwrap();
-            subject.neighborhood_database.add_arbitrary_full_neighbor(nodes[i-1].public_key(), nodes[i].public_key());
+            subject
+                .neighborhood_database
+                .add_node(nodes[i].clone())
+                .unwrap();
+            subject
+                .neighborhood_database
+                .add_arbitrary_full_neighbor(nodes[i - 1].public_key(), nodes[i].public_key());
         }
 
         let result = subject.make_round_trip_route(RouteQueryMessage {
@@ -5290,12 +5365,15 @@ mod tests {
         let over_cryptdes = {
             let mut over_nodes = nodes.clone();
             over_nodes.pop();
-            over_nodes.iter()
+            over_nodes
+                .iter()
                 .map(|node| CryptDENull::from(node.public_key(), TEST_DEFAULT_CHAIN))
                 .collect::<Vec<CryptDENull>>()
         };
         let back_cryptdes = {
-            nodes.iter().rev()
+            nodes
+                .iter()
+                .rev()
                 .map(|node| CryptDENull::from(node.public_key(), TEST_DEFAULT_CHAIN))
                 .collect::<Vec<CryptDENull>>()
         };

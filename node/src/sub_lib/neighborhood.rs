@@ -381,7 +381,6 @@ impl TryFrom<String> for Hops {
     type Error = String;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-
         match value.as_str() {
             "1" => Ok(Hops::OneHop),
             "2" => Ok(Hops::TwoHops),
@@ -1269,6 +1268,9 @@ mod tests {
 
         let result: Result<Hops, String> = min_hops_count.try_into();
 
-        assert_eq!(result, Err("Invalid value for min hops count provided".to_string()))
+        assert_eq!(
+            result,
+            Err("Invalid value for min hops count provided".to_string())
+        )
     }
 }

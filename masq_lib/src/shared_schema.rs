@@ -416,7 +416,7 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
             .min_values(1)
             .max_values(1)
             .possible_values(&["1", "2", "3", "4", "5", "6"])
-            .help(MIN_HOPS_HELP)
+            .help(MIN_HOPS_HELP),
     )
     .arg(
         Arg::with_name("neighborhood-mode")

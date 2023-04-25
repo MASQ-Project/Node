@@ -118,7 +118,7 @@ impl ConnectionProgress {
 pub enum OverallConnectionStage {
     NotConnected = 0,
     ConnectedToNeighbor = 1, // When an Introduction or Standard Gossip (acceptance) is received
-    RouteFound = 2, // Data can be relayed once this stage is reached
+    RouteFound = 2,          // Data can be relayed once this stage is reached
 }
 
 impl From<OverallConnectionStage> for UiConnectionStage {
@@ -827,10 +827,7 @@ mod tests {
 
         let route_found_converted: UiConnectionStage = route_found.into();
 
-        assert_eq!(
-            route_found_converted,
-            UiConnectionStage::RouteFound
-        );
+        assert_eq!(route_found_converted, UiConnectionStage::RouteFound);
     }
 
     #[test]

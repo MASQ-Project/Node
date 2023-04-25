@@ -3,7 +3,7 @@ use crate::bootstrapper::BootstrapperConfig;
 use crate::neighborhood::gossip::GossipNodeRecord;
 use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use crate::neighborhood::node_record::{NodeRecord, NodeRecordInner_0v1};
-use crate::neighborhood::{AccessibleGossipRecord, DEFAULT_MIN_HOPS_COUNT, Neighborhood};
+use crate::neighborhood::{AccessibleGossipRecord, Neighborhood, DEFAULT_MIN_HOPS_COUNT};
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
 use crate::sub_lib::cryptde_null::CryptDENull;
