@@ -62,9 +62,6 @@ trait GossipHandler: NamedType + Send /* Send because lazily-written tests requi
         agrs: Vec<AccessibleGossipRecord>,
         gossip_source: SocketAddr,
         neighborhood_metadata: NeighborhoodMetadata,
-        // connection_progress_peers: Vec<IpAddr>,
-        // cpm_recipient: Recipient<ConnectionProgressMessage>,
-        // min_hops_count: u8,
     ) -> GossipAcceptanceResult;
 }
 
@@ -1265,11 +1262,6 @@ impl<'a> GossipAcceptor for GossipAcceptorReal<'a> {
                     "Gossip delegated to {}",
                     handler_ref.type_name()
                 );
-                // let neighborhood_metadata = NeighborhoodMetadata {
-                //     connection_progress_peers,
-                //     cpm_recipient: self.cpm_recipient.clone(),
-                //     min_hops_count,
-                // };
                 handler_ref.handle(
                     self.cryptde,
                     database,
