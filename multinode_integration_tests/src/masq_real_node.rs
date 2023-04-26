@@ -20,7 +20,7 @@ use node_lib::sub_lib::accountant::{
 };
 use node_lib::sub_lib::cryptde::{CryptDE, PublicKey};
 use node_lib::sub_lib::cryptde_null::CryptDENull;
-use node_lib::sub_lib::neighborhood::{RatePack, DEFAULT_RATE_PACK, ZERO_RATE_PACK};
+use node_lib::sub_lib::neighborhood::{RatePack, DEFAULT_RATE_PACK, ZERO_RATE_PACK, Hops};
 use node_lib::sub_lib::node_addr::NodeAddr;
 use node_lib::sub_lib::wallet::Wallet;
 use regex::Regex;
@@ -34,6 +34,7 @@ use std::str::FromStr;
 use std::string::ToString;
 use std::thread;
 use std::time::Duration;
+use node_lib::neighborhood::DEFAULT_MIN_HOPS_COUNT;
 
 pub const DATA_DIRECTORY: &str = "/node_root/home";
 
@@ -112,6 +113,7 @@ pub fn make_consuming_wallet_info(token: &str) -> ConsumingWalletInfo {
 #[derive(PartialEq, Eq, Clone, Debug)]
 pub struct NodeStartupConfig {
     pub neighborhood_mode: String,
+    pub min_hops_count: Hops,
     pub ip_info: LocalIpInfo,
     pub dns_servers_opt: Option<Vec<IpAddr>>,
     pub neighbors: Vec<NodeReference>,
@@ -143,6 +145,7 @@ impl NodeStartupConfig {
     pub fn new() -> NodeStartupConfig {
         NodeStartupConfig {
             neighborhood_mode: "standard".to_string(),
+            min_hops_count: DEFAULT_MIN_HOPS_COUNT,
             ip_info: LocalIpInfo::ZeroHop,
             dns_servers_opt: None,
             neighbors: Vec::new(),
@@ -174,6 +177,8 @@ impl NodeStartupConfig {
         let mut args = vec![];
         args.push("--neighborhood-mode".to_string());
         args.push(self.neighborhood_mode.clone());
+        args.push("--min-hops".to_string());
+        args.push(format!("{}", self.min_hops_count as usize));
         if let LocalIpInfo::DistributedKnown(ip_addr) = self.ip_info {
             args.push("--ip".to_string());
             args.push(ip_addr.to_string());
@@ -403,6 +408,7 @@ impl NodeStartupConfig {
 
 pub struct NodeStartupConfigBuilder {
     neighborhood_mode: String,
+    min_hops_count: Hops,
     ip_info: LocalIpInfo,
     dns_servers_opt: Option<Vec<IpAddr>>,
     neighbors: Vec<NodeReference>,
@@ -458,6 +464,7 @@ impl NodeStartupConfigBuilder {
     pub fn standard() -> Self {
         Self {
             neighborhood_mode: "standard".to_string(),
+            min_hops_count: DEFAULT_MIN_HOPS_COUNT,
             ip_info: LocalIpInfo::DistributedUnknown,
             dns_servers_opt: None,
             neighbors: vec![],
@@ -483,6 +490,7 @@ impl NodeStartupConfigBuilder {
     pub fn copy(config: &NodeStartupConfig) -> Self {
         Self {
             neighborhood_mode: config.neighborhood_mode.clone(),
+            min_hops_count: DEFAULT_MIN_HOPS_COUNT,
             ip_info: config.ip_info,
             dns_servers_opt: config.dns_servers_opt.clone(),
             neighbors: config.neighbors.clone(),
@@ -519,6 +527,11 @@ impl NodeStartupConfigBuilder {
         } else {
             panic!("Unrecognized --neighborhood-mode: '{}'", value)
         }
+    }
+
+    pub fn min_hops_count(mut self, value: Hops) -> Self {
+        self.min_hops_count = value;
+        self
     }
 
     pub fn ip(mut self, value: IpAddr) -> Self {
@@ -634,6 +647,7 @@ impl NodeStartupConfigBuilder {
     pub fn build(self) -> NodeStartupConfig {
         NodeStartupConfig {
             neighborhood_mode: self.neighborhood_mode,
+            min_hops_count: self.min_hops_count,
             ip_info: self.ip_info,
             dns_servers_opt: self.dns_servers_opt,
             neighbors: self.neighbors,
@@ -1289,6 +1303,7 @@ mod tests {
 
     #[test]
     fn node_startup_config_builder_settings() {
+        let min_hops_count = Hops::SixHops;
         let ip_addr = IpAddr::from_str("1.2.3.4").unwrap();
         let one_neighbor_key = PublicKey::new(&[1, 2, 3, 4]);
         let one_neighbor_ip_addr = IpAddr::from_str("4.5.6.7").unwrap();
@@ -1317,6 +1332,7 @@ mod tests {
         let dns_target = IpAddr::from_str("8.9.10.11").unwrap();
 
         let result = NodeStartupConfigBuilder::standard()
+            .min_hops_count(min_hops_count)
             .ip(ip_addr)
             .dns_servers(dns_servers.clone())
             .neighbor(neighbors[0].clone())
@@ -1325,6 +1341,7 @@ mod tests {
             .dns_port(35)
             .build();
 
+        assert_eq!(result.min_hops_count, min_hops_count);
         assert_eq!(result.ip_info, LocalIpInfo::DistributedKnown(ip_addr));
         assert_eq!(result.dns_servers_opt, Some(dns_servers));
         assert_eq!(result.neighbors, neighbors);
@@ -1337,6 +1354,7 @@ mod tests {
     fn node_startup_config_builder_copy() {
         let original = NodeStartupConfig {
             neighborhood_mode: "consume-only".to_string(),
+            min_hops_count: DEFAULT_MIN_HOPS_COUNT,
             ip_info: LocalIpInfo::DistributedUnknown,
             dns_servers_opt: Some(vec![IpAddr::from_str("255.255.255.255").unwrap()]),
             neighbors: vec![NodeReference::new(
@@ -1481,6 +1499,7 @@ mod tests {
 
         let subject = NodeStartupConfigBuilder::standard()
             .neighborhood_mode("consume-only")
+            .min_hops_count(Hops::SixHops)
             .ip(IpAddr::from_str("1.3.5.7").unwrap())
             .neighbor(one_neighbor.clone())
             .neighbor(another_neighbor.clone())
@@ -1496,6 +1515,8 @@ mod tests {
             Command::strings(vec!(
                 "--neighborhood-mode",
                 "consume-only",
+                "--min-hops",
+                "6",
                 "--ip",
                 "1.3.5.7",
                 "--neighbors",
