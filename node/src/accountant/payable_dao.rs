@@ -16,11 +16,9 @@ use crate::accountant::dao_utils::{
     RangeStmConfig, TopStmConfig, VigilantRusqliteFlatten,
 };
 use crate::accountant::payable_dao::mark_pending_payable_associated_functions::{
-    compose_when_clauses_of_case_stm, one_row_feedback, resolve_success_or_failure,
+    compose_case, execute_command, serialize_wallets,
 };
-use crate::accountant::{
-    checked_conversion, comma_joined_stringifiable, sign_conversion, PendingPayableId,
-};
+use crate::accountant::{checked_conversion, sign_conversion, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::database::connection_wrapper::ConnectionWrapper;
 use crate::sub_lib::wallet::Wallet;
@@ -146,19 +144,19 @@ impl PayableDao for PayableDaoReal {
         if wallets_and_rowids.is_empty() {
             panic!("broken code: empty input is not permit to enter this method")
         }
+
+        let case_stm = compose_case(wallets_and_rowids);
+        let wallets = serialize_wallets(wallets_and_rowids, Some('\''));
         let sql = format!(
             "update payable set \
-             pending_payable_rowid = case {} end \
+                pending_payable_rowid = {} \
              where
                 pending_payable_rowid is null and wallet_address in ({})
              returning
                 pending_payable_rowid",
-            compose_when_clauses_of_case_stm(wallets_and_rowids),
-            comma_joined_stringifiable(wallets_and_rowids, |(wallet, _)| format!("'{}'", wallet))
+            case_stm, wallets,
         );
-        let mut stm = self.conn.prepare(&sql).expect("Internal Error");
-        //  let returning_clause_feedback = stm.query_map([], one_row_feedback);
-        resolve_success_or_failure(&*self.conn, wallets_and_rowids, &mut stm, one_row_feedback)
+        execute_command(&*self.conn, wallets_and_rowids, &sql)
     }
 
     fn transactions_confirmed(
@@ -187,8 +185,9 @@ impl PayableDao for PayableDaoReal {
     }
 
     fn non_pending_payables(&self) -> Vec<PayableAccount> {
-        let sql = "select wallet_address, balance_high_b, balance_low_b, last_paid_timestamp from \
-         payable where pending_payable_rowid is null";
+        let sql = "\
+        select wallet_address, balance_high_b, balance_low_b, last_paid_timestamp from \
+        payable where pending_payable_rowid is null";
         let mut stmt = self.conn.prepare(sql).expect("Internal error");
         stmt.query_map([], |row| {
             let wallet_result: Result<Wallet, Error> = row.get(0);
@@ -401,7 +400,6 @@ impl TableNameDAO for PayableDaoReal {
 }
 
 mod mark_pending_payable_associated_functions {
-    use crate::accountant::comma_joined_stringifiable;
     use crate::accountant::dao_utils::{
         update_rows_and_return_their_count, VigilantRusqliteFlatten,
     };
@@ -409,102 +407,170 @@ mod mark_pending_payable_associated_functions {
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
-    use rusqlite::{Row, Statement};
+    use rusqlite::Row;
+    use std::cmp::Ordering;
 
-    pub fn resolve_success_or_failure(
+    pub fn execute_command(
         conn: &dyn ConnectionWrapper,
         wallets_and_rowids: &[(&Wallet, u64)],
-        stm: &mut Statement,
-        check_right_value_single_row: fn(&Row) -> rusqlite::Result<bool>,
+        sql: &str,
     ) -> Result<(), PayableDaoError> {
-        match update_rows_and_return_their_count(stm, check_right_value_single_row) {
+        let mut stm = conn.prepare(sql).expect("Internal Error");
+        let validator = validate_row_updated;
+        let rows_affected_res = update_rows_and_return_their_count(&mut stm, validator);
+
+        match rows_affected_res {
             Ok(rows_affected) => match rows_affected {
                 num if num == wallets_and_rowids.len() => Ok(()),
-                num => panic!(
-                    "{}",
-                    panic_msg_non_matching_row_count(conn, wallets_and_rowids, num)
-                ),
+                num => mismatched_row_count_panic(conn, wallets_and_rowids, num),
             },
-            Err(errs) => Err(PayableDaoError::RusqliteError(format!(
-                "Multi-row update to mark pending payable hit these errors: {:?}",
-                errs
-            ))),
+            Err(errs) => {
+                let err_msg = format!(
+                    "Multi-row update to mark pending payable hit these errors: {:?}",
+                    errs
+                );
+                Err(PayableDaoError::RusqliteError(err_msg))
+            }
         }
     }
 
-    pub fn compose_when_clauses_of_case_stm(wallets_and_rowids: &[(&Wallet, u64)]) -> String {
-        wallets_and_rowids
-            .iter()
-            .map(|(wallet, rowid)| format!("when wallet_address = '{}' then {}", wallet, rowid))
-            .join("\n")
+    pub fn compose_case(wallets_and_rowids: &[(&Wallet, u64)]) -> String {
+        fn when_clause((wallet, rowid): &(&Wallet, u64)) -> String {
+            format!("when wallet_address = '{wallet}' then {rowid}")
+        }
+        format!(
+            "case {} end",
+            wallets_and_rowids.iter().map(when_clause).join("\n")
+        )
     }
 
-    pub fn one_row_feedback(row: &Row) -> Result<bool, rusqlite::Error> {
+    pub fn serialize_wallets(
+        wallets_and_rowids: &[(&Wallet, u64)],
+        quoutes_opt: Option<char>,
+    ) -> String {
+        wallets_and_rowids
+            .iter()
+            .map(|(wallet, _)| match quoutes_opt {
+                Some(char) => format!("{}{}{}", char, wallet, char),
+                None => wallet.to_string(),
+            })
+            .join(", ")
+    }
+
+    fn validate_row_updated(row: &Row) -> Result<bool, rusqlite::Error> {
         //we only want to see that a number is present in the optional column
         row.get::<usize, Option<u64>>(0).map(|opt| opt.is_some())
     }
 
-    fn panic_msg_non_matching_row_count(
+    fn mismatched_row_count_panic(
         conn: &dyn ConnectionWrapper,
         wallets_and_rowids: &[(&Wallet, u64)],
         actual_count: usize,
-    ) -> String {
-        let wallets =
-            comma_joined_stringifiable(wallets_and_rowids, |(wallet, _)| wallet.to_string());
+    ) -> ! {
+        let serialized_wallets = serialize_wallets(wallets_and_rowids, None);
+        let expected_count = wallets_and_rowids.len();
         let base_err_msg = format!(
-            "Marking pending payable rowid for wallets {} affected {} rows but expected {}",
-            wallets,
-            actual_count,
-            wallets_and_rowids.len()
+            "Marking pending payable rowid for wallets {serialized_wallets} affected \
+            {actual_count} rows but expected {expected_count}"
         );
-        let err_extension_opt =
-            error_extension_for_non_matching_row_count(conn, wallets_and_rowids);
-        [Some(base_err_msg), err_extension_opt]
-            .into_iter()
-            .flatten()
-            .join(". ")
+        todo!("just print the collection of input and also collection made out of the final state, plus add a comment explaining dangerous niches");
+        let err_extension_opt = error_extension(conn, wallets_and_rowids);
+
+        panic!(
+            "{}",
+            [Some(base_err_msg), err_extension_opt]
+                .into_iter()
+                .flatten()
+                .join(". ")
+        )
     }
 
-    fn error_extension_for_non_matching_row_count(
+
+    fn error_extension(
         conn: &dyn ConnectionWrapper,
         wallets_and_rowids: &[(&Wallet, u64)],
     ) -> Option<String> {
-        let failing_wallets = query_wallets_for_accounts_not_affected(conn, wallets_and_rowids);
+        let failing_wallets =
+            query_accounts_with_populated_but_unaffected_rowids(conn, wallets_and_rowids);
         if failing_wallets.is_empty() {
             None
         } else {
-            Some(format!("Accounts for wallets ({failing_wallets}) must have contained some populated \
-                pending payable rowids during the last write of the newest ids down to the respective table. \
-                System unreliable. Impaired, double payments may be suspected the cause in a situation \
-                like this"))
+            Some(format!(
+                "Accounts for wallets ({failing_wallets}) must have contained some populated \
+                pending payable rowids at the time of writing these newest ids down to \
+                the related table. System unreliable. Impaired, double payments may be suspected \
+                the cause in situation like this"
+            ))
             // This condition would disallow replacement for the newer ids. Instead, the rowid
             // colum should be emptied out after every payment is fully resolved and so that
             // need for the associated pending payable record passes.
         }
     }
 
-    fn query_wallets_for_accounts_not_affected(
+    fn query_accounts_with_populated_but_unaffected_rowids(
         conn: &dyn ConnectionWrapper,
         wallets_and_rowids: &[(&Wallet, u64)],
     ) -> String {
-        conn.prepare(&sql_to_catch_unaffected_accounts(wallets_and_rowids))
+        todo!("you have to simplify this!!!");
+        fn sort_by_logic<T>((wallet_a, _): &(String, T), (wallet_b, _): &(String, T)) -> Ordering {
+            Ord::cmp(wallet_a, wallet_b)
+        }
+
+        let select_accounts_with_populated_but_unchanged_rowids =
+            format!(
+                "select wallet_address, pending_payable_rowid from payable where wallet_address in ({})",
+                serialize_wallets(wallets_and_rowids, Some('\''))
+            );
+        let resulted_wallets_and_rowids = conn
+            .prepare(&select_accounts_with_populated_but_unchanged_rowids)
             .expect("select failed")
-            .query_map([], |row| row.get::<usize, String>(0))
+            .query_map([], |row| {
+                Ok((
+                    row.get::<usize, String>(0)
+                        .expect("database corrupt: wallet addresses found in bad format"),
+                    row.get::<usize, Option<u64>>(1)
+                        .expect("database_corrupt: rowid found in bad format"),
+                ))
+            })
             .expect("no args yet binding failed")
             .vigilant_flatten()
+            .collect::<Vec<(String, Option<u64>)>>();
+        let wallets_and_rowids = wallets_and_rowids
+            .into_iter()
+            .map(|(wallet, id)| (wallet.to_string(), *id))
+            .collect::<Vec<(String, u64)>>();
+        // todo!("mention still empty wallets");
+        let (wallets_and_rowids, resulted_wallets_and_rowids) =
+            if wallets_and_rowids.len() != resulted_wallets_and_rowids.len() {
+                let wallets_of_populated = resulted_wallets_and_rowids
+                    .iter()
+                    .map(|(wallet, _)| wallet.as_str())
+                    .collect::<Vec<&str>>();
+                (
+                    wallets_and_rowids
+                        .into_iter()
+                        .filter(|(wallet, _)| wallets_of_populated.contains(&wallet.as_str()))
+                        .collect::<Vec<(String, u64)>>(),
+                    resulted_wallets_and_rowids,
+                )
+            } else {
+                (wallets_and_rowids, resulted_wallets_and_rowids)
+            };
+        wallets_and_rowids
+            .into_iter()
+            .sorted_by(sort_by_logic)
+            .zip(
+                resulted_wallets_and_rowids
+                    .into_iter()
+                    .sorted_by(sort_by_logic),
+            )
+            .flat_map(
+                |((wallet, correct_id), (_, read_id_opt))| match (correct_id, read_id_opt) {
+                    (_, None) => None,
+                    (correct_id, Some(read_id)) => (correct_id != read_id).then_some(wallet),
+                },
+            )
             .join(", ")
-    }
-
-    fn sql_to_catch_unaffected_accounts(wallets_and_rowids: &[(&Wallet, u64)]) -> String {
-        format!(
-            "select wallet_address from payable where {}",
-            wallets_and_rowids
-                .iter()
-                .map(|(wallet, rowid)| {
-                    format!("(wallet_address = '{wallet}' and pending_payable_rowid != {rowid})")
-                })
-                .join(" or ")
-        )
     }
 }
 
@@ -748,8 +814,8 @@ mod tests {
         expected = "Marking pending payable rowid for wallets 0x000000000000000000000000000000686f6f6761, \
          0x000000000000000000000000000000626f6f6761, 0x00000000000000000000626f6f6761686f6f6761 affected 1 rows but expected 3. \
          Accounts for wallets (0x000000000000000000000000000000626f6f6761, 0x00000000000000000000626f6f6761686f6f6761) \
-         must have contained some populated pending payable rowids during the last write of the newest ids down to the respective \
-         table. System unreliable. Impaired, double payments may be suspected the cause in a situation like this"
+         must have contained some populated pending payable rowids at the time of the last write of the newest ids down to the related \
+         table. System unreliable. Impaired, double payments may be suspected the cause in situation like this"
     )]
     fn mark_pending_payables_rowids_refuses_to_overwrite_existing_marked_rowids() {
         let home_dir = ensure_node_home_directory_exists(

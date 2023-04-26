@@ -36,7 +36,7 @@ use crate::blockchain::blockchain_bridge::{
     PendingPayableFingerprint, PendingPayableFingerprintSeeds, RetrieveTransactions,
 };
 use crate::blockchain::blockchain_interface::{
-    BlockchainTransaction, PayablePaymentError, ProcessedPayableFallible,
+    BlockchainTransaction, PayableTransactionError, ProcessedPayableFallible,
 };
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
@@ -128,7 +128,7 @@ pub struct ReceivedPayments {
 
 #[derive(Debug, Message, PartialEq)]
 pub struct SentPayables {
-    pub payment_procedure_result: Result<Vec<ProcessedPayableFallible>, PayablePaymentError>,
+    pub payment_procedure_result: Result<Vec<ProcessedPayableFallible>, PayableTransactionError>,
     pub response_skeleton_opt: Option<ResponseSkeleton>,
 }
 

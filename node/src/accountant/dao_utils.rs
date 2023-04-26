@@ -344,10 +344,10 @@ pub fn sum_i128_values_from_table(
 
 pub fn update_rows_and_return_their_count(
     stm: &mut Statement,
-    check_right_value_single_row: fn(&Row) -> rusqlite::Result<bool>,
+    row_update_validator: fn(&Row) -> rusqlite::Result<bool>,
 ) -> Result<usize, Vec<rusqlite::Error>> {
     let init: (usize, Vec<rusqlite::Error>) = (0, vec![]);
-    let aggregated_returning_clause_feedback = stm.query_map([], check_right_value_single_row);
+    let aggregated_returning_clause_feedback = stm.query_map([], row_update_validator);
     let (oks_count, errs) = aggregated_returning_clause_feedback
         .expect("query failed on params binding")
         .fold(init, |(oks, mut errs), current| {

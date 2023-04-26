@@ -7,7 +7,7 @@ use crate::accountant::{
 use crate::accountant::{ReportTransactionReceipts, RequestTransactionReceipts};
 use crate::blockchain::blockchain_interface::{
     BlockchainError, BlockchainInterface, BlockchainInterfaceClandestine,
-    BlockchainInterfaceNonClandestine, PayablePaymentError, ProcessedPayableFallible,
+    BlockchainInterfaceNonClandestine, PayableTransactionError, ProcessedPayableFallible,
 };
 use crate::database::db_initializer::DbInitializationConfig;
 use crate::db_config::config_dao::ConfigDaoReal;
@@ -368,19 +368,24 @@ impl BlockchainBridge {
     fn process_payments(
         &self,
         msg: &ReportAccountsPayable,
-    ) -> Result<Vec<ProcessedPayableFallible>, PayablePaymentError> {
+    ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
         let (consuming_wallet, gas_price) = match self.consuming_wallet_opt.as_ref() {
             Some(consuming_wallet) => match self.persistent_config.gas_price() {
                 Ok(gas_price) => (consuming_wallet, gas_price),
-                Err(e) => return Err(PayablePaymentError::GasPriceQueryFailed(format!("{:?}", e))),
+                Err(e) => {
+                    return Err(PayableTransactionError::GasPriceQueryFailed(format!(
+                        "{:?}",
+                        e
+                    )))
+                }
             },
-            None => return Err(PayablePaymentError::MissingConsumingWallet),
+            None => return Err(PayableTransactionError::MissingConsumingWallet),
         };
 
         let pending_nonce = self
             .blockchain_interface
             .get_transaction_count(consuming_wallet)
-            .map_err(|e| PayablePaymentError::TransactionCount(e))?;
+            .map_err(|e| PayableTransactionError::TransactionCount(e))?;
 
         let new_fingerprints_recipient = self.get_new_fingerprint_recipient();
 
@@ -554,7 +559,7 @@ mod tests {
         assert_eq!(
             sent_payable_msg,
             &SentPayables {
-                payment_procedure_result: Err(PayablePaymentError::MissingConsumingWallet),
+                payment_procedure_result: Err(PayableTransactionError::MissingConsumingWallet),
                 response_skeleton_opt: None
             }
         );
@@ -678,7 +683,7 @@ mod tests {
         let wallet_account = make_wallet("blah");
         let expected_error_msg = "We were so close but we stumbled and smashed our face against \
          the ground just a moment after the signing";
-        let expected_error = Err(PayablePaymentError::Sending {
+        let expected_error = Err(PayableTransactionError::Sending {
             msg: expected_error_msg.to_string(),
             hashes: vec![hash],
         });
@@ -777,7 +782,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PayablePaymentError::TransactionCount(
+            Err(PayableTransactionError::TransactionCount(
                 BlockchainError::QueryFailed("What the hack...??".to_string())
             ))
         );
@@ -788,7 +793,7 @@ mod tests {
         let transaction_hash = make_tx_hash(789);
         let blockchain_interface_mock = BlockchainInterfaceMock::default()
             .get_transaction_count_result(Ok(web3::types::U256::from(1)))
-            .send_payables_within_batch_result(Err(PayablePaymentError::Sending {
+            .send_payables_within_batch_result(Err(PayableTransactionError::Sending {
                 msg: "failure from exhaustion".to_string(),
                 hashes: vec![transaction_hash],
             }));
@@ -820,7 +825,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PayablePaymentError::Sending {
+            Err(PayableTransactionError::Sending {
                 msg: "failure from exhaustion".to_string(),
                 hashes: vec![transaction_hash]
             })
@@ -869,7 +874,7 @@ mod tests {
         assert_eq!(
             actual_sent_payable_msg,
             &SentPayables {
-                payment_procedure_result: Err(PayablePaymentError::GasPriceQueryFailed(
+                payment_procedure_result: Err(PayableTransactionError::GasPriceQueryFailed(
                     "TransactionError".to_string()
                 )),
                 response_skeleton_opt: None

@@ -67,13 +67,13 @@ pub enum BlockchainError {
 
 impl Display for BlockchainError {
     fn fmt(&self, f: &mut Formatter) -> fmt::Result {
-        let err_type_spec = match self {
+        let err_spec = match self {
             InvalidUrl => Left("Invalid url"),
             InvalidAddress => Left("Invalid address"),
             InvalidResponse => Left("Invalid response"),
             QueryFailed(msg) => Right(format!("Query failed: {}", msg)),
         };
-        write!(f, "Blockchain error: {}", err_type_spec)
+        write!(f, "Blockchain error: {}", err_spec)
     }
 }
 
@@ -83,8 +83,7 @@ pub type Nonce = BlockchainResult<web3::types::U256>;
 pub type Receipt = BlockchainResult<Option<TransactionReceipt>>;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum PayablePaymentError {
-    GeneralMsg(String),
+pub enum PayableTransactionError {
     MissingConsumingWallet,
     GasPriceQueryFailed(String),
     TransactionCount(BlockchainError),
@@ -93,10 +92,9 @@ pub enum PayablePaymentError {
     Sending { msg: String, hashes: Vec<H256> },
 }
 
-impl Display for PayablePaymentError {
+impl Display for PayableTransactionError {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         match self {
-            Self::GeneralMsg(msg) => write!(f, "General message error: \"{}\"", msg),
             Self::MissingConsumingWallet => {
                 write!(f, "Missing consuming wallet to pay payable from")
             }
@@ -146,7 +144,7 @@ pub trait BlockchainInterface<T: Transport = Http> {
         pending_nonce: U256,
         new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
-    ) -> Result<Vec<ProcessedPayableFallible>, PayablePaymentError>;
+    ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError>;
 
     fn get_eth_balance(&self, address: &Wallet) -> Balance;
 
@@ -207,11 +205,12 @@ impl BlockchainInterface for BlockchainInterfaceClandestine {
         _last_nonce: U256,
         _new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         _accounts: &[PayableAccount],
-    ) -> Result<Vec<ProcessedPayableFallible>, PayablePaymentError> {
+    ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
         error!(self.logger, "Can't send transactions out clandestinely yet",);
-        Err(PayablePaymentError::GeneralMsg(
-            "invalid attempt to send txs clandestinely".to_string(),
-        ))
+        Err(PayableTransactionError::Sending {
+            msg: "invalid attempt to send txs clandestinely".to_string(),
+            hashes: vec![],
+        })
     }
 
     fn get_eth_balance(&self, _address: &Wallet) -> Balance {
@@ -355,7 +354,7 @@ where
         pending_nonce: U256,
         new_fingerprints_recipient: &Recipient<PendingPayableFingerprintSeeds>,
         accounts: &[PayableAccount],
-    ) -> Result<Vec<ProcessedPayableFallible>, PayablePaymentError> {
+    ) -> Result<Vec<ProcessedPayableFallible>, PayableTransactionError> {
         debug!(
             self.logger,
             "Common attributes of payables to be transacted: sender wallet: {}, contract: {:?}, chain_id: {}, gas_price: {}",
@@ -446,7 +445,7 @@ pub struct RpcPayableFailure {
     pub hash: H256,
 }
 
-type HashAndAmountResult = Result<Vec<(H256, u128)>, PayablePaymentError>;
+type HashAndAmountResult = Result<Vec<(H256, u128)>, PayableTransactionError>;
 
 impl<T> BlockchainInterfaceNonClandestine<T>
 where
@@ -587,12 +586,12 @@ where
     fn error_with_hashes(
         error: Error,
         hashes_and_paid_amounts: Vec<(H256, u128)>,
-    ) -> PayablePaymentError {
+    ) -> PayableTransactionError {
         let hashes = hashes_and_paid_amounts
             .into_iter()
             .map(|(hash, _)| hash)
             .collect();
-        PayablePaymentError::Sending {
+        PayableTransactionError::Sending {
             msg: error.to_string(),
             hashes,
         }
@@ -605,7 +604,7 @@ where
         amount: u128,
         nonce: U256,
         gas_price: u64,
-    ) -> Result<H256, PayablePaymentError> {
+    ) -> Result<H256, PayableTransactionError> {
         let signed_tx =
             self.sign_transaction(recipient, consuming_wallet, amount, nonce, gas_price)?;
         self.batch_payable_tools
@@ -620,7 +619,7 @@ where
         amount: u128,
         nonce: U256,
         gas_price: u64,
-    ) -> Result<SignedTransaction, PayablePaymentError> {
+    ) -> Result<SignedTransaction, PayableTransactionError> {
         let mut data = [0u8; 4 + 32 + 32];
         data[0..4].copy_from_slice(&TRANSFER_METHOD_ID);
         data[16..36].copy_from_slice(&recipient.address().0[..]);
@@ -654,12 +653,12 @@ where
 
         let key = match consuming_wallet.prepare_secp256k1_secret() {
             Ok(secret) => secret,
-            Err(e) => return Err(PayablePaymentError::UnusableWallet(e.to_string())),
+            Err(e) => return Err(PayableTransactionError::UnusableWallet(e.to_string())),
         };
 
         self.batch_payable_tools
             .sign_transaction(transaction_parameters, &self.batch_web3, &key)
-            .map_err(|e| PayablePaymentError::Signing(e.to_string()))
+            .map_err(|e| PayableTransactionError::Signing(e.to_string()))
     }
 
     fn transmission_log(&self, accounts: &[PayableAccount], gas_price: u64) -> String {
@@ -1818,7 +1817,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PayablePaymentError::UnusableWallet(
+            Err(PayableTransactionError::UnusableWallet(
                 "Cannot sign with non-keypair wallet: \
             Address(0x636f6e73756d652c20796f752067726565647920)."
                     .to_string()
@@ -1859,7 +1858,7 @@ mod tests {
         System::current().stop();
         system.run();
         assert_eq!(result,
-                   Err(PayablePaymentError::UnusableWallet("Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()))
+                   Err(PayableTransactionError::UnusableWallet("Cannot sign with non-keypair wallet: Address(0x3f69f9efd4f2592fd70be8c32ecd9dce71c472fc).".to_string()))
         );
         let accountant_recording = accountant_recording_arc.lock().unwrap();
         assert_eq!(accountant_recording.len(), 0)
@@ -1902,7 +1901,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PayablePaymentError::Sending {
+            Err(PayableTransactionError::Sending {
                 msg: "Transport error: Transaction crashed".to_string(),
                 hashes: vec![hash]
             })
@@ -1933,7 +1932,7 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PayablePaymentError::Signing(
+            Err(PayableTransactionError::Signing(
                 "Signing error: secp: malformed or out-of-range secret key".to_string()
             ))
         );
@@ -2431,35 +2430,35 @@ mod tests {
     #[test]
     fn payable_payment_error_implements_display() {
         let original_errors = [
-            PayablePaymentError::GeneralMsg("Spicy error".to_string()),
-            PayablePaymentError::MissingConsumingWallet,
-            PayablePaymentError::GasPriceQueryFailed("Gas halves shut, no drop left".to_string()),
-            PayablePaymentError::TransactionCount(BlockchainError::InvalidResponse),
-            PayablePaymentError::UnusableWallet(
+            PayableTransactionError::MissingConsumingWallet,
+            PayableTransactionError::GasPriceQueryFailed(
+                "Gas halves shut, no drop left".to_string(),
+            ),
+            PayableTransactionError::TransactionCount(BlockchainError::InvalidResponse),
+            PayableTransactionError::UnusableWallet(
                 "This is a LEATHER wallet, not LEDGER wallet, stupid.".to_string(),
             ),
-            PayablePaymentError::Signing(
+            PayableTransactionError::Signing(
                 "You cannot sign with just three crosses here, clever boy".to_string(),
             ),
-            PayablePaymentError::Sending {
+            PayableTransactionError::Sending {
                 msg: "Sending to cosmos belongs elsewhere".to_string(),
                 hashes: vec![make_tx_hash(0x6f), make_tx_hash(0xde)],
             },
         ];
-        let pretty_print_closure = |err_to_resolve: &PayablePaymentError| match err_to_resolve {
-            PayablePaymentError::GeneralMsg(_) => (err_to_resolve.to_string(), 11),
-            PayablePaymentError::MissingConsumingWallet => (err_to_resolve.to_string(), 22),
-            PayablePaymentError::GasPriceQueryFailed(_) => (err_to_resolve.to_string(), 33),
-            PayablePaymentError::TransactionCount(_) => (err_to_resolve.to_string(), 44),
-            PayablePaymentError::UnusableWallet(_) => (err_to_resolve.to_string(), 55),
-            PayablePaymentError::Signing(_) => (err_to_resolve.to_string(), 66),
-            PayablePaymentError::Sending { .. } => (err_to_resolve.to_string(), 77),
+        let pretty_print_closure = |err_to_resolve: &PayableTransactionError| match err_to_resolve {
+            PayableTransactionError::MissingConsumingWallet => (err_to_resolve.to_string(), 11),
+            PayableTransactionError::GasPriceQueryFailed(_) => (err_to_resolve.to_string(), 22),
+            PayableTransactionError::TransactionCount(_) => (err_to_resolve.to_string(), 33),
+            PayableTransactionError::UnusableWallet(_) => (err_to_resolve.to_string(), 44),
+            PayableTransactionError::Signing(_) => (err_to_resolve.to_string(), 55),
+            PayableTransactionError::Sending { .. } => (err_to_resolve.to_string(), 66),
         };
 
         let actual_error_msgs = collect_match_displayable_error_variants_in_exhaustive_mode(
             original_errors.as_slice(),
             pretty_print_closure,
-            vec![11, 22, 33, 44, 55, 66, 77],
+            vec![11, 22, 33, 44, 55, 66],
         );
 
         assert_eq!(

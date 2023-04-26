@@ -9,7 +9,7 @@ pub mod payable_scanner_utils {
     use crate::accountant::{comma_joined_stringifiable, SentPayables};
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{
-        PayablePaymentError, ProcessedPayableFallible, RpcPayableFailure,
+        PayableTransactionError, ProcessedPayableFallible, RpcPayableFailure,
     };
     use crate::masq_lib::utils::ExpectValue;
     use crate::sub_lib::accountant::PaymentThresholds;
@@ -24,13 +24,11 @@ pub mod payable_scanner_utils {
     use thousands::Separable;
     use web3::types::H256;
 
-    pub type RefWalletAndRowidOptCoupledWithHash<'a> = ((&'a Wallet, Option<u64>), H256);
-
     pub type VecOfRowidOptAndHash = Vec<(Option<u64>, H256)>;
 
     #[derive(Debug, PartialEq, Eq)]
     pub enum PayableTransactingErrorEnum {
-        LocallyCausedError(PayablePaymentError),
+        LocallyCausedError(PayableTransactionError),
         RemotelyCausedErrors(Vec<H256>),
     }
 
@@ -216,7 +214,7 @@ pub mod payable_scanner_utils {
         match full_set_of_errors {
             Some(errors) => match errors {
                 LocallyCausedError(blockchain_error) => match blockchain_error {
-                    PayablePaymentError::Sending { hashes, .. } => Some(hashes.len()),
+                    PayableTransactionError::Sending { hashes, .. } => Some(hashes.len()),
                     _ => None,
                 },
                 RemotelyCausedErrors(hashes) => Some(hashes.len()),
@@ -225,11 +223,17 @@ pub mod payable_scanner_utils {
         }
     }
 
+    pub struct PendingPayableTriple<'a> {
+        pub recipient: &'a Wallet,
+        pub hash: H256,
+        pub rowid_opt: Option<u64>,
+    }
+
     pub fn mark_pending_payable_fatal_error(
         sent_payments: &[&PendingPayable],
-        nonexistent: &[RefWalletAndRowidOptCoupledWithHash],
+        nonexistent: &[PendingPayableTriple],
         error: PayableDaoError,
-        missing_fingerprints_msg_maker: fn(&[RefWalletAndRowidOptCoupledWithHash]) -> String,
+        missing_fingerprints_msg_maker: fn(&[PendingPayableTriple]) -> String,
         logger: &Logger,
     ) {
         if !nonexistent.is_empty() {
@@ -434,7 +438,7 @@ mod tests {
     use crate::accountant::{checked_conversion, gwei_to_wei, SentPayables};
     use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
     use crate::blockchain::blockchain_interface::{
-        BlockchainError, PayablePaymentError, RpcPayableFailure,
+        BlockchainError, PayableTransactionError, RpcPayableFailure,
     };
     use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::PaymentThresholds;
@@ -520,7 +524,7 @@ mod tests {
     #[test]
     fn separate_errors_works_for_local_error() {
         init_test_logging();
-        let error = PayablePaymentError::Sending {
+        let error = PayableTransactionError::Sending {
             msg: "Bad luck".to_string(),
             hashes: vec![make_tx_hash(0x7b)],
         };
@@ -752,12 +756,13 @@ mod tests {
     #[test]
     fn count_total_errors_says_unknown_number_for_early_local_errors() {
         let early_local_errors = [
-            PayablePaymentError::TransactionCount(BlockchainError::QueryFailed("blah".to_string())),
-            PayablePaymentError::MissingConsumingWallet,
-            PayablePaymentError::GeneralMsg("huh".to_string()),
-            PayablePaymentError::GasPriceQueryFailed("ouch".to_string()),
-            PayablePaymentError::UnusableWallet("fooo".to_string()),
-            PayablePaymentError::Signing("tsss".to_string()),
+            PayableTransactionError::TransactionCount(BlockchainError::QueryFailed(
+                "blah".to_string(),
+            )),
+            PayableTransactionError::MissingConsumingWallet,
+            PayableTransactionError::GasPriceQueryFailed("ouch".to_string()),
+            PayableTransactionError::UnusableWallet("fooo".to_string()),
+            PayableTransactionError::Signing("tsss".to_string()),
         ];
 
         early_local_errors
@@ -767,7 +772,7 @@ mod tests {
 
     #[test]
     fn count_total_errors_works_correctly_for_local_error_after_signing() {
-        let error = PayablePaymentError::Sending {
+        let error = PayableTransactionError::Sending {
             msg: "Ouuuups".to_string(),
             hashes: vec![make_tx_hash(333), make_tx_hash(666)],
         };
@@ -802,7 +807,7 @@ mod tests {
     #[test]
     fn debug_summary_after_error_separation_says_the_count_cannot_be_known() {
         let oks = vec![];
-        let error = PayablePaymentError::MissingConsumingWallet;
+        let error = PayableTransactionError::MissingConsumingWallet;
         let errs = Some(LocallyCausedError(error));
 
         let result = debugging_summary_after_error_separation(&oks, &errs);
