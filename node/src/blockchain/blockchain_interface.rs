@@ -1785,7 +1785,7 @@ mod tests {
         let transport = TestTransport::default();
         let batch_payable_tools = BatchPayableToolsMock::<TestTransport>::default()
             .sign_transaction_result(Err(Web3Error::Signing(
-                secp256k1secrets::Error::IncorrectSignature,
+                secp256k1secrets::Error::InvalidSecretKey,
             )))
             //we return after meeting the first result
             .sign_transaction_result(Err(Web3Error::Internal));
@@ -1796,7 +1796,7 @@ mod tests {
         );
         subject.batch_payable_tools = Box::new(batch_payable_tools);
         let recipient = Recorder::new().start().recipient();
-        let consuming_wallet = make_wallet("consume, you greedy fool!");
+        let consuming_wallet = make_paying_wallet(&b"consume, you greedy fool!"[..]);
         let nonce = U256::from(123);
         let accounts = vec![make_payable_account(5555), make_payable_account(6666)];
 
@@ -1810,11 +1810,8 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PayableTransactionError::UnusableWallet(
-                "Cannot sign with non-keypair wallet: \
-            Address(0x636f6e73756d652c20796f752067726565647920)."
-                    .to_string()
-            ))
+            Err(PayableTransactionError::Signing("Signing error: secp: malformed or out-of-range \
+            secret key".to_string()))
         )
     }
 
