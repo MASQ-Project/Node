@@ -16,7 +16,7 @@ use crate::accountant::dao_utils::{
     RangeStmConfig, TopStmConfig, VigilantRusqliteFlatten,
 };
 use crate::accountant::payable_dao::mark_pending_payable_associated_functions::{
-    compose_case, execute_command, serialize_wallets,
+    compose_case_expression, execute_command, serialize_wallets,
 };
 use crate::accountant::{checked_conversion, sign_conversion, PendingPayableId};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
@@ -145,7 +145,7 @@ impl PayableDao for PayableDaoReal {
             panic!("broken code: empty input is not permit to enter this method")
         }
 
-        let case_stm = compose_case(wallets_and_rowids);
+        let case_expr = compose_case_expression(wallets_and_rowids);
         let wallets = serialize_wallets(wallets_and_rowids, Some('\''));
         let sql = format!(
             "update payable set \
@@ -154,7 +154,7 @@ impl PayableDao for PayableDaoReal {
                 pending_payable_rowid is null and wallet_address in ({})
              returning
                 pending_payable_rowid",
-            case_stm, wallets,
+            case_expr, wallets,
         );
         execute_command(&*self.conn, wallets_and_rowids, &sql)
     }
@@ -400,6 +400,7 @@ impl TableNameDAO for PayableDaoReal {
 }
 
 mod mark_pending_payable_associated_functions {
+    use crate::accountant::comma_joined_stringifiable;
     use crate::accountant::dao_utils::{
         update_rows_and_return_their_count, VigilantRusqliteFlatten,
     };
@@ -408,7 +409,7 @@ mod mark_pending_payable_associated_functions {
     use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
     use rusqlite::Row;
-    use std::cmp::Ordering;
+    use std::fmt::Display;
 
     pub fn execute_command(
         conn: &dyn ConnectionWrapper,
@@ -434,7 +435,7 @@ mod mark_pending_payable_associated_functions {
         }
     }
 
-    pub fn compose_case(wallets_and_rowids: &[(&Wallet, u64)]) -> String {
+    pub fn compose_case_expression(wallets_and_rowids: &[(&Wallet, u64)]) -> String {
         fn when_clause((wallet, rowid): &(&Wallet, u64)) -> String {
             format!("when wallet_address = '{wallet}' then {rowid}")
         }
@@ -469,108 +470,80 @@ mod mark_pending_payable_associated_functions {
     ) -> ! {
         let serialized_wallets = serialize_wallets(wallets_and_rowids, None);
         let expected_count = wallets_and_rowids.len();
-        let base_err_msg = format!(
-            "Marking pending payable rowid for wallets {serialized_wallets} affected \
-            {actual_count} rows but expected {expected_count}"
-        );
-        todo!("just print the collection of input and also collection made out of the final state, plus add a comment explaining dangerous niches");
-        let err_extension_opt = error_extension(conn, wallets_and_rowids);
-
+        let extension = explanatory_extension(conn, wallets_and_rowids);
         panic!(
-            "{}",
-            [Some(base_err_msg), err_extension_opt]
-                .into_iter()
-                .flatten()
-                .join(". ")
+            "Marking pending payable rowid for wallets {serialized_wallets} affected \
+            {actual_count} rows but expected {expected_count}. {extension}"
         )
     }
 
-
-    fn error_extension(
-        conn: &dyn ConnectionWrapper,
-        wallets_and_rowids: &[(&Wallet, u64)],
-    ) -> Option<String> {
-        let failing_wallets =
-            query_accounts_with_populated_but_unaffected_rowids(conn, wallets_and_rowids);
-        if failing_wallets.is_empty() {
-            None
-        } else {
-            Some(format!(
-                "Accounts for wallets ({failing_wallets}) must have contained some populated \
-                pending payable rowids at the time of writing these newest ids down to \
-                the related table. System unreliable. Impaired, double payments may be suspected \
-                the cause in situation like this"
-            ))
-            // This condition would disallow replacement for the newer ids. Instead, the rowid
-            // colum should be emptied out after every payment is fully resolved and so that
-            // need for the associated pending payable record passes.
-        }
-    }
-
-    fn query_accounts_with_populated_but_unaffected_rowids(
+    pub(super) fn explanatory_extension(
         conn: &dyn ConnectionWrapper,
         wallets_and_rowids: &[(&Wallet, u64)],
     ) -> String {
-        todo!("you have to simplify this!!!");
-        fn sort_by_logic<T>((wallet_a, _): &(String, T), (wallet_b, _): &(String, T)) -> Ordering {
-            Ord::cmp(wallet_a, wallet_b)
-        }
+        let resulting_pairs_collection =
+            query_resulting_pairs_of_wallets_and_rowids(conn, wallets_and_rowids);
+        let resulting_pairs_summary = if resulting_pairs_collection.is_empty() {
+            "<Failing again: accounts with such wallets not found>".to_string()
+        } else {
+            pairs_in_pretty_string(&resulting_pairs_collection, |rowid_opt: &Option<u64>| {
+                match rowid_opt {
+                    Some(rowid) => Box::new(*rowid),
+                    None => Box::new("N/A"),
+                }
+            })
+        };
+        let wallets_and_non_optional_rowids =
+            pairs_in_pretty_string(wallets_and_rowids, |rowid: &u64| Box::new(*rowid));
+        format!(
+            "\
+                The demanded data according to {} looks different from the resulting state {}!. Operation failed.\n\
+                Notes:\n\
+                a) if row ids have stayed non-populated it points out that writing failed but without the double payment threat,\n\
+                b) if some accounts on the resulting side are missing, other kind of serious issue should be suspected but see other\n\
+                points to figure out if you were put in danger of double payment,\n\
+                c) seeing ids different from those demanded might be a sign of some payments having been doubled.\n\
+                The operation which is supposed to clear out the ids of the payments previously requested for this account\n\
+                probably had not managed to take a go before another payment was requested: preventive measures failed.\n",
+            wallets_and_non_optional_rowids, resulting_pairs_summary)
+    }
 
-        let select_accounts_with_populated_but_unchanged_rowids =
+    fn query_resulting_pairs_of_wallets_and_rowids(
+        conn: &dyn ConnectionWrapper,
+        wallets_and_rowids: &[(&Wallet, u64)],
+    ) -> Vec<(Wallet, Option<u64>)> {
+        let select_dealt_accounts =
             format!(
                 "select wallet_address, pending_payable_rowid from payable where wallet_address in ({})",
                 serialize_wallets(wallets_and_rowids, Some('\''))
             );
-        let resulted_wallets_and_rowids = conn
-            .prepare(&select_accounts_with_populated_but_unchanged_rowids)
+        let row_processor = |row: &Row| {
+            Ok((
+                row.get::<usize, Wallet>(0)
+                    .expect("database corrupt: wallet addresses found in bad format"),
+                row.get::<usize, Option<u64>>(1)
+                    .expect("database_corrupt: rowid found in bad format"),
+            ))
+        };
+        conn.prepare(&select_dealt_accounts)
             .expect("select failed")
-            .query_map([], |row| {
-                Ok((
-                    row.get::<usize, String>(0)
-                        .expect("database corrupt: wallet addresses found in bad format"),
-                    row.get::<usize, Option<u64>>(1)
-                        .expect("database_corrupt: rowid found in bad format"),
-                ))
-            })
+            .query_map([], row_processor)
             .expect("no args yet binding failed")
             .vigilant_flatten()
-            .collect::<Vec<(String, Option<u64>)>>();
-        let wallets_and_rowids = wallets_and_rowids
-            .into_iter()
-            .map(|(wallet, id)| (wallet.to_string(), *id))
-            .collect::<Vec<(String, u64)>>();
-        // todo!("mention still empty wallets");
-        let (wallets_and_rowids, resulted_wallets_and_rowids) =
-            if wallets_and_rowids.len() != resulted_wallets_and_rowids.len() {
-                let wallets_of_populated = resulted_wallets_and_rowids
-                    .iter()
-                    .map(|(wallet, _)| wallet.as_str())
-                    .collect::<Vec<&str>>();
-                (
-                    wallets_and_rowids
-                        .into_iter()
-                        .filter(|(wallet, _)| wallets_of_populated.contains(&wallet.as_str()))
-                        .collect::<Vec<(String, u64)>>(),
-                    resulted_wallets_and_rowids,
-                )
-            } else {
-                (wallets_and_rowids, resulted_wallets_and_rowids)
-            };
-        wallets_and_rowids
-            .into_iter()
-            .sorted_by(sort_by_logic)
-            .zip(
-                resulted_wallets_and_rowids
-                    .into_iter()
-                    .sorted_by(sort_by_logic),
+            .collect()
+    }
+
+    fn pairs_in_pretty_string<W: Display, R>(
+        pairs: &[(W, R)],
+        rowid_pretty_writer: fn(&R) -> Box<dyn Display>,
+    ) -> String {
+        comma_joined_stringifiable(pairs, |(wallet, rowid)| {
+            format!(
+                "( Wallet: {}, Rowid: {} )",
+                wallet,
+                rowid_pretty_writer(rowid)
             )
-            .flat_map(
-                |((wallet, correct_id), (_, read_id_opt))| match (correct_id, read_id_opt) {
-                    (_, None) => None,
-                    (correct_id, Some(read_id)) => (correct_id != read_id).then_some(wallet),
-                },
-            )
-            .join(", ")
+        })
     }
 }
 
@@ -579,6 +552,7 @@ mod tests {
     use super::*;
     use crate::accountant::dao_utils::{from_time_t, now_time_t, to_time_t};
     use crate::accountant::gwei_to_wei;
+    use crate::accountant::payable_dao::mark_pending_payable_associated_functions::explanatory_extension;
     use crate::accountant::test_utils::{
         assert_account_creation_fn_fails_on_finding_wrong_columns_and_value_types,
         make_pending_payable_fingerprint,
@@ -791,63 +765,85 @@ mod tests {
     }
 
     #[test]
-    #[should_panic(
-        expected = "Marking pending payable rowid for wallets 0x000000000000000000000000000000626f6f6761 affected 0 rows but expected 1"
-    )]
-    fn mark_pending_payables_rowids_returned_different_row_count_than_expected() {
+    #[should_panic(expected = "\
+        Marking pending payable rowid for wallets 0x000000000000000000000000000000626f6f6761, \
+        0x0000000000000000000000000000007961686f6f affected 0 rows but expected 2. \
+        The demanded data according to ( Wallet: 0x000000000000000000000000000000626f6f6761, Rowid: 456 ), \
+        ( Wallet: 0x0000000000000000000000000000007961686f6f, Rowid: 789 ) looks different from \
+        the resulting state ( Wallet: 0x000000000000000000000000000000626f6f6761, Rowid: 456 )!. Operation failed.\n\
+        Notes:\n\
+        a) if row ids have stayed non-populated it points out that writing failed but without the double payment threat,\n\
+        b) if some accounts on the resulting side are missing, other kind of serious issue should be suspected but see other\n\
+        points to figure out if you were put in danger of double payment,\n\
+        c) seeing ids different from those demanded might be a sign of some payments having been doubled.\n\
+        The operation which is supposed to clear out the ids of the payments previously requested for this account\n\
+        probably had not managed to take a go before another payment was requested: preventive measures failed.")]
+    fn mark_pending_payables_rowids_returned_different_row_count_than_expected_with_one_account_missing_and_one_unmodified(
+    ) {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "mark_pending_payables_rowids_returned_different_row_count_than_expected",
+            "mark_pending_payables_rowids_returned_different_row_count_than_expected_with_one_account_missing_and_one_unmodified",
         );
-        let wallet = make_wallet("booga");
-        let rowid = 656;
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
+        let first_wallet = make_wallet("booga");
+        let first_rowid = 456;
+        insert_payable_record_fn(
+            &*conn,
+            &first_wallet.to_string(),
+            123456,
+            789789,
+            Some(first_rowid),
+        );
         let subject = PayableDaoReal::new(conn);
 
-        let _ = subject.mark_pending_payables_rowids(&[(&wallet, rowid)]);
+        let _ = subject.mark_pending_payables_rowids(&[
+            (&first_wallet, first_rowid as u64),
+            (&make_wallet("yahoo"), 789),
+        ]);
     }
 
     #[test]
-    #[should_panic(
-        expected = "Marking pending payable rowid for wallets 0x000000000000000000000000000000686f6f6761, \
-         0x000000000000000000000000000000626f6f6761, 0x00000000000000000000626f6f6761686f6f6761 affected 1 rows but expected 3. \
-         Accounts for wallets (0x000000000000000000000000000000626f6f6761, 0x00000000000000000000626f6f6761686f6f6761) \
-         must have contained some populated pending payable rowids at the time of the last write of the newest ids down to the related \
-         table. System unreliable. Impaired, double payments may be suspected the cause in situation like this"
-    )]
-    fn mark_pending_payables_rowids_refuses_to_overwrite_existing_marked_rowids() {
+    fn explanatory_extension_shows_resulting_account_with_unpopulated_rowid() {
         let home_dir = ensure_node_home_directory_exists(
             "payable_dao",
-            "mark_pending_payables_rowids_refuses_to_overwrite_existing_marked_rowids",
+            "explanatory_extension_shows_resulting_account_with_unpopulated_rowid",
         );
         let wallet_1 = make_wallet("hooga");
         let rowid_1 = 550;
         let wallet_2 = make_wallet("booga");
         let rowid_2 = 555;
-        let wallet_3 = make_wallet("boogahooga");
-        let rowid_3 = 558;
         let conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
             .unwrap();
         let record_seeds = [
             (&wallet_1.to_string(), 12345, 1_000_000_000, None),
             (&wallet_2.to_string(), 23456, 1_000_000_111, Some(540)),
-            (&wallet_3.to_string(), 34567, 1_000_000_222, Some(541)),
         ];
         record_seeds
             .into_iter()
             .for_each(|(wallet, balance, timestamp, rowid_opt)| {
                 insert_payable_record_fn(&*conn, wallet, balance, timestamp, rowid_opt)
             });
-        let subject = PayableDaoReal::new(conn);
 
-        let _ = subject.mark_pending_payables_rowids(&[
-            (&wallet_1, rowid_1),
-            (&wallet_2, rowid_2),
-            (&wallet_3, rowid_3),
-        ]);
+        let result = explanatory_extension(&*conn, &[(&wallet_1, rowid_1), (&wallet_2, rowid_2)]);
+
+        assert_eq!(result, "\
+        The demanded data according to ( Wallet: 0x000000000000000000000000000000686f6f6761, Rowid: 550 ), \
+        ( Wallet: 0x000000000000000000000000000000626f6f6761, Rowid: 555 ) looks different from \
+        the resulting state ( Wallet: 0x000000000000000000000000000000626f6f6761, Rowid: 540 ), \
+        ( Wallet: 0x000000000000000000000000000000686f6f6761, Rowid: N/A )!. \
+        Operation failed.\n\
+        Notes:\n\
+        a) if row ids have stayed non-populated it points out that writing failed but without the double \
+        payment threat,\n\
+        b) if some accounts on the resulting side are missing, other kind of serious issue should be \
+        suspected but see other\npoints to figure out if you were put in danger of double payment,\n\
+        c) seeing ids different from those demanded might be a sign of some payments having been doubled.\n\
+        The operation which is supposed to clear out the ids of the payments previously requested for \
+        this account\nprobably had not managed to take a go before another payment was requested: \
+        preventive measures failed.\n".to_string())
     }
 
     #[test]
