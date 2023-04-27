@@ -252,7 +252,7 @@ fn configure_database(
             return Err(pce.into_configurator_error("clandestine-port"));
         }
     }
-    let neighborhood_mode_light = config.neighborhood_config.mode.make_light();
+    let neighborhood_mode_light: NeighborhoodModeLight = (&config.neighborhood_config.mode).into();
     if let Err(pce) = persistent_config.set_neighborhood_mode(neighborhood_mode_light) {
         return Err(pce.into_configurator_error("neighborhood-mode"));
     }

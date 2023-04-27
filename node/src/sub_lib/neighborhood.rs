@@ -87,6 +87,17 @@ impl Display for NeighborhoodMode {
     }
 }
 
+impl Into<NeighborhoodModeLight> for &NeighborhoodMode {
+    fn into(self) -> NeighborhoodModeLight {
+        match self {
+            NeighborhoodMode::Standard(_, _, _) => NeighborhoodModeLight::Standard,
+            NeighborhoodMode::ConsumeOnly(_) => NeighborhoodModeLight::ConsumeOnly,
+            NeighborhoodMode::OriginateOnly(_, _) => NeighborhoodModeLight::OriginateOnly,
+            NeighborhoodMode::ZeroHop => NeighborhoodModeLight::ZeroHop,
+        }
+    }
+}
+
 impl NeighborhoodMode {
     pub fn is_decentralized(&self) -> bool {
         self != &NeighborhoodMode::ZeroHop
@@ -141,15 +152,6 @@ impl NeighborhoodMode {
 
     pub fn is_zero_hop(&self) -> bool {
         matches!(self, NeighborhoodMode::ZeroHop)
-    }
-
-    pub fn make_light(&self) -> NeighborhoodModeLight {
-        match self {
-            NeighborhoodMode::Standard(_, _, _) => NeighborhoodModeLight::Standard,
-            NeighborhoodMode::ConsumeOnly(_) => NeighborhoodModeLight::ConsumeOnly,
-            NeighborhoodMode::OriginateOnly(_, _) => NeighborhoodModeLight::OriginateOnly,
-            NeighborhoodMode::ZeroHop => NeighborhoodModeLight::ZeroHop,
-        }
     }
 }
 
@@ -1220,7 +1222,7 @@ mod tests {
     #[test]
     fn neighborhood_mode_light_can_be_made_from_neighborhood_mode() {
         assert_make_light(
-            NeighborhoodMode::Standard(
+            &NeighborhoodMode::Standard(
                 NodeAddr::new(&localhost(), &[1234, 2345]),
                 vec![],
                 rate_pack(100),
@@ -1228,18 +1230,19 @@ mod tests {
             NeighborhoodModeLight::Standard,
         );
         assert_make_light(
-            NeighborhoodMode::ConsumeOnly(vec![]),
+            &NeighborhoodMode::ConsumeOnly(vec![]),
             NeighborhoodModeLight::ConsumeOnly,
         );
         assert_make_light(
-            NeighborhoodMode::OriginateOnly(vec![], rate_pack(100)),
+            &NeighborhoodMode::OriginateOnly(vec![], rate_pack(100)),
             NeighborhoodModeLight::OriginateOnly,
         );
-        assert_make_light(NeighborhoodMode::ZeroHop, NeighborhoodModeLight::ZeroHop)
+        assert_make_light(&NeighborhoodMode::ZeroHop, NeighborhoodModeLight::ZeroHop)
     }
 
-    fn assert_make_light(heavy: NeighborhoodMode, expected_value: NeighborhoodModeLight) {
-        assert_eq!(heavy.make_light(), expected_value)
+    fn assert_make_light(heavy: &NeighborhoodMode, expected_value: NeighborhoodModeLight) {
+        let result: NeighborhoodModeLight = heavy.into();
+        assert_eq!(result, expected_value)
     }
 
     #[test]

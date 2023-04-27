@@ -25,7 +25,7 @@ use masq_lib::messages::{
 };
 use masq_lib::messages::{UiConnectionStatusResponse, UiShutdownRequest};
 use masq_lib::ui_gateway::{MessageTarget, NodeFromUiMessage, NodeToUiMessage};
-use masq_lib::utils::{exit_process, ExpectValue};
+use masq_lib::utils::{exit_process, ExpectValue, NeighborhoodModeLight};
 
 use crate::bootstrapper::BootstrapperConfig;
 use crate::database::db_initializer::DbInitializationConfig;
@@ -91,6 +91,7 @@ pub struct Neighborhood {
     gossip_producer: Box<dyn GossipProducer>,
     neighborhood_database: NeighborhoodDatabase,
     consuming_wallet_opt: Option<Wallet>,
+    mode: NeighborhoodModeLight,
     min_hops_count: Hops,
     next_return_route_id: u32,
     overall_connection_status: OverallConnectionStatus,
@@ -430,9 +431,12 @@ enum RouteDirection {
 impl Neighborhood {
     pub fn new(cryptde: &'static dyn CryptDE, config: &BootstrapperConfig) -> Self {
         let neighborhood_config = &config.neighborhood_config;
-        let min_hops_count = config.neighborhood_config.min_hops_count;
-        if neighborhood_config.mode.is_zero_hop()
-            && !neighborhood_config.mode.neighbor_configs().is_empty()
+        let min_hops_count = neighborhood_config.min_hops_count;
+        let neighborhood_mode = &neighborhood_config.mode;
+        let mode: NeighborhoodModeLight = neighborhood_mode.into();
+        let neighborhood_configs = neighborhood_mode.neighbor_configs();
+        if mode == NeighborhoodModeLight::ZeroHop
+            && !neighborhood_configs.is_empty()
         {
             panic!(
                 "A zero-hop MASQ Node is not decentralized and cannot have a --neighbors setting"
@@ -440,14 +444,12 @@ impl Neighborhood {
         }
         let neighborhood_database = NeighborhoodDatabase::new(
             cryptde.public_key(),
-            neighborhood_config.mode.clone(),
+            neighborhood_mode.clone(),
             config.earning_wallet.clone(),
             cryptde,
         );
         let is_mainnet = config.blockchain_bridge_config.chain.is_mainnet();
-        let initial_neighbors: Vec<NodeDescriptor> = neighborhood_config
-            .mode
-            .neighbor_configs()
+        let initial_neighbors: Vec<NodeDescriptor> = neighborhood_configs
             .iter()
             .map(|nc| {
                 let mainnet_nc = nc.blockchain.is_mainnet();
@@ -474,6 +476,7 @@ impl Neighborhood {
             gossip_producer: Box::new(GossipProducerReal::new()),
             neighborhood_database,
             consuming_wallet_opt: config.consuming_wallet_opt.clone(),
+            mode,
             min_hops_count,
             next_return_route_id: 0,
             overall_connection_status,
@@ -840,7 +843,9 @@ impl Neighborhood {
             payload_size: 10000,
             hostname_opt: None,
         };
-        if self.handle_route_query_message(msg).is_some() {
+        debug!(Logger::new("Multinode"), "Searching for a {}-hops route.", self.min_hops_count as usize);
+        if let Some(route_query_response) = self.handle_route_query_message(msg) {
+            trace!(Logger::new("Multinode"), "Round Trip Route Length: {:?}", route_query_response.route.hops.len());
             debug!(
                 &self.logger,
                 "The connectivity check has found a {}-hops route.", self.min_hops_count as usize
