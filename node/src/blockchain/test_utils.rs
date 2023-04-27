@@ -313,11 +313,11 @@ pub fn make_fake_event_loop_handle() -> EventLoopHandle {
 }
 
 #[derive(Default)]
-pub struct SendTransactionToolWrapperFactoryMock<T> {
+pub struct BatchPayableToolsFactoryMock<T> {
     make_results: RefCell<Vec<Box<dyn BatchPayableTools<T>>>>,
 }
 
-impl<T> SendTransactionToolWrapperFactoryMock<T> {
+impl<T> BatchPayableToolsFactoryMock<T> {
     pub fn make_result(self, result: Box<dyn BatchPayableTools<T>>) -> Self {
         self.make_results.borrow_mut().push(result);
         self
@@ -340,7 +340,7 @@ pub struct BatchPayableToolsMock<T: BatchTransport> {
     //append_transaction_to_batch returns just the unit type
     //batch_wide_timestamp doesn't have params
     batch_wide_timestamp_results: RefCell<Vec<SystemTime>>,
-    send_new_payable_fingerprint_credentials_params: Arc<
+    send_new_payable_fingerprints_seeds_params: Arc<
         Mutex<
             Vec<(
                 SystemTime,
@@ -387,7 +387,7 @@ impl<T: BatchTransport> BatchPayableTools<T> for BatchPayableToolsMock<T> {
         pp_fingerprint_sub: &Recipient<PendingPayableFingerprintSeeds>,
         hashes_and_balances: &[(H256, u128)],
     ) {
-        self.send_new_payable_fingerprint_credentials_params
+        self.send_new_payable_fingerprints_seeds_params
             .lock()
             .unwrap()
             .push((
@@ -444,7 +444,7 @@ impl<T: BatchTransport> BatchPayableToolsMock<T> {
             >,
         >,
     ) -> Self {
-        self.send_new_payable_fingerprint_credentials_params = params.clone();
+        self.send_new_payable_fingerprints_seeds_params = params.clone();
         self
     }
 

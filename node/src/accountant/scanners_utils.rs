@@ -106,7 +106,7 @@ pub mod payable_scanner_utils {
                 }
                 let (oks, err_hashes_opt) =
                     separate_rpc_results(individual_batch_responses, logger);
-                let remote_errs_opt = err_hashes_opt.map(|e| RemotelyCausedErrors(e));
+                let remote_errs_opt = err_hashes_opt.map(|hs| RemotelyCausedErrors(hs));
                 (oks, remote_errs_opt)
             }
             Err(e) => {
@@ -120,8 +120,6 @@ pub mod payable_scanner_utils {
             }
         }
     }
-
-    type SeparateTxsByResult<'a> = (Vec<&'a PendingPayable>, Vec<H256>);
 
     fn separate_rpc_results<'a, 'b>(
         batch_request_responses: &'a [ProcessedPayableFallible],
@@ -150,6 +148,8 @@ pub mod payable_scanner_utils {
         errs.push(hash);
         (oks, errs)
     }
+
+    type SeparateTxsByResult<'a> = (Vec<&'a PendingPayable>, Vec<H256>);
 
     fn fold_guts<'a, 'b>(
         acc: SeparateTxsByResult<'a>,
@@ -269,13 +269,8 @@ pub mod payable_scanner_utils {
     ) -> (Vec<u64>, Vec<H256>) {
         let (rowids, hashes): (Vec<u64>, Vec<H256>) = ids_of_payments
             .into_iter()
-            .map(|(ever_some_rowid, hash)| (ever_some_rowid.expectv("validated rowid"), hash))
+            .map(|(checked_rowid, hash)| (checked_rowid.expectv("validated rowid"), hash))
             .unzip();
-        warning!(
-            logger,
-            "Deleting fingerprints for failed transactions {}",
-            serialize_hashes(&hashes)
-        );
         (rowids, hashes)
     }
 
@@ -352,7 +347,7 @@ pub mod pending_payable_scanner_utils {
             .elapsed()
             .expect("we should be older now");
         let elapsed = elapsed.as_secs();
-        if max_pending_interval < elapsed {
+        if elapsed > max_pending_interval {
             error!(
                 logger,
                 "Pending transaction {:?} has exceeded the maximum pending time \
@@ -506,18 +501,19 @@ mod tests {
 
     #[test]
     fn separate_errors_works_for_no_errs_just_oks() {
-        let correct_payment = PendingPayable {
+        let correct_payment_1 = PendingPayable {
             recipient_wallet: make_wallet("blah"),
             hash: make_tx_hash(123),
         };
+        let correct_payment_2 = PendingPayable{ recipient_wallet: make_wallet("howgh"), hash: make_tx_hash(456) };
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![Correct(correct_payment.clone())]),
+            payment_procedure_result: Ok(vec![Correct(correct_payment_1.clone()), Correct(correct_payment_2.clone())]),
             response_skeleton_opt: None,
         };
 
         let (oks, errs) = separate_errors(&sent_payable, &Logger::new("test"));
 
-        assert_eq!(oks, vec![&correct_payment]);
+        assert_eq!(oks, vec![&correct_payment_1,&correct_payment_2]);
         assert_eq!(errs, None)
     }
 

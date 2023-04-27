@@ -1318,7 +1318,7 @@ mod tests {
             amount_1,
             None,
         );
-        let amount_2 = 111_111_123_456_888;
+        let amount_2 = 123_456_789;
         let account_2 = make_payable_account_with_wallet_and_balance_and_timestamp_opt(
             make_wallet("w555"),
             amount_2,
@@ -1369,9 +1369,9 @@ mod tests {
                     Call::MethodCall(MethodCall {
                         jsonrpc: Some(V2),
                         method: "eth_sendRawTransaction".to_string(),
-                        params: Params::Array(vec![Value::String("0xf8a907851bf08eb00082db6894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb0000\
-        0000000000000000000000000000000000000000000000000000773535350000000000000000000000000000000000000000000000000000650e130b537829a05c8f3defe9ac3979\
-        c0701af26d3fa6b77900067370c21a736f3d058ac9c1bd1da02ff4a5fae925a40c09da3d0e0c256ad8ac55e251ff51a622093f1b7bcc9f4689".to_string())]),
+                        params: Params::Array(vec![Value::String("0xf8a907851bf08eb00082dae894384dec25e03f94931767ce4c3556168468ba24c380b844a9059cbb000\
+        000000000000000000000000000000000000000000000000000007735353500000000000000000000000000000000000000000000000000000000075bcd1529a00e61352bb2ac9b\
+        32b411206250f219b35cdc85db679f3e2416daac4f730a12f1a02c2ad62759d86942f3af2b8915ecfbaa58268010e00d32c18a49a9fc3b9bd20a".to_string())]),
                         id: Id::Num(1)
                     })
                 ),
@@ -1425,10 +1425,11 @@ mod tests {
                 data: None
             })
         );
+        let expected_hash_2 = H256::from_str("57e7c9a5f6af1ab3363e323d59c2c9d1144bbb1a7c2065eeb6696d4e302e67f2")
+            .unwrap();
         assert_eq!(
             hash_2,
-            &H256::from_str("1bff0d231c533e3e67c5a3257545deea342cc3674b1826588e9d31434bbcdba3")
-                .unwrap()
+            &expected_hash_2
         );
         assert_eq!(recipient_2, &make_wallet("w555"));
         //second_succeeding_request
@@ -1451,24 +1452,15 @@ mod tests {
                 batch_wide_timestamp: actual_common_timestamp,
                 hashes_and_balances: vec![
                     (
-                        H256::from_str(
-                            "26e5e0cec02023e40faff67e88e3cf48a98574b5f9fdafc03ef42cad96dae1c1"
-                        )
-                        .unwrap(),
+                        expected_hash_1,
                         gwei_to_wei(900_000_000_u64)
                     ),
                     (
-                        H256::from_str(
-                            "1bff0d231c533e3e67c5a3257545deea342cc3674b1826588e9d31434bbcdba3"
-                        )
-                        .unwrap(),
-                        111_111_123_456_888
+                        expected_hash_2,
+                        123_456_789
                     ),
                     (
-                        H256::from_str(
-                            "a472e3b81bc167140a217447d9701e9ed2b65252f1428f7779acc3710a9ede44"
-                        )
-                        .unwrap(),
+                        expected_hash_3,
                         gwei_to_wei(33_355_666_u64)
                     )
                 ]
@@ -1483,7 +1475,7 @@ mod tests {
         to 0x0000000000000000000000000000000077313233 with nonce 6",
         );
         log_handler.exists_log_containing(
-            "DEBUG: sending_batch_payments: Preparing payment of 111,111,123,456,888 wei \
+            "DEBUG: sending_batch_payments: Preparing payment of 123,456,789 wei \
         to 0x0000000000000000000000000000000077353535 with nonce 7",
         );
         log_handler.exists_log_containing(
@@ -1499,13 +1491,13 @@ mod tests {
         \n\
         [wallet address]                             [payment in wei]\n\
         0x0000000000000000000000000000000077313233   900,000,000,000,000,000\n\
-        0x0000000000000000000000000000000077353535   111,111,123,456,888\n\
+        0x0000000000000000000000000000000077353535   123,456,789\n\
         0x0000000000000000000000000000000077393837   33,355,666,000,000,000\n",
         );
     }
 
     #[test]
-    fn non_clandestine_interface_send_payables_in_batch_components_are_used_together_properly() {
+    fn non_clandestine_interface_send_payables_within_batch_components_are_used_together_properly() {
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let append_transaction_to_batch_params_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1519,23 +1511,24 @@ mod tests {
             (&Bip32ECKeyProvider::from_raw_secret(consuming_wallet_secret).unwrap()).into();
         let batch_wide_timestamp_expected = SystemTime::now();
         let transport = TestTransport::default().initiate_reference_counter(&reference_counter_arc);
+        let chain = Chain::EthMainnet;
         let mut subject = BlockchainInterfaceNonClandestine::new(
             transport,
             make_fake_event_loop_handle(),
-            Chain::EthMainnet,
+            chain
         );
         let first_tx_parameters = TransactionParameters {
             nonce: Some(U256::from(4)),
             to: Some(subject.contract_address()),
             gas: U256::from(56_552),
             gas_price: Some(U256::from(123000000000_u64)),
-            value: Default::default(),
+            value: U256::from(0),
             data: Bytes(vec![
                 169, 5, 156, 187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 99, 114, 101, 100, 105, 116, 111, 114, 51, 50, 49, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 77, 149, 149, 231, 24,
             ]),
-            chain_id: Some(1),
+            chain_id: Some(chain.rec().num_chain_id),
         };
         let first_signed_transaction = subject
             .web3
@@ -1548,13 +1541,13 @@ mod tests {
             to: Some(subject.contract_address()),
             gas: U256::from(56_552),
             gas_price: Some(U256::from(123000000000_u64)),
-            value: Default::default(),
+            value: U256::from(0),
             data: Bytes(vec![
                 169, 5, 156, 187, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 99, 114, 101, 100, 105, 116, 111, 114, 49, 50, 51, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
                 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 156, 231, 56, 4,
             ]),
-            chain_id: Some(1),
+            chain_id: Some(chain.rec().num_chain_id),
         };
         let second_signed_transaction = subject
             .web3

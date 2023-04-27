@@ -48,7 +48,7 @@ pub struct BlockchainBridge<T: Transport = Http> {
     received_payments_subs_opt: Option<Recipient<ReceivedPayments>>,
     scan_error_subs_opt: Option<Recipient<ScanError>>,
     crashable: bool,
-    paid_payable_confirmation: TransactionConfirmationTools,
+    pending_payable_confirmation: TransactionConfirmationTools,
 }
 
 struct TransactionConfirmationTools {
@@ -68,9 +68,9 @@ impl Handler<BindMessage> for BlockchainBridge {
             msg.peer_actors.neighborhood.set_consuming_wallet_sub,
             msg.peer_actors.proxy_server.set_consuming_wallet_sub,
         ]);
-        self.paid_payable_confirmation.new_pp_fingerprints_sub_opt =
+        self.pending_payable_confirmation.new_pp_fingerprints_sub_opt =
             Some(msg.peer_actors.accountant.init_pending_payable_fingerprints);
-        self.paid_payable_confirmation
+        self.pending_payable_confirmation
             .report_transaction_receipts_sub_opt =
             Some(msg.peer_actors.accountant.report_transaction_receipts);
         self.sent_payable_subs_opt = Some(msg.peer_actors.accountant.report_sent_payments);
@@ -184,7 +184,7 @@ impl BlockchainBridge {
             scan_error_subs_opt: None,
             crashable,
             logger: Logger::new("BlockchainBridge"),
-            paid_payable_confirmation: TransactionConfirmationTools {
+            pending_payable_confirmation: TransactionConfirmationTools {
                 new_pp_fingerprints_sub_opt: None,
                 report_transaction_receipts_sub_opt: None,
             },
@@ -323,7 +323,7 @@ impl BlockchainBridge {
             .into_iter()
             .zip(msg.pending_payable.iter().cloned())
             .collect_vec();
-        self.paid_payable_confirmation
+        self.pending_payable_confirmation
             .report_transaction_receipts_sub_opt
             .as_ref()
             .expect("Accountant is unbound")
@@ -387,7 +387,7 @@ impl BlockchainBridge {
             .get_transaction_count(consuming_wallet)
             .map_err(|e| PayableTransactionError::TransactionCount(e))?;
 
-        let new_fingerprints_recipient = self.get_new_fingerprint_recipient();
+        let new_fingerprints_recipient = self.get_new_fingerprints_recipient();
 
         self.blockchain_interface.send_payables_within_batch(
             consuming_wallet,
@@ -398,8 +398,8 @@ impl BlockchainBridge {
         )
     }
 
-    fn get_new_fingerprint_recipient(&self) -> &Recipient<PendingPayableFingerprintSeeds> {
-        self.paid_payable_confirmation
+    fn get_new_fingerprints_recipient(&self) -> &Recipient<PendingPayableFingerprintSeeds> {
+        self.pending_payable_confirmation
             .new_pp_fingerprints_sub_opt
             .as_ref()
             .expect("Accountant unbound")
@@ -555,9 +555,9 @@ mod tests {
             Err("ReportAccountsPayable: Missing consuming wallet to pay payable from".to_string())
         );
         let accountant_recording = accountant_recording_arc.lock().unwrap();
-        let sent_payable_msg = accountant_recording.get_record::<SentPayables>(0);
+        let sent_payables_msg = accountant_recording.get_record::<SentPayables>(0);
         assert_eq!(
-            sent_payable_msg,
+            sent_payables_msg,
             &SentPayables {
                 payment_procedure_result: Err(PayableTransactionError::MissingConsumingWallet),
                 response_skeleton_opt: None
@@ -634,7 +634,7 @@ mod tests {
         system.run();
         let mut send_payables_within_batch_params =
             send_payables_within_batch_params_arc.lock().unwrap();
-        //cannot assert on the captured recipient as it its actor is gone after the System stops spinning
+        //cannot assert on the captured recipient as its actor is gone after the System stops spinning
         let (
             consuming_wallet_actual,
             gas_price_actual,
@@ -818,7 +818,7 @@ mod tests {
         let (accountant, _, _) = make_recorder();
         let fingerprint_recipient = accountant.start().recipient();
         subject
-            .paid_payable_confirmation
+            .pending_payable_confirmation
             .new_pp_fingerprints_sub_opt = Some(fingerprint_recipient);
 
         let result = subject.process_payments(&request);
@@ -1070,7 +1070,7 @@ mod tests {
             None,
         );
         subject
-            .paid_payable_confirmation
+            .pending_payable_confirmation
             .report_transaction_receipts_sub_opt = Some(report_transaction_receipt_recipient);
         subject.scan_error_subs_opt = Some(scan_error_recipient);
         let msg = RequestTransactionReceipts {
@@ -1133,7 +1133,7 @@ mod tests {
             Some(Wallet::new("mine")),
         );
         subject
-            .paid_payable_confirmation
+            .pending_payable_confirmation
             .report_transaction_receipts_sub_opt = Some(recipient);
         let msg = RequestTransactionReceipts {
             pending_payable: vec![],
@@ -1194,7 +1194,7 @@ mod tests {
             None,
         );
         subject
-            .paid_payable_confirmation
+            .pending_payable_confirmation
             //due to this None we would've panicked if we tried to send a msg
             .report_transaction_receipts_sub_opt = Some(report_transaction_recipient);
         subject.scan_error_subs_opt = Some(scan_error_recipient);

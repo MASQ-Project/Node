@@ -429,6 +429,11 @@ impl PayableScanner {
                 serialize_hashes,
                 logger,
             );
+            warning!(
+                logger,
+                "Deleting fingerprints for failed transactions {}",
+                serialize_hashes(&hashes)
+            );
             if let Err(e) = self.pending_payable_dao.delete_fingerprints(&ids) {
                 if let Some(msg) = missing_fgp_err_msg_opt {
                     error!(logger, "{}", msg)
