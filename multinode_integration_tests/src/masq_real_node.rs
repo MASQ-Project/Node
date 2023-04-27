@@ -490,7 +490,7 @@ impl NodeStartupConfigBuilder {
     pub fn copy(config: &NodeStartupConfig) -> Self {
         Self {
             neighborhood_mode: config.neighborhood_mode.clone(),
-            min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+            min_hops_count: config.min_hops_count,
             ip_info: config.ip_info,
             dns_servers_opt: config.dns_servers_opt.clone(),
             neighbors: config.neighbors.clone(),
@@ -1240,6 +1240,7 @@ mod tests {
     use masq_lib::constants::{HTTP_PORT, TLS_PORT};
     use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
     use masq_lib::utils::localhost;
+    use node_lib::sub_lib::neighborhood::Hops::TwoHops;
 
     #[test]
     fn node_startup_config_builder_zero_hop() {
@@ -1354,7 +1355,7 @@ mod tests {
     fn node_startup_config_builder_copy() {
         let original = NodeStartupConfig {
             neighborhood_mode: "consume-only".to_string(),
-            min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+            min_hops_count: TwoHops,
             ip_info: LocalIpInfo::DistributedUnknown,
             dns_servers_opt: Some(vec![IpAddr::from_str("255.255.255.255").unwrap()]),
             neighbors: vec![NodeReference::new(
@@ -1433,6 +1434,7 @@ mod tests {
             .build();
 
         assert_eq!(result.neighborhood_mode, neighborhood_mode);
+        assert_eq!(result.min_hops_count, Hops::TwoHops);
         assert_eq!(result.ip_info, LocalIpInfo::DistributedKnown(ip_addr));
         assert_eq!(result.dns_servers_opt, Some(dns_servers));
         assert_eq!(result.neighbors, neighbors);
