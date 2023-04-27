@@ -649,14 +649,11 @@ impl Bootstrapper {
                     )
                     .expect("Failed to bind ListenerHandler to clandestine port");
                 self.listener_handlers.push(listener_handler);
-                self.config.neighborhood_config = NeighborhoodConfig {
-                    mode: NeighborhoodMode::Standard(
-                        NodeAddr::new(&node_addr.ip_addr(), &[clandestine_port]),
-                        neighbor_configs.clone(),
-                        *rate_pack,
-                    ),
-                    min_hops_count: DEFAULT_MIN_HOPS_COUNT, // TODO: Verify, is this right?
-                };
+                self.config.neighborhood_config.mode = NeighborhoodMode::Standard(
+                    NodeAddr::new(&node_addr.ip_addr(), &[clandestine_port]),
+                    neighbor_configs.clone(),
+                    *rate_pack,
+                );
                 Some(clandestine_port)
             } else {
                 None
