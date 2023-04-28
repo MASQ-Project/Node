@@ -952,6 +952,7 @@ impl IBCDHelperReal {
             route_source
                 .send(RouteQueryMessage::data_indefinite_route_request(
                     hostname_opt,
+                    // TODO: GH-690: This edge case hasn't been take care
                     // if common_args.is_decentralized {
                     //     DEFAULT_MINIMUM_HOP_COUNT
                     // } else {
@@ -1764,6 +1765,7 @@ mod tests {
     #[test]
     fn proxy_server_receives_http_request_with_no_consuming_wallet_in_zero_hop_mode_and_handles_normally(
     ) {
+        // TODO: GH-690: Initially this test is intended for a RouteQueryMessage with a min_hop_count = 0, but it is working fine irrespective of that
         init_test_logging();
         let main_cryptde = main_cryptde();
         let alias_cryptde = alias_cryptde();

@@ -483,7 +483,7 @@ impl Message for RouteQueryMessage {
 
 impl RouteQueryMessage {
     // Earlier min_hops_count was passed to this function and stored inside RouteQueryMessage
-    // TODO: Make sure the entities using RouteQueryMessage can easily retieve the min_hops_count from Neighborhood
+    // TODO: GH-690: Make sure the entities using RouteQueryMessage can easily retieve the min_hops_count from Neighborhood
     pub fn data_indefinite_route_request(
         hostname_opt: Option<String>,
         payload_size: usize,

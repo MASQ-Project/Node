@@ -1067,7 +1067,6 @@ impl Neighborhood {
         );
         match route_opt {
             None => {
-                // panic!("yes, this is the right place");
                 let target_str = match target_opt {
                     Some(t) => format!(" {}", t),
                     None => String::from("Unknown"),
@@ -1235,10 +1234,6 @@ impl Neighborhood {
         let mut minimum_undesirability = i64::MAX;
         let initial_undesirability =
             self.compute_initial_undesirability(source, payload_size as u64, direction);
-        // Args passed to routing engine: [0xA59FFDC71BDB6B4F4E075C59538CB59A20EE1CC67697DF3939A1EEFBB70C897F] 0 None 2 1000 Over 9223372036854775807 None
-        // [0xDCDBDC19A160F7272C7A0342E2860430EEA163ECA654091AD85736B591D82EB4] 0 None 3 1000 Over 9223372036854775807 None
-        // panic!("Args passed to routing engine: {:?} {} {:?} {} {} {:?} {} {:?}", vec![source], initial_undesirability, target_opt, minimum_hops, payload_size, direction, minimum_undesirability, hostname_opt);
-        eprintln!("Minimum Hops sent to routing engine: {}", minimum_hops);
         let result = self
             .routing_engine(
                 vec![source],
@@ -1249,13 +1244,9 @@ impl Neighborhood {
                 direction,
                 &mut minimum_undesirability,
                 hostname_opt,
-            );
-        eprintln!("Routing Engine Result: {:?}", result.len());
-
-        let result = result
+            )
             .into_iter()
             .filter_map(|cr| {
-                eprintln!("Route Undesirability: {}, minimum_undesirability: {}", cr.undesirability, minimum_undesirability);
                 match cr.undesirability <= minimum_undesirability {
                     true => Some(cr.nodes),
                     false => None,
@@ -2880,6 +2871,7 @@ mod tests {
     ) {
         let system = System::new("route_query_responds_with_none_when_asked_for_one_hop_round_trip_route_without_consuming_wallet_when_back_route_needs_two_hops");
         let mut subject = make_standard_subject();
+        subject.min_hops_count = Hops::OneHop;
         let a = &make_node_record(1234, true);
         let b = &subject.neighborhood_database.root().clone();
         let c = &make_node_record(3456, true);
@@ -2910,7 +2902,8 @@ mod tests {
     fn route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet(
     ) {
         let system = System::new("route_query_responds_with_none_when_asked_for_two_hop_one_way_route_without_consuming_wallet");
-        let subject = make_standard_subject();
+        let mut subject = make_standard_subject();
+        subject.min_hops_count = Hops::TwoHops;
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
         let msg = RouteQueryMessage::data_indefinite_route_request(None, 20000);
