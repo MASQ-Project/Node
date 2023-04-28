@@ -910,12 +910,8 @@ pub mod unshared_test_utils {
     pub mod arbitrary_id_stamp {
         use super::*;
 
-        //The whole concept of the ArbitraryIdStamp has been intended as making an aid to reach out when
-        //standard constructs, such as downcasting or raw pointers, fail to help make some desired
-        //assertion to prove an identity of a certain trait object used at a certain place.
-        //
-        //The issues we're going to cross over look practically as follows:
-        //
+        //The issues we are to solve might look as follows:
+
         // 1) Our mockable objects are never Clone themselves (as it would break Rust trait object
         // safeness),
         // 2) You can get only very limited information by downcasting: you can inspect the guts, yes,
@@ -926,51 +922,13 @@ pub mod unshared_test_utils {
         // to implement this approach for references that are just "children" of a dereferenced Box that
         // was supplied as an argument into the testing environment at the very beginning, or we can
         // suspect the link already broken by moves of the owned, boxed instance within the tested code)
-        //
-        //The new tool was devised as ultimately powerful and capable of addressing these difficulties.
-        //
-        //The most fundamental idea of that is trivial. The hard part is to wrap your one's head around
-        //the preferred routine with its realization.
-        //
-        //We need to mount a test-only method to our arbitrary trait. (Yes, that means the method is
-        //not going to have any place in the production code).
-        //Because it's now a method of the trait, the trait object will also respond if you try to call
-        //it up.
-        //We will be using the trait as a trait object. The mock version of it will need an extra field
-        //whose job will be to store the arbitrary id that we will hand to it within the setup phase of
-        //the test.
-        //That's the way the trait object gets its unique identifier.
-        //
-        //You'll want to go back to the function with which you had difficulties when you were going
-        //to assert on the values coming in as its arguments.
-        //
-        //Let's mention certain attributes of this function, knowing it will always hold true.
-        //It's going to be just another method of some other trait, moreover, also intended to be used
-        //as a trait object.
-        //We can state this because proper seizing function arguments is enabled only if the examined
-        //function belongs to another mockable object.
-        //
-        //In vast majority of cases, for all methods of such a mock, it goes that they've got the body
-        //filled with code of two tasks: to capture params and also to push out a prepared result that
-        //the exercised method will return.
-        //To fulfill the first task you might like to query an id from any supplied trait object,
-        //a mock, that comes up as the examined method's argument.
-        //
-        //Use your convenient method by which you previously extended the trait of the incoming trait
-        //object and which can get you the id. Once done, you can simply add the id in to the other
-        //parameters in the container you've got to be later used for the delivery of the params to
-        //place with an assertion (the standard container is Arc<Mutex<T>>).
-        //Write an assertion for the captured values, including the arbitrary id.
-        //
-        //If it matches with the id which originates in the setup phase of the test, the circle encloses
-        //and the test is appeased.
-        //
+
         //Most often, you would be advised to use the convenient macros offered down here. Their easy
         //implementation should spare some work for you.
-        //
+
         //Note for future maintainers:
         //A trait object cannot be cloned so you don't have to worry if the later captured id comes
-        //from the original object or from some of its successors. There is now way how it wouldn't.
+        //from the original object or from some of its successors. There is no way how it wouldn't.
 
         lazy_static! {
             pub static ref ARBITRARY_ID_STAMP_SEQUENCER: Mutex<MutexIncrementInset> =
@@ -994,24 +952,32 @@ pub mod unshared_test_utils {
             }
         }
 
-        //to be added to other methods in your trait
+        // To be added together with other methods in your trait
         #[macro_export]
         macro_rules! arbitrary_id_stamp_in_trait {
             () => {
                 #[cfg(test)]
                 fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
-                    //no necessity to implement it for all impls of the trait this is to be a member of
+                    // No necessity to implement this method for all impls,
+                    // basically you want to do that just for the mock version
+
                     intentionally_blank!()
                 }
             };
         }
 
-        //the following macros might be handy but your object must contain exactly this field:
-        //arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>
-        //Refcell is omitted because the id is Copy
+        // The following macros might be handy but your mock object must contain this field:
+        //
+        ///  struct SomeMock{
+        ///     ...
+        ///     arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
+        ///     ...
+        ///  }
+        //
+        // Refcell is omitted because ArbitraryIdStamp is Copy
 
         #[macro_export]
-        macro_rules! arbitrary_id_stamp {
+        macro_rules! arbitrary_id_stamp_in_trait_impl {
             () => {
                 fn arbitrary_id_stamp(&self) -> ArbitraryIdStamp {
                     *self.arbitrary_id_stamp_opt.as_ref().unwrap()
@@ -1020,13 +986,124 @@ pub mod unshared_test_utils {
         }
 
         #[macro_export]
-        macro_rules! set_arbitrary_id_stamp {
+        macro_rules! set_arbitrary_id_stamp_in_impl {
             () => {
                 pub fn set_arbitrary_id_stamp(mut self, id_stamp: ArbitraryIdStamp) -> Self {
                     self.arbitrary_id_stamp_opt.replace(id_stamp);
                     self
                 }
             };
+        }
+
+        ////////////////////////////////////////////////////////////////////////////////////////////////
+        // Demonstration of implementation through made up code structures
+        // Showed by a test also placed in the test section of this file
+
+        // This is the trait object that requires some specific identification - the id stamp
+        // is going to help there
+
+        pub(in crate::test_utils) trait FirstTrait {
+            fn whatever_method(&self) -> String;
+            arbitrary_id_stamp_in_trait!();
+        }
+
+        struct FirstTraitReal {}
+
+        impl FirstTrait for FirstTraitReal {
+            fn whatever_method(&self) -> String {
+                unimplemented!("example-irrelevant")
+            }
+        }
+
+        #[derive(Default)]
+        pub(in crate::test_utils) struct FirstTraitMock {
+            #[allow(dead_code)]
+            whatever_method_results: RefCell<Vec<String>>,
+            arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
+        }
+
+        impl FirstTrait for FirstTraitMock {
+            fn whatever_method(&self) -> String {
+                unimplemented!("example-irrelevant")
+            }
+            arbitrary_id_stamp_in_trait_impl!();
+        }
+
+        impl FirstTraitMock {
+            set_arbitrary_id_stamp_in_impl!();
+        }
+
+        // This next trait object can stay without its own id because it will stay at too high
+        // level in the test. Nothing prevents it to have one though like in an imagine of another
+        // test looking at this trait object as an argument to some larger unspecified code unit
+
+        pub(in crate::test_utils) trait SecondTrait {
+            fn method_with_trait_obj_arg(&self, trait_object_arg: &dyn FirstTrait) -> u16;
+        }
+
+        pub(in crate::test_utils) struct SecondTraitReal {}
+
+        impl SecondTrait for SecondTraitReal {
+            fn method_with_trait_obj_arg(&self, _trait_object_arg: &dyn FirstTrait) -> u16 {
+                unimplemented!("example-irrelevant")
+            }
+        }
+
+        #[derive(Default)]
+        pub(in crate::test_utils) struct SecondTraitMock {
+            method_with_trait_obj_arg_params: Arc<Mutex<Vec<ArbitraryIdStamp>>>,
+            method_with_trait_obj_arg_results: RefCell<Vec<u16>>,
+        }
+
+        impl SecondTrait for SecondTraitMock {
+            fn method_with_trait_obj_arg(&self, trait_object_arg: &dyn FirstTrait) -> u16 {
+                self.method_with_trait_obj_arg_params
+                    .lock()
+                    .unwrap()
+                    .push(trait_object_arg.arbitrary_id_stamp());
+                self.method_with_trait_obj_arg_results
+                    .borrow_mut()
+                    .remove(0)
+            }
+        }
+
+        impl SecondTraitMock {
+            pub fn method_with_trait_obj_arg_params(
+                mut self,
+                params: &Arc<Mutex<Vec<ArbitraryIdStamp>>>,
+            ) -> Self {
+                self.method_with_trait_obj_arg_params = params.clone();
+                self
+            }
+
+            pub fn method_with_trait_obj_arg_result(self, result: u16) -> Self {
+                self.method_with_trait_obj_arg_results
+                    .borrow_mut()
+                    .push(result);
+                self
+            }
+        }
+
+        pub(in crate::test_utils) struct TestSubject {
+            pub some_doer: Box<dyn SecondTrait>,
+        }
+
+        impl TestSubject {
+            pub fn new() -> Self {
+                Self {
+                    some_doer: Box::new(SecondTraitReal {}),
+                }
+            }
+
+            pub fn tested_function(&self, outer_object: &dyn FirstTrait) -> u16 {
+                //some extra functionality might be here...
+
+                let num = self.some_doer.method_with_trait_obj_arg(outer_object);
+
+                //...and also here
+
+                num
+            }
         }
     }
 }
@@ -1042,6 +1119,9 @@ mod tests {
     use crate::sub_lib::cryptde::CryptData;
     use crate::sub_lib::hop::LiveHop;
     use crate::sub_lib::neighborhood::ExpectedService;
+    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::{
+        ArbitraryIdStamp, FirstTraitMock, SecondTraitMock, TestSubject,
+    };
 
     use super::*;
 
@@ -1182,5 +1262,30 @@ mod tests {
         waiter.wait();
 
         // no panic; test passes
+    }
+
+    #[test]
+    fn demonstration_of_the_use_of_arbitrary_id_stamp() {
+        let method_with_trait_obj_arg_params_arc = Arc::new(Mutex::new(vec![]));
+        let mut subject = TestSubject::new();
+        let doer_mock = SecondTraitMock::default()
+            .method_with_trait_obj_arg_params(&method_with_trait_obj_arg_params_arc)
+            .method_with_trait_obj_arg_result(123);
+        subject.some_doer = Box::new(doer_mock);
+        let arbitrary_id = ArbitraryIdStamp::new();
+        let outer_parameter = FirstTraitMock::default().set_arbitrary_id_stamp(arbitrary_id);
+
+        let result = subject.tested_function(&outer_parameter);
+
+        assert_eq!(result, 123);
+        let method_with_trait_obj_arg_params = method_with_trait_obj_arg_params_arc.lock().unwrap();
+        // This assertion proves that the same trait object as which we supplied at the beginning interacted with the method
+        // 'method_with_trait_obj_arg_result' inside 'tested_function'
+        assert_eq!(*method_with_trait_obj_arg_params, vec![arbitrary_id])
+
+        // Remarkable notes:
+        // ArbitraryIdStamp can be helpful only when the coder engages with heavy testing by mocks with the need to document
+        // involvement of those in a particular operation (more precisely 'function call') while this all needs to be
+        // understood as happening inside some kind of 'black box'
     }
 }

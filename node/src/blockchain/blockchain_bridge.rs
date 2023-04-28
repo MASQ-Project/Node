@@ -68,7 +68,8 @@ impl Handler<BindMessage> for BlockchainBridge {
             msg.peer_actors.neighborhood.set_consuming_wallet_sub,
             msg.peer_actors.proxy_server.set_consuming_wallet_sub,
         ]);
-        self.pending_payable_confirmation.new_pp_fingerprints_sub_opt =
+        self.pending_payable_confirmation
+            .new_pp_fingerprints_sub_opt =
             Some(msg.peer_actors.accountant.init_pending_payable_fingerprints);
         self.pending_payable_confirmation
             .report_transaction_receipts_sub_opt =
@@ -385,7 +386,7 @@ impl BlockchainBridge {
         let pending_nonce = self
             .blockchain_interface
             .get_transaction_count(consuming_wallet)
-            .map_err(|e| PayableTransactionError::TransactionCount(e))?;
+            .map_err(PayableTransactionError::TransactionCount)?;
 
         let new_fingerprints_recipient = self.get_new_fingerprints_recipient();
 

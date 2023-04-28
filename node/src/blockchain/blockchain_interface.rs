@@ -1425,12 +1425,10 @@ mod tests {
                 data: None
             })
         );
-        let expected_hash_2 = H256::from_str("57e7c9a5f6af1ab3363e323d59c2c9d1144bbb1a7c2065eeb6696d4e302e67f2")
-            .unwrap();
-        assert_eq!(
-            hash_2,
-            &expected_hash_2
-        );
+        let expected_hash_2 =
+            H256::from_str("57e7c9a5f6af1ab3363e323d59c2c9d1144bbb1a7c2065eeb6696d4e302e67f2")
+                .unwrap();
+        assert_eq!(hash_2, &expected_hash_2);
         assert_eq!(recipient_2, &make_wallet("w555"));
         //second_succeeding_request
         let expected_hash_3 =
@@ -1451,18 +1449,9 @@ mod tests {
             &PendingPayableFingerprintSeeds {
                 batch_wide_timestamp: actual_common_timestamp,
                 hashes_and_balances: vec![
-                    (
-                        expected_hash_1,
-                        gwei_to_wei(900_000_000_u64)
-                    ),
-                    (
-                        expected_hash_2,
-                        123_456_789
-                    ),
-                    (
-                        expected_hash_3,
-                        gwei_to_wei(33_355_666_u64)
-                    )
+                    (expected_hash_1, gwei_to_wei(900_000_000_u64)),
+                    (expected_hash_2, 123_456_789),
+                    (expected_hash_3, gwei_to_wei(33_355_666_u64))
                 ]
             }
         );
@@ -1497,7 +1486,8 @@ mod tests {
     }
 
     #[test]
-    fn non_clandestine_interface_send_payables_within_batch_components_are_used_together_properly() {
+    fn non_clandestine_interface_send_payables_within_batch_components_are_used_together_properly()
+    {
         let sign_transaction_params_arc = Arc::new(Mutex::new(vec![]));
         let append_transaction_to_batch_params_arc = Arc::new(Mutex::new(vec![]));
         let new_payable_fingerprint_params_arc = Arc::new(Mutex::new(vec![]));
@@ -1512,11 +1502,8 @@ mod tests {
         let batch_wide_timestamp_expected = SystemTime::now();
         let transport = TestTransport::default().initiate_reference_counter(&reference_counter_arc);
         let chain = Chain::EthMainnet;
-        let mut subject = BlockchainInterfaceNonClandestine::new(
-            transport,
-            make_fake_event_loop_handle(),
-            chain
-        );
+        let mut subject =
+            BlockchainInterfaceNonClandestine::new(transport, make_fake_event_loop_handle(), chain);
         let first_tx_parameters = TransactionParameters {
             nonce: Some(U256::from(4)),
             to: Some(subject.contract_address()),
@@ -1810,8 +1797,11 @@ mod tests {
 
         assert_eq!(
             result,
-            Err(PayableTransactionError::Signing("Signing error: secp: malformed or out-of-range \
-            secret key".to_string()))
+            Err(PayableTransactionError::Signing(
+                "Signing error: secp: malformed or out-of-range \
+            secret key"
+                    .to_string()
+            ))
         )
     }
 
@@ -2454,7 +2444,6 @@ mod tests {
         assert_eq!(
             actual_error_msgs,
             slice_of_strs_to_vec_of_strings(&[
-                "General message error: \"Spicy error\"",
                 "Missing consuming wallet to pay payable from",
                 "Unsuccessful gas price query: \"Gas halves shut, no drop left\"",
                 "Transaction count fetching failed for: Blockchain error: Invalid response",

@@ -424,11 +424,7 @@ impl PayableScanner {
         let missing_fgp_err_msg_opt =
             err_msg_if_failed_without_existing_fingerprints(nonexistent, serialize_hashes);
         if !existent.is_empty() {
-            let (ids, hashes) = log_failed_payments_and_return_rowids_and_hashes(
-                existent,
-                serialize_hashes,
-                logger,
-            );
+            let (ids, hashes) = log_failed_payments_and_return_rowids_and_hashes(existent);
             warning!(
                 logger,
                 "Deleting fingerprints for failed transactions {}",

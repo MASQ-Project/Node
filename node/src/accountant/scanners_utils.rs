@@ -106,7 +106,7 @@ pub mod payable_scanner_utils {
                 }
                 let (oks, err_hashes_opt) =
                     separate_rpc_results(individual_batch_responses, logger);
-                let remote_errs_opt = err_hashes_opt.map(|hs| RemotelyCausedErrors(hs));
+                let remote_errs_opt = err_hashes_opt.map(RemotelyCausedErrors);
                 (oks, remote_errs_opt)
             }
             Err(e) => {
@@ -264,8 +264,6 @@ pub mod payable_scanner_utils {
 
     pub fn log_failed_payments_and_return_rowids_and_hashes(
         ids_of_payments: VecOfRowidOptAndHash,
-        serialize_hashes: fn(&[H256]) -> String,
-        logger: &Logger,
     ) -> (Vec<u64>, Vec<H256>) {
         let (rowids, hashes): (Vec<u64>, Vec<H256>) = ids_of_payments
             .into_iter()
@@ -505,15 +503,21 @@ mod tests {
             recipient_wallet: make_wallet("blah"),
             hash: make_tx_hash(123),
         };
-        let correct_payment_2 = PendingPayable{ recipient_wallet: make_wallet("howgh"), hash: make_tx_hash(456) };
+        let correct_payment_2 = PendingPayable {
+            recipient_wallet: make_wallet("howgh"),
+            hash: make_tx_hash(456),
+        };
         let sent_payable = SentPayables {
-            payment_procedure_result: Ok(vec![Correct(correct_payment_1.clone()), Correct(correct_payment_2.clone())]),
+            payment_procedure_result: Ok(vec![
+                Correct(correct_payment_1.clone()),
+                Correct(correct_payment_2.clone()),
+            ]),
             response_skeleton_opt: None,
         };
 
         let (oks, errs) = separate_errors(&sent_payable, &Logger::new("test"));
 
-        assert_eq!(oks, vec![&correct_payment_1,&correct_payment_2]);
+        assert_eq!(oks, vec![&correct_payment_1, &correct_payment_2]);
         assert_eq!(errs, None)
     }
 
