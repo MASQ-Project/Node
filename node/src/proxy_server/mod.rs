@@ -34,7 +34,7 @@ use crate::sub_lib::proxy_client::{ClientResponsePayload_0v1, DnsResolveFailure_
 use crate::sub_lib::proxy_server::ClientRequestPayload_0v1;
 use crate::sub_lib::proxy_server::ProxyServerSubs;
 use crate::sub_lib::proxy_server::{
-    AddReturnRouteMessage, AddRouteMessage, DEFAULT_MINIMUM_HOP_COUNT,
+    AddReturnRouteMessage, AddRouteMessage,
 };
 use crate::sub_lib::route::Route;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
