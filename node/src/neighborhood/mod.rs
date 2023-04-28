@@ -535,11 +535,12 @@ impl Neighborhood {
 
     fn handle_route_query_message(&mut self, msg: RouteQueryMessage) -> Option<RouteQueryResponse> {
         let debug_msg_opt = self.logger.debug_enabled().then(|| format!("{:?}", msg));
-        let route_result = if msg.minimum_hop_count == 0 {
+        let route_result = if self.mode == NeighborhoodModeLight::ZeroHop {
             Ok(self.zero_hop_route_response())
         } else {
             self.make_round_trip_route(msg)
         };
+        eprintln!("Round Trip Result: {:?}", route_result);
         match route_result {
             Ok(response) => {
                 let msg_str = debug_msg_opt.expect("Debug Message wasn't built but expected.");
@@ -838,7 +839,6 @@ impl Neighborhood {
         let msg = RouteQueryMessage {
             target_key_opt: None,
             target_component: Component::ProxyClient,
-            minimum_hop_count: self.min_hops_count as usize,
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
             hostname_opt: None,
@@ -974,7 +974,7 @@ impl Neighborhood {
         let over = self.make_route_segment(
             self.cryptde.public_key(),
             request_msg.target_key_opt.as_ref(),
-            request_msg.minimum_hop_count,
+            self.min_hops_count as usize,
             request_msg.target_component,
             request_msg.payload_size,
             RouteDirection::Over,
@@ -989,7 +989,7 @@ impl Neighborhood {
         let back = self.make_route_segment(
             over.keys.last().expect("Empty segment"),
             Some(self.cryptde.public_key()),
-            request_msg.minimum_hop_count,
+            self.min_hops_count as usize,
             request_msg
                 .return_component_opt
                 .expect("No return component"),
@@ -1067,6 +1067,7 @@ impl Neighborhood {
         );
         match route_opt {
             None => {
+                // panic!("yes, this is the right place");
                 let target_str = match target_opt {
                     Some(t) => format!(" {}", t),
                     None => String::from("Unknown"),
@@ -1234,6 +1235,10 @@ impl Neighborhood {
         let mut minimum_undesirability = i64::MAX;
         let initial_undesirability =
             self.compute_initial_undesirability(source, payload_size as u64, direction);
+        // Args passed to routing engine: [0xA59FFDC71BDB6B4F4E075C59538CB59A20EE1CC67697DF3939A1EEFBB70C897F] 0 None 2 1000 Over 9223372036854775807 None
+        // [0xDCDBDC19A160F7272C7A0342E2860430EEA163ECA654091AD85736B591D82EB4] 0 None 3 1000 Over 9223372036854775807 None
+        // panic!("Args passed to routing engine: {:?} {} {:?} {} {} {:?} {} {:?}", vec![source], initial_undesirability, target_opt, minimum_hops, payload_size, direction, minimum_undesirability, hostname_opt);
+        eprintln!("Minimum Hops sent to routing engine: {}", minimum_hops);
         let result = self
             .routing_engine(
                 vec![source],
@@ -1244,11 +1249,17 @@ impl Neighborhood {
                 direction,
                 &mut minimum_undesirability,
                 hostname_opt,
-            )
+            );
+        eprintln!("Routing Engine Result: {:?}", result.len());
+
+        let result = result
             .into_iter()
-            .filter_map(|cr| match cr.undesirability <= minimum_undesirability {
-                true => Some(cr.nodes),
-                false => None,
+            .filter_map(|cr| {
+                eprintln!("Route Undesirability: {}, minimum_undesirability: {}", cr.undesirability, minimum_undesirability);
+                match cr.undesirability <= minimum_undesirability {
+                    true => Some(cr.nodes),
+                    false => None,
+                }
             })
             .next();
 
@@ -2752,7 +2763,7 @@ mod tests {
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
         let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 5, 400,
+            None, 400,
         ));
 
         System::current().stop_with_code(0);
@@ -2770,7 +2781,7 @@ mod tests {
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
         let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 2, 430,
+            None,  430,
         ));
 
         System::current().stop_with_code(0);
@@ -2787,6 +2798,7 @@ mod tests {
             "route_query_succeeds_when_asked_for_one_hop_round_trip_route_without_consuming_wallet",
         );
         let mut subject = make_standard_subject();
+        subject.min_hops_count = Hops::OneHop;
         subject
             .neighborhood_database
             .root_mut()
@@ -2811,7 +2823,7 @@ mod tests {
         }
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(None, 1, 54000);
+        let msg = RouteQueryMessage::data_indefinite_route_request(None, 54000);
 
         let future = sub.send(msg);
 
@@ -2884,7 +2896,7 @@ mod tests {
         }
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(None, 1, 10000);
+        let msg = RouteQueryMessage::data_indefinite_route_request(None,  10000);
 
         let future = sub.send(msg);
 
@@ -2901,7 +2913,7 @@ mod tests {
         let subject = make_standard_subject();
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(None, 2, 20000);
+        let msg = RouteQueryMessage::data_indefinite_route_request(None, 20000);
 
         let future = sub.send(msg);
 
@@ -2915,12 +2927,13 @@ mod tests {
     fn route_query_responds_with_standard_zero_hop_route_when_requested() {
         let cryptde = main_cryptde();
         let system = System::new("responds_with_standard_zero_hop_route_when_requested");
-        let subject = make_standard_subject();
+        let mut subject = make_standard_subject();
+        subject.mode = NeighborhoodModeLight::ZeroHop;
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
         let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 0, 12345,
+            None, 12345,
         ));
 
         System::current().stop_with_code(0);
@@ -2987,6 +3000,7 @@ mod tests {
         let earning_wallet = make_wallet("earning");
         let system = System::new("route_query_messages");
         let mut subject = make_standard_subject();
+        subject.min_hops_count = Hops::TwoHops;
         subject
             .neighborhood_database
             .root_mut()
@@ -3016,7 +3030,7 @@ mod tests {
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
         let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 2, 5000,
+            None, 5000,
         ));
 
         System::current().stop_with_code(0);
@@ -3107,21 +3121,20 @@ mod tests {
     fn return_route_ids_increase() {
         let cryptde = main_cryptde();
         let system = System::new("return_route_ids_increase");
-        let (_, _, _, subject) = make_o_r_e_subject();
-
+        let (_, _, _, mut subject) = make_o_r_e_subject();
+        subject.min_hops_count = Hops::TwoHops;
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
         let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 2, 2000,
+            None, 2000,
         ));
         let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 2, 3000,
+            None, 3000,
         ));
 
         System::current().stop_with_code(0);
         system.run();
-
         let result_0 = data_route_0.wait().unwrap().unwrap();
         let result_1 = data_route_1.wait().unwrap().unwrap();
         let juicy_parts = |result: RouteQueryResponse| {
@@ -3143,7 +3156,8 @@ mod tests {
     fn can_update_consuming_wallet() {
         let cryptde = main_cryptde();
         let system = System::new("can_update_consuming_wallet");
-        let (o, r, e, subject) = make_o_r_e_subject();
+        let (o, r, e, mut subject) = make_o_r_e_subject();
+        subject.min_hops_count = Hops::TwoHops;
         let addr: Addr<Neighborhood> = subject.start();
         let set_wallet_sub = addr.clone().recipient::<SetConsumingWalletMessage>();
         let route_sub = addr.recipient::<RouteQueryMessage>();
@@ -3168,13 +3182,13 @@ mod tests {
         .unwrap();
 
         let route_request_1 = route_sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 2, 1000,
+            None, 1000,
         ));
         let _ = set_wallet_sub.try_send(SetConsumingWalletMessage {
             wallet: expected_new_wallet,
         });
         let route_request_2 = route_sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 2, 2000,
+            None, 2000,
         ));
 
         System::current().stop();
@@ -4869,7 +4883,6 @@ mod tests {
         let three_hop_route_request = RouteQueryMessage {
             target_key_opt: Some(c.public_key().clone()),
             target_component: Component::ProxyClient,
-            minimum_hop_count: 3,
             return_component_opt: None,
             payload_size: 10000,
             hostname_opt: None,
@@ -5198,10 +5211,12 @@ mod tests {
     #[test]
     fn make_round_trip_route_returns_error_when_no_non_next_door_neighbor_found() {
         // Make a triangle of Nodes
+        let min_hops_count = Hops::TwoHops;
         let one_next_door_neighbor = make_node_record(3333, true);
         let another_next_door_neighbor = make_node_record(4444, true);
         let subject_node = make_global_cryptde_node_record(5555, true); // 9e7p7un06eHs6frl5A
         let mut subject = neighborhood_from_nodes(&subject_node, Some(&one_next_door_neighbor));
+        subject.min_hops_count = min_hops_count;
 
         subject
             .neighborhood_database
@@ -5225,12 +5240,9 @@ mod tests {
             another_next_door_neighbor.public_key(),
         );
 
-        let minimum_hop_count = 2;
-
         let result = subject.make_round_trip_route(RouteQueryMessage {
             target_key_opt: None,
             target_component: Component::ProxyClient,
-            minimum_hop_count,
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
             hostname_opt: None,
@@ -5239,7 +5251,7 @@ mod tests {
         assert_eq!(
             Err(format!(
                 "Couldn't find any routes: at least {}-hop from {} to ProxyClient at Unknown",
-                minimum_hop_count,
+                min_hops_count as usize,
                 main_cryptde().public_key()
             )),
             result
@@ -5253,6 +5265,7 @@ mod tests {
 
         let subject_node = make_global_cryptde_node_record(666, true); // 9e7p7un06eHs6frl5A
         let mut subject = neighborhood_from_nodes(&subject_node, Some(&next_door_neighbor));
+        subject.min_hops_count = Hops::TwoHops;
 
         subject
             .neighborhood_database
@@ -5272,12 +5285,9 @@ mod tests {
             .neighborhood_database
             .add_arbitrary_full_neighbor(next_door_neighbor.public_key(), exit_node.public_key());
 
-        let minimum_hop_count = 2;
-
         let result = subject.make_round_trip_route(RouteQueryMessage {
             target_key_opt: None,
             target_component: Component::ProxyClient,
-            minimum_hop_count,
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
             hostname_opt: None,
@@ -5318,8 +5328,8 @@ mod tests {
         assert_eq!(expected_public_keys, actual_keys);
     }
 
-    fn assert_route_query_message(hops: Hops) {
-        let hops = hops as usize;
+    fn assert_route_query_message(min_hops_count: Hops) {
+        let hops = min_hops_count as usize;
         let nodes_count = hops + 1;
         // Create Nodes
         let nodes = (1..=nodes_count)
@@ -5338,6 +5348,7 @@ mod tests {
         let root_node = nodes.get(0).unwrap();
         let neighbor = nodes.get(1).unwrap();
         let mut subject = neighborhood_from_nodes(root_node, Some(neighbor));
+        subject.min_hops_count = min_hops_count;
         for i in 1..nodes_count {
             subject
                 .neighborhood_database
@@ -5351,7 +5362,6 @@ mod tests {
         let result = subject.make_round_trip_route(RouteQueryMessage {
             target_key_opt: None,
             target_component: Component::ProxyClient,
-            minimum_hop_count: hops,
             return_component_opt: Some(Component::ProxyServer),
             payload_size: 10000,
             hostname_opt: None,
@@ -5424,6 +5434,7 @@ mod tests {
 
     fn check_fee_preference(payload_size: usize, a_not_b: bool) {
         let mut subject = make_standard_subject();
+        subject.min_hops_count = Hops::TwoHops;
         let db = &mut subject.neighborhood_database;
         let o = &db.root().public_key().clone();
         let a = &db.add_node(make_node_record(2345, true)).unwrap();
@@ -5452,7 +5463,6 @@ mod tests {
             .handle_route_query_message(RouteQueryMessage {
                 target_key_opt: Some(x.clone()),
                 target_component: Component::ProxyClient,
-                minimum_hop_count: 2,
                 return_component_opt: Some(Component::ProxyServer),
                 payload_size,
                 hostname_opt: None,
