@@ -1442,7 +1442,7 @@ mod tests {
             next_lifetime: Duration::from_secs(600),
             remap_interval: Duration::from_secs(0),
         };
-        let mut last_remapped = Instant::now().sub(Duration::from_secs(3600));
+        let mut last_remapped = Instant::now().sub(Duration::from_secs(60));
         let logger = Logger::new("maybe_remap_handles_remapping_error");
         let transactor = PmpTransactor::new();
         let mut subject =
