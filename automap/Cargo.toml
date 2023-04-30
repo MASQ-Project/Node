@@ -20,6 +20,10 @@ port_scanner = "0.1.5"
 pretty-hex = "0.1.0"
 rand = {version = "0.7.0", features = ["getrandom", "small_rng"]}
 
+
+[dev-dependencies]
+regex = "1.5.4"
+
 [[bin]]
 name = "automap"
 path = "src/main.rs"

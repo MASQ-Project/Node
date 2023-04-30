@@ -273,7 +273,7 @@ mod tests {
     use crate::blockchain::blockchain_interface::BlockchainError;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
-    use masq_lib::constants::WEIS_OF_GWEI;
+    use masq_lib::constants::WEIS_IN_GWEI;
     use masq_lib::logger::Logger;
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use std::time::SystemTime;
@@ -448,7 +448,7 @@ mod tests {
         let middle_point = tested_fn(&payment_thresholds, middle_point_timestamp);
         let lower_corner_point = tested_fn(&payment_thresholds, lower_corner_timestamp);
 
-        let allowed_imprecision = WEIS_OF_GWEI;
+        let allowed_imprecision = WEIS_IN_GWEI;
         let ideal_template_higher: i128 = gwei_to_wei(payment_thresholds.debt_threshold_gwei);
         let ideal_template_middle: i128 = gwei_to_wei(
             (payment_thresholds.debt_threshold_gwei
