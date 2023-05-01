@@ -51,6 +51,7 @@ impl From<ClientRequestPayload_0v1> for MessageType {
 
 impl ClientRequestPayload_0v1 {
     pub fn version() -> DataVersion {
+        unimplemented!("");
         DataVersion::new(0, 0).expect("Internal Error")
     }
 }

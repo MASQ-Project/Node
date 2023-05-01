@@ -182,7 +182,7 @@ impl DbMigratorReal {
 mod tests {
     use crate::database::connection_wrapper::{ConnectionWrapper, ConnectionWrapperReal};
     use crate::database::db_initializer::test_utils::ConnectionWrapperMock;
-    use crate::database::db_initializer::{ExternalData, CURRENT_SCHEMA_VERSION};
+    use crate::database::db_initializer::{ExternalData};
     use crate::database::db_migrations::db_migrator::{
         DatabaseMigration, DbMigrator, DbMigratorReal,
     };
@@ -203,6 +203,7 @@ mod tests {
     use std::iter::once;
     use std::panic::{catch_unwind, AssertUnwindSafe};
     use std::sync::{Arc, Mutex};
+    use masq_lib::constants::CURRENT_SCHEMA_VERSION;
 
     #[derive(Default)]
     struct DBMigrationUtilitiesMock {

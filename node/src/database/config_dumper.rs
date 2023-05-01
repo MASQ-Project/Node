@@ -158,7 +158,7 @@ mod tests {
     use super::*;
     use crate::blockchain::bip39::Bip39;
     use crate::database::connection_wrapper::ConnectionWrapperReal;
-    use crate::database::db_initializer::{ExternalData, CURRENT_SCHEMA_VERSION};
+    use crate::database::db_initializer::{ExternalData};
     use crate::db_config::config_dao::ConfigDao;
     use crate::db_config::persistent_configuration::{
         PersistentConfiguration, PersistentConfigurationReal,
@@ -177,6 +177,7 @@ mod tests {
     use std::fs::File;
     use std::io::ErrorKind;
     use std::panic::{catch_unwind, AssertUnwindSafe};
+    use masq_lib::constants::CURRENT_SCHEMA_VERSION;
 
     #[test]
     fn database_must_be_created_by_node_before_dump_config_is_used() {

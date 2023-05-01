@@ -5,7 +5,7 @@ use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::migrations::utils::value_to_type;
 use crate::sub_lib::neighborhood::RatePack;
 use crate::sub_lib::versioned_data::{
-    MigrationError, Migrations, StepError, VersionedData, FUTURE_VERSION,
+    MigrationError, Migrations, StepError, VersionedData,
 };
 use crate::sub_lib::wallet::Wallet;
 use lazy_static::lazy_static;
@@ -15,13 +15,13 @@ use std::convert::TryFrom;
 
 lazy_static! {
     pub static ref MIGRATIONS: Migrations = {
-        let current_version = dv!(0, 1);
+        let current_version = masq_lib::constants::NODE_RECORD_INNER_CURRENT_VERSION;
         let mut migrations = Migrations::new(current_version);
 
         migrate_value!(dv!(0, 1), NodeRecordInner_0v1, NodeRecordInnerMF_0v1, {|value: serde_cbor::Value| {
             NodeRecordInner_0v1::try_from (&value)
         }});
-        migrations.add_step (FUTURE_VERSION, dv!(0, 1), Box::new (NodeRecordInnerMF_0v1{}));
+        migrations.add_step (masq_lib::data_version::FUTURE_VERSION, dv!(0, 1), Box::new (NodeRecordInnerMF_0v1{}));
 
         // add more steps here
 
@@ -160,9 +160,9 @@ impl NodeRecordInner_0v1 {
 mod tests {
     use super::*;
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
-    use crate::sub_lib::versioned_data::DataVersion;
     use serde_derive::{Deserialize, Serialize};
     use std::iter::FromIterator;
+    use masq_lib::data_version::DataVersion;
 
     #[test]
     fn can_migrate_from_the_future() {

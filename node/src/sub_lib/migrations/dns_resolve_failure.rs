@@ -4,7 +4,6 @@ use crate::sub_lib::migrations::utils::value_to_type;
 use crate::sub_lib::proxy_client::DnsResolveFailure_0v1;
 use crate::sub_lib::stream_key::StreamKey;
 use crate::sub_lib::versioned_data::Migrations;
-use crate::sub_lib::versioned_data::FUTURE_VERSION;
 use crate::sub_lib::versioned_data::{MigrationError, StepError, VersionedData};
 use lazy_static::lazy_static;
 use serde_cbor::Value;
@@ -12,13 +11,13 @@ use std::convert::TryFrom;
 
 lazy_static! {
     pub static ref MIGRATIONS: Migrations = {
-        let current_version = dv!(0, 1);
+        let current_version = masq_lib::constants::DNS_RESOLVER_FAILURE_CURRENT_VERSION;
         let mut migrations = Migrations::new(current_version);
 
         migrate_value!(dv!(0, 1), DnsResolveFailure_0v1, DnsResolveFailureMF_0v1, {|value: serde_cbor::Value| {
             DnsResolveFailure_0v1::try_from (&value)
         }});
-        migrations.add_step (FUTURE_VERSION, dv!(0, 1), Box::new (DnsResolveFailureMF_0v1{}));
+        migrations.add_step (masq_lib::data_version::FUTURE_VERSION, dv!(0, 1), Box::new (DnsResolveFailureMF_0v1{}));
 
         // add more steps here
 
@@ -85,10 +84,10 @@ impl TryFrom<&Value> for DnsResolveFailure_0v1 {
 mod tests {
     use super::*;
     use crate::sub_lib::cryptde::PublicKey;
-    use crate::sub_lib::versioned_data::DataVersion;
     use serde_derive::{Deserialize, Serialize};
     use std::net::SocketAddr;
     use std::str::FromStr;
+    use masq_lib::data_version::DataVersion;
 
     #[test]
     fn can_migrate_from_the_future() {
