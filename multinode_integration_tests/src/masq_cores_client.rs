@@ -18,7 +18,7 @@ impl<'a> MASQCoresClient<'a> {
     pub fn new(socket_addr: SocketAddr, cryptde: &'a dyn CryptDE) -> MASQCoresClient<'a> {
         MASQCoresClient {
             cryptde,
-            delegate: MASQNodeClient::new(socket_addr),
+            delegate: MASQNodeClient::new(socket_addr, 1000),
         }
     }
 

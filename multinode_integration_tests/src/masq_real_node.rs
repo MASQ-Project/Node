@@ -37,6 +37,7 @@ use std::time::Duration;
 use node_lib::neighborhood::DEFAULT_MIN_HOPS_COUNT;
 
 pub const DATA_DIRECTORY: &str = "/node_root/home";
+pub const STANDARD_CLIENT_TIMEOUT_MILLIS: u64 = 1000;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Firewall {
@@ -940,9 +941,9 @@ impl MASQRealNode {
         }
     }
 
-    pub fn make_client(&self, port: u16) -> MASQNodeClient {
+    pub fn make_client(&self, port: u16, timeout_millis: u64) -> MASQNodeClient {
         let socket_addr = SocketAddr::new(self.ip_address(), port);
-        MASQNodeClient::new(socket_addr)
+        MASQNodeClient::new(socket_addr, timeout_millis)
     }
 
     pub fn make_server(&self, port: u16) -> MASQNodeServer {
