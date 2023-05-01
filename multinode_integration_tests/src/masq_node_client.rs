@@ -15,7 +15,7 @@ impl MASQNodeClient {
         let stream = TcpStream::connect(&socket_addr)
             .unwrap_or_else(|_| panic!("Connecting to {}", socket_addr));
         stream
-            .set_read_timeout(Some(Duration::from_millis(250)))
+            .set_read_timeout(Some(Duration::from_millis(500)))
             .expect("Setting read timeout to 250ms");
 
         MASQNodeClient {
