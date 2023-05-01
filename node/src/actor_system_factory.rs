@@ -612,7 +612,6 @@ mod tests {
     use crate::actor_system_factory::tests::ShouldWeRunTheTest::{GoAhead, Skip};
     use crate::bootstrapper::{Bootstrapper, RealUser};
     use crate::database::connection_wrapper::ConnectionWrapper;
-    use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
     use crate::node_test_utils::{
         make_stream_handler_pool_subs_from, make_stream_handler_pool_subs_from_recorder,
         start_recorder_refcell_opt,
@@ -679,6 +678,7 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
+    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_COUNT_FOR_TEST;
 
     struct LogRecipientSetterNull {}
 
@@ -1071,7 +1071,7 @@ mod tests {
                     vec![],
                     rate_pack(100),
                 ),
-                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             },
             payment_thresholds_opt: Some(PaymentThresholds::default()),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC,
@@ -1145,7 +1145,7 @@ mod tests {
                     vec![],
                     rate_pack(100),
                 ),
-                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             },
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
@@ -1289,7 +1289,7 @@ mod tests {
                 vec![],
                 rate_pack(100),
             ),
-            min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
         };
         let make_params_arc = Arc::new(Mutex::new(vec![]));
         let mut subject = make_subject_with_null_setter();
@@ -1443,7 +1443,7 @@ mod tests {
             real_user: RealUser::null(),
             neighborhood_config: NeighborhoodConfig {
                 mode: NeighborhoodMode::ConsumeOnly(vec![]),
-                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             },
             payment_thresholds_opt: Default::default(),
             when_pending_too_long_sec: DEFAULT_PENDING_TOO_LONG_SEC
@@ -1632,7 +1632,7 @@ mod tests {
                     vec![],
                     rate_pack(100),
                 ),
-                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             },
             node_descriptor: Default::default(),
             payment_thresholds_opt: Default::default(),

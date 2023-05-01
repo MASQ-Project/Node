@@ -280,7 +280,6 @@ mod tests {
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
-    use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
     use crate::node_configurator::unprivileged_parse_args_configuration::UnprivilegedParseArgsConfigurationDaoNull;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::CryptDE;
@@ -305,6 +304,7 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use std::vec;
+    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_COUNT_FOR_TEST;
 
     #[test]
     fn node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real() {
@@ -576,7 +576,7 @@ mod tests {
             config.neighborhood_config,
             NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop, // not populated on the privileged side
-                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             }
         );
         assert_eq!(

@@ -7,7 +7,7 @@ use crate::neighborhood::{AccessibleGossipRecord, Neighborhood, DEFAULT_MIN_HOPS
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::cryptde::{CryptDE, PlainData};
 use crate::sub_lib::cryptde_null::CryptDENull;
-use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
+use crate::sub_lib::neighborhood::{Hops, NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::*;
@@ -17,6 +17,8 @@ use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use std::convert::TryFrom;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
+
+pub const MIN_HOPS_COUNT_FOR_TEST: Hops = DEFAULT_MIN_HOPS_COUNT;
 
 impl From<(&NeighborhoodDatabase, &PublicKey, bool)> for AccessibleGossipRecord {
     fn from(
@@ -95,11 +97,11 @@ pub fn neighborhood_from_nodes(
                 vec![NodeDescriptor::from((neighbor, Chain::EthRopsten, cryptde))],
                 *root.rate_pack(),
             ),
-            min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
         },
         None => NeighborhoodConfig {
             mode: NeighborhoodMode::ZeroHop,
-            min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
         },
     };
     config.earning_wallet = root.earning_wallet();

@@ -1333,13 +1333,10 @@ mod tests {
     use crate::neighborhood::gossip_producer::GossipProducer;
     use crate::neighborhood::gossip_producer::GossipProducerReal;
     use crate::neighborhood::node_record::NodeRecord;
-    use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage, Hops};
     use crate::sub_lib::utils::time_t_timestamp;
-    use crate::test_utils::neighborhood_test_utils::{
-        db_from_node, make_meaningless_db, make_node_record, make_node_record_f,
-    };
+    use crate::test_utils::neighborhood_test_utils::{db_from_node, make_meaningless_db, make_node_record, make_node_record_f, MIN_HOPS_COUNT_FOR_TEST};
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
     use actix::System;
@@ -1368,7 +1365,7 @@ mod tests {
         NeighborhoodMetadata {
             connection_progress_peers: vec![],
             cpm_recipient: make_cpm_recipient().0,
-            min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
         }
     }
 
@@ -2384,7 +2381,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let result = subject.compute_patch(&agrs, node_a_db.root(), DEFAULT_MIN_HOPS_COUNT as u8);
+        let result = subject.compute_patch(&agrs, node_a_db.root(), MIN_HOPS_COUNT_FOR_TEST as u8);
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
@@ -2436,7 +2433,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let patch = subject.compute_patch(&agrs, node_a_db.root(), DEFAULT_MIN_HOPS_COUNT as u8);
+        let patch = subject.compute_patch(&agrs, node_a_db.root(), MIN_HOPS_COUNT_FOR_TEST as u8);
 
         let expected_hashset = vec![
             node_a.public_key().clone(),
@@ -2485,7 +2482,7 @@ mod tests {
             .build();
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let patch = subject.compute_patch(&agrs, node_a_db.root(), DEFAULT_MIN_HOPS_COUNT as u8);
+        let patch = subject.compute_patch(&agrs, node_a_db.root(), MIN_HOPS_COUNT_FOR_TEST as u8);
 
         let expected_hashset = vec![
             node_a.public_key().clone(),

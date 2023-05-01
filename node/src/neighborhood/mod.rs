@@ -1638,10 +1638,7 @@ mod tests {
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_wallet;
-    use crate::test_utils::neighborhood_test_utils::{
-        db_from_node, make_global_cryptde_node_record, make_ip, make_node, make_node_descriptor,
-        make_node_record, make_node_record_f, neighborhood_from_nodes,
-    };
+    use crate::test_utils::neighborhood_test_utils::{db_from_node, make_global_cryptde_node_record, make_ip, make_node, make_node_descriptor, make_node_record, make_node_record_f, MIN_HOPS_COUNT_FOR_TEST, neighborhood_from_nodes};
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
@@ -1723,7 +1720,7 @@ mod tests {
                     "masq://eth-ropsten:AQIDBA@1.2.3.4:1234",
                 ))
                 .unwrap()]),
-                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             },
             earning_wallet.clone(),
             None,
@@ -1748,7 +1745,7 @@ mod tests {
                     "masq://eth-mainnet:AQIDBA@1.2.3.4:1234",
                 ))
                 .unwrap()]),
-                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             },
             earning_wallet.clone(),
             None,
@@ -1769,7 +1766,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
-                    min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 earning_wallet.clone(),
                 None,
@@ -1798,7 +1795,7 @@ mod tests {
                         vec![neighbor.node_descriptor(TEST_DEFAULT_CHAIN, cryptde)],
                         DEFAULT_RATE_PACK.clone(),
                     ),
-                    min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 earning_wallet.clone(),
                 None,
@@ -1837,7 +1834,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
-                    min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
@@ -1886,7 +1883,7 @@ mod tests {
                         ],
                         rate_pack(100),
                     ),
-                    min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
@@ -1966,7 +1963,7 @@ mod tests {
                 initial_node_descriptors,
                 rate_pack(100),
             ),
-            min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
@@ -2435,7 +2432,7 @@ mod tests {
                 initial_node_descriptors,
                 rate_pack(100),
             ),
-            min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
         };
         let mut subject = Neighborhood::new(
             main_cryptde(),
@@ -2512,7 +2509,7 @@ mod tests {
                         ],
                         rate_pack(100),
                     ),
-                    min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 earning_wallet.clone(),
                 None,
@@ -2584,7 +2581,7 @@ mod tests {
                         ))],
                         rate_pack(100),
                     ),
-                    min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
@@ -2620,7 +2617,7 @@ mod tests {
                         vec![node_record_to_neighbor_config(&one_neighbor)],
                         rate_pack(100),
                     ),
-                    min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
@@ -2673,7 +2670,7 @@ mod tests {
                         ))],
                         rate_pack(100),
                     ),
-                    min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 earning_wallet.clone(),
                 consuming_wallet.clone(),
@@ -2714,7 +2711,7 @@ mod tests {
                         ))],
                         rate_pack(100),
                     ),
-                    min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 node_record.earning_wallet(),
                 None,
@@ -3594,7 +3591,7 @@ mod tests {
                             vec![],
                             rate_pack(100),
                         ),
-                        min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                        min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -3993,7 +3990,7 @@ mod tests {
                 initial_node_descriptors,
                 rate_pack(100),
             ),
-            min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, "test");
@@ -4715,7 +4712,7 @@ mod tests {
                             vec![],
                             rate_pack(100),
                         ),
-                        min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                        min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
                     },
                     this_node_inside.earning_wallet(),
                     None,
@@ -4778,7 +4775,7 @@ mod tests {
                         vec![debut_target.clone()],
                         rate_pack(100),
                     ),
-                    min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 NodeRecord::earning_wallet_from_key(&cryptde.public_key()),
                 NodeRecord::consuming_wallet_from_key(&cryptde.public_key()),
@@ -4969,7 +4966,7 @@ mod tests {
                             ))],
                             rate_pack(100),
                         ),
-                        min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                        min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -5031,7 +5028,7 @@ mod tests {
                             vec![node_record_to_neighbor_config(&one_neighbor)],
                             rate_pack(100),
                         ),
-                        min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                        min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -5098,7 +5095,7 @@ mod tests {
                             ))],
                             rate_pack(100),
                         ),
-                        min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                        min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
                     },
                     earning_wallet.clone(),
                     consuming_wallet.clone(),
@@ -5162,7 +5159,7 @@ mod tests {
                         ))],
                         rate_pack(100),
                     ),
-                    min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 node_record.earning_wallet(),
                 None,
@@ -5694,7 +5691,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ZeroHop,
-                    min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 make_wallet("earning"),
                 None,
@@ -6044,7 +6041,7 @@ mod tests {
                 initial_node_descriptors,
                 rate_pack(100),
             ),
-            min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+            min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
         };
         let bootstrap_config =
             bc_from_nc_plus(neighborhood_config, make_wallet("earning"), None, test_name);
@@ -6068,7 +6065,7 @@ mod tests {
             &bc_from_nc_plus(
                 NeighborhoodConfig {
                     mode: NeighborhoodMode::ConsumeOnly(vec![make_node_descriptor(make_ip(1))]),
-                    min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                    min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
                 },
                 make_wallet("earning"),
                 None,

@@ -654,6 +654,7 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
+    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_COUNT_FOR_TEST;
 
     #[test]
     fn convert_ci_configs_handles_blockchain_mismatch() {
@@ -805,7 +806,7 @@ mod tests {
         let node_addr = match result {
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(node_addr, _, _),
-                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             }) => node_addr,
             x => panic!("Wasn't expecting {:?}", x),
         };
@@ -863,7 +864,7 @@ mod tests {
                     ],
                     DEFAULT_RATE_PACK
                 ),
-                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             })
         );
     }
@@ -939,7 +940,7 @@ mod tests {
                     ))
                     .unwrap()
                 ],),
-                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             })
         );
     }
@@ -1003,7 +1004,7 @@ mod tests {
             result,
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop,
-                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             })
         );
     }
@@ -1334,7 +1335,7 @@ mod tests {
             config.neighborhood_config,
             NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop,
-                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             }
         );
         let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
@@ -1381,7 +1382,7 @@ mod tests {
             config.neighborhood_config,
             NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop,
-                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             }
         );
         let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
@@ -1563,7 +1564,7 @@ mod tests {
                     ],
                     DEFAULT_RATE_PACK.clone()
                 ),
-                min_hops_count: DEFAULT_MIN_HOPS_COUNT,
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             }
         );
         assert_eq!(config.db_password_opt, Some(password.to_string()));
