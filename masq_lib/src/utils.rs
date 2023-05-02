@@ -220,8 +220,6 @@ impl FromStr for NeighborhoodModeLight {
     }
 }
 
-
-
 pub fn plus<T>(mut source: Vec<T>, item: T) -> Vec<T> {
     let mut result = vec![];
     result.append(&mut source);

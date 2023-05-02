@@ -105,7 +105,22 @@ pub const MAPPING_PROTOCOL_HELP: &str =
     public IP address with the --ip parameter. If the Node communicates successfully with your router, \
     it will remember the protocol it used, and on its next run it will try that protocol first, unless \
     you specify a different protocol on the command line.";
-pub const MIN_HOPS_HELP: &str = "Enter the count as an argument. 3-hops is required for anonymity."; // TODO: rewrite this
+pub const MIN_HOPS_HELP: &str =
+    "The Node is a system that routes data through multiple Nodes to enhance security and privacy. \
+    However, the level of anonymity and security provided depends on the number of hops specified \
+    by the user. By default, the system allows the user to customize the number of hops within a \
+    range of 1 to 6.\n\n\
+    It's important to note that if the user selects less than 3 hops, the anonymity of their data \
+    cannot be guaranteed. Here's a breakdown of the different hop counts and their implications:\n\n\
+    1. A 1-hop route allows Exit Nodes to see your requests.\n\
+    2. A 2-hop route makes it harder to associate your requests with your IP address, but it's \
+    not a foolproof guarantee.\n\
+    3. The minimum number of hops required to guarantee anonymity is 3.\n\
+    4. Increasing the number of hops to 4, 5, or 6 can enhance security, but it will also \
+    increase the cost and latency of the route.\n\
+    If you want to specify a minimum hops count, you can do so by entering a number after the \
+    '--min-hops' command. For example, '--min-hops 4' would require at least 4 hops. If you fail \
+    to provide this argument, the system will default to a minimum hops count of 3.";
 pub const REAL_USER_HELP: &str =
     "The user whose identity Node will assume when dropping privileges after bootstrapping. Since Node refuses to \
      run with root privilege after bootstrapping, you might want to use this if you start the Node as root, or if \
@@ -725,10 +740,6 @@ mod tests {
              You should probably not specify a level higher than the default unless you have security concerns about \
              persistent logs being kept on your computer: if your Node crashes, it's good to know why.");
         assert_eq!(
-            MIN_HOPS_HELP,
-            "Enter the count as an argument. 3-hops is required for anonymity."
-        );
-        assert_eq!(
             NEIGHBORS_HELP,
             "One or more Node descriptors for running Nodes in the MASQ \
              One or more Node descriptors for active Nodes in the MASQ Network to which you'd like your Node to connect \
@@ -778,6 +789,24 @@ mod tests {
              public IP address with the --ip parameter. If the Node communicates successfully with your router, \
              it will remember the protocol it used, and on its next run it will try that protocol first, unless \
              you specify a different protocol on the command line."
+        );
+        assert_eq!(
+            MIN_HOPS_HELP,
+            "The Node is a system that routes data through multiple Nodes to enhance security and privacy. \
+             However, the level of anonymity and security provided depends on the number of hops specified \
+             by the user. By default, the system allows the user to customize the number of hops within a \
+             range of 1 to 6.\n\n\
+             It's important to note that if the user selects less than 3 hops, the anonymity of their data \
+             cannot be guaranteed. Here's a breakdown of the different hop counts and their implications:\n\n\
+             1. A 1-hop route allows Exit Nodes to see your requests.\n\
+             2. A 2-hop route makes it harder to associate your requests with your IP address, but it's \
+             not a foolproof guarantee.\n\
+             3. The minimum number of hops required to guarantee anonymity is 3.\n\
+             4. Increasing the number of hops to 4, 5, or 6 can enhance security, but it will also \
+             increase the cost and latency of the route.\n\
+             If you want to specify a minimum hops count, you can do so by entering a number after the \
+             '--min-hops' command. For example, '--min-hops 4' would require at least 4 hops. If you fail \
+             to provide this argument, the system will default to a minimum hops count of 3."
         );
         assert_eq!(
             REAL_USER_HELP,
