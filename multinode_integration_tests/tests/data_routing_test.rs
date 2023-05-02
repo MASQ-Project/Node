@@ -4,19 +4,22 @@ use itertools::Itertools;
 use masq_lib::utils::index_of;
 use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
-use multinode_integration_tests_lib::masq_real_node::{default_consuming_wallet_info, make_consuming_wallet_info, MASQRealNode, NodeStartupConfigBuilder, STANDARD_CLIENT_TIMEOUT_MILLIS};
+use multinode_integration_tests_lib::masq_real_node::{
+    default_consuming_wallet_info, make_consuming_wallet_info, MASQRealNode,
+    NodeStartupConfigBuilder, STANDARD_CLIENT_TIMEOUT_MILLIS,
+};
 use native_tls::HandshakeError;
 use native_tls::TlsConnector;
 use native_tls::TlsStream;
 use node_lib::proxy_server::protocol_pack::ServerImpersonator;
 use node_lib::proxy_server::server_impersonator_http::ServerImpersonatorHttp;
+use node_lib::sub_lib::neighborhood::Hops;
 use node_lib::test_utils::{handle_connection_error, read_until_timeout};
 use std::io::Write;
 use std::net::{IpAddr, SocketAddr, TcpStream};
 use std::str::FromStr;
 use std::thread;
 use std::time::Duration;
-use node_lib::sub_lib::neighborhood::Hops;
 
 #[test]
 fn http_end_to_end_routing_test() {
@@ -104,13 +107,11 @@ fn assert_http_end_to_end_routing_test(min_hops_count: Hops) {
 
 #[test]
 fn http_end_to_end_routing_test_with_different_min_hops_count() {
-    // TODO: This test fails sometimes due to a timeout: Couldn't read chunk: Kind(TimedOut)
-    assert_http_end_to_end_routing_test(Hops::OneHop); // Working fine
-    assert_http_end_to_end_routing_test(Hops::TwoHops); // Working fine
-    // assert_http_end_to_end_routing_test(Hops::ThreeHops); // Working fine
-    // assert_http_end_to_end_routing_test(Hops::FourHops); // Working fine
-    // assert_http_end_to_end_routing_test(Hops::FiveHops); // Working fine
-    assert_http_end_to_end_routing_test(Hops::SixHops); // Working fine
+    // This test fails sometimes due to a timeout: "Couldn't read chunk: Kind(TimedOut)"
+    // You may fix it by increasing the timeout for the client.
+    assert_http_end_to_end_routing_test(Hops::OneHop);
+    assert_http_end_to_end_routing_test(Hops::TwoHops);
+    assert_http_end_to_end_routing_test(Hops::SixHops);
 }
 
 #[test]
