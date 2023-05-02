@@ -20,6 +20,8 @@ use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
+use futures::Stream;
+use itertools::Itertools;
 
 pub struct MASQNode {
     pub data_dir: PathBuf,
@@ -400,6 +402,7 @@ impl MASQNode {
     ) -> process::Command {
         let mut args = Self::standard_args();
         args.extend(Self::get_extra_args(data_dir, config));
+
         Self::start_with_args_extension(data_dir, args, remove_database)
     }
 
@@ -469,6 +472,20 @@ impl MASQNode {
             args.push(data_dir.to_string_lossy().to_string());
         }
         args
+    }
+
+    fn extend_with_dedup(base_args: Vec<String>, extra_args: Vec<String>) -> Vec<String> {
+        let base_args_iter = base_args.iter().tuple_windows();
+        extra_args.into_iter().tuple_windows().flat_map(|(arg_name, arg_value)| {
+            match base_args_iter.filter(|(arg_name_base,arg_value_base)| {
+                arg_name_base == arg_name
+            }).last() {
+                Some() => todo!()
+                None =>
+            }
+        }).collect()
+
+
     }
 
     fn wait_for_node(&mut self, ui_port: u16) -> Result<(), String> {

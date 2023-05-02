@@ -189,6 +189,7 @@ fn started_without_explicit_chain_parameter_runs_fine() {
     //believed to be for the default chain
     let config = CommandConfig::new()
         .pair("--neighborhood-mode", "standard")
+        .pair("--ip", "1.0.0.1")
         .pair(
             "--neighbors",
             &format!(
@@ -246,4 +247,43 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
 
     let regex_pattern = r"ERROR: PanicHandler: src(/|\\)actor_system_factory\.rs.*- Database with a wrong chain name detected; expected: eth-ropsten, was: eth-mainnet";
     node.wait_for_log(regex_pattern, Some(1000));
+}
+
+#[test]
+fn node_creates_log_file_with_heading() {
+    let config = CommandConfig::new()
+        .pair("--neighborhood-mode", "standard")
+        .pair("--ip", "1.0.0.1")
+        .pair(
+            "--neighbors",
+            &format!(
+                "masq://{}:12345vhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
+                DEFAULT_CHAIN.rec().literal_identifier
+            ),
+        );
+
+    let mut node = MASQNode::start_standard(
+        "node_creates_log_file_with_heading",
+        Some(config),
+        true,
+        true,
+        false,
+        true,
+    );
+
+    let expected_heading = format!(
+r#"^Node Version: v\d\.\d\.\d\n
+Database Schema Version: \d+\n
+OS: [a-z]+\n
+client_request_payload::MIGRATIONS \(\d+\.\d+\)\n
+client_response_payload::MIGRATIONS \(\d+\.\d+\)\n
+dns_resolve_failure::MIGRATIONS \(\d+\.\d+\)\n
+gossip::MIGRATIONS \(\d+\.\d+\)\n
+gossip_failure::MIGRATIONS \(\d+\.\d+\)\n
+node_record_inner::MIGRATIONS \(\d+\.\d+\)\n
+\d+\-\d+\-\d+ \d+:\d+:\d+\.\d+ Thd\d+:"#);
+    //The last line means the timestamp.
+
+    node.wait_for_log(&expected_heading, Some(5000));
+    //Node is dropped and killed
 }
