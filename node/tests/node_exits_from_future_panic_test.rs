@@ -5,7 +5,7 @@ pub mod utils;
 use crate::utils::CommandConfig;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-use node_lib::node_configurator::add_chain_specific_directories;
+use masq_lib::utils::add_chain_specific_directories;
 use std::fs::create_dir_all;
 #[cfg(not(target_os = "windows"))]
 use std::process;

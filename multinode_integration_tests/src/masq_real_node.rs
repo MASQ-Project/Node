@@ -29,6 +29,7 @@ use std::fmt::Display;
 use std::net::IpAddr;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
+use std::path::Path;
 use std::rc::Rc;
 use std::str::FromStr;
 use std::string::ToString;
@@ -840,6 +841,9 @@ impl MASQRealNode {
             .clone()
             .map(|public_key| CryptDENull::from(&public_key, chain));
         let restart_startup_config = real_startup_config.clone();
+        //let chain_specific_dir =
+        //   add_chain_specific_directories(TEST_DEFAULT_MULTINODE_CHAIN, Path::new(&RootDir));
+        //chain_specific_dir.to_string_lossy().to_string(),
         let guts = Rc::new(MASQRealNodeGuts {
             startup_config: real_startup_config.clone(),
             name: name.to_string(),
@@ -904,7 +908,8 @@ impl MASQRealNode {
     pub fn node_home_dir(root_dir: &str, name: &str) -> String {
         format!(
             "{}/multinode_integration_tests/generated/node_homes/{}",
-            root_dir, name
+            root_dir,
+            name //, "MASQ", TEST_DEFAULT_MULTINODE_CHAIN.rec().literal_identifier
         )
     }
 
@@ -1151,6 +1156,7 @@ impl MASQRealNode {
 
     fn extract_node_reference(name: &str) -> Result<NodeReference, String> {
         let descriptor_regex = Self::descriptor_regex();
+        let chain_specific_diretory = Path::new(DATA_DIRECTORY).join("MASQ").join("dev");
         let mut retries_left = 25;
         loop {
             if retries_left <= 0 {
@@ -1163,7 +1169,11 @@ impl MASQRealNode {
                 name,
                 vec![
                     "cat",
-                    &format!("{}/{}", DATA_DIRECTORY, CURRENT_LOGFILE_NAME),
+                    &format!(
+                        "{}/{}",
+                        &chain_specific_diretory.to_string_lossy(),
+                        CURRENT_LOGFILE_NAME
+                    ),
                 ],
             ) {
                 Ok(output) => {
@@ -1182,7 +1192,10 @@ impl MASQRealNode {
                 Err(e) => {
                     println!(
                         "Failed to cat logfile for {} at {}/{}: {}",
-                        name, DATA_DIRECTORY, CURRENT_LOGFILE_NAME, e
+                        name,
+                        &chain_specific_diretory.to_string_lossy(),
+                        CURRENT_LOGFILE_NAME,
+                        e
                     );
                 }
             };

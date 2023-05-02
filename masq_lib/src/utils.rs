@@ -1,11 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use crate::blockchains::chains::Chain;
 use lazy_static::lazy_static;
 use std::fmt;
 use std::fmt::{Debug, Display, Formatter};
 use std::io;
 use std::io::ErrorKind;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpListener, UdpSocket};
+use std::path::{Path, PathBuf};
 use std::str::FromStr;
 use std::sync::{Arc, Mutex};
 
@@ -127,6 +129,12 @@ fn port_is_free_for_ip_addr(ip_addr: IpAddr, port: u16) -> bool {
         return false;
     }
     true
+}
+
+pub fn add_chain_specific_directories(chain: Chain, local_data_dir: &Path) -> PathBuf {
+    PathBuf::from(local_data_dir)
+        .join("MASQ")
+        .join(chain.rec().literal_identifier)
 }
 
 pub fn localhost() -> IpAddr {

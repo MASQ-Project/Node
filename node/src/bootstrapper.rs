@@ -717,7 +717,6 @@ mod tests {
     use crate::discriminator::Discriminator;
     use crate::discriminator::UnmaskedChunk;
     use crate::listener_handler::{ListenerHandler, ListenerHandlerFactory};
-    use crate::node_configurator::add_chain_specific_directories;
     use crate::node_test_utils::make_stream_handler_pool_subs_from;
     use crate::node_test_utils::TestLogOwner;
     use crate::node_test_utils::{extract_log, DirsWrapperMock, IdWrapperMock};
@@ -756,7 +755,7 @@ mod tests {
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::logging::{init_test_logging, TestLog, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::find_free_port;
+    use masq_lib::utils::{add_chain_specific_directories, find_free_port};
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::io;

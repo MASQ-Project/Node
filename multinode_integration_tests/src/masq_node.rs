@@ -274,7 +274,7 @@ impl MASQNodeUtils {
                 "-t",
                 name,
                 "cat",
-                &format!("/node_root/home/{}", CURRENT_LOGFILE_NAME),
+                &format!("/node_root/home/MASQ/dev/{}", CURRENT_LOGFILE_NAME),
             ]),
         );
         command.stdout_and_stderr()

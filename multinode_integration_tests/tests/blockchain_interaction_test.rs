@@ -15,11 +15,11 @@ use multinode_integration_tests_lib::masq_node::MASQNode;
 use multinode_integration_tests_lib::masq_node::MASQNodeUtils;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_real_node::{
-    ConsumingWalletInfo, MASQRealNode, NodeStartupConfigBuilder,
+    ConsumingWalletInfo, NodeStartupConfigBuilder,
 };
 use multinode_integration_tests_lib::mock_blockchain_client_server::MBCSBuilder;
 use multinode_integration_tests_lib::utils::{
-    config_dao, open_all_file_permissions, receivable_dao, UrlHolder,
+    config_dao, node_chain_specific_directory, open_all_file_permissions, receivable_dao, UrlHolder,
 };
 use node_lib::accountant::dao_utils::CustomQuery;
 use node_lib::sub_lib::wallet::Wallet;
@@ -71,9 +71,8 @@ fn debtors_are_credited_once_but_not_twice() {
         .ui_port(ui_port)
         .build();
     let (node_name, node_index) = cluster.prepare_real_node(&node_config);
-    let node_home_dir =
-        MASQRealNode::node_home_dir(&MASQNodeUtils::find_project_root(), &node_name);
-    open_all_file_permissions(PathBuf::from(node_home_dir));
+    let chain_specific_dir = node_chain_specific_directory(&node_name);
+    open_all_file_permissions(PathBuf::from(chain_specific_dir));
     {
         let config_dao = config_dao(&node_name);
         config_dao

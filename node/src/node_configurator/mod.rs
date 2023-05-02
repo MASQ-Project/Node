@@ -20,7 +20,7 @@ use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig,
 use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
 };
-use masq_lib::utils::{localhost, ExpectValue, WrapResult};
+use masq_lib::utils::{add_chain_specific_directories, localhost, ExpectValue, WrapResult};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 
@@ -130,12 +130,6 @@ pub fn data_directory_from_context(
         }
     };
     add_chain_specific_directories(chain, &right_local_data_dir)
-}
-
-pub fn add_chain_specific_directories(chain: Chain, local_data_dir: &Path) -> PathBuf {
-    PathBuf::from(local_data_dir)
-        .join("MASQ")
-        .join(chain.rec().literal_identifier)
 }
 
 pub fn port_is_busy(port: u16) -> bool {

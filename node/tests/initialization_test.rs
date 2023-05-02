@@ -10,10 +10,9 @@ use masq_lib::messages::{
 use masq_lib::messages::{UiFinancialsRequest, UiRedirect, UiStartOrder, UiStartResponse};
 use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, node_home_directory};
-use masq_lib::utils::find_free_port;
+use masq_lib::utils::{add_chain_specific_directories, find_free_port};
 use node_lib::daemon::launch_verifier::{VerifierTools, VerifierToolsReal};
 use node_lib::database::db_initializer::DATABASE_FILE;
-use node_lib::node_configurator::add_chain_specific_directories;
 #[cfg(not(target_os = "windows"))]
 use node_lib::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use rusqlite::{Connection, OpenFlags};

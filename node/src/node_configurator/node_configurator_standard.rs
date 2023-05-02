@@ -281,7 +281,6 @@ mod tests {
     use crate::db_config::config_dao::ConfigDaoReal;
     use crate::db_config::persistent_configuration::PersistentConfigError;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
-    use crate::node_configurator::add_chain_specific_directories;
     use crate::node_configurator::unprivileged_parse_args_configuration::UnprivilegedParseArgsConfigurationDaoNull;
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::CryptDE;
@@ -298,7 +297,7 @@ mod tests {
     use masq_lib::multi_config::VirtualCommandLine;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::{array_of_borrows_to_vec, running_test};
+    use masq_lib::utils::{add_chain_specific_directories, array_of_borrows_to_vec, running_test};
     use rustc_hex::FromHex;
     use std::convert::TryFrom;
     use std::fs::{create_dir_all, File};

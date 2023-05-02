@@ -70,10 +70,7 @@ pub fn wait_for_chunk(stream: &mut TcpStream, timeout: &Duration) -> Result<Vec<
 
 pub fn database_conn(node_name: &str) -> Box<dyn ConnectionWrapper> {
     let db_initializer = DbInitializerReal::default();
-    let path = std::path::PathBuf::from(MASQRealNode::node_home_dir(
-        &MASQNodeUtils::find_project_root(),
-        node_name,
-    ));
+    let path = std::path::PathBuf::from(node_chain_specific_directory(node_name));
     db_initializer
         .initialize(
             &path,
@@ -84,6 +81,13 @@ pub fn database_conn(node_name: &str) -> Box<dyn ConnectionWrapper> {
             }),
         )
         .unwrap()
+}
+
+pub fn node_chain_specific_directory(node_name: &str) -> String {
+    format!(
+        "{}/MASQ/dev",
+        MASQRealNode::node_home_dir(&MASQNodeUtils::find_project_root(), node_name,)
+    )
 }
 
 pub fn config_dao(node_name: &str) -> Box<dyn ConfigDao> {
@@ -111,6 +115,7 @@ pub fn wait_for_shutdown(stream: &mut TcpStream, timeout: &Duration) -> Result<(
 }
 
 pub fn open_all_file_permissions(dir: PathBuf) {
+    println!("open_all_file_permissions_dir {:#?}", dir);
     match Command::new(
         "chmod",
         Command::strings(vec!["-R", "777", dir.to_str().unwrap()]),

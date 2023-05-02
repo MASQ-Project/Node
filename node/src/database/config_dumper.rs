@@ -164,7 +164,6 @@ mod tests {
         PersistentConfiguration, PersistentConfigurationReal,
     };
     use crate::db_config::typed_config_layer::encode_bytes;
-    use crate::node_configurator::add_chain_specific_directories;
     use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
     use crate::sub_lib::cryptde::PlainData;
     use crate::sub_lib::neighborhood::{NodeDescriptor, DEFAULT_RATE_PACK};
@@ -173,7 +172,7 @@ mod tests {
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use masq_lib::utils::NeighborhoodModeLight;
+    use masq_lib::utils::{add_chain_specific_directories, NeighborhoodModeLight};
     use rustc_hex::ToHex;
     use std::fs::{create_dir_all, File};
     use std::io::ErrorKind;

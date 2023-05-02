@@ -3,12 +3,11 @@
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_CHAIN, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, node_home_directory};
-use masq_lib::utils::localhost;
+use masq_lib::utils::{add_chain_specific_directories, localhost};
 use node_lib::database::connection_wrapper::ConnectionWrapper;
 use node_lib::database::db_initializer::{
     DbInitializationConfig, DbInitializer, DbInitializerReal,
 };
-use node_lib::node_configurator::add_chain_specific_directories;
 use node_lib::test_utils::await_value;
 use regex::{Captures, Regex};
 use std::env;
@@ -168,7 +167,7 @@ impl MASQNode {
     pub fn wait_for_log(&mut self, pattern: &str, limit_ms: Option<u64>) {
         Self::wait_for_match_at_directory(
             pattern,
-            &add_chain_specific_directories(self.chain, self.data_dir.as_path()), //self.data_dir.as_path(),//
+            &add_chain_specific_directories(self.chain, self.data_dir.as_path()),
             limit_ms,
         );
     }
@@ -355,7 +354,6 @@ impl MASQNode {
             node_home_directory("integration", test_name)
         };
         let chain = Self::get_chain_from_config(&config_opt);
-        //let chain_spec_dir = add_chain_specific_directories(chain, data_dir.as_path());
         if sterile_logfile {
             let _ = Self::remove_logfile(&data_dir);
         }

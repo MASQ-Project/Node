@@ -12,8 +12,7 @@ use masq_lib::messages::{
 };
 use masq_lib::test_utils::ui_connection::UiConnection;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-use masq_lib::utils::find_free_port;
-use node_lib::node_configurator::add_chain_specific_directories;
+use masq_lib::utils::{add_chain_specific_directories, find_free_port};
 use utils::CommandConfig;
 
 #[test]

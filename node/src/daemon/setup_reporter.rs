@@ -17,8 +17,7 @@ use crate::node_configurator::unprivileged_parse_args_configuration::{
     UnprivilegedParseArgsConfigurationDaoReal,
 };
 use crate::node_configurator::{
-    add_chain_specific_directories, data_directory_from_context, determine_config_file_path,
-    DirsWrapper, DirsWrapperReal,
+    data_directory_from_context, determine_config_file_path, DirsWrapper, DirsWrapperReal,
 };
 use crate::sub_lib::accountant::PaymentThresholds as PaymentThresholdsFromAccountant;
 use crate::sub_lib::accountant::DEFAULT_SCAN_INTERVALS;
@@ -37,7 +36,7 @@ use masq_lib::multi_config::{
     CommandLineVcl, ConfigFileVcl, EnvironmentVcl, MultiConfig, VirtualCommandLine,
 };
 use masq_lib::shared_schema::{shared_app, ConfiguratorError};
-use masq_lib::utils::ExpectValue;
+use masq_lib::utils::{add_chain_specific_directories, ExpectValue};
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::net::{IpAddr, Ipv4Addr};
@@ -1067,7 +1066,7 @@ mod tests {
     use crate::db_config::persistent_configuration::{
         PersistentConfigError, PersistentConfiguration, PersistentConfigurationReal,
     };
-    use crate::node_configurator::{add_chain_specific_directories, DirsWrapper, DirsWrapperReal};
+    use crate::node_configurator::{DirsWrapper, DirsWrapperReal};
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::accountant::{
         PaymentThresholds as PaymentThresholdsFromAccountant, DEFAULT_PAYMENT_THRESHOLDS,
