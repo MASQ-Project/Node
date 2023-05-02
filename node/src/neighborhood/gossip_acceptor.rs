@@ -1336,7 +1336,11 @@ mod tests {
     use crate::sub_lib::cryptde_null::CryptDENull;
     use crate::sub_lib::neighborhood::{ConnectionProgressEvent, ConnectionProgressMessage, Hops};
     use crate::sub_lib::utils::time_t_timestamp;
-    use crate::test_utils::neighborhood_test_utils::{db_from_node, make_meaningless_db, make_node_record, make_node_record_f, MIN_HOPS_COUNT_FOR_TEST};
+    use crate::test_utils::neighborhood_test_utils::{
+        db_from_node, gossip_about_nodes_from_database, linearly_connect_nodes,
+        make_meaningless_db, make_node_record, make_node_record_f, make_node_records,
+        public_keys_from_node_records, MIN_HOPS_COUNT_FOR_TEST,
+    };
     use crate::test_utils::unshared_test_utils::make_cpm_recipient;
     use crate::test_utils::{assert_contains, main_cryptde, vec_to_set};
     use actix::System;
@@ -2566,40 +2570,20 @@ mod tests {
 
     fn assert_compute_patch(min_hops_count: Hops) {
         let subject = StandardGossipHandler::new(Logger::new("assert_compute_patch"));
-        // Create Nodes
-        let nodes_count = min_hops_count as usize + 2; // one to finish hops and one extra node
-        let mut nodes = Vec::with_capacity(nodes_count as usize);
-        for i in 1..=nodes_count {
-            let nonce = 1000 + i;
-            let has_ip = if i <= 2 { true } else { false };
-            nodes.push(make_node_record(nonce as u16, has_ip))
-        }
-        // Create Database
-        let root_node = &nodes[0];
-        let mut root_node_db = db_from_node(root_node);
-        for i in 1..nodes_count {
-            root_node_db.add_node(nodes[i].clone()).unwrap();
-            root_node_db
-                .add_arbitrary_full_neighbor(nodes[i - 1].public_key(), nodes[i].public_key());
-        }
-        // Create Gossip
-        let mut gossip_builder = GossipBuilder::new(&root_node_db);
-        for i in 1..nodes_count {
-            gossip_builder = gossip_builder.node(nodes[i].public_key(), false);
-        }
-        let gossip = gossip_builder.build();
+        // one node to finish hops and another node that's outside the patch
+        let nodes_count = min_hops_count as usize + 2;
+        let nodes = make_node_records(nodes_count as u16);
+        let db = linearly_connect_nodes(&nodes);
+        // gossip is intended for the first node (also root), thereby it's excluded
+        let gossip = gossip_about_nodes_from_database(&db, &nodes[1..]);
         let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
 
-        let result = subject.compute_patch(&agrs, root_node_db.root(), min_hops_count as u8);
+        let result = subject.compute_patch(&agrs, db.root(), min_hops_count as u8);
 
-        let mut expected_nodes = nodes;
-        expected_nodes.pop();
-        let expected_hashet = expected_nodes
-            .iter()
-            .map(|node| node.public_key().clone())
-            .collect::<HashSet<PublicKey>>();
-
-        assert_eq!(result, expected_hashet);
+        // last node is excluded because it is outside the patch
+        let expected_nodes = &nodes[0..nodes_count - 1];
+        let expected_patch = public_keys_from_node_records(&expected_nodes);
+        assert_eq!(result, expected_patch);
     }
 
     #[test]

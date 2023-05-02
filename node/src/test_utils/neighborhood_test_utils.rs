@@ -1,6 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::bootstrapper::BootstrapperConfig;
-use crate::neighborhood::gossip::GossipNodeRecord;
+use crate::neighborhood::gossip::{GossipBuilder, GossipNodeRecord, Gossip_0v1};
 use crate::neighborhood::neighborhood_database::NeighborhoodDatabase;
 use crate::neighborhood::node_record::{NodeRecord, NodeRecordInner_0v1};
 use crate::neighborhood::{AccessibleGossipRecord, Neighborhood, DEFAULT_MIN_HOPS_COUNT};
@@ -296,4 +296,42 @@ pub fn make_node(nonce: u8) -> (IpAddr, NodeDescriptor) {
     let node_descriptor = make_node_descriptor(ip_addr);
 
     (ip_addr, node_descriptor)
+}
+
+pub fn make_node_records(count: u16) -> Vec<NodeRecord> {
+    (1..=count)
+        .into_iter()
+        .map(|i| make_node_record(i, true))
+        .collect::<Vec<NodeRecord>>()
+}
+
+pub fn linearly_connect_nodes(nodes: &[NodeRecord]) -> NeighborhoodDatabase {
+    let root_node = nodes.first().unwrap();
+    let mut database = db_from_node(root_node);
+    let nodes_count = nodes.len();
+    for i in 1..nodes_count {
+        database.add_node(nodes[i].clone()).unwrap();
+        database.add_arbitrary_full_neighbor(nodes[i - 1].public_key(), nodes[i].public_key());
+    }
+
+    database
+}
+
+pub fn gossip_about_nodes_from_database(
+    database: &NeighborhoodDatabase,
+    nodes: &[NodeRecord],
+) -> Gossip_0v1 {
+    nodes
+        .iter()
+        .fold(GossipBuilder::new(&database), |builder, node| {
+            builder.node(node.public_key(), false)
+        })
+        .build()
+}
+
+pub fn public_keys_from_node_records(nodes: &[NodeRecord]) -> HashSet<PublicKey> {
+    nodes
+        .iter()
+        .map(|node| node.public_key().clone())
+        .collect::<HashSet<PublicKey>>()
 }
