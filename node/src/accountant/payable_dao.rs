@@ -147,6 +147,7 @@ impl PayableDao for PayableDaoReal {
 
         let case_expr = compose_case_expression(wallets_and_rowids);
         let wallets = serialize_wallets(wallets_and_rowids, Some('\''));
+        //the Wallet type is secure against SQL injections
         let sql = format!(
             "update payable set \
                 pending_payable_rowid = {} \
@@ -402,7 +403,7 @@ impl TableNameDAO for PayableDaoReal {
 mod mark_pending_payable_associated_functions {
     use crate::accountant::comma_joined_stringifiable;
     use crate::accountant::dao_utils::{
-        update_rows_and_return_their_count, VigilantRusqliteFlatten,
+        update_rows_and_return_valid_count, VigilantRusqliteFlatten,
     };
     use crate::accountant::payable_dao::PayableDaoError;
     use crate::database::connection_wrapper::ConnectionWrapper;
@@ -418,7 +419,7 @@ mod mark_pending_payable_associated_functions {
     ) -> Result<(), PayableDaoError> {
         let mut stm = conn.prepare(sql).expect("Internal Error");
         let validator = validate_row_updated;
-        let rows_affected_res = update_rows_and_return_their_count(&mut stm, validator);
+        let rows_affected_res = update_rows_and_return_valid_count(&mut stm, validator);
 
         match rows_affected_res {
             Ok(rows_affected) => match rows_affected {
@@ -436,9 +437,11 @@ mod mark_pending_payable_associated_functions {
     }
 
     pub fn compose_case_expression(wallets_and_rowids: &[(&Wallet, u64)]) -> String {
+        //the Wallet type is secure against SQL injections
         fn when_clause((wallet, rowid): &(&Wallet, u64)) -> String {
             format!("when wallet_address = '{wallet}' then {rowid}")
         }
+
         format!(
             "case {} end",
             wallets_and_rowids.iter().map(when_clause).join("\n")
@@ -447,11 +450,11 @@ mod mark_pending_payable_associated_functions {
 
     pub fn serialize_wallets(
         wallets_and_rowids: &[(&Wallet, u64)],
-        quoutes_opt: Option<char>,
+        quotes_opt: Option<char>,
     ) -> String {
         wallets_and_rowids
             .iter()
-            .map(|(wallet, _)| match quoutes_opt {
+            .map(|(wallet, _)| match quotes_opt {
                 Some(char) => format!("{}{}{}", char, wallet, char),
                 None => wallet.to_string(),
             })
@@ -459,7 +462,6 @@ mod mark_pending_payable_associated_functions {
     }
 
     fn validate_row_updated(row: &Row) -> Result<bool, rusqlite::Error> {
-        //we only want to see that a number is present in the optional column
         row.get::<usize, Option<u64>>(0).map(|opt| opt.is_some())
     }
 
@@ -500,11 +502,11 @@ mod mark_pending_payable_associated_functions {
                 The demanded data according to {} looks different from the resulting state {}!. Operation failed.\n\
                 Notes:\n\
                 a) if row ids have stayed non-populated it points out that writing failed but without the double payment threat,\n\
-                b) if some accounts on the resulting side are missing, other kind of serious issue should be suspected but see other\n\
+                b) if some accounts on the resulting side are missing, other kind of serious issues should be suspected but see other\n\
                 points to figure out if you were put in danger of double payment,\n\
                 c) seeing ids different from those demanded might be a sign of some payments having been doubled.\n\
                 The operation which is supposed to clear out the ids of the payments previously requested for this account\n\
-                probably had not managed to take a go before another payment was requested: preventive measures failed.\n",
+                probably had not managed to complete successfully before another payment was requested: preventive measures failed.\n",
             wallets_and_non_optional_rowids, resulting_pairs_summary)
     }
 
@@ -773,11 +775,11 @@ mod tests {
         the resulting state ( Wallet: 0x000000000000000000000000000000626f6f6761, Rowid: 456 )!. Operation failed.\n\
         Notes:\n\
         a) if row ids have stayed non-populated it points out that writing failed but without the double payment threat,\n\
-        b) if some accounts on the resulting side are missing, other kind of serious issue should be suspected but see other\n\
+        b) if some accounts on the resulting side are missing, other kind of serious issues should be suspected but see other\n\
         points to figure out if you were put in danger of double payment,\n\
         c) seeing ids different from those demanded might be a sign of some payments having been doubled.\n\
         The operation which is supposed to clear out the ids of the payments previously requested for this account\n\
-        probably had not managed to take a go before another payment was requested: preventive measures failed.")]
+        probably had not managed to complete successfully before another payment was requested: preventive measures failed.")]
     fn mark_pending_payables_rowids_returned_different_row_count_than_expected_with_one_account_missing_and_one_unmodified(
     ) {
         let home_dir = ensure_node_home_directory_exists(
@@ -838,12 +840,12 @@ mod tests {
         Notes:\n\
         a) if row ids have stayed non-populated it points out that writing failed but without the double \
         payment threat,\n\
-        b) if some accounts on the resulting side are missing, other kind of serious issue should be \
+        b) if some accounts on the resulting side are missing, other kind of serious issues should be \
         suspected but see other\npoints to figure out if you were put in danger of double payment,\n\
         c) seeing ids different from those demanded might be a sign of some payments having been doubled.\n\
         The operation which is supposed to clear out the ids of the payments previously requested for \
-        this account\nprobably had not managed to take a go before another payment was requested: \
-        preventive measures failed.\n".to_string())
+        this account\nprobably had not managed to complete successfully before another payment was \
+        requested: preventive measures failed.\n".to_string())
     }
 
     #[test]

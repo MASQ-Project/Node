@@ -8,10 +8,10 @@ use crate::accountant::scanners_utils::payable_scanner_utils::PayableTransacting
 };
 use crate::accountant::scanners_utils::payable_scanner_utils::{
     debugging_summary_after_error_separation, err_msg_if_failed_without_existing_fingerprints,
-    investigate_debt_extremes, log_failed_payments_and_return_rowids_and_hashes,
-    mark_pending_payable_fatal_error, payables_debug_summary, separate_errors,
-    PayableThresholdsGauge, PayableThresholdsGaugeReal, PayableTransactingErrorEnum,
-    PendingPayableTriple, VecOfRowidOptAndHash,
+    investigate_debt_extremes, mark_pending_payable_fatal_error, payables_debug_summary,
+    separate_errors, separate_rowids_and_hashes, PayableThresholdsGauge,
+    PayableThresholdsGaugeReal, PayableTransactingErrorEnum, PendingPayableTriple,
+    VecOfRowidOptAndHash,
 };
 use crate::accountant::scanners_utils::pending_payable_scanner_utils::{
     elapsed_in_ms, handle_none_status, handle_status_with_failure, handle_status_with_success,
@@ -424,7 +424,7 @@ impl PayableScanner {
         let missing_fgp_err_msg_opt =
             err_msg_if_failed_without_existing_fingerprints(nonexistent, serialize_hashes);
         if !existent.is_empty() {
-            let (ids, hashes) = log_failed_payments_and_return_rowids_and_hashes(existent);
+            let (ids, hashes) = separate_rowids_and_hashes(existent);
             warning!(
                 logger,
                 "Deleting fingerprints for failed transactions {}",
@@ -2000,7 +2000,7 @@ mod tests {
             .return_all_errorless_fingerprints_result(vec![PendingPayableFingerprint {
                 rowid: 1234,
                 timestamp: SystemTime::now(),
-                hash: Default::default(),
+                hash: make_tx_hash(1),
                 attempt: 1,
                 amount: 1_000_000,
                 process_error: None,

@@ -342,28 +342,28 @@ pub fn sum_i128_values_from_table(
         .sum()
 }
 
-pub fn update_rows_and_return_their_count(
-    stm: &mut Statement,
-    row_update_validator: fn(&Row) -> rusqlite::Result<bool>,
+pub fn update_rows_and_return_valid_count(
+    update_returning_stm: &mut Statement,
+    update_row_validator: fn(&Row) -> rusqlite::Result<bool>,
 ) -> Result<usize, Vec<rusqlite::Error>> {
     let init: (usize, Vec<rusqlite::Error>) = (0, vec![]);
-    let aggregated_returning_clause_feedback = stm.query_map([], row_update_validator);
-    let (oks_count, errs) = aggregated_returning_clause_feedback
+    let validator_outputs = update_returning_stm.query_map([], update_row_validator);
+    let (valid_rows_count, errs) = validator_outputs
         .expect("query failed on params binding")
-        .fold(init, |(oks, mut errs), current| {
-            if let Ok(returned_value_is_up_to_date) = current {
-                if returned_value_is_up_to_date {
+        .fold(init, |(oks, mut errs), validator_output| {
+            if let Ok(updated_row_is_valid) = validator_output {
+                if updated_row_is_valid {
                     (oks + 1, errs)
                 } else {
                     (oks, errs)
                 }
             } else {
-                errs.push(current.expect_err("was seen as err"));
+                errs.push(validator_output.expect_err("was seen as err"));
                 (oks, errs)
             }
         });
     match errs.as_slice() {
-        [] => Ok(oks_count),
+        [] => Ok(valid_rows_count),
         _ => Err(errs),
     }
 }
@@ -441,9 +441,7 @@ mod tests {
     use masq_lib::constants::MASQ_TOTAL_SUPPLY;
     use masq_lib::messages::TopRecordsOrdering::Balance;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
-    use rusqlite::types::Type::Integer;
     use rusqlite::types::{ToSqlOutput, Value};
-    use rusqlite::Error::InvalidColumnType;
     use rusqlite::{Connection, OpenFlags};
     use std::collections::HashMap;
     use std::time::UNIX_EPOCH;
@@ -843,12 +841,13 @@ mod tests {
 
     #[test]
     #[should_panic(
-        expected = "Failed to connect to database at \"generated/test/dao_utils/connection_panics_if_connection_cannot_be_made/home"
+        expected = "Failed to connect to database at \"generated/test/dao_utils/make_connection\
+        _panics_if_connection_cannot_be_made/home"
     )]
-    fn connection_panics_if_connection_cannot_be_made() {
+    fn make_connection_panics_if_connection_cannot_be_made() {
         let data_dir = ensure_node_home_directory_exists(
             "dao_utils",
-            "connection_panics_if_connection_cannot_be_made",
+            "make_connection_panics_if_connection_cannot_be_made",
         );
         let subject = DaoFactoryReal::new(
             &data_dir.join("nonexistent_db"),
@@ -894,7 +893,7 @@ mod tests {
         let mut returning_update_stm = conn.prepare(UPDATE_STM_WITH_RETURNING).unwrap();
         let function_to_validate_row_value = |row: &Row| row.get::<usize, i64>(0).map(|_num| true);
 
-        let result = update_rows_and_return_their_count(
+        let result = update_rows_and_return_valid_count(
             &mut returning_update_stm,
             function_to_validate_row_value,
         );
@@ -913,7 +912,7 @@ mod tests {
         let function_to_validate_row_value =
             |row: &Row| row.get::<usize, i64>(0).map(|num| num > 0);
 
-        let result = update_rows_and_return_their_count(
+        let result = update_rows_and_return_valid_count(
             &mut returning_update_stm,
             function_to_validate_row_value,
         );
@@ -928,7 +927,7 @@ mod tests {
         let mut returning_update_stm = conn.prepare(UPDATE_STM_WITH_RETURNING).unwrap();
         let function_to_validate_row_value = |row: &Row| row.get::<usize, i64>(0).map(|_num| true);
 
-        let result = update_rows_and_return_their_count(
+        let result = update_rows_and_return_valid_count(
             &mut returning_update_stm,
             function_to_validate_row_value,
         );
@@ -941,10 +940,9 @@ mod tests {
         let conn = Connection::open_in_memory().unwrap();
         create_table_with_text_id_and_single_numeric_column(&conn, &vec![("'A'", 12), ("'B'", 23)]);
         let mut returning_update_stm = conn.prepare(UPDATE_STM_WITH_RETURNING).unwrap();
-        let function_to_validate_row_value =
-            |row: &Row| row.get::<usize, String>(0).map(|_num| true);
+        let function_to_validate_row_value = |_row: &Row| Err(rusqlite::Error::InvalidQuery);
 
-        let result = update_rows_and_return_their_count(
+        let result = update_rows_and_return_valid_count(
             &mut returning_update_stm,
             function_to_validate_row_value,
         );
@@ -952,15 +950,15 @@ mod tests {
         assert_eq!(
             result,
             Err(vec![
-                InvalidColumnType(0, "num".to_string(), Integer),
-                InvalidColumnType(0, "num".to_string(), Integer)
+                rusqlite::Error::InvalidQuery,
+                rusqlite::Error::InvalidQuery
             ])
         )
     }
 
     #[test]
     #[should_panic(expected = "query failed on params binding: InvalidParameterCount(0, 1)")]
-    fn the_first_contact_rusqlite_error_panics_as_it_always_belongs_with_query_args_binding() {
+    fn update_rows_and_return_valid_count_cannot_tolerate_parameterized_statement() {
         let conn = Connection::open_in_memory().unwrap();
         create_table_with_text_id_and_single_numeric_column(&conn, &vec![("'A'", 12), ("'B'", 23)]);
         let mut returning_update_stm = conn
@@ -969,7 +967,7 @@ mod tests {
         let function_to_validate_row_value =
             |row: &Row| row.get::<usize, String>(0).map(|_num| true);
 
-        let _ = update_rows_and_return_their_count(
+        let _ = update_rows_and_return_valid_count(
             &mut returning_update_stm,
             function_to_validate_row_value,
         );

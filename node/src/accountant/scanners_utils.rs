@@ -262,14 +262,13 @@ pub mod payable_scanner_utils {
         ))
     }
 
-    pub fn log_failed_payments_and_return_rowids_and_hashes(
+    pub fn separate_rowids_and_hashes(
         ids_of_payments: VecOfRowidOptAndHash,
     ) -> (Vec<u64>, Vec<H256>) {
-        let (rowids, hashes): (Vec<u64>, Vec<H256>) = ids_of_payments
+        ids_of_payments
             .into_iter()
             .map(|(checked_rowid, hash)| (checked_rowid.expectv("validated rowid"), hash))
-            .unzip();
-        (rowids, hashes)
+            .unzip()
     }
 
     pub trait PayableThresholdsGauge {

@@ -7,7 +7,7 @@ use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
-use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_impl};
+use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
 use std::cell::RefCell;
@@ -612,7 +612,7 @@ impl PersistentConfigurationMock {
         self
     }
 
-    set_arbitrary_id_stamp_in_impl!();
+    set_arbitrary_id_stamp_in_mock_impl!();
 
     fn result_from<T: Clone>(results: &RefCell<Vec<T>>) -> T {
         let mut borrowed = results.borrow_mut();

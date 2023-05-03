@@ -114,7 +114,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
         hashes_and_amounts: &[(H256, u128)],
         batch_wide_timestamp: SystemTime,
     ) -> Result<(), PendingPayableDaoError> {
-        fn serialized_values_for_accounts_to_insert(
+        fn values_clause_for_fingerprints_to_insert(
             hashes_and_amounts: &[(H256, u128)],
             batch_wide_timestamp: SystemTime,
         ) -> String {
@@ -133,7 +133,7 @@ impl PendingPayableDao for PendingPayableDaoReal<'_> {
             "insert into pending_payable (\
             transaction_hash, amount_high_b, amount_low_b, payable_timestamp, attempt, process_error\
             ) values {}",
-            serialized_values_for_accounts_to_insert(hashes_and_amounts, batch_wide_timestamp)
+            values_clause_for_fingerprints_to_insert(hashes_and_amounts, batch_wide_timestamp)
         );
         match self
             .conn
@@ -410,10 +410,10 @@ mod tests {
     }
 
     #[test]
-    fn return_all_errorless_fingerprints_works_when_no_records_with_errors_marks() {
+    fn return_all_errorless_fingerprints_works_when_no_records_with_error_marks() {
         let home_dir = ensure_node_home_directory_exists(
             "pending_payable_dao",
-            "return_all_errorless_fingerprints_works_when_no_records_with_errors_marks",
+            "return_all_errorless_fingerprints_works_when_no_records_with_error_marks",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())
@@ -459,10 +459,10 @@ mod tests {
     }
 
     #[test]
-    fn return_all_errorless_fingerprints_works_when_some_records_with_errors_marks() {
+    fn return_all_errorless_fingerprints_works_when_some_records_with_error_marks() {
         let home_dir = ensure_node_home_directory_exists(
             "pending_payable_dao",
-            "return_all_errorless_fingerprints_works_when_some_records_with_errors_marks",
+            "return_all_errorless_fingerprints_works_when_some_records_with_error_marks",
         );
         let wrapped_conn = DbInitializerReal::default()
             .initialize(&home_dir, DbInitializationConfig::test_default())

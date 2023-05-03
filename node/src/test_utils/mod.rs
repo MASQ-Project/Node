@@ -913,22 +913,25 @@ pub mod unshared_test_utils {
         //The issues we are to solve might look as follows:
 
         // 1) Our mockable objects are never Clone themselves (as it would break Rust trait object
-        // safeness),
-        // 2) You can get only very limited information by downcasting: you can inspect the guts, yes,
+        // safeness) and therefore they cannot be captured unless you use a reference which is
+        // practically impossible with that mock strategy we use,
+        // 2) You can get only very limited information from downcasting: you can inspect the guts, yes,
         // but it can hardly ever answer your question if the object you're looking at is the same which
         // you've pasted in before at the other end.
         // 3) Using raw pointers to link the real memory address to your objects does not lead to good
         // results in all cases (It was found confusing and hard to be done correctly or even impossible
-        // to implement this approach for references that are just "children" of a dereferenced Box that
-        // was supplied as an argument into the testing environment at the very beginning, or we can
-        // suspect the link already broken by moves of the owned, boxed instance within the tested code)
+        // to implement especially for references pointing to a dereferenced Box that was originally
+        // supplied as an owned argument into the testing environment at the beginning, or we can
+        // suspect the memory link already broken because of moves of the owned boxed instance
+        // around the subjected code)
 
-        //Most often, you would be advised to use the convenient macros offered down here. Their easy
-        //implementation should spare some work for you.
+        // Advice is given here to use the convenient macros provided further in this module. Their easy
+        // implementation should spare some work for you.
 
-        //Note for future maintainers:
-        //A trait object cannot be cloned so you don't have to worry if the later captured id comes
-        //from the original object or from some of its successors. There is no way how it wouldn't.
+        // Note for future maintainers:
+        // Since trait objects cannot be Cloned, when you find an arbitrary ID on an object, you
+        // know that that ID must have been set on that specific object, and not on some other object
+        // from which this object was Cloned.
 
         lazy_static! {
             pub static ref ARBITRARY_ID_STAMP_SEQUENCER: Mutex<MutexIncrementInset> =
@@ -986,7 +989,7 @@ pub mod unshared_test_utils {
         }
 
         #[macro_export]
-        macro_rules! set_arbitrary_id_stamp_in_impl {
+        macro_rules! set_arbitrary_id_stamp_in_mock_impl {
             () => {
                 pub fn set_arbitrary_id_stamp(mut self, id_stamp: ArbitraryIdStamp) -> Self {
                     self.arbitrary_id_stamp_opt.replace(id_stamp);
@@ -1030,12 +1033,20 @@ pub mod unshared_test_utils {
         }
 
         impl FirstTraitMock {
-            set_arbitrary_id_stamp_in_impl!();
+            set_arbitrary_id_stamp_in_mock_impl!();
         }
 
-        // This next trait object can stay without its own id because it will stay at too high
-        // level in the test. Nothing prevents it to have one though like in an imagine of another
-        // test looking at this trait object as an argument to some larger unspecified code unit
+        // We don't need an arbitrary_id in a trait if one of these things is true:
+
+        // Objects of that trait have some native field about them that can be set to
+        // different values so that we can distinguish different instances in an assertion.
+        // There are no tests involving objects of that trait where instances are passed
+        // as parameters to a mock and need to be asserted on as part of a ..._params_arc
+        // collection.
+
+        // This second criterion may change; therefore a trait may start out without any
+        // arbitrary_id, and then at a later time collect one because of changes
+        // elsewhere in the system.
 
         pub(in crate::test_utils) trait SecondTrait {
             fn method_with_trait_obj_arg(&self, trait_object_arg: &dyn FirstTrait) -> u16;
@@ -1284,8 +1295,9 @@ mod tests {
         assert_eq!(*method_with_trait_obj_arg_params, vec![arbitrary_id])
 
         // Remarkable notes:
-        // ArbitraryIdStamp can be helpful only when the coder engages with heavy testing by mocks with the need to document
-        // involvement of those in a particular operation (more precisely 'function call') while this all needs to be
-        // understood as happening inside some kind of 'black box'
+        // Arbitrary IDs are most helpful in black-box testing where the only assertions that can
+        // be made involve verifying that an object that comes out of the black box at some point is
+        // exactly the same object that went into the black box at some other point, when the object
+        // itself does not otherwise provide enough identifying information to make the assertion.
     }
 }
