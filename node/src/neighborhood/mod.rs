@@ -538,7 +538,6 @@ impl Neighborhood {
         } else {
             self.make_round_trip_route(msg)
         };
-        eprintln!("Round Trip Result: {:?}", route_result);
         match route_result {
             Ok(response) => {
                 let msg_str = debug_msg_opt.expect("Debug Message wasn't built but expected.");
@@ -841,19 +840,10 @@ impl Neighborhood {
             payload_size: 10000,
             hostname_opt: None,
         };
-        debug!(
-            Logger::new("Multinode"),
-            "Searching for a {}-hops route.", self.min_hops_count as usize
-        );
-        if let Some(route_query_response) = self.handle_route_query_message(msg) {
-            trace!(
-                Logger::new("Multinode"),
-                "Round Trip Route Length: {:?}",
-                route_query_response.route.hops.len()
-            );
+        if self.handle_route_query_message(msg).is_some() {
             debug!(
                 &self.logger,
-                "The connectivity check has found a {}-hops route.", self.min_hops_count as usize
+                "The connectivity check has found a {}-hop(s) route.", self.min_hops_count as usize
             );
             self.overall_connection_status
                 .update_ocs_stage_and_send_message_to_ui(
@@ -4051,7 +4041,7 @@ mod tests {
             }
         );
         TestLogHandler::new().exists_log_containing(&format!(
-            "DEBUG: {}: The connectivity check has found a {}-hops route.",
+            "DEBUG: {}: The connectivity check has found a {}-hop(s) route.",
             test_name, hops as usize
         ));
     }
