@@ -4,13 +4,12 @@ use crate::accountant::DEFAULT_PENDING_TOO_LONG_SEC;
 use crate::blockchain::bip32::Bip32ECKeyProvider;
 use crate::bootstrapper::BootstrapperConfig;
 use crate::db_config::persistent_configuration::{PersistentConfigError, PersistentConfiguration};
-use crate::neighborhood::DEFAULT_MIN_HOPS_COUNT;
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals, DEFAULT_EARNING_WALLET};
 use crate::sub_lib::cryptde::CryptDE;
 use crate::sub_lib::cryptde_null::CryptDENull;
 use crate::sub_lib::cryptde_real::CryptDEReal;
 use crate::sub_lib::neighborhood::{
-    NeighborhoodConfig, NeighborhoodMode, NodeDescriptor, RatePack,
+    Hops, NeighborhoodConfig, NeighborhoodMode, NodeDescriptor, RatePack,
 };
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::wallet::Wallet;
@@ -215,13 +214,14 @@ pub fn make_neighborhood_config<T: UnprivilegedParseArgsConfiguration + ?Sized>(
         }
     };
 
-    let min_hops_arg = value_m!(multi_config, "min-hops", String);
-    let min_hops_count = match min_hops_arg {
-        None => DEFAULT_MIN_HOPS_COUNT,
-        Some(string) => string
-            .try_into()
-            .unwrap_or_else(|error| panic!("{}", error)),
-    };
+    let min_hops_count =
+        value_m!(multi_config, "min-hops", Hops).expect("clap schema specifies no default");
+    // let min_hops_count = match min_hops_arg {
+    //     None => DEFAULT_MIN_HOPS_COUNT,
+    //     Some(string) => string
+    //         .try_into()
+    //         .unwrap_or_else(|error| panic!("{}", error)),
+    // };
 
     match make_neighborhood_mode(multi_config, neighbor_configs, persistent_config) {
         Ok(mode) => Ok(NeighborhoodConfig {
@@ -638,6 +638,7 @@ mod tests {
     use crate::sub_lib::neighborhood::{Hops, DEFAULT_RATE_PACK};
     use crate::sub_lib::utils::make_new_multi_config;
     use crate::sub_lib::wallet::Wallet;
+    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_COUNT_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::{
         configure_default_persistent_config, default_persistent_config_just_accountant_config,
@@ -654,7 +655,6 @@ mod tests {
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
-    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_COUNT_FOR_TEST;
 
     #[test]
     fn convert_ci_configs_handles_blockchain_mismatch() {

@@ -379,11 +379,11 @@ pub enum Hops {
     SixHops = 6,
 }
 
-impl TryFrom<String> for Hops {
-    type Error = String;
+impl FromStr for Hops {
+    type Err = String;
 
-    fn try_from(value: String) -> Result<Self, Self::Error> {
-        match value.as_str() {
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
             "1" => Ok(Hops::OneHop),
             "2" => Ok(Hops::TwoHops),
             "3" => Ok(Hops::ThreeHops),
@@ -1038,7 +1038,7 @@ mod tests {
 
     #[test]
     fn data_indefinite_route_request() {
-        let result = RouteQueryMessage::data_indefinite_route_request(None,  7500);
+        let result = RouteQueryMessage::data_indefinite_route_request(None, 7500);
 
         assert_eq!(
             result,
@@ -1255,19 +1255,15 @@ mod tests {
     }
 
     #[test]
-    fn min_hops_count_can_be_converted_from_string() {
-        let min_hops_count = String::from("6");
-
-        let result: Hops = min_hops_count.try_into().unwrap();
+    fn min_hops_count_can_be_converted_from_str() {
+        let result = Hops::from_str("6").unwrap();
 
         assert_eq!(result, Hops::SixHops);
     }
 
     #[test]
-    fn min_hops_count_conversion_from_string_panics() {
-        let min_hops_count = String::from("100");
-
-        let result: Result<Hops, String> = min_hops_count.try_into();
+    fn min_hops_count_conversion_from_str_returns_error() {
+        let result = Hops::from_str("100");
 
         assert_eq!(
             result,

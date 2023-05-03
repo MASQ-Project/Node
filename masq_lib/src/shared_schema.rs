@@ -427,8 +427,9 @@ pub fn shared_app(head: App<'static, 'static>) -> App<'static, 'static> {
         Arg::with_name("min-hops")
             .long("min-hops")
             .value_name("MIN_HOPS")
+            .default_value("3")
             .required(false)
-            .min_values(1)
+            .min_values(1) // TODO: does this keep us being able to blank out
             .max_values(1)
             .possible_values(&["1", "2", "3", "4", "5", "6"])
             .help(MIN_HOPS_HELP),
