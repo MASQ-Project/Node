@@ -137,6 +137,7 @@ dependencies = [
  "port_scanner",
  "pretty-hex",
  "rand 0.7.3",
+ "regex",
 ]
 
 [[package]]
