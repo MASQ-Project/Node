@@ -1,9 +1,8 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::blockchains::chains::Chain;
-use const_format::concatcp;
 use crate::data_version::DataVersion;
-use crate::dv;
+use const_format::concatcp;
 
 pub const DEFAULT_CHAIN: Chain = Chain::PolyMainnet;
 pub const CURRENT_SCHEMA_VERSION: usize = 7;
@@ -36,7 +35,10 @@ pub const MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 24_638_838;
 
 macro_rules! unchecked_dv {
     ($j:expr, $n:expr) => {
-        $crate::data_version::DataVersion{ major: $j, minor: $n}
+        $crate::data_version::DataVersion {
+            major: $j,
+            minor: $n,
+        }
     };
 }
 
@@ -182,13 +184,15 @@ mod tests {
     #[test]
     fn check_limits_of_data_versions_const() {
         [
-        CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION,
-        CLIENT_RESPONSE_PAYLOAD_CURRENT_VERSION,
-        DNS_RESOLVER_FAILURE_CURRENT_VERSION,
-        GOSSIP_CURRENT_VERSION,
-        GOSSIP_FAILURE_CURRENT_VERSION,
-        NODE_RECORD_INNER_CURRENT_VERSION
-        ].into_iter().for_each(|item| {
+            CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION,
+            CLIENT_RESPONSE_PAYLOAD_CURRENT_VERSION,
+            DNS_RESOLVER_FAILURE_CURRENT_VERSION,
+            GOSSIP_CURRENT_VERSION,
+            GOSSIP_FAILURE_CURRENT_VERSION,
+            NODE_RECORD_INNER_CURRENT_VERSION,
+        ]
+        .into_iter()
+        .for_each(|item| {
             assert!(item.major <= 4095);
             assert!(item.minor <= 4095);
         })

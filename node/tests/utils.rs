@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
+use itertools::Itertools;
 use masq_lib::constants::{CURRENT_LOGFILE_NAME, DEFAULT_UI_PORT};
 use masq_lib::test_utils::utils::node_home_directory;
 use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
@@ -10,18 +11,18 @@ use node_lib::database::db_initializer::{
 };
 use node_lib::test_utils::await_value;
 use regex::{Captures, Regex};
+use std::collections::BTreeMap;
 use std::env;
 use std::io;
+use std::iter::Peekable;
 use std::net::SocketAddr;
-use std::ops::Drop;
+use std::ops::{Drop, Not};
 use std::path::{Path, PathBuf};
 use std::process;
 use std::process::{Command, Output, Stdio};
 use std::thread;
 use std::time::Duration;
 use std::time::Instant;
-use futures::Stream;
-use itertools::Itertools;
 
 pub struct MASQNode {
     pub data_dir: PathBuf,
@@ -387,11 +388,14 @@ impl MASQNode {
         config: Option<CommandConfig>,
         remove_database: bool,
     ) -> process::Command {
-        let mut args = Self::daemon_args();
-        args.extend(match config {
-            Some(c) => c.args,
-            None => vec![],
-        });
+        let args = Self::daemon_args();
+        let args = Self::extend_args_without_duplication(
+            args,
+            match config {
+                Some(c) => c.args,
+                None => vec![],
+            },
+        );
         Self::start_with_args_extension(data_dir, args, remove_database)
     }
 
@@ -400,9 +404,9 @@ impl MASQNode {
         config: Option<CommandConfig>,
         remove_database: bool,
     ) -> process::Command {
-        let mut args = Self::standard_args();
-        args.extend(Self::get_extra_args(data_dir, config));
-
+        let args = Self::standard_args();
+        let args =
+            Self::extend_args_without_duplication(args, Self::get_extra_args(data_dir, config)); //TODO delete get_extra_args()
         Self::start_with_args_extension(data_dir, args, remove_database)
     }
 
@@ -474,18 +478,99 @@ impl MASQNode {
         args
     }
 
-    fn extend_with_dedup(base_args: Vec<String>, extra_args: Vec<String>) -> Vec<String> {
-        let base_args_iter = base_args.iter().tuple_windows();
-        extra_args.into_iter().tuple_windows().flat_map(|(arg_name, arg_value)| {
-            match base_args_iter.filter(|(arg_name_base,arg_value_base)| {
-                arg_name_base == arg_name
-            }).last() {
-                Some() => todo!()
-                None =>
+    fn virtual_arg_pairs(args: Vec<String>) -> Vec<(String, Option<String>)> {
+        fn look_at_val_distanced_by_two<I>(
+            peekable: &mut Peekable<I>,
+            current_string: String,
+            mut acc: Vec<(String, Option<String>)>,
+        ) -> Vec<(String, Option<String>)>
+        where
+            I: Iterator<Item = String>,
+        {
+            match peekable.peek() {
+                //possibly value for that arg
+                Some(next_string) => {
+                    if next_string.starts_with("--") {
+                        acc.push((current_string, None));
+                        acc
+                    } else {
+                        let value = peekable.next().unwrap();
+                        acc.push((current_string, Some(value)));
+                        acc
+                    }
+                }
+                None => {
+                    acc.push((current_string, None));
+                    acc
+                }
             }
-        }).collect()
+        }
 
+        let count = args.len();
+        let mut peekable = args.into_iter().peekable();
+        (0..count).fold(vec![], |acc, _| {
+            match peekable.next() {
+                //arg name
+                Some(current_string) => {
+                    look_at_val_distanced_by_two(&mut peekable, current_string, acc)
+                }
+                None => acc,
+            }
+        })
+    }
 
+    fn extend_args_without_duplication(
+        base_args: Vec<String>,
+        extra_args: Vec<String>,
+    ) -> Vec<String> {
+        fn retain_unique_default_args(
+            base_args: Vec<String>,
+            extra_args: &BTreeMap<String, Option<String>>,
+        ) -> BTreeMap<String, Option<String>> {
+            MASQNode::virtual_arg_pairs(base_args)
+                .into_iter()
+                .flat_map(|(arg_name, value)| {
+                    let res = extra_args
+                        .keys()
+                        .contains(&&arg_name)
+                        .not()
+                        .then_some((arg_name, value));
+                    res
+                })
+                .collect()
+        }
+        fn test_uniqueness_for_config_args(extra_args_as_tuples: &[(String, Option<String>)]) {
+            let len_before = extra_args_as_tuples.len();
+            let extra_args_to_test: Vec<_> = extra_args_as_tuples
+                .iter()
+                .sorted()
+                .dedup_by(|(arg_1, _), (arg_2, _)| arg_1 == arg_2)
+                .collect();
+            let len_after = extra_args_to_test.len();
+            assert_eq!(
+                len_after, len_before,
+                "You supplied additional arguments with some of \
+                them duplicated, use each only once! {:?}",
+                extra_args_as_tuples
+            );
+        }
+
+        //usages of BTreeMaps to preserve the order of arguments, both defaulted and from the config
+        let extra_args_as_tuples = Self::virtual_arg_pairs(extra_args);
+        test_uniqueness_for_config_args(&extra_args_as_tuples);
+        let extra_args: BTreeMap<String, Option<String>> =
+            BTreeMap::from_iter(extra_args_as_tuples.into_iter());
+        let base_args_to_keep = retain_unique_default_args(base_args, &extra_args);
+        base_args_to_keep
+            .into_iter()
+            .chain(extra_args.into_iter().rev())
+            .flat_map(|(arg_name, value)| {
+                [Some(arg_name), value]
+                    .into_iter()
+                    .flatten()
+                    .collect::<Vec<String>>()
+            })
+            .collect()
     }
 
     fn wait_for_node(&mut self, ui_port: u16) -> Result<(), String> {
@@ -563,4 +648,68 @@ pub fn make_conn(home_dir: &Path) -> Box<dyn ConnectionWrapper> {
     DbInitializerReal::default()
         .initialize(home_dir, DbInitializationConfig::panic_on_migration())
         .unwrap()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::MASQNode;
+    use masq_lib::utils::array_of_borrows_to_vec;
+
+    #[test]
+    fn extend_without_duplication_replaces_default_params_with_additionally_supplied_values() {
+        let default_args = array_of_borrows_to_vec(&[
+            "--arg-without-val",
+            "--whatever-arg",
+            "12345",
+            "--different-arg",
+            "hello",
+            "--final-arg",
+            "true",
+        ]);
+        let args_extension = array_of_borrows_to_vec(&[
+            "--whatever-arg",
+            "789",
+            "--unique-arg",
+            "blah",
+            "--final-arg",
+            "false",
+        ]);
+
+        let result = MASQNode::extend_args_without_duplication(default_args, args_extension);
+
+        let expected_args = array_of_borrows_to_vec(&[
+            "--arg-without-val",
+            "--different-arg",
+            "hello",
+            "--whatever-arg",
+            "789",
+            "--unique-arg",
+            "blah",
+            "--final-arg",
+            "false",
+        ]);
+        assert_eq!(result, expected_args)
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "You supplied additional arguments with some of them duplicated, \
+    use each only once! [(\"--whatever-arg\", Some(\"789\")), (\"--unique-arg\", Some(\"blah\")), \
+    (\"--final-arg\", Some(\"false\")), (\"--unique-arg\", Some(\"booga\"))]"
+    )]
+    fn extend_without_duplication_catches_duplicated_config_arg() {
+        let default_args = array_of_borrows_to_vec(&["--default-arg", "val-of-default-arg"]);
+        let args_extension = array_of_borrows_to_vec(&[
+            "--whatever-arg",
+            "789",
+            "--unique-arg",
+            "blah",
+            "--final-arg",
+            "false",
+            "--unique-arg",
+            "booga",
+        ]);
+
+        let _ = MASQNode::extend_args_without_duplication(default_args, args_extension);
+    }
 }

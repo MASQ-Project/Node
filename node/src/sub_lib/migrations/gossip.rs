@@ -1,9 +1,7 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::neighborhood::gossip::{GossipNodeRecord, Gossip_0v1};
-use crate::sub_lib::versioned_data::{
-    MigrationError, Migrations, StepError, VersionedData,
-};
+use crate::sub_lib::versioned_data::{MigrationError, Migrations, StepError, VersionedData};
 use lazy_static::lazy_static;
 use serde_cbor::Value;
 use std::convert::TryFrom;
@@ -85,8 +83,8 @@ mod tests {
     use super::*;
     use crate::neighborhood::gossip::GossipBuilder;
     use crate::test_utils::neighborhood_test_utils::{db_from_node, make_node_record};
-    use serde_derive::{Deserialize, Serialize};
     use masq_lib::data_version::DataVersion;
+    use serde_derive::{Deserialize, Serialize};
 
     #[test]
     fn can_migrate_from_the_future() {

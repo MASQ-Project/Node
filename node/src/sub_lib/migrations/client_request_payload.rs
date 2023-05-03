@@ -122,10 +122,10 @@ impl TryFrom<&Value> for ClientRequestPayload_0v1 {
 mod tests {
     use super::*;
     use crate::sub_lib::cryptde::PublicKey;
+    use masq_lib::data_version::DataVersion;
     use serde_derive::{Deserialize, Serialize};
     use std::net::SocketAddr;
     use std::str::FromStr;
-    use masq_lib::data_version::DataVersion;
 
     #[test]
     fn can_migrate_from_the_future() {

@@ -60,8 +60,8 @@ impl TryFrom<&Value> for GossipFailure_0v1 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_derive::{Deserialize, Serialize};
     use masq_lib::data_version::DataVersion;
+    use serde_derive::{Deserialize, Serialize};
 
     #[test]
     fn can_migrate_from_the_future() {

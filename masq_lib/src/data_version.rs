@@ -1,10 +1,9 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use std::str::FromStr;
+use serde_derive::{Deserialize, Serialize};
 use std::cmp::Ordering;
 use std::fmt;
-use serde::{Deserialize, Serialize};
-use serde_derive::{Serialize, Deserialize};
+use std::str::FromStr;
 
 pub const FUTURE_VERSION: DataVersion = DataVersion {
     major: 0xFFFF,
@@ -87,7 +86,6 @@ macro_rules! dv {
     };
 }
 
-
 #[cfg(test)]
 mod test {
     use crate::data_version::{DataVersion, FUTURE_VERSION};
@@ -106,7 +104,7 @@ mod test {
 
     #[test]
     #[should_panic(
-    expected = "DataVersion major and minor components range from 0-4095, not '4096.0'"
+        expected = "DataVersion major and minor components range from 0-4095, not '4096.0'"
     )]
     fn dataversions_cant_have_major_too_big() {
         let _ = dv!(4096, 0);
@@ -114,7 +112,7 @@ mod test {
 
     #[test]
     #[should_panic(
-    expected = "DataVersion major and minor components range from 0-4095, not '0.4096'"
+        expected = "DataVersion major and minor components range from 0-4095, not '0.4096'"
     )]
     fn dataversions_cant_have_minor_too_big() {
         let _ = dv!(0, 4096);
@@ -205,5 +203,4 @@ mod test {
             Err("DataVersion syntax is <major>.<minor>, not '1.2.3'".to_string())
         );
     }
-
 }

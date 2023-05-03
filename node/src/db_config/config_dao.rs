@@ -152,9 +152,7 @@ fn row_to_config_dao_record(row: &Row) -> ConfigDaoRecord {
 mod tests {
     use super::*;
     use crate::database::db_initializer::DbInitializationConfig;
-    use crate::database::db_initializer::{
-        DbInitializer, DbInitializerReal
-    };
+    use crate::database::db_initializer::{DbInitializer, DbInitializerReal};
     use crate::test_utils::assert_contains;
     use masq_lib::constants::{CURRENT_SCHEMA_VERSION, ROPSTEN_TESTNET_CONTRACT_CREATION_BLOCK};
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;

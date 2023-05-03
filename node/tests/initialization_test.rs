@@ -184,16 +184,17 @@ fn incomplete_node_descriptor_is_refused_integration() {
 }
 
 #[test]
-fn started_without_explicit_chain_parameter_runs_fine() {
+fn started_without_explicit_chain_parameter_runs_fine_integration() {
     //defaulted chain - chosen on the lack of user specified chain - corresponds with descriptors
     //believed to be for the default chain
     let config = CommandConfig::new()
         .pair("--neighborhood-mode", "standard")
         .pair("--ip", "1.0.0.1")
+        .pair("--log-level", "trace")
         .pair(
             "--neighbors",
             &format!(
-                "masq://{}:12345vhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
+                "masq://{}:UJNoZW5p_PDVqEjpr3b-8jZ_93yPG8i5dOAgE1bhK-A@12.23.34.45:5678",
                 DEFAULT_CHAIN.rec().literal_identifier
             ),
         );
@@ -250,15 +251,15 @@ fn requested_chain_meets_different_db_chain_and_panics_integration() {
 }
 
 #[test]
-fn node_creates_log_file_with_heading() {
+fn node_creates_log_file_with_heading_integration() {
     let config = CommandConfig::new()
         .pair("--neighborhood-mode", "standard")
         .pair("--ip", "1.0.0.1")
         .pair(
             "--neighbors",
             &format!(
-                "masq://{}:12345vhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
-                DEFAULT_CHAIN.rec().literal_identifier
+                "masq://{}:UJNoZW5p_PDVqEjpr3b-8jZ_93yPG8i5dOAgE1bhK-A@12.23.34.45:5678",
+                TEST_DEFAULT_CHAIN.rec().literal_identifier
             ),
         );
 
@@ -272,7 +273,8 @@ fn node_creates_log_file_with_heading() {
     );
 
     let expected_heading = format!(
-r#"^Node Version: v\d\.\d\.\d\n
+        r#"
+^Node Version: v\d\.\d\.\d\n
 Database Schema Version: \d+\n
 OS: [a-z]+\n
 client_request_payload::MIGRATIONS \(\d+\.\d+\)\n
@@ -281,7 +283,8 @@ dns_resolve_failure::MIGRATIONS \(\d+\.\d+\)\n
 gossip::MIGRATIONS \(\d+\.\d+\)\n
 gossip_failure::MIGRATIONS \(\d+\.\d+\)\n
 node_record_inner::MIGRATIONS \(\d+\.\d+\)\n
-\d+\-\d+\-\d+ \d+:\d+:\d+\.\d+ Thd\d+:"#);
+\d+\-\d+\-\d+ \d+:\d+:\d+\.\d+ Thd\d+:"#
+    );
     //The last line means the timestamp.
 
     node.wait_for_log(&expected_heading, Some(5000));

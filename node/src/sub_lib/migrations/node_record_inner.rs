@@ -4,9 +4,7 @@ use crate::neighborhood::node_record::NodeRecordInner_0v1;
 use crate::sub_lib::cryptde::PublicKey;
 use crate::sub_lib::migrations::utils::value_to_type;
 use crate::sub_lib::neighborhood::RatePack;
-use crate::sub_lib::versioned_data::{
-    MigrationError, Migrations, StepError, VersionedData,
-};
+use crate::sub_lib::versioned_data::{MigrationError, Migrations, StepError, VersionedData};
 use crate::sub_lib::wallet::Wallet;
 use lazy_static::lazy_static;
 use serde_cbor::Value;
@@ -160,9 +158,9 @@ impl NodeRecordInner_0v1 {
 mod tests {
     use super::*;
     use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+    use masq_lib::data_version::DataVersion;
     use serde_derive::{Deserialize, Serialize};
     use std::iter::FromIterator;
-    use masq_lib::data_version::DataVersion;
 
     #[test]
     fn can_migrate_from_the_future() {

@@ -1,17 +1,13 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use core::fmt;
 use itertools::Itertools;
+use masq_lib::data_version::{DataVersion, FUTURE_VERSION};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::fmt::Debug;
 use std::marker::PhantomData;
-use std::str::FromStr;
 use std::sync::RwLock;
-use masq_lib::data_version::{DataVersion, FUTURE_VERSION};
-
 
 #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
 pub struct VersionedData<T: Serialize + DeserializeOwned> {
@@ -268,8 +264,6 @@ impl Migrations {
     }
 }
 
-
-
 /// This is a shortcut to define an empty struct with an implementation that migrates data from one
 /// type to another. An instance of this struct should be added to a `Migrations` object once it is
 /// defined.
@@ -385,8 +379,8 @@ macro_rules! migrate_value {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_cbor::Value;
     use masq_lib::data_version::FUTURE_VERSION;
+    use serde_cbor::Value;
 
     #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
     struct PersonV44 {

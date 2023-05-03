@@ -19,8 +19,8 @@ pub mod command;
 #[macro_use]
 pub mod constants;
 pub mod crash_point;
+pub mod data_version;
 pub mod shared_schema;
 pub mod test_utils;
 pub mod ui_gateway;
 pub mod ui_traffic_converter;
-pub mod data_version;
