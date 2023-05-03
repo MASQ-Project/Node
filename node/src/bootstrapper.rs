@@ -21,6 +21,7 @@ use crate::node_configurator::node_configurator_standard::{
 use crate::node_configurator::{initialize_database, DirsWrapper, NodeConfigurator};
 use crate::privilege_drop::{IdWrapper, IdWrapperReal};
 use crate::server_initializer::LoggerInitializerWrapper;
+use crate::stream_handler_pool::StreamHandlerPoolSubs;
 use crate::sub_lib::accountant;
 use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::blockchain_bridge::BlockchainBridgeConfig;
@@ -32,6 +33,7 @@ use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode};
 use crate::sub_lib::node_addr::NodeAddr;
 use crate::sub_lib::socket_server::ConfiguredByPrivilege;
 use crate::sub_lib::ui_gateway::UiGatewayConfig;
+use crate::sub_lib::utils::db_connection_launch_panic;
 use crate::sub_lib::wallet::Wallet;
 use futures::try_ready;
 use itertools::Itertools;
@@ -515,15 +517,7 @@ impl ConfiguredByPrivilege for Bootstrapper {
                 if node_addr.ip_addr() == Ipv4Addr::new(0, 0, 0, 0) => {} // node_addr still coming
             _ => Bootstrapper::report_local_descriptor(cryptdes.main, &self.config.node_descriptor), // here or not coming
         }
-        let stream_handler_pool_subs = self.actor_system_factory.make_and_start_actors(
-            self.config.clone(),
-            Box::new(ActorFactoryReal {}),
-            initialize_database(
-                &self.config.data_directory,
-                DbInitializationConfig::panic_on_migration(),
-            ),
-        );
-
+        let stream_handler_pool_subs = self.start_actors_and_return_shp_subs();
         self.listener_handlers
             .iter_mut()
             .for_each(|f| f.bind_subs(stream_handler_pool_subs.add_sub.clone()));
@@ -612,6 +606,17 @@ impl Bootstrapper {
         }
     }
 
+    fn start_actors_and_return_shp_subs(&self) -> StreamHandlerPoolSubs {
+        self.actor_system_factory.make_and_start_actors(
+            self.config.clone(),
+            Box::new(ActorFactoryReal {}),
+            initialize_database(
+                &self.config.data_directory,
+                DbInitializationConfig::panic_on_migration(),
+            ),
+        )
+    }
+
     pub fn report_local_descriptor(cryptde: &dyn CryptDE, descriptor: &NodeDescriptor) {
         let descriptor_msg = format!(
             "MASQ Node local descriptor: {}",
@@ -630,7 +635,9 @@ impl Bootstrapper {
                         &self.config.data_directory,
                         DbInitializationConfig::panic_on_migration(),
                     )
-                    .expect("Cannot initialize database");
+                    .unwrap_or_else(|err| {
+                        db_connection_launch_panic(err, &self.config.data_directory)
+                    });
                 let config_dao = ConfigDaoReal::new(conn);
                 let mut persistent_config = PersistentConfigurationReal::new(Box::new(config_dao));
                 let clandestine_port = self.establish_clandestine_port(&mut persistent_config);
@@ -728,7 +735,9 @@ mod tests {
     use crate::sub_lib::cryptde::PublicKey;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
     use crate::sub_lib::cryptde_null::CryptDENull;
-    use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
+    use crate::sub_lib::neighborhood::{
+        NeighborhoodConfig, NeighborhoodMode, NodeDescriptor, DEFAULT_RATE_PACK,
+    };
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::socket_server::ConfiguredByPrivilege;
     use crate::sub_lib::stream_connector::ConnectionInfo;
@@ -738,7 +747,9 @@ mod tests {
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::tokio_wrapper_mocks::ReadHalfWrapperMock;
     use crate::test_utils::tokio_wrapper_mocks::WriteHalfWrapperMock;
-    use crate::test_utils::unshared_test_utils::make_simplified_multi_config;
+    use crate::test_utils::unshared_test_utils::{
+        assert_on_initialization_with_panic_on_migration, make_simplified_multi_config,
+    };
     use crate::test_utils::{assert_contains, rate_pack};
     use crate::test_utils::{main_cryptde, make_wallet};
     use actix::Recipient;
@@ -762,7 +773,7 @@ mod tests {
     use std::io::ErrorKind;
     use std::marker::Sync;
     use std::net::{IpAddr, SocketAddr};
-    use std::path::PathBuf;
+    use std::path::{Path, PathBuf};
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
@@ -1381,6 +1392,24 @@ mod tests {
 
         let config = subject.config;
         assert_eq!(config.blockchain_bridge_config.gas_price, 11);
+    }
+
+    #[test]
+    fn initialize_as_unprivileged_implements_panic_on_migration_for_make_and_start_actors() {
+        let _lock = INITIALIZATION.lock();
+        let data_dir = ensure_node_home_directory_exists(
+            "bootstrapper",
+            "initialize_as_unprivileged_implements_panic_on_migration_for_make_and_start_actors",
+        );
+
+        let act = |data_dir: &Path| {
+            let mut config = BootstrapperConfig::new();
+            config.data_directory = data_dir.to_path_buf();
+            let subject = BootstrapperBuilder::new().config(config).build();
+            subject.start_actors_and_return_shp_subs();
+        };
+
+        assert_on_initialization_with_panic_on_migration(&data_dir, &act);
     }
 
     #[test]
@@ -2020,6 +2049,26 @@ mod tests {
             .mode
             .node_addr_opt()
             .is_none());
+    }
+
+    #[test]
+    fn set_up_clandestine_port_panics_on_migration() {
+        let data_dir = ensure_node_home_directory_exists(
+            "bootstrapper",
+            "set_up_clandestine_port_panics_on_migration",
+        );
+
+        let act = |data_dir: &Path| {
+            let mut config = BootstrapperConfig::new();
+            config.data_directory = data_dir.to_path_buf();
+            config.neighborhood_config = NeighborhoodConfig {
+                mode: NeighborhoodMode::Standard(NodeAddr::default(), vec![], DEFAULT_RATE_PACK),
+            };
+            let mut subject = BootstrapperBuilder::new().config(config).build();
+            subject.set_up_clandestine_port();
+        };
+
+        assert_on_initialization_with_panic_on_migration(&data_dir, &act);
     }
 
     #[test]
