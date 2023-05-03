@@ -247,7 +247,14 @@ impl Log for TestLogger {
     fn log(&self, record: &Record<'_>) {
         let mut buffer = ByteArrayWriter::new();
         let now = OffsetDateTime::now_utc();
-        real_format_function(&mut buffer, now, record).unwrap();
+        if record.metadata().target() != "heading" {
+            real_format_function(&mut buffer, now, record).unwrap();
+        } else {
+            use std::io::Write;
+            buffer.write_fmt(*record.args());
+        }
+        // panic!("{}", record.metadata().target());
+
         TestLogHandler::new().add_log(buffer.get_string());
     }
 

@@ -202,13 +202,24 @@ impl Logger {
         );
     }
 
-    pub fn log_file_headding(&self) {
+    pub fn log_plain_message(target: &str, msg: String) {
+        logger().log(
+            &Record::builder()
+                .args(format_args!("{}", msg))
+                // .module_path(Some(&self.name))
+                .metadata(Metadata::builder().target(target).build())
+                // .level(level)
+                .build(),
+        );
+    }
+
+    pub fn log_file_heading(test_name: &str) {
         let test_tag_opt = if cfg!(test) {
-            format!("Printed in test enviroment for logger: {}\n", self.name)
+            format!("Printed in test enviroment for test: {}\n", test_name)
         } else {
-            todo!()
+            "".to_string()
         };
-        let headding = format!(
+        let heading = format!(
             "\
         {}\
         Node Version: {}\n\
@@ -232,12 +243,7 @@ impl Logger {
             Logger::data_version_pretty_print(NODE_RECORD_INNER_CURRENT_VERSION)
         );
 
-        logger().log(
-            &Record::builder()
-                .args(format_args!("{}", headding))
-                // .module_path(Some(&self.name))
-                .build(),
-        );
+        Self::log_plain_message("plain_message", heading);
     }
 
     fn data_version_pretty_print(dv: DataVersion) -> String {
@@ -742,16 +748,16 @@ mod tests {
     }
 
     #[test]
-    fn logger_prints_log_file_headding() {
+    fn logger_prints_log_file_heading() {
         init_test_logging();
         let _guard = prepare_test_environment();
-        let subject = Logger::new("logger_prints_log_file_headding");
+        let subject = Logger::new("logger_prints_log_file_heading");
 
-        subject.log_file_headding();
+        subject.log_file_heading();
 
         // TODO Dont forget to wright an intergration test proving the first line is omitted, also make sure the end of the headding is properly followed by the first log.
         let expected_headding = format!(
-            r#"Printed in test enviroment for logger: logger_prints_log_file_headding\n
+            r#"Printed in test enviroment for logger: logger_prints_log_file_heading\n
 Node Version: v\d\.\d\.\d\n
 Database Schema Version: \d+\n
 OS: {}\n
@@ -809,6 +815,19 @@ node_record_inner::MIGRATIONS {}"#,
         let after_str = timestamp_as_string(after);
         assert_between(&one_log[..prefix_len], &before_str, &after_str);
         assert_between(&another_log[..prefix_len], &before_str, &after_str);
+    }
+
+    #[test]
+    fn expermintal_format_test() {
+        init_test_logging();
+
+        let subject = Logger::new("logger");
+        subject.log_file_heading();
+
+        let tlh = TestLogHandler::new();
+        tlh.exists_log_matching("blar");
+
+
     }
 
     #[test]

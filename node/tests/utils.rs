@@ -406,7 +406,7 @@ impl MASQNode {
     ) -> process::Command {
         let args = Self::standard_args();
         let args =
-            Self::extend_args_without_duplication(args, Self::get_extra_args(data_dir, config)); //TODO delete get_extra_args()
+            Self::extend_args_without_duplication(args, Self::get_extra_args(data_dir, config));
         Self::start_with_args_extension(data_dir, args, remove_database)
     }
 
@@ -520,17 +520,17 @@ impl MASQNode {
     }
 
     fn extend_args_without_duplication(
-        base_args: Vec<String>,
-        extra_args: Vec<String>,
+        default_args: Vec<String>,
+        config_args: Vec<String>,
     ) -> Vec<String> {
         fn retain_unique_default_args(
-            base_args: Vec<String>,
-            extra_args: &BTreeMap<String, Option<String>>,
+            default_args: Vec<String>,
+            config_args: &BTreeMap<String, Option<String>>,
         ) -> BTreeMap<String, Option<String>> {
-            MASQNode::virtual_arg_pairs(base_args)
+            MASQNode::virtual_arg_pairs(default_args)
                 .into_iter()
                 .flat_map(|(arg_name, value)| {
-                    let res = extra_args
+                    let res = config_args
                         .keys()
                         .contains(&&arg_name)
                         .not()
@@ -539,31 +539,31 @@ impl MASQNode {
                 })
                 .collect()
         }
-        fn test_uniqueness_for_config_args(extra_args_as_tuples: &[(String, Option<String>)]) {
-            let len_before = extra_args_as_tuples.len();
-            let extra_args_to_test: Vec<_> = extra_args_as_tuples
+        fn test_uniqueness_for_config_args(config_args_as_tuples: &[(String, Option<String>)]) {
+            let len_before = config_args_as_tuples.len();
+            let config_args_to_test: Vec<_> = config_args_as_tuples
                 .iter()
                 .sorted()
                 .dedup_by(|(arg_1, _), (arg_2, _)| arg_1 == arg_2)
                 .collect();
-            let len_after = extra_args_to_test.len();
+            let len_after = config_args_to_test.len();
             assert_eq!(
                 len_after, len_before,
                 "You supplied additional arguments with some of \
                 them duplicated, use each only once! {:?}",
-                extra_args_as_tuples
+                config_args_as_tuples
             );
         }
 
         //usages of BTreeMaps to preserve the order of arguments, both defaulted and from the config
-        let extra_args_as_tuples = Self::virtual_arg_pairs(extra_args);
-        test_uniqueness_for_config_args(&extra_args_as_tuples);
-        let extra_args: BTreeMap<String, Option<String>> =
-            BTreeMap::from_iter(extra_args_as_tuples.into_iter());
-        let base_args_to_keep = retain_unique_default_args(base_args, &extra_args);
-        base_args_to_keep
+        let config_args_as_tuples = Self::virtual_arg_pairs(config_args);
+        test_uniqueness_for_config_args(&config_args_as_tuples);
+        let config_args: BTreeMap<String, Option<String>> =
+            BTreeMap::from_iter(config_args_as_tuples.into_iter());
+        let default_args_to_keep = retain_unique_default_args(default_args, &config_args);
+        default_args_to_keep
             .into_iter()
-            .chain(extra_args.into_iter().rev())
+            .chain(config_args.into_iter().rev())
             .flat_map(|(arg_name, value)| {
                 [Some(arg_name), value]
                     .into_iter()

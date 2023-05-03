@@ -17,11 +17,15 @@ use masq_lib::command::StdStreams;
 use masq_lib::logger::real_format_function;
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
+use masq_lib::logger;
 use std::any::Any;
+use std::fmt::Pointer;
 use std::io;
+use std::io::Write;
 use std::panic::{Location, PanicInfo};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
+use flexi_logger::writers::FileLogWriter;
 use time::OffsetDateTime;
 use tokio::prelude::{Async, Future};
 
@@ -164,6 +168,7 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
                 .build(),
         )
         .log_to_file()
+        .add_writer("plain_message", plain_message_writer())
         .directory(file_path.clone())
         .print_message()
         .duplicate_to_stderr(Duplicate::Info)
@@ -191,6 +196,9 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
         std::panic::set_hook(Box::new(|panic_info| {
             panic_hook(AltPanicInfo::from(panic_info))
         }));
+
+        logger::Logger::log_file_heading("");
+
     }
 }
 
@@ -271,6 +279,26 @@ fn format_function(
 ) -> Result<(), io::Error> {
     real_format_function(write, OffsetDateTime::now_utc(), record)
 }
+
+pub fn plain_message_writer() -> Box<FileLogWriter> {
+    Box::new(FileLogWriter::builder()
+        .discriminant("plain_message")
+        // .suffix("alerts")
+        .suppress_timestamp()
+        // .print_message()
+        .format(plain_message_format)
+        .try_build()
+        .unwrap()) // TODO remove unwrap
+}
+
+fn plain_message_format(
+    write: &mut dyn io::Write,
+    _now: &mut DeferredNow,
+    record: &Record,
+) -> Result<(), io::Error> {
+    write.write_fmt(*record.args())
+}
+
 
 #[cfg(test)]
 pub mod test_utils {
