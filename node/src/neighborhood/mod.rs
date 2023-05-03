@@ -3947,7 +3947,7 @@ mod tests {
     fn neighborhood_starts_accountant_when_first_route_can_be_made() {
         let (accountant, _, accountant_recording_arc) = make_recorder();
         let (ui_gateway, _, _) = make_recorder();
-        let mut subject = make_neighborhood_linearly_connected_with_nodes(3);
+        let mut subject = make_neighborhood_with_linearly_connected_nodes(4);
         subject.node_to_ui_recipient_opt = Some(ui_gateway.start().recipient());
         let peer_actors = peer_actors_builder().accountant(accountant).build();
         bind_subject(&mut subject, peer_actors);
@@ -4011,8 +4011,9 @@ mod tests {
     fn assert_connectivity_check(hops: Hops) {
         init_test_logging();
         let test_name = &format!("connectivity_check_for_{}_hops", hops as usize);
+        let nodes_count = hops as u16 + 1;
         let mut subject: Neighborhood =
-            make_neighborhood_linearly_connected_with_nodes(hops as u16);
+            make_neighborhood_with_linearly_connected_nodes(nodes_count);
         let (ui_gateway, _, ui_gateway_arc) = make_recorder();
         let (accountant, _, _) = make_recorder();
         let node_to_ui_recipient = ui_gateway.start().recipient::<NodeToUiMessage>();
@@ -4069,7 +4070,7 @@ mod tests {
     fn neighborhood_logs_when_three_hops_route_can_not_be_made() {
         init_test_logging();
         let test_name = "neighborhood_logs_when_three_hops_route_can_not_be_made";
-        let mut subject: Neighborhood = make_neighborhood_linearly_connected_with_nodes(2);
+        let mut subject: Neighborhood = make_neighborhood_with_linearly_connected_nodes(3);
         let (ui_gateway, _, ui_gateway_arc) = make_recorder();
         let (accountant, _, _) = make_recorder();
         let node_to_ui_recipient = ui_gateway.start().recipient::<NodeToUiMessage>();
@@ -5320,9 +5321,8 @@ mod tests {
         let root_node = make_global_cryptde_node_record(4242, true);
         let mut nodes = make_node_records(nodes_count as u16);
         nodes[0] = root_node;
-        let neighbor = nodes.get(1).unwrap();
         let db = linearly_connect_nodes(&nodes);
-        let mut subject = neighborhood_from_nodes(db.root(), Some(neighbor));
+        let mut subject = neighborhood_from_nodes(db.root(), nodes.get(1));
         subject.min_hops_count = min_hops_count;
         subject.neighborhood_database = db;
 
@@ -6066,47 +6066,13 @@ mod tests {
         message_opt
     }
 
-    fn make_neighborhood_linearly_connected_with_nodes(hops: u16) -> Neighborhood {
-        let subject_node = make_global_cryptde_node_record(1234, true);
-        let relay1 = make_node_record(1111, true);
-        let mut nodes = vec![
-            subject_node.public_key().clone(),
-            relay1.public_key().clone(),
-        ];
-        let mut neighborhood: Neighborhood = neighborhood_from_nodes(&subject_node, Some(&relay1));
-        let mut replacement_database = neighborhood.neighborhood_database.clone();
-
-        fn nonce(x: u16) -> u16 {
-            x + (10 * x) + (100 * x) + (1000 * x)
-        }
-
-        for i in 1..=hops {
-            match i {
-                1 => {
-                    replacement_database.add_node(relay1.clone()).unwrap();
-                }
-                i if i < hops => {
-                    let relay_node = make_node_record(nonce(i), false);
-                    replacement_database.add_node(relay_node.clone()).unwrap();
-                    nodes.push(relay_node.public_key().clone());
-                }
-                i if i == hops => {
-                    let exit_node = make_node_record(nonce(i), false);
-                    replacement_database.add_node(exit_node.clone()).unwrap();
-                    nodes.push(exit_node.public_key().clone());
-                }
-                _ => panic!("The match statement should be exhaustive."),
-            }
-            replacement_database
-                .add_arbitrary_full_neighbor(&nodes[i as usize - 1], &nodes[i as usize]);
-        }
-
-        neighborhood.gossip_acceptor = Box::new(DatabaseReplacementGossipAcceptor {
-            replacement_database,
-        });
-        neighborhood.persistent_config_opt = Some(Box::new(
-            PersistentConfigurationMock::new().set_past_neighbors_result(Ok(())),
-        ));
+    fn make_neighborhood_with_linearly_connected_nodes(nodes_count: u16) -> Neighborhood {
+        let root_node = make_global_cryptde_node_record(4242, true);
+        let mut nodes = make_node_records(nodes_count);
+        nodes[0] = root_node;
+        let db = linearly_connect_nodes(&nodes);
+        let mut neighborhood = neighborhood_from_nodes(db.root(), nodes.get(1));
+        neighborhood.neighborhood_database = db;
 
         neighborhood
     }

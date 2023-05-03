@@ -323,7 +323,7 @@ pub fn gossip_about_nodes_from_database(
 ) -> Gossip_0v1 {
     nodes
         .iter()
-        .fold(GossipBuilder::new(&database), |builder, node| {
+        .fold(GossipBuilder::new(database), |builder, node| {
             builder.node(node.public_key(), false)
         })
         .build()
