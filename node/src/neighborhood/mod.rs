@@ -435,9 +435,7 @@ impl Neighborhood {
         let neighborhood_mode = &neighborhood_config.mode;
         let mode: NeighborhoodModeLight = neighborhood_mode.into();
         let neighborhood_configs = neighborhood_mode.neighbor_configs();
-        if mode == NeighborhoodModeLight::ZeroHop
-            && !neighborhood_configs.is_empty()
-        {
+        if mode == NeighborhoodModeLight::ZeroHop && !neighborhood_configs.is_empty() {
             panic!(
                 "A zero-hop MASQ Node is not decentralized and cannot have a --neighbors setting"
             )
@@ -843,9 +841,16 @@ impl Neighborhood {
             payload_size: 10000,
             hostname_opt: None,
         };
-        debug!(Logger::new("Multinode"), "Searching for a {}-hops route.", self.min_hops_count as usize);
+        debug!(
+            Logger::new("Multinode"),
+            "Searching for a {}-hops route.", self.min_hops_count as usize
+        );
         if let Some(route_query_response) = self.handle_route_query_message(msg) {
-            trace!(Logger::new("Multinode"), "Round Trip Route Length: {:?}", route_query_response.route.hops.len());
+            trace!(
+                Logger::new("Multinode"),
+                "Round Trip Route Length: {:?}",
+                route_query_response.route.hops.len()
+            );
             debug!(
                 &self.logger,
                 "The connectivity check has found a {}-hops route.", self.min_hops_count as usize
@@ -1246,11 +1251,9 @@ impl Neighborhood {
                 hostname_opt,
             )
             .into_iter()
-            .filter_map(|cr| {
-                match cr.undesirability <= minimum_undesirability {
-                    true => Some(cr.nodes),
-                    false => None,
-                }
+            .filter_map(|cr| match cr.undesirability <= minimum_undesirability {
+                true => Some(cr.nodes),
+                false => None,
             })
             .next();
 
@@ -1638,7 +1641,12 @@ mod tests {
     use crate::test_utils::assert_contains;
     use crate::test_utils::make_meaningless_route;
     use crate::test_utils::make_wallet;
-    use crate::test_utils::neighborhood_test_utils::{db_from_node, make_global_cryptde_node_record, make_ip, make_node, make_node_descriptor, make_node_record, make_node_record_f, MIN_HOPS_COUNT_FOR_TEST, neighborhood_from_nodes};
+    use crate::test_utils::neighborhood_test_utils::{
+        cryptdes_from_node_records, db_from_node, linearly_connect_nodes,
+        make_global_cryptde_node_record, make_ip, make_node, make_node_descriptor,
+        make_node_record, make_node_record_f, make_node_records, neighborhood_from_nodes,
+        MIN_HOPS_COUNT_FOR_TEST,
+    };
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::rate_pack;
     use crate::test_utils::recorder::make_recorder;
@@ -2750,9 +2758,7 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 400,
-        ));
+        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 400));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2768,9 +2774,7 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None,  430,
-        ));
+        let future = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 430));
 
         System::current().stop_with_code(0);
         system.run();
@@ -2885,7 +2889,7 @@ mod tests {
         }
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
-        let msg = RouteQueryMessage::data_indefinite_route_request(None,  10000);
+        let msg = RouteQueryMessage::data_indefinite_route_request(None, 10000);
 
         let future = sub.send(msg);
 
@@ -3019,9 +3023,7 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 5000,
-        ));
+        let data_route = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 5000));
 
         System::current().stop_with_code(0);
         system.run();
@@ -3116,12 +3118,8 @@ mod tests {
         let addr: Addr<Neighborhood> = subject.start();
         let sub: Recipient<RouteQueryMessage> = addr.recipient::<RouteQueryMessage>();
 
-        let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 2000,
-        ));
-        let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 3000,
-        ));
+        let data_route_0 = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 2000));
+        let data_route_1 = sub.send(RouteQueryMessage::data_indefinite_route_request(None, 3000));
 
         System::current().stop_with_code(0);
         system.run();
@@ -3171,15 +3169,13 @@ mod tests {
         )
         .unwrap();
 
-        let route_request_1 = route_sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 1000,
-        ));
+        let route_request_1 =
+            route_sub.send(RouteQueryMessage::data_indefinite_route_request(None, 1000));
         let _ = set_wallet_sub.try_send(SetConsumingWalletMessage {
             wallet: expected_new_wallet,
         });
-        let route_request_2 = route_sub.send(RouteQueryMessage::data_indefinite_route_request(
-            None, 2000,
-        ));
+        let route_request_2 =
+            route_sub.send(RouteQueryMessage::data_indefinite_route_request(None, 2000));
 
         System::current().stop();
         system.run();
@@ -5321,33 +5317,14 @@ mod tests {
     fn assert_route_query_message(min_hops_count: Hops) {
         let hops = min_hops_count as usize;
         let nodes_count = hops + 1;
-        // Create Nodes
-        let nodes = (1..=nodes_count)
-            .map(|i| {
-                let nonce = 1000 + i as u16;
-                let has_ip = if i <= 2 { true } else { false };
-                let node = if i == 1 {
-                    make_global_cryptde_node_record(nonce, has_ip)
-                } else {
-                    make_node_record(nonce, has_ip)
-                };
-                node
-            })
-            .collect::<Vec<NodeRecord>>();
-        // Create Database
-        let root_node = nodes.get(0).unwrap();
+        let root_node = make_global_cryptde_node_record(4242, true);
+        let mut nodes = make_node_records(nodes_count as u16);
+        nodes[0] = root_node;
         let neighbor = nodes.get(1).unwrap();
-        let mut subject = neighborhood_from_nodes(root_node, Some(neighbor));
+        let db = linearly_connect_nodes(&nodes);
+        let mut subject = neighborhood_from_nodes(db.root(), Some(neighbor));
         subject.min_hops_count = min_hops_count;
-        for i in 1..nodes_count {
-            subject
-                .neighborhood_database
-                .add_node(nodes[i].clone())
-                .unwrap();
-            subject
-                .neighborhood_database
-                .add_arbitrary_full_neighbor(nodes[i - 1].public_key(), nodes[i].public_key());
-        }
+        subject.neighborhood_database = db;
 
         let result = subject.make_round_trip_route(RouteQueryMessage {
             target_key_opt: None,
@@ -5364,24 +5341,14 @@ mod tests {
             }
         };
         let mut route = result.clone().unwrap().route.hops;
+        let route_length = route.len();
         let _accounting = route.pop();
         let over_route = &route[..hops];
         let back_route = &route[hops..];
-        let over_cryptdes = {
-            let mut over_nodes = nodes.clone();
-            over_nodes.pop();
-            over_nodes
-                .iter()
-                .map(|node| CryptDENull::from(node.public_key(), TEST_DEFAULT_CHAIN))
-                .collect::<Vec<CryptDENull>>()
-        };
-        let back_cryptdes = {
-            nodes
-                .iter()
-                .rev()
-                .map(|node| CryptDENull::from(node.public_key(), TEST_DEFAULT_CHAIN))
-                .collect::<Vec<CryptDENull>>()
-        };
+        let over_cryptdes = cryptdes_from_node_records(&nodes[..nodes_count - 1]);
+        let mut back_cryptdes = cryptdes_from_node_records(&nodes);
+        back_cryptdes.reverse();
+        assert_eq!(route_length, 2 * nodes_count);
         assert_hops(over_cryptdes, over_route);
         assert_hops(back_cryptdes, back_route);
     }

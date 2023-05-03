@@ -335,3 +335,10 @@ pub fn public_keys_from_node_records(nodes: &[NodeRecord]) -> HashSet<PublicKey>
         .map(|node| node.public_key().clone())
         .collect::<HashSet<PublicKey>>()
 }
+
+pub fn cryptdes_from_node_records(nodes: &[NodeRecord]) -> Vec<CryptDENull> {
+    nodes
+        .iter()
+        .map(|node| CryptDENull::from(node.public_key(), TEST_DEFAULT_CHAIN))
+        .collect::<Vec<CryptDENull>>()
+}
