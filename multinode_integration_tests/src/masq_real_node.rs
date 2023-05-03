@@ -841,9 +841,6 @@ impl MASQRealNode {
             .clone()
             .map(|public_key| CryptDENull::from(&public_key, chain));
         let restart_startup_config = real_startup_config.clone();
-        //let chain_specific_dir =
-        //   add_chain_specific_directories(TEST_DEFAULT_MULTINODE_CHAIN, Path::new(&RootDir));
-        //chain_specific_dir.to_string_lossy().to_string(),
         let guts = Rc::new(MASQRealNodeGuts {
             startup_config: real_startup_config.clone(),
             name: name.to_string(),
@@ -909,7 +906,7 @@ impl MASQRealNode {
         format!(
             "{}/multinode_integration_tests/generated/node_homes/{}",
             root_dir,
-            name //, "MASQ", TEST_DEFAULT_MULTINODE_CHAIN.rec().literal_identifier
+            name
         )
     }
 
