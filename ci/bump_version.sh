@@ -31,7 +31,7 @@ bump_version() {
   find_pattern='^version\s*=.*[^,]\s*$'
   replace_pattern='s/'$find_pattern'/version = "'"$version"'"/'
 
-  grep -q "$find_pattern" "$file" && sed -i "$replace_pattern" "$file"
+  grep -q "$find_pattern" "$file" && sed -i "" "$replace_pattern" "$file"
   exit_code="$?"
   if [[ "$exit_code" != "0" ]]; then
     final_exit_code=1
