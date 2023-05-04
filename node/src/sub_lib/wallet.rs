@@ -929,7 +929,7 @@ mod tests {
 
     #[test]
     fn wallet_cant_be_used_for_sql_injections_with_debug() {
-        let subject = Wallet::new("; evil sql --");
+        let subject = Wallet::new("; EVIL SQL --");
 
         let debug_rendering = format!("{:?}", subject);
 
@@ -937,13 +937,10 @@ mod tests {
     }
 
     #[test]
+    #[should_panic(expected = "No address for an uninitialized wallet!")]
     fn wallet_cant_be_used_for_sql_injections_with_display() {
-        let subject = Wallet::new("; evil sql --");
+        let subject = Wallet::new("; EVIL SQL --");
 
-        let caught_panic_err = catch_unwind(|| subject.to_string());
-
-        let caught_panic = caught_panic_err.unwrap_err();
-        let panic_msg = caught_panic.downcast_ref::<&str>().unwrap();
-        assert_eq!(panic_msg, &"No address for an uninitialized wallet!")
+        let _ = subject.to_string();
     }
 }
