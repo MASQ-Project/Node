@@ -287,8 +287,8 @@ impl BlockchainBridge {
         };
         let consuming_wallet_balances = {
             ConsumingWalletBalances {
-                gas_currency: gas_balance,
-                masq_tokens: token_balance,
+                gas_currency_wei: gas_balance,
+                masq_tokens_wei: token_balance,
             }
         };
         self.balances_and_payables_sub_opt
@@ -692,8 +692,8 @@ mod tests {
         let gas_balance = U256::from(4455);
         let token_balance = U256::from(112233);
         let wallet_balances_found = ConsumingWalletBalances {
-            gas_currency: gas_balance,
-            masq_tokens: token_balance,
+            gas_currency_wei: gas_balance,
+            masq_tokens_wei: token_balance,
         };
         let blockchain_interface = BlockchainInterfaceMock::default()
             .get_gas_balance_params(&get_gas_balance_params_arc)

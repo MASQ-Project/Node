@@ -23,14 +23,14 @@ use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{HopperSubs, MessageType};
-use crate::sub_lib::neighborhood::ConnectionProgressMessage;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
-use crate::sub_lib::neighborhood::NodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
 use crate::sub_lib::neighborhood::RouteQueryResponse;
+use crate::sub_lib::neighborhood::{ChangeNodeRecordMetadataMessage, PaymentAdjusterQueryMessage};
+use crate::sub_lib::neighborhood::{ConnectionProgressMessage, PaymentAdjusterResponseMessage};
 use crate::sub_lib::neighborhood::{DispatcherNodeQueryMessage, GossipFailure_0v1};
 use crate::sub_lib::peer_actors::PeerActors;
 use crate::sub_lib::peer_actors::{BindMessage, NewPublicIp, StartMessage};
@@ -66,6 +66,7 @@ pub struct Recorder {
     recording: Arc<Mutex<Recording>>,
     node_query_responses: Vec<Option<NodeQueryResponseMetadata>>,
     route_query_responses: Vec<Option<RouteQueryResponse>>,
+    payment_adjuster_responses: Vec<Option<PaymentAdjusterResponseMessage>>,
     stop_conditions_opt: Option<StopConditions>,
 }
 
@@ -116,7 +117,7 @@ recorder_message_handler!(NewPasswordMessage);
 recorder_message_handler!(NewPublicIp);
 recorder_message_handler!(NodeFromUiMessage);
 recorder_message_handler!(NodeToUiMessage);
-recorder_message_handler!(NodeRecordMetadataMessage);
+recorder_message_handler!(ChangeNodeRecordMetadataMessage);
 recorder_message_handler!(NoLookupIncipientCoresPackage);
 recorder_message_handler!(PoolBindMessage);
 recorder_message_handler!(ReceivedPayments);
@@ -154,37 +155,44 @@ where
     }
 }
 
-impl Handler<NodeQueryMessage> for Recorder {
-    type Result = MessageResult<NodeQueryMessage>;
+macro_rules! asynchronous_message_handler_impl {
+    ($inbound_message: ty, $outbound_message: ty, $recorder_field_with_responses: ident) => {
+        impl Handler<$inbound_message> for Recorder {
+            type Result = MessageResult<$inbound_message>;
 
-    fn handle(
-        &mut self,
-        msg: NodeQueryMessage,
-        _ctx: &mut Self::Context,
-    ) -> <Self as Handler<NodeQueryMessage>>::Result {
-        self.record(msg);
-        MessageResult(extract_response(
-            &mut self.node_query_responses,
-            "No NodeDescriptors prepared for NodeQueryMessage",
-        ))
-    }
+            fn handle(
+                &mut self,
+                msg: $inbound_message,
+                _ctx: &mut Self::Context,
+            ) -> <Self as Handler<$inbound_message>>::Result {
+                self.record(msg);
+
+                let error_msg = format!(
+                    "No {} prepared for {}",
+                    stringify!($inbound_message),
+                    stringify!($outbound_message)
+                );
+
+                MessageResult(extract_response(
+                    &mut self.$recorder_field_with_responses,
+                    &error_msg,
+                ))
+            }
+        }
+    };
 }
 
-impl Handler<RouteQueryMessage> for Recorder {
-    type Result = MessageResult<RouteQueryMessage>;
-
-    fn handle(
-        &mut self,
-        msg: RouteQueryMessage,
-        _ctx: &mut Self::Context,
-    ) -> <Self as Handler<RouteQueryMessage>>::Result {
-        self.record(msg);
-        MessageResult(extract_response(
-            &mut self.route_query_responses,
-            "No RouteQueryResponses prepared for RouteQueryMessage",
-        ))
-    }
-}
+asynchronous_message_handler_impl!(NodeQueryMessage, NodeDescriptors, node_query_responses);
+asynchronous_message_handler_impl!(
+    RouteQueryMessage,
+    RouteQueryResponses,
+    route_query_responses
+);
+asynchronous_message_handler_impl!(
+    PaymentAdjusterQueryMessage,
+    PaymentAdjusterResponseMessage,
+    payment_adjuster_responses
+);
 
 fn extract_response<T>(responses: &mut Vec<T>, err_msg: &str) -> T
 where
@@ -229,6 +237,14 @@ impl Recorder {
 
     pub fn route_query_response(mut self, response: Option<RouteQueryResponse>) -> Recorder {
         self.route_query_responses.push(response);
+        self
+    }
+
+    pub fn payment_adjuster_response(
+        mut self,
+        response: Option<PaymentAdjusterResponseMessage>,
+    ) -> Recorder {
+        self.payment_adjuster_responses.push(response);
         self
     }
 
@@ -403,7 +419,7 @@ pub fn make_neighborhood_subs_from(addr: &Addr<Recorder>) -> NeighborhoodSubs {
         new_public_ip: recipient!(addr, NewPublicIp),
         node_query: recipient!(addr, NodeQueryMessage),
         route_query: recipient!(addr, RouteQueryMessage),
-        update_node_record_metadata: recipient!(addr, NodeRecordMetadataMessage),
+        update_node_record_metadata: recipient!(addr, ChangeNodeRecordMetadataMessage),
         from_hopper: recipient!(addr, ExpiredCoresPackage<Gossip_0v1>),
         gossip_failure: recipient!(addr, ExpiredCoresPackage<GossipFailure_0v1>),
         dispatcher_node_query: recipient!(addr, DispatcherNodeQueryMessage),

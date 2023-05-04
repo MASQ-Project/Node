@@ -383,7 +383,7 @@ pub struct NeighborhoodSubs {
     pub new_public_ip: Recipient<NewPublicIp>,
     pub node_query: Recipient<NodeQueryMessage>,
     pub route_query: Recipient<RouteQueryMessage>,
-    pub update_node_record_metadata: Recipient<NodeRecordMetadataMessage>,
+    pub update_node_record_metadata: Recipient<ChangeNodeRecordMetadataMessage>,
     pub from_hopper: Recipient<ExpiredCoresPackage<Gossip_0v1>>,
     pub gossip_failure: Recipient<ExpiredCoresPackage<GossipFailure_0v1>>,
     pub dispatcher_node_query: Recipient<DispatcherNodeQueryMessage>,
@@ -517,7 +517,7 @@ pub struct AskAboutDebutGossipMessage {
 }
 
 #[derive(Clone, Debug, Message, PartialEq, Eq)]
-pub struct NodeRecordMetadataMessage {
+pub struct ChangeNodeRecordMetadataMessage {
     pub public_key: PublicKey,
     pub metadata_change: NRMetadataChange,
 }
@@ -526,6 +526,23 @@ pub struct NodeRecordMetadataMessage {
 pub enum NRMetadataChange {
     AddUnreachableHost { hostname: String },
 }
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PaymentAdjusterQueryMessage {
+    pub concerned_nodes_wallets: Vec<Wallet>,
+}
+
+impl Message for PaymentAdjusterQueryMessage {
+    type Result = Option<PaymentAdjusterResponseMessage>;
+}
+
+#[derive(Clone, Debug, Message, PartialEq, Eq)]
+pub struct PaymentAdjusterResponseMessage {
+    pub qualified_nodes_metadata: QualifiedNodesPaymentMetadata,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QualifiedNodesPaymentMetadata {}
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[allow(non_camel_case_types)]
@@ -620,7 +637,7 @@ mod tests {
             new_public_ip: recipient!(recorder, NewPublicIp),
             node_query: recipient!(recorder, NodeQueryMessage),
             route_query: recipient!(recorder, RouteQueryMessage),
-            update_node_record_metadata: recipient!(recorder, NodeRecordMetadataMessage),
+            update_node_record_metadata: recipient!(recorder, ChangeNodeRecordMetadataMessage),
             from_hopper: recipient!(recorder, ExpiredCoresPackage<Gossip_0v1>),
             gossip_failure: recipient!(recorder, ExpiredCoresPackage<GossipFailure_0v1>),
             dispatcher_node_query: recipient!(recorder, DispatcherNodeQueryMessage),
