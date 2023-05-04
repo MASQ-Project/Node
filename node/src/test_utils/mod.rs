@@ -290,7 +290,7 @@ pub fn make_request_payload(bytes: usize, cryptde: &dyn CryptDE) -> ClientReques
         target_hostname: Some("example.com".to_string()),
         target_port: HTTP_PORT,
         protocol: ProxyProtocol::HTTP,
-        originator_alias_public_key: cryptde.public_key().clone(),
+        originator_public_key: cryptde.public_key().clone(),
     }
 }
 
@@ -545,6 +545,7 @@ pub mod unshared_test_utils {
     use crate::apps::app_node;
     use crate::bootstrapper::BootstrapperConfig;
     use crate::daemon::{ChannelFactory, DaemonBindMessage};
+    use crate::database::db_initializer::DATABASE_FILE;
     use crate::db_config::config_dao_null::ConfigDaoNull;
     use crate::db_config::persistent_configuration::PersistentConfigurationReal;
     use crate::node_test_utils::DirsWrapperMock;
@@ -553,6 +554,7 @@ pub mod unshared_test_utils {
     use crate::sub_lib::utils::{
         NLSpawnHandleHolder, NLSpawnHandleHolderReal, NotifyHandle, NotifyLaterHandle,
     };
+    use crate::test_utils::database_utils::bring_db_0_back_to_life_and_return_connection;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{make_recorder, Recorder, Recording};
     use crate::test_utils::recorder_stop_conditions::{StopCondition, StopConditions};
@@ -560,6 +562,7 @@ pub mod unshared_test_utils {
     use actix::{Actor, Addr, AsyncContext, Context, Handler, Recipient, System};
     use actix::{Message, SpawnHandle};
     use crossbeam_channel::{unbounded, Receiver, Sender};
+    use itertools::Either;
     use lazy_static::lazy_static;
     use masq_lib::messages::{ToMessageBody, UiCrashRequest};
     use masq_lib::multi_config::MultiConfig;
@@ -571,7 +574,8 @@ pub mod unshared_test_utils {
     use std::cell::RefCell;
     use std::collections::HashMap;
     use std::num::ParseIntError;
-    use std::path::PathBuf;
+    use std::panic::{catch_unwind, AssertUnwindSafe};
+    use std::path::{Path, PathBuf};
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
     use std::vec;
@@ -579,6 +583,59 @@ pub mod unshared_test_utils {
     #[derive(Message)]
     pub struct AssertionsMessage<A: Actor> {
         pub assertions: Box<dyn FnOnce(&mut A) + Send>,
+    }
+
+    pub fn assert_on_initialization_with_panic_on_migration<A>(data_dir: &Path, act: &A)
+    where
+        A: Fn(&Path) + ?Sized,
+    {
+        fn assert_closure<S, A>(
+            act: &A,
+            expected_panic_message: Either<(&str, &str), &str>,
+            data_dir: &Path,
+        ) where
+            A: Fn(&Path) + ?Sized,
+            S: AsRef<str> + 'static,
+        {
+            let caught_panic_err = catch_unwind(AssertUnwindSafe(|| act(data_dir)));
+
+            let caught_panic = caught_panic_err.unwrap_err();
+            let panic_message = caught_panic.downcast_ref::<S>().unwrap();
+            let panic_message_str: &str = panic_message.as_ref();
+            match expected_panic_message {
+                Either::Left((message_start, message_end)) => {
+                    assert!(
+                        panic_message_str.contains(message_start),
+                        "We expected this message {} to start with {}",
+                        panic_message_str,
+                        message_start
+                    );
+                    assert!(
+                        panic_message_str.ends_with(message_end),
+                        "We expected this message {} to end with {}",
+                        panic_message_str,
+                        message_end
+                    );
+                }
+                Either::Right(message) => assert_eq!(panic_message_str, message),
+            }
+        }
+        let database_file_path = data_dir.join(DATABASE_FILE);
+        assert_closure::<String, _>(
+            &act,
+            Either::Left((
+                "Couldn't initialize database due to \"Nonexistent\" at \"generated",
+                &format!("{}\"", DATABASE_FILE),
+            )),
+            data_dir,
+        );
+
+        bring_db_0_back_to_life_and_return_connection(&database_file_path);
+        assert_closure::<&str, _>(
+            &act,
+            Either::Right("Broken code: Migrating database at inappropriate place"),
+            data_dir,
+        );
     }
 
     pub fn make_simplified_multi_config<'a, const T: usize>(args: [&str; T]) -> MultiConfig<'a> {

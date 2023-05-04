@@ -447,7 +447,6 @@ mod tests {
     use serde_cbor;
     use std::collections::hash_map::DefaultHasher;
     use std::convert::TryFrom;
-    use std::panic::catch_unwind;
     use std::str::FromStr;
 
     #[test]
