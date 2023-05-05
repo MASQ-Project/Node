@@ -43,7 +43,7 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
 
-const CONSOLE_DIAGNOSTICS: bool = true; // TODO: set back to false
+const CONSOLE_DIAGNOSTICS: bool = false;
 
 const ERR_SENSITIVE_BLANKED_OUT_VALUE_PAIRS: &[(&str, &str)] = &[("chain", "data-directory")];
 
@@ -1110,7 +1110,7 @@ mod tests {
 
     #[test]
     fn constants_have_correct_values() {
-        assert_eq!(CONSOLE_DIAGNOSTICS, true);
+        assert_eq!(CONSOLE_DIAGNOSTICS, false);
     }
 
     pub struct DnsInspectorMock {
