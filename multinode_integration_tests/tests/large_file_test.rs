@@ -2,7 +2,7 @@
 
 use multinode_integration_tests_lib::big_data_server::BigDataServer;
 use multinode_integration_tests_lib::masq_node_cluster::{DockerHostSocketAddr, MASQNodeCluster};
-use multinode_integration_tests_lib::masq_real_node::NodeStartupConfigBuilder;
+use multinode_integration_tests_lib::masq_real_node::{NodeStartupConfigBuilder, STANDARD_CLIENT_TIMEOUT_MILLIS};
 use node_lib::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use std::time::Duration;
 
@@ -24,7 +24,7 @@ fn downloading_a_file_larger_than_available_memory_doesnt_kill_node_but_makes_it
     let socket_addr = DockerHostSocketAddr::new(80);
     let server = BigDataServer::start(&socket_addr, NODE_MEMORY_REQUIRED);
 
-    let mut client = originating_node.make_client(8080);
+    let mut client = originating_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
     client.set_timeout(Duration::from_secs(600)); // Lots of data; may take awhile
     let request = format!(
         "GET / HTTP/1.1\r\nHost: {}\r\n\r\n",
