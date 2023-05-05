@@ -87,6 +87,7 @@ impl Display for NeighborhoodMode {
     }
 }
 
+#[allow(clippy::from_over_into)]
 impl Into<NeighborhoodModeLight> for &NeighborhoodMode {
     fn into(self) -> NeighborhoodModeLight {
         match self {
