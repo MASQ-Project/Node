@@ -898,4 +898,48 @@ mod tests {
         assert!(!uninitialized_a1.congruent(&public_key_a1));
         assert!(!public_key_a1.congruent(&uninitialized_a1));
     }
+
+    #[test]
+    fn dangerous_characters_cant_create_initialized_wallet() {
+        let address_closure =
+            |char: char| format!("0xabcdef0123456789a{}cdef0123456789abcdef01", char);
+        let proper_input = address_closure('b');
+
+        let initialized_wallet = Wallet::new(&proper_input);
+
+        assert_eq!(
+            initialized_wallet.kind,
+            WalletKind::Address(H160::from_slice(
+                &"abcdef0123456789abcdef0123456789abcdef01"
+                    .from_hex::<Vec<u8>>()
+                    .unwrap()
+            ))
+        );
+
+        let potentially_dangerous_characters = [';', '-', '(', ')', '*', '?', '='];
+        potentially_dangerous_characters
+            .into_iter()
+            .for_each(|char| {
+                let malformed_address = address_closure(char);
+                let wallet = Wallet::new(&malformed_address);
+                assert_eq!(wallet.kind, WalletKind::Uninitialized)
+            })
+    }
+
+    #[test]
+    fn wallet_cant_be_used_for_sql_injections_with_debug() {
+        let subject = Wallet::new("; EVIL SQL --");
+
+        let debug_rendering = format!("{:?}", subject);
+
+        assert_eq!(debug_rendering, "Wallet { kind: Uninitialized }")
+    }
+
+    #[test]
+    #[should_panic(expected = "No address for an uninitialized wallet!")]
+    fn wallet_cant_be_used_for_sql_injections_with_display() {
+        let subject = Wallet::new("; EVIL SQL --");
+
+        let _ = subject.to_string();
+    }
 }
