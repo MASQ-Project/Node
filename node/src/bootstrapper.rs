@@ -2070,6 +2070,7 @@ mod tests {
             config.data_directory = data_dir.to_path_buf();
             config.neighborhood_config = NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(NodeAddr::default(), vec![], DEFAULT_RATE_PACK),
+                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
             };
             let mut subject = BootstrapperBuilder::new().config(config).build();
             subject.set_up_clandestine_port();

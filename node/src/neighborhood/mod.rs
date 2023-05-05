@@ -1648,9 +1648,8 @@ mod tests {
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::unshared_test_utils::{
         assert_on_initialization_with_panic_on_migration, make_cpm_recipient,
-        make_node_to_ui_recipient, make_node_to_ui_recipient, make_recipient_and_recording_arc,
-        make_recipient_and_recording_arc, prove_that_crash_request_handler_is_hooked_up,
-        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, AssertionsMessage,
+        make_node_to_ui_recipient, make_recipient_and_recording_arc,
+        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
     };
     use crate::test_utils::vec_to_set;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
