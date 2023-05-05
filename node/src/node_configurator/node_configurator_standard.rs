@@ -284,7 +284,9 @@ mod tests {
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::CryptDE;
     use crate::sub_lib::neighborhood::NeighborhoodMode::ZeroHop;
-    use crate::sub_lib::neighborhood::{NeighborhoodConfig, NeighborhoodMode, NodeDescriptor};
+    use crate::sub_lib::neighborhood::{
+        Hops, NeighborhoodConfig, NeighborhoodMode, NodeDescriptor,
+    };
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::{
@@ -304,7 +306,6 @@ mod tests {
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
     use std::vec;
-    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_COUNT_FOR_TEST;
 
     #[test]
     fn node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real() {
@@ -576,7 +577,7 @@ mod tests {
             config.neighborhood_config,
             NeighborhoodConfig {
                 mode: NeighborhoodMode::ZeroHop, // not populated on the privileged side
-                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                min_hops_count: Hops::ThreeHops,
             }
         );
         assert_eq!(

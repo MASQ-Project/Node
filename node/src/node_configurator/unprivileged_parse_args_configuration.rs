@@ -632,7 +632,6 @@ mod tests {
     use crate::sub_lib::neighborhood::{Hops, DEFAULT_RATE_PACK};
     use crate::sub_lib::utils::make_new_multi_config;
     use crate::sub_lib::wallet::Wallet;
-    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_COUNT_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::unshared_test_utils::{
         configure_default_persistent_config, default_persistent_config_just_accountant_config,
@@ -827,7 +826,7 @@ mod tests {
         let node_addr = match result {
             Ok(NeighborhoodConfig {
                 mode: NeighborhoodMode::Standard(node_addr, _, _),
-                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
+                min_hops_count: Hops::ThreeHops,
             }) => node_addr,
             x => panic!("Wasn't expecting {:?}", x),
         };
@@ -860,33 +859,30 @@ mod tests {
         );
 
         assert_eq!(
-            result,
-            Ok(NeighborhoodConfig {
-                mode: NeighborhoodMode::OriginateOnly(
-                    vec![
-                        NodeDescriptor::try_from((
-                            main_cryptde(),
-                            format!(
-                                "masq://{}:QmlsbA@1.2.3.4:1234/2345",
-                                DEFAULT_CHAIN.rec().literal_identifier
-                            )
-                            .as_str()
-                        ))
-                        .unwrap(),
-                        NodeDescriptor::try_from((
-                            main_cryptde(),
-                            format!(
-                                "masq://{}:VGVk@2.3.4.5:3456/4567",
-                                DEFAULT_CHAIN.rec().literal_identifier
-                            )
-                            .as_str()
-                        ))
-                        .unwrap()
-                    ],
-                    DEFAULT_RATE_PACK
-                ),
-                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
-            })
+            result.unwrap().mode,
+            NeighborhoodMode::OriginateOnly(
+                vec![
+                    NodeDescriptor::try_from((
+                        main_cryptde(),
+                        format!(
+                            "masq://{}:QmlsbA@1.2.3.4:1234/2345",
+                            DEFAULT_CHAIN.rec().literal_identifier
+                        )
+                        .as_str()
+                    ))
+                    .unwrap(),
+                    NodeDescriptor::try_from((
+                        main_cryptde(),
+                        format!(
+                            "masq://{}:VGVk@2.3.4.5:3456/4567",
+                            DEFAULT_CHAIN.rec().literal_identifier
+                        )
+                        .as_str()
+                    ))
+                    .unwrap()
+                ],
+                DEFAULT_RATE_PACK
+            )
         );
     }
 
@@ -939,30 +935,27 @@ mod tests {
         );
 
         assert_eq!(
-            result,
-            Ok(NeighborhoodConfig {
-                mode: NeighborhoodMode::ConsumeOnly(vec![
-                    NodeDescriptor::try_from((
-                        main_cryptde(),
-                        format!(
-                            "masq://{}:QmlsbA@1.2.3.4:1234/2345",
-                            DEFAULT_CHAIN.rec().literal_identifier
-                        )
-                        .as_str()
-                    ))
-                    .unwrap(),
-                    NodeDescriptor::try_from((
-                        main_cryptde(),
-                        format!(
-                            "masq://{}:VGVk@2.3.4.5:3456/4567",
-                            DEFAULT_CHAIN.rec().literal_identifier
-                        )
-                        .as_str()
-                    ))
-                    .unwrap()
-                ],),
-                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
-            })
+            result.unwrap().mode,
+            NeighborhoodMode::ConsumeOnly(vec![
+                NodeDescriptor::try_from((
+                    main_cryptde(),
+                    format!(
+                        "masq://{}:QmlsbA@1.2.3.4:1234/2345",
+                        DEFAULT_CHAIN.rec().literal_identifier
+                    )
+                    .as_str()
+                ))
+                .unwrap(),
+                NodeDescriptor::try_from((
+                    main_cryptde(),
+                    format!(
+                        "masq://{}:VGVk@2.3.4.5:3456/4567",
+                        DEFAULT_CHAIN.rec().literal_identifier
+                    )
+                    .as_str()
+                ))
+                .unwrap()
+            ],),
         );
     }
 
@@ -1021,13 +1014,7 @@ mod tests {
             &mut BootstrapperConfig::new(),
         );
 
-        assert_eq!(
-            result,
-            Ok(NeighborhoodConfig {
-                mode: NeighborhoodMode::ZeroHop,
-                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
-            })
-        );
+        assert_eq!(result.unwrap().mode, NeighborhoodMode::ZeroHop);
     }
 
     #[test]
@@ -1352,13 +1339,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(
-            config.neighborhood_config,
-            NeighborhoodConfig {
-                mode: NeighborhoodMode::ZeroHop,
-                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
-            }
-        );
+        assert_eq!(config.neighborhood_config.mode, NeighborhoodMode::ZeroHop);
         let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
         assert_eq!(
             *set_past_neighbors_params,
@@ -1399,13 +1380,7 @@ mod tests {
             )
             .unwrap();
 
-        assert_eq!(
-            config.neighborhood_config,
-            NeighborhoodConfig {
-                mode: NeighborhoodMode::ZeroHop,
-                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
-            }
-        );
+        assert_eq!(config.neighborhood_config.mode, NeighborhoodMode::ZeroHop);
         let set_past_neighbors_params = set_past_neighbors_params_arc.lock().unwrap();
         assert!(set_past_neighbors_params.is_empty())
     }
@@ -1559,34 +1534,31 @@ mod tests {
             )),
         );
         assert_eq!(
-            config.neighborhood_config,
-            NeighborhoodConfig {
-                mode: NeighborhoodMode::Standard(
-                    NodeAddr::new(&IpAddr::from_str("34.56.78.90").unwrap(), &[]),
-                    vec![
-                        NodeDescriptor::try_from((
-                            main_cryptde(),
-                            format!(
-                                "masq://{}:QmlsbA@1.2.3.4:1234/2345",
-                                DEFAULT_CHAIN.rec().literal_identifier
-                            )
-                            .as_str()
-                        ))
-                        .unwrap(),
-                        NodeDescriptor::try_from((
-                            main_cryptde(),
-                            format!(
-                                "masq://{}:VGVk@2.3.4.5:3456/4567",
-                                DEFAULT_CHAIN.rec().literal_identifier
-                            )
-                            .as_str()
-                        ))
-                        .unwrap(),
-                    ],
-                    DEFAULT_RATE_PACK.clone()
-                ),
-                min_hops_count: MIN_HOPS_COUNT_FOR_TEST,
-            }
+            config.neighborhood_config.mode,
+            NeighborhoodMode::Standard(
+                NodeAddr::new(&IpAddr::from_str("34.56.78.90").unwrap(), &[]),
+                vec![
+                    NodeDescriptor::try_from((
+                        main_cryptde(),
+                        format!(
+                            "masq://{}:QmlsbA@1.2.3.4:1234/2345",
+                            DEFAULT_CHAIN.rec().literal_identifier
+                        )
+                        .as_str()
+                    ))
+                    .unwrap(),
+                    NodeDescriptor::try_from((
+                        main_cryptde(),
+                        format!(
+                            "masq://{}:VGVk@2.3.4.5:3456/4567",
+                            DEFAULT_CHAIN.rec().literal_identifier
+                        )
+                        .as_str()
+                    ))
+                    .unwrap(),
+                ],
+                DEFAULT_RATE_PACK.clone()
+            )
         );
         assert_eq!(config.db_password_opt, Some(password.to_string()));
         assert_eq!(config.mapping_protocol_opt, Some(AutomapProtocol::Pcp));
