@@ -184,21 +184,22 @@ fn incomplete_node_descriptor_is_refused_integration() {
 }
 
 #[test]
-fn started_without_explicit_chain_parameter_runs_fine() {
+fn started_without_explicit_chain_parameter_runs_fine_integration() {
     //defaulted chain - chosen on the lack of user specified chain - corresponds with descriptors
     //believed to be for the default chain
     let config = CommandConfig::new()
         .pair("--neighborhood-mode", "standard")
+        .pair("--log-level", "trace")
         .pair(
             "--neighbors",
             &format!(
-                "masq://{}:12345vhVbmVyGejkYUkmftF09pmGZGKg/PzRNnWQxFw@12.23.34.45:5678",
+                "masq://{}:UJNoZW5p_PDVqEjpr3b-8jZ_93yPG8i5dOAgE1bhK-A@12.23.34.45:5678",
                 DEFAULT_CHAIN.rec().literal_identifier
             ),
         );
 
     let mut node = MASQNode::start_with_blank_config(
-        "started_without_explicit_chain_parameter_runs_fine",
+        "started_without_explicit_chain_parameter_runs_fine_integration",
         Some(config),
         true,
         true,

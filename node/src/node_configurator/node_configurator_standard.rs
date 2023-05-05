@@ -298,7 +298,7 @@ mod tests {
     use masq_lib::multi_config::VirtualCommandLine;
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::{array_of_borrows_to_vec, running_test};
+    use masq_lib::utils::{running_test, slice_of_strs_to_vec_of_strings};
     use rustc_hex::FromHex;
     use std::convert::TryFrom;
     use std::fs::File;
@@ -445,7 +445,7 @@ mod tests {
 
         let gathered_params = server_initializer_collected_params(
             &directory_wrapper,
-            &array_of_borrows_to_vec(&["", "--data-directory", home_dir.to_str().unwrap()]),
+            &slice_of_strs_to_vec_of_strings(&["", "--data-directory", home_dir.to_str().unwrap()]),
         )
         .unwrap();
 

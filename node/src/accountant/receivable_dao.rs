@@ -82,7 +82,7 @@ pub trait ReceivableDao: Send {
 
     fn total(&self) -> i128;
 
-    //test only intended method but because of share with multi-node tests conditional compilation is disallowed
+    //test-only-like method but because of share with multi-node tests #[cfg(test)] is disallowed
     fn account_status(&self, wallet: &Wallet) -> Option<ReceivableAccount>;
 
     declare_as_any!();
@@ -120,16 +120,27 @@ impl ReceivableDao for ReceivableDaoReal {
         wallet: &Wallet,
         amount: u128,
     ) -> Result<(), ReceivableDaoError> {
-        Ok(self.big_int_db_processor.execute(Left(self.conn.as_ref()), BigIntSqlConfig::new(
-               "insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values (:wallet, :balance_high_b, :balance_low_b, :last_received) on conflict (wallet_address) do \
-               update set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b",
-            "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b where wallet_address = :wallet",
-            SQLParamsBuilder::default()
-                        .key(  WalletAddress(wallet))
-                        .wei_change(Addition("balance",amount))
-                        .other(vec![Param::new((":last_received",&to_time_t(timestamp)),false)])
-                        .build()
-        ))?)
+        let main_sql = "insert into receivable (wallet_address, balance_high_b, balance_low_b, last_received_timestamp) values \
+        (:wallet, :balance_high_b, :balance_low_b, :last_received) on conflict (wallet_address) do update set \
+        balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b";
+        let overflow_update_clause = "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b \
+        where wallet_address = :wallet";
+
+        Ok(self.big_int_db_processor.execute(
+            Left(self.conn.as_ref()),
+            BigIntSqlConfig::new(
+                main_sql,
+                overflow_update_clause,
+                SQLParamsBuilder::default()
+                    .key(WalletAddress(wallet))
+                    .wei_change(Addition("balance", amount))
+                    .other_params(vec![Param::new(
+                        (":last_received", &to_time_t(timestamp)),
+                        false,
+                    )])
+                    .build(),
+            ),
+        )?)
     }
 
     fn more_money_received(&mut self, timestamp: SystemTime, payments: Vec<BlockchainTransaction>) {
@@ -277,16 +288,28 @@ impl ReceivableDaoReal {
         let xactn = self.conn.transaction()?;
         {
             for transaction in payments {
-                self.big_int_db_processor.execute(Either::Right(&xactn), BigIntSqlConfig::new(
-                    //the plus signs are correct, 'Subtraction' in the wei_change converts x of u128 to -x of i128 which leads to an integer pair with the high bytes integer being negative
-                    "update receivable set balance_high_b = balance_high_b + :balance_high_b, balance_low_b = balance_low_b + :balance_low_b, last_received_timestamp = :last_received where wallet_address = :wallet",
-                    "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, last_received_timestamp = :last_received where wallet_address = :wallet",
-                    SQLParamsBuilder::default()
-                                .key( WalletAddress(&transaction.from))
-                                .wei_change(Subtraction("balance",transaction.wei_amount))
-                                .other(vec![Param::new((":last_received", &to_time_t(timestamp)),true)])
-                                .build()
-                    ))?
+                // the plus signs are correct, 'Subtraction' in the wei_change converts x of u128 to -x of i128 which leads to an integer pair
+                // with the high bytes integer being negative
+                let main_sql = "update receivable set balance_high_b = balance_high_b + :balance_high_b, \
+                 balance_low_b = balance_low_b + :balance_low_b, last_received_timestamp = :last_received where wallet_address = :wallet";
+                let overflow_update_clause = "update receivable set balance_high_b = :balance_high_b, balance_low_b = :balance_low_b, \
+                last_received_timestamp = :last_received where wallet_address = :wallet";
+
+                self.big_int_db_processor.execute(
+                    Either::Right(&xactn),
+                    BigIntSqlConfig::new(
+                        main_sql,
+                        overflow_update_clause,
+                        SQLParamsBuilder::default()
+                            .key(WalletAddress(&transaction.from))
+                            .wei_change(Subtraction("balance", transaction.wei_amount))
+                            .other_params(vec![Param::new(
+                                (":last_received", &to_time_t(timestamp)),
+                                true,
+                            )])
+                            .build(),
+                    ),
+                )?
             }
         }
         match xactn.commit() {

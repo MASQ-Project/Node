@@ -513,7 +513,6 @@ impl ActorFactory for ActorFactoryReal {
         let addr: Addr<BlockchainBridge> = arbiter.start(move |_| {
             let (blockchain_interface, persistent_config) = BlockchainBridge::make_connections(
                 blockchain_service_url_opt,
-                &DbInitializerReal::default(),
                 data_directory,
                 chain_id,
             );
@@ -2024,8 +2023,10 @@ mod tests {
         let alias_cryptde_public_key_before = public_key_for_dyn_cryptde_being_null(alias_cryptde);
         let actor_factory = Box::new(ActorFactoryReal {}) as Box<dyn ActorFactory>;
         let actor_factory_before_raw_address = addr_of!(*actor_factory);
-        let persistent_config = Box::new(PersistentConfigurationMock::default());
-        let persistent_config_id = persistent_config.set_arbitrary_id_stamp();
+        let persistent_config_id = ArbitraryIdStamp::new();
+        let persistent_config = Box::new(
+            PersistentConfigurationMock::default().set_arbitrary_id_stamp(persistent_config_id),
+        );
         let persistent_config_before_raw = addr_of!(*persistent_config);
         let tools = ActorSystemFactoryToolsMock::default()
             .cryptdes_result(CryptDEPair {
