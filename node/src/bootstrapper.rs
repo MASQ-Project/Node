@@ -732,6 +732,7 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::socket_server::ConfiguredByPrivilege;
     use crate::sub_lib::stream_connector::ConnectionInfo;
+    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_COUNT_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
     use crate::test_utils::recorder::RecordAwaiter;
@@ -770,7 +771,6 @@ mod tests {
     use tokio::executor::current_thread::CurrentThread;
     use tokio::prelude::stream::FuturesUnordered;
     use tokio::prelude::Async;
-    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_COUNT_FOR_TEST;
 
     lazy_static! {
         pub static ref INITIALIZATION: Mutex<bool> = Mutex::new(false);

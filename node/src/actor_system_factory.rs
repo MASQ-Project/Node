@@ -630,6 +630,7 @@ mod tests {
     use crate::sub_lib::ui_gateway::UiGatewayConfig;
     use crate::test_utils::automap_mocks::{AutomapControlFactoryMock, AutomapControlMock};
     use crate::test_utils::make_wallet;
+    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_COUNT_FOR_TEST;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::{
         make_accountant_subs_from_recorder, make_blockchain_bridge_subs_from,
@@ -678,7 +679,6 @@ mod tests {
     use std::sync::{Arc, Mutex};
     use std::thread;
     use std::time::Duration;
-    use crate::test_utils::neighborhood_test_utils::MIN_HOPS_COUNT_FOR_TEST;
 
     struct LogRecipientSetterNull {}
 
