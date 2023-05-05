@@ -34,7 +34,6 @@ use tiny_hderive::bip32::ExtendedPrivKey;
 use web3::transports::Http;
 use web3::types::{Address, Bytes, TransactionParameters};
 use web3::Web3;
-//use masq_lib::test_utils::utils::TEST_DEFAULT_MULTINODE_CHAIN;
 
 #[test]
 fn verify_bill_payment() {

@@ -3363,30 +3363,42 @@ mod tests {
         assert_eq!(Scans {}.value_name(), "scans");
     }
 
-    // #[test]
-    // fn calculate_fundamentals_with_chain_specific_dir() {
-    //     let _guard = EnvironmentGuard::new();
-    //     vec![]
-    //         .into_iter()
-    //         .for_each(|(name, value): (&str, &str)| std::env::set_var(name, value));
-    //     let setup = setup_cluster_from(vec![
-    //         ("chain", "polygon-mainnet", Configured),
-    //         ("data-directory", "setup_dir", Default),
-    //         ("real-user", "1111:1111:agoob", Configured),
-    //     ]);
-    //
-    //     let (real_user_opt, data_directory_opt, chain) =
-    //         SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
-    //
-    //     assert_eq!(
-    //         real_user_opt,
-    //         Some(crate::bootstrapper::RealUser::new(
-    //             Some(1111),
-    //             Some(1111),
-    //             Some(PathBuf::from("agoob"))
-    //         ))
-    //     );
-    //     assert_eq!(data_directory, Some("polygon-mainnet"));
-    //     assert_eq!(chain, Blockchain::from("polygon-mainnet"));
-    // }
+    #[test]
+    fn calculate_fundamentals_with_chain_specific_dir() {
+        let home_dir = ensure_node_home_directory_exists(
+            "setup_reporter",
+            "calculate_fundamentals_with_chain_specific_dir",
+        );
+        let config_file_dir = add_chain_specific_directories(TEST_DEFAULT_CHAIN, &home_dir);
+        std::fs::create_dir_all(&config_file_dir).unwrap();
+
+        let _guard = EnvironmentGuard::new();
+        vec![
+            ("MASQ_CHAIN", "polygon-mainnet"),
+            ("MASQ_DATA_DIRECTORY", "home"),
+            ("MASQ_REAL_USER", "9999:9999:booga"),
+        ]
+            .into_iter()
+            .for_each(|(name, value)| std::env::set_var(name, value));
+        let setup = setup_cluster_from(vec![
+            ("chain", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
+            ("data-directory", TEST_DEFAULT_CHAIN.rec().literal_identifier, Set),
+            ("real-user", "1111:1111:agoob", Set),
+        ]);
+
+        let (real_user_opt, data_directory_opt, chain) =
+            SetupReporterReal::calculate_fundamentals(&DirsWrapperReal {}, &setup).unwrap();
+        let desired_directory_path = &data_directory_opt.as_ref().unwrap();
+
+        assert_eq!(
+            real_user_opt,
+            Some(crate::bootstrapper::RealUser::new(
+                Some(1111),
+                Some(1111),
+                Some(PathBuf::from("agoob"))
+            ))
+        );
+        assert_eq!(desired_directory_path.to_str(), Some(TEST_DEFAULT_CHAIN.rec().literal_identifier));
+        assert_eq!(chain, Blockchain::from(TEST_DEFAULT_CHAIN.rec().literal_identifier));
+    }
 }

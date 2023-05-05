@@ -115,7 +115,6 @@ pub fn wait_for_shutdown(stream: &mut TcpStream, timeout: &Duration) -> Result<(
 }
 
 pub fn open_all_file_permissions(dir: PathBuf) {
-    println!("open_all_file_permissions_dir {:#?}", dir);
     match Command::new(
         "chmod",
         Command::strings(vec!["-R", "777", dir.to_str().unwrap()]),
