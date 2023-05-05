@@ -1,7 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use multinode_integration_tests_lib::masq_node::{MASQNode, NodeReference};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
-use multinode_integration_tests_lib::masq_real_node::{make_consuming_wallet_info, make_earning_wallet_info, MASQRealNode, NodeStartupConfigBuilder, STANDARD_CLIENT_TIMEOUT_MILLIS};
+use multinode_integration_tests_lib::masq_real_node::{
+    make_consuming_wallet_info, make_earning_wallet_info, MASQRealNode, NodeStartupConfigBuilder,
+    STANDARD_CLIENT_TIMEOUT_MILLIS,
+};
 use multinode_integration_tests_lib::utils::{payable_dao, receivable_dao};
 use node_lib::accountant::dao_utils::CustomQuery;
 use node_lib::accountant::payable_dao::PayableAccount;

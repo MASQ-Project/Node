@@ -2,7 +2,9 @@
 
 use multinode_integration_tests_lib::big_data_server::BigDataServer;
 use multinode_integration_tests_lib::masq_node_cluster::{DockerHostSocketAddr, MASQNodeCluster};
-use multinode_integration_tests_lib::masq_real_node::{NodeStartupConfigBuilder, STANDARD_CLIENT_TIMEOUT_MILLIS};
+use multinode_integration_tests_lib::masq_real_node::{
+    NodeStartupConfigBuilder, STANDARD_CLIENT_TIMEOUT_MILLIS,
+};
 use node_lib::privilege_drop::{PrivilegeDropper, PrivilegeDropperReal};
 use std::time::Duration;
 

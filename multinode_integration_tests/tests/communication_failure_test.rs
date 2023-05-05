@@ -5,7 +5,9 @@ use masq_lib::utils::find_free_port;
 use multinode_integration_tests_lib::masq_node::{MASQNode, PortSelector};
 use multinode_integration_tests_lib::masq_node_client::MASQNodeClient;
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
-use multinode_integration_tests_lib::masq_real_node::{NodeStartupConfigBuilder, STANDARD_CLIENT_TIMEOUT_MILLIS};
+use multinode_integration_tests_lib::masq_real_node::{
+    NodeStartupConfigBuilder, STANDARD_CLIENT_TIMEOUT_MILLIS,
+};
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::neighborhood::neighborhood_database::NeighborhoodDatabase;
@@ -154,7 +156,8 @@ fn dns_resolution_failure_no_longer_blacklists_exit_node_for_all_hosts() {
             normal_exit_key,
         )
     };
-    let mut client: MASQNodeClient = originating_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
+    let mut client: MASQNodeClient =
+        originating_node.make_client(8080, STANDARD_CLIENT_TIMEOUT_MILLIS);
     let masquerader = JsonMasquerader::new();
     let originating_node_alias_cryptde = CryptDENull::from(
         &originating_node.alias_public_key(),

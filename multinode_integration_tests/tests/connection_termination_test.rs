@@ -7,7 +7,9 @@ use multinode_integration_tests_lib::masq_mock_node::MASQMockNode;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils, PortSelector};
 use multinode_integration_tests_lib::masq_node_cluster::MASQNodeCluster;
 use multinode_integration_tests_lib::masq_node_server::MASQNodeServer;
-use multinode_integration_tests_lib::masq_real_node::{MASQRealNode, STANDARD_CLIENT_TIMEOUT_MILLIS};
+use multinode_integration_tests_lib::masq_real_node::{
+    MASQRealNode, STANDARD_CLIENT_TIMEOUT_MILLIS,
+};
 use multinode_integration_tests_lib::multinode_gossip::{parse_gossip, GossipType};
 use multinode_integration_tests_lib::neighborhood_constructor::construct_neighborhood;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
