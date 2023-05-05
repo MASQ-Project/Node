@@ -63,7 +63,9 @@ use crate::sub_lib::route::Route;
 use crate::sub_lib::route::RouteSegment;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::stream_handler_pool::DispatcherNodeQueryResponse;
-use crate::sub_lib::utils::{handle_ui_crash_request, NODE_MAILBOX_CAPACITY};
+use crate::sub_lib::utils::{
+    db_connection_launch_panic, handle_ui_crash_request, NODE_MAILBOX_CAPACITY,
+};
 use crate::sub_lib::versioned_data::VersionedData;
 use crate::sub_lib::wallet::Wallet;
 use gossip_acceptor::GossipAcceptor;
@@ -564,7 +566,7 @@ impl Neighborhood {
                     &self.data_directory,
                     DbInitializationConfig::panic_on_migration(),
                 )
-                .expect("Neighborhood could not connect to database");
+                .unwrap_or_else(|err| db_connection_launch_panic(err, &self.data_directory));
             self.persistent_config_opt = Some(Box::new(PersistentConfigurationReal::from(conn)));
         }
     }
@@ -1595,6 +1597,7 @@ mod tests {
     use std::cell::RefCell;
     use std::convert::TryInto;
     use std::net::{IpAddr, SocketAddr};
+    use std::path::Path;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::thread;
@@ -1644,13 +1647,16 @@ mod tests {
     use crate::test_utils::recorder::Recorder;
     use crate::test_utils::recorder::Recording;
     use crate::test_utils::unshared_test_utils::{
-        make_cpm_recipient, make_node_to_ui_recipient, make_recipient_and_recording_arc,
-        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage,
+        assert_on_initialization_with_panic_on_migration, make_cpm_recipient,
+        make_node_to_ui_recipient, make_node_to_ui_recipient, make_recipient_and_recording_arc,
+        make_recipient_and_recording_arc, prove_that_crash_request_handler_is_hooked_up,
+        prove_that_crash_request_handler_is_hooked_up, AssertionsMessage, AssertionsMessage,
     };
     use crate::test_utils::vec_to_set;
     use crate::test_utils::{main_cryptde, make_paying_wallet};
 
     use super::*;
+    use crate::accountant::test_utils::bc_from_earning_wallet;
     use crate::neighborhood::overall_connection_status::ConnectionStageErrors::{
         NoGossipResponseReceived, PassLoopFound, TcpConnectionFailed,
     };
@@ -5829,6 +5835,25 @@ mod tests {
         subject.curate_past_neighbors(neighbor_keys_before, neighbor_keys_after);
 
         // No panic; therefore no attempt was made to persist: test passes!
+    }
+
+    #[test]
+    fn make_connect_database_implements_panic_on_migration() {
+        let data_dir = ensure_node_home_directory_exists(
+            "neighborhood",
+            "make_connect_database_implements_panic_on_migration",
+        );
+
+        let act = |data_dir: &Path| {
+            let mut subject = Neighborhood::new(
+                main_cryptde(),
+                &bc_from_earning_wallet(make_wallet("earning_wallet")),
+            );
+            subject.data_directory = data_dir.to_path_buf();
+            subject.connect_database();
+        };
+
+        assert_on_initialization_with_panic_on_migration(&data_dir, &act);
     }
 
     fn make_standard_subject() -> Neighborhood {

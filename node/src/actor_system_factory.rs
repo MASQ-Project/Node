@@ -49,6 +49,7 @@ use masq_lib::logger::Logger;
 use masq_lib::ui_gateway::{NodeFromUiMessage, NodeToUiMessage};
 use masq_lib::utils::{exit_process, AutomapProtocol};
 use std::net::{IpAddr, Ipv4Addr};
+use std::path::Path;
 
 pub trait ActorSystemFactory {
     fn make_and_start_actors(
@@ -453,11 +454,7 @@ impl ActorFactory for ActorFactoryReal {
         let pending_payable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         let receivable_dao_factory = Box::new(Accountant::dao_factory(data_directory));
         let banned_dao_factory = Box::new(Accountant::dao_factory(data_directory));
-        banned_cache_loader.load(connection_or_panic(
-            db_initializer,
-            data_directory,
-            DbInitializationConfig::panic_on_migration(),
-        ));
+        Self::load_banned_cache(db_initializer, banned_cache_loader, data_directory);
         let arbiter = Arbiter::builder().stop_system_on_panic(true);
         let addr: Addr<Accountant> = arbiter.start(move |_| {
             Accountant::new(
@@ -540,6 +537,20 @@ impl ActorFactory for ActorFactoryReal {
             bind: recipient!(addr, BindMessage),
             node_from_ui_sub: recipient!(addr, NodeFromUiMessage),
         }
+    }
+}
+
+impl ActorFactoryReal {
+    fn load_banned_cache(
+        db_initializer: &dyn DbInitializer,
+        banned_cache_loader: &dyn BannedCacheLoader,
+        data_directory: &Path,
+    ) {
+        banned_cache_loader.load(connection_or_panic(
+            db_initializer,
+            data_directory,
+            DbInitializationConfig::panic_on_migration(),
+        ));
     }
 }
 
@@ -640,6 +651,7 @@ mod tests {
     };
     use crate::test_utils::recorder::{make_recorder, Recorder};
     use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
+    use crate::test_utils::unshared_test_utils::assert_on_initialization_with_panic_on_migration;
     use crate::test_utils::unshared_test_utils::system_killer_actor::SystemKillerActor;
     use crate::test_utils::{alias_cryptde, rate_pack};
     use crate::test_utils::{main_cryptde, make_cryptde_pair};
@@ -2085,6 +2097,24 @@ mod tests {
         let recording = recording_arc.lock().unwrap();
         let msg = recording.get_record::<NodeFromUiMessage>(0);
         assert_eq!(msg, &msg_of_irrelevant_choice);
+    }
+
+    #[test]
+    fn load_banned_cache_implements_panic_on_migration() {
+        let data_dir = ensure_node_home_directory_exists(
+            "actor_system_factory",
+            "load_banned_cache_implements_panic_on_migration",
+        );
+
+        let act = |data_dir: &Path| {
+            ActorFactoryReal::load_banned_cache(
+                &DbInitializerReal::default(),
+                &BannedCacheLoaderMock::default(),
+                &data_dir,
+            );
+        };
+
+        assert_on_initialization_with_panic_on_migration(&data_dir, &act);
     }
 
     fn public_key_for_dyn_cryptde_being_null(cryptde: &dyn CryptDE) -> &PublicKey {
