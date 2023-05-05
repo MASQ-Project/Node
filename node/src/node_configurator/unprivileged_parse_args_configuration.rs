@@ -214,8 +214,8 @@ pub fn make_neighborhood_config<T: UnprivilegedParseArgsConfiguration + ?Sized>(
         }
     };
 
-    let min_hops_count =
-        value_m!(multi_config, "min-hops", Hops).expect("clap schema specifies no default"); // TODO: GH-690: Test Drive this panic
+    let min_hops_count = value_m!(multi_config, "min-hops", Hops)
+        .expect("Clap schema didn't specified the default value.");
 
     match make_neighborhood_mode(multi_config, neighbor_configs, persistent_config) {
         Ok(mode) => Ok(NeighborhoodConfig {
