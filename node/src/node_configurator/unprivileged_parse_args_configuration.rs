@@ -750,7 +750,34 @@ mod tests {
     }
 
     #[test]
-    fn make_neighborhood_config_standard_panics_with_undesirable_min_hops_count() {
+    fn make_neighborhood_config_standard_uses_default_value_when_no_min_hops_count_value_is_provided(
+    ) {
+        running_test();
+        let args = ArgsBuilder::new()
+            .param("--neighborhood-mode", "standard")
+            .param(
+                "--neighbors",
+                &format!("masq://{identifier}:QmlsbA@1.2.3.4:1234/2345,masq://{identifier}:VGVk@2.3.4.5:3456/4567",identifier = DEFAULT_CHAIN.rec().literal_identifier),
+            )
+            .param("--fake-public-key", "booga")
+            .opt("--min-hops");
+        let vcl = CommandLineVcl::new(args.into());
+        let multi_config = make_new_multi_config(&app_node(), vec![Box::new(vcl)]).unwrap();
+
+        let result = make_neighborhood_config(
+            &UnprivilegedParseArgsConfigurationDaoReal {},
+            &multi_config,
+            &mut configure_default_persistent_config(RATE_PACK),
+            &mut BootstrapperConfig::new(),
+        );
+
+        let min_hops_count = result.unwrap().min_hops_count;
+        assert_eq!(min_hops_count, Hops::ThreeHops);
+    }
+
+    #[test]
+    fn make_neighborhood_config_standard_throws_err_when_undesirable_min_hops_count_value_is_provided(
+    ) {
         running_test();
         let args = ArgsBuilder::new()
             .param("--neighborhood-mode", "standard")
