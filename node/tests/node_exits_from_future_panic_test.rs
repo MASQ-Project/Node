@@ -4,6 +4,7 @@ pub mod utils;
 
 use crate::utils::CommandConfig;
 use masq_lib::blockchains::chains::Chain;
+use masq_lib::constants::DEFAULT_CHAIN;
 use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
 use masq_lib::utils::add_chain_specific_directories;
 use std::fs::create_dir_all;
@@ -36,7 +37,7 @@ fn node_exits_from_future_panic_integration() {
 fn node_logs_panic_integration() {
     let data_directory =
         ensure_node_home_directory_exists("integration", "node_logs_panic_integration");
-    let data_dir_chain_path = add_chain_specific_directories(Chain::PolyMainnet, &data_directory);
+    let data_dir_chain_path = add_chain_specific_directories(DEFAULT_CHAIN, &data_directory);
     create_dir_all(&data_dir_chain_path).expect(
         "Could not create chain directory inside node_logs_panic_integration home/MASQ directory",
     );
