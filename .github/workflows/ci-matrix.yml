@@ -36,8 +36,8 @@ jobs:
           shared-key: "multinode-test"
       - name: Run multinode integration test
         run: |
-          cd ./multinode_integration_tests
-          ./ci/all.sh
+          cd ./multinode_integration_tests/ci
+          ./all.sh
         shell: bash
   
   lint:
@@ -60,7 +60,17 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "lint"
       - name: Lint ${{ matrix.target.os }}
-        run: ./ci/lint.sh
+        run: |
+          cd node
+          cargo clippy -- -D warnings
+          cd ../masq
+          cargo clippy -- -D warnings
+          cd ../masq_lib
+          cargo clippy -- -D warnings
+          cd ../automap
+          cargo clippy -- -D warnings
+          cd ../dns_utility
+          cargo clippy -- -D warnings
         shell: bash
 
   unit_tests:
@@ -83,7 +93,17 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "unit-tests"
       - name: Unit tests ${{ matrix.target.os }}
-        run: ./ci/unit_tests.sh
+        run: |
+          cd node
+          cargo test --release --lib --no-fail-fast --features masq_lib/log_recipient_test -- --nocapture --skip _integration
+          cd ../masq
+          cargo test --release -- --nocapture --skip _integration
+          cd ../masq_lib
+          cargo test --release -- --nocapture --skip _integration --test-threads=1
+          cd ../automap
+          cargo test -- --nocapture --skip _integration --test-threads=1
+          cd ../dns_utility
+          cargo test --release -- --nocapture --skip _integration
         shell: bash
 
   integration_tests:
@@ -106,7 +126,13 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "integration-tests"
       - name: Integration tests ${{ matrix.target.os }}
-        run: ./ci/integration_tests.sh
+        run: |
+          cd node/ci
+          ./integration_tests.sh
+          cd ../masq/ci
+          ./integration_tests.sh
+          cd ../dns_utility/ci
+          ./integration_tests.sh
         shell: bash
 
   build:
