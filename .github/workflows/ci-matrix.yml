@@ -7,96 +7,164 @@ on:
       - master
 
 jobs:
-  build:
+  format:
+    name: Format Code
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "rust-cache"
+          shared-key: "format"
+      - name: Run format
+        run: ./ci/format.sh
+        shell: bash
+  
+  multinode_test:
+    needs: format
+    name: Multinode Integration Tests
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "rust-cache"
+          shared-key: "multinode-test"
+      - name: Run multinode integration test
+        run: |
+          cd ./multinode_integration_tests
+          ./ci/all.sh
+        shell: bash
+  
+  lint:
+    needs: format
     strategy:
-      fail-fast: true
+      fail-fast: false
       matrix:
         target:
           - { name: linux, os: ubuntu-22.04 }
           - { name: macos, os: macos-12 }
           - { name: windows, os: windows-2022 }
+    name: Lint on ${{ matrix.target.os }}
+    runs-on: ${{ matrix.target.os }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "rust-cache"
+          shared-key: "lint"
+      - name: Lint ${{ matrix.target.os }}
+        run: ./ci/lint.sh
+        shell: bash
 
+  unit_tests:
+    needs: format
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { name: linux, os: ubuntu-22.04 }
+          - { name: macos, os: macos-12 }
+          - { name: windows, os: windows-2022 }
+    name: Unit tests on ${{ matrix.target.os }}
+    runs-on: ${{ matrix.target.os }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "rust-cache"
+          shared-key: "unit-tests"
+      - name: Unit tests ${{ matrix.target.os }}
+        run: ./ci/unit_tests.sh
+        shell: bash
+
+  integration_tests:
+    needs: format
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { name: linux, os: ubuntu-22.04 }
+          - { name: macos, os: macos-12 }
+          - { name: windows, os: windows-2022 }
+    name: Integration tests on ${{ matrix.target.os }}
+    runs-on: ${{ matrix.target.os }}
+    steps:
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: "rust-cache"
+          shared-key: "integration-tests"
+      - name: Integration tests ${{ matrix.target.os }}
+        run: ./ci/integration_tests.sh
+        shell: bash
+
+  build:
+    needs:
+      - multinode_test
+      - lint
+      - unit_tests
+      - integration_tests
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - { name: linux, os: ubuntu-22.04 }
+          - { name: macos, os: macos-12 }
+          - { name: windows, os: windows-2022 }
     name: Build node on ${{ matrix.target.os }}
     runs-on: ${{ matrix.target.os }}
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-      - name: Stable with rustfmt and clippy
-        uses: actions-rs/toolchain@v1
+      - uses: Swatinem/rust-cache@v2
         with:
-          profile: minimal
-          toolchain: 1.63.0
-          components: rustfmt, clippy
-          override: true
-      - uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/bin/
-            ~/.cargo/cache/
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            target/
-          key: ${{ runner.os }}-cargo
+          prefix-key: "rust-cache"
+          shared-key: "build"
       - name: Build ${{ matrix.target.os }}
-        run: |
-          ./ci/all.sh
-          ./ci/multinode_integration_test.sh
-          ./ci/collect_results.sh
+        run: ./ci/build.sh
+        shell: bash
+      - name: Collect results
+        run: ./ci/collect_results.sh
         shell: bash
       - name: Publish ${{ matrix.target.os }}
         uses: actions/upload-artifact@v3
         with:
           name: Node-${{ matrix.target.name }}
           path: results
+
   deploy_to_s3:
     needs: build
     strategy:
       matrix:
-          os: [linux, macos, windows]
+        os: [linux, macos, windows]
     runs-on: ubuntu-22.04
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
     steps:
-        - uses: actions/checkout@v3
-          with:
-            ref: ${{ github.event.pull_request.head.sha }}
-
-        - uses: actions/download-artifact@v3
-
-        - name: Display structure of downloaded files
-          run: ls -R
-
-        - if: startsWith(github.head_ref, 'GH')
-          name: Versioned S3 Sync
-          uses: jakejarvis/s3-sync-action@v0.5.1
-          with:
-           args: --acl private --follow-symlinks --delete
-          env:
-            AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            AWS_REGION: 'us-west-2'
-            DEST_DIR: 'Node/${{ github.event.workflow_run.head_branch }}/Node-${{ matrix.os }}'
-            SOURCE_DIR: 'Node-${{ matrix.os }}/generated/bin/'
-
-        - if: startsWith(github.head_ref, 'v')
-          name: Latest S3 Sync
-          uses: jakejarvis/s3-sync-action@v0.5.1
-          with:
-           args: --acl private --follow-symlinks --delete
-          env:
-            AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            AWS_REGION: 'us-west-2'
-            DEST_DIR: 'Node/latest/Node-${{ matrix.os }}'
-            SOURCE_DIR: 'Node-${{ matrix.os }}/generated/bin/'
-
-        - name: Invalidate Binaries CloudFront
-          uses: chetan/invalidate-cloudfront-action@v2.4
-          env:
-            DISTRIBUTION: ${{ secrets.DISTRIBUTION }}
-            PATHS: "/Node*"
-            AWS_REGION: "us-west-2"
-            AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-            AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - uses: actions/checkout@v3
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/download-artifact@v3
+        with:
+          name: Node-${{ matrix.os }}
+      - name: Display structure of downloaded files
+        run: ls -R
+      - name: Deploy to S3 and invalidate CloudFront
+        run: |
+          aws s3 sync './Node-${{ matrix.os }}/generated/bin/' 's3://${{ secrets.AWS_S3_BUCKET }}/Node/${{ startsWith(github.head_ref, 'GH') && github.event.workflow_run.head_branch || 'latest' }}Node-${{ matrix.os }}' --acl private --follow-symlinks --delete
+          aws cloudfront create-invalidation --distribution-id ${{ secrets.DISTRIBUTION }} --paths '/Node/*'
