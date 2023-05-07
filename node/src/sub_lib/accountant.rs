@@ -7,7 +7,7 @@ use crate::accountant::{
     ReportTransactionReceipts, ScanError, SentPayables,
 };
 use crate::banned_dao::BannedDaoFactory;
-use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprintSeeds;
 use crate::sub_lib::peer_actors::{BindMessage, StartMessage};
 use crate::sub_lib::wallet::Wallet;
 use actix::Recipient;
@@ -97,7 +97,7 @@ pub struct AccountantSubs {
     pub report_consuming_wallet_balances_and_qualified_payables:
         Recipient<ConsumingWalletBalancesAndQualifiedPayables>,
     pub report_inbound_payments: Recipient<ReceivedPayments>,
-    pub pending_payable_fingerprint: Recipient<PendingPayableFingerprint>,
+    pub init_pending_payable_fingerprints: Recipient<PendingPayableFingerprintSeeds>,
     pub report_transaction_receipts: Recipient<ReportTransactionReceipts>,
     pub report_sent_payments: Recipient<SentPayables>,
     pub scan_errors: Recipient<ScanError>,

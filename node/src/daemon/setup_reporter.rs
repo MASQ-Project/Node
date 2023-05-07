@@ -236,9 +236,10 @@ impl SetupReporterReal {
         blanked_out_former_setup: &SetupCluster,
         existing_setup: &SetupCluster,
     ) -> SetupCluster {
-        // this function arose as an unconvincing patch for a corner case situation where blanking out
-        // one parameter and a following hit of an (unrelated) error makes another parameter get out of sync with the restored
-        // blanked out one; this should remember the initial state and restore both params the way they use to be
+        // this function arose as an unconvincing patch for a corner case where a blanked-out parameter registers
+        // while it heads off to an (unrelated) error which will make another parameter get out of sync with
+        // the restored value for the blanked-out parameter; this special SetupCluster should remember the initial
+        // state and help to restore both params the way they used to be
         ARG_PAIRS_SENSITIVE_TO_SETUP_ERRS
             .iter()
             .fold(HashMap::new(), |mut acc, pair| {
@@ -470,7 +471,9 @@ impl SetupReporterReal {
             }
             Err(InitializationError::Nonexistent | InitializationError::SuppressedMigration) => {
                 // When the Daemon runs for the first time, the database will not yet have been
-                // created. If the database is old, it should not be used by the Daemon.
+                // created. If the database is old, it should not be used by the Daemon (see more
+                // details at ConfigDaoNull).
+
                 let parse_args_configuration = UnprivilegedParseArgsConfigurationDaoNull {};
                 let mut persistent_config =
                     PersistentConfigurationReal::new(Box::new(ConfigDaoNull::default()));
