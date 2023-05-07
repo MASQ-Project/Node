@@ -35,7 +35,9 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "multinode-test"
       - name: Run multinode integration test
-        run: ./multinode_integration_tests/ci/all.sh
+        env:
+          RUSTFLAGS: -D warnings -Anon-snake-case
+        run: ./ci/multinode_integration_test.sh
         shell: bash
   
   lint:
@@ -58,6 +60,8 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "lint"
       - name: Lint ${{ matrix.target.os }}
+        env:
+          RUSTFLAGS: -D warnings -Anon-snake-case
         run: |
           cd node
           cargo clippy -- -D warnings
@@ -91,6 +95,8 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "unit-tests"
       - name: Unit tests ${{ matrix.target.os }}
+        env:
+          RUSTFLAGS: -D warnings -Anon-snake-case
         run: |
           cd node
           cargo test --release --lib --no-fail-fast --features masq_lib/log_recipient_test -- --nocapture --skip _integration
@@ -124,6 +130,8 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "integration-tests"
       - name: Integration tests ${{ matrix.target.os }}
+        env:
+          RUSTFLAGS: -D warnings -Anon-snake-case
         run: |
           ./node/ci/integration_tests.sh
           ./masq/ci/integration_tests.sh
@@ -145,6 +153,8 @@ jobs:
           - { name: windows, os: windows-2022 }
     name: Build node on ${{ matrix.target.os }}
     runs-on: ${{ matrix.target.os }}
+    env:
+      RUSTFLAGS: -D warnings -Anon-snake-case
     steps:
       - uses: actions/checkout@v3
         with:
