@@ -148,6 +148,11 @@ jobs:
       matrix:
         os: [linux, macos, windows]
     runs-on: ubuntu-22.04
+    env:
+      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
+      AWS_REGION: ${{ secrets.AWS_REGION }}
     steps:
       - uses: actions/checkout@v3
         with:
@@ -157,22 +162,7 @@ jobs:
           name: Node-${{ matrix.os }}
       - name: Display structure of downloaded files
         run: ls -R
-      - name: S3 Sync
-        uses: jakejarvis/s3-sync-action@v0.5.1
-        with:
-          args: --acl private --follow-symlinks --delete
-          destination_dir: "Node/${{ startsWith(github.head_ref, 'GH') && github.event.workflow_run.head_branch || 'latest' }}/Node-${{ matrix.os }}"
-          source_dir: "Node-${{ matrix.os }}/generated/bin/"
-        env:
-          AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          AWS_REGION: "us-west-2"
-      - name: Invalidate Binaries CloudFront
-        uses: chetan/invalidate-cloudfront-action@v2.4
-        env:
-          DISTRIBUTION: ${{ secrets.DISTRIBUTION }}
-          PATHS: "/Node*"
-          AWS_REGION: "us-west-2"
-          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      - name: Deploy to S3 and invalidate CloudFront
+        run: |
+          aws s3 sync './Node-${{ matrix.os }}/generated/bin/' 's3://${{ secrets.AWS_S3_BUCKET }}/Node/${{ startsWith(github.head_ref, 'GH') && github.event.workflow_run.head_branch || 'latest' }}Node-${{ matrix.os }}' --acl private --follow-symlinks --delete
+          aws cloudfront create-invalidation --distribution-id ${{ secrets.DISTRIBUTION }} --paths '/Node/*'
