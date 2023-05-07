@@ -395,12 +395,12 @@ impl IgdpTransactor {
                 .lt(&Instant::now())
             {
                 last_announcement_check = Instant::now();
-                if !Self::thread_guts_iteration(
+                if Self::thread_guts_iteration(
                     &change_handler,
                     &inner_arc,
                     &mut last_remapped,
                     &mapping_config_opt,
-                ) {
+                ) == Finished::Yes {
                     break;
                 }
             }
@@ -430,7 +430,7 @@ impl IgdpTransactor {
         inner_arc: &Arc<Mutex<IgdpTransactorInner>>,
         last_remapped: &mut Instant,
         mapping_config_opt: &Option<MappingConfig>,
-    ) -> bool {
+    ) -> Finished {
         let mut inner = inner_arc.lock().expect("IgdpTransactor died");
         debug!(
             inner.logger,
@@ -440,33 +440,34 @@ impl IgdpTransactor {
             let _ = inner.housekeeping_commander_opt.take();
             error!(inner.logger, "Can't find router");
             change_handler(AutomapChange::Error(AutomapError::CantFindDefaultGateway));
-            return false;
+            return Finished::Yes;
         };
-        let (old_public_ip, current_public_ip) = match Self::retrieve_old_and_new_public_ips(
+        match Self::retrieve_old_and_new_public_ips(
             inner.gateway_opt.as_ref().expectv("gateway_opt").as_ref(),
             &inner,
             change_handler,
         ) {
-            Some(pair) => pair,
-            None => return true,
-        };
-        if current_public_ip != old_public_ip {
-            info!(
-                inner.logger,
-                "Public IP changed from {} to {}", old_public_ip, current_public_ip
-            );
-            inner.public_ip_opt.replace(current_public_ip);
-            Self::remap_if_possible(change_handler, &*inner, mapping_config_opt);
-            *last_remapped = Instant::now();
-            change_handler(AutomapChange::NewIp(IpAddr::V4(current_public_ip)));
-        } else {
-            debug!(
-                inner.logger,
-                "No public IP change detected; still {}", old_public_ip
-            );
+            Ok((old_public_ip, current_public_ip)) => {
+                if current_public_ip != old_public_ip {
+                    info!(
+                        inner.logger,
+                        "Public IP changed from {} to {}", old_public_ip, current_public_ip
+                    );
+                    inner.public_ip_opt.replace(current_public_ip);
+                    Self::remap_if_possible(change_handler, &*inner, mapping_config_opt);
+                    *last_remapped = Instant::now();
+                    change_handler(AutomapChange::NewIp(IpAddr::V4(current_public_ip)));
+                } else {
+                    debug!(
+                        inner.logger,
+                        "No public IP change detected; still {}", old_public_ip
+                    );
+                };
+            },
+            Err(_) => (),
         };
         Self::remap_if_necessary(change_handler, &*inner, last_remapped, mapping_config_opt);
-        true
+        Finished::No
     }
 
     fn remap_if_necessary(
@@ -510,7 +511,7 @@ impl IgdpTransactor {
         gateway_wrapper: &dyn GatewayWrapper,
         inner: &IgdpTransactorInner,
         change_handler: &ChangeHandler,
-    ) -> Option<(Ipv4Addr, Ipv4Addr)> {
+    ) -> Result<(Ipv4Addr, Ipv4Addr), ()> {
         let current_public_ip_result = gateway_wrapper.get_external_ip();
         let (old_public_ip, current_public_ip) =
             match (inner.public_ip_opt, current_public_ip_result) {
@@ -522,7 +523,7 @@ impl IgdpTransactor {
                     change_handler(AutomapChange::Error(AutomapError::GetPublicIpError(
                         format!("{:?}", e),
                     )));
-                    return None;
+                    return Err(());
                 }
                 (None, Ok(current)) => {
                     warning!(
@@ -533,7 +534,7 @@ impl IgdpTransactor {
                 }
                 (Some(old), Ok(current)) => (old, current),
             };
-        Some((old_public_ip, current_public_ip))
+        Ok((old_public_ip, current_public_ip))
     }
 
     fn remap_port(
@@ -638,6 +639,12 @@ impl MappingAdderReal {
             logger: Logger::new("IgdpTransactor"),
         }
     }
+}
+
+#[derive (Clone, Copy, PartialEq, Eq, Debug)]
+enum Finished {
+    Yes,
+    No
 }
 
 #[cfg(test)]
@@ -1265,15 +1272,15 @@ mod tests {
         let inner = subject.inner_arc.lock().unwrap();
         assert_eq!(inner.public_ip_opt, Some(another_ip));
         let mut add_mapping_params = add_mapping_params_arc.lock().unwrap();
-        let params_triple = add_mapping_params.remove(0);
-        assert_eq!(params_triple.1, 6666);
-        assert_eq!(params_triple.2, 600);
-        let params_triple = add_mapping_params.remove(0);
-        assert_eq!(params_triple.1, 6666);
-        assert_eq!(params_triple.2, 600);
-        let params_triple = add_mapping_params.remove(0);
-        assert_eq!(params_triple.1, 6666);
-        assert_eq!(params_triple.2, 600);
+        let (_, hole_port, lifetime) = add_mapping_params.remove(0);
+        assert_eq!(hole_port, 6666);
+        assert_eq!(lifetime, 600);
+        let (_, hole_port, lifetime) = add_mapping_params.remove(0);
+        assert_eq!(hole_port, 6666);
+        assert_eq!(lifetime, 600);
+        let (_, hole_port, lifetime) = add_mapping_params.remove(0);
+        assert_eq!(hole_port, 6666);
+        assert_eq!(lifetime, 600);
         assert_eq!(add_mapping_params.is_empty(), true);
     }
 
@@ -1459,6 +1466,42 @@ mod tests {
     }
 
     #[test]
+    fn thread_guts_handles_ip_detection_failure_and_still_remaps_if_necessary() {
+        let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
+        let mapping_adder = Box::new(
+            MappingAdderMock::new()
+                .add_mapping_params(&add_mapping_params_arc)
+                .add_mapping_result(Ok(300)),
+        );
+        let change_handler: ChangeHandler = Box::new(move |_| {});
+        let gateway = GatewayWrapperMock::new()
+            .get_external_ip_result(Err(GetExternalIpError::RequestError(RequestError::UnsupportedAction("Booga!".to_string()))));
+        let inner_arc = Arc::new(Mutex::new(IgdpTransactorInner {
+            gateway_opt: Some(Box::new(gateway)),
+            housekeeping_commander_opt: None,
+            public_ip_opt: None,
+            mapping_adder,
+            logger: Logger::new("ip_detection_failure_test"),
+        }));
+        let mapping_config = MappingConfig {
+            hole_port: 6689,
+            next_lifetime: Duration::from_secs(10),
+            remap_interval: Duration::from_millis(80),
+        };
+
+        IgdpTransactor::thread_guts_iteration(
+            &change_handler,
+            &inner_arc,
+            &mut Instant::now().sub(Duration::from_millis(1000)),
+            &Some(mapping_config),
+        );
+
+        let (_, hole_port, lifetime) = add_mapping_params_arc.lock().unwrap().remove(0);
+        assert_eq!(hole_port, 6689);
+        assert_eq!(lifetime, 1);
+    }
+
+    #[test]
     #[should_panic(expected = "Must InitializeMappingConfig before you can SetRemapIntervalMs")]
     fn thread_guts_panics_if_remap_interval_is_set_in_absence_of_mapping_config() {
         let (tx, rx) = unbounded();
@@ -1524,7 +1567,7 @@ mod tests {
             }),
         );
 
-        assert!(result);
+        assert_eq!(result, Finished::No);
         let change_log = change_log_arc.lock().unwrap();
         assert_eq!(
             *change_log,
@@ -1555,7 +1598,7 @@ mod tests {
             &None,
         );
 
-        assert!(result);
+        assert_eq!(result, Finished::No);
         // no exception; test passes
     }
 
@@ -1589,7 +1632,7 @@ mod tests {
             }),
         );
 
-        assert!(result);
+        assert_eq!(result, Finished::No);
         let change_log = change_log_arc.lock().unwrap();
         assert_eq!(
             *change_log,
@@ -1637,7 +1680,7 @@ mod tests {
             }),
         );
 
-        assert!(result);
+        assert_eq!(result, Finished::No);
         let change_log = change_log_arc.lock().unwrap();
         assert_eq!(
             *change_log,

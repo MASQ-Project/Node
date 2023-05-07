@@ -657,12 +657,9 @@ impl MappingTransactorReal {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::comm_layer::pcp_pmp_common::{make_router_connections, ROUTER_PORT};
+    use crate::comm_layer::pcp_pmp_common::{ROUTER_PORT};
     use crate::comm_layer::{AutomapErrorCause, LocalIpFinder};
-    use crate::mocks::{
-        FreePortFactoryMock, LocalIpFinderMock, TestMulticastSocketHolder,
-        UdpSocketWrapperFactoryMock, UdpSocketWrapperMock,
-    };
+    use crate::mocks::{FreePortFactoryMock, LocalIpFinderMock, make_router_connections, TestMulticastSocketHolder, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock};
     use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
     use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket};
     use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
