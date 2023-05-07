@@ -35,9 +35,7 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "multinode-test"
       - name: Run multinode integration test
-        run: |
-          cd ./multinode_integration_tests/ci
-          ./all.sh
+        run: ./multinode_integration_tests/ci/all.sh
         shell: bash
   
   lint:
@@ -127,12 +125,9 @@ jobs:
           shared-key: "integration-tests"
       - name: Integration tests ${{ matrix.target.os }}
         run: |
-          cd node/ci
-          ./integration_tests.sh
-          cd ../masq/ci
-          ./integration_tests.sh
-          cd ../dns_utility/ci
-          ./integration_tests.sh
+          ./node/ci/integration_tests.sh
+          ./masq/ci/integration_tests.sh
+          ./dns_utility/ci/integration_tests.sh
         shell: bash
 
   build:
