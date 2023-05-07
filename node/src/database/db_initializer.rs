@@ -5,12 +5,12 @@ use crate::database::db_migrations::db_migrator::{DbMigrator, DbMigratorReal};
 use crate::db_config::secure_config_layer::EXAMPLE_ENCRYPTED;
 use crate::sub_lib::accountant::{DEFAULT_PAYMENT_THRESHOLDS, DEFAULT_SCAN_INTERVALS};
 use crate::sub_lib::neighborhood::DEFAULT_RATE_PACK;
+use crate::sub_lib::utils::db_connection_launch_panic;
 use masq_lib::blockchains::chains::Chain;
 use masq_lib::constants::{
     DEFAULT_GAS_PRICE, HIGHEST_RANDOM_CLANDESTINE_PORT, LOWEST_USABLE_INSECURE_PORT,
 };
 use masq_lib::logger::Logger;
-#[cfg(test)]
 use masq_lib::test_utils::utils::TEST_DEFAULT_CHAIN;
 use masq_lib::utils::NeighborhoodModeLight;
 use rand::prelude::*;
@@ -488,12 +488,7 @@ pub fn connection_or_panic(
 ) -> Box<dyn ConnectionWrapper> {
     db_initializer
         .initialize(path, init_config)
-        .unwrap_or_else(|_| {
-            panic!(
-                "Failed to connect to database at {:?}",
-                path.join(DATABASE_FILE)
-            )
-        })
+        .unwrap_or_else(|err| db_connection_launch_panic(err, path))
 }
 
 #[derive(Clone)]
@@ -551,7 +546,6 @@ impl DbInitializationConfig {
         }
     }
 
-    #[cfg(test)]
     pub fn test_default() -> Self {
         Self {
             mode: InitializationMode::CreationAndMigration {
@@ -625,8 +619,6 @@ pub mod test_utils {
     use crate::database::connection_wrapper::ConnectionWrapper;
     use crate::database::db_initializer::DbInitializationConfig;
     use crate::database::db_initializer::{DbInitializer, InitializationError};
-    use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
-    use crate::{arbitrary_id_stamp, set_arbitrary_id_stamp};
     use rusqlite::Transaction;
     use rusqlite::{Error, Statement};
     use std::cell::RefCell;
@@ -638,7 +630,6 @@ pub mod test_utils {
         prepare_params: Arc<Mutex<Vec<String>>>,
         prepare_results: RefCell<Vec<Result<Statement<'a>, Error>>>,
         transaction_results: RefCell<Vec<Result<Transaction<'b>, Error>>>,
-        arbitrary_id_stamp_opt: RefCell<Option<ArbitraryIdStamp>>,
     }
 
     unsafe impl<'a: 'b, 'b> Send for ConnectionWrapperMock<'a, 'b> {}
@@ -657,8 +648,6 @@ pub mod test_utils {
             self.transaction_results.borrow_mut().push(result);
             self
         }
-
-        set_arbitrary_id_stamp!();
     }
 
     impl<'a: 'b, 'b> ConnectionWrapper for ConnectionWrapperMock<'a, 'b> {
@@ -673,8 +662,6 @@ pub mod test_utils {
         fn transaction<'_a: '_b, '_b>(&'_a mut self) -> Result<Transaction<'_b>, Error> {
             self.transaction_results.borrow_mut().remove(0)
         }
-
-        arbitrary_id_stamp!();
     }
 
     #[derive(Default)]

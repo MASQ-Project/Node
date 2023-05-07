@@ -289,7 +289,7 @@ mod tests {
     };
     use crate::server_initializer::test_utils::PrivilegeDropperMock;
     use masq_lib::test_utils::fake_stream_holder::FakeStreamHolder;
-    use masq_lib::utils::array_of_borrows_to_vec;
+    use masq_lib::utils::slice_of_strs_to_vec_of_strings;
     use regex::Regex;
     use std::cell::RefCell;
     use std::ops::{Deref, Not};
@@ -393,12 +393,12 @@ mod tests {
     #[test]
     fn everything_beats_initialization() {
         check_mode(
-            array_of_borrows_to_vec(&["--initialization", "--dump-config"]),
+            slice_of_strs_to_vec_of_strings(&["--initialization", "--dump-config"]),
             Mode::DumpConfig,
             false,
         );
         check_mode(
-            array_of_borrows_to_vec(&["--dump-config", "--initialization"]),
+            slice_of_strs_to_vec_of_strings(&["--dump-config", "--initialization"]),
             Mode::DumpConfig,
             false,
         );
@@ -406,8 +406,12 @@ mod tests {
 
     #[test]
     fn dump_config_rules_all() {
-        let args =
-            array_of_borrows_to_vec(&["--booga", "--goober", "--initialization", "--dump-config"]);
+        let args = slice_of_strs_to_vec_of_strings(&[
+            "--booga",
+            "--goober",
+            "--initialization",
+            "--dump-config",
+        ]);
         check_mode(args, Mode::DumpConfig, false);
     }
 
@@ -495,7 +499,7 @@ parm2 - msg2\n"
         );
         subject.runner = Box::new(runner);
         let mut holder = FakeStreamHolder::new();
-        let args = &array_of_borrows_to_vec(&["program", "param", "--arg"]);
+        let args = &slice_of_strs_to_vec_of_strings(&["program", "param", "--arg"]);
 
         let result = subject.runner.run_node(&args, &mut holder.streams());
 
@@ -533,7 +537,7 @@ parm2 - msg2\n"
         );
         subject.runner = Box::new(runner);
         let mut holder = FakeStreamHolder::new();
-        let args = array_of_borrows_to_vec(&["program", "param", "param", "--arg"]);
+        let args = slice_of_strs_to_vec_of_strings(&["program", "param", "param", "--arg"]);
 
         let result = subject
             .runner
@@ -562,7 +566,7 @@ parm2 - msg2\n"
         );
         subject.runner = Box::new(runner);
         let mut holder = FakeStreamHolder::new();
-        let args = array_of_borrows_to_vec(&["program", "--initialization", "--halabala"]);
+        let args = slice_of_strs_to_vec_of_strings(&["program", "--initialization", "--halabala"]);
 
         let result = subject.runner.run_daemon(&args, &mut holder.streams());
 
@@ -595,7 +599,8 @@ parm2 - msg2\n"
         );
         subject.runner = Box::new(runner);
         let mut holder = FakeStreamHolder::new();
-        let args = array_of_borrows_to_vec(&["program", "--initialization", "--ui-port", "52452"]);
+        let args =
+            slice_of_strs_to_vec_of_strings(&["program", "--initialization", "--ui-port", "52452"]);
 
         let result = subject.runner.run_daemon(&args, &mut holder.streams());
 
@@ -631,7 +636,7 @@ parm2 - msg2\n"
         );
         subject.runner = Box::new(runner);
         let mut holder = FakeStreamHolder::new();
-        let args = array_of_borrows_to_vec(&["program", "param", "--arg"]);
+        let args = slice_of_strs_to_vec_of_strings(&["program", "param", "--arg"]);
 
         let result = subject.runner.dump_config(&args, &mut holder.streams());
 
@@ -690,10 +695,10 @@ parm2 - msg2\n"
     #[test]
     fn is_help_or_version_works() {
         vec![
-            array_of_borrows_to_vec(&["whatever", "--help", "something"]),
-            array_of_borrows_to_vec(&["whatever", "--version", "something"]),
-            array_of_borrows_to_vec(&["whatever", "-V", "something"]),
-            array_of_borrows_to_vec(&["whatever", "-h", "something"]),
+            slice_of_strs_to_vec_of_strings(&["whatever", "--help", "something"]),
+            slice_of_strs_to_vec_of_strings(&["whatever", "--version", "something"]),
+            slice_of_strs_to_vec_of_strings(&["whatever", "-V", "something"]),
+            slice_of_strs_to_vec_of_strings(&["whatever", "-h", "something"]),
         ]
         .into_iter()
         .for_each(|args| assert!(RunModes::is_help_or_version(&args)))
@@ -702,7 +707,7 @@ parm2 - msg2\n"
     #[test]
     fn is_help_or_version_lets_you_in_if_no_specific_arguments() {
         vec![
-            array_of_borrows_to_vec(&["whatever", "something"]).as_slice(),
+            slice_of_strs_to_vec_of_strings(&["whatever", "something"]).as_slice(),
             &["drowned--help".to_string()],
             &["drowned--version".to_string()],
             &["drowned-Vin a juice".to_string()],
@@ -719,7 +724,7 @@ parm2 - msg2\n"
         let mut node_h_holder = FakeStreamHolder::new();
 
         let daemon_h_exit_code = subject.go(
-            &array_of_borrows_to_vec(&["program", "--initialization", "--help"]),
+            &slice_of_strs_to_vec_of_strings(&["program", "--initialization", "--help"]),
             &mut daemon_h_holder.streams(),
         );
 
@@ -796,7 +801,7 @@ parm2 - msg2\n"
         let mut stream_holder = FakeStreamHolder::new();
 
         let daemon_exit_code = subject.go(
-            &array_of_borrows_to_vec(&["program", "--initiabababa", "--help"]),
+            &slice_of_strs_to_vec_of_strings(&["program", "--initiabababa", "--help"]),
             &mut stream_holder.streams(),
         );
 

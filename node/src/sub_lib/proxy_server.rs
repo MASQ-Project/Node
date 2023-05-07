@@ -37,7 +37,7 @@ pub struct ClientRequestPayload_0v1 {
     pub target_hostname: Option<String>,
     pub target_port: u16,
     pub protocol: ProxyProtocol,
-    pub originator_alias_public_key: PublicKey,
+    pub originator_public_key: PublicKey,
 }
 
 impl From<ClientRequestPayload_0v1> for MessageType {

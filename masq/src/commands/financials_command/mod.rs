@@ -328,7 +328,7 @@ mod tests {
         UiPayableAccount, UiReceivableAccount,
     };
     use masq_lib::ui_gateway::MessageBody;
-    use masq_lib::utils::array_of_borrows_to_vec;
+    use masq_lib::utils::slice_of_strs_to_vec_of_strings;
     use regex::Regex;
     use std::sync::{Arc, Mutex};
 
@@ -375,7 +375,7 @@ mod tests {
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
         let subject = factory
-            .make(&array_of_borrows_to_vec(&[
+            .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
                 "--top",
                 "20",
@@ -412,7 +412,7 @@ mod tests {
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
         let subject = factory
-            .make(&array_of_borrows_to_vec(&[
+            .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
                 "--top",
                 "10",
@@ -449,7 +449,7 @@ mod tests {
             .transact_result(Ok(meaningless_financials_response()))
             .transact_params(&transact_params_arc);
         let subject = factory
-            .make(&array_of_borrows_to_vec(&[
+            .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
                 "--payable",
                 "200-450|480000-158000008",
@@ -494,7 +494,7 @@ mod tests {
     fn supplied_big_masq_values_are_not_fatal_for_non_decimal_values() {
         let factory = CommandFactoryReal::new();
         let result = factory
-            .make(&array_of_borrows_to_vec(&[
+            .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
                 "--payable",
                 "200-450|480000-15800000800045",
@@ -512,7 +512,7 @@ mod tests {
     fn supplied_big_masq_values_are_not_fatal_for_decimal_values() {
         let factory = CommandFactoryReal::new();
         let result = factory
-            .make(&array_of_borrows_to_vec(&[
+            .make(&slice_of_strs_to_vec_of_strings(&[
                 "financials",
                 "--payable",
                 "200-450|480045454455.00-158000008000455",
@@ -534,7 +534,10 @@ mod tests {
     fn command_factory_no_stats_arg_is_forbidden_if_no_other_arg_present() {
         let factory = CommandFactoryReal::new();
 
-        let result = factory.make(&array_of_borrows_to_vec(&["financials", "--no-stats"]));
+        let result = factory.make(&slice_of_strs_to_vec_of_strings(&[
+            "financials",
+            "--no-stats",
+        ]));
 
         let err = match result {
             Err(CommandFactoryError::CommandSyntax(err_msg)) => err_msg,
@@ -556,7 +559,7 @@ mod tests {
     ) {
         let factory = CommandFactoryReal::new();
 
-        let result = factory.make(&array_of_borrows_to_vec(args));
+        let result = factory.make(&slice_of_strs_to_vec_of_strings(args));
 
         let err = match result {
             Ok(_) => panic!("we expected error but got ok"),
@@ -634,7 +637,7 @@ mod tests {
     fn ordered_can_be_combined_with_top_records_only() {
         let factory = CommandFactoryReal::new();
 
-        let result = factory.make(&array_of_borrows_to_vec(&[
+        let result = factory.make(&slice_of_strs_to_vec_of_strings(&[
             "financials",
             "--receivable",
             "5-100|600-7000",
@@ -661,8 +664,13 @@ mod tests {
 
     #[test]
     fn ordered_have_just_two_possible_values() {
-        let args =
-            array_of_borrows_to_vec(&["financials", "--top", "11", "--ordered", "upside-down"]);
+        let args = slice_of_strs_to_vec_of_strings(&[
+            "financials",
+            "--top",
+            "11",
+            "--ordered",
+            "upside-down",
+        ]);
 
         let result = financials_subcommand()
             .get_matches_from_safe(args)
@@ -688,8 +696,15 @@ mod tests {
     #[test]
     fn financials_command_allows_shorthands_including_top_records() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let args =
-            array_of_borrows_to_vec(&["financials", "-g", "-t", "123", "-o", "balance", "-n"]);
+        let args = slice_of_strs_to_vec_of_strings(&[
+            "financials",
+            "-g",
+            "-t",
+            "123",
+            "-o",
+            "balance",
+            "-n",
+        ]);
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
@@ -719,7 +734,7 @@ mod tests {
     #[test]
     fn financials_command_allows_shorthands_including_custom_query() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let args = array_of_borrows_to_vec(&[
+        let args = slice_of_strs_to_vec_of_strings(&[
             "financials",
             "-g",
             "-p",
@@ -767,8 +782,14 @@ mod tests {
     #[test]
     fn financials_command_top_records_ordered_by_age_instead_of_balance() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
-        let args =
-            array_of_borrows_to_vec(&["financials", "--no-stats", "--top", "7", "-o", "age"]);
+        let args = slice_of_strs_to_vec_of_strings(&[
+            "financials",
+            "--no-stats",
+            "--top",
+            "7",
+            "-o",
+            "age",
+        ]);
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(meaningless_financials_response()));
@@ -797,7 +818,7 @@ mod tests {
 
     #[test]
     fn parse_top_records_arg_with_ordered_defaulted_to_balance() {
-        let args = array_of_borrows_to_vec(&["financials", "--top", "11"]);
+        let args = slice_of_strs_to_vec_of_strings(&["financials", "--top", "11"]);
         let matches = financials_subcommand().get_matches_from_safe(args).unwrap();
 
         let result = FinancialsCommand::parse_top_records_args(&matches);
@@ -813,8 +834,11 @@ mod tests {
 
     #[test]
     fn financials_command_allows_obscure_leading_zeros_in_positive_numbers() {
-        let args =
-            array_of_borrows_to_vec(&["financials", "--receivable", "05000-0010000|040-050"]);
+        let args = slice_of_strs_to_vec_of_strings(&[
+            "financials",
+            "--receivable",
+            "05000-0010000|040-050",
+        ]);
 
         let result = FinancialsCommand::new(&args).unwrap();
 
@@ -845,7 +869,11 @@ mod tests {
 
     #[test]
     fn financials_command_allows_obscure_leading_zeros_in_negative_numbers() {
-        let args = array_of_borrows_to_vec(&["financials", "--receivable", "5000-10000|-050--040"]);
+        let args = slice_of_strs_to_vec_of_strings(&[
+            "financials",
+            "--receivable",
+            "5000-10000|-050--040",
+        ]);
 
         let result = FinancialsCommand::new(&args).unwrap();
 
@@ -927,9 +955,12 @@ mod tests {
     #[test]
     fn are_both_sets_to_be_displayed_works_for_top_records() {
         //top records always print as a pair so it always consists of both sets
-        let subject =
-            FinancialsCommand::new(&array_of_borrows_to_vec(&["financials", "--top", "20"]))
-                .unwrap();
+        let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
+            "financials",
+            "--top",
+            "20",
+        ]))
+        .unwrap();
 
         let result = subject.are_both_sets_to_be_displayed();
 
@@ -938,7 +969,7 @@ mod tests {
 
     #[test]
     fn are_both_sets_to_be_displayed_works_for_custom_query_with_only_payable() {
-        let subject = FinancialsCommand::new(&array_of_borrows_to_vec(&[
+        let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
             "financials",
             "--payable",
             "20-40|60-120",
@@ -952,7 +983,7 @@ mod tests {
 
     #[test]
     fn are_both_sets_to_be_displayed_works_for_custom_query_with_only_receivable() {
-        let subject = FinancialsCommand::new(&array_of_borrows_to_vec(&[
+        let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
             "financials",
             "--receivable",
             "20-40|-50-120",
@@ -966,7 +997,7 @@ mod tests {
 
     #[test]
     fn are_both_sets_to_be_displayed_works_for_custom_query_with_both_parts() {
-        let subject = FinancialsCommand::new(&array_of_borrows_to_vec(&[
+        let subject = FinancialsCommand::new(&slice_of_strs_to_vec_of_strings(&[
             "financials",
             "--receivable",
             "20-40|-50-120",
@@ -1043,7 +1074,7 @@ mod tests {
     fn financials_command_stats_and_top_records_default_units_as_masq() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = response_with_stats_and_either_top_records_or_top_queries(true);
-        let args = array_of_borrows_to_vec(&["financials", "--top", "123"]);
+        let args = slice_of_strs_to_vec_of_strings(&["financials", "--top", "123"]);
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
@@ -1104,7 +1135,7 @@ mod tests {
     fn financials_command_stats_and_custom_query_demanded_default_units_as_masq() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = response_with_stats_and_either_top_records_or_top_queries(false);
-        let args = array_of_borrows_to_vec(&[
+        let args = slice_of_strs_to_vec_of_strings(&[
             "financials",
             "--payable",
             "0-350000|0.005-9",
@@ -1179,7 +1210,7 @@ mod tests {
     fn financials_command_statistics_and_top_records_with_gwei_precision() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = response_with_stats_and_either_top_records_or_top_queries(true);
-        let args = array_of_borrows_to_vec(&["financials", "--top", "123", "--gwei"]);
+        let args = slice_of_strs_to_vec_of_strings(&["financials", "--top", "123", "--gwei"]);
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
@@ -1241,7 +1272,7 @@ mod tests {
     fn financials_command_statistics_and_custom_query_with_gwei_precision() {
         let transact_params_arc = Arc::new(Mutex::new(vec![]));
         let expected_response = response_with_stats_and_either_top_records_or_top_queries(false);
-        let args = array_of_borrows_to_vec(&[
+        let args = slice_of_strs_to_vec_of_strings(&[
             "financials",
             "--payable",
             "0-350000|0.005-9",
@@ -1333,7 +1364,7 @@ mod tests {
                 }]),
             }),
         };
-        let args = array_of_borrows_to_vec(&[
+        let args = slice_of_strs_to_vec_of_strings(&[
             "financials",
             "--payable",
             "0-350000|5",
@@ -1408,7 +1439,7 @@ mod tests {
                 receivable_opt: Some(vec![]),
             }),
         };
-        let args = array_of_borrows_to_vec(&["financials", "--top", "10"]);
+        let args = slice_of_strs_to_vec_of_strings(&["financials", "--top", "10"]);
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
@@ -1485,7 +1516,7 @@ mod tests {
                 receivable_opt: None,
             }),
         };
-        let args = array_of_borrows_to_vec(&[
+        let args = slice_of_strs_to_vec_of_strings(&[
             "financials",
             "--payable",
             "0-400000|355-6000",
@@ -1598,7 +1629,7 @@ mod tests {
                 ]),
             }),
         };
-        let args = array_of_borrows_to_vec(&["financials", "--no-stats", "--top", "7"]);
+        let args = slice_of_strs_to_vec_of_strings(&["financials", "--no-stats", "--top", "7"]);
         let mut context = CommandContextMock::new()
             .transact_params(&transact_params_arc)
             .transact_result(Ok(expected_response.tmb(31)));
@@ -1679,7 +1710,7 @@ mod tests {
                 receivable_opt: None,
             }),
         };
-        let args = array_of_borrows_to_vec(&[
+        let args = slice_of_strs_to_vec_of_strings(&[
             "financials",
             "--payable",
             "3000-40000|88-1000",
@@ -1755,7 +1786,7 @@ mod tests {
                 ]),
             }),
         };
-        let args = array_of_borrows_to_vec(&[
+        let args = slice_of_strs_to_vec_of_strings(&[
             "financials",
             "--no-stats",
             "--receivable",

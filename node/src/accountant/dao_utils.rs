@@ -9,12 +9,12 @@ use crate::database::db_initializer::{
     connection_or_panic, DbInitializationConfig, DbInitializerReal,
 };
 use crate::sub_lib::accountant::PaymentThresholds;
-use masq_lib::constants::WEIS_OF_GWEI;
+use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::messages::{
     RangeQuery, TopRecordsConfig, TopRecordsOrdering, UiPayableAccount, UiReceivableAccount,
 };
-use rusqlite::{Row, ToSql};
-use std::fmt::Display;
+use rusqlite::{Row, Statement, ToSql};
+use std::fmt::{Debug, Display};
 use std::iter::FlatMap;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -211,7 +211,7 @@ impl<N: Copy + Display> CustomQuery<N> {
         .into_iter()
         .zip([min_amount, max_amount].into_iter())
         .flat_map(|(param_names, gwei_num)| {
-            let wei_num = i128::from(gwei_num) * WEIS_OF_GWEI;
+            let wei_num = i128::from(gwei_num) * WEIS_IN_GWEI;
             let big_int_divided = BigIntDivider::deconstruct(wei_num);
             Self::balance_constraint_as_integer_pair(param_names, big_int_divided)
         })
@@ -260,7 +260,7 @@ pub fn remap_payable_accounts(accounts: Vec<PayableAccount>) -> Vec<UiPayableAcc
             wallet: account.wallet.to_string(),
             age_s: to_age(account.last_paid_timestamp),
             balance_gwei: {
-                let gwei = (account.balance_wei / (WEIS_OF_GWEI as u128)) as u64;
+                let gwei = (account.balance_wei / (WEIS_IN_GWEI as u128)) as u64;
                 if gwei > 0 {
                     gwei
                 } else {
@@ -285,7 +285,7 @@ pub fn remap_receivable_accounts(accounts: Vec<ReceivableAccount>) -> Vec<UiRece
             wallet: account.wallet.to_string(),
             age_s: to_age(account.last_received_timestamp),
             balance_gwei:{
-                let gwei =  (account.balance_wei / (WEIS_OF_GWEI as i128)) as i64;
+                let gwei =  (account.balance_wei / (WEIS_IN_GWEI as i128)) as i64;
                 if gwei != 0 {gwei} else {panic!("Broken code: ReceivableAccount with balance \
                  between {} and 0 gwei passed through db query constraints; wallet: {}, balance: {}",
                         if account.balance_wei.is_positive() {"1"}else{"-1"},
@@ -340,6 +340,32 @@ pub fn sum_i128_values_from_table(
         .expect("select query failed")
         .vigilant_flatten()
         .sum()
+}
+
+pub fn update_rows_and_return_valid_count(
+    update_returning_stm: &mut Statement,
+    update_row_validator: fn(&Row) -> rusqlite::Result<bool>,
+) -> Result<usize, Vec<rusqlite::Error>> {
+    let init: (usize, Vec<rusqlite::Error>) = (0, vec![]);
+    let validator_outputs = update_returning_stm.query_map([], update_row_validator);
+    let (valid_rows_count, errs) = validator_outputs
+        .expect("query failed on params binding")
+        .fold(init, |(oks, mut errs), validator_output| {
+            if let Ok(updated_row_is_valid) = validator_output {
+                if updated_row_is_valid {
+                    (oks + 1, errs)
+                } else {
+                    (oks, errs)
+                }
+            } else {
+                errs.push(validator_output.expect_err("was seen as err"));
+                (oks, errs)
+            }
+        });
+    match errs.as_slice() {
+        [] => Ok(valid_rows_count),
+        _ => Err(errs),
+    }
 }
 
 pub struct ThresholdUtils {}
@@ -411,6 +437,7 @@ mod tests {
     use crate::database::connection_wrapper::ConnectionWrapperReal;
     use crate::sub_lib::accountant::DEFAULT_PAYMENT_THRESHOLDS;
     use crate::test_utils::make_wallet;
+    use itertools::Itertools;
     use masq_lib::constants::MASQ_TOTAL_SUPPLY;
     use masq_lib::messages::TopRecordsOrdering::Balance;
     use masq_lib::test_utils::utils::ensure_node_home_directory_exists;
@@ -759,7 +786,7 @@ mod tests {
             maturity_threshold_sec: 20,
             payment_grace_period_sec: 33,
             permanent_debt_allowed_gwei: 1,
-            debt_threshold_gwei: MASQ_TOTAL_SUPPLY * WEIS_OF_GWEI as u64,
+            debt_threshold_gwei: MASQ_TOTAL_SUPPLY * WEIS_IN_GWEI as u64,
             threshold_interval_sec: 1,
             unban_below_gwei: 0,
         };
@@ -775,7 +802,7 @@ mod tests {
             );
             slope * (payment_thresholds.maturity_threshold_sec + 1) as i128 + y_interception
         };
-        assert_eq!(check, WEIS_OF_GWEI)
+        assert_eq!(check, WEIS_IN_GWEI)
     }
 
     #[test]
@@ -810,5 +837,139 @@ mod tests {
             a_certain_distance_further,
             gwei_to_wei(payment_thresholds.permanent_debt_allowed_gwei)
         )
+    }
+
+    #[test]
+    #[should_panic(
+        expected = "Couldn't initialize database due to \"Nonexistent\" at \"generated/test\
+        /dao_utils/make_connection_panics_if_connection_cannot_be_made/home"
+    )]
+    fn make_connection_panics_if_connection_cannot_be_made() {
+        let data_dir = ensure_node_home_directory_exists(
+            "dao_utils",
+            "make_connection_panics_if_connection_cannot_be_made",
+        );
+        let subject = DaoFactoryReal::new(
+            &data_dir.join("nonexistent_db"),
+            DbInitializationConfig::panic_on_migration(),
+        );
+
+        let _ = subject.make_connection();
+    }
+
+    fn create_table_with_text_id_and_single_numeric_column(
+        conn: &Connection,
+        init_data: &[(&str, i64)],
+    ) {
+        conn.execute("create table example (name text, num integer)", [])
+            .unwrap();
+        if !init_data.is_empty() {
+            let sequence_of_values_for_inserted_rows = init_data
+                .iter()
+                .map(|(name, num)| format!("({}, {})", name, num))
+                .join(", ");
+            let rows_added = conn
+                .execute(
+                    &format!(
+                        "insert into example (name, num) values {}",
+                        sequence_of_values_for_inserted_rows
+                    ),
+                    [],
+                )
+                .unwrap();
+            assert_eq!(rows_added, init_data.len())
+        }
+    }
+
+    const UPDATE_STM_WITH_RETURNING: &str = "update example set num = num + 2 returning num";
+
+    #[test]
+    fn update_rows_and_return_their_count_returns_all_satisfying_results() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_table_with_text_id_and_single_numeric_column(
+            &conn,
+            &vec![("'A'", 12), ("'B'", 23), ("'C'", 34)],
+        );
+        let mut returning_update_stm = conn.prepare(UPDATE_STM_WITH_RETURNING).unwrap();
+        let function_to_validate_row_value = |row: &Row| row.get::<usize, i64>(0).map(|_num| true);
+
+        let result = update_rows_and_return_valid_count(
+            &mut returning_update_stm,
+            function_to_validate_row_value,
+        );
+
+        assert_eq!(result, Ok(3))
+    }
+
+    #[test]
+    fn update_rows_and_return_their_count_allows_use_of_predicate() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_table_with_text_id_and_single_numeric_column(
+            &conn,
+            &vec![("'A'", 12), ("'B'", -56), ("'C'", 34)],
+        );
+        let mut returning_update_stm = conn.prepare(UPDATE_STM_WITH_RETURNING).unwrap();
+        let function_to_validate_row_value =
+            |row: &Row| row.get::<usize, i64>(0).map(|num| num > 0);
+
+        let result = update_rows_and_return_valid_count(
+            &mut returning_update_stm,
+            function_to_validate_row_value,
+        );
+
+        assert_eq!(result, Ok(2))
+    }
+
+    #[test]
+    fn update_rows_and_return_their_count_suspects_0_if_nothing_to_change() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_table_with_text_id_and_single_numeric_column(&conn, &vec![]);
+        let mut returning_update_stm = conn.prepare(UPDATE_STM_WITH_RETURNING).unwrap();
+        let function_to_validate_row_value = |row: &Row| row.get::<usize, i64>(0).map(|_num| true);
+
+        let result = update_rows_and_return_valid_count(
+            &mut returning_update_stm,
+            function_to_validate_row_value,
+        );
+
+        assert_eq!(result, Ok(0))
+    }
+
+    #[test]
+    fn update_rows_and_return_their_count_returns_all_errors() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_table_with_text_id_and_single_numeric_column(&conn, &vec![("'A'", 12), ("'B'", 23)]);
+        let mut returning_update_stm = conn.prepare(UPDATE_STM_WITH_RETURNING).unwrap();
+        let function_to_validate_row_value = |_row: &Row| Err(rusqlite::Error::InvalidQuery);
+
+        let result = update_rows_and_return_valid_count(
+            &mut returning_update_stm,
+            function_to_validate_row_value,
+        );
+
+        assert_eq!(
+            result,
+            Err(vec![
+                rusqlite::Error::InvalidQuery,
+                rusqlite::Error::InvalidQuery
+            ])
+        )
+    }
+
+    #[test]
+    #[should_panic(expected = "query failed on params binding: InvalidParameterCount(0, 1)")]
+    fn update_rows_and_return_valid_count_cannot_tolerate_parameterized_statement() {
+        let conn = Connection::open_in_memory().unwrap();
+        create_table_with_text_id_and_single_numeric_column(&conn, &vec![("'A'", 12), ("'B'", 23)]);
+        let mut returning_update_stm = conn
+            .prepare("update example set num = num + 2 where name = ? returning num")
+            .unwrap();
+        let function_to_validate_row_value =
+            |row: &Row| row.get::<usize, String>(0).map(|_num| true);
+
+        let _ = update_rows_and_return_valid_count(
+            &mut returning_update_stm,
+            function_to_validate_row_value,
+        );
     }
 }

@@ -11,24 +11,38 @@ pub fn linux_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr
         Ok(stdout) => stdout,
         Err(stderr) => return Err(AutomapError::ProtocolError(stderr)),
     };
-    let addresses = output
+    let init: Result<Vec<IpAddr>, AutomapError> = Ok(vec![]);
+    output
         .split('\n')
-        .map(|line| {
-            line.split(' ')
-                .filter(|piece| !piece.is_empty())
-                .collect::<Vec<&str>>()
+        .take_while(|line| line.trim_start().starts_with("default "))
+        .fold(init, |acc, line| match acc {
+            Ok(mut ip_addr_vec) => {
+                let ip_str: String = line
+                    .chars()
+                    .skip_while(|char| !char.is_numeric())
+                    .take_while(|char| !char.is_whitespace())
+                    .collect();
+
+                match IpAddr::from_str(&ip_str) {
+                    Ok(ip_addr) => {
+                        ip_addr_vec.push(ip_addr);
+                        Ok(ip_addr_vec)
+                    }
+                    Err(e) => Err(AutomapError::FindRouterError(format!(
+                        "Failed to parse an IP from \"ip route\": {:?} Line: {}",
+                        e, line
+                    ))),
+                }
+            }
+            Err(e) => Err(e),
         })
-        .filter(|line_vec| (line_vec.len() >= 4) && (line_vec[3] == "UG"))
-        .map(|line_vec| IpAddr::from_str(line_vec[1]).expect("Bad syntax from route -n"))
-        .collect::<Vec<IpAddr>>();
-    Ok(addresses)
 }
 
 pub struct LinuxFindRoutersCommand {}
 
 impl FindRoutersCommand for LinuxFindRoutersCommand {
     fn execute(&self) -> Result<String, String> {
-        self.execute_command("route -n")
+        self.execute_command("ip route")
     }
 }
 
@@ -48,19 +62,18 @@ impl LinuxFindRoutersCommand {
 mod tests {
     use super::*;
     use crate::mocks::FindRoutersCommandMock;
+    use regex::Regex;
     use std::str::FromStr;
 
     #[test]
     fn find_routers_works_when_there_is_a_router_to_find() {
-        let route_n_output = "Kernel IP routing table
-Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
-0.0.0.0         192.168.0.1     0.0.0.0         UG    100    0        0 enp4s0
-169.254.0.0     0.0.0.0         255.255.0.0     U     1000   0        0 enp4s0
-172.17.0.0      0.0.0.0         255.255.0.0     U     0      0        0 docker0
-172.18.0.0      0.0.0.0         255.255.0.0     U     0      0        0 br-2c4b4b668d71
-192.168.0.0     0.0.0.0         255.255.255.0   U     100    0        0 enp4s0
-";
-        let find_routers_command = FindRoutersCommandMock::new(Ok(&route_n_output));
+        let ip_route_output = "\
+        default via 192.168.0.1 dev enp4s0 proto dhcp src 192.168.0.100 metric 100\n\
+        169.254.0.0/16 dev enp4s0 scope link metric 1000\n\
+        172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1 linkdown\n\
+        172.18.0.0/16 dev br-85f38f356a58 proto kernel scope link src 172.18.0.1 linkdown\n\
+        192.168.0.0/24 dev enp4s0 proto kernel scope link src 192.168.0.100 metric 100";
+        let find_routers_command = FindRoutersCommandMock::new(Ok(&ip_route_output));
 
         let result = linux_find_routers(&find_routers_command).unwrap();
 
@@ -69,16 +82,14 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
 
     #[test]
     fn find_routers_works_when_there_are_multiple_routers_to_find() {
-        let route_n_output = "Kernel IP routing table
-Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
-0.0.0.0         192.168.0.1     0.0.0.0         UG    100    0        0 enp4s0
-0.0.0.0         192.168.0.2     0.0.0.0         UG    100    0        0 enp4s0
-169.254.0.0     0.0.0.0         255.255.0.0     U     1000   0        0 enp4s0
-172.17.0.0      0.0.0.0         255.255.0.0     U     0      0        0 docker0
-172.18.0.0      0.0.0.0         255.255.0.0     U     0      0        0 br-2c4b4b668d71
-192.168.0.0     0.0.0.0         255.255.255.0   U     100    0        0 enp4s0
-";
-        let find_routers_command = FindRoutersCommandMock::new(Ok(&route_n_output));
+        let ip_route_output = "\
+        default via 192.168.0.1 dev enp0s8 proto dhcp metric 101\n\
+        default via 192.168.0.2 dev enp0s3 proto dhcp metric 102\n\
+        10.0.2.0/24 dev enp0s3 proto kernel scope link src 10.0.2.15 metric 102\n\
+        169.254.0.0/16 dev enp0s3 scope link metric 1000\n\
+        192.168.1.0/24 dev enp0s8 proto kernel scope link src 192.168.1.64 metric 101\n\
+        192.168.1.1 via 10.0.2.15 dev enp0s3";
+        let find_routers_command = FindRoutersCommandMock::new(Ok(&ip_route_output));
 
         let result = linux_find_routers(&find_routers_command).unwrap();
 
@@ -92,15 +103,29 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
     }
 
     #[test]
+    fn find_routers_supports_ip_address_of_ipv6() {
+        let route_n_output = "\
+        default via 2001:1:2:3:4:5:6:7 dev enX0 proto kernel metric 256 pref medium\n\
+        fe80::/64 dev docker0 proto kernel metric 256 pref medium";
+
+        let find_routers_command = FindRoutersCommandMock::new(Ok(&route_n_output));
+
+        let result = linux_find_routers(&find_routers_command);
+
+        assert_eq!(
+            result,
+            Ok(vec![IpAddr::from_str("2001:1:2:3:4:5:6:7").unwrap()])
+        )
+    }
+
+    #[test]
     fn find_routers_works_when_there_is_no_router_to_find() {
-        let route_n_output = "Kernel IP routing table
-Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
-0.0.0.0         192.168.0.1     0.0.0.0         U     100    0        0 enp4s0
-169.254.0.0     0.0.0.0         255.255.0.0     U     1000   0        0 enp4s0
-172.17.0.0      0.0.0.0         255.255.0.0     U     0      0        0 docker0
-172.18.0.0      0.0.0.0         255.255.0.0     U     0      0        0 br-2c4b4b668d71
-192.168.0.0     0.0.0.0         255.255.255.0   U     100    0        0 enp4s0
-";
+        let route_n_output = "\
+        10.1.0.0/16 dev eth0 proto kernel scope link src 10.1.0.84 metric 100\n\
+        0.1.0.1 dev eth0 proto dhcp scope link src 10.1.0.84 metric 100\n\
+        168.63.129.16 via 10.1.0.1 dev eth0 proto dhcp src 10.1.0.84 metric 100\n\
+        169.254.169.254 via 10.1.0.1 dev eth0 proto dhcp src 10.1.0.84 metric 100\n\
+        172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1 linkdown";
         let find_routers_command = FindRoutersCommandMock::new(Ok(&route_n_output));
 
         let result = linux_find_routers(&find_routers_command).unwrap();
@@ -121,54 +146,126 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
     }
 
     #[test]
+    fn find_routers_returns_error_if_ip_addresses_can_not_be_parsed() {
+        let route_n_output = "\
+        default via 192.168.0.1 dev enp4s0 proto dhcp src 192.168.0.100 metric 100\n\
+        default via 192.168.0 dev enp0s3 proto dhcp metric 102\n\
+        169.254.0.0/16 dev enp4s0 scope link metric 1000";
+        let find_routers_command = FindRoutersCommandMock::new(Ok(&route_n_output));
+
+        let result = linux_find_routers(&find_routers_command);
+
+        eprintln!("{:?}", result);
+
+        assert_eq!(
+            result,
+            Err(AutomapError::FindRouterError(
+                "Failed to parse an IP from \"ip route\": AddrParseError(Ip) Line: default via 192.168.0 dev enp0s3 proto dhcp metric 102".to_string()
+            ))
+        )
+    }
+
+    #[test]
     fn find_routers_command_produces_output_that_looks_right() {
         let subject = LinuxFindRoutersCommand::new();
 
         let result = subject.execute().unwrap();
 
-        let lines = result.split('\n').collect::<Vec<&str>>();
-        assert_eq!("Kernel IP routing table", lines[0]);
-        let headings = lines[1]
-            .split(' ')
-            .filter(|s| s.len() > 0)
-            .collect::<Vec<&str>>();
-        assert_eq!(
-            headings,
-            vec![
-                "Destination",
-                "Gateway",
-                "Genmask",
-                "Flags",
-                "Metric",
-                "Ref",
-                "Use",
-                "Iface",
-            ]
-        );
-        for line in &lines[3..] {
-            if line.len() == 0 {
-                continue;
-            }
-            let columns = line
-                .split(' ')
-                .filter(|s| s.len() > 0)
-                .collect::<Vec<&str>>();
-            for idx in 0..3 {
-                if IpAddr::from_str(columns[idx]).is_err() {
-                    panic!(
-                        "Column {} should have been an IP address but wasn't: {}",
-                        idx, columns[idx]
-                    )
-                }
-            }
-            for idx in 4..7 {
-                if columns[idx].parse::<u64>().is_err() {
-                    panic!(
-                        "Column {} should have been numeric but wasn't: {}",
-                        idx, columns[idx]
-                    )
-                }
-            }
+        let mut lines = result.split('\n').collect::<Vec<&str>>();
+        let len = lines.len();
+        if lines[len - 1].is_empty() {
+            lines.remove(len - 1);
         }
+        let reg = ip_route_regex();
+        lines.iter().for_each(|line| {
+            assert!(reg.is_match(line), "Lines: {:?} line: {}", lines, line);
+        });
+    }
+
+    fn ip_route_regex() -> Regex {
+        let reg_for_ip = r"((25[0-5]|(2[0-4]|1\d|[1-9]|)\d)\.?\b){4}";
+        Regex::new(&format!(
+            r#"^(default via )?{}(/\d+)?\s(dev|via)(\s.+){{3,}}"#,
+            reg_for_ip
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn reg_for_ip_route_command_output_good_and_bad_ip() {
+        let route_n_output = vec![
+            (
+                "default via 0.1.0.1 dev eth0 proto dhcp scope link src 10.1.0.84 metric 100",
+                true,
+                "Example of good IPv4",
+            ),
+            (
+                "10.1.0.0/16 dev eth0 proto kernel scope link src 10.1.0.84 metric 100",
+                true,
+                "Example of good IPv4",
+            ),
+            (
+                "168.63.129.16 via 10.1.0.1 dev eth0 proto dhcp src 10.1.0.84 metric 100",
+                true,
+                "Example of good IPv4",
+            ),
+            (
+                "169.254.169.254 via 10.1.0.1 dev eth0 proto dhcp src 10.1.0.84 metric 100",
+                true,
+                "Example of good IPv4",
+            ),
+            (
+                "172.17.0.0/16 dev docker0 proto kernel scope link src 172.17.0.1 linkdown",
+                true,
+                "Example of good IPv4",
+            ),
+            (
+                "10.1.0.0/16 dev eth0 proto kernel scope link src 10.1.0.84 metric 100",
+                true,
+                "Example of good IPv4",
+            ),
+            (
+                "0.1.255.1 dev eth0 proto dhcp",
+                true,
+                "Example of good IPv4",
+            ),
+            (
+                "0.1.0 dev eth0 proto dhcp scope link src 10.1.0.84 metric 100",
+                false,
+                "IPv4 address has only three elements",
+            ),
+            (
+                "0.1.256.1 dev eth0 proto dhcp",
+                false,
+                "IPv4 address has an element greater than 255",
+            ),
+            (
+                "0.1.b.1 dev eth0 proto dhcp",
+                false,
+                "IPv4 address contains a letter",
+            ),
+            (
+                "0.1.0.1/ dev eth0 proto dhcp",
+                false,
+                "IPv4 Subnet is missing a netmask",
+            ),
+            (
+                "2001:0db8:0000:0000:0000:ff00:0042:8329 dev eth0 proto dhcp",
+                false,
+                "Regex does not support IPV6",
+            ),
+        ];
+
+        let regex = ip_route_regex();
+
+        route_n_output.iter().for_each(|line| {
+            assert_eq!(
+                regex.is_match(line.0),
+                line.1,
+                "{}: Line: {}",
+                line.2,
+                line.0
+            );
+        });
     }
 }

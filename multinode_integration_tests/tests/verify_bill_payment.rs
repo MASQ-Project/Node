@@ -2,7 +2,7 @@
 use bip39::{Language, Mnemonic, Seed};
 use futures::Future;
 use masq_lib::blockchains::chains::Chain;
-use masq_lib::constants::WEIS_OF_GWEI;
+use masq_lib::constants::WEIS_IN_GWEI;
 use masq_lib::utils::{derivation_path, NeighborhoodModeLight};
 use multinode_integration_tests_lib::blockchain::BlockchainServer;
 use multinode_integration_tests_lib::masq_node::{MASQNode, MASQNodeUtils};
@@ -96,7 +96,7 @@ fn verify_bill_payment() {
         derivation_path(0, 3),
     );
 
-    let amount = 10 * payment_thresholds.permanent_debt_allowed_gwei as u128 * WEIS_OF_GWEI as u128;
+    let amount = 10 * payment_thresholds.permanent_debt_allowed_gwei as u128 * WEIS_IN_GWEI as u128;
 
     let project_root = MASQNodeUtils::find_project_root();
     let (consuming_node_name, consuming_node_index) = cluster.prepare_real_node(&consuming_config);
@@ -323,20 +323,26 @@ fn assert_balances(
     expected_eth_balance: &str,
     expected_token_balance: &str,
 ) {
-    if let (Ok(eth_balance), Ok(token_balance)) = blockchain_interface.get_balances(&wallet) {
-        assert_eq!(
-            format!("{}", eth_balance),
-            String::from(expected_eth_balance),
-            "EthBalance"
-        );
-        assert_eq!(
-            token_balance,
-            web3::types::U256::from_dec_str(expected_token_balance).unwrap(),
-            "TokenBalance"
-        );
-    } else {
-        assert!(false, "Failed to retrieve balances {}", wallet);
-    }
+    let eth_balance = blockchain_interface
+        .get_gas_balance(&wallet)
+        .unwrap_or_else(|_| panic!("Failed to retrieve gas balance for {}", wallet));
+    assert_eq!(
+        format!("{}", eth_balance),
+        String::from(expected_eth_balance),
+        "Actual EthBalance {} doesn't much with expected {}",
+        eth_balance,
+        expected_eth_balance
+    );
+    let token_balance = blockchain_interface
+        .get_token_balance(&wallet)
+        .unwrap_or_else(|_| panic!("Failed to retrieve token balance for {}", wallet));
+    assert_eq!(
+        token_balance,
+        web3::types::U256::from_dec_str(expected_token_balance).unwrap(),
+        "Actual TokenBalance {} doesn't match with expected {}",
+        token_balance,
+        expected_token_balance
+    );
 }
 
 fn deploy_smart_contract(wallet: &Wallet, web3: &Web3<Http>, chain: Chain) -> Address {
@@ -403,19 +409,18 @@ fn build_config(
     payment_thresholds: PaymentThresholds,
     wallet_derivation_path: String,
 ) -> (NodeStartupConfig, Wallet) {
-    let (serving_node_wallet, serving_node_secret) =
-        make_node_wallet(seed, wallet_derivation_path.as_str());
+    let (node_wallet, node_secret) = make_node_wallet(seed, wallet_derivation_path.as_str());
     let config = NodeStartupConfigBuilder::standard()
         .blockchain_service_url(server_url_holder.url())
         .chain(Chain::Dev)
         .payment_thresholds(payment_thresholds)
-        .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(serving_node_secret))
+        .consuming_wallet_info(ConsumingWalletInfo::PrivateKey(node_secret))
         .earning_wallet_info(EarningWalletInfo::Address(format!(
             "{}",
-            serving_node_wallet.clone()
+            node_wallet.clone()
         )))
         .build();
-    (config, serving_node_wallet)
+    (config, node_wallet)
 }
 
 fn expire_payables(path: PathBuf) {

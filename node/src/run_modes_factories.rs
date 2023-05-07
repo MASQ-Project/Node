@@ -142,7 +142,7 @@ mod tests {
     };
     use crate::server_initializer::ServerInitializerReal;
     use masq_lib::shared_schema::ConfiguratorError;
-    use masq_lib::utils::array_of_borrows_to_vec;
+    use masq_lib::utils::slice_of_strs_to_vec_of_strings;
     use std::cell::RefCell;
     use std::sync::{Arc, Mutex};
 
@@ -186,7 +186,7 @@ mod tests {
             Box::new(NodeConfiguratorInitializationReal),
             daemon_clustered_params,
         );
-        let args = &array_of_borrows_to_vec(&["program", "--wooooooo", "--fooooooo"]);
+        let args = &slice_of_strs_to_vec_of_strings(&["program", "--wooooooo", "--fooooooo"]);
 
         let result = subject.make(&args);
 
@@ -216,7 +216,7 @@ mod tests {
             ),
             daemon_clustered_params,
         );
-        let args = &array_of_borrows_to_vec(&["program", "--initialization"]);
+        let args = &slice_of_strs_to_vec_of_strings(&["program", "--initialization"]);
 
         let result = subject.make(&args);
 
