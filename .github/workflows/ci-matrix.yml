@@ -148,13 +148,16 @@ jobs:
       - name: Build before root
         run: ./ci/build.sh
       - name: Node integration tests ${{ matrix.target.os }}
-        run: ./node/ci/integration_tests.sh
+        run: |
+          {{ if or(eq(matrix.os, 'ubuntu-22.04'), eq(matrix.os, 'macos-12')) }}sudo {{ end }}./node/ci/integration_tests.sh
         shell: bash
       - name: MASQ integration tests ${{ matrix.target.os }}
-        run: ./masq/ci/integration_tests.sh
+        run: |
+          {{ if or(eq(matrix.os, 'ubuntu-22.04'), eq(matrix.os, 'macos-12')) }}sudo {{ end }}./masq/ci/integration_tests.sh
         shell: bash
       - name: dns_utility integration tests ${{ matrix.target.os }}
-        run: ./dns_utility/ci/integration_tests.sh
+        run: |
+          {{ if or(eq(matrix.os, 'ubuntu-22.04'), eq(matrix.os, 'macos-12')) }}sudo {{ end }}./dns_utility/ci/integration_tests.sh
         shell: bash
 
   build:
