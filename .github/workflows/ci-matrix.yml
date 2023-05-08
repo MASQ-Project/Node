@@ -146,7 +146,7 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "integration-tests"
       - name: Build before root
-        run: ./build.sh
+        run: ./ci/build.sh
       - name: Node integration tests ${{ matrix.target.os }}
         run: ./node/ci/integration_tests.sh
         shell: bash
