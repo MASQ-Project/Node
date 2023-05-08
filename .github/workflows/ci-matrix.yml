@@ -23,7 +23,7 @@ jobs:
       
       - name: Run format
         working-directory: $GITHUB_WORKSPACE/ci
-        run: format.sh
+        run: ./format.sh
         shell: bash
   
   multinode_test:
@@ -45,7 +45,7 @@ jobs:
       
       - name: Run multinode integration test
         working-directory: $GITHUB_WORKSPACE/ci
-        run: multinode_integration_test.sh
+        run: ./multinode_integration_test.sh
         shell: bash
   
   lint:
