@@ -53,6 +53,7 @@ jobs:
     runs-on: ${{ matrix.target.os }}
     env:
       RUSTFLAGS: -D warnings -Anon-snake-case
+      RUST_BACKTRACE: "1"
     steps:
       - uses: actions/checkout@v3
         with:
@@ -95,6 +96,7 @@ jobs:
     runs-on: ${{ matrix.target.os }}
     env:
       RUSTFLAGS: -D warnings -Anon-snake-case
+      RUST_BACKTRACE: "1"
     steps:
       - uses: actions/checkout@v3
         with:
@@ -106,23 +108,23 @@ jobs:
       - name: Node unit tests ${{ matrix.target.os }}
         run: |
           cd node
-          cargo test --release --lib --no-fail-fast --features masq_lib/log_recipient_test -- --nocapture --skip _integration
+          cargo test --release --lib --no-fail-fast --features masq_lib/log_recipient_test -- --nocapture --locked --skip _integration
       - name: masq unit tests ${{ matrix.target.os }}
         run: |
           cd ../masq
-          cargo test --release -- --nocapture --skip _integration
+          cargo test --release -- --nocapture --locked --skip _integration
       - name: masq_lib unit tests ${{ matrix.target.os }}
         run: |
           cd ../masq_lib
-          cargo test --release -- --nocapture --skip _integration --test-threads=1
+          cargo test --release -- --nocapture --locked --skip _integration
       - name: automap unit tests ${{ matrix.target.os }}
         run: |
           cd ../automap
-          cargo test -- --nocapture --skip _integration --test-threads=1
+          cargo test -- --nocapture --locked --skip _integration
       - name: dns_utility unit tests ${{ matrix.target.os }}
         run: |
           cd ../dns_utility
-          cargo test --release -- --nocapture --skip _integration
+          cargo test --release -- --nocapture --locked --skip _integration
 
   integration_tests:
     needs: format
@@ -137,6 +139,7 @@ jobs:
     runs-on: ${{ matrix.target.os }}
     env:
       RUSTFLAGS: -D warnings -Anon-snake-case
+      RUST_BACKTRACE: "1"
     steps:
       - uses: actions/checkout@v3
         with:
@@ -148,18 +151,18 @@ jobs:
       - name: Node integration tests ${{ matrix.target.os }}
         run: |
           cd ./node
-          cargo build --release --verbose
-          {{ if or(eq(matrix.os, 'ubuntu-22.04'), eq(matrix.os, 'macos-12')) }}sudo {{ end }}cargo test --release --no-fail-fast -- --nocapture --test-threads=1 _integration
+          cargo build --release --verbose --locked
+          cargo test --release --locked --no-fail-fast -- --nocapture _integration
       - name: masq integration tests ${{ matrix.target.os }}
         run: |
           cd ../masq
-          cargo build --release --verbose
-          {{ if or(eq(matrix.os, 'ubuntu-22.04'), eq(matrix.os, 'macos-12')) }}sudo {{ end }}cargo test --release --no-fail-fast -- --nocapture --test-threads=1 _integration
+          cargo build --release --verbose --locked
+          cargo test --release --locked --no-fail-fast -- --nocapture _integration
       - name: dns_utility integration tests ${{ matrix.target.os }}
         run: |
           cd ../dns_utility
-          cargo build --release --verbose
-          {{ if or(eq(matrix.os, 'ubuntu-22.04'), eq(matrix.os, 'macos-12')) }}sudo {{ end }}cargo test --release --no-fail-fast -- --nocapture --test-threads=1 _integration
+          cargo build --release --verbose --locked
+          cargo test --release --locked --no-fail-fast -- --nocapture _integration
 
   build:
     needs:
@@ -178,6 +181,7 @@ jobs:
     runs-on: ${{ matrix.target.os }}
     env:
       RUSTFLAGS: -D warnings -Anon-snake-case
+      RUST_BACKTRACE: "1"
     steps:
       - uses: actions/checkout@v3
         with:
