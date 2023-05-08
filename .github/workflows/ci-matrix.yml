@@ -145,20 +145,21 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "integration-tests"
-      - name: Build before root
-        run: ./ci/build.sh
       - name: Node integration tests ${{ matrix.target.os }}
         run: |
-          {{ if or(eq(matrix.os, 'ubuntu-22.04'), eq(matrix.os, 'macos-12')) }}sudo {{ end }}./node/ci/integration_tests.sh
-        shell: bash
-      - name: MASQ integration tests ${{ matrix.target.os }}
+          cd ./node
+          cargo build --release --verbose
+          {{ if or(eq(matrix.os, 'ubuntu-22.04'), eq(matrix.os, 'macos-12')) }}sudo {{ end }}cargo test --release --no-fail-fast -- --nocapture --test-threads=1 _integration
+      - name: masq integration tests ${{ matrix.target.os }}
         run: |
-          {{ if or(eq(matrix.os, 'ubuntu-22.04'), eq(matrix.os, 'macos-12')) }}sudo {{ end }}./masq/ci/integration_tests.sh
-        shell: bash
+          cd ../masq
+          cargo build --release --verbose
+          {{ if or(eq(matrix.os, 'ubuntu-22.04'), eq(matrix.os, 'macos-12')) }}sudo {{ end }}cargo test --release --no-fail-fast -- --nocapture --test-threads=1 _integration
       - name: dns_utility integration tests ${{ matrix.target.os }}
         run: |
-          {{ if or(eq(matrix.os, 'ubuntu-22.04'), eq(matrix.os, 'macos-12')) }}sudo {{ end }}./dns_utility/ci/integration_tests.sh
-        shell: bash
+          cd ../dns_utility
+          cargo build --release --verbose
+          {{ if or(eq(matrix.os, 'ubuntu-22.04'), eq(matrix.os, 'macos-12')) }}sudo {{ end }}cargo test --release --no-fail-fast -- --nocapture --test-threads=1 _integration
 
   build:
     needs:
