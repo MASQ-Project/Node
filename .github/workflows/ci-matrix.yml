@@ -62,26 +62,9 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "lint"
-      - name: Lint node on ${{ matrix.target.os }}
-        run: |
-          cd node
-          cargo clippy -- -D warnings
-      - name: Lint masq on ${{ matrix.target.os }}
-        run: |
-          cd ../masq
-          cargo clippy -- -D warnings
-      - name: Lint masq_lib on ${{ matrix.target.os }}
-        run: |
-          cd ../masq_lib
-          cargo clippy -- -D warnings
-      - name: Lint automap on ${{ matrix.target.os }}
-        run: |
-          cd ../automap
-          cargo clippy -- -D warnings
-      - name: Lint dns_utility on ${{ matrix.target.os }}
-        run: |
-          cd ../dns_utility
-          cargo clippy -- -D warnings
+      - name: Lint ${{ matrix.target.os }}
+        run: ci/lint.sh
+        shell: bash
 
   unit_tests:
     needs: format
