@@ -10,16 +10,20 @@ jobs:
   format:
     name: Format Code
     runs-on: ubuntu-22.04
+    
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+      
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
           shared-key: "format"
+      
       - name: Run format
-        run: ./ci/format.sh
+        working-directory: $GITHUB_WORKSPACE/ci
+        run: format.sh
         shell: bash
   
   multinode_test:
@@ -28,16 +32,20 @@ jobs:
     runs-on: ubuntu-22.04
     env:
       RUSTFLAGS: -D warnings -Anon-snake-case
+    
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+      
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
           shared-key: "multinode-test"
+      
       - name: Run multinode integration test
-        run: ./ci/multinode_integration_test.sh
+        working-directory: $GITHUB_WORKSPACE/ci
+        run: multinode_integration_test.sh
         shell: bash
   
   lint:
@@ -54,17 +62,36 @@ jobs:
     env:
       RUSTFLAGS: -D warnings -Anon-snake-case
       RUST_BACKTRACE: "1"
+    
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+      
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
           shared-key: "lint"
-      - name: Lint ${{ matrix.target.os }}
-        run: ci/lint.sh
-        shell: bash
+    
+      - name: Lint masq_lib
+        working-directory: $GITHUB_WORKSPACE/masq_lib
+        run: cargo clippy -- -D warnings
+     
+      - name: Lint node
+        working-directory: $GITHUB_WORKSPACE/node
+        run: cargo clippy -- -D warnings
+      
+      - name: Lint dns_utility
+        working-directory: $GITHUB_WORKSPACE/dns_utility
+        run: cargo clippy -- -D warnings
+      
+      - name: Lint masq
+        working-directory: $GITHUB_WORKSPACE/masq
+        run: cargo clippy -- -D warnings
+      
+      - name: Lint automap
+        working-directory: $GITHUB_WORKSPACE/automap
+        run: cargo clippy -- -D warnings
 
   unit_tests:
     needs: format
@@ -80,34 +107,36 @@ jobs:
     env:
       RUSTFLAGS: -D warnings -Anon-snake-case
       RUST_BACKTRACE: "1"
+    
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+      
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
           shared-key: "unit-tests"
+      
       - name: Node unit tests ${{ matrix.target.os }}
-        run: |
-          cd node
-          cargo test --release --lib --no-fail-fast --features masq_lib/log_recipient_test -- --nocapture --locked --skip _integration
+        working-directory: $GITHUB_WORKSPACE/node
+        run: cargo test --release --lib --no-fail-fast --features masq_lib/log_recipient_test -- --nocapture --locked --skip _integration
+      
       - name: masq unit tests ${{ matrix.target.os }}
-        run: |
-          cd ../masq
-          cargo test --release -- --nocapture --locked --skip _integration
+        working-directory: $GITHUB_WORKSPACE/masq
+        run: cargo test --release -- --nocapture --locked --skip _integration
+      
       - name: masq_lib unit tests ${{ matrix.target.os }}
-        run: |
-          cd ../masq_lib
-          cargo test --release -- --nocapture --locked --skip _integration
+        working-directory: $GITHUB_WORKSPACE/masq_lib
+        run: cargo test --release -- --nocapture --locked --skip _integration
+      
       - name: automap unit tests ${{ matrix.target.os }}
-        run: |
-          cd ../automap
-          cargo test -- --nocapture --locked --skip _integration
+        working-directory: $GITHUB_WORKSPACE/automap
+        run: cargo test -- --nocapture --locked --skip _integration
+    
       - name: dns_utility unit tests ${{ matrix.target.os }}
-        run: |
-          cd ../dns_utility
-          cargo test --release -- --nocapture --locked --skip _integration
+        working-directory: $GITHUB_WORKSPACE/dns_utility
+        run: cargo test --release -- --nocapture --locked --skip _integration
 
   integration_tests:
     needs: format
@@ -123,27 +152,32 @@ jobs:
     env:
       RUSTFLAGS: -D warnings -Anon-snake-case
       RUST_BACKTRACE: "1"
+    
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+      
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
           shared-key: "integration-tests"
+      
       - name: Node integration tests ${{ matrix.target.os }}
+        working-directory: $GITHUB_WORKSPACE/node
         run: |
-          cd ./node
           cargo build --release --verbose --locked
           cargo test --release --locked --no-fail-fast -- --nocapture _integration
+      
       - name: masq integration tests ${{ matrix.target.os }}
+        working-directory: $GITHUB_WORKSPACE/masq
         run: |
-          cd ../masq
           cargo build --release --verbose --locked
           cargo test --release --locked --no-fail-fast -- --nocapture _integration
+      
       - name: dns_utility integration tests ${{ matrix.target.os }}
+        working-directory: $GITHUB_WORKSPACE/dns_utility
         run: |
-          cd ../dns_utility
           cargo build --release --verbose --locked
           cargo test --release --locked --no-fail-fast -- --nocapture _integration
 
@@ -165,20 +199,25 @@ jobs:
     env:
       RUSTFLAGS: -D warnings -Anon-snake-case
       RUST_BACKTRACE: "1"
+    
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+      
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: "rust-cache"
           shared-key: "build"
+      
       - name: Build ${{ matrix.target.os }}
         run: ./ci/build.sh
         shell: bash
+      
       - name: Collect results
         run: ./ci/collect_results.sh
         shell: bash
+      
       - name: Publish ${{ matrix.target.os }}
         uses: actions/upload-artifact@v3
         with:
@@ -196,15 +235,19 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
       AWS_REGION: ${{ secrets.AWS_REGION }}
+    
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
+      
       - uses: actions/download-artifact@v3
         with:
           name: Node-${{ matrix.os }}
+      
       - name: Display structure of downloaded files
         run: ls -R
+      
       - name: Deploy to S3 and invalidate CloudFront
         run: |
           aws s3 sync './Node-${{ matrix.os }}/generated/bin/' 's3://${{ secrets.AWS_S3_BUCKET }}/Node/${{ startsWith(github.head_ref, 'GH') && github.event.workflow_run.head_branch || 'latest' }}Node-${{ matrix.os }}' --acl private --follow-symlinks --delete
