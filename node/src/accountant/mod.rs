@@ -1058,9 +1058,6 @@ mod tests {
         DEFAULT_PAYMENT_THRESHOLDS,
     };
     use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
-    use crate::sub_lib::neighborhood::{
-        PaymentAdjusterQueryMessage, PaymentAdjusterResponseMessage, QualifiedNodesPaymentMetadata,
-    };
     use crate::sub_lib::utils::NotifyLaterHandleReal;
     use crate::test_utils::persistent_configuration_mock::PersistentConfigurationMock;
     use crate::test_utils::recorder::make_recorder;
@@ -1381,7 +1378,7 @@ mod tests {
     }
 
     #[test]
-    fn received_balances_and_qualified_payables_considered_feasible_to_be_paid_thus_all_forwarded_to_blockchain_bridge(
+    fn received_balances_and_qualified_payables_under_our_money_limit_thus_all_forwarded_to_blockchain_bridge(
     ) {
         let mut subject = AccountantBuilder::default().build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
@@ -1427,22 +1424,15 @@ mod tests {
     }
 
     #[test]
-    fn received_qualified_payables_exceed_our_masq_balance_and_must_be_adjusted_before_forwarded_to_blockchain_bridge(
+    fn received_qualified_payables_exceeding_our_masq_balance_are_adjusted_before_forwarded_to_blockchain_bridge(
     ) {
         let mut subject = AccountantBuilder::default().build();
         let (blockchain_bridge, _, blockchain_bridge_recording_arc) = make_recorder();
-        let (neighborhood, _, neighborhood_recording_arc) = make_recorder();
-        let neighborhood =
-            neighborhood.payment_adjuster_response(Some(PaymentAdjusterResponseMessage {
-                qualified_nodes_metadata: QualifiedNodesPaymentMetadata {},
-            }));
-        let neighborhood_recipient = neighborhood.start().recipient();
         let report_recipient = blockchain_bridge
             .system_stop_conditions(match_every_type_id!(ReportAccountsPayable))
             .start()
             .recipient();
         subject.report_accounts_payable_sub_opt = Some(report_recipient);
-        subject.payment_adjuster_opt = Some(PaymentAdjuster::new(neighborhood_recipient));
         let subject_addr = subject.start();
         let last_paid_timestamp = SystemTime::now()
             .checked_sub(Duration::from_secs(100))
@@ -1479,15 +1469,7 @@ mod tests {
             .try_send(consuming_balances_and_qualified_payments)
             .unwrap();
 
-        system.run();
-        let neighborhood_recording = neighborhood_recording_arc.lock().unwrap();
-        assert_eq!(neighborhood_recording.len(), 1);
-        assert_eq!(
-            neighborhood_recording.get_record::<PaymentAdjusterQueryMessage>(0),
-            &PaymentAdjusterQueryMessage {
-                concerned_nodes_wallets: vec![account_1_wallet, account_2_wallet]
-            }
-        );
+        assert_eq!(system.run(),0);
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         assert_eq!(
             blockchain_bridge_recording.get_record::<ReportAccountsPayable>(0),

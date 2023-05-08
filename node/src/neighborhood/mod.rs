@@ -46,7 +46,7 @@ use crate::sub_lib::cryptde::{CryptDE, CryptData, PlainData};
 use crate::sub_lib::dispatcher::{Component, StreamShutdownMsg};
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{IncipientCoresPackage, MessageType};
-use crate::sub_lib::neighborhood::ChangeNodeRecordMetadataMessage;
+use crate::sub_lib::neighborhood::UpdateNodeRecordMetadataMessage;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
 use crate::sub_lib::neighborhood::RemoveNeighborMessage;
 use crate::sub_lib::neighborhood::RouteQueryMessage;
@@ -339,12 +339,12 @@ impl Handler<AskAboutDebutGossipMessage> for Neighborhood {
     }
 }
 
-impl Handler<ChangeNodeRecordMetadataMessage> for Neighborhood {
+impl Handler<UpdateNodeRecordMetadataMessage> for Neighborhood {
     type Result = ();
 
     fn handle(
         &mut self,
-        msg: ChangeNodeRecordMetadataMessage,
+        msg: UpdateNodeRecordMetadataMessage,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
         match msg.metadata_change {
@@ -503,7 +503,7 @@ impl Neighborhood {
             route_query: addr.clone().recipient::<RouteQueryMessage>(),
             update_node_record_metadata: addr
                 .clone()
-                .recipient::<ChangeNodeRecordMetadataMessage>(),
+                .recipient::<UpdateNodeRecordMetadataMessage>(),
             from_hopper: addr.clone().recipient::<ExpiredCoresPackage<Gossip_0v1>>(),
             gossip_failure: addr
                 .clone()
@@ -5317,7 +5317,7 @@ mod tests {
         let addr = subject.start();
         let system = System::new("test");
 
-        let _ = addr.try_send(ChangeNodeRecordMetadataMessage {
+        let _ = addr.try_send(UpdateNodeRecordMetadataMessage {
             public_key: public_key.clone(),
             metadata_change: NRMetadataChange::AddUnreachableHost {
                 hostname: unreachable_host.clone(),
