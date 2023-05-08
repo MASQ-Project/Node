@@ -18,12 +18,12 @@ jobs:
       
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "rust-cache"
-          shared-key: "format"
+          prefix-key: rust-cache
+          shared-key: format
       
       - name: Run format
-        working-directory: "${{ github.workspace }}/ci"
-        run: "./format.sh"
+        working-directory: ${{ github.workspace }}/ci
+        run: ./format.sh
         shell: bash
   
   multinode_test:
@@ -40,12 +40,12 @@ jobs:
       
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "rust-cache"
-          shared-key: "multinode-test"
+          prefix-key: rust-cache
+          shared-key: multinode-test
       
       - name: Run multinode integration test
-        working-directory: "${{ github.workspace }}/ci"
-        run: "./multinode_integration_test.sh"
+        working-directory: ${{ github.workspace }}/ci
+        run: ./multinode_integration_test.sh
         shell: bash
   
   lint:
@@ -61,7 +61,7 @@ jobs:
     runs-on: ${{ matrix.target.os }}
     env:
       RUSTFLAGS: -D warnings -Anon-snake-case
-      RUST_BACKTRACE: "1"
+      RUST_BACKTRACE: 1
     
     steps:
       - uses: actions/checkout@v3
@@ -70,28 +70,28 @@ jobs:
       
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "rust-cache"
-          shared-key: "lint"
+          prefix-key: rust-cache
+          shared-key: lint
     
       - name: Lint masq_lib
-        working-directory: "${{ github.workspace }}/masq_lib"
-        run: "cargo clippy -- -D warnings"
+        working-directory: ${{ github.workspace }}/masq_lib
+        run: cargo clippy -- -D warnings
      
       - name: Lint node
-        working-directory: "${{ github.workspace }}/node"
-        run: "cargo clippy -- -D warnings"
+        working-directory: ${{ github.workspace }}/node
+        run: cargo clippy -- -D warnings
       
       - name: Lint dns_utility
-        working-directory: "${{ github.workspace }}/dns_utility"
-        run: "cargo clippy -- -D warnings"
+        working-directory: ${{ github.workspace }}/dns_utility
+        run: cargo clippy -- -D warnings
       
       - name: Lint masq
-        working-directory: "${{ github.workspace }}/masq"
-        run: "cargo clippy -- -D warnings"
+        working-directory: ${{ github.workspace }}/masq
+        run: cargo clippy -- -D warnings
       
       - name: Lint automap
-        working-directory: "${{ github.workspace }}/automap"
-        run: "cargo clippy -- -D warnings"
+        working-directory: ${{ github.workspace }}/automap
+        run: cargo clippy -- -D warnings
 
   unit_tests:
     needs: format
@@ -106,7 +106,7 @@ jobs:
     runs-on: ${{ matrix.target.os }}
     env:
       RUSTFLAGS: -D warnings -Anon-snake-case
-      RUST_BACKTRACE: "1"
+      RUST_BACKTRACE: 1
     
     steps:
       - uses: actions/checkout@v3
@@ -115,28 +115,28 @@ jobs:
       
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "rust-cache"
-          shared-key: "unit-tests"
+          prefix-key: rust-cache
+          shared-key: unit-tests
       
       - name: Node unit tests ${{ matrix.target.os }}
-        working-directory: "${{ github.workspace }}/node"
-        run: "cargo test --release --lib --no-fail-fast --features masq_lib/log_recipient_test -- --nocapture --locked --skip _integration"
+        working-directory: ${{ github.workspace }}/node
+        run: cargo test --release --lib --no-fail-fast --features masq_lib/log_recipient_test -- --nocapture --skip _integration
       
       - name: masq unit tests ${{ matrix.target.os }}
-        working-directory: "${{ github.workspace }}/masq"
-        run: "cargo test --release -- --nocapture --locked --skip _integration"
+        working-directory: ${{ github.workspace }}/masq
+        run: cargo test --release -- --nocapture --skip _integration
       
       - name: masq_lib unit tests ${{ matrix.target.os }}
-        working-directory: "${{ github.workspace }}/masq_lib"
-        run: "cargo test --release -- --nocapture --locked --skip _integration"
+        working-directory: ${{ github.workspace }}/masq_lib
+        run: cargo test --release -- --nocapture --skip _integration
       
       - name: automap unit tests ${{ matrix.target.os }}
-        working-directory: "${{ github.workspace }}/automap"
-        run: "cargo test -- --nocapture --locked --skip _integration"
+        working-directory: ${{ github.workspace }}/automap
+        run: cargo test -- --nocapture --skip _integration
     
       - name: dns_utility unit tests ${{ matrix.target.os }}
-        working-directory: "${{ github.workspace }}/dns_utility"
-        run: "cargo test --release -- --nocapture --locked --skip _integration"
+        working-directory: ${{ github.workspace }}/dns_utility
+        run: cargo test --release -- --nocapture --skip _integration
 
   integration_tests:
     needs: format
@@ -151,7 +151,7 @@ jobs:
     runs-on: ${{ matrix.target.os }}
     env:
       RUSTFLAGS: -D warnings -Anon-snake-case
-      RUST_BACKTRACE: "1"
+      RUST_BACKTRACE: 1
     
     steps:
       - uses: actions/checkout@v3
@@ -160,26 +160,26 @@ jobs:
       
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "rust-cache"
-          shared-key: "integration-tests"
+          prefix-key: rust-cache
+          shared-key: integration-tests
       
       - name: Node integration tests ${{ matrix.target.os }}
-        working-directory: "${{ github.workspace }}/node"
+        working-directory: ${{ github.workspace }}/node
         run: |
-          cargo build --release --verbose --locked
-          cargo test --release --locked --no-fail-fast -- --nocapture _integration
+          cargo build --release --verbose
+          cargo test --release --no-fail-fast -- --nocapture _integration
       
       - name: masq integration tests ${{ matrix.target.os }}
-        working-directory: "${{ github.workspace }}/masq"
+        working-directory: ${{ github.workspace }}/masq
         run: |
-          cargo build --release --verbose --locked
-          cargo test --release --locked --no-fail-fast -- --nocapture _integration
+          cargo build --release --verbose
+          cargo test --release --no-fail-fast -- --nocapture _integration
       
       - name: dns_utility integration tests ${{ matrix.target.os }}
-        working-directory: "${{ github.workspace }}/dns_utility"
+        working-directory: ${{ github.workspace }}/dns_utility
         run: |
-          cargo build --release --verbose --locked
-          cargo test --release --locked --no-fail-fast -- --nocapture _integration
+          cargo build --release --verbose
+          cargo test --release --no-fail-fast -- --nocapture _integration
 
   build:
     needs:
@@ -198,7 +198,7 @@ jobs:
     runs-on: ${{ matrix.target.os }}
     env:
       RUSTFLAGS: -D warnings -Anon-snake-case
-      RUST_BACKTRACE: "1"
+      RUST_BACKTRACE: 1
     
     steps:
       - uses: actions/checkout@v3
@@ -207,8 +207,8 @@ jobs:
       
       - uses: Swatinem/rust-cache@v2
         with:
-          prefix-key: "rust-cache"
-          shared-key: "build"
+          prefix-key: rust-cache
+          shared-key: build
       
       - name: Build ${{ matrix.target.os }}
         run: ./ci/build.sh
