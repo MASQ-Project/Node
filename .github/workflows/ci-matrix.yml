@@ -26,6 +26,8 @@ jobs:
     needs: format
     name: Multinode Integration Tests
     runs-on: ubuntu-22.04
+    env:
+      RUSTFLAGS: -D warnings -Anon-snake-case
     steps:
       - uses: actions/checkout@v3
         with:
@@ -35,8 +37,6 @@ jobs:
           prefix-key: "rust-cache"
           shared-key: "multinode-test"
       - name: Run multinode integration test
-        env:
-          RUSTFLAGS: -D warnings -Anon-snake-case
         run: ./ci/multinode_integration_test.sh
         shell: bash
   
@@ -51,6 +51,8 @@ jobs:
           - { name: windows, os: windows-2022 }
     name: Lint on ${{ matrix.target.os }}
     runs-on: ${{ matrix.target.os }}
+    env:
+      RUSTFLAGS: -D warnings -Anon-snake-case
     steps:
       - uses: actions/checkout@v3
         with:
@@ -59,21 +61,26 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "lint"
-      - name: Lint ${{ matrix.target.os }}
-        env:
-          RUSTFLAGS: -D warnings -Anon-snake-case
+      - name: Lint node on ${{ matrix.target.os }}
         run: |
           cd node
           cargo clippy -- -D warnings
+      - name: Lint masq on ${{ matrix.target.os }}
+        run: |
           cd ../masq
           cargo clippy -- -D warnings
+      - name: Lint masq_lib on ${{ matrix.target.os }}
+        run: |
           cd ../masq_lib
           cargo clippy -- -D warnings
+      - name: Lint automap on ${{ matrix.target.os }}
+        run: |
           cd ../automap
           cargo clippy -- -D warnings
+      - name: Lint dns_utility on ${{ matrix.target.os }}
+        run: |
           cd ../dns_utility
           cargo clippy -- -D warnings
-        shell: bash
 
   unit_tests:
     needs: format
@@ -86,6 +93,8 @@ jobs:
           - { name: windows, os: windows-2022 }
     name: Unit tests on ${{ matrix.target.os }}
     runs-on: ${{ matrix.target.os }}
+    env:
+      RUSTFLAGS: -D warnings -Anon-snake-case
     steps:
       - uses: actions/checkout@v3
         with:
@@ -94,21 +103,26 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "unit-tests"
-      - name: Unit tests ${{ matrix.target.os }}
-        env:
-          RUSTFLAGS: -D warnings -Anon-snake-case
+      - name: Node unit tests ${{ matrix.target.os }}
         run: |
           cd node
           cargo test --release --lib --no-fail-fast --features masq_lib/log_recipient_test -- --nocapture --skip _integration
+      - name: masq unit tests ${{ matrix.target.os }}
+        run: |
           cd ../masq
           cargo test --release -- --nocapture --skip _integration
+      - name: masq_lib unit tests ${{ matrix.target.os }}
+        run: |
           cd ../masq_lib
           cargo test --release -- --nocapture --skip _integration --test-threads=1
+      - name: automap unit tests ${{ matrix.target.os }}
+        run: |
           cd ../automap
           cargo test -- --nocapture --skip _integration --test-threads=1
+      - name: dns_utility unit tests ${{ matrix.target.os }}
+        run: |
           cd ../dns_utility
           cargo test --release -- --nocapture --skip _integration
-        shell: bash
 
   integration_tests:
     needs: format
@@ -121,6 +135,8 @@ jobs:
           - { name: windows, os: windows-2022 }
     name: Integration tests on ${{ matrix.target.os }}
     runs-on: ${{ matrix.target.os }}
+    env:
+      RUSTFLAGS: -D warnings -Anon-snake-case
     steps:
       - uses: actions/checkout@v3
         with:
@@ -129,13 +145,16 @@ jobs:
         with:
           prefix-key: "rust-cache"
           shared-key: "integration-tests"
-      - name: Integration tests ${{ matrix.target.os }}
-        env:
-          RUSTFLAGS: -D warnings -Anon-snake-case
-        run: |
-          ./node/ci/integration_tests.sh
-          ./masq/ci/integration_tests.sh
-          ./dns_utility/ci/integration_tests.sh
+      - name: Build before root
+        run: ./build.sh
+      - name: Node integration tests ${{ matrix.target.os }}
+        run: ./node/ci/integration_tests.sh
+        shell: bash
+      - name: MASQ integration tests ${{ matrix.target.os }}
+        run: ./masq/ci/integration_tests.sh
+        shell: bash
+      - name: dns_utility integration tests ${{ matrix.target.os }}
+        run: ./dns_utility/ci/integration_tests.sh
         shell: bash
 
   build:
