@@ -273,19 +273,19 @@ fn node_creates_log_file_with_heading_integration() {
     );
 
     let expected_heading = format!(
-        r#"
-^Node Version: v\d\.\d\.\d\n
-Database Schema Version: \d+\n
-OS: [a-z]+\n
-client_request_payload::MIGRATIONS \(\d+\.\d+\)\n
-client_response_payload::MIGRATIONS \(\d+\.\d+\)\n
-dns_resolve_failure::MIGRATIONS \(\d+\.\d+\)\n
-gossip::MIGRATIONS \(\d+\.\d+\)\n
-gossip_failure::MIGRATIONS \(\d+\.\d+\)\n
-node_record_inner::MIGRATIONS \(\d+\.\d+\)\n
-\d+\-\d+\-\d+ \d+:\d+:\d+\.\d+ Thd\d+:"#
+        r#"^
+          _____ ______  ________   ________   _______          Node Version: v\d\.\d\.\d
+        /   _  | _   /|/  __   /|/  ______/|/   __   /|        Database Schema Version: \d+
+       /  / /__///  / /  /|/  / /  /|_____|/  /|_/  / /        OS: [a-z]+
+      /  / |__|//  / /  __   / /_____   /|/  / '/  / /         client_request_payload::MIGRATIONS \(\d+\.\d+\)
+     /  / /    /  / /  / /  / |_____/  / /  /__/  / /          client_response_payload::MIGRATIONS \(\d+\.\d+\)
+    /__/ /    /__/ /__/ /__/ /________/ /_____   / /           dns_resolve_failure::MIGRATIONS \(\d+\.\d+\)
+    |__|/     |__|/|__|/|__|/|________|/|____/__/ /            gossip::MIGRATIONS \(\d+\.\d+\)
+                                             |__|/             gossip_failure::MIGRATIONS \(\d+\.\d+\)
+                                                               node_record_inner::MIGRATIONS \(\d+\.\d+\)\n\n
+                                                               \d+\-\d+\-\d+ \d+:\d+:\d+\.\d+ Thd\d+:"#,
     );
-    //The last line means the timestamp.
+    //The last line represents the first log with its timestamp.
 
     node.wait_for_log(&expected_heading, Some(5000));
     //Node is dropped and killed

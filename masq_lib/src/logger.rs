@@ -25,9 +25,13 @@ use log::Metadata;
 use log::Record;
 use std::sync::Mutex;
 use std::{io, thread};
+use std::io::Write;
 use time::format_description::parse;
 use time::OffsetDateTime;
 
+pub static mut POINTER_TO_FORMAT_FUNCTION: fn (&mut dyn io::Write,
+                                               OffsetDateTime,
+                                               &Record) ->  Result<(), io::Error> = heading_format_function;
 const UI_MESSAGE_LOG_LEVEL: Level = Level::Info;
 pub const TIME_FORMATTING_STRING: &str =
     "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]";
@@ -213,25 +217,18 @@ impl Logger {
         );
     }
 
-    pub fn log_file_heading(test_name: &str) {
-        let test_tag_opt = if cfg!(test) {
-            format!("Printed in test enviroment for test: {}\n", test_name)
-        } else {
-            "".to_string()
-        };
-        let heading = format!(
-            "\
-        {}\
-        Node Version: {}\n\
-        Database Schema Version: {}\n\
-        OS: {}\n\
-        client_request_payload::MIGRATIONS {}\n\
-        client_response_payload::MIGRATIONS {}\n\
-        dns_resolve_failure::MIGRATIONS {}\n\
-        gossip::MIGRATIONS {}\n\
-        gossip_failure::MIGRATIONS {}\n\
-        node_record_inner::MIGRATIONS {}",
-            test_tag_opt,
+    pub fn log_file_heading(test_name: &str) -> String {
+        format!(
+            "
+          _____ ______  ________   ________   _______          Node Version: {}
+        /   _  | _   /|/  __   /|/  ______/|/   __   /|        Database Schema Version: {}
+       /  / /__///  / /  /|/  / /  /|_____|/  /|_/  / /        OS: {}
+      /  / |__|//  / /  __   / /_____   /|/  / '/  / /         client_request_payload::MIGRATIONS {}
+     /  / /    /  / /  / /  / |_____/  / /  /__/  / /          client_response_payload::MIGRATIONS {}
+    /__/ /    /__/ /__/ /__/ /________/ /_____   / /           dns_resolve_failure::MIGRATIONS {}
+    |__|/     |__|/|__|/|__|/|________|/|____/__/ /            gossip::MIGRATIONS {}
+                                             |__|/             gossip_failure::MIGRATIONS {}
+                                                               node_record_inner::MIGRATIONS {}\n",
             env!("CARGO_PKG_VERSION"),
             CURRENT_SCHEMA_VERSION,
             std::env::consts::OS,
@@ -241,9 +238,7 @@ impl Logger {
             Logger::data_version_pretty_print(GOSSIP_CURRENT_VERSION),
             Logger::data_version_pretty_print(GOSSIP_FAILURE_CURRENT_VERSION),
             Logger::data_version_pretty_print(NODE_RECORD_INNER_CURRENT_VERSION)
-        );
-
-        Self::log_plain_message("plain_message", heading);
+        )
     }
 
     fn data_version_pretty_print(dv: DataVersion) -> String {
@@ -282,6 +277,14 @@ impl From<Level> for SerializableLogLevel {
             _ => panic!("The level you're converting is below log broadcast level."),
         }
     }
+}
+
+pub fn heading_format_function(
+    write: &mut dyn io::Write,
+    timestamp: OffsetDateTime,
+    record: &Record,
+) -> Result<(), io::Error> {
+    write.write_fmt(*record.args())
 }
 
 pub fn real_format_function(
@@ -751,22 +754,20 @@ mod tests {
     fn logger_prints_log_file_heading() {
         init_test_logging();
         let _guard = prepare_test_environment();
-        let subject = Logger::new("logger_prints_log_file_heading");
 
-        subject.log_file_heading();
+        let heading_result = Logger::log_file_heading("logger_prints_log_file_heading");
 
-        // TODO Dont forget to wright an intergration test proving the first line is omitted, also make sure the end of the headding is properly followed by the first log.
-        let expected_headding = format!(
-            r#"Printed in test enviroment for logger: logger_prints_log_file_heading\n
-Node Version: v\d\.\d\.\d\n
-Database Schema Version: \d+\n
-OS: {}\n
-client_request_payload::MIGRATIONS {}\n
-client_response_payload::MIGRATIONS {}\n
-dns_resolve_failure::MIGRATIONS {}\n
-gossip::MIGRATIONS {}\n
-gossip_failure::MIGRATIONS {}\n
-node_record_inner::MIGRATIONS {}"#,
+        let expected_headding_regex = format!(
+        r#"
+          _____ ______  ________   ________   _______          Node Version: v\d\.\d\.\d
+        /   _  | _   /|/  __   /|/  ______/|/   __   /|        Database Schema Version: \d+
+       /  / /__///  / /  /|/  / /  /|_____|/  /|_/  / /        OS: {}
+      /  / |__|//  / /  __   / /_____   /|/  / '/  / /         client_response_payload::MIGRATIONS {}
+     /  / /    /  / /  / /  / |_____/  / /  /__/  / /          client_response_payload::MIGRATIONS {}
+    /__/ /    /__/ /__/ /__/ /________/ /_____   / /           dns_resolve_failure::MIGRATIONS {}
+    |__|/     |__|/|__|/|__|/|________|/|____/__/ /            gossip::MIGRATIONS {}
+                                             |__|/             gossip_failure::MIGRATIONS {}
+                                                               node_record_inner::MIGRATIONS {}\n"#,
             std::env::consts::OS,
             Logger::data_version_pretty_print(CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION),
             Logger::data_version_pretty_print(CLIENT_RESPONSE_PAYLOAD_CURRENT_VERSION),
@@ -775,8 +776,8 @@ node_record_inner::MIGRATIONS {}"#,
             Logger::data_version_pretty_print(GOSSIP_FAILURE_CURRENT_VERSION),
             Logger::data_version_pretty_print(NODE_RECORD_INNER_CURRENT_VERSION)
         );
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_matching(&expected_headding);
+        let regex = Regex::new(&expected_headding_regex).unwrap();
+        assert!(regex.is_match(&heading_result),"We expected this regex to match: {} but we got this text output {}",expected_headding_regex,heading_result);
     }
 
     #[test]
@@ -815,19 +816,6 @@ node_record_inner::MIGRATIONS {}"#,
         let after_str = timestamp_as_string(after);
         assert_between(&one_log[..prefix_len], &before_str, &after_str);
         assert_between(&another_log[..prefix_len], &before_str, &after_str);
-    }
-
-    #[test]
-    fn expermintal_format_test() {
-        init_test_logging();
-
-        let subject = Logger::new("logger");
-        subject.log_file_heading();
-
-        let tlh = TestLogHandler::new();
-        tlh.exists_log_matching("blar");
-
-
     }
 
     #[test]

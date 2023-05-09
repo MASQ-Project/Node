@@ -14,7 +14,7 @@ use flexi_logger::{
 use futures::try_ready;
 use lazy_static::lazy_static;
 use masq_lib::command::StdStreams;
-use masq_lib::logger::real_format_function;
+use masq_lib::logger::{POINTER_TO_FORMAT_FUNCTION, real_format_function};
 use masq_lib::multi_config::MultiConfig;
 use masq_lib::shared_schema::ConfiguratorError;
 use masq_lib::logger;
@@ -26,6 +26,7 @@ use std::panic::{Location, PanicInfo};
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, MutexGuard};
 use flexi_logger::writers::FileLogWriter;
+use log::{Level, log};
 use time::OffsetDateTime;
 use tokio::prelude::{Async, Future};
 
@@ -168,7 +169,6 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
                 .build(),
         )
         .log_to_file()
-        .add_writer("plain_message", plain_message_writer())
         .directory(file_path.clone())
         .print_message()
         .duplicate_to_stderr(Duplicate::Info)
@@ -197,7 +197,13 @@ impl LoggerInitializerWrapper for LoggerInitializerWrapperReal {
             panic_hook(AltPanicInfo::from(panic_info))
         }));
 
-        logger::Logger::log_file_heading("");
+        // Info level is not shown within the log
+        log!(Level::Info, "{}", logger::Logger::log_file_heading(""));
+
+        unsafe {
+            // This resets the format function after specialized formatting for the log heading is used.
+            POINTER_TO_FORMAT_FUNCTION = real_format_function;
+        }
 
     }
 }
@@ -277,28 +283,10 @@ fn format_function(
     _now: &mut DeferredNow,
     record: &Record,
 ) -> Result<(), io::Error> {
-    real_format_function(write, OffsetDateTime::now_utc(), record)
+    unsafe {
+        POINTER_TO_FORMAT_FUNCTION(write, OffsetDateTime::now_utc(), record)
+    }
 }
-
-pub fn plain_message_writer() -> Box<FileLogWriter> {
-    Box::new(FileLogWriter::builder()
-        .discriminant("plain_message")
-        // .suffix("alerts")
-        .suppress_timestamp()
-        // .print_message()
-        .format(plain_message_format)
-        .try_build()
-        .unwrap()) // TODO remove unwrap
-}
-
-fn plain_message_format(
-    write: &mut dyn io::Write,
-    _now: &mut DeferredNow,
-    record: &Record,
-) -> Result<(), io::Error> {
-    write.write_fmt(*record.args())
-}
-
 
 #[cfg(test)]
 pub mod test_utils {
