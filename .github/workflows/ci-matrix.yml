@@ -10,44 +10,44 @@ jobs:
   format:
     name: Format Code
     runs-on: ubuntu-22.04
-    
+
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-      
+
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: rust-cache
           shared-key: format
-      
+
       - name: Run format
         working-directory: ${{ github.workspace }}/ci
         run: ./format.sh
         shell: bash
-  
+
   multinode_test:
     needs: format
     name: Multinode Integration Tests
     runs-on: ubuntu-22.04
     env:
       RUSTFLAGS: -D warnings -Anon-snake-case
-    
+
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-      
+
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: rust-cache
           shared-key: multinode-test
-      
+
       - name: Run multinode integration test
         working-directory: ${{ github.workspace }}/ci
         run: ./multinode_integration_test.sh
         shell: bash
-  
+
   lint:
     needs: format
     strategy:
@@ -62,33 +62,33 @@ jobs:
     env:
       RUSTFLAGS: -D warnings -Anon-snake-case
       RUST_BACKTRACE: 1
-    
+
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-      
+
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: rust-cache
           shared-key: lint
-    
+
       - name: Lint masq_lib
         working-directory: ${{ github.workspace }}/masq_lib
         run: cargo clippy -- -D warnings
-     
+
       - name: Lint node
         working-directory: ${{ github.workspace }}/node
         run: cargo clippy -- -D warnings
-      
+
       - name: Lint dns_utility
         working-directory: ${{ github.workspace }}/dns_utility
         run: cargo clippy -- -D warnings
-      
+
       - name: Lint masq
         working-directory: ${{ github.workspace }}/masq
         run: cargo clippy -- -D warnings
-      
+
       - name: Lint automap
         working-directory: ${{ github.workspace }}/automap
         run: cargo clippy -- -D warnings
@@ -107,36 +107,41 @@ jobs:
     env:
       RUSTFLAGS: -D warnings -Anon-snake-case
       RUST_BACKTRACE: 1
-    
+
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-      
+
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: rust-cache
           shared-key: unit-tests
-      
+
       - name: Node unit tests ${{ matrix.target.os }}
         working-directory: ${{ github.workspace }}/node
-        run: cargo test --release --lib --no-fail-fast --features masq_lib/log_recipient_test -- --nocapture --skip _integration
-      
+        run: ./ci/unit_tests.sh
+        shell: bash
+
       - name: masq unit tests ${{ matrix.target.os }}
         working-directory: ${{ github.workspace }}/masq
-        run: cargo test --release -- --nocapture --skip _integration
-      
+        run: ./ci/unit_tests.sh
+        shell: bash
+
       - name: masq_lib unit tests ${{ matrix.target.os }}
         working-directory: ${{ github.workspace }}/masq_lib
-        run: cargo test --release -- --nocapture --skip _integration
-      
+        run: ./ci/unit_tests.sh
+        shell: bash
+
       - name: automap unit tests ${{ matrix.target.os }}
         working-directory: ${{ github.workspace }}/automap
-        run: cargo test -- --nocapture --skip _integration
-    
+        run: ./ci/unit_tests.sh
+        shell: bash
+
       - name: dns_utility unit tests ${{ matrix.target.os }}
         working-directory: ${{ github.workspace }}/dns_utility
-        run: cargo test --release -- --nocapture --skip _integration
+        run: ./ci/unit_tests.sh
+        shell: bash
 
   integration_tests:
     needs: format
@@ -152,34 +157,37 @@ jobs:
     env:
       RUSTFLAGS: -D warnings -Anon-snake-case
       RUST_BACKTRACE: 1
-    
+
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-      
+
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: rust-cache
           shared-key: integration-tests
-      
+
       - name: Node integration tests ${{ matrix.target.os }}
         working-directory: ${{ github.workspace }}/node
         run: |
           cargo build --release --verbose
-          cargo test --release --no-fail-fast -- --nocapture _integration
-      
+          ./ci/integration_tests.sh
+        shell: bash
+
       - name: masq integration tests ${{ matrix.target.os }}
         working-directory: ${{ github.workspace }}/masq
         run: |
           cargo build --release --verbose
-          cargo test --release --no-fail-fast -- --nocapture _integration
-      
+          ./ci/integration_tests.sh
+        shell: bash
+
       - name: dns_utility integration tests ${{ matrix.target.os }}
         working-directory: ${{ github.workspace }}/dns_utility
         run: |
           cargo build --release --verbose
-          cargo test --release --no-fail-fast -- --nocapture _integration
+          ./ci/integration_tests.sh
+        shell: bash
 
   build:
     needs:
@@ -199,25 +207,25 @@ jobs:
     env:
       RUSTFLAGS: -D warnings -Anon-snake-case
       RUST_BACKTRACE: 1
-    
+
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-      
+
       - uses: Swatinem/rust-cache@v2
         with:
           prefix-key: rust-cache
           shared-key: build
-      
+
       - name: Build ${{ matrix.target.os }}
         run: ./ci/build.sh
         shell: bash
-      
+
       - name: Collect results
         run: ./ci/collect_results.sh
         shell: bash
-      
+
       - name: Publish ${{ matrix.target.os }}
         uses: actions/upload-artifact@v3
         with:
@@ -235,19 +243,19 @@ jobs:
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_S3_BUCKET: ${{ secrets.AWS_S3_BUCKET }}
       AWS_REGION: ${{ secrets.AWS_REGION }}
-    
+
     steps:
       - uses: actions/checkout@v3
         with:
           ref: ${{ github.event.pull_request.head.sha }}
-      
+
       - uses: actions/download-artifact@v3
         with:
           name: Node-${{ matrix.os }}
-      
+
       - name: Display structure of downloaded files
         run: ls -R
-      
+
       - name: Deploy to S3 and invalidate CloudFront
         run: |
           aws s3 sync './Node-${{ matrix.os }}/generated/bin/' 's3://${{ secrets.AWS_S3_BUCKET }}/Node/${{ startsWith(github.head_ref, 'GH') && github.event.workflow_run.head_branch || 'latest' }}Node-${{ matrix.os }}' --acl private --follow-symlinks --delete
