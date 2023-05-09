@@ -217,11 +217,33 @@ jobs:
           prefix-key: rust-cache
           shared-key: build
 
-      - name: Build ${{ matrix.target.os }}
+      - name: Node build on ${{ matrix.target.os }}
+        working-directory: ${{ github.workspace }}/node
+        run: ./ci/build.sh
+        shell: bash
+  
+      - name: masq build on ${{ matrix.target.os }}
+        working-directory: ${{ github.workspace }}/masq
+        run: ./ci/build.sh
+        shell: bash
+  
+      - name: masq_lib build on ${{ matrix.target.os }}
+        working-directory: ${{ github.workspace }}/masq_lib
+        run: ./ci/build.sh
+        shell: bash
+  
+      - name: automap build on ${{ matrix.target.os }}
+        working-directory: ${{ github.workspace }}/automap
+        run: ./ci/build.sh
+        shell: bash
+  
+      - name: dns_utility build on ${{ matrix.target.os }}
+        working-directory: ${{ github.workspace }}/dns_utility
         run: ./ci/build.sh
         shell: bash
 
       - name: Collect results
+        working-directory: ${{ github.workspace }}
         run: ./ci/collect_results.sh
         shell: bash
 
