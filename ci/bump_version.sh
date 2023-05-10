@@ -23,12 +23,13 @@ else
   echo "Found ${#crates[@]} crate(s): ${crates[*]}"
 fi
 
-file=Cargo.toml
 final_exit_code=0
 declare -a grep_failures
 declare -a lockfile_failures
 
 find_and_replace() {
+  file=Cargo.toml
+
   # Catches every `version` that begins a line and doesn't end with a comma.
   find_pattern='^version\s*=.*[^,]\s*$'
   replace_pattern='s/'$find_pattern'/version = "'"$version"'"/'
@@ -67,11 +68,22 @@ do
   popd
 done
 
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+CYAN='\033[0;36m'
+GRAY='\033[0;37m'
+
+# Reset
+NC='\033[0m'
+
 if [[ $final_exit_code != 0 ]]; then
-  [[ "${#grep_failures[@]}" != "0" ]] && echo "Failed to find 'version' for ${#grep_failures[@]} crate(s): ${grep_failures[*]}"
-  [[ "${#lockfile_failures[@]}" != "0" ]] && echo "Failed to generate lockfile for ${#lockfile_failures[@]} crate(s): ${lockfile_failures[*]}"
+  [[ "${#grep_failures[@]}" != "0" ]] && echo -e "${RED}Failed to find 'version' for ${#grep_failures[@]} crate(s): ${grep_failures[*]}"
+  [[ "${#lockfile_failures[@]}" != "0" ]] && echo -e "${RED}Failed to generate lockfile for ${#lockfile_failures[@]} crate(s): ${lockfile_failures[*]}"
 else
-  echo "The version number has been changed to $version."
+  echo -e "${GREEN}The version number has been changed to $version."
 fi
 
 exit $final_exit_code
