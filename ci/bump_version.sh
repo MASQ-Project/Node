@@ -58,6 +58,8 @@ find_and_replace() {
     final_exit_code=1
     grep_failures+=($1)
   fi
+
+  return $exit_code
 }
 
 update_lockfile() {
