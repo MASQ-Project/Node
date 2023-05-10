@@ -7,6 +7,21 @@ then
 fi
 
 version="$1"
+#regex="^([0-9]+)\.([0-9]+)\.([0-9]+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$"
+#
+#if [[ $version =~ $regex ]]; then
+#  echo "The version number is valid."
+#else
+#  echo "The version number is invalid."
+#fi
+
+if [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+  echo "Version number is valid"
+else
+  echo "Invalid version number"
+  exit 1
+fi
+
 CI_DIR="$( cd "$( dirname "$0" )" && pwd )"
 pushd "$CI_DIR/../"
 
