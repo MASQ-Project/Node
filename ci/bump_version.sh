@@ -7,16 +7,10 @@ then
 fi
 
 version="$1"
-#regex="^([0-9]+)\.([0-9]+)\.([0-9]+)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$"
-#
-#if [[ $version =~ $regex ]]; then
-#  echo "The version number is valid."
-#else
-#  echo "The version number is invalid."
-#fi
+regex="^[0-9]+\.[0-9]+\.[0-9]+$"
 
-if [[ $1 =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-  echo "Version number is valid"
+if [[ $version =~ $regex ]]; then
+  echo "Changing to the version number $version"
 else
   echo "Invalid version number"
   exit 1
