@@ -334,7 +334,13 @@ impl ActorSystemFactoryToolsReal {
     }
 
     fn handle_automap_error(prefix: &str, error: AutomapError) {
-        exit_process(1, &format!("Automap failure: {}{:?}", prefix, error));
+        let msg = format!("Automap failure: {}{:?}", prefix, error);
+        if error.should_crash() {
+            exit_process(1, &format!("Automap failure: {}{:?}", prefix, error));
+        }
+        else {
+            todo! ("What do we do if we don't crash? ({})", msg)
+        }
     }
 }
 

@@ -25,6 +25,7 @@ use masq_lib::utils::{AutomapProtocol, ExpectValue};
 use rustc_hex::FromHex;
 use std::net::{IpAddr, Ipv4Addr};
 use std::str::FromStr;
+use crate::node_configurator::compute_mapping_protocol_opt;
 
 pub trait UnprivilegedParseArgsConfiguration {
     // Only initialization that cannot be done with privilege should happen here.
@@ -425,42 +426,6 @@ fn validate_mandatory_node_addr(
             ),
         ))
     }
-}
-
-pub fn compute_mapping_protocol_opt(
-    multi_config: &MultiConfig,
-    persistent_config: &mut dyn PersistentConfiguration,
-    logger: &Logger,
-) -> Option<AutomapProtocol> {
-    let persistent_mapping_protocol_opt = persistent_config
-        .mapping_protocol()
-        .expect("Error retrieving mapping protocol from CONFIG table");
-    let mapping_protocol_specified = multi_config.occurrences_of("mapping-protocol") > 0;
-    let computed_mapping_protocol_opt = match (
-        value_m!(multi_config, "mapping-protocol", AutomapProtocol), // command line
-        persistent_mapping_protocol_opt,                             // database
-        mapping_protocol_specified, // was a value given on the command line?
-    ) {
-        (None, Some(persisted_mapping_protocol), false) => Some(persisted_mapping_protocol),
-        (None, _, true) => None,
-        (cmd_line_mapping_protocol_opt, _, _) => cmd_line_mapping_protocol_opt,
-    };
-    if computed_mapping_protocol_opt != persistent_mapping_protocol_opt {
-        if computed_mapping_protocol_opt.is_none() {
-            debug!(logger, "Blanking mapping protocol out of the database")
-        }
-        match persistent_config.set_mapping_protocol(computed_mapping_protocol_opt) {
-            Ok(_) => (),
-            Err(e) => {
-                warning!(
-                    logger,
-                    "Could not save mapping protocol to database: {:?}",
-                    e
-                );
-            }
-        }
-    }
-    computed_mapping_protocol_opt
 }
 
 fn configure_accountant_config(

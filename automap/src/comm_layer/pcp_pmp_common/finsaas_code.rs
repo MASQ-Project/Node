@@ -1,4 +1,5 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
+#![cfg(test)]
 #[allow(unused_imports)]
 use crossbeam_channel::unbounded;
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
@@ -9,11 +10,9 @@ use std::thread;
 #[allow(dead_code)]
 //multicast IP address must that is shared between any number of subscribers
 const MULTICAST_GROUP_ADDRESS_1: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 2);
-#[cfg(test)]
 const MULTICAST_GROUP_ADDRESS_2: Ipv4Addr = Ipv4Addr::new(224, 0, 0, 3);
 //port that multicast group subscribers will bind to and communicate with
 const MCAST_PORT_1: u16 = 8888;
-#[cfg(test)]
 const MCAST_PORT_2: u16 = 8889;
 //unspecified interface here resolves into any available interface, if multiple interfaces are present it will try to select "default" interface first
 const MCAST_INTERFACE: Ipv4Addr = Ipv4Addr::UNSPECIFIED;

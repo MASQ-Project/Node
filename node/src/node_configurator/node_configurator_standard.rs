@@ -615,7 +615,7 @@ mod tests {
         PersistentConfigError, PersistentConfigurationReal,
     };
     use crate::node_configurator::unprivileged_parse_args_configuration::{
-        compute_mapping_protocol_opt, UnprivilegedParseArgsConfigurationDaoNull,
+        UnprivilegedParseArgsConfigurationDaoNull,
     };
     use crate::node_test_utils::DirsWrapperMock;
     use crate::sub_lib::cryptde::{CryptDE, PlainData};
@@ -645,6 +645,7 @@ mod tests {
     use std::io::Write;
     use std::path::PathBuf;
     use std::sync::{Arc, Mutex};
+    use crate::node_configurator::compute_mapping_protocol_opt;
 
     #[test]
     fn node_configurator_standard_unprivileged_uses_parse_args_configurator_dao_real() {

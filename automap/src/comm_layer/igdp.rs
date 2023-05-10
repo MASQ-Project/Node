@@ -1306,7 +1306,7 @@ mod tests {
             .start_housekeeping_thread(change_handler, router_ip)
             .unwrap();
 
-        thread::sleep(Duration::from_millis(100));
+        thread::sleep(Duration::from_millis(50));
         let change_log = change_log_arc.lock().unwrap();
         assert_eq!(
             *change_log,
@@ -1549,7 +1549,7 @@ mod tests {
             housekeeping_commander_opt: None,
             public_ip_opt: None,
             mapping_adder: Box::new(MappingAdderMock::new()),
-            logger: Logger::new("test"),
+            logger: Logger::new("thread_guts_iteration_handles_missing_public_ip"),
         }));
         let change_log_arc = Arc::new(Mutex::new(vec![]));
         let change_log_inner = change_log_arc.clone();
@@ -1574,7 +1574,7 @@ mod tests {
             vec![AutomapChange::NewIp(IpAddr::V4(new_public_ip))]
         );
         TestLogHandler::new().exists_log_containing(
-            "WARN: test: Housekeeper was started before retrieving public IP",
+            "WARN: thread_guts_iteration_handles_missing_public_ip: Housekeeper was started before retrieving public IP",
         );
     }
 
@@ -1650,7 +1650,6 @@ mod tests {
         init_test_logging();
         let public_ip_addr = Ipv4Addr::from_str("1.2.3.4").unwrap();
         let gateway = GatewayWrapperMock::new().get_external_ip_result(Ok(public_ip_addr));
-        // .get_external_ip_result(Err(GetExternalIpError::ActionNotAuthorized));
         let add_mapping_params_arc = Arc::new(Mutex::new(vec![]));
         let mapping_adder = MappingAdderMock::new()
             .add_mapping_params(&add_mapping_params_arc)

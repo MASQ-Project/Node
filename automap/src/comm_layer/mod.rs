@@ -48,17 +48,17 @@ pub enum AutomapError {
     SocketReceiveError(AutomapErrorCause),
     PacketParseError(ParseError),
     ProtocolError(String),
-    PermanentLeasesOnly, // possibly shouldn't kill the system; investigate
-    TemporaryMappingError(String), // possibly shouldn't kill the system; investigate
+    PermanentLeasesOnly,
+    TemporaryMappingError(String),
     PermanentMappingError(String),
-    ProbeServerConnectError(String), // Are these Probe errors still used anywhere?
+    ProbeServerConnectError(String),
     ProbeRequestError(AutomapErrorCause, String),
     ProbeReceiveError(String),
-    DeleteMappingError(String), // possibly shouldn't kill the system; investigate
+    DeleteMappingError(String),
     TransactionFailure(String),
     AllProtocolsFailed(Vec<(AutomapProtocol, AutomapError)>),
-    HousekeeperAlreadyRunning, // possibly shouldn't kill the system; investigate
-    HousekeeperCrashed,        // possibly shouldn't kill the system; investigate
+    HousekeeperAlreadyRunning,
+    HousekeeperCrashed,
 }
 
 impl AutomapError {
@@ -92,6 +92,33 @@ impl AutomapError {
             AutomapError::HousekeeperCrashed => {
                 AutomapErrorCause::Unknown("Thread crash".to_string())
             }
+        }
+    }
+
+    pub fn should_crash(&self) -> bool {
+        match self {
+            AutomapError::Unknown => true,
+            AutomapError::NoLocalIpAddress => true,
+            AutomapError::CantFindDefaultGateway => true,
+            AutomapError::IPv6Unsupported(_) => true,
+            AutomapError::FindRouterError(_) => true,
+            AutomapError::GetPublicIpError(_) => true,
+            AutomapError::SocketBindingError(_, _) => true,
+            AutomapError::SocketSendError(_) => true,
+            AutomapError::SocketReceiveError(_) => true,
+            AutomapError::PacketParseError(_) => true,
+            AutomapError::ProtocolError(_) => true,
+            AutomapError::PermanentLeasesOnly => false,
+            AutomapError::TemporaryMappingError(_) => false,
+            AutomapError::PermanentMappingError(_) => true,
+            AutomapError::ProbeServerConnectError(_) => true,
+            AutomapError::ProbeRequestError(_, _) => true,
+            AutomapError::ProbeReceiveError(_) => true,
+            AutomapError::DeleteMappingError(_) => false,
+            AutomapError::TransactionFailure(_) => true,
+            AutomapError::AllProtocolsFailed(_) => true,
+            AutomapError::HousekeeperAlreadyRunning => false,
+            AutomapError:: HousekeeperCrashed => false,
         }
     }
 }
@@ -163,6 +190,7 @@ impl LocalIpFinderReal {
 
 #[cfg(test)]
 mod tests {
+    use masq_lib::utils::localhost;
     use super::*;
 
     #[test]
@@ -263,5 +291,37 @@ mod tests {
             .collect::<Vec<(AutomapError, AutomapErrorCause)>>();
 
         assert_eq!(errors_and_actuals, errors_and_expectations);
+    }
+
+    #[test]
+    fn should_crash_works() {
+        vec![
+            (AutomapError::Unknown, true),
+            (AutomapError::NoLocalIpAddress, true),
+            (AutomapError::CantFindDefaultGateway, true),
+            (AutomapError::IPv6Unsupported(Ipv6Addr::UNSPECIFIED), true),
+            (AutomapError::FindRouterError("".to_string()), true),
+            (AutomapError::GetPublicIpError("".to_string()), true),
+            (AutomapError::SocketBindingError("".to_string(), SocketAddr::from_str("0.0.0.0:0").unwrap()), true),
+            (AutomapError::SocketSendError(AutomapErrorCause::Unknown("".to_string())), true),
+            (AutomapError::SocketReceiveError(AutomapErrorCause::Unknown("".to_string())), true),
+            (AutomapError::PacketParseError(ParseError::WrongVersion(0)), true),
+            (AutomapError::ProtocolError("".to_string()), true),
+            (AutomapError::PermanentLeasesOnly, false),
+            (AutomapError::TemporaryMappingError("".to_string()), false),
+            (AutomapError::PermanentMappingError("".to_string()), true),
+            (AutomapError::ProbeServerConnectError("".to_string()), true),
+            (AutomapError::ProbeRequestError(AutomapErrorCause::ProbeFailed, "".to_string()), true),
+            (AutomapError::ProbeReceiveError("".to_string()), true),
+            (AutomapError::DeleteMappingError("".to_string()), false),
+            (AutomapError::TransactionFailure("".to_string()), true),
+            (AutomapError::AllProtocolsFailed(vec![]), true),
+            (AutomapError::HousekeeperAlreadyRunning, false),
+            (AutomapError::HousekeeperCrashed, false),
+        ]
+            .into_iter()
+            .for_each (|(error, should_crash)| {
+                assert_eq! (error.should_crash(), should_crash, "{:?}.should_crash should be {}, but was {}", error, should_crash, !should_crash)
+            })
     }
 }

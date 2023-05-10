@@ -551,5 +551,5 @@ pub fn make_conn(home_dir: &Path) -> Box<dyn ConnectionWrapper> {
 
 pub fn handle_connection_error(stream: TcpStream) {
     let _ = stream.shutdown(Shutdown::Both).is_ok();
-    thread::sleep(Duration::from_millis(5000));
+    thread::sleep(Duration::from_millis(1000));
 }

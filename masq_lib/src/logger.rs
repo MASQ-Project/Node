@@ -926,41 +926,10 @@ mod tests {
         }
     }
 
-    fn sqrt(square: usize) -> usize {
-        let mut lo = 1;
-        let mut hi = square / 2;
-        let mut prev_mid = square;
-        loop {
-            let mid = (lo + hi) / 2;
-            if mid == prev_mid {
-                return mid;
-            }
-            prev_mid = mid;
-            let attempt = mid * mid;
-            if attempt == square {
-                return mid;
-            } else if attempt < square {
-                lo = mid
-            } else {
-                hi = mid
-            }
-        }
-    }
-
     fn ts() -> String {
         format!(
             "{:012}",
             Instant::now().duration_since(*START_TIMESTAMP).as_micros()
         )
-    }
-
-    #[test]
-    fn sqrt_works_as_expected() {
-        assert_eq!(sqrt(64), 8);
-        assert_eq!(sqrt(63), 7);
-        assert_eq!(sqrt(65), 8);
-        assert_eq!(sqrt(12345 * 12345), 12345);
-        assert_eq!(sqrt((12345 * 12345) - 1), 12344);
-        assert_eq!(sqrt(1000), 31)
     }
 }
