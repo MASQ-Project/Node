@@ -25,13 +25,14 @@ use log::Metadata;
 use log::Record;
 use std::sync::Mutex;
 use std::{io, thread};
-use std::io::Write;
 use time::format_description::parse;
 use time::OffsetDateTime;
 
-pub static mut POINTER_TO_FORMAT_FUNCTION: fn (&mut dyn io::Write,
-                                               OffsetDateTime,
-                                               &Record) ->  Result<(), io::Error> = heading_format_function;
+pub static mut POINTER_TO_FORMAT_FUNCTION: fn(
+    &mut dyn io::Write,
+    OffsetDateTime,
+    &Record,
+) -> Result<(), io::Error> = heading_format_function;
 const UI_MESSAGE_LOG_LEVEL: Level = Level::Info;
 pub const TIME_FORMATTING_STRING: &str =
     "[year]-[month]-[day] [hour]:[minute]:[second].[subsecond digits:3]";
@@ -217,7 +218,7 @@ impl Logger {
         );
     }
 
-    pub fn log_file_heading(test_name: &str) -> String {
+    pub fn log_file_heading() -> String {
         format!(
             "
           _____ ______  ________   ________   _______          Node Version: {}
@@ -281,7 +282,7 @@ impl From<Level> for SerializableLogLevel {
 
 pub fn heading_format_function(
     write: &mut dyn io::Write,
-    timestamp: OffsetDateTime,
+    _timestamp: OffsetDateTime,
     record: &Record,
 ) -> Result<(), io::Error> {
     write.write_fmt(*record.args())
@@ -755,10 +756,10 @@ mod tests {
         init_test_logging();
         let _guard = prepare_test_environment();
 
-        let heading_result = Logger::log_file_heading("logger_prints_log_file_heading");
+        let heading_result = Logger::log_file_heading();
 
         let expected_headding_regex = format!(
-        r#"
+            r#"
           _____ ______  ________   ________   _______          Node Version: v\d\.\d\.\d
         /   _  | _   /|/  __   /|/  ______/|/   __   /|        Database Schema Version: \d+
        /  / /__///  / /  /|/  / /  /|_____|/  /|_/  / /        OS: {}
@@ -777,7 +778,12 @@ mod tests {
             Logger::data_version_pretty_print(NODE_RECORD_INNER_CURRENT_VERSION)
         );
         let regex = Regex::new(&expected_headding_regex).unwrap();
-        assert!(regex.is_match(&heading_result),"We expected this regex to match: {} but we got this text output {}",expected_headding_regex,heading_result);
+        assert!(
+            regex.is_match(&heading_result),
+            "We expected this regex to match: {} but we got this text output {}",
+            expected_headding_regex,
+            heading_result
+        );
     }
 
     #[test]
