@@ -39,7 +39,7 @@ bump_version() {
     return
   fi
 
-  cargo generate-lockfile
+  cargo update --workspace
   exit_code="$?"
   if [[ "$exit_code" != "0" ]]; then
     final_exit_code=1
