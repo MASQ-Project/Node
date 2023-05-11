@@ -6,6 +6,7 @@ use crate::accountant::dao_utils::{from_time_t, to_time_t, CustomQuery};
 use crate::accountant::payable_dao::{
     PayableAccount, PayableDao, PayableDaoError, PayableDaoFactory,
 };
+use crate::accountant::payment_adjuster::PaymentAdjuster;
 use crate::accountant::pending_payable_dao::{
     PendingPayableDao, PendingPayableDaoError, PendingPayableDaoFactory,
 };
@@ -14,7 +15,10 @@ use crate::accountant::receivable_dao::{
 };
 use crate::accountant::scanners::{PayableScanner, PendingPayableScanner, ReceivableScanner};
 use crate::accountant::scanners_utils::payable_scanner_utils::PayableThresholdsGauge;
-use crate::accountant::{gwei_to_wei, Accountant, PendingPayableId, DEFAULT_PENDING_TOO_LONG_SEC};
+use crate::accountant::{
+    gwei_to_wei, Accountant, ConsumingWalletBalancesAndQualifiedPayables, PendingPayableId,
+    DEFAULT_PENDING_TOO_LONG_SEC,
+};
 use crate::banned_dao::{BannedDao, BannedDaoFactory};
 use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_interface::BlockchainTransaction;
@@ -23,6 +27,7 @@ use crate::db_config::config_dao::{ConfigDao, ConfigDaoFactory};
 use crate::db_config::mocks::ConfigDaoMock;
 use crate::sub_lib::accountant::{DaoFactories, FinancialStatistics};
 use crate::sub_lib::accountant::{MessageIdGenerator, PaymentThresholds};
+use crate::sub_lib::blockchain_bridge::OutcomingPayamentsInstructions;
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::make_wallet;
 use crate::test_utils::unshared_test_utils::make_bc_with_defaults;
@@ -1350,6 +1355,62 @@ impl PayableThresholdsGaugeMock {
         self.calculate_payout_threshold_in_gwei_results
             .borrow_mut()
             .push(result);
+        self
+    }
+}
+
+#[derive(Default)]
+pub struct PaymentAdjusterMock {
+    is_adjustment_required_params: Arc<Mutex<Vec<ConsumingWalletBalancesAndQualifiedPayables>>>,
+    is_adjustment_required_results: RefCell<Vec<bool>>,
+    adjust_payments_params: Arc<Mutex<Vec<ConsumingWalletBalancesAndQualifiedPayables>>>,
+    adjust_payments_results: RefCell<Vec<OutcomingPayamentsInstructions>>,
+}
+
+impl PaymentAdjuster for PaymentAdjusterMock {
+    fn is_adjustment_required(&self, msg: &ConsumingWalletBalancesAndQualifiedPayables) -> bool {
+        self.is_adjustment_required_params
+            .lock()
+            .unwrap()
+            .push(msg.clone());
+        self.is_adjustment_required_results.borrow_mut().remove(0)
+    }
+
+    fn adjust_payments(
+        &self,
+        msg: ConsumingWalletBalancesAndQualifiedPayables,
+    ) -> OutcomingPayamentsInstructions {
+        self.adjust_payments_params.lock().unwrap().push(msg);
+        self.adjust_payments_results.borrow_mut().remove(0)
+    }
+}
+
+impl PaymentAdjusterMock {
+    pub fn is_adjustment_required_params(
+        mut self,
+        params: &Arc<Mutex<Vec<ConsumingWalletBalancesAndQualifiedPayables>>>,
+    ) -> Self {
+        self.is_adjustment_required_params = params.clone();
+        self
+    }
+
+    pub fn is_adjustment_required_result(self, result: bool) -> Self {
+        self.is_adjustment_required_results
+            .borrow_mut()
+            .push(result);
+        self
+    }
+
+    pub fn adjust_payments_params(
+        mut self,
+        params: &Arc<Mutex<Vec<ConsumingWalletBalancesAndQualifiedPayables>>>,
+    ) -> Self {
+        self.adjust_payments_params = params.clone();
+        self
+    }
+
+    pub fn adjust_payments_result(self, result: OutcomingPayamentsInstructions) -> Self {
+        self.adjust_payments_results.borrow_mut().push(result);
         self
     }
 }

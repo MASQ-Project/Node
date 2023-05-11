@@ -12,9 +12,9 @@ use crate::accountant::scanners_utils::pending_payable_scanner_utils::{
 };
 use crate::accountant::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::{
-    gwei_to_wei, Accountant, ReceivedPayments, ReportTransactionReceipts,
-    RequestTransactionReceipts, ResponseSkeleton, ScanForPayables, ScanForPendingPayables,
-    ScanForReceivables, SentPayables,
+    gwei_to_wei, Accountant, ConsumingWalletBalancesAndQualifiedPayables, ReceivedPayments,
+    ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
+    ScanForPendingPayables, ScanForReceivables, SentPayables,
 };
 use crate::accountant::{PendingPayableId, PendingTransactionStatus};
 use crate::banned_dao::BannedDao;
@@ -23,7 +23,9 @@ use crate::blockchain::blockchain_interface::BlockchainError;
 use crate::sub_lib::accountant::{
     DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
 };
-use crate::sub_lib::blockchain_bridge::RequestBalancesToPayPayables;
+use crate::sub_lib::blockchain_bridge::{
+    OutcomingPayamentsInstructions, RequestBalancesToPayPayables,
+};
 use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
 use crate::sub_lib::wallet::Wallet;
 use actix::{Context, Message, System};
@@ -44,7 +46,15 @@ use time::OffsetDateTime;
 use web3::types::TransactionReceipt;
 
 pub struct Scanners {
-    pub payable: Box<dyn Scanner<RequestBalancesToPayPayables, SentPayables>>,
+    pub payable: Box<
+        dyn ExtendedScanner<
+            RequestBalancesToPayPayables,
+            ConsumingWalletBalancesAndQualifiedPayables,
+            (),
+            OutcomingPayamentsInstructions,
+            SentPayables,
+        >,
+    >,
     pub pending_payable: Box<dyn Scanner<RequestTransactionReceipts, ReportTransactionReceipts>>,
     pub receivable: Box<dyn Scanner<RetrieveTransactions, ReceivedPayments>>,
 }
@@ -97,6 +107,37 @@ where
     fn mark_as_started(&mut self, timestamp: SystemTime);
     fn mark_as_ended(&mut self, logger: &Logger);
     declare_as_any!();
+}
+
+//put only optional methods here
+pub trait ScannerExtensions<MidFindingsMessage, MidResultsMessage, ArgsFromContext> {
+    fn is_mid_processing_required(&self, _mid_findings_message: &MidFindingsMessage) -> bool {
+        intentionally_blank!()
+    }
+
+    fn process_mid_msg_with_context(
+        &self,
+        _msg: MidFindingsMessage,
+        _args: ArgsFromContext,
+    ) -> Option<MidResultsMessage> {
+        intentionally_blank!()
+    }
+}
+
+pub trait ExtendedScanner<
+    BeginMessage,
+    MidDataMessage,
+    ArgsFromContext,
+    MidResultsMessage,
+    EndMessage,
+>:
+    Scanner<BeginMessage, EndMessage>
+    + ScannerExtensions<MidDataMessage, MidResultsMessage, ArgsFromContext> where
+    BeginMessage: Message,
+    MidDataMessage: Message,
+    MidResultsMessage: Message,
+    EndMessage: Message,
+{
 }
 
 pub struct ScannerCommon {
@@ -157,6 +198,17 @@ pub struct PayableScanner {
     pub payable_dao: Box<dyn PayableDao>,
     pub pending_payable_dao: Box<dyn PendingPayableDao>,
     pub payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
+}
+
+impl<ArgsFromContext>
+    ExtendedScanner<
+        RequestBalancesToPayPayables,
+        ConsumingWalletBalancesAndQualifiedPayables,
+        ArgsFromContext,
+        OutcomingPayamentsInstructions,
+        SentPayables,
+    > for PayableScanner
+{
 }
 
 impl Scanner<RequestBalancesToPayPayables, SentPayables> for PayableScanner {
@@ -226,6 +278,28 @@ impl Scanner<RequestBalancesToPayPayables, SentPayables> for PayableScanner {
     time_marking_methods!(Payables);
 
     implement_as_any!();
+}
+
+impl<ArgsFromContext>
+    ScannerExtensions<
+        ConsumingWalletBalancesAndQualifiedPayables,
+        OutcomingPayamentsInstructions,
+        ArgsFromContext,
+    > for PayableScanner
+{
+    fn is_mid_processing_required(
+        &self,
+        _mid_findings_message: &ConsumingWalletBalancesAndQualifiedPayables,
+    ) -> bool {
+        todo!()
+    }
+    fn process_mid_msg_with_context(
+        &self,
+        _msg: ConsumingWalletBalancesAndQualifiedPayables,
+        _args: ArgsFromContext,
+    ) -> Option<OutcomingPayamentsInstructions> {
+        todo!()
+    }
 }
 
 impl PayableScanner {

@@ -17,7 +17,7 @@ use crate::db_config::persistent_configuration::{
     PersistentConfiguration, PersistentConfigurationReal,
 };
 use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, RequestBalancesToPayPayables};
-use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, ReportAccountsPayable};
+use crate::sub_lib::blockchain_bridge::{ConsumingWalletBalances, OutcomingPayamentsInstructions};
 use crate::sub_lib::peer_actors::BindMessage;
 use crate::sub_lib::set_consuming_wallet_message::SetConsumingWalletMessage;
 use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
@@ -149,10 +149,10 @@ impl Handler<RequestBalancesToPayPayables> for BlockchainBridge {
     }
 }
 
-impl Handler<ReportAccountsPayable> for BlockchainBridge {
+impl Handler<OutcomingPayamentsInstructions> for BlockchainBridge {
     type Result = ();
 
-    fn handle(&mut self, msg: ReportAccountsPayable, _ctx: &mut Self::Context) {
+    fn handle(&mut self, msg: OutcomingPayamentsInstructions, _ctx: &mut Self::Context) {
         self.handle_scan(
             Self::handle_report_accounts_payable,
             ScanType::Payables,
@@ -241,7 +241,7 @@ impl BlockchainBridge {
     pub fn make_subs_from(addr: &Addr<BlockchainBridge>) -> BlockchainBridgeSubs {
         BlockchainBridgeSubs {
             bind: recipient!(addr, BindMessage),
-            report_accounts_payable: recipient!(addr, ReportAccountsPayable),
+            report_accounts_payable: recipient!(addr, OutcomingPayamentsInstructions),
             request_balances_to_pay_payables: recipient!(addr, RequestBalancesToPayPayables),
             retrieve_transactions: recipient!(addr, RetrieveTransactions),
             ui_sub: recipient!(addr, NodeFromUiMessage),
@@ -306,7 +306,7 @@ impl BlockchainBridge {
 
     fn handle_report_accounts_payable(
         &mut self,
-        creditors_msg: ReportAccountsPayable,
+        creditors_msg: OutcomingPayamentsInstructions,
     ) -> Result<(), String> {
         let skeleton = creditors_msg.response_skeleton_opt;
         let processed_payments = self.preprocess_payments(&creditors_msg);
@@ -325,7 +325,7 @@ impl BlockchainBridge {
 
     fn preprocess_payments(
         &self,
-        creditors_msg: &ReportAccountsPayable,
+        creditors_msg: &OutcomingPayamentsInstructions,
     ) -> Result<Vec<BlockchainResult<Payable>>, String> {
         match self.consuming_wallet_opt.as_ref() {
             Some(consuming_wallet) => match self.persistent_config.gas_price() {
@@ -628,7 +628,7 @@ mod tests {
             false,
             Some(consuming_wallet.clone()),
         );
-        let request = ReportAccountsPayable {
+        let request = OutcomingPayamentsInstructions {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 42,
@@ -666,7 +666,7 @@ mod tests {
             false,
             None,
         );
-        let request = ReportAccountsPayable {
+        let request = OutcomingPayamentsInstructions {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 42,
@@ -909,7 +909,7 @@ mod tests {
         let before = SystemTime::now();
 
         let _ = addr
-            .try_send(ReportAccountsPayable {
+            .try_send(OutcomingPayamentsInstructions {
                 accounts: vec![
                     PayableAccount {
                         wallet: make_wallet("blah"),
@@ -1009,7 +1009,7 @@ mod tests {
             Some(consuming_wallet),
         );
         subject.scan_error_subs_opt = Some(scan_error_recipient);
-        let request = ReportAccountsPayable {
+        let request = OutcomingPayamentsInstructions {
             accounts: vec![PayableAccount {
                 wallet: make_wallet("blah"),
                 balance_wei: 42,

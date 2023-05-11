@@ -5,8 +5,7 @@ use crate::accountant::{
     ReceivedPayments, RequestTransactionReceipts, ScanError, ScanForPayables,
     ScanForPendingPayables, ScanForReceivables, SentPayables,
 };
-use crate::sub_lib::neighborhood::ConnectionProgressMessage;
-use crate::blockchain::blockchain_bridge::{PendingPayableFingerprint};
+use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
 use crate::blockchain::blockchain_bridge::RetrieveTransactions;
 use crate::daemon::crash_notification::CrashNotification;
 use crate::daemon::DaemonBindMessage;
@@ -16,7 +15,7 @@ use crate::sub_lib::accountant::AccountantSubs;
 use crate::sub_lib::accountant::ReportExitServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportRoutingServiceProvidedMessage;
 use crate::sub_lib::accountant::ReportServicesConsumedMessage;
-use crate::sub_lib::blockchain_bridge::ReportAccountsPayable;
+use crate::sub_lib::blockchain_bridge::OutcomingPayamentsInstructions;
 use crate::sub_lib::blockchain_bridge::{BlockchainBridgeSubs, RequestBalancesToPayPayables};
 use crate::sub_lib::configurator::{ConfiguratorSubs, NewPasswordMessage};
 use crate::sub_lib::dispatcher::InboundClientData;
@@ -24,6 +23,7 @@ use crate::sub_lib::dispatcher::{DispatcherSubs, StreamShutdownMsg};
 use crate::sub_lib::hopper::IncipientCoresPackage;
 use crate::sub_lib::hopper::{ExpiredCoresPackage, NoLookupIncipientCoresPackage};
 use crate::sub_lib::hopper::{HopperSubs, MessageType};
+use crate::sub_lib::neighborhood::ConnectionProgressMessage;
 use crate::sub_lib::neighborhood::NeighborhoodSubs;
 use crate::sub_lib::neighborhood::NodeQueryMessage;
 use crate::sub_lib::neighborhood::NodeQueryResponseMetadata;
@@ -137,15 +137,15 @@ recorder_message_handler!(PendingPayableFingerprint);
 recorder_message_handler!(RetrieveTransactions);
 recorder_message_handler!(RequestTransactionReceipts);
 recorder_message_handler!(ReportTransactionReceipts);
-recorder_message_handler!(ReportAccountsPayable);
+recorder_message_handler!(OutcomingPayamentsInstructions);
 recorder_message_handler!(ScanForReceivables);
 recorder_message_handler!(ScanForPayables);
 recorder_message_handler!(ConnectionProgressMessage);
 recorder_message_handler!(ScanForPendingPayables);
 
 impl<M> Handler<MessageScheduler<M>> for Recorder
-    where
-        M: Message + PartialEq + Send + 'static,
+where
+    M: Message + PartialEq + Send + 'static,
 {
     type Result = ();
 
@@ -187,8 +187,8 @@ impl Handler<RouteQueryMessage> for Recorder {
 }
 
 fn extract_response<T>(responses: &mut Vec<T>, err_msg: &str) -> T
-    where
-        T: Clone,
+where
+    T: Clone,
 {
     match responses.len() {
         n if n == 0 => panic!("{}", err_msg),
@@ -203,8 +203,8 @@ impl Recorder {
     }
 
     pub fn record<T>(&mut self, item: T)
-        where
-            T: Any + Send,
+    where
+        T: Any + Send,
     {
         let mut recording = self.recording.lock().unwrap();
         let messages: &mut Vec<Box<dyn Any + Send>> = &mut recording.messages;
@@ -281,16 +281,16 @@ impl Recording {
     }
 
     pub fn get_record<T>(&self, index: usize) -> &T
-        where
-            T: Any + Send,
+    where
+        T: Any + Send,
     {
         self.get_record_inner_body(index)
             .unwrap_or_else(|e| panic!("{}", e))
     }
 
     pub fn get_record_opt<T>(&self, index: usize) -> Option<&T>
-        where
-            T: Any + Send,
+    where
+        T: Any + Send,
     {
         self.get_record_inner_body(index).ok()
     }
@@ -447,7 +447,7 @@ pub fn make_ui_gateway_subs_from_recorder(addr: &Addr<Recorder>) -> UiGatewaySub
 pub fn make_blockchain_bridge_subs_from(addr: &Addr<Recorder>) -> BlockchainBridgeSubs {
     BlockchainBridgeSubs {
         bind: recipient!(addr, BindMessage),
-        report_accounts_payable: recipient!(addr, ReportAccountsPayable),
+        report_accounts_payable: recipient!(addr, OutcomingPayamentsInstructions),
         request_balances_to_pay_payables: recipient!(addr, RequestBalancesToPayPayables),
         retrieve_transactions: recipient!(addr, RetrieveTransactions),
         ui_sub: recipient!(addr, NodeFromUiMessage),
