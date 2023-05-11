@@ -50,13 +50,20 @@ find_and_replace() {
   local file="Cargo.toml"
 
   # Catches every `version` that begins a line and doesn't end with a comma.
-  local find_pattern='^version\s*=.*[^,]\s*$'
-  local replace_pattern='s/'$find_pattern'/version = "'"$version"'"/'
+  local find_pattern="^version = \".*\"$"
+  local replace_pattern="s/${find_pattern}/version = \"${version}\"/"
 
   # Get the previous version using grep
   local prev_version="$(grep -oP '(?<=^version = ")[^"]+' "$file" | head -n 1)"
 
-  if grep -q "$find_pattern" "$file" && sed -i "$replace_pattern" "$file"; then
+  if grep -q "$find_pattern" "$file"; then
+    if [ "$(uname)" == "Darwin" ]; then
+      # macOS
+      sed -i '' "$replace_pattern" "$file"
+    else
+      # Linux
+      sed -i "$replace_pattern" "$file"
+    fi
     echo -e "${CYAN} Successfully changed the version inside $file for ${crate#./} (v$prev_version -> v$version)${NC}"
   else
     echo -e "${RED} Error: Failed to change the version inside $file for ${crate#./}${NC}"
