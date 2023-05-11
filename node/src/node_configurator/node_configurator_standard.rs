@@ -988,4 +988,36 @@ mod tests {
         let expected = ExternalData::new(DEFAULT_CHAIN, NeighborhoodModeLight::ZeroHop, None);
         assert_eq!(result, expected)
     }
+
+    #[test]
+    fn server_initializer_collected_params_senses_when_user_specifies_data_directory_without_chain_specific_directory() {
+        running_test();
+        let home_dir = PathBuf::from("/home/booga");
+        let check_specific_dir = std::path::Path::new("/home/booga/polygon-mumbai");
+
+        let args = ArgsBuilder::new()
+            .param("--chain", "polygon-mainnet")
+            .param("--data-directory", "/home/booga/polygon-mumbai")
+            .param("--real-user", "999:999:/home/booga");
+        let args_vec: Vec<String> = args.into();
+        let dir_wrapper = DirsWrapperMock::new()
+            .home_dir_result(Some(home_dir.clone()))
+            .data_dir_result(Some(PathBuf::from(&check_specific_dir)));
+        let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice()).unwrap();
+
+        assert_eq!(result.data_directory.to_string_lossy().to_string(), "/home/booga/polygon-mumbai/polygon-mainnet");
+
+        let home_dir = PathBuf::from("/home/cooga");
+
+        let args = ArgsBuilder::new()
+            .param("--chain", "polygon-mainnet")
+            .param("--real-user", "999:999:/home/cooga");
+        let args_vec: Vec<String> = args.into();
+        let dir_wrapper = DirsWrapperMock::new()
+            .home_dir_result(Some(home_dir.clone()))
+            .data_dir_result(Some(home_dir));
+        let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice()).unwrap();
+
+        assert_eq!(result.data_directory.to_string_lossy().to_string(), "/home/cooga/MASQ/polygon-mainnet");
+    }
 }

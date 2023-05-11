@@ -20,7 +20,7 @@ use masq_lib::multi_config::{merge, CommandLineVcl, EnvironmentVcl, MultiConfig,
 use masq_lib::shared_schema::{
     chain_arg, config_file_arg, data_directory_arg, real_user_arg, ConfiguratorError,
 };
-use masq_lib::utils::{add_chain_specific_directories, localhost, ExpectValue, WrapResult};
+use masq_lib::utils::{add_chain_specific_directories, localhost, ExpectValue, WrapResult, add_chain_specific_directory};
 use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 
@@ -110,8 +110,15 @@ pub fn data_directory_from_context(
     data_directory_opt: &Option<PathBuf>,
     chain: Chain,
 ) -> PathBuf {
-    let right_local_data_dir: PathBuf = match data_directory_opt {
-        Some(data_directory) => data_directory.to_owned(),
+    let chain_specific_data_dir: PathBuf = match data_directory_opt {
+        Some(data_directory) => {
+            let retrieved_data_dir = data_directory.to_owned();
+            let checked_dir_path: PathBuf = match retrieved_data_dir.ends_with(chain.rec().literal_identifier) {
+                true => retrieved_data_dir,
+                false => add_chain_specific_directory(chain, data_directory.as_path())
+            };
+            checked_dir_path
+        },
         None => {
             let right_home_dir = real_user
                 .home_dir_opt
@@ -126,10 +133,11 @@ pub fn data_directory_from_context(
             let adjusted_local_data_dir: &Path = wrong_local_data_dir
                 .strip_prefix(wrong_home_dir)
                 .expect("std lib failed");
-            right_home_dir.join(adjusted_local_data_dir)
+
+            add_chain_specific_directories(chain, right_home_dir.join(adjusted_local_data_dir).as_path())
         }
     };
-    add_chain_specific_directories(chain, &right_local_data_dir)
+    chain_specific_data_dir
 }
 
 pub fn port_is_busy(port: u16) -> bool {

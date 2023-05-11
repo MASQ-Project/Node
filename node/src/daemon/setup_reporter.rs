@@ -3398,6 +3398,7 @@ mod tests {
                 Some(PathBuf::from("agoob"))
             ))
         );
+
         assert_eq!(desired_directory_path.to_str(), Some(TEST_DEFAULT_CHAIN.rec().literal_identifier));
         assert_eq!(chain, Blockchain::from(TEST_DEFAULT_CHAIN.rec().literal_identifier));
     }
