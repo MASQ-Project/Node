@@ -56,12 +56,11 @@ find_and_replace() {
   # Get the previous version using grep
   local prev_version="$(grep -oP '(?<=^version = ")[^"]+' "$file" | head -n 1)"
 
-  # Replace the version in the file using sed
-  if grep -q "$find_pattern" "$file"; then
-    sed -i "$replace_pattern" "$file"
+  if grep -q "$find_pattern" "$file" && sed -i "$replace_pattern" "$file"; then
     echo -e "${CYAN} Successfully changed the version inside $file for ${crate#./} (v$prev_version -> v$version)${NC}"
   else
     echo -e "${RED} Error: Failed to change the version inside $file for ${crate#./}${NC}"
+    final_exit_code=1
     grep_failures+=("$crate")
     return 1
   fi
