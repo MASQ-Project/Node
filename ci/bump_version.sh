@@ -52,9 +52,14 @@ find_and_replace() {
   find_pattern='^version\s*=.*[^,]\s*$'
   replace_pattern='s/'$find_pattern'/version = "'"$version"'"/'
 
+  prev_version=$(grep -m 1 -oP '(?<=version = ")[^"]+' "$file")
+  echo "Previous Version: $prev_version"
+
   grep -q "$find_pattern" "$file" && sed -i "$replace_pattern" "$file"
   exit_code=$?
-  if [[ $exit_code != 0 ]]; then
+  if [[ $exit_code == 0 ]]; then
+    echo -e "${CYAN}Changing the version of $1 v$prev_version -> v$version${NC}"
+  else
     final_exit_code=1
     grep_failures+=($1)
   fi
