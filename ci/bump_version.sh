@@ -23,7 +23,7 @@ regex="^[0-9]+\.[0-9]+\.[0-9]+$"
 if [[ $version =~ $regex ]]; then
   echo -e "${CYAN}Changing to the version number $version${NC}"
 else
-  echo -e "${RED}Invalid version number"
+  echo -e "${RED}Error: Invalid version number"
   exit 1
 fi
 
@@ -35,7 +35,7 @@ echo "Searching for crates..."
 crates=($(find . -type d -exec bash -c '[ -f "$0"/Cargo.toml ]' '{}' \; -print))
 
 if [[ "${#crates[@]}" == "0" ]]; then
-  echo -e "${RED}No crates found."
+  echo -e "${RED}Error: No crates found."
   exit 1
 else
   echo -e "${CYAN}Found ${#crates[@]} crate(s): ${crates[*]}${NC}"
@@ -46,36 +46,39 @@ declare -a grep_failures
 declare -a lockfile_failures
 
 find_and_replace() {
-  file=Cargo.toml
+  local crate=$1
+  local file="Cargo.toml"
 
   # Catches every `version` that begins a line and doesn't end with a comma.
-  find_pattern='^version\s*=.*[^,]\s*$'
-  replace_pattern='s/'$find_pattern'/version = "'"$version"'"/'
+  local find_pattern='^version\s*=.*[^,]\s*$'
+  local replace_pattern='s/'$find_pattern'/version = "'"$version"'"/'
 
-  prev_version=$(grep -m 1 -oP '(?<=version = ")[^"]+' "$file")
-  echo "Previous Version: $prev_version"
+  # Get the previous version using grep
+  local prev_version="$(grep -oP '(?<=^version = ")[^"]+' "$file" | head -n 1)"
 
-  grep -q "$find_pattern" "$file" && sed -i "$replace_pattern" "$file"
-  exit_code=$?
-  if [[ $exit_code == 0 ]]; then
-    echo -e "${CYAN}Changing the version of $1 v$prev_version -> v$version${NC}"
+  # Replace the version in the file using sed
+  if grep -q "$find_pattern" "$file"; then
+    sed -i "$replace_pattern" "$file"
+    echo -e "${CYAN} Successfully changed the version inside $file for ${crate#./} (v$prev_version -> v$version)${NC}"
   else
-    final_exit_code=1
-    grep_failures+=($1)
+    echo -e "${RED} Error: Failed to change the version inside $file for ${crate#./}${NC}"
+    grep_failures+=("$crate")
+    return 1
   fi
-
-  return $exit_code
 }
 
 update_lockfile() {
-  cargo update --workspace
-  exit_code=$?
-  if [[ $exit_code != 0 ]]; then
-    final_exit_code=1
-    lockfile_failures+=($1)
-  fi
+  local crate=$1
+  local file="Cargo.lock"
 
-  return $exit_code
+  if cargo update --workspace; then
+    echo -e "${CYAN} Successfully updated $file for ${crate#./}${NC}"
+  else
+    echo -e "${RED} Error: Failed to update $file for ${crate#./}${NC}"
+    final_exit_code=1
+    lockfile_failures+=("$crate")
+    return 1
+  fi
 }
 
 for crate in "${crates[@]}"
@@ -94,10 +97,10 @@ do
 done
 
 if [[ $final_exit_code != 0 ]]; then
-  [[ "${#grep_failures[@]}" != "0" ]] && echo -e "${RED}Failed to find 'version' for ${#grep_failures[@]} crate(s): ${grep_failures[*]}"
-  [[ "${#lockfile_failures[@]}" != "0" ]] && echo -e "${RED}Failed to generate lockfile for ${#lockfile_failures[@]} crate(s): ${lockfile_failures[*]}"
+  [[ "${#grep_failures[@]}" != "0" ]] && echo -e "${RED} Error: Failed to find 'version' for ${#grep_failures[@]} crate(s): ${grep_failures[*]}"
+  [[ "${#lockfile_failures[@]}" != "0" ]] && echo -e "${RED} Error: Failed to generate lockfile for ${#lockfile_failures[@]} crate(s): ${lockfile_failures[*]}"
 else
-  echo -e "${GREEN}The version number has been updated to $version."
+  echo -e "${GREEN} The version number has been updated to $version."
 fi
 
 exit $final_exit_code
