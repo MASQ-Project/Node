@@ -282,7 +282,7 @@ Where `<version>` is the new version number you want to set. The version number 
 where `x`, `y`, and `z` are positive integers. The script validates that the argument is a valid version number and 
 exits with an error message if the argument is not valid.
 
-Let's say you want to update the version from `6.9.0` to `6.9.1`. Assuming you're inside the `Node` directory.
+Let's say you want to update the version from `6.9.0` to `6.9.1`. Assuming you're inside the `Node/ci` directory.
 You can use the following command to run the script:
 
 ```bash
