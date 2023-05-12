@@ -1041,6 +1041,7 @@ pub struct PayableScannerBuilder {
     payable_dao: PayableDaoMock,
     pending_payable_dao: PendingPayableDaoMock,
     payment_thresholds: PaymentThresholds,
+    payment_adjuster: PaymentAdjusterMock
 }
 
 impl PayableScannerBuilder {
@@ -1049,11 +1050,17 @@ impl PayableScannerBuilder {
             payable_dao: PayableDaoMock::new(),
             pending_payable_dao: PendingPayableDaoMock::new(),
             payment_thresholds: PaymentThresholds::default(),
+            payment_adjuster: PaymentAdjusterMock::default()
         }
     }
 
     pub fn payable_dao(mut self, payable_dao: PayableDaoMock) -> PayableScannerBuilder {
         self.payable_dao = payable_dao;
+        self
+    }
+
+    pub fn payment_adjuster(mut self, payment_adjuster: PaymentAdjusterMock) -> PayableScannerBuilder{
+        self.payment_adjuster = payment_adjuster;
         self
     }
 
@@ -1075,6 +1082,8 @@ impl PayableScannerBuilder {
             Box::new(self.payable_dao),
             Box::new(self.pending_payable_dao),
             Rc::new(self.payment_thresholds),
+            Box::new(PayableThresholdsGaugeMock::default()),
+            Box::new( self.payment_adjuster)
         )
     }
 }

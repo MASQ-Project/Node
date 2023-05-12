@@ -1,8 +1,10 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
 use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDao};
+use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDao;
+use crate::accountant::scan_mid_procedures::{MidScanProceduresProvider, ScannerWithMidProcedures};
 use crate::accountant::scanners_utils::payable_scanner_utils::{
     investigate_debt_extremes, payables_debug_summary, separate_errors, PayableThresholdsGauge,
     PayableThresholdsGaugeReal,
@@ -12,9 +14,9 @@ use crate::accountant::scanners_utils::pending_payable_scanner_utils::{
 };
 use crate::accountant::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::{
-    gwei_to_wei, Accountant, ConsumingWalletBalancesAndQualifiedPayables, ReceivedPayments,
-    ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
-    ScanForPendingPayables, ScanForReceivables, SentPayables,
+    gwei_to_wei, Accountant, ReceivedPayments, ReportTransactionReceipts,
+    RequestTransactionReceipts, ResponseSkeleton, ScanForPayables, ScanForPendingPayables,
+    ScanForReceivables, SentPayables,
 };
 use crate::accountant::{PendingPayableId, PendingTransactionStatus};
 use crate::banned_dao::BannedDao;
@@ -23,9 +25,7 @@ use crate::blockchain::blockchain_interface::BlockchainError;
 use crate::sub_lib::accountant::{
     DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
 };
-use crate::sub_lib::blockchain_bridge::{
-    OutcomingPayamentsInstructions, RequestBalancesToPayPayables,
-};
+use crate::sub_lib::blockchain_bridge::RequestBalancesToPayPayables;
 use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
 use crate::sub_lib::wallet::Wallet;
 use actix::{Context, Message, System};
@@ -44,15 +44,14 @@ use std::time::{Duration, SystemTime};
 use time::format_description::parse;
 use time::OffsetDateTime;
 use web3::types::TransactionReceipt;
+use crate::accountant::test_utils::{PayableThresholdsGaugeMock, PaymentAdjusterMock};
 
 pub struct Scanners {
     pub payable: Box<
-        dyn ExtendedScanner<
+        dyn ScannerWithMidProcedures<
             RequestBalancesToPayPayables,
-            ConsumingWalletBalancesAndQualifiedPayables,
-            (),
-            OutcomingPayamentsInstructions,
             SentPayables,
+            Box<dyn PaymentAdjuster>,
         >,
     >,
     pub pending_payable: Box<dyn Scanner<RequestTransactionReceipts, ReportTransactionReceipts>>,
@@ -72,6 +71,8 @@ impl Scanners {
                 dao_factories.payable_dao_factory.make(),
                 dao_factories.pending_payable_dao_factory.make(),
                 Rc::clone(&payment_thresholds),
+                Box::new(PayableThresholdsGaugeReal::default()),
+                Box::new(PaymentAdjusterMock::default())
             )),
             pending_payable: Box::new(PendingPayableScanner::new(
                 dao_factories.payable_dao_factory.make(),
@@ -106,38 +107,8 @@ where
     fn scan_started_at(&self) -> Option<SystemTime>;
     fn mark_as_started(&mut self, timestamp: SystemTime);
     fn mark_as_ended(&mut self, logger: &Logger);
+
     declare_as_any!();
-}
-
-//put only optional methods here
-pub trait ScannerExtensions<MidFindingsMessage, MidResultsMessage, ArgsFromContext> {
-    fn is_mid_processing_required(&self, _mid_findings_message: &MidFindingsMessage) -> bool {
-        intentionally_blank!()
-    }
-
-    fn process_mid_msg_with_context(
-        &self,
-        _msg: MidFindingsMessage,
-        _args: ArgsFromContext,
-    ) -> Option<MidResultsMessage> {
-        intentionally_blank!()
-    }
-}
-
-pub trait ExtendedScanner<
-    BeginMessage,
-    MidDataMessage,
-    ArgsFromContext,
-    MidResultsMessage,
-    EndMessage,
->:
-    Scanner<BeginMessage, EndMessage>
-    + ScannerExtensions<MidDataMessage, MidResultsMessage, ArgsFromContext> where
-    BeginMessage: Message,
-    MidDataMessage: Message,
-    MidResultsMessage: Message,
-    EndMessage: Message,
-{
 }
 
 pub struct ScannerCommon {
@@ -198,17 +169,7 @@ pub struct PayableScanner {
     pub payable_dao: Box<dyn PayableDao>,
     pub pending_payable_dao: Box<dyn PendingPayableDao>,
     pub payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
-}
-
-impl<ArgsFromContext>
-    ExtendedScanner<
-        RequestBalancesToPayPayables,
-        ConsumingWalletBalancesAndQualifiedPayables,
-        ArgsFromContext,
-        OutcomingPayamentsInstructions,
-        SentPayables,
-    > for PayableScanner
-{
+    pub payment_adjuster: Box<dyn PaymentAdjuster>,
 }
 
 impl Scanner<RequestBalancesToPayPayables, SentPayables> for PayableScanner {
@@ -280,25 +241,14 @@ impl Scanner<RequestBalancesToPayPayables, SentPayables> for PayableScanner {
     implement_as_any!();
 }
 
-impl<ArgsFromContext>
-    ScannerExtensions<
-        ConsumingWalletBalancesAndQualifiedPayables,
-        OutcomingPayamentsInstructions,
-        ArgsFromContext,
-    > for PayableScanner
+impl ScannerWithMidProcedures<RequestBalancesToPayPayables, SentPayables, Box<dyn PaymentAdjuster>>
+    for PayableScanner
 {
-    fn is_mid_processing_required(
-        &self,
-        _mid_findings_message: &ConsumingWalletBalancesAndQualifiedPayables,
-    ) -> bool {
-        todo!()
-    }
-    fn process_mid_msg_with_context(
-        &self,
-        _msg: ConsumingWalletBalancesAndQualifiedPayables,
-        _args: ArgsFromContext,
-    ) -> Option<OutcomingPayamentsInstructions> {
-        todo!()
+}
+
+impl MidScanProceduresProvider<Box<dyn PaymentAdjuster>> for PayableScanner {
+    fn mid_scan_procedures(&self) -> &Box<dyn PaymentAdjuster> {
+        &self.payment_adjuster
     }
 }
 
@@ -307,12 +257,15 @@ impl PayableScanner {
         payable_dao: Box<dyn PayableDao>,
         pending_payable_dao: Box<dyn PendingPayableDao>,
         payment_thresholds: Rc<PaymentThresholds>,
+        payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
+        payment_adjuster: Box<dyn PaymentAdjuster>
     ) -> Self {
         Self {
             common: ScannerCommon::new(payment_thresholds),
             payable_dao,
             pending_payable_dao,
-            payable_threshold_gauge: Box::new(PayableThresholdsGaugeReal::default()),
+            payable_threshold_gauge,
+            payment_adjuster,
         }
     }
 
@@ -1070,6 +1023,7 @@ mod tests {
     use std::rc::Rc;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
+    use thousands::Separable;
     use web3::types::{TransactionReceipt, H256, U256};
 
     #[test]
@@ -1131,6 +1085,7 @@ mod tests {
             .as_any()
             .downcast_ref::<PayableThresholdsGaugeReal>()
             .unwrap();
+        //payable_scanner.payment_adjuster.as_any().;
         assert_eq!(
             pending_payable_scanner.when_pending_too_long_sec,
             when_pending_too_long_sec

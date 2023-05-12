@@ -13,6 +13,8 @@ pub trait PaymentAdjuster {
         &self,
         msg: ConsumingWalletBalancesAndQualifiedPayables,
     ) -> OutcomingPayamentsInstructions;
+
+    declare_as_any!();
 }
 
 pub struct PaymentAdjusterReal {}
@@ -38,6 +40,8 @@ impl PaymentAdjuster for PaymentAdjusterReal {
     ) -> OutcomingPayamentsInstructions {
         todo!()
     }
+
+    implement_as_any!();
 }
 
 impl PaymentAdjusterReal {
@@ -141,7 +145,7 @@ mod tests {
 
     #[test]
     fn find_smallest_debt_handles_just_one_account() {
-        let mut payable = make_payable_account(111);
+        let payable = make_payable_account(111);
         let qualified_payables = vec![payable];
 
         let min = PaymentAdjusterReal::find_smallest_debt(&qualified_payables);
