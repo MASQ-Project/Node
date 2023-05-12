@@ -45,28 +45,41 @@ final_exit_code=0
 declare -a grep_failures
 declare -a lockfile_failures
 
+# Catches every `version` that begins a line and stores version inside double quotes
+find_pattern="^version = \".*\"$"
+replace_pattern="s/${find_pattern}/version = \"${version}\"/"
+
+get_current_version() {
+  local current_version=""
+  if [ "$(uname)" == "Darwin" ]; then
+    # macOS
+    current_version=$(grep -Eo "$find_pattern" "$file" | sed 's/^version = "//;s/"$//')
+  else
+    # Linux
+    current_version="$(grep -oP '(?<=^version = ")[^"]+' "$file" | head -n 1)"
+  fi
+
+  echo "$current_version"
+}
+
+replace_version() {
+  if [ "$(uname)" == "Darwin" ]; then
+    # macOS
+    sed -i '' "$replace_pattern" "$file"
+  else
+    # Linux
+    sed -i "$replace_pattern" "$file"
+  fi
+}
+
 find_and_replace() {
   local crate=$1
   local file="Cargo.toml"
 
-  # Catches every `version` that begins a line and doesn't end with a comma.
-  local find_pattern="^version = \".*\"$"
-  local replace_pattern="s/${find_pattern}/version = \"${version}\"/"
-
   if grep -q "$find_pattern" "$file"; then
-    local prev_version=""
-    local new_version=""
-    if [ "$(uname)" == "Darwin" ]; then
-      # macOS
-      prev_version=$(grep -Eo "$find_pattern" "$file" | sed 's/^version = "//;s/"$//')
-      sed -i '' "$replace_pattern" "$file"
-      new_version=$(grep -Eo "$find_pattern" "$file" | sed 's/^version = "//;s/"$//')
-    else
-      # Linux
-      prev_version="$(grep -oP '(?<=^version = ")[^"]+' "$file" | head -n 1)"
-      sed -i "$replace_pattern" "$file"
-      new_version="$(grep -oP '(?<=^version = ")[^"]+' "$file" | head -n 1)"
-    fi
+    local prev_version=$(get_current_version)
+    replace_version
+    local new_version=$(get_current_version)
     echo -e "${CYAN} Successfully changed the version inside $file for ${crate#./} (v$prev_version -> v$new_version)${NC}"
   else
     echo -e "${RED} Error: Failed to change the version inside $file for ${crate#./}${NC}"
