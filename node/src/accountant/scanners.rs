@@ -4,7 +4,9 @@ use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDao};
 use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDao;
-use crate::accountant::scan_mid_procedures::{MidScanProceduresProvider, ScannerWithMidProcedures};
+use crate::accountant::scan_mid_procedures::{
+    PayableScannerMidProcedures, PayableScannerWithMidProcedures,
+};
 use crate::accountant::scanners_utils::payable_scanner_utils::{
     investigate_debt_extremes, payables_debug_summary, separate_errors, PayableThresholdsGauge,
     PayableThresholdsGaugeReal,
@@ -14,9 +16,9 @@ use crate::accountant::scanners_utils::pending_payable_scanner_utils::{
 };
 use crate::accountant::scanners_utils::receivable_scanner_utils::balance_and_age;
 use crate::accountant::{
-    gwei_to_wei, Accountant, ReceivedPayments, ReportTransactionReceipts,
-    RequestTransactionReceipts, ResponseSkeleton, ScanForPayables, ScanForPendingPayables,
-    ScanForReceivables, SentPayables,
+    gwei_to_wei, Accountant, ConsumingWalletBalancesAndQualifiedPayables, ReceivedPayments,
+    ReportTransactionReceipts, RequestTransactionReceipts, ResponseSkeleton, ScanForPayables,
+    ScanForPendingPayables, ScanForReceivables, SentPayables,
 };
 use crate::accountant::{PendingPayableId, PendingTransactionStatus};
 use crate::banned_dao::BannedDao;
@@ -25,11 +27,13 @@ use crate::blockchain::blockchain_interface::BlockchainError;
 use crate::sub_lib::accountant::{
     DaoFactories, FinancialStatistics, PaymentThresholds, ScanIntervals,
 };
-use crate::sub_lib::blockchain_bridge::RequestBalancesToPayPayables;
+use crate::sub_lib::blockchain_bridge::{
+    OutcomingPayamentsInstructions, RequestBalancesToPayPayables,
+};
 use crate::sub_lib::utils::{NotifyLaterHandle, NotifyLaterHandleReal};
 use crate::sub_lib::wallet::Wallet;
 use actix::{Context, Message, System};
-use itertools::Itertools;
+use itertools::{Either, Itertools};
 use masq_lib::logger::Logger;
 use masq_lib::logger::TIME_FORMATTING_STRING;
 use masq_lib::messages::{ScanType, ToMessageBody, UiScanResponse};
@@ -44,16 +48,10 @@ use std::time::{Duration, SystemTime};
 use time::format_description::parse;
 use time::OffsetDateTime;
 use web3::types::TransactionReceipt;
-use crate::accountant::test_utils::{PayableThresholdsGaugeMock, PaymentAdjusterMock};
 
 pub struct Scanners {
-    pub payable: Box<
-        dyn ScannerWithMidProcedures<
-            RequestBalancesToPayPayables,
-            SentPayables,
-            Box<dyn PaymentAdjuster>,
-        >,
-    >,
+    pub payable:
+        Box<dyn PayableScannerWithMidProcedures<RequestBalancesToPayPayables, SentPayables>>,
     pub pending_payable: Box<dyn Scanner<RequestTransactionReceipts, ReportTransactionReceipts>>,
     pub receivable: Box<dyn Scanner<RetrieveTransactions, ReceivedPayments>>,
 }
@@ -71,8 +69,7 @@ impl Scanners {
                 dao_factories.payable_dao_factory.make(),
                 dao_factories.pending_payable_dao_factory.make(),
                 Rc::clone(&payment_thresholds),
-                Box::new(PayableThresholdsGaugeReal::default()),
-                Box::new(PaymentAdjusterMock::default())
+                Box::new(PaymentAdjusterReal::new()),
             )),
             pending_payable: Box::new(PendingPayableScanner::new(
                 dao_factories.payable_dao_factory.make(),
@@ -241,14 +238,31 @@ impl Scanner<RequestBalancesToPayPayables, SentPayables> for PayableScanner {
     implement_as_any!();
 }
 
-impl ScannerWithMidProcedures<RequestBalancesToPayPayables, SentPayables, Box<dyn PaymentAdjuster>>
+impl PayableScannerWithMidProcedures<RequestBalancesToPayPayables, SentPayables>
     for PayableScanner
 {
 }
 
-impl MidScanProceduresProvider<Box<dyn PaymentAdjuster>> for PayableScanner {
-    fn mid_scan_procedures(&self) -> &Box<dyn PaymentAdjuster> {
-        &self.payment_adjuster
+impl PayableScannerMidProcedures for PayableScanner {
+    fn mid_procedure_soft(
+        &self,
+        msg: ConsumingWalletBalancesAndQualifiedPayables,
+    ) -> Either<OutcomingPayamentsInstructions, ConsumingWalletBalancesAndQualifiedPayables> {
+        if !self.payment_adjuster.is_adjustment_required(&msg) {
+            Either::Left(OutcomingPayamentsInstructions {
+                accounts: msg.qualified_payables,
+                response_skeleton_opt: msg.response_skeleton_opt,
+            })
+        } else {
+            Either::Right(msg)
+        }
+    }
+
+    fn mid_procedure_hard(
+        &self,
+        msg: ConsumingWalletBalancesAndQualifiedPayables,
+    ) -> OutcomingPayamentsInstructions {
+        self.payment_adjuster.adjust_payments(msg)
     }
 }
 
@@ -257,14 +271,13 @@ impl PayableScanner {
         payable_dao: Box<dyn PayableDao>,
         pending_payable_dao: Box<dyn PendingPayableDao>,
         payment_thresholds: Rc<PaymentThresholds>,
-        payable_threshold_gauge: Box<dyn PayableThresholdsGauge>,
-        payment_adjuster: Box<dyn PaymentAdjuster>
+        payment_adjuster: Box<dyn PaymentAdjuster>,
     ) -> Self {
         Self {
             common: ScannerCommon::new(payment_thresholds),
             payable_dao,
             pending_payable_dao,
-            payable_threshold_gauge,
+            payable_threshold_gauge: Box::new(PayableThresholdsGaugeReal::default()),
             payment_adjuster,
         }
     }
@@ -1007,6 +1020,7 @@ mod tests {
 
     use crate::accountant::dao_utils::{from_time_t, to_time_t};
     use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError};
+    use crate::accountant::payment_adjuster::PaymentAdjusterReal;
     use crate::accountant::pending_payable_dao::PendingPayableDaoError;
     use crate::accountant::scanners_utils::payable_scanner_utils::PayableThresholdsGaugeReal;
     use crate::blockchain::blockchain_interface::{BlockchainError, BlockchainTransaction};
@@ -1023,7 +1037,6 @@ mod tests {
     use std::rc::Rc;
     use std::sync::{Arc, Mutex};
     use std::time::{Duration, SystemTime};
-    use thousands::Separable;
     use web3::types::{TransactionReceipt, H256, U256};
 
     #[test]
@@ -1085,7 +1098,10 @@ mod tests {
             .as_any()
             .downcast_ref::<PayableThresholdsGaugeReal>()
             .unwrap();
-        //payable_scanner.payment_adjuster.as_any().;
+        payable_scanner
+            .payment_adjuster
+            .as_any()
+            .downcast_ref::<PaymentAdjusterReal>();
         assert_eq!(
             pending_payable_scanner.when_pending_too_long_sec,
             when_pending_too_long_sec

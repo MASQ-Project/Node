@@ -4,6 +4,7 @@ use crate::accountant::payable_dao::PayableAccount;
 use crate::accountant::ConsumingWalletBalancesAndQualifiedPayables;
 use crate::sub_lib::blockchain_bridge::OutcomingPayamentsInstructions;
 use itertools::Itertools;
+use std::any::Any;
 use web3::types::U256;
 
 pub trait PaymentAdjuster {

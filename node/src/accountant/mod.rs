@@ -31,7 +31,6 @@ use crate::accountant::financials::visibility_restricted_module::{
     check_query_is_within_tech_limits, financials_entry_check,
 };
 use crate::accountant::payable_dao::{Payable, PayableAccount, PayableDaoError};
-use crate::accountant::payment_adjuster::{PaymentAdjuster, PaymentAdjusterReal};
 use crate::accountant::pending_payable_dao::PendingPayableDao;
 use crate::accountant::receivable_dao::ReceivableDaoError;
 use crate::accountant::scanners::{ScanTimings, Scanners};
@@ -59,6 +58,7 @@ use actix::Context;
 use actix::Handler;
 use actix::Message;
 use actix::Recipient;
+use itertools::Either;
 use masq_lib::crash_point::CrashPoint;
 use masq_lib::logger::Logger;
 use masq_lib::messages::UiFinancialsResponse;
@@ -222,15 +222,11 @@ impl Handler<ConsumingWalletBalancesAndQualifiedPayables> for Accountant {
         msg: ConsumingWalletBalancesAndQualifiedPayables,
         _ctx: &mut Self::Context,
     ) -> Self::Result {
-        let mid_scan_procedures = self.scanners.payable.mid_scan_procedures();
-        let instructions = match mid_scan_procedures.is_adjustment_required(&msg) {
-            false => OutcomingPayamentsInstructions {
-                accounts: msg.qualified_payables,
-                response_skeleton_opt: msg.response_skeleton_opt,
-            },
-            true => {
+        let instructions = match self.scanners.payable.mid_procedure_soft(msg) {
+            Either::Left(finalized_msg) => finalized_msg,
+            Either::Right(unaccepted_msg) => {
                 //TODO we will eventually query info from Neighborhood here
-                mid_scan_procedures.adjust_payments(msg)
+                self.scanners.payable.mid_procedure_hard(unaccepted_msg)
             }
         };
         self.outcoming_payments_instructions_sub_opt
@@ -1025,7 +1021,12 @@ mod tests {
     use crate::accountant::test_utils::DaoWithDestination::{
         ForAccountantBody, ForPayableScanner, ForPendingPayableScanner, ForReceivableScanner,
     };
-    use crate::accountant::test_utils::{bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables, BannedDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock, PaymentAdjusterMock, PendingPayableDaoFactoryMock, PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock, PayableScannerBuilder};
+    use crate::accountant::test_utils::{
+        bc_from_earning_wallet, bc_from_wallets, make_payable_account, make_payables,
+        BannedDaoFactoryMock, MessageIdGeneratorMock, PayableDaoFactoryMock, PayableDaoMock,
+        PayableScannerBuilder, PaymentAdjusterMock, PendingPayableDaoFactoryMock,
+        PendingPayableDaoMock, ReceivableDaoFactoryMock, ReceivableDaoMock,
+    };
     use crate::accountant::test_utils::{AccountantBuilder, BannedDaoMock};
     use crate::accountant::Accountant;
     use crate::blockchain::blockchain_bridge::BlockchainBridge;
@@ -1373,7 +1374,9 @@ mod tests {
         let payment_adjuster = PaymentAdjusterMock::default()
             .is_adjustment_required_params(&is_adjustment_required_params_arc)
             .is_adjustment_required_result(false);
-        let payable_scanner = PayableScannerBuilder::new().payment_adjuster(payment_adjuster).build();
+        let payable_scanner = PayableScannerBuilder::new()
+            .payment_adjuster(payment_adjuster)
+            .build();
         subject.scanners.payable = Box::new(payable_scanner);
         subject.outcoming_payments_instructions_sub_opt = Some(report_recipient);
         let subject_addr = subject.start();
@@ -1453,7 +1456,9 @@ mod tests {
             .is_adjustment_required_result(true)
             .adjust_payments_params(&adjust_payments_params_arc)
             .adjust_payments_result(adjusted_payments_instructions);
-        let payable_scanner = PayableScannerBuilder::new().payment_adjuster(payment_adjuster).build();
+        let payable_scanner = PayableScannerBuilder::new()
+            .payment_adjuster(payment_adjuster)
+            .build();
         subject.scanners.payable = Box::new(payable_scanner);
         subject.outcoming_payments_instructions_sub_opt = Some(report_recipient);
         let subject_addr = subject.start();
