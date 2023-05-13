@@ -318,7 +318,7 @@ pub fn make_stream_handler_pool_subs_from_recorder(addr: &Addr<Recorder>) -> Str
     StreamHandlerPoolSubs {
         add_sub: recipient!(addr, AddStreamMsg),
         transmit_sub: recipient!(addr, TransmitDataMsg),
-        remove_sub: recipient!(addr, RemoveStreamMsg),
+        remove_stream_sub: recipient!(addr, RemoveStreamMsg),
         bind: recipient!(addr, PoolBindMessage),
         node_query_response: recipient!(addr, DispatcherNodeQueryResponse),
         node_from_ui_sub: recipient!(addr, NodeFromUiMessage),

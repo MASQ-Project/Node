@@ -57,7 +57,7 @@ pub const CRASH_KEY: &str = "STREAMHANDLERPOOL";
 pub struct StreamHandlerPoolSubs {
     pub add_sub: Recipient<AddStreamMsg>,
     pub transmit_sub: Recipient<TransmitDataMsg>,
-    pub remove_sub: Recipient<RemoveStreamMsg>,
+    pub remove_stream_sub: Recipient<RemoveStreamMsg>,
     pub bind: Recipient<PoolBindMessage>,
     pub node_query_response: Recipient<DispatcherNodeQueryResponse>,
     pub node_from_ui_sub: Recipient<NodeFromUiMessage>,
@@ -69,7 +69,7 @@ impl Clone for StreamHandlerPoolSubs {
         StreamHandlerPoolSubs {
             add_sub: self.add_sub.clone(),
             transmit_sub: self.transmit_sub.clone(),
-            remove_sub: self.remove_sub.clone(),
+            remove_stream_sub: self.remove_stream_sub.clone(),
             bind: self.bind.clone(),
             node_query_response: self.node_query_response.clone(),
             node_from_ui_sub: self.node_from_ui_sub.clone(),
@@ -214,7 +214,7 @@ impl StreamHandlerPool {
         StreamHandlerPoolSubs {
             add_sub: recipient!(pool_addr, AddStreamMsg),
             transmit_sub: recipient!(pool_addr, TransmitDataMsg),
-            remove_sub: recipient!(pool_addr, RemoveStreamMsg),
+            remove_stream_sub: recipient!(pool_addr, RemoveStreamMsg),
             bind: recipient!(pool_addr, PoolBindMessage),
             node_query_response: recipient!(pool_addr, DispatcherNodeQueryResponse),
             node_from_ui_sub: recipient!(pool_addr, NodeFromUiMessage),
@@ -243,7 +243,7 @@ impl StreamHandlerPool {
             .self_subs_opt
             .as_ref()
             .expect("StreamHandlerPool is unbound")
-            .remove_sub
+            .remove_stream_sub
             .clone();
         let stream_shutdown_sub: Recipient<StreamShutdownMsg> = self
             .dispatcher_subs_opt
@@ -620,7 +620,7 @@ impl StreamStartFailureHandler {
                 .clone()
                 .map(|d| d.public_key)
                 .expect("Key magically disappeared"),
-            remove_sub: subs.remove_sub,
+            remove_sub: subs.remove_stream_sub,
             connection_progress_sub: pool
                 .connection_progress_sub_opt
                 .clone()
@@ -1158,7 +1158,7 @@ mod tests {
                 .unwrap();
 
             subject_subs
-                .remove_sub
+                .remove_stream_sub
                 .try_send(RemoveStreamMsg {
                     peer_addr,
                     local_addr,

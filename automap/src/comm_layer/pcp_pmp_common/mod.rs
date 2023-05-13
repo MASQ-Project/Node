@@ -21,10 +21,12 @@ use crate::comm_layer::AutomapError;
 use masq_lib::utils::find_free_port;
 use socket2::{Domain, SockAddr, Socket, Type};
 use std::io;
+use std::io::Error;
 pub use std::net::UdpSocket;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::process::Command;
 use std::time::Duration;
+use itertools::Either;
 
 pub const ROUTER_PORT: u16 = 5351; // from the PCP and PMP RFCs
 pub const ANNOUNCEMENT_PORT: u16 = 5350; // from the PCP and PMP RFCs
@@ -55,11 +57,11 @@ pub trait UdpSocketWrapper: Send {
     fn leave_multicast_v4(&self, multiaddr: &Ipv4Addr, interface: &Ipv4Addr) -> io::Result<()>;
 }
 
-pub struct UdpSocketReal {
+pub struct UdpSocketWrapperReal {
     delegate: UdpSocket,
 }
 
-impl UdpSocketWrapper for UdpSocketReal {
+impl UdpSocketWrapper for UdpSocketWrapperReal {
     fn local_addr(&self) -> io::Result<SocketAddr> {
         self.delegate.local_addr()
     }
@@ -93,7 +95,7 @@ impl UdpSocketWrapper for UdpSocketReal {
     }
 }
 
-impl UdpSocketReal {
+impl UdpSocketWrapperReal {
     pub fn new(delegate: UdpSocket) -> Self {
         Self { delegate }
     }
@@ -112,7 +114,7 @@ pub struct UdpSocketWrapperFactoryReal {}
 
 impl UdpSocketWrapperFactory for UdpSocketWrapperFactoryReal {
     fn make(&self, addr: SocketAddr) -> io::Result<Box<dyn UdpSocketWrapper>> {
-        Ok(Box::new(UdpSocketReal::new(UdpSocket::bind(addr)?)))
+        Ok(Box::new(UdpSocketWrapperReal::new(UdpSocket::bind(addr)?)))
     }
 
     fn make_multicast(
@@ -139,10 +141,7 @@ impl UdpSocketWrapperFactory for UdpSocketWrapperFactoryReal {
             port,
         )))?;
         let delegate = UdpSocket::from(socket);
-        // delegate.connect(
-        //     delegate.local_addr().expect ("Local address suddenly disappeared")
-        // )?;
-        Ok(Box::new(UdpSocketReal::new(delegate)))
+        Ok(Box::new(UdpSocketWrapperReal::new(delegate)))
     }
 }
 
@@ -182,18 +181,21 @@ impl Default for FreePortFactoryReal {
     }
 }
 
-pub trait FindRoutersCommand {
-    fn execute(&self) -> Result<String, String>;
+pub type CommandOutput = String;
 
-    // TODO: Consider having the error case be either a String from stderr or an Error object.
-    fn execute_command(&self, command: &str) -> Result<String, String> {
+pub type CommandError = Either<CommandOutput, Error>;
+
+pub trait FindRoutersCommand {
+    fn execute(&self) -> Result<CommandOutput, CommandError>;
+
+    fn execute_command(&self, command: &str) -> Result<CommandOutput, CommandError> {
         let command_string = command.to_string();
         let words: Vec<&str> = command_string
             .split(' ')
             .filter(|s| !s.is_empty())
             .collect();
         if words.is_empty() {
-            return Err("Command is blank".to_string());
+            return Err(Either::Left("Command is blank".to_string()));
         }
         let mut command = &mut Command::new(words[0]);
         for word in &words[1..] {
@@ -204,10 +206,10 @@ pub trait FindRoutersCommand {
                 String::from_utf8_lossy(&output.stdout).to_string(),
                 String::from_utf8_lossy(&output.stderr).to_string(),
             ) {
-                (_, stderr) if !stderr.is_empty() => Err(stderr),
+                (_, stderr) if !stderr.is_empty() => Err(Either::Left(stderr)),
                 (stdout, _) => Ok(stdout),
             },
-            Err(e) => Err(format!("{:?}", e)),
+            Err(e) => Err(Either::Right(e)),
         }
     }
 }
@@ -241,24 +243,20 @@ pub fn make_announcement_socket(
     announcement_multicast_group: u8,
     announcement_port: u16,
 ) -> Result<Box<dyn UdpSocketWrapper>, AutomapError> {
-    let socket_result = factory.make_multicast(announcement_multicast_group, announcement_port);
-    let socket = match socket_result {
-        Ok(s) => s,
-        Err(e) => {
+    factory.make_multicast(announcement_multicast_group, announcement_port)
+        .map_err (|e| {
             let multicast = Ipv4Addr::new(224, 0, 0, announcement_multicast_group);
-            return Err(AutomapError::SocketBindingError(
+            AutomapError::SocketBindingError(
                 format!("{:?}", e),
                 SocketAddr::new(IpAddr::V4(multicast), announcement_port),
-            ));
-        }
-    };
-    Ok(socket)
+            )
+        })
 }
 
 #[cfg(test)]
 pub mod tests {
     use super::*;
-    use crate::mocks::UdpSocketWrapperFactoryMock;
+    use crate::test_utils::UdpSocketWrapperFactoryMock;
     use masq_lib::utils::localhost;
     use std::io::ErrorKind;
     use std::net::SocketAddrV4;
@@ -357,7 +355,7 @@ pub mod tests {
     struct TameFindRoutersCommand {}
 
     impl FindRoutersCommand for TameFindRoutersCommand {
-        fn execute(&self) -> Result<String, String> {
+        fn execute(&self) -> Result<CommandOutput, CommandError> {
             panic!("Don't call me!")
         }
     }
@@ -368,7 +366,7 @@ pub mod tests {
 
         let result = subject.execute_command("");
 
-        assert_eq!(result, Err("Command is blank".to_string()))
+        assert_eq!(result.err().unwrap().left().unwrap(), "Command is blank".to_string())
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -379,8 +377,9 @@ pub mod tests {
         let result = subject.execute_command("ls booga");
 
         match result {
-            Err(stderr) if stderr.contains("No such file or directory") => (),
-            Err(stderr) => panic!("Unexpected content in stderr: '{}'", stderr),
+            Err(Either::Right(e)) => panic!("Unexpected error: '{:?}'", e),
+            Err(Either::Left(stderr)) if stderr.ends_with("No such file or directory\n") => (),
+            Err(Either::Left(stderr)) => panic!("Unexpected content in stderr: '{}'", stderr),
             x => panic!("Expected error message in stderr; got {:?}", x),
         }
     }
@@ -393,13 +392,25 @@ pub mod tests {
         let result = subject.execute_command("dir booga");
 
         match result {
-            Err(stderr)
+            Err(Either::Left(stderr))
                 if stderr.contains("The system cannot find the file specified")
                     || stderr.contains("No such file or directory") =>
             {
                 ()
             }
-            Err(stderr) => panic!("Unexpected content in stderr: '{}'", stderr),
+            x => panic!("Expected error message in stderr; got {:?}", x),
+        }
+    }
+
+    #[test]
+    fn find_routers_command_works_when_error_is_returned() {
+        let subject = TameFindRoutersCommand {};
+
+        let result = subject.execute_command("booga");
+
+        match result {
+            Err(Either::Right(e)) if e.kind() == ErrorKind::NotFound => (),
+            Err(Either::Left(stderr)) => panic!("Unexpected content in stderr: '{}'", stderr),
             x => panic!("Expected error message in stderr; got {:?}", x),
         }
     }

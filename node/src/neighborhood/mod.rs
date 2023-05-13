@@ -140,7 +140,7 @@ impl Handler<PoolBindMessage> for Neighborhood {
         self.gossip_acceptor_info_opt = Some(Either::Left (Box::new(GossipAcceptorReal::new(
             self.cryptde,
             gossip_acceptor_subs.connection_progress_sub,
-            msg.stream_handler_pool_subs.remove_sub,
+            msg.stream_handler_pool_subs.remove_stream_sub,
             gossip_acceptor_subs.stream_shutdown_sub,
         ))));
     }

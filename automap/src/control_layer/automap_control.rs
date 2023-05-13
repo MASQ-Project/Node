@@ -336,7 +336,7 @@ impl AutomapControlReal {
     }
 }
 
-// #[cfg(any(test, not(feature = "no_test_share")))]
+#[cfg(any(test, not(feature = "no_test_share")))]
 pub fn replace_transactor(
     subject: AutomapControlReal,
     transactor: Box<dyn Transactor>,
@@ -353,7 +353,7 @@ pub fn replace_transactor(
 mod tests {
     use super::*;
     use crate::comm_layer::Transactor;
-    use crate::mocks::{TransactorMock, PUBLIC_IP, ROUTER_IP};
+    use crate::test_utils::{TransactorMock, PUBLIC_IP, ROUTER_IP};
     use crossbeam_channel::{unbounded, TryRecvError};
     use std::cell::RefCell;
     use std::net::IpAddr;

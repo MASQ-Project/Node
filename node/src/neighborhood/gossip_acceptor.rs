@@ -141,7 +141,6 @@ debug! (self.logger, "IpChangeHandler qualifies() found a database Node with nod
         let mut db_node = database.node_by_key_mut(&source_agr.inner.public_key)
             .expect("Node disappeared");
         if db_node.accepts_connections() {
-        // if let Some (node_addr) = db_node.node_addr_opt() {
             // TODO: Can't keep this; allows outside communication to crash the Node
             let node_addr = db_node.node_addr_opt().expect ("A Node that accepts connections has no NodeAddr!");
             for port in node_addr.ports() {

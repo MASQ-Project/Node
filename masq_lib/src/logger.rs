@@ -286,21 +286,20 @@ mod tests {
     }
 
     struct TestUiGateway {
-        seconds_to_live: usize,
-        received_message_count: Arc<AtomicU32>,
         expected_msg_count: u32,
+        received_message_count: Arc<AtomicU32>,
+        seconds_to_live: usize,
     }
 
     impl TestUiGateway {
         fn new(
             msg_count: u32,
             received_message_count: Arc<AtomicU32>,
-            seconds_to_live: usize,
         ) -> Self {
             Self {
-                seconds_to_live,
-                received_message_count,
                 expected_msg_count: msg_count,
+                received_message_count,
+                seconds_to_live: 10,
             }
         }
     }
@@ -346,6 +345,7 @@ mod tests {
         let _test_guard = prepare_test_environment();
         let thread_count = 100;
         let msgs_per_thread = 100;
+        let total_msg_count = thread_count * msgs_per_thread;
         //Starting an experiment to get a feeling for what might be a standard amount of time
         //to send the given number of messages, in this case using a crossbeam channel.
         //The outcome is going to be a template in the final assertion where we want to check
@@ -375,7 +375,7 @@ mod tests {
             let mut counter = 0;
             loop {
                 rx.recv().expect("Unable to call recv() on rx");
-                let limit = thread_count * msgs_per_thread;
+                let limit = total_msg_count;
                 counter += 1;
                 if counter == limit {
                     break;
@@ -389,11 +389,10 @@ mod tests {
         let time_example_of_similar_labour = template_after
             .duration_since(template_before)
             .expect("Unable to unwrap the duration_since for template after");
-        let received_message_count = Arc::new(AtomicU32::new(0));
+        let received_message_count_arc = Arc::new(AtomicU32::new(0));
         let fake_ui_gateway = TestUiGateway::new(
-            (thread_count * msgs_per_thread) as u32,
-            received_message_count.clone(),
-            10,
+            total_msg_count as u32,
+            received_message_count_arc.clone(),
         );
         let system = System::new("test_system");
         let addr = fake_ui_gateway.start();
@@ -421,8 +420,8 @@ mod tests {
         see_about_join_handles(container_for_join_handles);
         //we have now two samples and can go to compare them
         assert_eq!(
-            received_message_count.load(Ordering::Relaxed),
-            (thread_count * msgs_per_thread) as u32
+            received_message_count_arc.load(Ordering::Relaxed),
+            total_msg_count as u32
         );
         let measured = actual_end
             .duration_since(actual_start)
@@ -442,8 +441,8 @@ mod tests {
     fn prepare_log_recipient_works() {
         let _guard = prepare_test_environment();
         let system = System::new("prepare log recipient");
-        let received_message_count = Arc::new(AtomicU32::new(0));
-        let ui_gateway = TestUiGateway::new(0, received_message_count.clone(), 10);
+        let received_message_count_arc = Arc::new(AtomicU32::new(0));
+        let ui_gateway = TestUiGateway::new(0, received_message_count_arc.clone());
         let recipient: Recipient<NodeToUiMessage> = ui_gateway.start().recipient();
 
         prepare_log_recipient(recipient);
@@ -457,7 +456,7 @@ mod tests {
             .unwrap();
         System::current().stop();
         system.run();
-        assert_eq!(received_message_count.load(Ordering::Relaxed), 1);
+        assert_eq!(received_message_count_arc.load(Ordering::Relaxed), 1);
     }
 
     #[test]
@@ -518,8 +517,8 @@ mod tests {
         let _guard = prepare_test_environment();
         let logger = make_logger_at_level(Level::Debug);
         let system = System::new("Neither Logging, Nor Transmitting");
-        let received_message_count = Arc::new(AtomicU32::new(0));
-        let ui_gateway = TestUiGateway::new(0, received_message_count.clone(), 10);
+        let received_message_count_arc = Arc::new(AtomicU32::new(0));
+        let ui_gateway = TestUiGateway::new(0, received_message_count_arc.clone());
         let recipient = ui_gateway.start().recipient();
         {
             LOG_RECIPIENT_OPT.lock().unwrap().replace(recipient);
@@ -530,7 +529,7 @@ mod tests {
 
         System::current().stop();
         system.run();
-        assert_eq!(received_message_count.load(Ordering::Relaxed), 0);
+        assert_eq!(received_message_count_arc.load(Ordering::Relaxed), 0);
         TestLogHandler::new().exists_no_log_containing("This is a trace log.");
     }
 
@@ -540,8 +539,8 @@ mod tests {
         let _guard = prepare_test_environment();
         let logger = make_logger_at_level(Level::Debug);
         let system = System::new("Only Logging, Not Transmitting");
-        let received_message_count = Arc::new(AtomicU32::new(0));
-        let ui_gateway = TestUiGateway::new(0, received_message_count.clone(), 10);
+        let received_message_count_arc = Arc::new(AtomicU32::new(0));
+        let ui_gateway = TestUiGateway::new(0, received_message_count_arc.clone());
         let recipient = ui_gateway.start().recipient();
         {
             LOG_RECIPIENT_OPT.lock().unwrap().replace(recipient);
@@ -552,7 +551,7 @@ mod tests {
 
         System::current().stop();
         system.run();
-        assert_eq!(received_message_count.load(Ordering::Relaxed), 0);
+        assert_eq!(received_message_count_arc.load(Ordering::Relaxed), 0);
         TestLogHandler::new().exists_log_containing("This is a debug log.");
     }
 
@@ -562,8 +561,8 @@ mod tests {
         let _guard = prepare_test_environment();
         let logger = make_logger_at_level(Level::Warn);
         let system = System::new("transmitting but not logging");
-        let received_message_count = Arc::new(AtomicU32::new(0));
-        let ui_gateway = TestUiGateway::new(1, received_message_count.clone(), 10);
+        let received_message_count_arc = Arc::new(AtomicU32::new(0));
+        let ui_gateway = TestUiGateway::new(1, received_message_count_arc.clone());
         let recipient = ui_gateway.start().recipient();
         {
             LOG_RECIPIENT_OPT.lock().unwrap().replace(recipient);
@@ -573,7 +572,7 @@ mod tests {
         logger.info(log_function);
 
         system.run(); //shut down after receiving the expected count of messages
-        assert_eq!(received_message_count.load(Ordering::Relaxed), 1);
+        assert_eq!(received_message_count_arc.load(Ordering::Relaxed), 1);
         TestLogHandler::new().exists_no_log_containing("This is an info log.");
     }
 
@@ -583,8 +582,8 @@ mod tests {
         let _guard = prepare_test_environment();
         let logger = make_logger_at_level(Level::Debug);
         let system = System::new("logging ang transmitting");
-        let received_message_count = Arc::new(AtomicU32::new(0));
-        let ui_gateway = TestUiGateway::new(1, received_message_count.clone(), 10);
+        let received_message_count_arc = Arc::new(AtomicU32::new(0));
+        let ui_gateway = TestUiGateway::new(1, received_message_count_arc.clone());
         let recipient = ui_gateway.start().recipient();
         {
             LOG_RECIPIENT_OPT.lock().unwrap().replace(recipient);
@@ -594,7 +593,7 @@ mod tests {
         logger.warning(log_function);
 
         system.run(); //shut down after receiving the expected count of messages
-        assert_eq!(received_message_count.load(Ordering::Relaxed), 1);
+        assert_eq!(received_message_count_arc.load(Ordering::Relaxed), 1);
         TestLogHandler::new().exists_log_containing("WARN: test: This is a warn log.");
     }
 
@@ -798,7 +797,7 @@ mod tests {
     #[should_panic(expected = "Log recipient should be initiated only once")]
     fn prepare_log_recipient_should_be_called_only_once_panic() {
         let _guard = prepare_test_environment();
-        let ui_gateway = TestUiGateway::new(0, Arc::new(AtomicU32::new(0)), 10);
+        let ui_gateway = TestUiGateway::new(0, Arc::new(AtomicU32::new(0)));
         let recipient: Recipient<NodeToUiMessage> = ui_gateway.start().recipient();
         prepare_log_recipient(recipient.clone());
 
@@ -835,7 +834,7 @@ mod tests {
             body: MessageBody {
                 opcode: "whatever".to_string(),
                 path: MessagePath::FireAndForget,
-                payload: Ok(String::from(&format!("({}, {})", thread_idx, msg_idx))),
+                payload: Ok(format!("({}, {})", thread_idx, msg_idx)),
             },
         }
     }

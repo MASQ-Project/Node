@@ -1,9 +1,6 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 
-use crate::comm_layer::pcp_pmp_common::{
-    FindRoutersCommand, FreePortFactory, UdpSocketWrapper, UdpSocketWrapperFactory,
-    UdpSocketWrapperFactoryReal,
-};
+use crate::comm_layer::pcp_pmp_common::{CommandError, CommandOutput, FindRoutersCommand, FreePortFactory, UdpSocketWrapper, UdpSocketWrapperFactory, UdpSocketWrapperFactoryReal};
 use crate::comm_layer::{AutomapError, HousekeepingThreadCommand, LocalIpFinder, LocalIpFinderReal, Transactor};
 use crate::control_layer::automap_control::{AutomapControlReal, ChangeHandler, replace_transactor};
 use crossbeam_channel::Sender;
@@ -417,11 +414,11 @@ impl FreePortFactoryMock {
 }
 
 pub struct FindRoutersCommandMock {
-    execute_results: RefCell<Vec<Result<String, String>>>,
+    execute_results: RefCell<Vec<Result<CommandOutput, CommandError>>>,
 }
 
 impl FindRoutersCommand for FindRoutersCommandMock {
-    fn execute(&self) -> Result<String, String> {
+    fn execute(&self) -> Result<CommandOutput, CommandError> {
         self.execute_results.borrow_mut().remove(0)
     }
 }
@@ -439,7 +436,7 @@ impl FindRoutersCommandMock {
         }
     }
 
-    pub fn execute_result(self, result: Result<String, String>) -> Self {
+    pub fn execute_result(self, result: Result<CommandOutput, CommandError>) -> Self {
         self.execute_results.borrow_mut().push(result);
         self
     }

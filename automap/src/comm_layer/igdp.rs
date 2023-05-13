@@ -651,7 +651,7 @@ enum Finished {
 mod tests {
     use super::*;
     use crate::control_layer::automap_control::AutomapChange;
-    use crate::mocks::LocalIpFinderMock;
+    use crate::test_utils::LocalIpFinderMock;
     use core::ptr::addr_of;
     use crossbeam_channel::unbounded;
     use igd::RequestError;

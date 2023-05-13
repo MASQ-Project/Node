@@ -643,7 +643,7 @@ mod tests {
     use crate::{hopper, proxy_client, proxy_server, stream_handler_pool, ui_gateway};
     use actix::{Actor, Arbiter, System};
     use automap_lib::control_layer::automap_control::AutomapChange;
-    use automap_lib::mocks::{parameterizable_automap_control, TransactorMock};
+    use automap_lib::test_utils::{parameterizable_automap_control, TransactorMock};
     use crossbeam_channel::{bounded, unbounded, Sender};
     use lazy_static::lazy_static;
     use log::LevelFilter;
@@ -1037,23 +1037,6 @@ mod tests {
         }
     }
 
-    /* Remove this test if unnecessary
-    #[test]
-    #[should_panic(expected = "Invalid blockchain node URL")]
-    fn invalid_blockchain_url_produces_panic() {
-        let bbconfig = BlockchainBridgeConfig {
-            blockchain_service_url: Some("http://λ:8545".to_string()),
-            chain_id: DEFAULT_CHAIN_ID,
-            gas_price: 1,
-        };
-        let mut config = BootstrapperConfig::new();
-        config.blockchain_bridge_config = bbconfig;
-        config.consuming_wallet_opt = None;
-        let subject = ActorFactoryReal {};
-        subject.make_and_start_blockchain_bridge(&config, &DbInitializerMock::new());
-    }
-    */
-
     #[test]
     fn make_and_start_actors_sends_bind_messages() {
         let actor_factory = ActorFactoryMock::new();
@@ -1197,9 +1180,9 @@ mod tests {
         check_bind_message(&recordings.neighborhood, false);
         check_bind_message(&recordings.ui_gateway, false);
         check_bind_message(&recordings.accountant, false);
-        // check_pool_bind_message(&recordings.stream_handler_pool); // what _should_ we be doing here?
-        check_pool_bind_message(&recordings.dispatcher);
-        check_pool_bind_message(&recordings.neighborhood);
+        check_pool_bind_message(&recordings.stream_handler_pool, 0); // what _should_ we be doing here?
+        check_pool_bind_message(&recordings.dispatcher, 1);
+        check_pool_bind_message(&recordings.neighborhood, 1);
         check_new_ip_message(
             &recordings.dispatcher,
             IpAddr::from_str("1.2.3.4").unwrap(),
@@ -1387,7 +1370,6 @@ mod tests {
         );
     }
 
-    #[cfg(feature = "log_recipient_test")]
     #[test]
     fn prepare_initial_messages_doesnt_start_up_proxy_client_or_automap_if_consume_only_mode() {
         let actor_factory = ActorFactoryMock::new();
@@ -1443,7 +1425,8 @@ mod tests {
         check_bind_message(&recordings.neighborhood, true);
         check_bind_message(&recordings.ui_gateway, true);
         check_bind_message(&recordings.accountant, true);
-        check_start_message(&recordings.neighborhood, 1);
+        check_pool_bind_message(&recordings.neighborhood, 1);
+        check_start_message(&recordings.neighborhood, 2);
     }
 
     #[test]
@@ -1500,7 +1483,8 @@ mod tests {
         );
 
         let make_params = make_params_arc.lock().unwrap();
-        assert_eq!(make_params[0].0, None);
+        let (usual_protocol_opt, _change_handler) = *make_params[0];
+        assert_eq!(usual_protocol_opt, None);
         let system = System::new("test");
         let change_handler = &make_params[0].1;
         change_handler(AutomapChange::NewIp(IpAddr::from_str("4.3.2.1").unwrap()));
@@ -1793,8 +1777,8 @@ mod tests {
         };
     }
 
-    fn check_pool_bind_message(recording: &Arc<Mutex<Recording>>) {
-        let _pool_bind_message = Recording::get::<PoolBindMessage>(recording, 1);
+    fn check_pool_bind_message(recording: &Arc<Mutex<Recording>>, idx: usize) {
+        let _pool_bind_message = Recording::get::<PoolBindMessage>(recording, idx);
         // There was a PoolBindMessage; fields are neither optional nor dyn. Therefore they must
         // be populated, and with data of the correct type.
     }

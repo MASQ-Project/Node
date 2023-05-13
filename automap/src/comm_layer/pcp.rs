@@ -345,7 +345,6 @@ impl PcpTransactor {
                                     &mut mapping_config_opt,
                                     &logger,
                                 );
-                            } else {
                             }
                         }
                         Err(e) => {
@@ -358,12 +357,8 @@ impl PcpTransactor {
                         }
                     }
                 }
-                #[allow(clippy::unused_unit)] // Clippy and the formatter argue over this one
                 Err(e)
-                    if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) =>
-                {
-                    ()
-                }
+                    if (e.kind() == ErrorKind::WouldBlock) || (e.kind() == ErrorKind::TimedOut) => (),
                 Err(e) => {
                     error!(logger, "Error receiving PCP packet from router: {:?}", e)
                 }
@@ -420,7 +415,7 @@ impl PcpTransactor {
         logger: &Logger,
     ) {
         let mut local_mapping_config = MappingConfig {
-            hole_port: 9, // meaningless port suggested in PCP RFC document
+            hole_port: 9, // necessary but irrelevant
             next_lifetime: Duration::from_secs(0),
             remap_interval: Duration::from_secs(0),
         };
@@ -659,7 +654,7 @@ mod tests {
     use super::*;
     use crate::comm_layer::pcp_pmp_common::{ROUTER_PORT};
     use crate::comm_layer::{AutomapErrorCause, LocalIpFinder};
-    use crate::mocks::{FreePortFactoryMock, LocalIpFinderMock, make_router_connections, TestMulticastSocketHolder, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock};
+    use crate::test_utils::{FreePortFactoryMock, LocalIpFinderMock, make_router_connections, TestMulticastSocketHolder, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock};
     use crate::protocols::pcp::map_packet::{MapOpcodeData, Protocol};
     use crate::protocols::pcp::pcp_packet::{Opcode, PcpPacket};
     use crate::protocols::utils::{Direction, Packet, ParseError, UnrecognizedData};
@@ -2221,7 +2216,6 @@ mod tests {
 
     #[test]
     fn play_with_multicast() {
-        // make three sockets
         // Note: for some reason, at least on Dan's machine, Ipv4Addr::UNSPECIFIED is the only value
         // that works here. Anything definite will fail because the receiving socket can't hear
         // the sending socket. There shouldn't be any security threat in using UNSPECIFIED, because

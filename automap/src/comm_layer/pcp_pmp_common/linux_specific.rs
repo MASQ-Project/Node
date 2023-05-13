@@ -1,10 +1,11 @@
 // Copyright (c) 2019-2021, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 #![cfg(target_os = "linux")]
 
-use crate::comm_layer::pcp_pmp_common::FindRoutersCommand;
+use crate::comm_layer::pcp_pmp_common::{CommandError, CommandOutput, FindRoutersCommand};
 use crate::comm_layer::AutomapError;
 use std::net::IpAddr;
 use std::str::FromStr;
+use itertools::Either;
 
 const RETRIES_FOR_FIND_ROUTERS_OS_ERR_2: i32 = 3;
 
@@ -14,7 +15,7 @@ pub fn linux_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr
     let output = loop {
         match command.execute() {
             Ok(stdout) => break stdout,
-            Err(stderr) if (stderr.contains("Os { code: 2,")) => {
+            Err(Either::Left(stderr)) if (stderr.contains("Os { code: 2,")) => {
                 // File not found
                 if retries_left == 0 {
                     return Err(AutomapError::FindRouterError(format!(
@@ -25,7 +26,8 @@ pub fn linux_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr
                 last_stderror_opt = Some(stderr);
                 retries_left -= 1;
             }
-            Err(stderr) => return Err(AutomapError::FindRouterError(stderr)),
+            Err(Either::Left(stderr)) => return Err(AutomapError::FindRouterError(stderr)),
+            Err(Either::Right(error)) => return Err(AutomapError::FindRouterError(format!("{:?}", error)))
         };
     };
     let addresses = output
@@ -44,7 +46,7 @@ pub fn linux_find_routers(command: &dyn FindRoutersCommand) -> Result<Vec<IpAddr
 pub struct LinuxFindRoutersCommand {}
 
 impl FindRoutersCommand for LinuxFindRoutersCommand {
-    fn execute(&self) -> Result<String, String> {
+    fn execute(&self) -> Result<CommandOutput, CommandError> {
         self.execute_command("route -n")
     }
 }
@@ -64,7 +66,7 @@ impl LinuxFindRoutersCommand {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::mocks::FindRoutersCommandMock;
+    use crate::test_utils::FindRoutersCommandMock;
     use std::str::FromStr;
 
     #[test]
@@ -137,10 +139,10 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
     fn find_routers_works_when_command_produces_os_error_2_too_many_times() {
         let mut find_routers_command = FindRoutersCommandMock::new();
         for idx in 0..=RETRIES_FOR_FIND_ROUTERS_OS_ERR_2 {
-            find_routers_command = find_routers_command.execute_result(Err(format!(
+            find_routers_command = find_routers_command.execute_result(Err(Either::Left(format!(
                 "prologue, Os {{ code: 2, iteration {}",
                 idx + 1
-            )))
+            ))))
         }
 
         let result = linux_find_routers(&find_routers_command);
@@ -156,7 +158,7 @@ Destination     Gateway         Genmask         Flags Metric Ref    Use Iface
     #[test]
     fn find_routers_works_when_command_produces_stderr_output() {
         let find_routers_command =
-            FindRoutersCommandMock::new().execute_result(Err("Booga!".to_string()));
+            FindRoutersCommandMock::new().execute_result(Err(Either::Left("Booga!".to_string())));
 
         let result = linux_find_routers(&find_routers_command);
 

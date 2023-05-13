@@ -704,7 +704,7 @@ mod tests {
     use crate::comm_layer::pcp_pmp_common::{MappingConfig, UdpSocket};
     use crate::comm_layer::AutomapErrorCause;
     use crate::control_layer::automap_control::AutomapChange;
-    use crate::mocks::{FreePortFactoryMock, make_router_connections, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock};
+    use crate::test_utils::{FreePortFactoryMock, make_router_connections, UdpSocketWrapperFactoryMock, UdpSocketWrapperMock};
     use crate::protocols::pmp::get_packet::GetOpcodeData;
     use crate::protocols::pmp::map_packet::MapOpcodeData;
     use crate::protocols::pmp::pmp_packet::{Opcode, PmpOpcodeData, PmpPacket, ResultCode};

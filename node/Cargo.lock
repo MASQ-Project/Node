@@ -187,6 +187,7 @@ dependencies = [
  "crossbeam-channel 0.5.1",
  "flexi_logger 0.17.1",
  "igd",
+ "itertools 0.10.3",
  "lazy_static",
  "local_ipaddress",
  "log 0.4.14",
