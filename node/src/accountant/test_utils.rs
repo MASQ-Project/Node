@@ -1374,7 +1374,8 @@ impl PayableThresholdsGaugeMock {
 pub struct PaymentAdjusterMock {
     is_adjustment_required_params: Arc<Mutex<Vec<ConsumingWalletBalancesAndQualifiedPayables>>>,
     is_adjustment_required_results: RefCell<Vec<bool>>,
-    adjust_payments_params: Arc<Mutex<Vec<ConsumingWalletBalancesAndQualifiedPayables>>>,
+    adjust_payments_params:
+        Arc<Mutex<Vec<(ConsumingWalletBalancesAndQualifiedPayables, SystemTime)>>>,
     adjust_payments_results: RefCell<Vec<OutcomingPayamentsInstructions>>,
 }
 
@@ -1390,8 +1391,9 @@ impl PaymentAdjuster for PaymentAdjusterMock {
     fn adjust_payments(
         &self,
         msg: ConsumingWalletBalancesAndQualifiedPayables,
+        now: SystemTime,
     ) -> OutcomingPayamentsInstructions {
-        self.adjust_payments_params.lock().unwrap().push(msg);
+        self.adjust_payments_params.lock().unwrap().push((msg, now));
         self.adjust_payments_results.borrow_mut().remove(0)
     }
 }
@@ -1414,7 +1416,7 @@ impl PaymentAdjusterMock {
 
     pub fn adjust_payments_params(
         mut self,
-        params: &Arc<Mutex<Vec<ConsumingWalletBalancesAndQualifiedPayables>>>,
+        params: &Arc<Mutex<Vec<(ConsumingWalletBalancesAndQualifiedPayables, SystemTime)>>>,
     ) -> Self {
         self.adjust_payments_params = params.clone();
         self

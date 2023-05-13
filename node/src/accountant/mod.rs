@@ -1476,10 +1476,17 @@ mod tests {
             };
 
         subject_addr
-            .try_send(consuming_balances_and_qualified_payments)
+            .try_send(consuming_balances_and_qualified_payments.clone())
             .unwrap();
 
+        let before = SystemTime::now();
         assert_eq!(system.run(), 0);
+        let after = SystemTime::now();
+        let mut adjust_payments_params = adjust_payments_params_arc.lock().unwrap();
+        let (cwbqp_msg, captured_now) = adjust_payments_params.remove(0);
+        assert_eq!(cwbqp_msg, consuming_balances_and_qualified_payments);
+        assert!(before <= captured_now && captured_now <= after);
+        assert!(adjust_payments_params.is_empty());
         let blockchain_bridge_recording = blockchain_bridge_recording_arc.lock().unwrap();
         assert_eq!(
             blockchain_bridge_recording.get_record::<OutcomingPayamentsInstructions>(0),

@@ -44,7 +44,7 @@ use std::any::Any;
 use std::cell::RefCell;
 use std::rc::Rc;
 use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use time::format_description::parse;
 use time::OffsetDateTime;
 use web3::types::TransactionReceipt;
@@ -262,7 +262,8 @@ impl PayableScannerMidProcedures for PayableScanner {
         &self,
         msg: ConsumingWalletBalancesAndQualifiedPayables,
     ) -> OutcomingPayamentsInstructions {
-        self.payment_adjuster.adjust_payments(msg)
+        let now = SystemTime::now();
+        self.payment_adjuster.adjust_payments(msg, now)
     }
 }
 
