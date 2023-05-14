@@ -992,32 +992,50 @@ mod tests {
     #[test]
     fn server_initializer_collected_params_senses_when_user_specifies_data_directory_without_chain_specific_directory() {
         running_test();
-        let home_dir = PathBuf::from("/home/booga");
-        let check_specific_dir = std::path::Path::new("/home/booga/polygon-mumbai");
-
-        let args = ArgsBuilder::new()
-            .param("--chain", "polygon-mainnet")
-            .param("--data-directory", "/home/booga/polygon-mumbai")
-            .param("--real-user", "999:999:/home/booga");
-        let args_vec: Vec<String> = args.into();
-        let dir_wrapper = DirsWrapperMock::new()
-            .home_dir_result(Some(home_dir.clone()))
-            .data_dir_result(Some(PathBuf::from(&check_specific_dir)));
-        let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice()).unwrap();
-
-        assert_eq!(result.data_directory.to_string_lossy().to_string(), "/home/booga/polygon-mumbai/polygon-mainnet");
-
+        vec![
+            (Some("polygon-mainnet"), Some("cooga/polygon-mumbai"), Some("cooga/polygon-mumbai/polygon-mainnet")),
+            (None, Some("cooga/polygon-mumbai"), Some("cooga/polygon-mumbai/polygon-mainnet")),
+            (Some("polygon-mumbai"), None, Some("/home/cooga/.local/MASQ/polygon-mumbai")),
+            (None, None, Some("/home/cooga/.local/MASQ/polygon-mainnet")),
+        ].iter().for_each(|(chain_opt, data_directory_opt, expected)| {
+            check_data_directory_combinations(*chain_opt, *data_directory_opt, *expected);
+        });
+    }
+    fn check_data_directory_combinations(chain_opt: Option<&str>, data_directory_opt: Option<&str>, expected: Option<&str>) {
         let home_dir = PathBuf::from("/home/cooga");
+        let standard_data_dir = PathBuf::from("/home/cooga/.local");
 
-        let args = ArgsBuilder::new()
-            .param("--chain", "polygon-mainnet")
-            .param("--real-user", "999:999:/home/cooga");
+        let args = match (chain_opt, data_directory_opt) {
+            (Some(chain_opt), Some(data_directory_opt))=>  ArgsBuilder::new()
+                .param("--chain", chain_opt)
+                .param("--real-user", "999:999:/home/cooga")
+                .param("--data-directory", data_directory_opt),
+            (None, Some(data_directory_opt)) => ArgsBuilder::new()
+                .param("--chain", "polygon-mainnet")
+                .param("--data-directory", data_directory_opt)
+                .param("--real-user", "999:999:/home/cooga"),
+            (Some(chain_opt), None) => ArgsBuilder::new()
+                .param("--chain", chain_opt)
+                .param("--real-user", "999:999:/home/cooga"),
+            (None, None) => ArgsBuilder::new()
+                .param("--chain", "polygon-mainnet")
+                .param("--real-user", "999:999:/home/cooga")
+        };
         let args_vec: Vec<String> = args.into();
-        let dir_wrapper = DirsWrapperMock::new()
-            .home_dir_result(Some(home_dir.clone()))
-            .data_dir_result(Some(home_dir));
-        let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice()).unwrap();
+        let dir_wrapper = match data_directory_opt {
+            Some(data_directory_opt) => DirsWrapperMock::new()
+                .home_dir_result(Some(home_dir))
+                .data_dir_result(Some(PathBuf::from(data_directory_opt))),
+            None => DirsWrapperMock::new()
+                .home_dir_result(Some(home_dir))
+                .data_dir_result(Some(PathBuf::from(standard_data_dir)))
+        };
+        let result = server_initializer_collected_params(&dir_wrapper, args_vec.as_slice())
+            .unwrap()
+            .data_directory
+            .to_string_lossy()
+            .to_string();
 
-        assert_eq!(result.data_directory.to_string_lossy().to_string(), "/home/cooga/MASQ/polygon-mainnet");
+        assert_eq!(result, expected.unwrap());
     }
 }
