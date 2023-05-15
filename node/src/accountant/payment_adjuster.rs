@@ -6,8 +6,7 @@ use crate::sub_lib::blockchain_bridge::OutcomingPayamentsInstructions;
 use itertools::Itertools;
 use lazy_static::lazy_static;
 use std::any::Any;
-use std::iter;
-use std::iter::once;
+use std::iter::{once, successors};
 use std::time::SystemTime;
 use web3::types::U256;
 
@@ -59,9 +58,11 @@ impl PaymentAdjuster for PaymentAdjusterReal {
                 .as_secs() as u128;
             (criteria_sum + criteria, account)
         });
-        let balance_criteria_closure: CriteriaClosure =
-            Box::new(|(criteria_sum, account)| (criteria_sum + account.balance_wei, account));
-
+        let balance_criteria_closure: CriteriaClosure = Box::new(|(criteria_sum, account)| {
+            let digits_weight = log_10(account.balance_wei);
+            let additional_criteria = account.balance_wei * digits_weight as u128;
+            (criteria_sum + additional_criteria, account)
+        });
 
         let qualified_payables = msg.qualified_payables;
         let accounts_count = qualified_payables.len();
@@ -142,18 +143,25 @@ impl PaymentAdjusterReal {
     }
 }
 
+// replace with `account_1.balance_wei.checked_ilog10().unwrap() + 1`
+// which will be introduced by Rust 1.67.0; this was written with 1.63.0
+fn log_10(num: u128) -> usize {
+    successors(Some(num), |&n| (n >= 10).then(|| n / 10)).count()
+}
+
 #[cfg(test)]
 mod tests {
-    use crate::accountant::dao_utils::to_time_t;
     use crate::accountant::payable_dao::PayableAccount;
-    use crate::accountant::payment_adjuster::{MULTI_COEFF_BY_100, PaymentAdjuster, PaymentAdjusterReal};
+    use crate::accountant::payment_adjuster::{
+        log_10, PaymentAdjuster, PaymentAdjusterReal, MULTI_COEFF_BY_100,
+    };
     use crate::accountant::test_utils::make_payable_account;
     use crate::accountant::{gwei_to_wei, ConsumingWalletBalancesAndQualifiedPayables};
     use crate::sub_lib::blockchain_bridge::{
         ConsumingWalletBalances, OutcomingPayamentsInstructions,
     };
     use crate::test_utils::make_wallet;
-    use itertools::fold;
+    use itertools::Itertools;
     use std::time::{Duration, SystemTime};
     use std::vec;
     use web3::types::U256;
@@ -234,6 +242,19 @@ mod tests {
     }
 
     #[test]
+    fn log_10_works() {
+        [
+            (4_565_u128, 4),
+            (1_666_777, 7),
+            (3, 1),
+            (123, 3),
+            (111_111_111_111_111_111, 18),
+        ]
+        .into_iter()
+        .for_each(|(num, expected_result)| assert_eq!(log_10(num), expected_result))
+    }
+
+    #[test]
     fn multiplication_coeff_to_get_integers_above_one_instead_of_fractional_numbers_works() {
         let final_criteria_sum = U256::from(5_000_000_000_000_u64);
         let consuming_wallet_balances = vec![
@@ -251,15 +272,15 @@ mod tests {
             .collect::<Vec<u128>>();
 
         let expected_coefficients = {
-            let co_1 =
-                ((final_criteria_sum / consuming_wallet_balances[0]) * *MULTI_COEFF_BY_100).as_u128();
-            assert_eq!(co_1, 220);
-            let co_2 =
-                ((final_criteria_sum / consuming_wallet_balances[1]) * *MULTI_COEFF_BY_100).as_u128();
-            assert_eq!(co_2, 500_000_000);
-            let co_3 =
-                ((final_criteria_sum / consuming_wallet_balances[2]) * *MULTI_COEFF_BY_100).as_u128();
-            assert_eq!(co_3, 405_000);
+            let co_1 = ((final_criteria_sum / consuming_wallet_balances[0]) * *MULTI_COEFF_BY_100)
+                .as_u128();
+            assert_eq!(co_1, 22_000);
+            let co_2 = ((final_criteria_sum / consuming_wallet_balances[1]) * *MULTI_COEFF_BY_100)
+                .as_u128();
+            assert_eq!(co_2, 50_000_000_000);
+            let co_3 = ((final_criteria_sum / consuming_wallet_balances[2]) * *MULTI_COEFF_BY_100)
+                .as_u128();
+            assert_eq!(co_3, 40_500_000);
             vec![co_1, co_2, co_3]
         };
         assert_eq!(result, expected_coefficients)
@@ -270,26 +291,27 @@ mod tests {
         let now = SystemTime::now();
         let account_1 = PayableAccount {
             wallet: make_wallet("abc"),
-            balance_wei: 444_444_444_444_444,
+            balance_wei: 444_444_444_444_444_444,
             last_paid_timestamp: now.checked_sub(Duration::from_secs(1234)).unwrap(),
             pending_payable_opt: None,
         };
         let account_2 = PayableAccount {
             wallet: make_wallet("def"),
-            balance_wei: 666_666_666_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(500)).unwrap(),
+            balance_wei: 666_666_666_666_000_000_000_000,
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(100)).unwrap(),
             pending_payable_opt: None,
         };
         let account_3 = PayableAccount {
             wallet: make_wallet("ghk"),
             balance_wei: 22_000_000_000_000,
-            last_paid_timestamp: now.checked_sub(Duration::from_secs(5678)).unwrap(),
+            last_paid_timestamp: now.checked_sub(Duration::from_secs(78910)).unwrap(),
             pending_payable_opt: None,
         };
         let qualified_payables = vec![account_1.clone(), account_2.clone(), account_3.clone()];
         let subject = PaymentAdjusterReal::new();
-        let accounts_sum: u128 = 444_444_444_444_444 + 666_666_666_000_000_000 + 22_000_000_000_000; //= 667_133_110_444_444_444
-        let consuming_wallet_masq_balance = U256::from(accounts_sum - 300_000_000_000_000);
+        let accounts_sum: u128 =
+            444_444_444_444_444_444 + 666_666_666_666_000_000_000_000 + 22_000_000_000_000; //= 666_667_111_132_444_444_444_444
+        let consuming_wallet_masq_balance = U256::from(accounts_sum - 600_000_000_000_000_000);
         let msg = ConsumingWalletBalancesAndQualifiedPayables {
             qualified_payables,
             consuming_wallet_balances: ConsumingWalletBalances {
@@ -308,9 +330,9 @@ mod tests {
                 secs_elapsed(account_3.last_paid_timestamp, now),
             ];
             let amount_criteria = vec![
-                account_1.balance_wei,
-                account_2.balance_wei,
-                account_3.balance_wei,
+                account_1.balance_wei * log_10(account_1.balance_wei) as u128,
+                account_2.balance_wei * log_10(account_2.balance_wei) as u128,
+                account_3.balance_wei * log_10(account_3.balance_wei) as u128,
             ];
             let final_criteria = vec![time_criteria, amount_criteria].into_iter().fold(
                 vec![0, 0, 0],
@@ -359,6 +381,21 @@ mod tests {
                 response_skeleton_opt: None
             }
         );
+
+        // Example of the current adjustment;
+        // printed with `visual_check_balance_before_after(.., ..)`
+        //
+        // BEFORE
+        // AFTER
+        //
+        // 444444444444444444
+        // 333000000000000051
+        // ---
+        // 666666666666000000000000
+        // 665999999999334000000004
+        // ---
+        // 22000000000000
+        // 12820500003284
     }
 
     fn secs_elapsed(timestamp: SystemTime, now: SystemTime) -> u128 {
@@ -368,5 +405,25 @@ mod tests {
     #[test]
     fn output_with_response_skeleton_opt_some() {
         //TODO rather include into some other special test??
+    }
+
+    #[allow(dead_code)]
+    fn visual_check_balance_before_after(
+        accounts_before: &[PayableAccount],
+        accounts_after: &[PayableAccount],
+    ) {
+        let sorting = |a: &&PayableAccount, b: &&PayableAccount| {
+            Ord::cmp(&a.wallet.to_string(), &b.wallet.to_string())
+        };
+        accounts_before
+            .into_iter()
+            .sorted_by(sorting)
+            .zip(accounts_after.into_iter().sorted_by(sorting))
+            .for_each(|(original_payable, adjusted_payable)| {
+                eprintln!(
+                    "{}\n{}\n---",
+                    original_payable.balance_wei, adjusted_payable.balance_wei
+                )
+            })
     }
 }
