@@ -1089,7 +1089,7 @@ mod tests {
     use masq_lib::test_utils::environment_guard::{ClapGuard, EnvironmentGuard};
     use masq_lib::test_utils::logging::{init_test_logging, TestLogHandler};
     use masq_lib::test_utils::utils::{ensure_node_home_directory_exists, TEST_DEFAULT_CHAIN};
-    use masq_lib::utils::AutomapProtocol;
+    use masq_lib::utils::{add_chain_specific_directory, AutomapProtocol};
     use std::cell::RefCell;
     use std::convert::TryFrom;
     #[cfg(not(target_os = "windows"))]
@@ -2416,7 +2416,7 @@ mod tests {
             "setup_reporter",
             "config_file_not_specified_but_exists",
         );
-        let data_dir_chain_path = add_chain_specific_directories(DEFAULT_CHAIN, &data_directory);
+        let data_dir_chain_path = add_chain_specific_directory(DEFAULT_CHAIN, &data_directory);
         {
             let config_file_path = data_dir_chain_path.join("config.toml");
             create_dir_all(&data_dir_chain_path)

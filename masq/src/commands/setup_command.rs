@@ -11,11 +11,14 @@ use masq_lib::messages::{
 };
 use masq_lib::shared_schema::shared_app;
 use masq_lib::short_writeln;
-use masq_lib::utils::index_of_from;
+use masq_lib::utils::{add_chain_specific_directory, index_of_from};
 #[cfg(test)]
 use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
+use std::path::{Path, PathBuf};
+use itertools::chain;
+use masq_lib::blockchains::chains::Chain;
 
 pub const SETUP_COMMAND_TIMEOUT_MILLIS: u64 = 30000;
 
@@ -107,12 +110,28 @@ impl SetupCommand {
                 .expect("String comparison failed")
         });
         short_writeln!(stdout, "{:29} {:64} {}", "NAME", "VALUE", "STATUS");
+
         inner.values.into_iter().for_each(|value| {
+            let chain_name = if value.name == "chain" {
+                value.value.to_string()
+            } else {
+                "polygon-mainnet".to_string ()
+            };
+            let value_val = if value.name == "data-directory" {
+                let path = PathBuf::from(value.value.clone());
+                let checked_dir_path = match path.ends_with(chain_name.clone()) {
+                    true => path,
+                    false => add_chain_specific_directory(Chain::from(chain_name.as_str()), path.as_path())
+                };
+                checked_dir_path.as_path().to_string_lossy().to_string()
+            } else {
+                value.value
+            };
             short_writeln!(
                 stdout,
                 "{:29} {:64} {:?}",
                 value.name,
-                value.value,
+                value_val,
                 value.status
             );
         });
@@ -130,9 +149,12 @@ impl SetupCommand {
                 "NOTE: no changes were made to the setup because the Node is currently running.\n"
             );
         }
+        //println!("inner.values {:#?}", inner.values);
+        //TODO check inner.values if contains "data-directory" then show message
+        //TODO write integration test to ensure this will be workind properly after change of daemon in new integration test file in "test"
     }
 }
-
+//TODO create test to check if data-directory shows right path
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -336,6 +358,35 @@ neighborhood-mode             zero-hop                                          
 \n\
 ERRORS:
 ip                            No sir, I don't like it.\n\
+\n");
+    }
+
+    #[test]
+    fn setup_command_with_data_directory_shows_right_path() {
+        let message = UiSetupBroadcast {
+            running: false,
+            values: vec![
+                UiSetupResponseValue::new("chain", "polygon-mainnet", Default),
+                UiSetupResponseValue::new("data-directory", "booga/masqhome", Set),
+            ],
+            errors: vec![("data-directory".to_string(), "Your data directory was set to chain specific directory.".to_string())],
+        };
+        let (stream_factory, handle) = TestStreamFactory::new();
+        let (mut stdout, _) = stream_factory.make();
+        let term_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
+
+        SetupCommand::handle_broadcast(message, &mut stdout, &term_interface);
+
+        assert_eq! (handle.stdout_so_far(),
+"\n\
+Daemon setup has changed:\n\
+\n\
+NAME                          VALUE                                                            STATUS\n\
+chain                         polygon-mainnet                                                  Default\n\
+data-directory                booga/masqhome/polygon-mainnet                                   Set\n\
+\n\
+ERRORS:
+data-directory                Your data directory was set to chain specific directory.\n\
 \n");
     }
 }
