@@ -993,10 +993,13 @@ mod tests {
     fn server_initializer_collected_params_senses_when_user_specifies_data_directory_without_chain_specific_directory() {
         running_test();
         vec![
-            (Some("polygon-mainnet"), Some("cooga/polygon-mumbai"), Some("cooga/polygon-mumbai/polygon-mainnet")),
-            (None, Some("cooga/polygon-mumbai"), Some("cooga/polygon-mumbai/polygon-mainnet")),
-            (Some("polygon-mumbai"), None, Some("/home/cooga/.local/MASQ/polygon-mumbai")),
             (None, None, Some("/home/cooga/.local/MASQ/polygon-mainnet")),
+            (Some("polygon-mumbai"), None, Some("/home/cooga/.local/MASQ/polygon-mumbai")),
+            (None, Some("booga"), Some("booga/polygon-mainnet")),
+            (Some("polygon-mumbai"), Some("booga"), Some("booga/polygon-mumbai")),
+            (None, Some("booga/polygon-mumbai"), Some("booga/polygon-mumbai/polygon-mainnet")),
+            (None, Some("booga/polygon-mumbai/polygon-mainnet"), Some("booga/polygon-mumbai/polygon-mainnet")),
+            (Some("polygon-mumbai"), Some("booga/polygon-mumbai"), Some("booga/polygon-mumbai")),
         ].iter().for_each(|(chain_opt, data_directory_opt, expected)| {
             check_data_directory_combinations(*chain_opt, *data_directory_opt, *expected);
         });
