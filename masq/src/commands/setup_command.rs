@@ -16,8 +16,7 @@ use masq_lib::utils::{add_chain_specific_directory, index_of_from};
 use std::any::Any;
 use std::fmt::Debug;
 use std::io::Write;
-use std::path::{Path, PathBuf};
-use itertools::chain;
+use std::path::PathBuf;
 use masq_lib::blockchains::chains::Chain;
 
 pub const SETUP_COMMAND_TIMEOUT_MILLIS: u64 = 30000;
@@ -111,17 +110,15 @@ impl SetupCommand {
         });
         short_writeln!(stdout, "{:29} {:64} {}", "NAME", "VALUE", "STATUS");
 
+        let chain_name = "polygon-mainnet"; //TODO tertireve chain-name from inner.values.clone().into_iter().for_each(|value| value.get_mut(&name));
+
         inner.values.into_iter().for_each(|value| {
-            let chain_name = if value.name == "chain" {
-                value.value.to_string()
-            } else {
-                "polygon-mainnet".to_string ()
-            };
             let value_val = if value.name == "data-directory" {
+                let chain_name = chain_name;
                 let path = PathBuf::from(value.value.clone());
-                let checked_dir_path = match path.ends_with(chain_name.clone()) {
+                let checked_dir_path = match path.ends_with(chain_name) {
                     true => path,
-                    false => add_chain_specific_directory(Chain::from(chain_name.as_str()), path.as_path())
+                    false => add_chain_specific_directory(Chain::from(chain_name), path.as_path())
                 };
                 checked_dir_path.as_path().to_string_lossy().to_string()
             } else {
