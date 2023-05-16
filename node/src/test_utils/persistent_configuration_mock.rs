@@ -7,7 +7,7 @@ use crate::sub_lib::accountant::{PaymentThresholds, ScanIntervals};
 use crate::sub_lib::neighborhood::{NodeDescriptor, RatePack};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::unshared_test_utils::arbitrary_id_stamp::ArbitraryIdStamp;
-use crate::{arbitrary_id_stamp, set_arbitrary_id_stamp};
+use crate::{arbitrary_id_stamp_in_trait_impl, set_arbitrary_id_stamp_in_mock_impl};
 use masq_lib::utils::AutomapProtocol;
 use masq_lib::utils::NeighborhoodModeLight;
 use std::cell::RefCell;
@@ -65,7 +65,7 @@ pub struct PersistentConfigurationMock {
     scan_intervals_results: RefCell<Vec<Result<ScanIntervals, PersistentConfigError>>>,
     set_scan_intervals_params: Arc<Mutex<Vec<String>>>,
     set_scan_intervals_results: RefCell<Vec<Result<(), PersistentConfigError>>>,
-    arbitrary_id_stamp_opt: RefCell<Option<ArbitraryIdStamp>>,
+    arbitrary_id_stamp_opt: Option<ArbitraryIdStamp>,
 }
 
 impl PersistentConfiguration for PersistentConfigurationMock {
@@ -267,7 +267,7 @@ impl PersistentConfiguration for PersistentConfigurationMock {
         self.set_scan_intervals_results.borrow_mut().remove(0)
     }
 
-    arbitrary_id_stamp!();
+    arbitrary_id_stamp_in_trait_impl!();
 }
 
 impl PersistentConfigurationMock {
@@ -612,7 +612,7 @@ impl PersistentConfigurationMock {
         self
     }
 
-    set_arbitrary_id_stamp!();
+    set_arbitrary_id_stamp_in_mock_impl!();
 
     fn result_from<T: Clone>(results: &RefCell<Vec<T>>) -> T {
         let mut borrowed = results.borrow_mut();

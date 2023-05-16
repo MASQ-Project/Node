@@ -140,7 +140,7 @@ impl MASQNode {
             sterile_logfile,
             piped_output,
             ensure_start,
-            Self::make_masqnode_without_initial_config,
+            Self::make_node_without_initial_config,
         )
     }
 
@@ -410,12 +410,13 @@ impl MASQNode {
         Self::start_with_args_extension(data_dir, args, remove_database)
     }
 
-    fn make_masqnode_without_initial_config(
+    fn make_node_without_initial_config(
         data_dir: &PathBuf,
         config: Option<CommandConfig>,
         remove_database: bool,
     ) -> process::Command {
-        let args = Self::get_extra_args(data_dir, config);
+        let mut args = Self::minimum_args();
+        args.extend(Self::get_extra_args(data_dir, config));
         Self::start_with_args_extension(data_dir, args, remove_database)
     }
 
@@ -460,6 +461,10 @@ impl MASQNode {
             .pair("--chain", TEST_DEFAULT_CHAIN.rec().literal_identifier)
             .pair("--log-level", "trace")
             .args
+    }
+
+    fn minimum_args() -> Vec<String> {
+        apply_prefix_parameters(CommandConfig::new()).args
     }
 
     #[allow(dead_code)]
@@ -666,11 +671,11 @@ pub fn make_conn(home_dir: &Path) -> Box<dyn ConnectionWrapper> {
 #[cfg(test)]
 mod tests {
     use super::MASQNode;
-    use masq_lib::utils::array_of_borrows_to_vec;
+    use masq_lib::utils::slice_of_strs_to_vec_of_strings;
 
     #[test]
     fn extend_without_duplication_replaces_default_params_with_additionally_supplied_values() {
-        let default_args = array_of_borrows_to_vec(&[
+        let default_args = slice_of_strs_to_vec_of_strings(&[
             "--arg-without-val",
             "--whatever-arg",
             "12345",
@@ -679,7 +684,7 @@ mod tests {
             "--final-arg",
             "true",
         ]);
-        let args_extension = array_of_borrows_to_vec(&[
+        let args_extension = slice_of_strs_to_vec_of_strings(&[
             "--whatever-arg",
             "789",
             "--unique-arg",
@@ -690,7 +695,7 @@ mod tests {
 
         let result = MASQNode::extend_args_without_duplication(default_args, args_extension);
 
-        let expected_args = array_of_borrows_to_vec(&[
+        let expected_args = slice_of_strs_to_vec_of_strings(&[
             "--arg-without-val",
             "--whatever-arg",
             "789",
@@ -711,8 +716,9 @@ mod tests {
     (\"--final-arg\", Some(\"false\")), (\"--unique-arg\", Some(\"booga\"))]"
     )]
     fn extend_without_duplication_catches_duplicated_config_arg() {
-        let default_args = array_of_borrows_to_vec(&["--default-arg", "val-of-default-arg"]);
-        let args_extension = array_of_borrows_to_vec(&[
+        let default_args =
+            slice_of_strs_to_vec_of_strings(&["--default-arg", "val-of-default-arg"]);
+        let args_extension = slice_of_strs_to_vec_of_strings(&[
             "--whatever-arg",
             "789",
             "--unique-arg",

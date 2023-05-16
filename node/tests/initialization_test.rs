@@ -200,7 +200,7 @@ fn started_without_explicit_chain_parameter_runs_fine_integration() {
         );
 
     let mut node = MASQNode::start_with_blank_config(
-        "started_without_explicit_chain_parameter_runs_fine",
+        "started_without_explicit_chain_parameter_runs_fine_integration",
         Some(config),
         true,
         true,
@@ -284,8 +284,9 @@ fn node_creates_log_file_with_heading_integration() {
                                              |__|/             gossip_failure::MIGRATIONS \(\d+\.\d+\)
                                                                node_record_inner::MIGRATIONS \(\d+\.\d+\)\n
 \d+\-\d+\-\d+ \d+:\d+:\d+\.\d+ Thd\d+:"#,
+        //The last line represents the first log with its timestamp.
     );
-    //The last line represents the first log with its timestamp.
+
     expected_heading_regex = expected_heading_regex.replace("|", "\\|");
 
     node.wait_for_log(&expected_heading_regex, Some(5000));

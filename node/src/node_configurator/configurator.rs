@@ -27,7 +27,7 @@ use crate::db_config::persistent_configuration::{
 };
 use crate::sub_lib::configurator::NewPasswordMessage;
 use crate::sub_lib::peer_actors::BindMessage;
-use crate::sub_lib::utils::handle_ui_crash_request;
+use crate::sub_lib::utils::{db_connection_launch_panic, handle_ui_crash_request};
 use crate::sub_lib::wallet::Wallet;
 use crate::test_utils::main_cryptde;
 use bip39::{Language, Mnemonic, MnemonicType, Seed};
@@ -101,7 +101,7 @@ impl Configurator {
                 &data_directory,
                 DbInitializationConfig::panic_on_migration(),
             )
-            .expect("Couldn't initialize database");
+            .unwrap_or_else(|err| db_connection_launch_panic(err, &data_directory));
         let config_dao = ConfigDaoReal::new(conn);
         let persistent_config: Box<dyn PersistentConfiguration> =
             Box::new(PersistentConfigurationReal::new(Box::new(config_dao)));
@@ -814,6 +814,7 @@ mod tests {
         UiWalletAddressesResponse,
     };
     use masq_lib::ui_gateway::{MessagePath, MessageTarget};
+    use std::path::Path;
     use std::str::FromStr;
     use std::sync::{Arc, Mutex};
     use std::time::Duration;
@@ -837,7 +838,8 @@ mod tests {
     use crate::sub_lib::node_addr::NodeAddr;
     use crate::sub_lib::wallet::Wallet;
     use crate::test_utils::unshared_test_utils::{
-        configure_default_persistent_config, prove_that_crash_request_handler_is_hooked_up, ZERO,
+        assert_on_initialization_with_panic_on_migration, configure_default_persistent_config,
+        prove_that_crash_request_handler_is_hooked_up, ZERO,
     };
     use bip39::{Language, Mnemonic};
     use masq_lib::blockchains::chains::Chain;
@@ -863,10 +865,11 @@ mod tests {
         )));
         let (recorder, _, _) = make_recorder();
         let recorder_addr = recorder.start();
+
         let mut subject = Configurator::new(data_dir, false);
+
         subject.node_to_ui_sub = Some(recorder_addr.recipient());
         subject.new_password_subs = Some(vec![]);
-
         let _ = subject.handle_change_password(
             UiChangePasswordRequest {
                 old_password_opt: None,
@@ -875,11 +878,24 @@ mod tests {
             0,
             0,
         );
-
         assert_eq!(
             verifier.check_password(Some("password".to_string())),
             Ok(true)
         )
+    }
+
+    #[test]
+    fn constructor_panics_on_database_migration() {
+        let data_dir = ensure_node_home_directory_exists(
+            "configurator",
+            "constructor_panics_on_database_migration",
+        );
+
+        let act = |data_dir: &Path| {
+            Configurator::new(data_dir.to_path_buf(), false);
+        };
+
+        assert_on_initialization_with_panic_on_migration(&data_dir, &act);
     }
 
     #[test]
