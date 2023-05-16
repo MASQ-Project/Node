@@ -110,25 +110,33 @@ impl SetupCommand {
         });
         short_writeln!(stdout, "{:29} {:64} {}", "NAME", "VALUE", "STATUS");
 
-        let chain_name = "polygon-mainnet"; //TODO tertireve chain-name from inner.values.clone().into_iter().for_each(|value| value.get_mut(&name));
+        let chain_name: &str = &inner.values.clone().into_iter().map(|p| {
+            match p.name.as_str() {
+                "chain" => p.value,
+                _ => "".to_string()
+            }
+        } ).collect::<String>();
 
         inner.values.into_iter().for_each(|value| {
-            let value_val = if value.name == "data-directory" {
-                let chain_name = chain_name;
-                let path = PathBuf::from(value.value.clone());
-                let checked_dir_path = match path.ends_with(chain_name) {
-                    true => path,
-                    false => add_chain_specific_directory(Chain::from(chain_name), path.as_path())
-                };
-                checked_dir_path.as_path().to_string_lossy().to_string()
-            } else {
-                value.value
+            let value_value = match value.name.as_str() {
+                "data-directory" => {
+                    let path = PathBuf::from(value.value.clone());
+                    let checked_dir_path = match path.ends_with(chain_name) {
+                        true => path,
+                        false => add_chain_specific_directory(
+                            Chain::from(chain_name),
+                            path.as_path()
+                        )
+                    };
+                    checked_dir_path.as_path().to_string_lossy().to_string()
+                },
+                _ => value.value
             };
             short_writeln!(
                 stdout,
                 "{:29} {:64} {:?}",
                 value.name,
-                value_val,
+                value_value,
                 value.status
             );
         });
