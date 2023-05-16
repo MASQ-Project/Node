@@ -11,10 +11,10 @@ use node_lib::database::db_initializer::{
 };
 use node_lib::test_utils::await_value;
 use regex::{Captures, Regex};
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 use std::env;
 use std::io;
-use std::iter::{once, once_with, Peekable};
+use std::iter::once;
 use std::net::SocketAddr;
 use std::ops::{Drop, Not};
 use std::path::{Path, PathBuf};
@@ -478,7 +478,9 @@ impl MASQNode {
         args
     }
 
-    fn virtual_arg_pairs(args: Vec<String>) -> Vec<(String, Option<String>)> {
+    fn virtual_arg_pairs_with_remembered_position(
+        args: Vec<String>,
+    ) -> Vec<(String, PositionedArg)> {
         let shifted_by_one = args
             .clone()
             .into_iter()
@@ -487,18 +489,30 @@ impl MASQNode {
             .chain(once(None));
         let params_and_yet_suspected_arg = args
             .into_iter()
-            .zip(shifted_by_one)
+            .zip(shifted_by_one.enumerate())
             .filter(|(param, _)| param.starts_with("--"));
         params_and_yet_suspected_arg
-            .map(|(param_name, suspected_arg_opt)| match suspected_arg_opt {
-                Some(suspected_arg) => {
-                    if suspected_arg.starts_with("--") {
-                        (param_name, None)
-                    } else {
-                        (param_name, Some(suspected_arg))
+            .map(|(param_name, (original_position, suspected_arg_opt))| {
+                let construct_positioned_arg = |val_opt| {
+                    (
+                        param_name,
+                        PositionedArg {
+                            arg_opt: val_opt,
+                            remembered_position: original_position,
+                        },
+                    )
+                };
+
+                match suspected_arg_opt {
+                    Some(suspected_arg) => {
+                        if suspected_arg.starts_with("--") {
+                            construct_positioned_arg(None)
+                        } else {
+                            construct_positioned_arg(Some(suspected_arg))
+                        }
                     }
+                    None => construct_positioned_arg(None),
                 }
-                None => (param_name, None),
             })
             .collect()
     }
@@ -509,9 +523,9 @@ impl MASQNode {
     ) -> Vec<String> {
         fn retain_unique_default_args(
             default_args: Vec<String>,
-            config_args: &BTreeMap<String, Option<String>>,
-        ) -> BTreeMap<String, Option<String>> {
-            MASQNode::virtual_arg_pairs(default_args)
+            config_args: &HashMap<String, PositionedArg>,
+        ) -> HashMap<String, PositionedArg> {
+            MASQNode::virtual_arg_pairs_with_remembered_position(default_args)
                 .into_iter()
                 .flat_map(|(arg_name, value)| {
                     config_args
@@ -522,40 +536,43 @@ impl MASQNode {
                 })
                 .collect()
         }
-        fn test_uniqueness_for_config_args(config_args_as_tuples: &[(String, Option<String>)]) {
+        fn test_uniqueness_for_config_args(config_args_as_tuples: &[(String, PositionedArg)]) {
             let len_before = config_args_as_tuples.len();
             let config_args_to_test: Vec<_> = config_args_as_tuples
                 .iter()
-                .sorted()
-                .dedup_by(|(arg_1, _), (arg_2, _)| arg_1 == arg_2)
+                .sorted_by(|(arg_a, _), (arg_b, _)| Ord::cmp(&arg_a, &arg_b))
+                .dedup_by(|(arg_a, _), (arg_b, _)| arg_a == arg_b)
                 .collect();
             let len_after = config_args_to_test.len();
             assert_eq!(
-                len_after, len_before,
+                len_after,
+                len_before,
                 "You supplied additional arguments with some of \
                 them duplicated, use each only once! {:?}",
                 config_args_as_tuples
+                    .iter()
+                    .map(|(arg_name, positioned_arg)| { (arg_name, &positioned_arg.arg_opt) })
+                    .collect::<Vec<_>>()
             );
         }
 
-        //usages of BTreeMaps to preserve the order of arguments, both defaulted and from the config
-        let config_args_as_tuples = Self::virtual_arg_pairs(config_args);
-        eprintln!("{:?}\n\n", config_args_as_tuples);
+        let config_args_as_tuples = Self::virtual_arg_pairs_with_remembered_position(config_args);
         test_uniqueness_for_config_args(&config_args_as_tuples);
-        let config_args: BTreeMap<String, Option<String>> =
-            BTreeMap::from_iter(config_args_as_tuples);
-        eprintln!("??????????????{:?}", config_args);
+        let config_args: HashMap<String, PositionedArg> = HashMap::from_iter(config_args_as_tuples);
         let default_args_to_keep = retain_unique_default_args(default_args, &config_args);
-        eprintln!("{:?}", config_args);
         default_args_to_keep
             .into_iter()
             .chain(
                 config_args, //    .rev()
             )
-            .inspect(|x| eprintln!("{:?}", x))
-            .flat_map(|(arg_name, value_opt)| {
-                eprintln!("arg name {}, value {:?}", arg_name, value_opt);
-                [Some(arg_name), value_opt]
+            .sorted_by(|(_, positioned_arg_a), (_, positioned_arg_b)| {
+                Ord::cmp(
+                    &positioned_arg_a.remembered_position,
+                    &positioned_arg_b.remembered_position,
+                )
+            })
+            .flat_map(|(arg_name, positioned_arg)| {
+                [Some(arg_name), positioned_arg.arg_opt]
                     .into_iter()
                     .flatten()
                     .collect::<Vec<String>>()
@@ -589,6 +606,12 @@ impl MASQNode {
             },
         }
     }
+}
+
+#[derive(Debug)]
+struct PositionedArg {
+    arg_opt: Option<String>,
+    remembered_position: usize,
 }
 
 #[cfg(target_os = "windows")]
@@ -669,12 +692,12 @@ mod tests {
 
         let expected_args = array_of_borrows_to_vec(&[
             "--arg-without-val",
-            "--different-arg",
-            "hello",
             "--whatever-arg",
             "789",
             "--unique-arg",
             "blah",
+            "--different-arg",
+            "hello",
             "--final-arg",
             "false",
         ]);
