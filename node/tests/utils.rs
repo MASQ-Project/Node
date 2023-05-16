@@ -14,7 +14,7 @@ use regex::{Captures, Regex};
 use std::collections::BTreeMap;
 use std::env;
 use std::io;
-use std::iter::Peekable;
+use std::iter::{once, once_with, Peekable};
 use std::net::SocketAddr;
 use std::ops::{Drop, Not};
 use std::path::{Path, PathBuf};
@@ -479,44 +479,28 @@ impl MASQNode {
     }
 
     fn virtual_arg_pairs(args: Vec<String>) -> Vec<(String, Option<String>)> {
-        fn look_at_val_distanced_by_two<I>(
-            peekable: &mut Peekable<I>,
-            current_string: String,
-            mut acc: Vec<(String, Option<String>)>,
-        ) -> Vec<(String, Option<String>)>
-        where
-            I: Iterator<Item = String>,
-        {
-            match peekable.peek() {
-                //possibly value for that arg
-                Some(next_string) => {
-                    if next_string.starts_with("--") {
-                        acc.push((current_string, None));
-                        acc
+        let shifted_by_one = args
+            .clone()
+            .into_iter()
+            .map(|val| Some(val))
+            .skip(1)
+            .chain(once(None));
+        let params_and_yet_suspected_arg = args
+            .into_iter()
+            .zip(shifted_by_one)
+            .filter(|(param, _)| param.starts_with("--"));
+        params_and_yet_suspected_arg
+            .map(|(param_name, suspected_arg_opt)| match suspected_arg_opt {
+                Some(suspected_arg) => {
+                    if suspected_arg.starts_with("--") {
+                        (param_name, None)
                     } else {
-                        let value = peekable.next().unwrap();
-                        acc.push((current_string, Some(value)));
-                        acc
+                        (param_name, Some(suspected_arg))
                     }
                 }
-                None => {
-                    acc.push((current_string, None));
-                    acc
-                }
-            }
-        }
-
-        let count = args.len();
-        let mut peekable = args.into_iter().peekable();
-        (0..count).fold(vec![], |acc, _| {
-            match peekable.next() {
-                //arg name
-                Some(current_string) => {
-                    look_at_val_distanced_by_two(&mut peekable, current_string, acc)
-                }
-                None => acc,
-            }
-        })
+                None => (param_name, None),
+            })
+            .collect()
     }
 
     fn extend_args_without_duplication(
@@ -530,12 +514,11 @@ impl MASQNode {
             MASQNode::virtual_arg_pairs(default_args)
                 .into_iter()
                 .flat_map(|(arg_name, value)| {
-                    let res = config_args
+                    config_args
                         .keys()
                         .contains(&&arg_name)
                         .not()
-                        .then_some((arg_name, value));
-                    res
+                        .then_some((arg_name, value))
                 })
                 .collect()
         }
@@ -557,15 +540,22 @@ impl MASQNode {
 
         //usages of BTreeMaps to preserve the order of arguments, both defaulted and from the config
         let config_args_as_tuples = Self::virtual_arg_pairs(config_args);
+        eprintln!("{:?}\n\n", config_args_as_tuples);
         test_uniqueness_for_config_args(&config_args_as_tuples);
         let config_args: BTreeMap<String, Option<String>> =
-            BTreeMap::from_iter(config_args_as_tuples.into_iter());
+            BTreeMap::from_iter(config_args_as_tuples);
+        eprintln!("??????????????{:?}", config_args);
         let default_args_to_keep = retain_unique_default_args(default_args, &config_args);
+        eprintln!("{:?}", config_args);
         default_args_to_keep
             .into_iter()
-            .chain(config_args.into_iter().rev())
-            .flat_map(|(arg_name, value)| {
-                [Some(arg_name), value]
+            .chain(
+                config_args, //    .rev()
+            )
+            .inspect(|x| eprintln!("{:?}", x))
+            .flat_map(|(arg_name, value_opt)| {
+                eprintln!("arg name {}, value {:?}", arg_name, value_opt);
+                [Some(arg_name), value_opt]
                     .into_iter()
                     .flatten()
                     .collect::<Vec<String>>()

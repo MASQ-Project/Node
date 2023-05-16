@@ -301,7 +301,11 @@ macro_rules! migrate_item {
                             $crate::sub_lib::versioned_data::StepError::DeserializationError(
                                 $fv,
                                 $tv,
-                                format!("Unable to deserialize {} with data {:?}",stringify!($mt), data),
+                                format!(
+                                    "Unable to deserialize {} with data {:?}",
+                                    stringify!($mt),
+                                    data
+                                ),
                             ),
                         )
                     }
@@ -356,7 +360,11 @@ macro_rules! migrate_value {
                             $crate::sub_lib::versioned_data::StepError::DeserializationError(
                                 masq_lib::data_version::FUTURE_VERSION,
                                 $tv,
-                                format!("Unable to deserialize {} with data {:?}",stringify!($mt), data),
+                                format!(
+                                    "Unable to deserialize {} with data {:?}",
+                                    stringify!($mt),
+                                    data
+                                ),
                             ),
                         )
                     }
@@ -757,7 +765,14 @@ mod tests {
 
         let result = subject.migrate(vec![]);
 
-        assert_eq!(result, Err(StepError::DeserializationError(FUTURE_VERSION,dv! (4, 4),  "Unable to deserialize PersonMFv44 with data []".to_string() )));
+        assert_eq!(
+            result,
+            Err(StepError::DeserializationError(
+                FUTURE_VERSION,
+                dv!(4, 4),
+                "Unable to deserialize PersonMFv44 with data []".to_string()
+            ))
+        );
     }
 
     #[test]
@@ -769,7 +784,13 @@ mod tests {
         let expected_future_version = dv!(4, 4);
         assert_ne!(expected_future_version, FUTURE_VERSION);
         // Proof of this implementation was done through migrate_item! macro
-        assert_eq!(result, Err(StepError::DeserializationError(dv! (4, 4), dv!(4, 5), "Unable to deserialize PersonM44v45 with data []".to_string() )));
+        assert_eq!(
+            result,
+            Err(StepError::DeserializationError(
+                dv!(4, 4),
+                dv!(4, 5),
+                "Unable to deserialize PersonM44v45 with data []".to_string()
+            ))
+        );
     }
-
 }

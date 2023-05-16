@@ -764,13 +764,9 @@ mod tests {
             Logger::data_version_pretty_print(NODE_RECORD_INNER_CURRENT_VERSION)
         );
 
-        let replace_rules = vec![
-            ("(", "\\("),
-            (")", "\\)"),
-            ("|", "\\|"),
-        ];
+        let replace_rules = vec![("(", "\\("), (")", "\\)"), ("|", "\\|")];
         replace_rules.into_iter().for_each(|x| {
-            expected_headding_regex = expected_headding_regex.replace(x.0,x.1);
+            expected_headding_regex = expected_headding_regex.replace(x.0, x.1);
         });
 
         let regex = Regex::new(&expected_headding_regex).unwrap();

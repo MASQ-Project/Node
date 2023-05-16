@@ -286,7 +286,7 @@ fn node_creates_log_file_with_heading_integration() {
 \d+\-\d+\-\d+ \d+:\d+:\d+\.\d+ Thd\d+:"#,
     );
     //The last line represents the first log with its timestamp.
-    expected_heading_regex = expected_heading_regex.replace("|","\\|");
+    expected_heading_regex = expected_heading_regex.replace("|", "\\|");
 
     node.wait_for_log(&expected_heading_regex, Some(5000));
     //Node is dropped and killed
