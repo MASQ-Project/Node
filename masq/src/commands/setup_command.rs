@@ -118,20 +118,7 @@ impl SetupCommand {
         } ).collect::<String>();
 
         inner.values.into_iter().for_each(|value| {
-            let value_value = match value.name.as_str() {
-                "data-directory" => {
-                    let path = PathBuf::from(value.value.clone());
-                    let checked_dir_path = match path.ends_with(chain_name) {
-                        true => path,
-                        false => add_chain_specific_directory(
-                            Chain::from(chain_name),
-                            path.as_path()
-                        )
-                    };
-                    checked_dir_path.as_path().to_string_lossy().to_string()
-                },
-                _ => value.value
-            };
+            let value_value = Self::match_value_value(&value.value, &value.name, chain_name);
             short_writeln!(
                 stdout,
                 "{:29} {:64} {:?}",
@@ -154,9 +141,25 @@ impl SetupCommand {
                 "NOTE: no changes were made to the setup because the Node is currently running.\n"
             );
         }
-        //println!("inner.values {:#?}", inner.values);
         //TODO check inner.values if contains "data-directory" then show message
         //TODO write integration test to ensure this will be workind properly after change of daemon in new integration test file in "test"
+    }
+    fn match_value_value(value_value: &str, value_name: &str, chain_name: &str) -> String {
+        let value = match value_name {
+            "data-directory" => {
+                let path = PathBuf::from(value_value.clone());
+                let checked_dir_path = match path.ends_with(chain_name) {
+                    true => path,
+                    false => add_chain_specific_directory(
+                        Chain::from(chain_name),
+                        path.as_path()
+                    )
+                };
+                checked_dir_path.as_path().to_string_lossy().to_string()
+            },
+            _ => value_value.to_string()
+        };
+        value
     }
 }
 //TODO create test to check if data-directory shows right path
