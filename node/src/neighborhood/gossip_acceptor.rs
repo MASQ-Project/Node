@@ -16,6 +16,7 @@ use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::net::{IpAddr, SocketAddr};
 use std::time::{Duration, SystemTime};
+use libc::clone_args;
 use crate::stream_messages::{RemovedStreamType, RemoveStreamMsg};
 use crate::sub_lib::dispatcher::StreamShutdownMsg;
 
@@ -137,10 +138,10 @@ debug! (self.logger, "IpChangeHandler qualifies() found a database Node with nod
         _cpm_recipient: &Recipient<ConnectionProgressMessage>
     ) -> GossipAcceptanceResult {
         let source_agr = agrs.remove(0); // empty Gossip shouldn't get here
-        let mut old_addrs: Vec<SocketAddr> = vec![];
         let mut db_node = database.node_by_key_mut(&source_agr.inner.public_key)
             .expect("Node disappeared");
         if db_node.accepts_connections() {
+            let mut old_addrs: Vec<SocketAddr> = vec![];
             // TODO: Can't keep this; allows outside communication to crash the Node
             let node_addr = db_node.node_addr_opt().expect ("A Node that accepts connections has no NodeAddr!");
             for port in node_addr.ports() {
@@ -984,13 +985,25 @@ impl GossipHandler for StandardGossipHandler {
         gossip_source: SocketAddr,
     ) -> Qualification {
         // must-not-be-debut-pass-or-introduction is assured by StandardGossipHandler's placement in the gossip_handlers list
-        let agrs_next_door = agrs
+        let violators: Vec<&PublicKey> = agrs
+            .iter()
+            .filter(|agr|
+                        (agr.inner.neighbors.contains(database.root().public_key())) &&
+                        agr.inner.accepts_connections &&
+                        agr.node_addr_opt.is_none()
+            )
+            .map (|agr| &agr.inner.public_key)
+            .collect();
+        if !violators.is_empty() {
+            return Qualification::Malformed(format!("Neighboring Node(s) claim to accept connections but present no NodeAddr: {:?}", violators))
+        }
+        let agrs_with_node_addrs = agrs
             .iter()
             .filter(|agr| agr.node_addr_opt.is_some())
             .collect::<Vec<&AccessibleGossipRecord>>();
         let root_node = database.root();
         if root_node.accepts_connections() {
-            if let Some(impostor) = agrs_next_door.iter().find(|agr| {
+            if let Some(impostor) = agrs_with_node_addrs.iter().find(|agr| {
                 Self::ip_of(agr)
                     == root_node
                         .node_addr_opt()
@@ -1014,7 +1027,7 @@ impl GossipHandler for StandardGossipHandler {
         }
         let init_addr_set: HashSet<IpAddr> = HashSet::new();
         let init_dup_set: HashSet<IpAddr> = HashSet::new();
-        let dup_set = agrs_next_door
+        let dup_set = agrs_with_node_addrs
             .into_iter()
             .fold((init_addr_set, init_dup_set), |so_far, agr| {
                 let (addr_set, dup_set) = so_far;
@@ -1053,7 +1066,6 @@ impl GossipHandler for StandardGossipHandler {
 
         let patch = self.compute_patch(&agrs, database.root());
         let filtered_agrs = self.filter_agrs_by_patch(agrs, patch);
-
         let mut db_changed = self.identify_and_add_non_introductory_new_nodes(
             database,
             &filtered_agrs,
@@ -1160,6 +1172,10 @@ impl StandardGossipHandler {
         agrs.into_iter()
             .filter(|agr| patch.contains(&agr.inner.public_key))
             .collect::<Vec<AccessibleGossipRecord>>()
+    }
+
+    fn verify_agrs (&self, agrs: &Vec<AccessibleGossipRecord>) -> Option<GossipAcceptanceResult> {
+        None
     }
 
     fn identify_and_add_non_introductory_new_nodes(
@@ -2505,7 +2521,7 @@ mod tests {
         dest_db.add_node(src_node.clone()).unwrap();
         dest_db.add_arbitrary_full_neighbor(dest_node.public_key(), src_node.public_key());
         let gossip = GossipBuilder::new(&src_db)
-            .node(src_node.public_key(), false)
+            .node(src_node.public_key(), true)
             .node(node_a.public_key(), false)
             .node(node_b.public_key(), false)
             .build();
@@ -3984,7 +4000,7 @@ mod tests {
         );
         let gossip = GossipBuilder::new(&src_db)
             .node(node_a.public_key(), true)
-            .node(node_b.public_key(), false)
+            .node(node_b.public_key(), true)
             .node(node_c.public_key(), false)
             .node(node_e.public_key(), true)
             .node(node_f.public_key(), true)
@@ -4189,7 +4205,7 @@ mod tests {
         src_db.add_arbitrary_full_neighbor(src_root.public_key(), obsolete_node.public_key());
         let gossip = GossipBuilder::new(&src_db)
             .node(src_root.public_key(), true)
-            .node(current_node.public_key(), false)
+            .node(current_node.public_key(), true)
             .node(obsolete_node.public_key(), false)
             .build();
         let subject = make_subject(main_cryptde());
@@ -4235,6 +4251,33 @@ mod tests {
             before,
             after,
         );
+    }
+
+    #[test]
+    fn standard_gossip_containing_neighbor_node_that_accepts_connections_but_has_no_node_addr_is_rejected() {
+        let dest_root = make_node_record(1234, true);
+        let mut dest_db = db_from_node(&dest_root);
+        let src_root = make_node_record(2345, true);
+        let mut src_db = db_from_node(&src_root);
+        src_db.root_mut().inner.accepts_connections = true;
+        src_db.root_mut().metadata.node_addr_opt = None;
+        src_db.add_node (dest_root.clone()).unwrap();
+        src_db.add_arbitrary_full_neighbor(src_root.public_key(), dest_root.public_key());
+        let gossip = GossipBuilder::new(&src_db)
+            .node(src_root.public_key(), false)
+            .build();
+        let subject = StandardGossipHandler::new(Logger::new("test"));
+        let node_addr = src_root.metadata.node_addr_opt.as_ref().unwrap();
+        let gossip_source = SocketAddr::new (node_addr.ip_addr(), node_addr.ports()[0]);
+        let agrs: Vec<AccessibleGossipRecord> = gossip.try_into().unwrap();
+
+        let result = subject.qualifies(
+            &dest_db,
+            agrs.as_slice(),
+            gossip_source,
+        );
+
+        assert_eq!(result, Qualification::Malformed("Neighboring Node(s) claim to accept connections but present no NodeAddr: [0x02030405]".to_string()));
     }
 
     #[test]

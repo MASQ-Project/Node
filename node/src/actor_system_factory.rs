@@ -1482,11 +1482,10 @@ mod tests {
             vec![new_ip_recipient],
         );
 
-        let make_params = make_params_arc.lock().unwrap();
-        let (usual_protocol_opt, _change_handler) = *make_params[0];
+        let mut make_params = make_params_arc.lock().unwrap();
+        let (usual_protocol_opt, change_handler) = make_params.remove(0);
         assert_eq!(usual_protocol_opt, None);
         let system = System::new("test");
-        let change_handler = &make_params[0].1;
         change_handler(AutomapChange::NewIp(IpAddr::from_str("4.3.2.1").unwrap()));
         System::current().stop();
         system.run();
