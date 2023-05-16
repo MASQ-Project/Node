@@ -279,7 +279,8 @@ fn format_function(
     _now: &mut DeferredNow,
     record: &Record,
 ) -> Result<(), io::Error> {
-    unsafe { POINTER_TO_FORMAT_FUNCTION(write, OffsetDateTime::now_utc(), record) }
+    let pointer_to_format_function = unsafe {POINTER_TO_FORMAT_FUNCTION};
+    pointer_to_format_function(write, OffsetDateTime::now_utc(), record)
 }
 
 #[cfg(test)]

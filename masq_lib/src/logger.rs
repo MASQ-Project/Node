@@ -207,17 +207,6 @@ impl Logger {
         );
     }
 
-    pub fn log_plain_message(target: &str, msg: String) {
-        logger().log(
-            &Record::builder()
-                .args(format_args!("{}", msg))
-                // .module_path(Some(&self.name))
-                .metadata(Metadata::builder().target(target).build())
-                // .level(level)
-                .build(),
-        );
-    }
-
     pub fn log_file_heading() -> String {
         format!(
             "
@@ -752,18 +741,15 @@ mod tests {
     }
 
     #[test]
-    fn logger_prints_log_file_heading() {
-        init_test_logging();
-        let _guard = prepare_test_environment();
-
+    fn log_file_heading_print_right_formatt() {
         let heading_result = Logger::log_file_heading();
 
-        let expected_headding_regex = format!(
-            r#"
-          _____ ______  ________   ________   _______          Node Version: v\d\.\d\.\d
+        let mut expected_headding_regex = format!(
+            r#"^
+          _____ ______  ________   ________   _______          Node Version: \d\.\d\.\d
         /   _  | _   /|/  __   /|/  ______/|/   __   /|        Database Schema Version: \d+
        /  / /__///  / /  /|/  / /  /|_____|/  /|_/  / /        OS: {}
-      /  / |__|//  / /  __   / /_____   /|/  / '/  / /         client_response_payload::MIGRATIONS {}
+      /  / |__|//  / /  __   / /_____   /|/  / '/  / /         client_request_payload::MIGRATIONS {}
      /  / /    /  / /  / /  / |_____/  / /  /__/  / /          client_response_payload::MIGRATIONS {}
     /__/ /    /__/ /__/ /__/ /________/ /_____   / /           dns_resolve_failure::MIGRATIONS {}
     |__|/     |__|/|__|/|__|/|________|/|____/__/ /            gossip::MIGRATIONS {}
@@ -777,6 +763,16 @@ mod tests {
             Logger::data_version_pretty_print(GOSSIP_FAILURE_CURRENT_VERSION),
             Logger::data_version_pretty_print(NODE_RECORD_INNER_CURRENT_VERSION)
         );
+
+        let replace_rules = vec![
+            ("(", "\\("),
+            (")", "\\)"),
+            ("|", "\\|"),
+        ];
+        replace_rules.into_iter().for_each(|x| {
+            expected_headding_regex = expected_headding_regex.replace(x.0,x.1);
+        });
+
         let regex = Regex::new(&expected_headding_regex).unwrap();
         assert!(
             regex.is_match(&heading_result),

@@ -301,7 +301,7 @@ macro_rules! migrate_item {
                             $crate::sub_lib::versioned_data::StepError::DeserializationError(
                                 $fv,
                                 $tv,
-                                "Fibble".to_string(),
+                                format!("Unable to deserialize {} with data {:?}",stringify!($mt), data),
                             ),
                         )
                     }
@@ -356,7 +356,7 @@ macro_rules! migrate_value {
                             $crate::sub_lib::versioned_data::StepError::DeserializationError(
                                 masq_lib::data_version::FUTURE_VERSION,
                                 $tv,
-                                "Wampum".to_string(),
+                                format!("Unable to deserialize {} with data {:?}",stringify!($mt), data),
                             ),
                         )
                     }
@@ -750,4 +750,26 @@ mod tests {
             ))
         );
     }
+
+    #[test]
+    fn migrate_fails_to_parse_cbor_value() {
+        let subject = PersonMFv44 {};
+
+        let result = subject.migrate(vec![]);
+
+        assert_eq!(result, Err(StepError::DeserializationError(FUTURE_VERSION,dv! (4, 4),  "Unable to deserialize PersonMFv44 with data []".to_string() )));
+    }
+
+    #[test]
+    fn migrate() {
+        let subject = PersonM44v45 {};
+
+        let result = subject.migrate(vec![]);
+
+        let expected_future_version = dv!(4, 4);
+        assert_ne!(expected_future_version, FUTURE_VERSION);
+        // Proof of this implementation was done through migrate_item! macro
+        assert_eq!(result, Err(StepError::DeserializationError(dv! (4, 4), dv!(4, 5), "Unable to deserialize PersonM44v45 with data []".to_string() )));
+    }
+
 }

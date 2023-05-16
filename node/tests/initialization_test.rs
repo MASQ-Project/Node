@@ -272,9 +272,9 @@ fn node_creates_log_file_with_heading_integration() {
         true,
     );
 
-    let expected_heading = format!(
+    let mut expected_heading_regex = format!(
         r#"^
-          _____ ______  ________   ________   _______          Node Version: v\d\.\d\.\d
+          _____ ______  ________   ________   _______          Node Version: \d\.\d\.\d
         /   _  | _   /|/  __   /|/  ______/|/   __   /|        Database Schema Version: \d+
        /  / /__///  / /  /|/  / /  /|_____|/  /|_/  / /        OS: [a-z]+
       /  / |__|//  / /  __   / /_____   /|/  / '/  / /         client_request_payload::MIGRATIONS \(\d+\.\d+\)
@@ -282,11 +282,12 @@ fn node_creates_log_file_with_heading_integration() {
     /__/ /    /__/ /__/ /__/ /________/ /_____   / /           dns_resolve_failure::MIGRATIONS \(\d+\.\d+\)
     |__|/     |__|/|__|/|__|/|________|/|____/__/ /            gossip::MIGRATIONS \(\d+\.\d+\)
                                              |__|/             gossip_failure::MIGRATIONS \(\d+\.\d+\)
-                                                               node_record_inner::MIGRATIONS \(\d+\.\d+\)\n\n
-                                                               \d+\-\d+\-\d+ \d+:\d+:\d+\.\d+ Thd\d+:"#,
+                                                               node_record_inner::MIGRATIONS \(\d+\.\d+\)\n
+\d+\-\d+\-\d+ \d+:\d+:\d+\.\d+ Thd\d+:"#,
     );
     //The last line represents the first log with its timestamp.
+    expected_heading_regex = expected_heading_regex.replace("|","\\|");
 
-    node.wait_for_log(&expected_heading, Some(5000));
+    node.wait_for_log(&expected_heading_regex, Some(5000));
     //Node is dropped and killed
 }

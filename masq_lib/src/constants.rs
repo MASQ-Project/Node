@@ -42,6 +42,8 @@ macro_rules! unchecked_dv {
     };
 }
 
+// If your adding a new constant here.
+// Please added it to the check_limits_of_data_versions_const Test.
 pub const CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION: DataVersion = unchecked_dv!(0, 1);
 pub const CLIENT_RESPONSE_PAYLOAD_CURRENT_VERSION: DataVersion = unchecked_dv!(0, 1);
 pub const DNS_RESOLVER_FAILURE_CURRENT_VERSION: DataVersion = unchecked_dv!(0, 1);
