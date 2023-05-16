@@ -33,23 +33,14 @@ pub const MUMBAI_TESTNET_CONTRACT_CREATION_BLOCK: u64 = 24_638_838;
 //Migration versions
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-macro_rules! unchecked_dv {
-    ($j:expr, $n:expr) => {
-        $crate::data_version::DataVersion {
-            major: $j,
-            minor: $n,
-        }
-    };
-}
-
 // If your adding a new constant here.
 // Please added it to the check_limits_of_data_versions_const Test.
-pub const CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION: DataVersion = unchecked_dv!(0, 1);
-pub const CLIENT_RESPONSE_PAYLOAD_CURRENT_VERSION: DataVersion = unchecked_dv!(0, 1);
-pub const DNS_RESOLVER_FAILURE_CURRENT_VERSION: DataVersion = unchecked_dv!(0, 1);
-pub const GOSSIP_CURRENT_VERSION: DataVersion = unchecked_dv!(0, 1);
-pub const GOSSIP_FAILURE_CURRENT_VERSION: DataVersion = unchecked_dv!(0, 1);
-pub const NODE_RECORD_INNER_CURRENT_VERSION: DataVersion = unchecked_dv!(0, 1);
+pub const CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION: DataVersion = DataVersion{major: 0, minor: 1};
+pub const CLIENT_RESPONSE_PAYLOAD_CURRENT_VERSION: DataVersion = DataVersion{major: 0, minor: 1};
+pub const DNS_RESOLVER_FAILURE_CURRENT_VERSION: DataVersion = DataVersion{major: 0, minor: 1};
+pub const GOSSIP_CURRENT_VERSION: DataVersion = DataVersion{major: 0, minor: 1};
+pub const GOSSIP_FAILURE_CURRENT_VERSION: DataVersion = DataVersion{major: 0, minor: 1};
+pub const NODE_RECORD_INNER_CURRENT_VERSION: DataVersion = DataVersion{major: 0, minor: 1};
 
 //error codes
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -175,12 +166,12 @@ mod tests {
         assert_eq!(DEV_CHAIN_FULL_IDENTIFIER, "dev");
         assert_eq!(ETH_MAINNET_FULL_IDENTIFIER, "eth-mainnet");
         assert_eq!(ETH_ROPSTEN_FULL_IDENTIFIER, "eth-ropsten");
-        assert_eq!(CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION, unchecked_dv!(0, 1));
-        assert_eq!(CLIENT_RESPONSE_PAYLOAD_CURRENT_VERSION, unchecked_dv!(0, 1));
-        assert_eq!(DNS_RESOLVER_FAILURE_CURRENT_VERSION, unchecked_dv!(0, 1));
-        assert_eq!(GOSSIP_CURRENT_VERSION, unchecked_dv!(0, 1));
-        assert_eq!(GOSSIP_FAILURE_CURRENT_VERSION, unchecked_dv!(0, 1));
-        assert_eq!(NODE_RECORD_INNER_CURRENT_VERSION, unchecked_dv!(0, 1));
+        assert_eq!(CLIENT_REQUEST_PAYLOAD_CURRENT_VERSION, DataVersion{major: 0, minor: 1});
+        assert_eq!(CLIENT_RESPONSE_PAYLOAD_CURRENT_VERSION, DataVersion{major: 0, minor: 1});
+        assert_eq!(DNS_RESOLVER_FAILURE_CURRENT_VERSION, DataVersion{major: 0, minor: 1});
+        assert_eq!(GOSSIP_CURRENT_VERSION, DataVersion{major: 0, minor: 1});
+        assert_eq!(GOSSIP_FAILURE_CURRENT_VERSION, DataVersion{major: 0, minor: 1});
+        assert_eq!(NODE_RECORD_INNER_CURRENT_VERSION, DataVersion{major: 0, minor: 1});
     }
 
     #[test]
