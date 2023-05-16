@@ -21,7 +21,7 @@ pub struct ConnectionStatusCommand {}
 
 const CONNECTION_STATUS_ABOUT: &str =
     "Returns the current stage of the connection status. (NotConnected, ConnectedToNeighbor \
-            or ThreeHopsRouteFound).";
+            or RouteFound).";
 const NOT_CONNECTED_MSG: &str = "NotConnected: No external neighbor is connected to us.";
 const CONNECTED_TO_NEIGHBOR_MSG: &str =
     "ConnectedToNeighbor: External neighbor(s) are connected to us.";
@@ -97,7 +97,7 @@ mod tests {
         assert_eq!(
             CONNECTION_STATUS_ABOUT,
             "Returns the current stage of the connection status. (NotConnected, ConnectedToNeighbor \
-            or ThreeHopsRouteFound)."
+            or RouteFound)."
         );
         assert_eq!(
             NOT_CONNECTED_MSG,
