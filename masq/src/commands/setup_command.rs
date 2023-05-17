@@ -6,14 +6,14 @@ use crate::terminal::terminal_interface::TerminalWrapper;
 use clap::{value_t, App, SubCommand};
 use masq_lib::constants::SETUP_ERROR;
 use masq_lib::implement_as_any;
-use masq_lib::messages::{
-    UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse,
-};
+use masq_lib::messages::{UiSetupBroadcast, UiSetupInner, UiSetupRequest, UiSetupRequestValue, UiSetupResponse, UiSetupResponseValue, UiSetupResponseValueStatus};
 use masq_lib::shared_schema::shared_app;
 use masq_lib::short_writeln;
 use masq_lib::utils::{add_chain_specific_directory, index_of_from};
+use std::iter::Iterator;
 #[cfg(test)]
 use std::any::Any;
+use std::collections::HashMap;
 use std::fmt::Debug;
 use std::io::Write;
 use std::path::PathBuf;
@@ -110,15 +110,17 @@ impl SetupCommand {
         });
         short_writeln!(stdout, "{:29} {:64} {}", "NAME", "VALUE", "STATUS");
 
-        let chain_name: &str = &inner.values.clone().into_iter().map(|p| {
+        let mut chain_and_data_dir = inner.values.iter().flat_map(|p| {
             match p.name.as_str() {
-                "chain" => p.value,
-                _ => "".to_string()
+                "chain" => Some((p.name.to_owned(), (p.value.clone(), p.status))),
+                "data-directory" => Some((p.name.to_owned(), (p.value.clone(), p.status))),
+                _ => None
             }
-        } ).collect::<String>();
-
-        inner.values.into_iter().for_each(|value| {
-            let value_value = Self::match_value_value(&value.value, &value.name, chain_name);
+        } ).collect::<HashMap<String, (String, UiSetupResponseValueStatus)>>();
+        let (chain_name, chain_param_status) = chain_and_data_dir.remove("chain").expect("Chain name is missing in setup cluster");
+        let (_, data_directory_param_status) = chain_and_data_dir.remove("data-directory").expect("data-directory is missing in setup cluster");
+        inner.values.into_iter().for_each(|value| { //let data_directory_notification: UiSetupResponseValueStatus =
+            let value_value = Self::match_value_value(value.clone(), &chain_name);
             short_writeln!(
                 stdout,
                 "{:29} {:64} {:?}",
@@ -126,7 +128,7 @@ impl SetupCommand {
                 value_value,
                 value.status
             );
-        });
+        }); //.map(|value| { match value.name.as_str() { "data-directory" => value.status, "chain" => value.status, _ => "" } } ).collect()
         short_writeln!(stdout);
         if !inner.errors.is_empty() {
             short_writeln!(stdout, "ERRORS:");
@@ -141,13 +143,20 @@ impl SetupCommand {
                 "NOTE: no changes were made to the setup because the Node is currently running.\n"
             );
         }
+        if chain_param_status != UiSetupResponseValueStatus::Default || data_directory_param_status != UiSetupResponseValueStatus::Default {
+            short_writeln!(
+                stdout,
+                "NOTE: your data directory was modified to match chain parameter.\n"
+            );
+        }
+        //TODO - write tests for different statuses
         //TODO check inner.values if contains "data-directory" then show message
         //TODO write integration test to ensure this will be workind properly after change of daemon in new integration test file in "test"
     }
-    fn match_value_value(value_value: &str, value_name: &str, chain_name: &str) -> String {
-        let value = match value_name {
+    fn match_value_value(value: UiSetupResponseValue, chain_name: &str) -> String {
+        let value_tmp = match value.name.as_str() {
             "data-directory" => {
-                let path = PathBuf::from(value_value.clone());
+                let path = PathBuf::from(value.value.clone());
                 let checked_dir_path = match path.ends_with(chain_name) {
                     true => path,
                     false => add_chain_specific_directory(
@@ -157,9 +166,9 @@ impl SetupCommand {
                 };
                 checked_dir_path.as_path().to_string_lossy().to_string()
             },
-            _ => value_value.to_string()
+            _ => value.value.to_string()
         };
-        value
+        value_tmp
     }
 }
 //TODO create test to check if data-directory shows right path
@@ -371,30 +380,26 @@ ip                            No sir, I don't like it.\n\
 
     #[test]
     fn setup_command_with_data_directory_shows_right_path() {
-        let message = UiSetupBroadcast {
+        let message = UiSetupResponse {
             running: false,
             values: vec![
                 UiSetupResponseValue::new("chain", "polygon-mainnet", Default),
                 UiSetupResponseValue::new("data-directory", "booga/masqhome", Set),
             ],
-            errors: vec![("data-directory".to_string(), "Your data directory was set to chain specific directory.".to_string())],
+            errors: vec![],
         };
         let (stream_factory, handle) = TestStreamFactory::new();
         let (mut stdout, _) = stream_factory.make();
-        let term_interface = TerminalWrapper::new(Arc::new(TerminalPassiveMock::new()));
 
-        SetupCommand::handle_broadcast(message, &mut stdout, &term_interface);
+        SetupCommand::dump_setup(UiSetupInner::from(message), &mut stdout);
 
         assert_eq! (handle.stdout_so_far(),
-"\n\
-Daemon setup has changed:\n\
-\n\
+"\
 NAME                          VALUE                                                            STATUS\n\
 chain                         polygon-mainnet                                                  Default\n\
 data-directory                booga/masqhome/polygon-mainnet                                   Set\n\
 \n\
-ERRORS:
-data-directory                Your data directory was set to chain specific directory.\n\
+NOTE: your data directory was modified to match chain parameter.\n\
 \n");
     }
 }
