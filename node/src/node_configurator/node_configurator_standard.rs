@@ -998,8 +998,8 @@ mod tests {
             (None, Some("booga"), Some("booga/polygon-mainnet")),
             (Some("polygon-mumbai"), Some("booga"), Some("booga/polygon-mumbai")),
             (None, Some("booga/polygon-mumbai"), Some("booga/polygon-mumbai/polygon-mainnet")),
-            (None, Some("booga/polygon-mumbai/polygon-mainnet"), Some("booga/polygon-mumbai/polygon-mainnet")),
-            (Some("polygon-mumbai"), Some("booga/polygon-mumbai"), Some("booga/polygon-mumbai")),
+            (None, Some("booga/polygon-mumbai/polygon-mainnet"), Some("booga/polygon-mumbai/polygon-mainnet/polygon-mainnet")),
+            (Some("polygon-mumbai"), Some("booga/polygon-mumbai"), Some("booga/polygon-mumbai/polygon-mumbai")),
         ].iter().for_each(|(chain_opt, data_directory_opt, expected)| {
             check_data_directory_combinations(*chain_opt, *data_directory_opt, *expected);
         });

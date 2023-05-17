@@ -111,14 +111,7 @@ pub fn data_directory_from_context(
     chain: Chain,
 ) -> PathBuf {
     let chain_specific_data_dir: PathBuf = match data_directory_opt {
-        Some(data_directory) => {
-            let retrieved_data_dir = data_directory.to_owned();
-            let checked_dir_path: PathBuf = match retrieved_data_dir.ends_with(chain.rec().literal_identifier) {
-                true => retrieved_data_dir,
-                false => add_chain_specific_directory(chain, data_directory.as_path())
-            };
-            checked_dir_path
-        },
+        Some(data_directory) => add_chain_specific_directory(chain, data_directory.as_path()),
         None => {
             let right_home_dir = real_user
                 .home_dir_opt
