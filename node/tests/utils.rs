@@ -429,6 +429,16 @@ impl MASQNode {
         Self::start_with_args_extension(data_dir, args, remove_database)
     }
 
+    fn make_dump_config_command(
+        data_dir: &PathBuf,
+        config: Option<CommandConfig>,
+        remove_database: bool,
+    ) -> process::Command {
+        let mut args = Self::dump_config_args();
+        args.extend(Self::get_extra_args(data_dir, config));
+        Self::start_with_args_extension(data_dir, args, remove_database)
+    }
+
     fn start_with_args_extension(
         data_dir: &PathBuf,
         additional_args: Vec<String>,
@@ -440,18 +450,6 @@ impl MASQNode {
         let mut command = command_to_start();
         command.args(apply_prefix_parameters());
         command.args(additional_args);
-        command
-    }
-
-    fn make_dump_config_command(
-        data_dir: &PathBuf,
-        config: Option<CommandConfig>,
-        _unused: bool,
-    ) -> process::Command {
-        let mut command = command_to_start();
-        let mut args = Self::dump_config_args();
-        args.extend(Self::get_extra_args(data_dir, config));
-        command.args(&args);
         command
     }
 
