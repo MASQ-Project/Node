@@ -137,7 +137,7 @@ impl MASQNode {
             sterile_logfile,
             piped_output,
             ensure_start,
-            Self::make_masqnode_without_initial_config,
+            Self::make_node_without_initial_config,
         )
     }
 
@@ -403,12 +403,13 @@ impl MASQNode {
         Self::start_with_args_extension(data_dir, args, remove_database)
     }
 
-    fn make_masqnode_without_initial_config(
+    fn make_node_without_initial_config(
         data_dir: &PathBuf,
         config: Option<CommandConfig>,
         remove_database: bool,
     ) -> process::Command {
-        let args = Self::get_extra_args(data_dir, config);
+        let mut args = Self::minimum_args();
+        args.extend(Self::get_extra_args(data_dir, config));
         Self::start_with_args_extension(data_dir, args, remove_database)
     }
 
@@ -453,6 +454,10 @@ impl MASQNode {
             .pair("--chain", TEST_DEFAULT_CHAIN.rec().literal_identifier)
             .pair("--log-level", "trace")
             .args
+    }
+
+    fn minimum_args() -> Vec<String> {
+        apply_prefix_parameters(CommandConfig::new()).args
     }
 
     #[allow(dead_code)]

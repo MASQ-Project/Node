@@ -2,18 +2,35 @@
 
 pub mod payable_scanner_utils {
     use crate::accountant::dao_utils::ThresholdUtils;
-    use crate::accountant::payable_dao::{Payable, PayableAccount};
-    use crate::accountant::SentPayables;
-    use crate::blockchain::blockchain_interface::BlockchainError;
+    use crate::accountant::payable_dao::{PayableAccount, PayableDaoError, PendingPayable};
+    use crate::accountant::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
+        LocallyCausedError, RemotelyCausedErrors,
+    };
+    use crate::accountant::{comma_joined_stringifiable, SentPayables};
+    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
+    use crate::blockchain::blockchain_interface::{
+        PayableTransactionError, ProcessedPayableFallible, RpcPayableFailure,
+    };
+    use crate::masq_lib::utils::ExpectValue;
     use crate::sub_lib::accountant::PaymentThresholds;
+    use crate::sub_lib::wallet::Wallet;
     use itertools::Itertools;
     use masq_lib::logger::Logger;
-    use masq_lib::utils::plus;
     #[cfg(test)]
     use std::any::Any;
     use std::cmp::Ordering;
+    use std::ops::Not;
     use std::time::SystemTime;
     use thousands::Separable;
+    use web3::types::H256;
+
+    pub type VecOfRowidOptAndHash = Vec<(Option<u64>, H256)>;
+
+    #[derive(Debug, PartialEq, Eq)]
+    pub enum PayableTransactingErrorEnum {
+        LocallyCausedError(PayableTransactionError),
+        RemotelyCausedErrors(Vec<H256>),
+    }
 
     //debugging purposes only
     pub fn investigate_debt_extremes(
@@ -55,7 +72,6 @@ pub mod payable_scanner_utils {
         if all_non_pending_payables.is_empty() {
             return "Payable scan found no debts".to_string();
         }
-
         let (biggest, oldest) = all_non_pending_payables
             .iter()
             .map(|payable| PayableInfo {
@@ -74,33 +90,85 @@ pub mod payable_scanner_utils {
                     )
                 },
             );
-
         format!("Payable scan found {} debts; the biggest is {} owed for {}sec, the oldest is {} owed for {}sec",
                 all_non_pending_payables.len(), biggest.balance_wei, biggest.age,
                 oldest.balance_wei, oldest.age)
     }
 
-    pub fn separate_errors(
-        sent_payments: &SentPayables,
-        logger: &Logger,
-    ) -> (Vec<Payable>, Vec<BlockchainError>) {
-        sent_payments
-            .payable
-            .iter()
-            .fold((vec![], vec![]), |so_far, payment| {
-                match payment {
-                    Ok(payment_sent) => (plus(so_far.0, payment_sent.clone()), so_far.1),
-                    Err(error) => {
-
-                        logger.warning(|| match &error {
-                            BlockchainError::TransactionFailed { .. } => format!("Encountered transaction error at this end: '{:?}'", error),
-                            x => format!("Outbound transaction failure due to '{:?}'. Please check your blockchain service URL configuration.", x)
-                        });
-
-                        (so_far.0, plus(so_far.1, error.clone()))
-                    }
+    pub fn separate_errors<'a, 'b>(
+        sent_payables: &'a SentPayables,
+        logger: &'b Logger,
+    ) -> (Vec<&'a PendingPayable>, Option<PayableTransactingErrorEnum>) {
+        match &sent_payables.payment_procedure_result {
+            Ok(individual_batch_responses) => {
+                if individual_batch_responses.is_empty() {
+                    panic!("Broken code: An empty vector of processed payments claiming to be an Ok value")
                 }
-            })
+                let (oks, err_hashes_opt) =
+                    separate_rpc_results(individual_batch_responses, logger);
+                let remote_errs_opt = err_hashes_opt.map(RemotelyCausedErrors);
+                (oks, remote_errs_opt)
+            }
+            Err(e) => {
+                warning!(
+                    logger,
+                    "Any persisted data from failed process will be deleted. Caused by: {}",
+                    e
+                );
+
+                (vec![], Some(LocallyCausedError(e.clone())))
+            }
+        }
+    }
+
+    fn separate_rpc_results<'a, 'b>(
+        batch_request_responses: &'a [ProcessedPayableFallible],
+        logger: &'b Logger,
+    ) -> (Vec<&'a PendingPayable>, Option<Vec<H256>>) {
+        let (oks, errs) = batch_request_responses
+            .iter()
+            .fold((vec![], vec![]), |acc, rpc_result| {
+                fold_guts(acc, rpc_result, logger)
+            });
+
+        let errs_opt = if !errs.is_empty() { Some(errs) } else { None };
+
+        (oks, errs_opt)
+    }
+
+    fn add_pending_payable<'a>(
+        (mut oks, errs): (Vec<&'a PendingPayable>, Vec<H256>),
+        pending_payable: &'a PendingPayable,
+    ) -> SeparateTxsByResult<'a> {
+        oks.push(pending_payable);
+        (oks, errs)
+    }
+
+    fn add_rpc_failure((oks, mut errs): SeparateTxsByResult, hash: H256) -> SeparateTxsByResult {
+        errs.push(hash);
+        (oks, errs)
+    }
+
+    type SeparateTxsByResult<'a> = (Vec<&'a PendingPayable>, Vec<H256>);
+
+    fn fold_guts<'a, 'b>(
+        acc: SeparateTxsByResult<'a>,
+        rpc_result: &'a ProcessedPayableFallible,
+        logger: &'b Logger,
+    ) -> SeparateTxsByResult<'a> {
+        match rpc_result {
+            Correct(pending_payable) => add_pending_payable(acc, pending_payable),
+            Failed(RpcPayableFailure {
+                rpc_error,
+                recipient_wallet,
+                hash,
+            }) => {
+                warning!(logger, "Remote transaction failure: '{}' for payment to {} and transaction hash {:?}. \
+                      Please check your blockchain service URL configuration.", rpc_error, recipient_wallet, hash
+                );
+                add_rpc_failure(acc, *hash)
+            }
+        }
     }
 
     pub fn payables_debug_summary(qualified_accounts: &[(PayableAccount, u128)], logger: &Logger) {
@@ -125,6 +193,82 @@ pub mod payable_scanner_utils {
                 })
                 .join("\n")
         })
+    }
+
+    pub fn debugging_summary_after_error_separation(
+        oks: &[&PendingPayable],
+        errs_opt: &Option<PayableTransactingErrorEnum>,
+    ) -> String {
+        format!(
+            "Got {} properly sent payables of {} attempts",
+            oks.len(),
+            count_total_errors(errs_opt)
+                .map(|err_count| (err_count + oks.len()).to_string())
+                .unwrap_or_else(|| "an unknown number of".to_string())
+        )
+    }
+
+    pub(super) fn count_total_errors(
+        full_set_of_errors: &Option<PayableTransactingErrorEnum>,
+    ) -> Option<usize> {
+        match full_set_of_errors {
+            Some(errors) => match errors {
+                LocallyCausedError(blockchain_error) => match blockchain_error {
+                    PayableTransactionError::Sending { hashes, .. } => Some(hashes.len()),
+                    _ => None,
+                },
+                RemotelyCausedErrors(hashes) => Some(hashes.len()),
+            },
+            None => Some(0),
+        }
+    }
+
+    pub struct PendingPayableTriple<'a> {
+        pub recipient: &'a Wallet,
+        pub hash: H256,
+        pub rowid_opt: Option<u64>,
+    }
+
+    pub fn mark_pending_payable_fatal_error(
+        sent_payments: &[&PendingPayable],
+        nonexistent: &[PendingPayableTriple],
+        error: PayableDaoError,
+        missing_fingerprints_msg_maker: fn(&[PendingPayableTriple]) -> String,
+        logger: &Logger,
+    ) {
+        if !nonexistent.is_empty() {
+            error!(logger, "{}", missing_fingerprints_msg_maker(nonexistent))
+        };
+        panic!(
+            "Unable to create a mark in the payable table for wallets {} due to {:?}",
+            comma_joined_stringifiable(sent_payments, |pending_p| pending_p
+                .recipient_wallet
+                .to_string()),
+            error
+        )
+    }
+
+    pub fn err_msg_if_failed_without_existing_fingerprints(
+        nonexistent: VecOfRowidOptAndHash,
+        serialize_hashes: fn(&[H256]) -> String,
+    ) -> Option<String> {
+        let hashes_of_nonexistent = nonexistent
+            .iter()
+            .map(|(_, hash)| *hash)
+            .collect::<Vec<H256>>();
+        nonexistent.is_empty().not().then_some(format!(
+            "Ran into failed transactions {} with missing fingerprints. System no longer reliable",
+            serialize_hashes(&hashes_of_nonexistent),
+        ))
+    }
+
+    pub fn separate_rowids_and_hashes(
+        ids_of_payments: VecOfRowidOptAndHash,
+    ) -> (Vec<u64>, Vec<H256>) {
+        ids_of_payments
+            .into_iter()
+            .map(|(checked_rowid, hash)| (checked_rowid.expectv("validated rowid"), hash))
+            .unzip()
     }
 
     pub trait PayableThresholdsGauge {
@@ -162,11 +306,17 @@ pub mod payable_scanner_utils {
 }
 
 pub mod pending_payable_scanner_utils {
-    use crate::accountant::{PendingPayableId, PendingTransactionStatus};
+    use crate::accountant::PendingPayableId;
     use crate::blockchain::blockchain_bridge::PendingPayableFingerprint;
     use masq_lib::logger::Logger;
-    use masq_lib::utils::ExpectValue;
     use std::time::SystemTime;
+
+    #[derive(Debug, Default, PartialEq, Eq, Clone)]
+    pub struct PendingPayableScanReport {
+        pub still_pending: Vec<PendingPayableId>,
+        pub failures: Vec<PendingPayableId>,
+        pub confirmed: Vec<PendingPayableFingerprint>,
+    }
 
     pub fn elapsed_in_ms(timestamp: SystemTime) -> u128 {
         timestamp
@@ -176,71 +326,75 @@ pub mod pending_payable_scanner_utils {
     }
 
     pub fn handle_none_status(
-        fingerprint: &PendingPayableFingerprint,
+        mut scan_report: PendingPayableScanReport,
+        fingerprint: PendingPayableFingerprint,
         max_pending_interval: u64,
         logger: &Logger,
-    ) -> PendingTransactionStatus {
+    ) -> PendingPayableScanReport {
         info!(
             logger,
-            "Pending transaction '{:?}' couldn't be confirmed at attempt \
+            "Pending transaction {:?} couldn't be confirmed at attempt \
             {} at {}ms after its sending",
             fingerprint.hash,
-            fingerprint.attempt_opt.expectv("initialized attempt"),
+            fingerprint.attempt,
             elapsed_in_ms(fingerprint.timestamp)
         );
         let elapsed = fingerprint
             .timestamp
             .elapsed()
             .expect("we should be older now");
-        let transaction_id = PendingPayableId {
-            hash: fingerprint.hash,
-            rowid: fingerprint.rowid_opt.expectv("initialized rowid"),
-        };
-        if max_pending_interval <= elapsed.as_secs() {
+        let elapsed = elapsed.as_secs();
+        if elapsed > max_pending_interval {
             error!(
                 logger,
-                "Pending transaction '{}' has exceeded the maximum pending time \
-                ({}sec) and the confirmation process is going to be aborted now \
+                "Pending transaction {:?} has exceeded the maximum pending time \
+                ({}sec) with the age {}sec and the confirmation process is going to be aborted now \
                 at the final attempt {}; manual resolution is required from the \
                 user to complete the transaction.",
                 fingerprint.hash,
                 max_pending_interval,
-                fingerprint.attempt_opt.expectv("initialized attempt")
+                elapsed,
+                fingerprint.attempt
             );
-            PendingTransactionStatus::Failure(transaction_id)
+            scan_report.failures.push(fingerprint.into())
         } else {
-            PendingTransactionStatus::StillPending(transaction_id)
+            scan_report.still_pending.push(fingerprint.into())
         }
+        scan_report
     }
 
     pub fn handle_status_with_success(
-        fingerprint: &PendingPayableFingerprint,
+        mut scan_report: PendingPayableScanReport,
+        fingerprint: PendingPayableFingerprint,
         logger: &Logger,
-    ) -> PendingTransactionStatus {
+    ) -> PendingPayableScanReport {
         info!(
             logger,
-            "Transaction '{:?}' has been added to the blockchain; detected locally at attempt \
+            "Transaction {:?} has been added to the blockchain; detected locally at attempt \
             {} at {}ms after its sending",
             fingerprint.hash,
-            fingerprint.attempt_opt.expectv("initialized attempt"),
+            fingerprint.attempt,
             elapsed_in_ms(fingerprint.timestamp)
         );
-        PendingTransactionStatus::Confirmed(fingerprint.clone())
+        scan_report.confirmed.push(fingerprint);
+        scan_report
     }
 
     pub fn handle_status_with_failure(
-        fingerprint: &PendingPayableFingerprint,
+        mut scan_report: PendingPayableScanReport,
+        fingerprint: PendingPayableFingerprint,
         logger: &Logger,
-    ) -> PendingTransactionStatus {
+    ) -> PendingPayableScanReport {
         error!(
             logger,
-            "Pending transaction '{}' announced as a failure, interpreting attempt \
+            "Pending transaction {:?} announced as a failure, interpreting attempt \
             {} after {}ms from the sending",
             fingerprint.hash,
-            fingerprint.attempt_opt.expectv("initialized attempt"),
+            fingerprint.attempt,
             elapsed_in_ms(fingerprint.timestamp)
         );
-        PendingTransactionStatus::Failure(fingerprint.into())
+        scan_report.failures.push(fingerprint.into());
+        scan_report
     }
 }
 
@@ -262,15 +416,23 @@ pub mod receivable_scanner_utils {
 #[cfg(test)]
 mod tests {
     use crate::accountant::dao_utils::{from_time_t, to_time_t};
-    use crate::accountant::payable_dao::{Payable, PayableAccount};
+    use crate::accountant::payable_dao::{PayableAccount, PendingPayable};
     use crate::accountant::receivable_dao::ReceivableAccount;
+    use crate::accountant::scanners_utils::payable_scanner_utils::PayableTransactingErrorEnum::{
+        LocallyCausedError, RemotelyCausedErrors,
+    };
     use crate::accountant::scanners_utils::payable_scanner_utils::{
-        investigate_debt_extremes, payables_debug_summary, separate_errors, PayableThresholdsGauge,
+        count_total_errors, debugging_summary_after_error_separation, investigate_debt_extremes,
+        payables_debug_summary, separate_errors, PayableThresholdsGauge,
         PayableThresholdsGaugeReal,
     };
     use crate::accountant::scanners_utils::receivable_scanner_utils::balance_and_age;
     use crate::accountant::{checked_conversion, gwei_to_wei, SentPayables};
-    use crate::blockchain::blockchain_interface::BlockchainError;
+    use crate::blockchain::blockchain_interface::ProcessedPayableFallible::{Correct, Failed};
+    use crate::blockchain::blockchain_interface::{
+        BlockchainError, PayableTransactionError, RpcPayableFailure,
+    };
+    use crate::blockchain::test_utils::make_tx_hash;
     use crate::sub_lib::accountant::PaymentThresholds;
     use crate::test_utils::make_wallet;
     use masq_lib::constants::WEIS_IN_GWEI;
@@ -335,36 +497,86 @@ mod tests {
     }
 
     #[test]
-    fn separate_errors_works() {
-        init_test_logging();
-        let test_name = "separate_errors_works";
-        let payable_ok = Payable {
-            to: make_wallet("blah"),
-            amount: 5555,
-            timestamp: SystemTime::now(),
-            tx_hash: Default::default(),
+    fn separate_errors_works_for_no_errs_just_oks() {
+        let correct_payment_1 = PendingPayable {
+            recipient_wallet: make_wallet("blah"),
+            hash: make_tx_hash(123),
         };
-        let error = BlockchainError::SignedValueConversion(666);
+        let correct_payment_2 = PendingPayable {
+            recipient_wallet: make_wallet("howgh"),
+            hash: make_tx_hash(456),
+        };
         let sent_payable = SentPayables {
-            timestamp: SystemTime::now(),
-            payable: vec![Ok(payable_ok.clone()), Err(error.clone())],
+            payment_procedure_result: Ok(vec![
+                Correct(correct_payment_1.clone()),
+                Correct(correct_payment_2.clone()),
+            ]),
             response_skeleton_opt: None,
         };
 
-        let (ok, err) = separate_errors(&sent_payable, &Logger::new(test_name));
+        let (oks, errs) = separate_errors(&sent_payable, &Logger::new("test"));
 
-        assert_eq!(ok, vec![payable_ok]);
-        assert_eq!(err, vec![error.clone()]);
-        TestLogHandler::new().exists_log_containing(&format!(
-            "WARN: {}: Outbound transaction failure due to '{:?}",
-            test_name, error
-        ));
+        assert_eq!(oks, vec![&correct_payment_1, &correct_payment_2]);
+        assert_eq!(errs, None)
     }
 
     #[test]
-    fn payables_debug_summary_stays_inert_if_no_qualified_payments() {
+    fn separate_errors_works_for_local_error() {
         init_test_logging();
-        let logger = Logger::new("payables_debug_summary_stays_inert_if_no_qualified_payments");
+        let error = PayableTransactionError::Sending {
+            msg: "Bad luck".to_string(),
+            hashes: vec![make_tx_hash(0x7b)],
+        };
+        let sent_payable = SentPayables {
+            payment_procedure_result: Err(error.clone()),
+            response_skeleton_opt: None,
+        };
+
+        let (oks, errs) = separate_errors(&sent_payable, &Logger::new("test_logger"));
+
+        assert!(oks.is_empty());
+        assert_eq!(errs, Some(LocallyCausedError(error)));
+        TestLogHandler::new().exists_log_containing(
+            "WARN: test_logger: Any persisted data from \
+        failed process will be deleted. Caused by: Sending phase: \"Bad luck\". Signed and hashed \
+        transactions: 0x000000000000000000000000000000000000000000000000000000000000007b",
+        );
+    }
+
+    #[test]
+    fn separate_errors_works_for_their_errors() {
+        init_test_logging();
+        let payable_ok = PendingPayable {
+            recipient_wallet: make_wallet("blah"),
+            hash: make_tx_hash(123),
+        };
+        let bad_rpc_call = RpcPayableFailure {
+            rpc_error: web3::Error::InvalidResponse("that donkey screwed it up".to_string()),
+            recipient_wallet: make_wallet("whooa"),
+            hash: make_tx_hash(0x315),
+        };
+        let sent_payable = SentPayables {
+            payment_procedure_result: Ok(vec![
+                Correct(payable_ok.clone()),
+                Failed(bad_rpc_call.clone()),
+            ]),
+            response_skeleton_opt: None,
+        };
+
+        let (oks, errs) = separate_errors(&sent_payable, &Logger::new("test_logger"));
+
+        assert_eq!(oks, vec![&payable_ok]);
+        assert_eq!(errs, Some(RemotelyCausedErrors(vec![make_tx_hash(0x315)])));
+        TestLogHandler::new().exists_log_containing("WARN: test_logger: Remote transaction failure: 'Got invalid response: \
+         that donkey screwed it up' for payment to 0x00000000000000000000000000000077686f6f61 and transaction hash \
+          0x0000000000000000000000000000000000000000000000000000000000000315. Please check your blockchain service URL configuration.");
+    }
+
+    #[test]
+    fn payables_debug_summary_displays_nothing_for_no_qualified_payments() {
+        init_test_logging();
+        let logger =
+            Logger::new("payables_debug_summary_displays_nothing_for_no_qualified_payments");
 
         payables_debug_summary(&vec![], &logger);
 
@@ -420,8 +632,10 @@ mod tests {
         payables_debug_summary(&qualified_payables_and_threshold_points, &logger);
 
         TestLogHandler::new().exists_log_containing("Paying qualified debts:\n\
-                   10,002,000,000,000,000 wei owed for 2678400 sec exceeds threshold: 10,000,000,001,152,000 wei; creditor: 0x0000000000000000000000000077616c6c657430\n\
-                   999,999,999,000,000,000 wei owed for 86455 sec exceeds threshold: 999,978,993,055,555,580 wei; creditor: 0x0000000000000000000000000077616c6c657431");
+                   10,002,000,000,000,000 wei owed for 2678400 sec exceeds threshold: \
+                   10,000,000,001,152,000 wei; creditor: 0x0000000000000000000000000077616c6c657430\n\
+                   999,999,999,000,000,000 wei owed for 86455 sec exceeds threshold: \
+                   999,978,993,055,555,580 wei; creditor: 0x0000000000000000000000000077616c6c657431");
     }
 
     #[test]
@@ -536,5 +750,70 @@ mod tests {
             PayableThresholdsGaugeReal::default().is_innocent_balance(payable_balance, 1000);
 
         assert_eq!(result, false)
+    }
+
+    #[test]
+    fn count_total_errors_says_unknown_number_for_early_local_errors() {
+        let early_local_errors = [
+            PayableTransactionError::TransactionCount(BlockchainError::QueryFailed(
+                "blah".to_string(),
+            )),
+            PayableTransactionError::MissingConsumingWallet,
+            PayableTransactionError::GasPriceQueryFailed("ouch".to_string()),
+            PayableTransactionError::UnusableWallet("fooo".to_string()),
+            PayableTransactionError::Signing("tsss".to_string()),
+        ];
+
+        early_local_errors
+            .into_iter()
+            .for_each(|err| assert_eq!(count_total_errors(&Some(LocallyCausedError(err))), None))
+    }
+
+    #[test]
+    fn count_total_errors_works_correctly_for_local_error_after_signing() {
+        let error = PayableTransactionError::Sending {
+            msg: "Ouuuups".to_string(),
+            hashes: vec![make_tx_hash(333), make_tx_hash(666)],
+        };
+        let sent_payable = Some(LocallyCausedError(error));
+
+        let result = count_total_errors(&sent_payable);
+
+        assert_eq!(result, Some(2))
+    }
+
+    #[test]
+    fn count_total_errors_works_correctly_for_remote_errors() {
+        let sent_payable = Some(RemotelyCausedErrors(vec![
+            make_tx_hash(123),
+            make_tx_hash(456),
+        ]));
+
+        let result = count_total_errors(&sent_payable);
+
+        assert_eq!(result, Some(2))
+    }
+
+    #[test]
+    fn count_total_errors_works_correctly_if_no_errors_found_at_all() {
+        let sent_payable = None;
+
+        let result = count_total_errors(&sent_payable);
+
+        assert_eq!(result, Some(0))
+    }
+
+    #[test]
+    fn debug_summary_after_error_separation_says_the_count_cannot_be_known() {
+        let oks = vec![];
+        let error = PayableTransactionError::MissingConsumingWallet;
+        let errs = Some(LocallyCausedError(error));
+
+        let result = debugging_summary_after_error_separation(&oks, &errs);
+
+        assert_eq!(
+            result,
+            "Got 0 properly sent payables of an unknown number of attempts"
+        )
     }
 }

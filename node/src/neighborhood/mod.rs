@@ -548,11 +548,10 @@ impl Neighborhood {
         };
         match route_result {
             Ok(response) => {
-                let msg_str = debug_msg_opt.expect("Debug Message wasn't built but expected.");
                 debug!(
                     self.logger,
                     "Processed {} into {}-hop response",
-                    msg_str,
+                    debug_msg_opt.expect("Debug msg unprepared but expected"),
                     response.route.hops.len(),
                 );
                 Some(response)
