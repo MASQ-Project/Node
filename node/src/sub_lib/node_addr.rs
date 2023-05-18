@@ -57,10 +57,16 @@ impl<'a> From<&'a SocketAddr> for NodeAddr {
     }
 }
 
-impl From<NodeAddr> for SocketAddr {
-    fn from(node_addr: NodeAddr) -> Self {
+impl From<&NodeAddr> for SocketAddr {
+    fn from(node_addr: &NodeAddr) -> Self {
         let all: Vec<SocketAddr> = node_addr.into();
         all[0]
+    }
+}
+
+impl From<NodeAddr> for SocketAddr {
+    fn from(node_addr: NodeAddr) -> Self {
+        Self::from (&node_addr)
     }
 }
 

@@ -150,7 +150,7 @@ impl GossipHandler for IpChangeHandler {
                 debug!(self.logger, "IpChange Gossip from {}; setting NodeAddr to: {:?}", gossip_source, new_node_addr);
                 db_node.metadata.node_addr_opt = Some (new_node_addr);
                 let local_addr = SocketAddr::from (database.root().node_addr_opt().as_ref()
-                    .expect("Roots must have NodeAddr").clone());
+                    .expect("Roots must have NodeAddr"));
                 old_addrs.into_iter().for_each (|old_addr| {
                     let msg = RemoveStreamMsg {
                         local_addr,
@@ -1522,7 +1522,7 @@ mod tests {
         let system = System::new("test");
 
         let qualifies_result =
-            subject.qualifies(&db, &agrs_vec.as_slice(), gossip_source);
+            subject.qualifies(&db, agrs_vec.as_slice(), gossip_source);
         let handle_result = subject.handle(
             &cryptde,
             &mut db,
@@ -1544,24 +1544,20 @@ mod tests {
             db_node_node_addr,
             new_addr
         );
+        let make_expected = |index: usize| RemoveStreamMsg {
+            local_addr: SocketAddr::from (db.root().node_addr_opt().unwrap()),
+            peer_addr: SocketAddr::new(old_addr.ip_addr(), old_addr.ports()[index]),
+            stream_type: RemovedStreamType::Clandestine,
+            sub: dispatcher_sub.clone()
+        };
         let stream_handler_pool_recording = stream_handler_pool_recording_arc.lock().unwrap();
         assert_eq!(
             stream_handler_pool_recording.get_record::<RemoveStreamMsg>(0),
-            &RemoveStreamMsg {
-                local_addr: SocketAddr::from (db.root().node_addr_opt().unwrap()),
-                peer_addr: SocketAddr::new(old_addr.ip_addr(), old_addr.ports()[0]),
-                stream_type: RemovedStreamType::Clandestine,
-                sub: dispatcher_sub.clone()
-            }
+            &make_expected(0)
         );
         assert_eq!(
             stream_handler_pool_recording.get_record::<RemoveStreamMsg>(1),
-            &RemoveStreamMsg {
-                local_addr: SocketAddr::from (db.root().node_addr_opt().unwrap()),
-                peer_addr: SocketAddr::new(old_addr.ip_addr(), old_addr.ports()[1]),
-                stream_type: RemovedStreamType::Clandestine,
-                sub: dispatcher_sub
-            }
+            &make_expected(1)
         );
     }
 
@@ -1599,7 +1595,7 @@ mod tests {
     }
 
     #[test]
-    fn properly_constructed_originate_only_ipchange_is_identified_and_handled() {
+    fn properly_constructed_originate_only_ipchange_is_identified_and_ignored() {
         let old_addr = NodeAddr::new (&IpAddr::from_str("1.2.3.4").unwrap(), &vec![2000, 2001]);
         let new_addr = NodeAddr::new (&IpAddr::from_str("2.3.4.5").unwrap(), &vec![2000, 2001]);
         let gossip_source = SocketAddr::from (new_addr.clone());
@@ -1618,7 +1614,7 @@ mod tests {
         let system = System::new("test");
 
         let qualifies_result =
-            subject.qualifies(&db, &agrs_vec.as_slice(), gossip_source);
+            subject.qualifies(&db, agrs_vec.as_slice(), gossip_source);
         let handle_result = subject.handle(
             &cryptde,
             &mut db,
@@ -1633,7 +1629,7 @@ mod tests {
         assert_eq!(Qualification::Matched, qualifies_result);
         assert_eq!(
             handle_result,
-            GossipAcceptanceResult::Absorbed,
+            GossipAcceptanceResult::Ignored,
         );
         assert_eq!(
             db.node_by_key(new_node.public_key()).unwrap().node_addr_opt(),
@@ -1655,7 +1651,7 @@ mod tests {
         );
 
         let result =
-            subject.qualifies(&db, &agrs_vec.as_slice(), gossip_source);
+            subject.qualifies(&db, agrs_vec.as_slice(), gossip_source);
 
         assert_eq!(result, Qualification::Unmatched);
     }
@@ -1676,7 +1672,7 @@ mod tests {
         );
 
         let result =
-            subject.qualifies(&db, &agrs_vec.as_slice(), gossip_source);
+            subject.qualifies(&db, agrs_vec.as_slice(), gossip_source);
 
         assert_eq!(result, Qualification::Malformed("Debut from 2.3.4.5:3000 for AgMEBQ contained NodeAddr with no ports".to_string()));
     }
@@ -1697,7 +1693,7 @@ mod tests {
         );
 
         let result =
-            subject.qualifies(&db, &agrs_vec.as_slice(), gossip_source);
+            subject.qualifies(&db, agrs_vec.as_slice(), gossip_source);
 
         assert_eq!(result, Qualification::Malformed("Debut from 1.2.3.4:2001 for AgMEBQ has NodeAddr (2.3.4.5:2000/2001) that does not match its source".to_string()));
     }
@@ -1720,7 +1716,7 @@ mod tests {
         );
 
         let result =
-            subject.qualifies(&db, &agrs_vec.as_slice(), gossip_source);
+            subject.qualifies(&db, agrs_vec.as_slice(), gossip_source);
 
         assert_eq!(result, Qualification::Unmatched);
     }
@@ -1742,7 +1738,7 @@ mod tests {
         );
 
         let result =
-            subject.qualifies(&db, &agrs_vec.as_slice(), gossip_source);
+            subject.qualifies(&db, agrs_vec.as_slice(), gossip_source);
 
         assert_eq!(result, Qualification::Unmatched);
     }
@@ -1760,7 +1756,7 @@ mod tests {
         let subject = DebutHandler::new(Logger::new("test"));
 
         let qualifies_result =
-            subject.qualifies(&db, &agrs_vec.as_slice(), gossip_source_opt.clone());
+            subject.qualifies(&db, agrs_vec.as_slice(), gossip_source_opt.clone());
         let handle_result = subject.handle(
             &cryptde,
             &mut db,
