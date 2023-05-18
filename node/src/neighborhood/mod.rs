@@ -436,8 +436,8 @@ impl Neighborhood {
         let min_hops_count = neighborhood_config.min_hops_count;
         let neighborhood_mode = &neighborhood_config.mode;
         let mode: NeighborhoodModeLight = neighborhood_mode.into();
-        let neighborhood_configs = neighborhood_mode.neighbor_configs();
-        if mode == NeighborhoodModeLight::ZeroHop && !neighborhood_configs.is_empty() {
+        let neighbor_configs = neighborhood_mode.neighbor_configs();
+        if mode == NeighborhoodModeLight::ZeroHop && !neighbor_configs.is_empty() {
             panic!(
                 "A zero-hop MASQ Node is not decentralized and cannot have a --neighbors setting"
             )
@@ -449,7 +449,7 @@ impl Neighborhood {
             cryptde,
         );
         let is_mainnet = config.blockchain_bridge_config.chain.is_mainnet();
-        let initial_neighbors: Vec<NodeDescriptor> = neighborhood_configs
+        let initial_neighbors: Vec<NodeDescriptor> = neighbor_configs
             .iter()
             .map(|nc| {
                 let mainnet_nc = nc.blockchain.is_mainnet();
