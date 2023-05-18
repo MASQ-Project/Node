@@ -1,5 +1,6 @@
 // Copyright (c) 2019, MASQ (https://masq.ai) and/or its affiliates. All rights reserved.
 use crate::masq_node_client::MASQNodeClient;
+use crate::masq_real_node::STANDARD_CLIENT_TIMEOUT_MILLIS;
 use node_lib::hopper::live_cores_package::LiveCoresPackage;
 use node_lib::json_masquerader::JsonMasquerader;
 use node_lib::masquerader::Masquerader;
@@ -18,7 +19,7 @@ impl<'a> MASQCoresClient<'a> {
     pub fn new(socket_addr: SocketAddr, cryptde: &'a dyn CryptDE) -> MASQCoresClient<'a> {
         MASQCoresClient {
             cryptde,
-            delegate: MASQNodeClient::new(socket_addr, 1000),
+            delegate: MASQNodeClient::new(socket_addr, STANDARD_CLIENT_TIMEOUT_MILLIS),
         }
     }
 
