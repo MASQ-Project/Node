@@ -2778,12 +2778,11 @@ mod tests {
     }
 
     #[test]
-    fn route_query_succeeds_when_asked_for_one_hop_round_trip_route_without_consuming_wallet() {
+    fn route_query_works_when_node_is_set_for_one_hop_and_no_consuming_wallet() {
         let cryptde = main_cryptde();
         let earning_wallet = make_wallet("earning");
-        let system = System::new(
-            "route_query_succeeds_when_asked_for_one_hop_round_trip_route_without_consuming_wallet",
-        );
+        let system =
+            System::new("route_query_works_when_node_is_set_for_one_hop_and_no_consuming_wallet");
         let mut subject = make_standard_subject();
         subject.min_hops_count = Hops::OneHop;
         subject
